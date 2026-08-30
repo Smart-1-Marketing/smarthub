@@ -307,6 +307,20 @@ def refresh() -> dict:
         return {"error": "Knack returned no records; kept the existing cache.",
                 "cached": old.get("count", 0)}
     _write_cache(rows)
+    # Six QA reports and the campaign-asset chase list are built from these
+    # rows and held for the day. A fresh pull is precisely the moment their
+    # stored answers stopped being true — and it is what somebody presses
+    # Refresh on the products cache *for*, so leaving them would make that
+    # button appear to have done nothing.
+    try:
+        from hub import report_cache
+        report_cache.invalidate("qa:active-clients", "qa:no-dashboards",
+                                "qa:stale-90", "qa:lost-by-partner",
+                                "qa:sales-scorecard", "qa:partner-scorecard",
+                                "qa:invoice-off", "qa:ghl-billing-no-products",
+                                "campaign-assets")
+    except Exception:                                   # noqa: BLE001
+        pass
     try:
         from hub import audit
         audit.log("knack", "products_refreshed", count=len(rows))

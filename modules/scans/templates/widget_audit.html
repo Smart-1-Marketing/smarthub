@@ -1,0 +1,306 @@
+{% import "_scan_mark.html" as mark with context %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ w.headline }}</title>
+<meta name="robots" content="noindex" />
+<style>
+  :root {
+    --accent: {{ w.accent }};
+    --navy:#0A2240; --ink:#25364B; --muted:#68798C; --line:#DBE5ED;
+    --bg:#F3F7FA; --ok:#2DBB72; --warn:#F0B429; --bad:#DC2626;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--ink); background:{{ 'transparent' if embedded else 'var(--bg)' }};
+    font:16px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif; }
+  .wrap { max-width:680px; margin:0 auto; padding:{{ '10px' if embedded else '32px 18px 48px' }}; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px;
+    padding:26px 24px; box-shadow:0 1px 3px rgba(10,34,64,.06); }
+  h1 { color:var(--navy); font-size:25px; line-height:1.25; margin:0 0 10px; }
+  h2 { color:var(--navy); font-size:16px; margin:22px 0 10px; }
+  p.sub { color:var(--muted); margin:0 0 20px; font-size:15px; }
+  label { display:block; font-weight:600; font-size:13.5px; color:var(--navy);
+    margin:0 0 6px; }
+  .why { color:var(--muted); font-size:12.5px; margin:-2px 0 6px; }
+  input[type=text], input[type=email], input[type=tel], select, textarea {
+    width:100%; padding:13px 14px; border:1.5px solid var(--line);
+    border-radius:10px; font:16px inherit; color:var(--ink); background:#fff; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--accent);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .btn { width:100%; background:var(--accent); color:#fff; border:0;
+    border-radius:10px; padding:14px 18px; font:700 16px inherit;
+    cursor:pointer; margin-top:14px; }
+  .btn:disabled { background:#9AAABC; cursor:default; }
+  .btn.sec { background:#fff; color:var(--navy); border:1.5px solid var(--line);
+    font-weight:600; display:block; text-align:center; text-decoration:none; }
+  .err { color:var(--bad); font-size:13.5px; margin-top:8px; }
+  .field { margin-bottom:13px; }
+  .field .err { margin-top:4px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+  @media (max-width:520px){ .two { grid-template-columns:1fr; } }
+  .hp { position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
+  .rule { border:0; border-top:1px solid var(--line); margin:22px 0 0; }
+  .note { color:var(--muted); font-size:12.5px; margin-top:14px; text-align:center; }
+  .brand { text-align:center; margin-top:14px; font-size:12px; color:var(--muted); }
+  .brand a { color:var(--muted); }
+{{ mark.scan_mark_css() }}
+  .done { border:1.5px dashed var(--line); border-radius:12px; padding:18px;
+    text-align:center; background:#FAFCFE; }
+  .done b { color:var(--navy); font-size:17px; display:block; margin-bottom:4px; }
+  .done p { margin:0; color:var(--muted); font-size:14.5px; }
+  .hide { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+
+    <!-- One step, not two.
+         The AI-visibility widget can afford a teaser: its pre-check is free and
+         takes five seconds, so it earns the right to ask for a name. A full
+         audit has nothing to show a stranger before a credit has been spent,
+         so it asks once and then goes and does the work. Splitting it into two
+         screens would mean a second form with nothing in between them. -->
+    <div id="stepAsk">
+      <h1>{{ w.headline }}</h1>
+      <p class="sub">{{ w.subhead }}</p>
+
+      <form id="auditForm" autocomplete="on">
+        <div class="field">
+          <label for="domain">Your website</label>
+          <input id="domain" type="text" inputmode="url" placeholder="yourbusiness.com"
+                 autocomplete="url" required>
+          <div class="err hide" data-for="domain"></div>
+        </div>
+
+        <h2>About the business</h2>
+        {#
+          Straight from hub/website_audit.INTAKE, so the question a customer is
+          asked, the question a rep is asked and the answer the proposal reads
+          are one list. A question with no home downstream is caught there
+          rather than being asked here and read by nothing.
+        #}
+        {% for q in intake %}
+        <div class="field">
+          <label for="q_{{ q.key }}">{{ q.label }}{% if not q.required %}
+            <span style="font-weight:400;color:var(--muted)">(optional)</span>{% endif %}</label>
+          {% if q.type == 'choice' %}
+          <select id="q_{{ q.key }}" data-q="{{ q.key }}">
+            <option value="">Choose one…</option>
+            {% for o in q.options %}<option>{{ o }}</option>{% endfor %}
+          </select>
+          {% elif q.type == 'yesno' %}
+          <select id="q_{{ q.key }}" data-q="{{ q.key }}">
+            <option value="">Choose one…</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+          {% else %}
+          <input id="q_{{ q.key }}" data-q="{{ q.key }}" type="text">
+          {% endif %}
+          <div class="err hide" data-for="intake.{{ q.key }}"></div>
+        </div>
+        {% endfor %}
+        {% if not intake %}
+        <p class="sub">We will read the rest off the website itself.</p>
+        {% endif %}
+
+        <hr class="rule">
+        <h2>Where to send it</h2>
+        <div class="two">
+          <div class="field">
+            <label for="uname">Your name</label>
+            <input id="uname" type="text" autocomplete="name" required>
+            <div class="err hide" data-for="name"></div>
+          </div>
+          <div class="field">
+            <label for="ucompany">Business name</label>
+            <input id="ucompany" type="text" autocomplete="organization" required>
+            <div class="err hide" data-for="company"></div>
+          </div>
+          <div class="field">
+            <label for="uemail">Email</label>
+            <input id="uemail" type="email" autocomplete="email" required>
+            <div class="err hide" data-for="email"></div>
+          </div>
+          <div class="field">
+            <label for="uphone">Phone</label>
+            <input id="uphone" type="tel" autocomplete="tel" required>
+            <div class="err hide" data-for="phone"></div>
+          </div>
+        </div>
+        <input class="hp" id="companyUrl" type="text" tabindex="-1"
+               autocomplete="off" aria-hidden="true">
+        <button class="btn" id="goBtn" type="submit">{{ w.button_label }}</button>
+        <div class="err hide" id="formErr"></div>
+      </form>
+      <div class="note">Free, and we will never sell your details or add you to
+        a list you did not ask for.</div>
+    </div>
+
+    <!-- waiting / done -->
+    <div id="stepWait" class="hide">
+      <h1>Reading your website now</h1>
+      <p class="sub" id="waitSub"></p>
+      <div class="done" id="waitBox">
+        <b style="display:flex;align-items:center;gap:7px"><span style="color:var(--accent);display:flex">{{ mark.scan_mark("16px", "Working") }}</span>Working…</b>
+        <p>We are checking your Google listing, your reviews, what your
+          competitors are running, how your site is built and about seventy
+          other things. It usually takes a minute or two. You can leave this
+          page — the report is yours at the link below either way.</p>
+      </div>
+      <a class="btn sec hide" id="openReport" href="#" style="margin-top:14px">
+        Open my audit</a>
+      <div class="note" id="waitNote"></div>
+    </div>
+
+  </div>
+  {% if not embedded %}
+  <div class="brand">Powered by <a href="https://smart1marketing.com" target="_blank"
+     rel="noopener">Smart 1 Marketing</a></div>
+  {% endif %}
+</div>
+
+<script type="application/json" id="cfg">{{ {'slug': w.slug, 'source': source, 'embedded': embedded}|tojson }}</script>
+<script>
+(function(){
+  "use strict";
+  // The dish, rendered once by the shared macro and held as a string:
+  // these two buttons are rebuilt with innerHTML, and a second copy of
+  // the markup written out longhand here is the drift the macro exists
+  // to stop.
+  var MARK = {{ mark.scan_mark("15px", "Working")|string|tojson }};
+  var CFG = {};
+  try { CFG = JSON.parse(document.getElementById('cfg').textContent || '{}') || {}; }
+  catch (e) { CFG = {}; }
+
+  function $(id){ return document.getElementById(id); }
+
+  /* Same-origin and relative, never root-absolute. Under /scans this page is
+     served from a mount, so '/api/w/...' leaves the module entirely and 404s
+     on the hub app -- the trap test_landing_embeds.py exists to catch. The
+     document lives at /scans/w/<slug>, so '../api/w/<slug>/audit' resolves
+     against its directory. */
+  function api(path){ return '../api/w/' + encodeURIComponent(CFG.slug) + '/' + path; }
+
+  /* The embed reports its height so the host page never shows a scrollbar. */
+  function postHeight(){
+    if (!CFG.embedded || !window.parent) { return; }
+    try {
+      window.parent.postMessage({type:'s1scan:height',
+        height: document.documentElement.scrollHeight + 20}, '*');
+    } catch (e) { /* a cross-origin parent that refuses is not our problem */ }
+  }
+  window.addEventListener('load', postHeight);
+  window.addEventListener('resize', postHeight);
+
+  function clearErrors(){
+    Array.prototype.forEach.call(document.querySelectorAll('.err'), function(el){
+      el.textContent = ''; el.className = 'err hide';
+    });
+  }
+
+  function showErrors(errors, message){
+    var first = null;
+    Object.keys(errors || {}).forEach(function(key){
+      var el = document.querySelector('[data-for="' + key + '"]');
+      if (el) {
+        el.textContent = errors[key];
+        el.className = 'err';
+        if (!first) { first = el; }
+      }
+    });
+    if (message) {
+      $('formErr').textContent = message;
+      $('formErr').className = 'err';
+    }
+    if (first && first.scrollIntoView) { first.scrollIntoView({block:'center'}); }
+    postHeight();
+  }
+
+  function intake(){
+    var out = {};
+    Array.prototype.forEach.call(document.querySelectorAll('[data-q]'), function(el){
+      if (el.value) { out[el.getAttribute('data-q')] = el.value; }
+    });
+    return out;
+  }
+
+  $('auditForm').addEventListener('submit', function(ev){
+    ev.preventDefault();
+    clearErrors();
+    var btn = $('goBtn');
+    btn.disabled = true;
+    btn.innerHTML = MARK + ' Starting…';
+    fetch(api('audit'), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        domain: $('domain').value,
+        name: $('uname').value, company: $('ucompany').value,
+        email: $('uemail').value, phone: $('uphone').value,
+        company_url: $('companyUrl').value,
+        intake: intake(),
+        source: CFG.source || document.referrer || ''
+      })
+    })
+    .then(function(r){ return r.json().then(function(j){ return j; }); })
+    .then(function(j){
+      btn.disabled = false;
+      btn.textContent = 'Try again';
+      if (!j.ok) {
+        showErrors(j.errors, j.error || 'Something went wrong. Try again.');
+        return;
+      }
+      $('stepAsk').className = 'hide';
+      $('stepWait').className = '';
+      $('waitSub').textContent = j.note || '';
+      $('openReport').href = j.report_url || '#';
+      $('waitNote').textContent =
+        'Your audit lives at this address for good — bookmark it, or we will '
+        + 'send it over.';
+      postHeight();
+      if (j.token) { poll(j.token, 0); }
+    })
+    .catch(function(){
+      btn.disabled = false;
+      btn.textContent = 'Try again';
+      showErrors({}, 'We could not reach the scanner just now. Nothing was '
+        + 'lost — try again in a moment.');
+    });
+  });
+
+  function ready(){
+    $('waitBox').className = 'done hide';
+    $('openReport').className = 'btn sec';
+    postHeight();
+  }
+
+  function poll(token, n){
+    /* Twenty tries at ten seconds is a little over three minutes, which is the
+       upper end of how long an audit takes. Giving up shows the link rather
+       than an error: the report attaches to it whenever it lands, so a
+       visitor who comes back tomorrow finds it. */
+    if (n > 20) {
+      $('waitBox').innerHTML = '<b>Still working</b><p>This one is taking '
+        + 'longer than usual. It is not lost — open the link below in a few '
+        + 'minutes and it will be there.</p>';
+      $('openReport').className = 'btn sec';
+      postHeight();
+      return;
+    }
+    setTimeout(function(){
+      fetch(api('status') + '?token=' + encodeURIComponent(token))
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if (j.ok && j.ready) { ready(); return; }
+          poll(token, n + 1);
+        })
+        .catch(function(){ poll(token, n + 1); });
+    }, 10000);
+  }
+})();
+</script>
+</body>
+</html>

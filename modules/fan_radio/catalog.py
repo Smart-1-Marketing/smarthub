@@ -66,7 +66,7 @@ OUTCOME_IDS = [o["id"] for o in OUTCOMES]
 # Same fifteen tones as Radio Promo, so a client sounds like themselves
 # across both tools.
 TONES = [
-    {"id": "warm", "label": "Warm & neighbourly",
+    {"id": "warm", "label": "Warm & neighborly",
      "hint": "Family business, been here forever."},
     {"id": "urgent", "label": "Urgent",
      "hint": "Deadline, limited stock, ends Sunday."},
@@ -92,7 +92,7 @@ TONES = [
      "hint": "Considered, unhurried, quality first."},
     {"id": "coach", "label": "Coach's voice",
      "hint": "Direct instruction. Do this, then this."},
-    {"id": "colour", "label": "Colour commentary",
+    {"id": "color", "label": "Color commentary",
      "hint": "Play-by-play cadence, calling the action."},
     {"id": "family", "label": "Family & kids",
      "hint": "Whole household, weekend plans."},

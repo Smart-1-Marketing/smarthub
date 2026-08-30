@@ -113,7 +113,18 @@
 </style>
 {% block head %}{% endblock %}
 </head>
-<body data-module="ads_builder">
+{# data-screen is what starts this screen's explainer: hub-help.js reads it,
+   mounts every help bubble placed on the page and *offers* this screen's tour
+   once, in a corner card that leaves the page usable -- it does not open it.
+   The header button runs it on demand, whenever. data-demo="off" is
+   set on the screens that have no walkthrough of their own -- without it
+   hub-demo.js floats a "Walk me through this" button on every page carrying
+   data-module, and on Settings or Live campaigns that offered the campaign
+   generator's walkthrough, whose fields are not on the screen: it highlighted
+   nothing and "Do it for me" did nothing at all. #}
+<body data-module="ads_builder"
+      {%- if screen is defined %} data-screen="{{ screen }}"{% endif %}
+      {%- if walkthrough is not defined %} data-demo="off"{% endif %}>
 <div class="wrap">
   {% block shell %}
   <div class="modhead noprint">
@@ -122,6 +133,19 @@
       <p>{% block strap %}Google Ads campaign operations{% endblock %}</p>
     </div>
     <div class="spacer"></div>
+    {# Every helper call is guarded: a module's Jinja environment is its own, so
+       if install_template_helpers() has not run for this app the page degrades
+       to a missing button rather than an UndefinedError and a 500. #}
+    <div class="row noprint" style="gap:6px">
+      {% if screen is defined %}
+        <button type="button" class="b-sm" data-tour-start="{{ screen }}"
+                title="A short tour of this screen">How this works</button>
+      {% endif %}
+      {% if walkthrough is defined %}
+        <button type="button" class="b-sm" data-demo-start="{{ walkthrough }}"
+                title="Drives this screen for real, with narration">▶ Walk me through it</button>
+      {% endif %}
+    </div>
     <span class="vtag">v{{ version }} · {{ version_date }}</span>
   </div>
 

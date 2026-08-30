@@ -26,6 +26,26 @@ except Exception:                                     # noqa: BLE001
 from . import assets, photo_search, projects
 from hub.webargs import clamp_int
 
+
+def _settings():
+    """Hub settings, read at call time.
+
+    At import the value is frozen at boot, which is how a key added on Render
+    without a redeploy reads as absent. Wrapped because this module is also run
+    standalone in development, where hub is not importable.
+    """
+    try:
+        from hub.config import settings
+        return settings
+    except Exception:                                 # noqa: BLE001
+        class _Fallback:
+            openai_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+            openai_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+            openai_image_model = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
+            brandfetch_key = (os.environ.get("BRANDFETCH_API")
+                              or os.environ.get("BRANDFETCH_API_KEY") or "").strip()
+        return _Fallback()
+
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"), static_url_path="/static")
@@ -66,7 +86,18 @@ def _version() -> str:
 
 
 def ai_ready() -> bool:
-    return bool((os.environ.get("OPENAI_API_KEY") or "").strip())
+    return bool(_settings().openai_key)
+
+
+def brandfetch_ready() -> bool:
+    """Is the logo lookup switched on?
+
+    Through hub.config: this screen read BRANDFETCH_API_KEY and
+    modules/ads_builder/logo.py reads the same setting through settings, so on
+    a deployment naming it BRANDFETCH_API the Ads logo lookup worked and this
+    one reported it off — the same key, two answers, on two pages.
+    """
+    return bool(_settings().brandfetch_key)
 
 
 def bg_remove_ready() -> bool:
@@ -86,7 +117,7 @@ def index():
         "index.html", version=_version(), presets=CANVAS_PRESETS,
         providers=photo_search.configured(), ai=ai_ready(),
         cloud=projects.cloud_ready(),
-        brandfetch=bool((os.environ.get("BRANDFETCH_API_KEY") or "").strip()),
+        brandfetch=brandfetch_ready(),
         bg_remove=bg_remove_ready(),
         prefill_client=request.args.get("client", ""),
         open_project=request.args.get("project", ""),
@@ -182,7 +213,11 @@ def api_icon_svg():
 
 @app.route("/api/brands/search")
 def api_brands():
-    return jsonify(assets.brand_lookup(request.args.get("q", "")))
+    # The client, when the editor knows one, so the lookup is filed
+    # against the client record as well as the domain cache — Client
+    # 360 reads the first and this tool searches by the second.
+    return jsonify(assets.brand_lookup(request.args.get("q", ""),
+                                       request.args.get("client", "")))
 
 
 @app.route("/api/fonts")
@@ -225,13 +260,13 @@ def _openai_json(system: str, user: str, timeout: int = 60):
     import json as _json
 
     import requests as _rq
-    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    key = _settings().openai_key
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not set.")
     r = _rq.post("https://api.openai.com/v1/chat/completions",
                  headers={"Authorization": f"Bearer {key}",
                           "Content-Type": "application/json"},
-                 json={"model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                 json={"model": _settings().openai_model,
                        "response_format": {"type": "json_object"},
                        "temperature": 0.6,
                        "messages": [{"role": "system", "content": system},
@@ -304,7 +339,7 @@ def api_ai_image():
     """Generate an image or background with OpenAI and return it as a data URL
     so it drops straight onto the canvas."""
     import requests as _rq
-    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    key = _settings().openai_key
     if not key:
         return jsonify({"error": "OPENAI_API_KEY is not set."}), 503
     body = request.get_json(silent=True) or {}
@@ -314,10 +349,10 @@ def api_ai_image():
     style = (body.get("style") or "").strip().lower()
     style_hint = {
         "photo": "Photorealistic, natural lighting, shot on a real camera.",
-        "illustration": "Clean vector-style illustration, flat colours.",
+        "illustration": "Clean vector-style illustration, flat colors.",
         "graphic": "Bold graphic design, simple shapes, high contrast.",
-        "abstract": "Abstract, no recognisable objects or text.",
-        "gradient": "Smooth colour gradient, no objects, no text.",
+        "abstract": "Abstract, no recognizable objects or text.",
+        "gradient": "Smooth color gradient, no objects, no text.",
         "texture": "Subtle repeating texture, no focal subject, no text.",
     }.get(style, "")
     size = body.get("size") if body.get("size") in (
@@ -326,7 +361,7 @@ def api_ai_image():
     if body.get("background"):
         full += (" Suitable as a background: keep the composition uncluttered "
                  "with clear space, and include no words or lettering.")
-    payload = {"model": os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1"),
+    payload = {"model": _settings().openai_image_model,
                "prompt": full[:3800], "size": size, "n": 1}
     if body.get("transparent"):
         payload["background"] = "transparent"

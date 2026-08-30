@@ -115,7 +115,7 @@ function setFile(file) {
     originalHeight = image.naturalHeight;
     // Unhide first: fitCanvas() measures .preview-stage, and a hidden element
     // reports clientWidth 0. That made the ratio negative and collapsed the
-    // canvas to 1x1 — a blank grey box with correct metadata beside it, which
+    // canvas to 1x1 — a blank gray box with correct metadata beside it, which
     // is exactly what it looked like.
     previewWrap.classList.remove("hidden");
     fitCanvas();

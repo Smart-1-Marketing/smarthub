@@ -108,13 +108,51 @@ def _stem(domain: str) -> str:
     return parts[0] if parts else ""
 
 
+# A company suffix is not a word that identifies anybody. "Riverstone Heating
+# LLC" and "Buckeye Lake Marina LLC" share LLC and nothing else, and a match on
+# it would offer every incorporated client as a possible owner of everything.
+LEGAL_WORDS = {
+    "llc", "inc", "incorporated", "corp", "corporation", "ltd", "limited",
+    "company", "co", "the", "and", "of", "for", "plc", "lp", "llp", "pllc",
+    "com", "net", "org", "www", "http", "https", "site", "website", "web",
+    "ga4", "gtm", "tag", "manager", "analytics", "property", "container",
+    "account", "google", "search", "console", "main", "new", "old", "test",
+}
+
+# A word shared by more clients than this identifies none of them. Computed
+# against the book rather than guessed: on a client list where half the names
+# contain "heating", matching on it proposes half the book for every resource,
+# which is worse than proposing nobody.
+COMMON_TOKEN_SHARE = 0.05
+COMMON_TOKEN_FLOOR = 8
+
+# How many clients a shared word may propose for one resource.
+WORD_MATCH_LIMIT = 3
+
+
+def _words(text: str) -> set:
+    """The words in a name that could identify a business.
+
+    Splits on anything that is not a letter or a digit, so "riverstone-heating",
+    "Riverstone Heating" and "riverstoneheating.com" all give up `riverstone`
+    and `heating` — except the last, which gives one word, which is why the
+    domain stem is tokenised separately by the caller.
+    """
+    import re as _re
+    out = set()
+    for w in _re.split(r"[^a-z0-9]+", str(text or "").lower()):
+        if len(w) >= 3 and w not in LEGAL_WORDS and not w.isdigit():
+            out.add(w)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # What the suggestions are built from, read once
 # ---------------------------------------------------------------------------
 def _context() -> dict:
     """Every lookup the suggestions need, built once for the whole list."""
     ctx = {"recorded": {}, "by_domain": {}, "shared_domain": {}, "by_stem": {},
-           "sources": []}
+           "by_word": {}, "common_words": set(), "sources": []}
 
     # Knack's recorded GA and GTM ids. The strongest signal available, because
     # it is the client's own record naming the property rather than anything
@@ -167,6 +205,35 @@ def _context() -> dict:
     except Exception as exc:                            # noqa: BLE001
         ctx["sources"].append({"source": "registry", "ok": False,
                                "label": "Client registry",
+                               "error": f"{type(exc).__name__}: {exc}"[:200]})
+
+    # Every word in every client name, so a resource can be matched on a word
+    # it shares with one. Deliberately looser than anything the index itself
+    # will act on: these are proposals a human ticks, and the row says which
+    # word did it so the guess can be judged rather than trusted.
+    try:
+        from hub import clients_registry
+        rows = clients_registry.all_clients() or []
+        names = set()
+        for row in rows:
+            name = str(row.get("name") or "").strip()
+            if not name:
+                continue
+            names.add(name)
+            words = _words(name) | _words(_stem(str(row.get("domain") or "")))
+            for word in words:
+                ctx["by_word"].setdefault(word, set()).add(name)
+        # The ceiling is computed against this book, not guessed at. On a list
+        # where a tenth of the names contain "heating", matching on it proposes
+        # a tenth of the book for every resource — which is worse than
+        # proposing nobody, because it buries the two rows that meant something.
+        ceiling = max(COMMON_TOKEN_FLOOR, int(len(names) * COMMON_TOKEN_SHARE))
+        ctx["common_words"] = {w for w, owners in ctx["by_word"].items()
+                               if len(owners) > ceiling}
+        ctx["word_ceiling"] = ceiling
+    except Exception as exc:                            # noqa: BLE001
+        ctx["sources"].append({"source": "words", "ok": False,
+                               "label": "Client name words",
                                "error": f"{type(exc).__name__}: {exc}"[:200]})
     return ctx
 
@@ -239,45 +306,159 @@ def suggest_for(item: dict, ctx: dict | None = None) -> list[dict]:
                  "More than one client could be meant by this name, so nothing "
                  "was matched automatically.")
 
+    # Last and loosest: a word shared between this resource and a client name.
+    # A GTM container called "Buckeye Marina - new" and a client filed as
+    # "Buckeye Lake Marina" match on nothing above — not the domain (a
+    # container often carries none), not an exact name, not a near name — and
+    # a person reading the row can see in a second that they are the same
+    # business. So the shared word is offered, `possible`, with the word
+    # itself named so the guess can be judged rather than trusted.
+    for client, words in _word_matches(item, ctx).items():
+        # Short on purpose. Several clients can share a word, so this line can
+        # repeat three times in one row, and three copies of a paragraph
+        # explaining what a shared word means is a wall nobody reads — the
+        # page says that once, above the table. What differs per row is the
+        # word, so that is what the row carries.
+        _add(out, client, "possible",
+             "Shares the word" + ("s " if len(words) > 1 else " ")
+             + ", ".join(sorted(words)[:3]) + ".")
+
     out.sort(key=lambda r: -CONFIDENCE_RANK[r["confidence"]])
-    return out[:6]
+    return out[:8]
+
+
+def _word_matches(item: dict, ctx: dict) -> dict:
+    """{client: {shared words}} for clients sharing a word with this resource.
+
+    Every word the resource offers is used — its own name, the Google account
+    it sits in, and the stem of any domain on it — because which of the three
+    carries the business name varies by platform: a GA4 property is usually
+    named for the client, a GTM container often for the site, and a Search
+    Console property is a URL and nothing else.
+    """
+    words = _words(item.get("name") or "") | _words(item.get("account_name") or "")
+    for dom in item.get("domains") or []:
+        words |= _words(_stem(dom))
+    out: dict = {}
+    common = ctx.get("common_words") or set()
+    by_word = ctx.get("by_word") or {}
+    for word in words:
+        if word in common:
+            continue
+        for client in by_word.get(word, ()):
+            out.setdefault(client, set()).add(word)
+    # Most words first: two shared words is a much better guess than one, and
+    # the caller's cap would otherwise cut by client name rather than by how
+    # much they actually have in common.
+    #
+    # Three, not six. This is the weakest rule here, and a row where it fills
+    # every slot has buried whatever the stronger rules found under a list of
+    # near-identical guesses — which is how a suggestion column stops being
+    # read at all.
+    ranked = sorted(out.items(), key=lambda kv: (-len(kv[1]), kv[0].lower()))
+    return dict(ranked[:WORD_MATCH_LIMIT])
 
 
 # ---------------------------------------------------------------------------
 # The orphan list
 # ---------------------------------------------------------------------------
+def _orphan_book() -> dict:
+    """Every unmapped resource with its suggested owner — today's copy.
+
+    The suggestions are the expensive half, and this module already says so:
+    a Knack read, the client alias index and a word index per resource. What
+    it did not say is that the cost was paid *per page* — `suggest_for()` runs
+    over the whole book before the sort, because the rows a person can act on
+    have to come first, so walking a book of two thousand orphans 25 at a time
+    ran two thousand suggestions eighty times over.
+
+    So the annotated book is built once a day. Everything that depends on what
+    somebody typed or ticked — the platform filter, the search box, the page
+    cut — runs over it per request, because `q=acme` and `q=acm` are two cache
+    files and a search box types one per keystroke.
+
+    It is dropped by `google_index._forget_reports()`, which runs on the
+    sweep, on an attachment and on a domain re-match: those are the three
+    things that take a resource off this list.
+    """
+    def build() -> dict:
+        from hub import google_index
+        ctx = _context()
+        rows = []
+        for r in google_index.rows():
+            if r.get("client"):
+                continue
+            key = google_index.PLATFORM_KEYS.get(r.get("platform"), "other")
+            rows.append({**r, "key": key,
+                         "platform_label": PLATFORM_LABELS.get(
+                             key, r.get("platform")),
+                         "suggestions": suggest_for(r, ctx)})
+        # An index that has never been built has no orphans and no resources
+        # either, and storing that as "nothing to do" would keep the page
+        # saying so for the rest of the day — with the Build button on it
+        # doing nothing visible. Not an answer.
+        return {"rows": rows, "sources": ctx["sources"],
+                "measured": not google_index.status().get("never_built")}
+
+    try:
+        from hub import report_cache
+    except Exception:                                   # noqa: BLE001
+        return build()
+    return report_cache.serve("google-orphans", build)
+
+
 def orphans(q: str = "", platform: str = "", include_other: bool = False,
-            limit: int = 400) -> dict:
-    """Every Google resource the index could not join to a client."""
+            limit: int = 25, offset: int = 0, platforms=None) -> dict:
+    """Every Google resource the index could not join to a client, one page.
+
+    Paged on the server rather than in the browser. The suggestions are the
+    expensive half — a Knack read, the client alias index and a word index per
+    resource — and a book of two thousand orphans is two thousand of those
+    before the first row is drawn. `offset`/`limit` walk the same sorted list,
+    and every count in the reply (`count`, `orphans_total`, `by_platform`) is
+    of the WHOLE list, not the page: a page that reports its own length as the
+    total is how somebody concludes there are 25 orphans.
+
+    Filtering and searching happen before the page is cut, so a search
+    genuinely searches the book rather than whichever 25 rows are on screen.
+    That is the reason this moved off the browser at all.
+    """
     from hub import google_index
 
     # A client that gained a URL since the last sweep makes its resources
     # joinable now; leaving them here until the next sweep lists them as
     # orphans nobody can explain beside the client whose domain they carry.
-    # Idempotent and writes nothing when nothing changed.
+    # Idempotent and writes nothing when nothing changed — and when it does
+    # change something it drops the book below, so the row it just joined is
+    # gone from this page rather than sitting on it until tomorrow.
     rejoined = google_index.apply_domain_matches()
 
     data = google_index.load()
     status = google_index.status()
-    rows_all = google_index.rows()
-    unmapped = [r for r in rows_all if not r.get("client")]
+    book = _orphan_book()
+    unmapped = book["rows"]
 
-    wanted = (platform,) if platform else (
-        tuple(PLATFORM_LABELS) if include_other else ASKED_FOR)
+    # `platforms` is the page's three tickboxes; `platform` is the older
+    # single-value parameter, kept because /api/google/orphans?platform=ga4 is
+    # a URL somebody may have bookmarked and a test asserts it.
+    picked = tuple(p for p in (platforms or ()) if p in PLATFORM_LABELS)
+    if platform:
+        wanted = (platform,)
+    elif picked:
+        wanted = picked + (("gbp", "other") if include_other else ())
+    else:
+        wanted = tuple(PLATFORM_LABELS) if include_other else ASKED_FOR
     by_key: dict[str, int] = {}
     kept, skipped_other = [], 0
     for r in unmapped:
-        key = google_index.PLATFORM_KEYS.get(r.get("platform"), "other")
+        key = r["key"]
         by_key[key] = by_key.get(key, 0) + 1
         if key not in wanted:
             skipped_other += 1
             continue
-        kept.append({**r, "key": key,
-                     "platform_label": PLATFORM_LABELS.get(key, r.get("platform"))})
+        kept.append(r)
 
-    ctx = _context()
-    for r in kept:
-        r["suggestions"] = suggest_for(r, ctx)
+    ctx = {"sources": book["sources"]}
 
     needle = str(q or "").strip().lower()
     if needle:
@@ -294,6 +475,9 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     kept.sort(key=lambda r: (-CONFIDENCE_RANK.get(
         (r["suggestions"] or [{}])[0].get("confidence", ""), 0),
         r["platform_label"], str(r.get("name") or "").lower()))
+
+    start = max(0, int(offset or 0))
+    page = kept[start:start + max(1, int(limit or 25))]
 
     note = ("Every Google account, property and container we can reach that no "
             "client is attached to. Attaching one writes the client record, "
@@ -314,6 +498,16 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
                  "anybody clicking anything.")
     if status.get("last_error"):
         note += f" The last sweep reported: {status['last_error']}"
+    problems = status.get("sweep_problems") or []
+    if problems:
+        plats = sorted({str(n.get("platform") or "?") for n in problems})
+        note += (f" {len(problems)} login/platform combination(s) could not be "
+                 f"swept ({', '.join(plats)}), so those rows are missing "
+                 f"rather than absent — see the sweep table below.")
+    elif status.get("sweep") == [] and not status.get("never_built"):
+        note += (" This index was built before the sweep reported per "
+                 "platform, so what each login could be read for is not "
+                 "measured here. Rebuild it to find out.")
     if skipped_other:
         note += (f" {skipped_other} unmatched resource(s) on other Google "
                  "platforms are not shown — tick to include them.")
@@ -325,8 +519,12 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
 
     return {
         "q": q, "platform": platform, "include_other": include_other,
-        "count": len(kept), "shown": min(len(kept), limit),
-        "rows": kept[:limit],
+        "platforms": list(picked),
+        # `count` is the whole filtered list; `rows` is one page of it.
+        "count": len(kept), "offset": start, "limit": limit,
+        "shown": len(page), "has_more": start + len(page) < len(kept),
+        "next_offset": start + len(page),
+        "rows": page,
         "with_suggestion": sum(1 for r in kept if r["suggestions"]),
         "orphans_total": len(unmapped),
         "by_platform": {PLATFORM_LABELS.get(k, k): v for k, v in
@@ -337,7 +535,20 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
         "never_built": status.get("never_built"),
         "stale": status.get("stale"),
         "accounts": len(data.get("accounts") or []),
+        "account_emails": list(data.get("accounts") or []),
         "sources": ctx["sources"],
+        # What each connected login could actually be swept for. A platform
+        # that refused is the reason its rows are missing, and it has to be on
+        # the page: "this login has no Tag Manager containers" and "Tag
+        # Manager refused this token" are the same empty list otherwise.
+        "sweep": status.get("sweep") or [],
+        "sweep_problems": status.get("sweep_problems") or [],
+        # When the suggestions were worked out. The index carries its own
+        # `built_at` for when Google was last swept, and these are two
+        # different ages: the sweep is what we can see, this is what we have
+        # made of it. A page that printed one and meant the other would be
+        # exactly the kind of confident wrong date this module avoids.
+        "cache": book.get("cache") or {},
         "note": note,
     }
 

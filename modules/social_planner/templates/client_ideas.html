@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_client_head.html" %}
+<title>Ideas to swipe through</title>
+</head>
+<body>
+{#
+  One card, one line, Like or Pass. Deliberately lighter than the request form
+  and the approval screen: the whole value is that it gets answered often, and
+  anything that asks for an explanation gets answered once.
+
+  What a swipe changes is the *mix* of what we suggest next, never the words
+  of anything — and the page says so, because a client who thinks they are
+  approving copy will read these much more slowly than they need to.
+#}
+<div class="wrap">
+  <h1>Ideas to swipe through</h1>
+  <p class="who">{{ client }}</p>
+
+  <div class="card" id="deck">
+    <p class="hint" id="count"></p>
+    <h2 id="title" style="color:#1a2e58;font-size:19px;margin:6px 0 4px;line-height:1.4"></h2>
+    <p class="hint" id="tag"></p>
+    <div class="row" style="margin-top:22px">
+      <button class="btn sec" id="pass">Not for us</button>
+      <button class="btn" id="like">Yes, more like this</button>
+    </div>
+    <p class="hint" style="margin-top:16px">This only steers what we suggest
+      next — nothing here is scheduled, and we write and show you the actual
+      post before anything goes out.</p>
+  </div>
+
+  <div class="card done" id="empty" style="display:none">
+    <div class="tick">&#128077;</div>
+    <h1 id="emptyTitle">That's all of them</h1>
+    <p class="hint" id="emptyLine">We'll send more through as we build next
+      month. Nothing else to do here.</p>
+  </div>
+
+  <div class="nav">
+    <a href="request">Send us something to post</a>
+    <a href="approve">Posts waiting for you</a>
+    <a href="preferences">What to write about</a>
+  </div>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+var B = JSON.parse(document.getElementById("boot").textContent);
+var queue = (B.ideas || []).slice();
+var at = 0;
+var busy = false;
+
+function el(id){ return document.getElementById(id); }
+
+function draw(){
+  if (at >= queue.length) {
+    el("deck").style.display = "none";
+    el("empty").style.display = "block";
+    if (!queue.length) {
+      el("emptyTitle").textContent = "Nothing to look at just yet";
+      el("emptyLine").textContent = "We build these as we plan the month. " +
+        "Meanwhile you can send us something to post, or tell us what to " +
+        "write about.";
+    }
+    return;
+  }
+  var idea = queue[at];
+  el("count").textContent = (at + 1) + " of " + queue.length;
+  el("title").textContent = idea.title;
+  el("tag").textContent = idea.tag;
+}
+
+function answer(response){
+  // Guarded rather than trusting the tap: this is used on a phone, a double
+  // tap is ordinary, and a second answer must not walk past the next card
+  // unanswered.
+  if (busy || at >= queue.length) { return; }
+  busy = true;
+  var idea = queue[at];
+  fetch("ideas/" + encodeURIComponent(idea.id) + "/respond",
+        {method:"POST", headers:{"Content-Type":"application/json"},
+         body:JSON.stringify({response:response})})
+    .then(function(r){ return r.json(); })
+    .then(function(){ busy = false; at += 1; draw(); })
+    .catch(function(){
+      // The answer did not land. Staying on the card is the honest outcome —
+      // advancing would lose the swipe and say nothing about it.
+      busy = false;
+      el("count").textContent = "That didn't save — tap again.";
+    });
+}
+
+el("like").addEventListener("click", function(){ answer("liked"); });
+el("pass").addEventListener("click", function(){ answer("passed"); });
+draw();
+</script>
+</body>
+</html>

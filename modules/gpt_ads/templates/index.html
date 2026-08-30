@@ -234,7 +234,7 @@
           placeholder="One per household. Excludes commercial systems."></textarea>
       </div>
       <p class="hint">Copy is checked against these fields. A price, a percentage, a phone number or a
-        deadline in the ad that is not here is flagged as something nobody authorised &mdash; and an
+        deadline in the ad that is not here is flagged as something nobody authorized &mdash; and an
         expiry date already in the past stops the pack.</p>
     </div>
 
@@ -246,10 +246,10 @@
           <label class="f" for="logoUrl">Logo URL</label>
           <input type="url" id="logoUrl" placeholder="https://…/logo.png">
           <label class="f" for="logoUsage" style="margin-top:11px">Logo usage rules</label>
-          <input type="text" id="logoUsage" placeholder="Full colour on light backgrounds only">
+          <input type="text" id="logoUsage" placeholder="Full color on light backgrounds only">
           <label class="f" for="tone" style="margin-top:11px">Tone</label>
           <input type="text" id="tone" placeholder="Straightforward, local, no hype">
-          <label class="f" for="colors" style="margin-top:11px">Brand colours
+          <label class="f" for="colors" style="margin-top:11px">Brand colors
             <span class="opt">&mdash; comma separated</span></label>
           <input type="text" id="colors" placeholder="#1a2e58, #f59e0b">
         </div>
@@ -259,7 +259,7 @@
           <label class="f" for="disclaimer" style="margin-top:11px">Disclaimers</label>
           <textarea id="disclaimer" rows="2" placeholder="Offer valid at participating locations"></textarea>
           <label class="f" for="legal" style="margin-top:11px">Required legal language</label>
-          <textarea id="legal" rows="2" placeholder="NC licence #12345"></textarea>
+          <textarea id="legal" rows="2" placeholder="NC license #12345"></textarea>
           <label class="f" for="avoid" style="margin-top:11px">Never mention</label>
           <input type="text" id="avoid" placeholder="A competitor, a service they dropped">
         </div>
@@ -307,10 +307,28 @@ function esc(s){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
   });
 }
+// A message that is a *wait* is drawn with the running mark; one that is a
+// result is not. "Writing…" as a bare line of text is indistinguishable from
+// a label somebody left on the screen, which is how a model that is thinking
+// and a model that has died read identically — and the second is the one
+// worth knowing about. `attach` also carries the elapsed line, which is the
+// only thing that separates a slow answer from a hung one on a call that
+// routinely runs half a minute.
+//
+// hub-thinking.js is injected into every mounted module by HubBar, so nothing
+// is loaded here. It is still guarded: if it is missing, the sentence is
+// written plainly and the panel behaves exactly as it did before. A mark that
+// takes the message down with it is worse than no mark.
 function say(id, text, kind){
   var node = $(id);
-  node.textContent = text || "";
+  if (node._s1think) { node._s1think.done(); node._s1think = null; }
   node.className = "msg" + (kind ? " " + kind : "");
+  if (["ai", "scan", "wait"].indexOf(kind) >= 0 && window.S1Think) {
+    node.className = "msg";
+    node._s1think = window.S1Think.attach(node, { kind: kind, label: text });
+    return;
+  }
+  node.textContent = text || "";
 }
 
 // Root-relative literals, one per route, with the pack id in the body. Written
@@ -516,7 +534,7 @@ $("deletePack").addEventListener("click", function(){
 
 $("markReady").addEventListener("click", function(){
   if (!state.pack) return;
-  say("readymsg", "Checking…");
+  say("readymsg", "Fetching the landing page…", "scan");
   post("/tools/gpt-ads/api/ads/status", withId({status:"ready"})).then(function(d){
     if (!d.ok) { say("readymsg", d.error, "err"); return; }
     say("readymsg", "Marked ready to traffic.", "ok");
@@ -641,7 +659,7 @@ $("copyBlocks").addEventListener("input", function(ev){
 
 function writeCopy(kind, label){
   if (!state.pack) return;
-  say("copymsg", "Writing " + label + "…");
+  say("copymsg", "Writing " + label + "…", "ai");
   // Saved first: the model is given the offer and brand fields as typed, and
   // an unsaved box is a fact it never sees.
   post("/tools/gpt-ads/api/ads/save", formPayload()).then(function(saved){
@@ -688,7 +706,7 @@ function renderImage(){
 
 $("genImage").addEventListener("click", function(){
   if (!state.pack) return;
-  say("imgmsg", "Generating — this takes a few seconds…");
+  say("imgmsg", "Drawing the square — this takes a few seconds…", "ai");
   post("/tools/gpt-ads/api/ads/image/generate",
        withId({image_brief: $("imageBrief").value})).then(function(d){
     if (!d.ok) { say("imgmsg", d.error, "err"); return; }

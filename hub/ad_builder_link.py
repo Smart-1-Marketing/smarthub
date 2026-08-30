@@ -24,11 +24,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 import requests
+
 from flask import (Blueprint, jsonify, redirect, render_template, request)
 
 from hub import ad_builder_proxy
+from hub.webargs import clamp_int
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +216,7 @@ def client_gallery(client_name: str, limit: int = 48) -> dict:
             "kind": row.collection_kind or "",
             "saved_at": row.created_at.isoformat() if row.created_at else "",
         })
-        if len(images) >= max(1, int(limit)):
+        if len(images) >= clamp_int(limit, 48, 1, 200):
             break
 
     note = ""
@@ -433,6 +436,26 @@ def attach_ads(*, project: dict, client_name: str, sizes: list | None = None,
 
 # ------------------------------------------------------------------- starting
 
+def _looks_like_a_site(url: str) -> bool:
+    """A rough shape check, not a fetch.
+
+    Deliberately shallow: whether the page answers is the landing-page
+    analyser's question, and it has its own answer for a page that does not.
+    This one only stops a campaign name or a sentence being posted into the
+    website field, which is the mistake a required field actually produces.
+    """
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url if "://" in url else "https://" + url)
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").strip()
+    if not host or " " in host:
+        return False
+    labels = host.split(".")
+    return len(labels) >= 2 and all(labels) and len(labels[-1]) >= 2
+
+
 def _known_client(name: str) -> dict | None:
     """The registry row for this name, or None. Never raises."""
     try:
@@ -511,10 +534,17 @@ def _capture_prospect(*, business: str, website: str, campaign: str,
         return ""
 
 
+PLATFORM_CHOICES = (
+    ("google", "Google Display"),
+    ("meta", "Meta (Facebook & Instagram)"),
+    ("amazon", "Amazon DSP"),
+)
+
+
 def start_project(*, client_name: str, campaign: str, website: str = "",
                   promoting: str = "", contact: str = "", email: str = "",
                   phone: str = "", kind: str = "", proposal_id: str = "",
-                  actor: str = "") -> dict:
+                  platforms: list | None = None, actor: str = "") -> dict:
     """Create a build in the renderer, prefilled from what the Hub knows.
 
     The renderer's intake wants a business, a website, a contact and something
@@ -560,6 +590,26 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
     if website and not website.startswith(("http://", "https://")):
         website = "https://" + website
 
+    # A website is required, and it is required here rather than only on the
+    # form: a `required` attribute is a courtesy to somebody typing, not a
+    # rule -- the JSON caller does not see it and a browser is not the only
+    # thing that posts here.
+    #
+    # It is required because it is what the tool reads. The page is fetched,
+    # its conversion points are counted, and its own words become the first
+    # draft of every line of copy and the brief for the picture. A build
+    # started without one produces confident copy about a business nothing
+    # has looked at, which reads exactly like copy that was researched.
+    if not website:
+        return {"ok": False,
+                "error": "A website or landing page is required. It is what the "
+                         "AI reads to draft the copy and the picture — without "
+                         "one it is writing about a business it has never seen."}
+    if not _looks_like_a_site(website):
+        return {"ok": False,
+                "error": f"“{website}” does not look like a web address. "
+                         f"Use the client's site or the campaign's landing page."}
+
     lead_id = ""
     if kind == "prospect":
         lead_id = _capture_prospect(
@@ -573,7 +623,15 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
 
     payload = {
         "business": client_name,
-        "website": website or "https://smart1marketing.com",
+        "website": website,
+        # The renderer reads the landing page from `landingPage`, not from
+        # `website`, and this payload only ever sent the second -- so every
+        # build started from the Hub had no page analysis at all, while builds
+        # from the public form did. It is the same URL here; they are separate
+        # fields because a campaign often points at its own landing page
+        # rather than the client's home page, and the form above asks for
+        # exactly that.
+        "landingPage": website,
         "contact": str(contact or actor or "Smart 1 Marketing").strip(),
         "email": str(email or os.environ.get("ADBUILDER_DEFAULT_EMAIL")
                      or "creative@smart1marketing.com").strip(),
@@ -584,6 +642,13 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
         # a server-side submission is not read as a script.
         "honeypot": "",
         "elapsedMs": 5000,
+        # Which platforms decides which sizes get built, and the renderer
+        # keeps only the ones it has a config file for. Named here rather than
+        # left to default, or a Meta buy starts life as a set of Google
+        # banners and the only sign is a rail with no square in it.
+        "platforms": [p for p, _ in PLATFORM_CHOICES
+                      if p in {str(x).strip().lower() for x in (platforms or ["google"])}]
+                     or ["google"],
     }
     if saved_logo:
         payload["pickedLogoUrl"] = saved_logo["url"]
@@ -652,6 +717,8 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                                kind="client" if client else "",
                                saved_logo=client_logo(client) if client else None,
                                form={}, proposals=proposals,
+                               platform_choices=PLATFORM_CHOICES,
+                               selected_platforms=["google"],
                                url_prefix=url_prefix, error="")
 
     @bp.route("/start", methods=["POST"])
@@ -672,6 +739,8 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             phone=body.get("phone", ""),
             kind=kind,
             proposal_id=body.get("proposal", ""),
+            platforms=(request.form.getlist("platforms") if request.form
+                       else (body.get("platforms") or [])),
             actor=_user() or "",
         )
         if request.form:
@@ -683,6 +752,9 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                                    client=body.get("client", ""),
                                    kind=kind, form=body, proposals=[],
                                    saved_logo=None,
+                                   platform_choices=PLATFORM_CHOICES,
+                                   selected_platforms=(
+                                       request.form.getlist("platforms") or ["google"]),
                                    url_prefix=url_prefix,
                                    error=res.get("error", "")), 400
         return jsonify(res), (200 if res.get("ok") else 400)
@@ -746,8 +818,12 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         "/_hub/gallery" resolves under the mount and 404s standalone, which is
         the honest answer there.
         """
+        # clamp_int, not int(): ?limit=-1 reached `images[:limit]`-shaped code
+        # below as a negative bound, and ?limit=abc was a 500 on a page that
+        # only ever wanted a page size. One implementation, both ends clamped.
         return jsonify(client_gallery(request.args.get("client", ""),
-                                      limit=int(request.args.get("limit") or 48)))
+                                      limit=clamp_int(request.args.get("limit"),
+                                                      48, 1, 200)))
 
     @bp.route("/gallery", methods=["POST"])
     def gallery_save_route():
@@ -770,6 +846,114 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             actor=_user() or "",
         )
         return jsonify(res), (200 if res.get("ok") else 400)
+
+    @bp.route("/site-brand", methods=["GET"])
+    def site_brand_route():
+        """What the client's own website says its brand is.
+
+        Their latest Insites scan reads the live pages and reports the palette
+        it found there, the logo it detected and a screenshot of the site. All
+        three are better evidence than anything the builder can derive:
+
+          * The palette is **observed**, not labelled. Brandfetch returns a
+            list and frequently does not say which entry is the brand colour —
+            that is the note the intake has to print. A scan says what the
+            site actually paints behind its content and on its buttons.
+          * The logo is the mark in use today, which is not always the one in
+            a brand pack from two years ago.
+          * The screenshot is what the client sees when they think "our
+            brand", which is the thing a proof gets compared against. Desktop
+            and mobile, because half the sizes in a display package run on a
+            phone and the two often look nothing alike.
+
+        One thing it deliberately does not claim. ``gdpr.has_google_font_api``
+        says the site loads Google Fonts and never says *which* face, so it is
+        passed on as the weak signal it is rather than dressed up as a font
+        recommendation. It is still worth carrying: a **false** is the useful
+        direction, because it means their type is self-hosted or licensed and
+        an ad will not match it by accident.
+
+        Returns ``{}``-shaped absence rather than an error: a client with no
+        scan is the ordinary case, and the builder shows the option only when
+        there is something behind it.
+        """
+        domain = str(request.args.get("domain") or "").strip()
+        client = str(request.args.get("client") or "").strip()
+
+        # The URL is the join key, not the name -- hub/client_key.py at length.
+        # A name is only used to look a domain up, never to match a scan.
+        if not domain and client:
+            try:
+                from hub import clients_registry
+                row = clients_registry.find_client(client)
+                domain = str((row or {}).get("url") or (row or {}).get("domain") or "")
+            except Exception:                          # noqa: BLE001
+                domain = ""
+        if not domain:
+            return jsonify({"found": False,
+                            "reason": "No website on file for this client, so there is "
+                                      "no scan to read."})
+
+        try:
+            from modules.scans.app import latest_payload_for_domain
+            payload = latest_payload_for_domain(domain) or {}
+        except Exception as exc:                       # noqa: BLE001
+            # "The scans module is unavailable" and "they have never been
+            # scanned" are different answers and must not look alike.
+            return jsonify({"found": False,
+                            "reason": f"Their site scan could not be read ({exc})."})
+        if not payload:
+            return jsonify({"found": False, "domain": domain,
+                            "reason": f"No completed site scan for {domain} yet."})
+
+        def _sec(name):
+            v = payload.get(name)
+            return v if isinstance(v, dict) else {}
+
+        def _hex(v):
+            v = str(v or "").strip()
+            return v if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", v) else ""
+
+        scheme = _sec("colour_scheme")
+        colors = {
+            "background": _hex(scheme.get("primary_background_colour")),
+            "background2": _hex(scheme.get("secondary_background_colour")),
+            "text": _hex(scheme.get("primary_text_colour")),
+            "text2": _hex(scheme.get("secondary_text_colour")),
+            "accent": _hex(scheme.get("primary_accent_colour")),
+            "accent2": _hex(scheme.get("secondary_accent_colour")),
+        }
+        colors = {k: v for k, v in colors.items() if v}
+
+        logo = _sec("logo")
+        shot = _sec("website_screenshot")
+        desktop = str(shot.get("desktop_screenshot_url") or "")
+        mobile = str(shot.get("mobile_screenshot_url") or "")
+
+        # Whether their site loads Google Fonts. Tri-state on purpose: the
+        # scan's GDPR section is where this lives, and a plan that did not run
+        # that check leaves it absent -- which is "not measured", not "no".
+        # The difference matters in the direction people forget: a false says
+        # their type is self-hosted or licensed, which is the case where the
+        # ad will NOT match unless somebody picks the face deliberately.
+        gdpr = _sec("gdpr")
+        google_fonts = gdpr.get("has_google_font_api")
+        if not isinstance(google_fonts, bool):
+            google_fonts = None
+
+        return jsonify({
+            # A scan carrying only a screenshot is still something to show.
+            # Keying this on the palette alone hid the picture on every site
+            # whose colours the scan could not read.
+            "found": bool(colors or logo.get("logo_url") or desktop),
+            "domain": domain,
+            "colors": colors,
+            "logo": str(logo.get("logo_url") or "") if logo.get("has_detected_logo") else "",
+            "screenshot": desktop,
+            "screenshotMobile": mobile,
+            "usesGoogleFonts": google_fonts,
+            "scannedAt": str(payload.get("completed_at") or payload.get("created_at") or ""),
+        })
 
     @bp.route("/clients", methods=["GET"])
     def client_search():

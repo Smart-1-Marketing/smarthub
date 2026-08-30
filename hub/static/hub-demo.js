@@ -6,8 +6,10 @@
  * Wiring, per tool page:
  *     <body data-module="seo_images">
  *     <button data-demo-start>Walk me through it</button>
+ *   or, on a screen this module's walkthrough cannot drive:
+ *     <body data-module="seo_images" data-demo="off">
  *   and mark the things a step points at:
- *     <button data-demo="analyse">Analyse</button>
+ *     <button data-demo="analyze">Analyze</button>
  *
  * Steps that would spend a credit are flagged `simulated` server-side; those
  * are narrated and skipped rather than clicked.
@@ -48,7 +50,7 @@
 
   function typeInto(node, value, done) {
     // Typing character by character so any live preview updates visibly —
-    // the UTM builder's normalisation is only convincing if you watch it happen.
+    // the UTM builder's normalization is only convincing if you watch it happen.
     if (!node) return done && done();
     node.focus();
     setValue(node, "");
@@ -216,7 +218,13 @@
 
   function init() {
     var mod = document.body.getAttribute("data-module");
-    if (mod) autoLauncher(mod);
+    /* data-demo="off" opts a screen out of the floating launcher. A module is
+       one data-module across every one of its screens, so without this the FAB
+       offers the module's first walkthrough on pages that walkthrough cannot
+       drive -- it highlights nothing and "Do it for me" silently does nothing,
+       which is worse than no button. Screens with their own walkthrough carry
+       their own [data-demo-start] and are already skipped below. */
+    if (mod && document.body.getAttribute("data-demo") !== "off") autoLauncher(mod);
     document.querySelectorAll("[data-demo-start]").forEach(function (b) {
       b.addEventListener("click", function () {
         var key = b.getAttribute("data-demo-start");

@@ -257,9 +257,9 @@ PANELS.photos = host => {
     </div>
     <div class="row" style="margin-bottom:9px">
       <div>
-        <label class="f">Colour</label>
+        <label class="f">Color</label>
         <select id="phColor">
-          ${PHOTO_COLORS.map(c => `<option value="${c}" ${photoState.color===c?'selected':''}>${c?c[0].toUpperCase()+c.slice(1):'Any colour'}</option>`).join('')}
+          ${PHOTO_COLORS.map(c => `<option value="${c}" ${photoState.color===c?'selected':''}>${c?c[0].toUpperCase()+c.slice(1):'Any color'}</option>`).join('')}
         </select>
       </div>
       <div>
@@ -346,7 +346,7 @@ async function aiPhotoQueries(){
 /* ---------- Smart 1 assets ---------- */
 PANELS.assets = host => {
   host.innerHTML = `
-    <div class="hint">Assets already in the Hub — optimised client images, and imagery
+    <div class="hint">Assets already in the Hub — optimized client images, and imagery
       captured by site audits.</div>
     <div class="row" style="margin:9px 0">
       <input type="search" id="asQ" placeholder="Filter…">
@@ -399,7 +399,7 @@ async function loadAssets(src){
 PANELS.backgrounds = host => {
   host.innerHTML = `
     <div class="sect">
-      <div class="h">Solid colour</div>
+      <div class="h">Solid color</div>
       <div class="row"><input type="color" id="bgColor" value="#1a2e58">
         <button class="btn sm" id="bgColorGo" style="flex:none">Apply</button></div>
       <div class="swatches" style="margin-top:7px" id="bgSwatches"></div>
@@ -408,11 +408,11 @@ PANELS.backgrounds = host => {
     <div class="sect">
       <div class="h">Gradient</div>
       <div class="row">
-        <div><label class="f">Colour 1</label><input type="color" id="g1" value="#2563eb"></div>
-        <div><label class="f">Colour 2</label><input type="color" id="g2" value="#1a2e58"></div>
+        <div><label class="f">Color 1</label><input type="color" id="g1" value="#2563eb"></div>
+        <div><label class="f">Color 2</label><input type="color" id="g2" value="#1a2e58"></div>
       </div>
       <label style="font-size:12px;display:block;margin-top:7px">
-        <input type="checkbox" id="g3On"> Add a 3rd colour</label>
+        <input type="checkbox" id="g3On"> Add a 3rd color</label>
       <input type="color" id="g3" value="#7c3aed" style="display:none;margin-top:6px">
       <div class="row" style="margin-top:7px">
         <div><label class="f">Type</label><select id="gType">
@@ -576,7 +576,7 @@ function setSolidBackground(color){
   pushHistory();
 }
 function gradientLineCoords(w, h, angleDeg){
-  // A line through the canvas centre, long enough to span corner-to-corner at
+  // A line through the canvas center, long enough to span corner-to-corner at
   // any angle, so the gradient covers the full rect with no banding —
   // 180° matches the tool's old fixed "top to bottom" default.
   const rad = angleDeg * Math.PI / 180;
@@ -686,9 +686,9 @@ async function brandLookup(){
     if(d.error){ box.innerHTML = '<div class="err">'+esc(d.error)+'</div>'; return; }
     box.innerHTML = `<div class="sect"><div class="h">${esc(d.name)} — logos</div>
         <div class="grid" id="loGrid"></div></div>
-      ${d.colors && d.colors.length ? `<div class="sect"><div class="h">Brand colours</div>
+      ${d.colors && d.colors.length ? `<div class="sect"><div class="h">Brand colors</div>
         <div class="swatches" id="loColors"></div>
-        <div class="hint">Click a colour to use it on the selected object.</div></div>` : ''}`;
+        <div class="hint">Click a color to use it on the selected object.</div></div>` : ''}`;
     d.logos.forEach(l => {
       const a = document.createElement('a');
       a.className = 'logotile' + (l.theme==='dark' ? ' dark' : '');
@@ -801,7 +801,7 @@ PANELS.icons = host => {
       <button class="btn sm" id="icGo" style="flex:none">Search</button>
     </div>
     <div class="chips" id="icCats"></div>
-    <div id="icBody"><div class="hint">Icons are added as vectors, so they stay sharp and recolourable.</div></div>`;
+    <div id="icBody"><div class="hint">Icons are added as vectors, so they stay sharp and recolorable.</div></div>`;
   [['Business','briefcase'],['Automotive','car'],['Restaurant','restaurant'],
    ['Home Services','tools'],['Medical','medical'],['Legal','legal'],['Weather','weather'],
    ['Shopping','shopping cart'],['Finance','finance'],['Communication','phone'],
@@ -971,23 +971,29 @@ PANELS.ai = host => {
     const prompt = $('aiPrompt').value.trim();
     if(!prompt){ $('aiMsg').textContent = 'Describe what you want first.'; return; }
     const asBg = $('aiBg').checked;
-    $('aiGo').disabled = true; $('aiMsg').textContent = 'Generating… this takes a moment.';
+    const genBusy = window.S1Think
+      ? window.S1Think.busy($('aiGo'), {kind:'ai', label:'Drawing…'})
+      : {done: () => { $('aiGo').disabled = false; }};
+    if(!window.S1Think) $('aiGo').disabled = true;
+    $('aiMsg').textContent = '';
     try{
       const w = canvas.getWidth(), h = canvas.getHeight();
       const size = w>h*1.2 ? '1536x1024' : (h>w*1.2 ? '1024x1536' : '1024x1024');
       const d = await fetch('api/ai/image', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({prompt, style, background:asBg,
                               transparent:$('aiTrans').checked, size})}).then(r=>r.json());
-      $('aiGo').disabled = false;
+      genBusy.done();
       if(d.error){ $('aiMsg').textContent = d.error; return; }
       $('aiMsg').textContent = '';
       await placeImage(d.image, {name:'AI image', source:'openai'}, asBg);
-    }catch(e){ $('aiGo').disabled=false; $('aiMsg').textContent = 'Generation failed: '+e; }
+    }catch(e){ genBusy.done(); $('aiMsg').textContent = 'Generation failed: '+e; }
   };
   host.querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
     const o = canvas.getActiveObject();
     if(!o || !o.type || !o.type.includes('text')){ $('aiCopy').innerHTML='<div class="err">Select a text layer first.</div>'; return; }
-    $('aiCopy').innerHTML = '<div class="loading">Writing…</div>';
+    $('aiCopy').innerHTML = '<div class="loading" id="aiCopyBusy"></div>';
+    if(window.S1Think) window.S1Think.attach('aiCopyBusy', {kind:'ai', label:'Writing…'});
+    else $('aiCopy').innerHTML = '<div class="loading">Writing…</div>';
     try{
       const d = await fetch('api/ai/copy', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text:o.text, mode:b.dataset.c})}).then(r=>r.json());
@@ -1126,7 +1132,7 @@ function syncProps(){
              style="margin-top:5px;display:${o.textBackgroundColor?'block':'none'}">
     </div>` : ''}
     <div class="pgroup">
-      <div class="t">${isText?'Colour':'Fill'}</div>
+      <div class="t">${isText?'Color':'Fill'}</div>
       <input type="color" id="pFill" value="${toHex(o.fill)}">
       <label class="f" style="margin-top:6px">Stroke</label>
       <div class="row"><input type="color" id="pStroke" value="${toHex(o.stroke||'#000000')}">
@@ -1153,7 +1159,7 @@ function syncProps(){
       <label class="f">Saturation</label><input type="range" id="fSat" min="-100" max="100" value="0">
       <label class="f">Blur</label><input type="range" id="fBlur" min="0" max="40" value="0">
       <div class="row" style="margin-top:7px">
-        <button class="btn sec sm" id="fGray">Greyscale</button>
+        <button class="btn sec sm" id="fGray">Grayscale</button>
         <button class="btn sec sm" id="fSepia">Sepia</button>
         <button class="btn sec sm" id="fNone">Reset</button></div>
       <div class="row" style="margin-top:8px">
@@ -1273,7 +1279,7 @@ function toHex(v){
 }
 function applyColorToSelection(hex){
   const o = canvas.getActiveObject();
-  if(!o) return alert('Select an object first, then click the colour.');
+  if(!o) return alert('Select an object first, then click the color.');
   o.set('fill', hex); canvas.renderAll(); pushHistory(); syncProps();
 }
 
@@ -1424,7 +1430,7 @@ function renderCropPanel(){
   $('cropDone').onclick = commitCrop;
 }
 
-/* ---------------- smart guides (snap-to-edge / centre / equal spacing) ----
+/* ---------------- smart guides (snap-to-edge / center / equal spacing) ----
    Fabric has no built-in alignment guides. This hooks object:moving,
    compares the dragged object's edges/centre against the canvas and every
    other object, snaps within a small on-screen threshold, and draws
@@ -1456,7 +1462,7 @@ function objEdges(o){
           top:b.top, bottom:b.top+b.height, centerY:b.top+b.height/2};
 }
 function nearestFlank(e, targets, axis){
-  // axis 'x': nearest left/right neighbour whose vertical span overlaps this
+  // axis 'x': nearest left/right neighbor whose vertical span overlaps this
   // object's — i.e. roughly "the same row". axis 'y' is the column version.
   let left=null, right=null, top=null, bottom=null;
   targets.forEach(t => {
@@ -1704,7 +1710,7 @@ $('dlGo').onclick = async () => {
   $('dlGo').disabled = true;
   try{
     let url = exportDataURL();
-    // Best-effort server-side optimisation pass — a real compress/strip-
+    // Best-effort server-side optimization pass — a real compress/strip-
     // metadata step before the file leaves the browser, the gap noted
     // against the spec's Sharp-based description (§37). Re-saving through
     // Pillow drops any metadata for free; if the request fails for any

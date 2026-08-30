@@ -1,3 +1,4 @@
+{% import "_scan_mark.html" as mark with context %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -12,10 +13,8 @@
   .card { background:#fff; border:1px solid #DBE5ED; border-radius:16px; padding:34px 28px; }
   h1 { color:#0A2240; font-size:24px; margin:0 0 10px; }
   p { color:#68798C; margin:0 0 8px; }
-  .spin { display:inline-block; width:34px; height:34px; border:3px solid #DBE5ED;
-    border-top-color:#009ED2; border-radius:50%; animation:sp .8s linear infinite;
-    margin-bottom:16px; }
-  @keyframes sp { to { transform:rotate(360deg); } }
+{{ mark.scan_mark_css() }}
+  .scanwrap { color:#009ED2; margin-bottom:16px; }
   .brand { margin-top:18px; font-size:12px; color:#68798C; }
 </style>
 </head>
@@ -26,7 +25,7 @@
       <h1>We hit a snag on the deep scan</h1>
       <p>Your details reached us safely and someone will follow up. Nothing is lost.</p>
     {% else %}
-      <div class="spin"></div>
+      <div class="scanwrap">{{ mark.scan_mark("44px", "Building your report") }}</div>
       <h1>Your full report is being built</h1>
       <p>We're checking {{ lead.domain }} against every AI assistant, your Google
         listing, your structured data and 70+ other signals.</p>

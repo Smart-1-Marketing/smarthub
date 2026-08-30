@@ -133,7 +133,7 @@ section("Every census field is carried, and none of them is invented")
 
 _aimee = _by_email["aimee@smart1marketing.com"]["profile"]
 check("title", _aimee["title"], "Senior Campaign Strategist")
-check("phone, normalised from the export's 309/631-2397",
+check("phone, normalized from the export's 309/631-2397",
       _aimee["phone"], "(309) 631-2397")
 check("birthday, as ISO", _aimee["birthday"], "1971-04-17")
 check("and shown unambiguously", _aimee["birthday_pretty"], "17 Apr 1971")
@@ -378,6 +378,128 @@ check("/reset with no token goes there rather than offering a form",
 
 
 # ----------------------------------------------------------- brute force
+# ------------------------------------------------------ who is signed in now
+section("Signed in now — a headcount, not a claim about who is at their desk")
+
+from hub import presence                                            # noqa: E402
+from wsgi import hub_app                                            # noqa: E402
+
+# The Hub keeps no session table, so this can only ever be "seen lately".
+# Everything below is about that being said out loud rather than a number
+# people would read as "at their desk".
+
+with hub_app.app_context():
+    presence.Presence.query.delete()
+    presence.db.session.commit()
+presence._LAST_WRITE.clear()
+
+# Placed before the brute-force section below on purpose: hammering the login
+# there locks this test client's own address, and nobody can be counted after
+# that because nobody can sign in.
+_mike = settled("mhawkins@smart1marketing.com", "another-long-phrase")
+
+# A page in a MOUNTED MODULE, and nothing else. AuthGuard is WSGI middleware
+# with no application context, so this is where a swallowed "Working outside
+# of application context" would make the whole count read zero for ever.
+_mike.get("/tools/social/")
+with hub_app.app_context():
+    _seen = presence.active()
+check("a module page counts — AuthGuard has no app context and must push one",
+      [p["name"] for p in _seen["people"]], ["Michael Hawkins"])
+check("resolved to the account, not left as a display name",
+      _seen["people"][0]["email"], "mhawkins@smart1marketing.com")
+check("and not mistaken for the shared password",
+      _seen["people"][0]["shared"], False)
+
+# The throttle: a second request inside the minute must not rewrite the row.
+with hub_app.app_context():
+    _before = presence.Presence.query.filter_by(
+        key="mhawkins@smart1marketing.com").first().last_seen
+_mike.get("/")
+_mike.get("/tools/social/")
+with hub_app.app_context():
+    _after = presence.Presence.query.filter_by(
+        key="mhawkins@smart1marketing.com").first().last_seen
+check("three more requests, still one write — a headcount is not worth a "
+      "database write per request", _after, _before)
+
+# The shared password is a session with nobody behind it.
+_shared_now = Client(application)
+_shared_now.post("/login", data={"password": "users-test-shared", "name": "CI"})
+_shared_now.get("/")
+with hub_app.app_context():
+    _seen = presence.active()
+check("it is counted", _seen["count"], 2)
+check("but named as what it is", _seen["shared_sessions"], 1)
+check("and the one line every screen prints says so",
+      presence.summary_line(_seen),
+      "2 people active in the last 15 minutes · 1 of them a shared-password "
+      "session")
+
+# The window. A row outside it is not "somebody who left" — it is simply not
+# in the answer, and the answer always says how wide it is.
+with hub_app.app_context():
+    _row = presence.Presence.query.filter_by(key="mhawkins@smart1marketing.com").first()
+    _row.last_seen = presence._now() - __import__("datetime").timedelta(minutes=31)
+    presence.db.session.commit()
+    _seen = presence.active()
+check("half an hour later they are out of the window",
+      [p["name"] for p in _seen["people"]], ["Shared login"])
+check("and the number is never printed without the window it was measured over",
+      str(presence.WINDOW_MINUTES) in presence.summary_line(_seen), True)
+
+# Identity: exactly one account or none, never a guess. The module cookie
+# carries a display name and nothing else, so this is the only way back to a
+# person — and two people on this roster are called Todd.
+with hub_app.app_context():
+    check("a display name resolves to its one account",
+          presence.identify("Michael Hawkins"),
+          ("mhawkins@smart1marketing.com", False))
+    check("a name no account carries is the shared password",
+          presence.identify("Shared login"), ("", True))
+
+    # Two accounts, one name. Guessing between them attributes one person's
+    # presence to another; calling it a shared-password session is just as
+    # wrong, because somebody real is signed in. It is neither.
+    for _e in ("pat.twin1@smart1marketing.com", "pat.twin2@smart1marketing.com"):
+        _users.create_account(email=_e, name="Pat Twin", role="member",
+                              password="a-long-enough-phrase", status="active",
+                              approved_by="test")
+    check("two accounts sharing a name resolve to neither",
+          presence.identify("Pat Twin"), ("", False))
+    check("and are emphatically not counted as the shared password",
+          presence.identify("Pat Twin")[1], False)
+    _actor = _users.by_email("todd@smart1marketing.com")
+    for _e in ("pat.twin1@smart1marketing.com", "pat.twin2@smart1marketing.com"):
+        _users.delete(_actor, _users.by_email(_e).id)
+
+# The privacy rule, asserted structurally: this table records that somebody
+# was seen, never what they were looking at. A path column is a minute-by-
+# minute log of what each member of staff was doing.
+check("no page, path or URL is recorded",
+      sorted(c.name for c in presence.Presence.__table__.columns),
+      ["email", "id", "key", "last_seen", "name", "shared"])
+
+# The headcount is on everybody's dashboard, so it cannot live on an
+# admin-only path. /api/status does, which is why it is not a key on that.
+check("/api/presence is not a Utilities path", access.is_utility("/api/presence"), False)
+check("while /api/status still is", access.is_utility("/api/status"), True)
+check("an anonymous request is refused",
+      Client(application).get("/api/presence").status_code, 401)
+_general_now = settled("lauren@smart1marketing.com", "general-long-phrase")
+check("a General account can read the headcount",
+      _general_now.get("/api/presence").status_code, 200)
+check("and is still refused the checks beside it on the same card",
+      _general_now.get("/api/status").status_code, 403)
+
+_dash = _general_now.get("/").get_data(as_text=True)
+check("the card is headed System status", "<h3>System status" in _dash, True)
+check("and holds the headcount", 'id="presence"' in _dash, True)
+check("a General account is told why the checks are missing rather than "
+      "being shown a green zero",
+      "The Hub&rsquo;s own checks run either way" in _dash, True)
+
+
 section("Brute force: attempts, addresses and escalation")
 
 auth.throttle_reset("10.0.0.1")

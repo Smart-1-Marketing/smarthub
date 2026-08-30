@@ -19,7 +19,7 @@ from flask import Blueprint
 
 from .db import db, STANDALONE
 from .routes import (clients, projects, scripts, stock, voices, heygen, render, assets,
-                     providers, pages)
+                     providers, pages, review)
 
 # Login. This module is blueprint-registered on the hub app, NOT dispatcher-
 # mounted, so wsgi.py's AuthGuard never sees it — that wrapper only covers
@@ -51,14 +51,42 @@ except Exception:  # noqa: BLE001
 
 
 def _install_login_guard(bp):
-    """One check in front of every route on this blueprint."""
+    """One check in front of every route on this blueprint.
+
+    Except the client review link. A client has no Hub account at all, so a
+    guard in front of that page is a login form shown to somebody who cannot
+    fill it in — and the rep then emails the file instead, which loses the
+    record the whole review feature exists to keep.
+
+    The exempt list is `routes/review.PUBLIC_PATHS`, read from there rather
+    than restated here: a route added to that file must not be able to be
+    public in one place and refused in the other. `modules/ads_builder` and
+    `modules/scans` get this from `wsgi.py`'s `PUBLIC_PREFIXES`, which is
+    handed to `AuthGuard` by `_mount()` — and this module is a blueprint on
+    the hub app rather than a mounted one, so nothing in `wsgi.py` ever sees
+    it. That difference is the whole reason this is written out here.
+
+    Exempting it from the login is only half. The hub app's own
+    `after_request` injects the sidebar, the help layer and the feedback tab
+    into any HTML it returns, so the path is in `CHROMELESS` in
+    `hub/__init__.py` too; without that the client gets the staff nav.
+    """
     if _hub_auth is None:
         return
+
+    public = tuple(review.PUBLIC_PATHS)
 
     @bp.before_request
     def _require_hub_login():                      # noqa: ANN202
         from flask import jsonify, redirect, request
 
+        # Matched against the path under this blueprint's own mount, so
+        # moving the mount cannot silently un-publish the review page — and
+        # `/review/` is matched with its trailing slash, so a route called
+        # `/reviewers` is not accidentally public.
+        under_mount = request.path[len(bp.url_prefix or ""):] or "/"
+        if any(under_mount.startswith(p) for p in public):
+            return None
         if _hub_auth.user_from_environ(request.environ):
             return None
         # A fetch() that follows a redirect to the login page parses the HTML
@@ -89,6 +117,7 @@ def create_blueprint():
     bp.register_blueprint(render.bp)
     bp.register_blueprint(assets.bp)
     bp.register_blueprint(providers.bp)
+    bp.register_blueprint(review.bp)
     return bp
 
 

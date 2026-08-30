@@ -167,11 +167,16 @@ def _money(v) -> float:
 
 
 def _norm_name(s: str) -> str:
-    """Drop the suffixes that differ between systems for the same company."""
-    n = str(s or "").lower()
-    n = re.sub(r"\b(llc|l\.l\.c\.|inc|inc\.|ltd|ltd\.|co|co\.|corp|"
-               r"corporation|company|the|dba)\b", " ", n)
-    return re.sub(r"[^a-z0-9]+", "", n)
+    """Drop the suffixes that differ between systems for the same company.
+
+    The shared one in `hub/client_key.py`, not a second copy. The local
+    version ran the words together — "ab cd" and "abcd" normalised alike, so
+    two different businesses read as one — and dropped a different set of
+    suffixes than the billing audit's copy did, which is how two reports came
+    to disagree about whether two names were the same company.
+    """
+    from hub.client_key import normalise_name
+    return normalise_name(s)
 
 
 def _domain(v) -> str:
@@ -189,6 +194,16 @@ def forget() -> None:
     """Drop the read cache. Called after a write, so a page reads its own change."""
     _CACHE["at"] = 0.0
     _CACHE["rows"] = []
+    # /tools/domains renders a nightly snapshot of this object rather than
+    # pulling it per visit, so a write here has to drop that too — otherwise
+    # ticking "did we buy the domain?" on Client 360 leaves the renewal
+    # calendar showing yesterday's answer until tomorrow, which reads as a
+    # save that did not happen.
+    try:
+        from hub import domain_purchase
+        domain_purchase.invalidate()
+    except Exception:                                   # noqa: BLE001
+        pass
 
 
 def last_error() -> str:
@@ -310,7 +325,7 @@ def client_for_domain(domain: str) -> dict:
         return {}
     return {"client": r["client"], "record_id": r["id"], "domain": r["domain"],
             "field": "Client organization" if r["organization"] else "Client",
-            "why": "The Knack website registry (object_153) records this "
+            "why": "The Knack website registry records this "
                    f"domain against “{r['client']}”."}
 
 
@@ -533,7 +548,7 @@ def domain_record(client: str = "", domain: str = "") -> dict:
         "registrar": reg,
         "writable": configured(),
         "schema_read": bool(meta),
-        "note": ("Written straight to the Knack website record (object_153)."
+        "note": ("Written straight to the website record."
                  if configured() else
                  "Read-only: KNACK_APP_ID / KNACK_API_KEY are not set on this "
                  "deployment, so nothing here can be saved."),
@@ -553,7 +568,7 @@ def registrar_for(domain: str, record: dict | None = None) -> dict:
     rec = record if record is not None else (record_for_domain(d) if d else {})
     if rec.get("registrar"):
         return {"value": rec["registrar"], "source": "knack",
-                "label": "Recorded on the website record (object_153)."}
+                "label": "Recorded on the website record."}
     if not d:
         return {"value": "", "source": "", "label": "No domain to look up."}
     try:
@@ -600,8 +615,21 @@ def _similar(a: str, b: str) -> float:
         return 0.0
     if x == y:
         return 1.0
-    if x in y or y in x:
-        return 0.92
+    # There was a `if x in y or y in x: return 0.92` here, and it was the
+    # substring rule `hub/client_key.py` exists to refuse — scored, on top of
+    # that, above almost every real resemblance. It cost exactly what that
+    # docstring says it costs: a Simvoly project is named "<media partner> -
+    # <business>", so every one of FabLocal's thirty-seven SERVPRO franchises
+    # contained the string "FabLocal" and was offered, top of the list at
+    # 0.92, as the website of **FabLocal**. On this deployment's own portfolio
+    # export the top suggestion was the media partner rather than the client
+    # on 39 of 242 suggested rows. Accepting one files a client's website
+    # under their agency.
+    #
+    # A genuine containment still scores on its own merits and still clears
+    # the threshold — "Smitty's Fireplace" against "Smitty's Fireplace Shop"
+    # is 0.88 — while "Acme" against "Acme Plumbing" is 0.47 and is now
+    # refused, which is the whole point.
     return SequenceMatcher(None, x, y).ratio()
 
 
@@ -625,7 +653,7 @@ def suggest_for(name: str, domain: str = "", threshold: float = 0.72) -> list[di
                 reasons.append(f"domain stem matches ({r['domain']})")
                 score = max(score, 0.85)
         for field, label in (("client_name", "client name"),
-                             ("organization", "organisation")):
+                             ("organization", "organization")):
             s = _similar(name, r.get(field, ""))
             if s >= threshold:
                 reasons.append(f"{label} looks like \"{r[field]}\" ({int(s*100)}%)")
@@ -662,7 +690,7 @@ def enrich(client: str, domain: str = "") -> dict:
         "domain_bought_on": r["domain_bought_on"],
         "domain_renews": r["domain_renews"],
         "registrar": registrar_for(r["domain"], record=r),
-        "note": "From the Knack website registry (object_153). GA and GTM ids "
+        "note": "From the Knack website registry. GA and GTM ids "
                 "here are recorded regardless of whether anyone has connected "
                 "that Google account, so they show even when the live lookup "
                 "finds nothing.",

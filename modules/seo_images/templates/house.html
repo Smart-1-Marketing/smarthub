@@ -91,7 +91,7 @@ function render(rows){
         <td style="color:#475569">${esc(r.notes||'')}</td>
         <td style="color:var(--muted);font-size:12px">${esc(r.added_at||'')}<div>${esc(r.added_by||'')}</div></td>
         <td style="white-space:nowrap;text-align:right">
-          <a class="lnk" href="./?company=${encodeURIComponent(r.name)}&url=${encodeURIComponent(r.url||'')}">Optimise images</a><br>
+          <a class="lnk" href="./?company=${encodeURIComponent(r.name)}&url=${encodeURIComponent(r.url||'')}">Optimize images</a><br>
           <a class="lnk" href="gallery?company=${encodeURIComponent(r.name)}">Gallery</a><br>
           <a class="lnk" style="color:#b91c1c" data-del="${esc(r.slug)}">Remove</a>
         </td></tr>`).join('')

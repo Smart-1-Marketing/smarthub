@@ -267,6 +267,75 @@ check("boat reports", under_root(js.data_dir("boat-reports")), True)
 check("restaurant reports", under_root(js.data_dir("restaurant-reports")), True)
 
 
+# --------------------------------------- 14. one answer to the unbacked-JSON question
+section("Who still writes JSON without the mirror — asked once")
+# /api/db/structure and /api/integrity both report this, on the same
+# Diagnostics page, and they disagreed: structure counted build scripts and
+# integrity did not, so the panel read "1 file writes JSON outside
+# hub/jsonstore.py — ad_builder" directly above an audit of the same question
+# that had found nothing. The file was a one-off script rewriting layout JSON
+# committed to the repo; ad_builder is the Node renderer and keeps no Python
+# state on the data disk at all. Both read hub/jsonstore.py now, so the way
+# this comes back is somebody re-growing a second copy of the rule.
+import importlib
+
+REPO = Path(__file__).resolve().parent
+js_scan = importlib.import_module("hub.jsonstore")
+integrity = importlib.import_module("hub.integrity")
+client_context = importlib.import_module("hub.client_context")
+
+shared = {h["file"] for h in js_scan.unmirrored_json_writers(REPO)}
+audit = {f["file"] for f in integrity.check_unbacked_json()}
+check("the audit reports what the shared rule found", audit <= shared, True)
+check("and reports all of it bar its own reporters",
+      shared - audit <= set(integrity.SELF), True)
+
+# The structure report is the half that was wrong. Assert the count it puts on
+# screen is the shared rule's, not a second reading of the source.
+report = client_context.structure_report()
+check("the structure panel counts the same files",
+      report["json_stores"], len(shared))
+
+# The specific false positive, named: a build script is not a data store.
+script = "modules/ad_builder/scripts/fix_safezones.py"
+check("the build script exists to be excluded", (REPO / script).is_file(), True)
+check("and is excluded, with a reason",
+      bool(js_scan._unmirrored_exempt_reason(script)), True)
+check("so ad_builder is not named as a JSON store",
+      any(h["module"] == "ad_builder" for h in js_scan.unmirrored_json_writers(REPO)),
+      False)
+
+# A scanner used to exempt itself only because its own explanatory text
+# happened to contain the word "jsonstore". Reword the string and it starts
+# reporting itself. Both are named outright now.
+for reporter in ("hub/integrity.py", "hub/client_context.py"):
+    check(f"{reporter} is exempt by name, not by wording",
+          reporter in js_scan.UNMIRRORED_EXEMPT, True)
+
+# An exemption that outlives its file goes on covering whatever is written at
+# that path next, while the audit stays green doing it. The list this replaced
+# had exactly that shape.
+check("no exemption names a file that is gone",
+      js_scan.stale_exemptions(REPO), [])
+check("and the audit says so too", integrity.check_stale_json_exemptions(), [])
+
+
+# ------------------------------- 15. a resolved risk is not an amber finding
+section("The structure panel's own colors")
+# The client-key row is the *resolved* case: the columns still differ and
+# hub/client_key.py joins them on read. renderStructure() painted every
+# non-high level amber, so "this is handled, and here is what handles it" sat
+# in the same colour as a real finding — which is how a panel teaches people to
+# skim past the rows that matter.
+page = (REPO / "hub" / "templates" / "diagnostics.html").read_text()
+check("low renders neutral, not amber",
+      'level==="low" ? "off"' in page, True)
+check("and the header pill ignores resolved rows",
+      'var open=d.risks.filter(function(r){ return r.level!=="low"; });' in page, True)
+levels = {r["level"] for r in report["risks"]}
+check("nothing above low is outstanding", levels - {"low"}, set())
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

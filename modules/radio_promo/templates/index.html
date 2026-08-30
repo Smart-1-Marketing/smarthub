@@ -220,7 +220,24 @@ let assigned = {fifteen:null, thirty:null};
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function say(id, text, cls){ const el=$(id); el.textContent=text||''; el.className='msg'+(cls?' '+cls:''); }
+  // A message that is a *wait* is drawn with the running mark; one that is a
+  // result is not. A bare "Writing…" is indistinguishable from a label
+  // somebody left on the screen, so a model that is thinking and a model that
+  // has died read identically — and only the second is worth knowing about.
+  // hub-thinking.js is injected into every mounted module by HubBar, so
+  // nothing is loaded here; it is still guarded, because a mark that takes
+  // the message down with it is worse than no mark.
+function say(id, text, cls){
+  const el=$(id); if(!el) return;
+  if(el._s1think){ el._s1think.done(); el._s1think=null; }
+  el.className='msg'+(cls?' '+cls:'');
+  if(["ai","scan","wait"].indexOf(cls)>=0 && window.S1Think){
+    el.className='msg';
+    el._s1think = window.S1Think.attach(el, {kind: cls, label: text});
+    return;
+  }
+  el.textContent=text||'';
+}
 function open(id, on){ $(id).classList.toggle('off', !on); }
 
 async function api(path, opts){
@@ -263,7 +280,7 @@ function pickClient(name){
 
 async function start(){
   $('startBtn').disabled = true;
-  say('setupMsg','Reading the site…');
+  say('setupMsg','Reading the site…','scan');
   try{
     const payload = {
       spec: mode==='spec', client: mode==='client' ? $('client').value.trim() : '',
@@ -320,7 +337,7 @@ function pickTone(id){
 
 /* ---------- copy ---------- */
 async function writeScripts(isRevision){
-  say('briefMsg','Writing to the clock…');
+  say('briefMsg','Writing to the clock…','ai');
   try{
     const d = await api('/api/projects/'+P.id+'/scripts', {method:'POST', body:JSON.stringify({
       tone_id:P.tone_id, revision_note: isRevision ? $('revision').value.trim() : ''})});
@@ -493,7 +510,7 @@ async function tightenAndRerecord(slot, words){
 }
 
 async function makeBanner(){
-  say('boothMsg','Writing the banner…');
+  say('boothMsg','Writing the banner…','ai');
   try{
     const d = await api('/api/projects/'+P.id+'/banner', {method:'POST', body:JSON.stringify({with_art:true})});
     P = d.project;

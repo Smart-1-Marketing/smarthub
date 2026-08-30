@@ -42,7 +42,8 @@ from flask import (
 )
 from sqlalchemy import func, select
 
-from . import cloudinary_sink, filing, ghl, providers, taxonomy
+from . import (cloudinary_sink, filing, ghl, profile, providers, taxonomy,
+               upload_sources)
 from .models import (
     DB_BOOT_ERROR, PickerClient, SavedImage, already_saved, get_client,
     get_client_by_token, init_db, new_token, session, slugify, unique_slug,
@@ -85,10 +86,27 @@ ALLOWED_IMAGE_HOSTS = {
 # Signing
 # --------------------------------------------------------------------------- #
 
+def _hub_secret() -> str:
+    """The Hub's signing secret, under every name it answers to.
+
+    This read SECRET_KEY alone. hub/config.py accepts SECRET_KEY,
+    FLASK_SECRET_KEY and SESSION_SECRET, and this deployment sets more than
+    one of them — so on a deployment carrying only one of the others, signing
+    fell through to current_app's key or raised, and the picker refused every
+    build for a reason that named the wrong variable.
+    """
+    try:
+        from hub.config import settings
+        return settings.secret_key
+    except Exception:                                 # noqa: BLE001
+        return (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+                or os.environ.get("SESSION_SECRET") or "")
+
+
 def _secret() -> bytes:
     key = (
         os.environ.get("IMAGE_PICKER_SIGNING_KEY")
-        or os.environ.get("SECRET_KEY")
+        or _hub_secret()
         or current_app.config.get("SECRET_KEY")
         or ""
     )
@@ -285,9 +303,14 @@ def admin():
         counts=counts,
         industries=taxonomy.public_industries(),
         industry_labels={i["key"]: f"{i['icon']} {i['label']}" for i in taxonomy.INDUSTRIES},
+        # Three things the page reports, and only when each is wrong. There is
+        # no roster of green ticks: a service that is working is not a finding,
+        # and a page that reports one anyway buries the client list under it.
+        # Suite reachability is deliberately absent — it is per client, and it
+        # is already a column on the row somebody can act from.
         providers_on=providers.configured_providers(),
         cloudinary_on=cloudinary_sink.configured(),
-        ghl_on=ghl.configured(),
+        upload_source_unknown=upload_sources.unknown(),
         version=os.environ.get("HUB_VERSION", ""),
     )
 
@@ -307,6 +330,9 @@ def staff_picker(client_id: int):
         is_staff=True,
         share_token="",
         providers_on=providers.configured_providers(),
+        profile_questions=profile.QUESTIONS,
+        client_profile=profile.public(client),
+        **_widget_ctx(client, token=""),
     )
 
 
@@ -327,6 +353,8 @@ def client_picker(token: str):
         is_staff=False,
         share_token=token,
         providers_on=providers.configured_providers(),
+        profile_questions=profile.QUESTIONS,
+        client_profile=profile.public(client),
         **_widget_ctx(client, token=token),
     )
 
@@ -368,6 +396,51 @@ def api_taxonomy():
     return jsonify({"ok": True, "industries": taxonomy.public_industries()})
 
 
+@bp.route("/api/profile", methods=["POST"])
+# Each press is an OpenAI call, so this is limited harder than search. A client
+# refining their description a few times is normal; forty in five minutes is
+# not a client.
+@rate_limit(limit=8, window=300)
+@db_guard
+def api_profile():
+    """Save what a General Business client told us, and build their chips.
+
+    Open to a share token as well as staff, for the same reason the upload
+    signature is: the person who can answer "what do you sell" is the client,
+    and the client has no Hub login.
+    """
+    db, client, is_staff = resolve_scope()
+    body = request.get_json(silent=True) or {}
+    category = profile.clean_text(body.get("category"), profile.QUESTIONS[0]["max"])
+    business = profile.clean_text(body.get("profile"), profile.QUESTIONS[1]["max"])
+    if not category and not business:
+        return jsonify({"ok": False,
+                        "error": "Tell us what the business does first."}), 400
+
+    built, error = profile.build(category=category, profile=business,
+                                 client_name=client.name)
+    if not built:
+        return jsonify({"ok": False, "error": error or "Nothing to build from."}), 400
+
+    client.business_category = category or None
+    client.business_profile = business or None
+    client.ai_collections = profile.dumps(built)
+    db.commit()
+
+    _audit("business_profile", client=client.name,
+           category=category, built=built.get("source"),
+           by=("staff" if is_staff else "client"))
+    return jsonify({
+        "ok": True,
+        "profile": profile.public(client),
+        # Said out loud rather than swallowed: chips built from the client's own
+        # words and chips we fell back to are different things, and a staff
+        # screen showing the second as the first is the confident wrong answer.
+        "fell_back": built.get("source") != "ai",
+        "note": (error if is_staff else ""),
+    })
+
+
 @bp.route("/api/search", methods=["POST"])
 @rate_limit(limit=40, window=60)
 @db_guard
@@ -392,7 +465,14 @@ def api_search():
     label = ""
 
     if kind in ("topic", "service") and key:
-        coll = taxonomy.collection(industry_key, "topics" if kind == "topic" else "services", key)
+        # This gallery's own collections first, where it has any. A General
+        # Business client who described a marine upholstery shop browses by
+        # what they described; anyone else browses the curated trade.
+        coll = (profile.collection(client, kind, key)
+                if profile.applies(client, industry_key) else None)
+        if coll is None:
+            coll = taxonomy.collection(
+                industry_key, "topics" if kind == "topic" else "services", key)
         if not coll:
             return jsonify({"ok": False, "error": "That category isn't available for this industry."}), 400
         queries = list(coll["queries"])
@@ -405,6 +485,14 @@ def api_search():
         queries = [free_text]
         if ind and ind["key"] != "general":
             queries.append(f"{free_text} {ind['label'].lower()}")
+        else:
+            # General Business has no trade to blend, which is the whole reason
+            # the two profile questions exist. An answer that was captured must
+            # be used: without this, a client describes their business and
+            # every search they type still returns generic office stock.
+            hint = profile.search_hint(client)
+            if hint:
+                queries.append(f"{free_text} {hint}")
         kind, label = "search", free_text
     else:
         return jsonify({"ok": False, "error": "Pick a category or type what you're looking for."}), 400
@@ -631,11 +719,64 @@ def api_saved():
         .order_by(SavedImage.created_at.desc())
         .limit(limit)
     ).scalars().all()
+
+    # What a vision model saw in each one, where the sweep has reached it.
+    # Carried beside the image rather than merged into it: a description is an
+    # observation and the alt text is what somebody chose, and folding the two
+    # together is how the second gets silently replaced by the first.
+    # Staff only. `/api/saved` also serves the client-facing picker, and what a
+    # model noticed about somebody's photograph is an internal observation with
+    # our name on it — a note reading "low-quality" beside a picture the client
+    # is proud of is not a thing to hand back to them. The search below reads
+    # the same map, so a client's own search falls back to the alt text and the
+    # filename rather than silently matching on text they cannot see.
+    from . import vision as _vision
+    seen = _vision.descriptions_for([r.id for r in rows]) if is_staff else {}
+
+    # Searching what the model saw. Applied after the read rather than in SQL
+    # because the readings live in their own table and a join here would tie
+    # the gallery to a table that may legitimately be empty — a client whose
+    # photographs have not been swept yet must still see their gallery.
+    query = str(request.args.get("q") or "").strip().lower()
+    if query:
+        terms = [t for t in query.split() if t]
+        def _hit(row):
+            d = seen.get(row.id) or {}
+            hay = " ".join([
+                (row.alt_text or ""), (row.filename or ""),
+                (row.collection_label or ""), d.get("description", ""),
+                " ".join(d.get("tags") or []),
+            ]).lower()
+            return all(t in hay for t in terms)
+        rows = [r for r in rows if _hit(r)]
+
     return jsonify({
         "ok": True,
         "client": client.to_dict(include_secrets=is_staff),
-        "images": [r.to_dict() for r in rows],
+        "images": [{**r.to_dict(), "seen": seen.get(r.id)} for r in rows],
+        "q": query,
+        # The state of the sweep, so a gallery with no descriptions can say
+        # which kind of empty it is: nothing swept yet, nothing to sweep, or a
+        # store that would not answer.
+        "vision": _vision.pending_count() if is_staff else None,
     })
+
+
+@bp.route("/api/saved/<int:image_id>/alt-from-description", methods=["POST"])
+@staff_only
+@db_guard
+def api_accept_description(image_id: int):
+    """Take the suggested alt text onto the image — the press, not the sweep.
+
+    Staff only, and a POST: the sweep writes nothing into `alt_text` on its
+    own, because a value somebody typed is the better source and a sweep that
+    overwrote it would do so silently, on work a client may have worded
+    themselves. `vision.accept()` refuses a field that is not empty and says
+    so, rather than reporting a clean success for a write it did not make.
+    """
+    from . import vision as _vision
+    out = _vision.accept(image_id, actor=hub_user())
+    return jsonify(out), (200 if out.get("ok") else 400)
 
 
 @bp.route("/api/saved/<int:image_id>/delete", methods=["POST"])
@@ -646,7 +787,7 @@ def api_delete(image_id: int):
     if not row or row.client_id != client.id:
         return jsonify({"ok": False, "error": "That image isn't in this gallery."}), 404
     if row.cloudinary_public_id:
-        cloudinary_sink.destroy(row.cloudinary_public_id)
+        cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type)
     db.delete(row)
     db.commit()
     # The Suite copy is intentionally left alone: once it is in the client's
@@ -687,7 +828,7 @@ def api_bulk_delete():
             missed.append(image_id)
             continue
         if row.cloudinary_public_id:
-            cloudinary_sink.destroy(row.cloudinary_public_id)
+            cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type)
         db.delete(row)
         removed.append(image_id)
     db.commit()
@@ -815,9 +956,12 @@ def api_retry_suite(image_id: int):
 # relationship, and between them cover every way a small business actually has
 # a photo: on the computer, on the phone, or already on a page somewhere. Set
 # PICKER_UPLOAD_SOURCES to override if that ever changes.
-WIDGET_SOURCES = [s.strip() for s in (
-    os.environ.get("PICKER_UPLOAD_SOURCES") or "local,camera,url"
-).split(",") if s.strip()]
+# Which upload sources the widget offers, and the per-source credentials that
+# change whose consent screen a client sees. Both come from
+# modules/image_picker/upload_sources.py, which holds them as data alongside
+# what each one is for — this used to be a one-line env default of
+# "local,camera,url", which is the poorest list the widget can draw and was
+# nobody's decision.
 
 # Images plus the documents a client sends alongside them. A brochure PDF is
 # part of "their pictures" as far as they are concerned, and refusing it means
@@ -838,10 +982,19 @@ def _upload_folder(client) -> str:
 def _widget_ctx(client, token: str) -> dict:
     """What the upload panel needs to render. Kept in one place so the staff
     gallery and the client's own link cannot drift apart."""
+    sources, unknown = upload_sources.configured()
+    if unknown:
+        # Named rather than forwarded: a source string the widget does not
+        # recognise is a tab that either fails to draw or draws and errors, and
+        # both read as this page being broken.
+        log.warning("image_picker: ignoring unknown upload source(s): %s",
+                    ", ".join(unknown))
     return {
         "upload_token": token or "",
         "client_id": client.id,
-        "sources": WIDGET_SOURCES,
+        "sources": sources,
+        "source_options": upload_sources.widget_options(),
+        "source_line": upload_sources.client_line(),
         "formats": WIDGET_FORMATS,
         "max_bytes": MAX_UPLOAD_BYTES,
     }
@@ -911,7 +1064,11 @@ def api_record_upload():
     # The widget reports which source the visitor picked. Storing it is what
     # lets the gallery group by where a file came from.
     source = str(body.get("source") or "local").strip().lower()[:40]
-    if source not in WIDGET_SOURCES:
+    # Checked against the whole catalogue rather than against what is switched
+    # on right now: a source turned off between the widget opening and the file
+    # landing must not relabel a real Instagram upload as "local", which is the
+    # one thing the gallery's grouping is for.
+    if not upload_sources.known(source):
         source = "local"
 
     db = session()
@@ -1112,6 +1269,31 @@ def api_create_client():
     return jsonify({"ok": True, "client": client.to_dict(include_secrets=True)})
 
 
+@bp.route("/api/clients/for-hub-client", methods=["POST"])
+@staff_only
+@db_guard
+def api_client_upload_link():
+    """The upload link for a Hub client, made on the spot if there isn't one.
+
+    A POST because it can create a gallery, and creating one on a GET is
+    something a reload or a prefetch does without anybody asking. The matching
+    rules live in provisioning.py — exactly one gallery or none, never a
+    substring — because a link that collects a client's photographs into
+    another client's gallery is the worst thing this module can do.
+    """
+    from . import provisioning
+    body = request.get_json(silent=True) or {}
+    out = provisioning.link_for(
+        str(body.get("name") or ""),
+        str(body.get("url") or ""),
+        create=bool(body.get("create")),
+        hub_client_id=str(body.get("hub_client_id") or ""),
+        base=request.url_root,
+        actor=hub_user(),
+    )
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
 @bp.route("/api/clients/<int:client_id>", methods=["POST"])
 @staff_only
 @db_guard
@@ -1159,6 +1341,83 @@ def api_rotate_link(client_id: int):
     client.share_token = new_token()
     db.commit()
     return jsonify({"ok": True, "client": client.to_dict(include_secrets=True)})
+
+
+@bp.route("/api/clients/<int:client_id>/delete", methods=["POST"])
+@staff_only
+@db_guard
+def api_delete_client(client_id: int):
+    """Delete a gallery: its rows, and the Cloudinary files behind them.
+
+    Four things this is careful about, three of them learned elsewhere in the
+    Hub:
+
+    * **The name is typed to confirm.** A delete sitting in a row of five small
+      buttons, next to Pick and Gallery, is one mis-tap from removing a client's
+      only copy of their own photographs. `confirm` has to equal the gallery's
+      name exactly — an OK button does not, because it means the same thing
+      whichever row was clicked.
+
+    * **Cloudinary and the database are reported separately.** "Deleted" and
+      "deleted, and four files are still in Cloudinary" are different outcomes;
+      `hub/domain_links.py` says at length why one tick for both is how somebody
+      learns not to trust the tick.
+
+    * **Uploads are deleted too, and there is no undo.** For a file the client
+      sent us, our copy is very often the only copy — the same warning the bulk
+      image delete carries, one level up.
+
+    * **The Smart 1 Suite copies stay.** Once a file is in the client's media
+      library it may already be in a funnel or an email, and this module has no
+      business reaching into that. Said in the response rather than assumed.
+    """
+    db = session()
+    client = get_client(db, client_id)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found."}), 404
+
+    body = request.get_json(silent=True) or {}
+    typed = str(body.get("confirm") or "").strip()
+    if typed.casefold() != (client.name or "").strip().casefold():
+        return jsonify({
+            "ok": False,
+            "error": f'Type the gallery name exactly — "{client.name}" — to delete it.',
+        }), 400
+
+    rows = db.execute(
+        select(SavedImage).where(SavedImage.client_id == client.id)
+    ).scalars().all()
+
+    # Cloudinary first, while the rows that name the assets still exist. A
+    # public_id we fail to destroy is counted rather than swallowed: the whole
+    # point of saying so is that somebody can go and tidy the folder.
+    files_removed, files_left = 0, 0
+    for row in rows:
+        if not row.cloudinary_public_id:
+            continue
+        if cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type):
+            files_removed += 1
+        else:
+            files_left += 1
+
+    name, in_suite = client.name, sum(1 for r in rows if r.ghl_status == "sent")
+    db.delete(client)            # images cascade with it
+    db.commit()
+
+    _audit("gallery_deleted", client=name, images=len(rows),
+           cloudinary_removed=files_removed, cloudinary_left=files_left)
+
+    note = f"{name} deleted, with {len(rows)} file(s)."
+    if files_left:
+        note += (f" {files_left} could not be removed from Cloudinary and are "
+                 f"still in the account.")
+    if in_suite:
+        note += (f" {in_suite} already in Smart 1 Suite stay in the client's "
+                 f"media library.")
+    return jsonify({"ok": True, "deleted": name, "images": len(rows),
+                    "cloudinary_removed": files_removed,
+                    "cloudinary_left": files_left,
+                    "left_in_suite": in_suite, "note": note})
 
 
 @bp.route("/api/clients/<int:client_id>/probe-suite", methods=["POST"])

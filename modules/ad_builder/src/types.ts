@@ -13,6 +13,8 @@ export type SizeKey =
   | '250x250'
   | '1080x1080'
   | '1200x628'
+  | '1200x1200'
+  | '1200x1500'
   | '1080x1350'
   | '1080x1920'
   | '336x280'
@@ -101,16 +103,34 @@ export interface CreativeConcept {
    */
   backgroundOverlayColor?: string;
   /**
-   * Which part of the background photo survives the crop.
+   * Which part of the background photo survives the crop, as one of the nine
+   * SVG preserveAspectRatio alignments.
    *
-   * A photo is drawn `slice`: it covers the canvas and the overflow is cut
-   * off. On a 300x250 that throws away most of a landscape shot, and which
-   * part it throws away is the difference between a house and a lawn. This is
-   * an SVG preserveAspectRatio alignment ("xMidYMid", "xMidYMin"...); the
-   * build screen offers it as a nine-way grid. Absent means centred, which is
-   * what every ad built before this field did.
+   * Superseded by `backgroundOffset`, and kept because concepts saved before
+   * that existed carry it. A nine-way grid answers "top or bottom" and cannot
+   * answer "a bit further down", which is the note an operator actually
+   * writes — so the grid became a pair of nudge arrows and this converts to
+   * the offset they move. Read only when `backgroundOffset` is absent.
    */
   backgroundPosition?: string;
+  /**
+   * Where the background photo sits, as a fraction of its own overflow.
+   *
+   * 0,0 is centred. -1 shows the left/top edge of the picture, +1 the
+   * right/bottom — exactly what the nine-way grid used to express, and every
+   * position in between, which is the point. Stored as a fraction rather than
+   * pixels so it means the same thing on a 300x250 and a 970x250: the same
+   * part of the picture is showing on both, which is what "the same ad in
+   * eight sizes" has to mean.
+   */
+  backgroundOffset?: { x: number; y: number };
+  /**
+   * How far in the background photo is zoomed, 1 = just covering the canvas.
+   *
+   * Below 1 the picture would not cover and the ad would show through to the
+   * brand colour at the edges, so 1 is the floor rather than a choice.
+   */
+  backgroundZoom?: number;
   conceptId: string;
   name: string;
   /** Which template family renders this concept, e.g. 'T01'. */
@@ -260,6 +280,16 @@ export interface PlatformSizeRule {
   minFontPx?: number;
   /** Platform inserts its own CTA — do not bake one in. */
   noBakedCta?: boolean;
+  /**
+   * Warn when text covers more than this share of the canvas.
+   *
+   * Set only where a platform publishes such a guideline, which today is Meta
+   * and only Meta. Absent means the question is not asked for this size at
+   * all, rather than asked with a lenient number: a display banner is mostly
+   * type by design, and a threshold generous enough never to fire on one is a
+   * threshold that would not catch anything on a Meta feed image either.
+   */
+  textCoverageWarnPct?: number;
   notes?: string;
   /** 'doc' = specified in the background research; 'verify' = needs confirming. */
   source: 'doc' | 'verify';

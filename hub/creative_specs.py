@@ -46,6 +46,18 @@ KB = 1024
 MB = 1024 * KB
 GB = 1024 * MB
 
+# Where a person checks these numbers against the published kit.
+#
+# It is a URL and not a fetch. Nothing in this Hub reads that page at runtime:
+# a spec table pulled live would change what a check says without anyone
+# editing anything, and the first time it did, a creative that passed on
+# Tuesday would fail on Wednesday with no diff to point at. The numbers above
+# are transcribed, deliberately, and this is the address to re-transcribe them
+# from -- printed wherever a verdict is shown so the source of a refusal is
+# one click away rather than folklore.
+SPEC_KIT_URL = "https://smart1.agency/partner/creative-specs"
+
+
 # --------------------------------------------------------------------------
 # The catalogue
 #
@@ -406,6 +418,20 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
                                         "facebook_video", "facebook_carousel",
                                         "stories"]),
     (r"radio|podcast|audio", ["digital_radio"]),
+    # ...and only below it. Four programmatic *video* products are filed
+    # under the card's DISPLAY heading beside banner inventory, and three of
+    # their names contain no word that says so -- "Programmatic - Targeted"
+    # is $17.00 CPM video while "Category" next to it is $4.25 CPM display.
+    # Without this they fall to the generic `display|programmatic` pattern
+    # near the bottom and a video buy is told to deliver a 728x90 and a
+    # 300x250. It sits *under* the audio rule because "Programmatic -
+    # Targeted" is also the $18.00 CPM buy under DIGITAL RADIO, and that one
+    # needs a spot rather than a video. The same four are named in
+    # `creative_needs.EXPLICIT_MEDIUM` for the same reason, and the two lists
+    # are asserted to agree: a product renamed on the card must not silently
+    # revert to the guess in either of them.
+    (r"premium:\s*non-?skippable"
+     r"|programmatic\s*-\s*(targeted|ron\b|run of network)", ["standard_video"]),
     (r"signage|out of home|\bdooh\b|billboard", ["dooh"]),
     (r"e-?mail|admail", ["email"]),
     (r"online video|pre-?roll|\bvideo\b", ["standard_video"]),
@@ -730,4 +756,5 @@ def catalogue() -> dict:
     # 2025" over all of them would misattribute those.
     return {"channels": list(chans.values()),
             "source": "S1M Creative Spec Kit 2025, plus the platform "
-                      "requirement sheets noted on individual units"}
+                      "requirement sheets noted on individual units",
+            "source_url": SPEC_KIT_URL}

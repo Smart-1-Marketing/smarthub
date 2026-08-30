@@ -66,8 +66,18 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 # string so the conversion-point scanner can be tested without fetching
 # anybody's live site. Its <form action="/lead"> is that page's own form --
 # the thing being counted, not a link this Hub serves.
+# test_display_ads.py, a fourth: it asserts what the Display Ad Builder's own
+# screens contain, so an assertion reads `href="/presets"` as a literal. That
+# is the string being looked FOR inside a Node page, not a link this Hub
+# serves -- and /presets is one of the ad builder's own routes, which the note
+# at the top already says Flask cannot judge. Nothing is lost by skipping it:
+# the Hub template that links to that page writes the href as
+# "{{ url_prefix }}/presets", which this file does not extract either, because
+# the pattern wants an href starting with a slash. The same is already true of
+# the "All builds" link beside it.
 SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
-                 "test_ads_module.py", "test_alt_text.py", "test_ads_estimate.py")
+                 "test_ads_module.py", "test_alt_text.py", "test_ads_estimate.py",
+                 "test_display_ads.py")
 
 # Known-good references that are not links in the running app. Empty today:
 # /tools/ads/ lived here while Smart 1 Ads shipped in the repo unmounted, and

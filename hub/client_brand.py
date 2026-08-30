@@ -28,7 +28,7 @@ from hub import audit, seo
 # describe it. Anything not listed is Hub housekeeping and stays out, so the
 # log reads as a record of deliverables rather than a debug feed.
 WORK_KINDS = {
-    "seo_images":           ("Images optimised", "SEO Image Pipeline"),
+    "seo_images":           ("Images optimized", "SEO Image Pipeline"),
     "image_creator":        ("Graphic created", "Image Creator"),
     "image_picker":         ("Images added to library", "Image Picker"),
     "page_image_optimizer": ("Page images fixed", "Page Image Optimizer"),
@@ -39,6 +39,15 @@ WORK_KINDS = {
     "proposal_builder":     ("Proposal generated", "Proposal Builder"),
     "sales_builder":        ("Quote", "Sales Builder"),
     "ads_builder":          ("Ads campaign", "Ads Builder"),
+    # The Display Ad Builder logs under `display_ads`, not under its directory
+    # name — `modules/ad_builder` is the TypeScript renderer and its Hub-side
+    # half lives in `hub/ad_builder_link.py`, which is why `audit.LOG_NAMES`
+    # declares the mapping. This table was keyed on neither, so every build
+    # started and every pack filed against a client was written to the
+    # activity log, kept, and then dropped on the way to the record it was
+    # written for: `work_log()` skips a module it cannot name, and a skipped
+    # module is indistinguishable from a client nobody has done any work for.
+    "display_ads":          ("Display ads", "Display Ad Builder"),
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
     "utm_builder":          ("Tracked links", "UTM Builder"),
@@ -48,6 +57,19 @@ WORK_KINDS = {
     "suite_panel":          ("Suite account", "Suite Panel"),
     "sites_admin":          ("Website", "Sites"),
     "hooks":                ("Suite opportunity", "Smart 1 Suite"),
+    # An ad copy request is work filed against a client, so it is logged
+    # under its own name rather than under `hub` — `work_log()` skips a
+    # module it cannot name, and a skipped module is indistinguishable from
+    # a client nobody has done any work for. That is the `display_ads`
+    # failure above, one tool later.
+    "ad_copy":              ("Ad copy request", "Ad Copy Request"),
+    # A website audit run for a client is work filed against them: somebody
+    # spent a credit reading their site and the answer is what the next
+    # proposal is written from. Named here as well as declared to the activity
+    # log, because `work_log()` skips a module its own table cannot name and a
+    # skipped module reads on the record as a client nobody has done any work
+    # for -- the `display_ads` failure, two tools later.
+    "website_audit":        ("Website audit", "Website Audit"),
 }
 
 
@@ -68,12 +90,88 @@ def _hex(value: str) -> str:
     return v if re.fullmatch(r"#[0-9a-fA-F]{3,8}", v) else ""
 
 
+def _observed(domain: str) -> dict:
+    """What was seen on the client's own website, as a second source."""
+    try:
+        from hub import scan_facts
+        return scan_facts.brand_observed(domain)
+    except Exception:                                   # noqa: BLE001
+        return {"found": False}
+
+
+def _merge(logos: list[dict], colors: list[dict], observed: dict) -> tuple[list, list]:
+    """One set of logos and one palette for the card, from both sources.
+
+    Client 360 drew these as two blocks — a "Brand" card fed by the brand
+    lookup, and a second block underneath fed by what had been read off the
+    client's own website — so the same company's colours appeared twice, in
+    two sizes, under two headings, and the rep had to work out which of them
+    was the brand. For most local businesses the lookup publishes nothing at
+    all, which made the *upper* block the empty one: the card led with "No
+    brand data on file yet" above the logo it plainly had.
+
+    So the card is one card. What does **not** merge is the claim: a logo the
+    client gave us and a logo lifted off their home page are different things,
+    and only the first belongs on a document a client reads. Each tile
+    carries its own origin and `logos` is left exactly as it was, which is
+    what `brand_guide_payload()` pushes to Suite and what `hub/io_prefill.py`,
+    `hub/landing_maker.py` and `hub/client_context.py` read. Merging is a
+    thing this card does for a reader; it is not a thing done to the data.
+
+    A colour is deduped on the hex, so a palette both sources agree on draws
+    once — and it keeps the stored role label when it has one, because
+    "Primary accent" read off a stylesheet is a guess at what the brand calls
+    it and the brand's own answer is not.
+    """
+    tiles = [{"url": l["url"], "origin": "file", "label": "On file",
+              "format": l.get("format") or "", "theme": l.get("theme") or ""}
+             for l in logos if l.get("url")]
+    seen = {c["hex"].upper() for c in colors if c.get("hex")}
+    palette = [{"hex": c["hex"].upper(), "type": c.get("type") or "",
+                "origin": "file"} for c in colors if c.get("hex")]
+
+    if observed and observed.get("found"):
+        if observed.get("logo_url") and observed["logo_url"] not in [t["url"] for t in tiles]:
+            tiles.append({"url": observed["logo_url"], "origin": "site",
+                          "label": "Seen on their website",
+                          "format": "", "theme": ""})
+        for c in (observed.get("colors") or []):
+            hx = str(c.get("hex") or "").upper()
+            if hx and hx not in seen:
+                seen.add(hx)
+                palette.append({"hex": hx, "type": c.get("type") or "",
+                                "origin": "site"})
+    return tiles[:8], palette[:14]
+
+
 def brand_kit(client: str, domain: str = "") -> dict:
-    """Logos, colours and fonts for a client, from stored Brandfetch data.
+    """Logos, colours and fonts for a client, from stored brand data.
 
     Returns a `found: False` shell rather than raising when there's nothing,
     so the card can say "no brand data yet" and offer to fetch it instead of
     disappearing — an absent card looks like a broken page.
+
+    **Why this card was empty for almost every client.** Three things, and
+    each of them looked like nothing being wrong:
+
+    * Client 360 called this with a name and no domain, so the domain-keyed
+      half of the store — which is where every lookup anybody had actually
+      run ended up — was never consulted. The caller passes the client's
+      website now, and `hub/seo.brand_for` tries both.
+    * Nothing but the Suite Panel ever *saved* a lookup, and only when it was
+      handed a `?client=`. Image Creator paid for a live call on every search
+      and threw the answer away. `hub/brand_lookup.py` is the one path now,
+      and it keeps what it paid for.
+    * There was no way to ask for a lookup from here at all. There is a
+      button, because the call is billed and a page load must not spend one.
+
+    And where a lookup genuinely has nothing — which is the ordinary case for
+    a local business that has never registered a brand anywhere — the last
+    site scan usually saw the logo on the client's own home page. That is
+    carried separately as `observed`, labelled as observed, and never folded
+    into `logos`: a logo scraped off a page is a candidate, and the whole
+    point of this card is that a wrong logo on a client-facing document is
+    worse than none.
     """
     payload = None
     try:
@@ -81,10 +179,39 @@ def brand_kit(client: str, domain: str = "") -> dict:
     except Exception:                                   # noqa: BLE001
         payload = None
     if not payload:
+        observed = _observed(domain)
+        # "Nobody has looked yet", "we cannot look" and "we looked and there
+        # is nothing" are three different answers, and only the first is
+        # something to press a button about.
+        try:
+            from hub import brand_lookup
+            ready = brand_lookup.configured()
+            dom = brand_lookup.domain_of(domain)
+        except Exception:                               # noqa: BLE001
+            ready, dom = False, ""
+        if not dom:
+            note = ("No website on this client record, so there is nothing to "
+                    "look a brand up by. Attach one below and the lookup opens.")
+        elif not ready:
+            note = ("No brand data on file, and brand lookup is not switched "
+                    "on for this deployment — see the environment reference "
+                    "on Settings.")
+        else:
+            note = f"No brand data on file yet. Look it up from {dom}."
+        tiles, palette = _merge([], [], observed)
         return {"found": False, "client": client, "domain": domain,
                 "logos": [], "colors": [], "fonts": [],
-                "note": "No brand data on file yet. Running a lookup from "
-                        "Image Creator or Suite Panel will cache it here."}
+                "can_lookup": bool(dom and ready),
+                "lookup_domain": dom,
+                "observed": observed,
+                # Nothing was looked up, and their own website may still have
+                # published a logo and a palette. `found` stays False — it is
+                # the answer to "is there brand data on file" and the lookup
+                # button reads it — while `has_brand` is the answer to "is
+                # there anything to draw", which is what the card asks.
+                "logo_tiles": tiles, "palette": palette,
+                "has_brand": bool(tiles or palette),
+                "note": note}
 
     logos = []
     for logo in (payload.get("logos") or []):
@@ -122,6 +249,9 @@ def brand_kit(client: str, domain: str = "") -> dict:
                           "usage": (f.get("type") if isinstance(f, dict) else "") or "",
                           "google": f"https://fonts.google.com/?query={name}"})
 
+    observed = _observed(domain or payload.get("domain") or "")
+    tiles, palette = _merge(logos[:8], colors[:10], observed)
+
     return {
         "found": True, "client": client,
         "domain": payload.get("domain") or domain,
@@ -135,7 +265,31 @@ def brand_kit(client: str, domain: str = "") -> dict:
         # When the guide was last pushed, so the card can show the state
         # instead of a button that would overwrite it.
         "suite_brand_guide": _pushed_at(client),
+        # A refresh is still offered on a card that has data: brand details
+        # go stale, and the alternative is somebody with a new logo having
+        # nowhere to put it.
+        "can_lookup": bool(_lookup_domain(domain, payload)),
+        "lookup_domain": _lookup_domain(domain, payload),
+        # The website's own sighting, beside the stored kit rather than in
+        # it — useful precisely when the stored kit has colours and no logo.
+        "observed": observed,
+        # The one set the card draws, from both sources, each tile and each
+        # swatch saying which it came from. See `_merge`.
+        "logo_tiles": tiles, "palette": palette,
+        "has_brand": bool(tiles or palette or fonts),
     }
+
+
+def _lookup_domain(domain: str, payload: dict | None = None) -> str:
+    """The domain a refresh would ask about, or '' when none is possible."""
+    try:
+        from hub import brand_lookup
+        if not brand_lookup.configured():
+            return ""
+        return (brand_lookup.domain_of(domain)
+                or brand_lookup.domain_of((payload or {}).get("domain") or ""))
+    except Exception:                                   # noqa: BLE001
+        return ""
 
 
 def _pushed_at(client: str) -> str:

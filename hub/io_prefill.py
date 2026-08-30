@@ -379,7 +379,7 @@ def _ai_read(client: str, text: str, filename: str = "") -> dict | None:
 
     catalogue = _catalogue()
     prompt = _AI_SCHEMA + ("\n".join(f"  - {n}" for n in catalogue)
-                           if catalogue else "  (no catalogue available)")
+                           if catalogue else "  (no catalog available)")
     if len(text) > AI_MAX_CHARS:
         prompt += ("\n\nNote: the document was truncated. Report only what "
                    "appears in the text given.")

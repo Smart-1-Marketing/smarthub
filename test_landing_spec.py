@@ -194,7 +194,7 @@ check("an unknown subject is asked about",
       any("promoting" in q for q in qs), True)
 check("an unusable offer is raised", any("nothing attached" in q for q in qs), True)
 check("a missing area is raised", any("area" in q for q in qs), True)
-check("a general enquiry is challenged", any("general enquiry" in q for q in qs), True)
+check("a general inquiry is challenged", any("general inquiry" in q for q in qs), True)
 check("a call page with no phone number is flagged",
       any("phone number" in q for q in
           spec.open_questions({"geo": "Columbus", "products": ["x"]}, "call", "")), True)

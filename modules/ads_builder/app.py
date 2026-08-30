@@ -169,7 +169,7 @@ def page_proposal(public_id):
         area_population=target_areas.estimated_population,
         shares=[{**r, "url": _share_url(r["token"]),
                  "outcome_label": spec.OUTCOME_LABELS.get(r["outcome"], ""),
-                 "colour": spec.outcome_colour(r["outcome"])}
+                 "color": spec.outcome_colour(r["outcome"])}
                 for r in store.shares_for(public_id)],
         review=store.review_state(public_id),
         needs_recheck=any(e.get("material") and not e.get("rechecked")
@@ -356,7 +356,7 @@ def api_client_respond(token):
         "ok": True,
         "outcome": outcome,
         "label": spec.OUTCOME_LABELS[outcome],
-        "colour": spec.outcome_colour(outcome),
+        "color": spec.outcome_colour(outcome),
         "changes": (updated or {}).get("changes", []),
     })
 
@@ -407,7 +407,7 @@ def oauth_callback():
         store.log_event("GOOGLE_OAUTH_DENIED", current_user(), error=error)
         return render_template("ads_error.html", error=f"Google sign-in was cancelled: {error}"), 400
     if not code:
-        return render_template("ads_error.html", error="Google did not return an authorisation code."), 400
+        return render_template("ads_error.html", error="Google did not return an authorization code."), 400
 
     expected = request.cookies.get("s1ads_oauth_state")
     if expected and state != expected:
@@ -1129,7 +1129,7 @@ def api_list_shares(public_id):
     return jsonify({
         "shares": [{**r, "url": _share_url(r["token"]),
                     "outcome_label": spec.OUTCOME_LABELS.get(r["outcome"], ""),
-                    "colour": spec.outcome_colour(r["outcome"])} for r in rows],
+                    "color": spec.outcome_colour(r["outcome"])} for r in rows],
         "review": store.review_state(public_id),
     })
 

@@ -1,0 +1,191 @@
+{% extends "_layout.html" %}
+{% block title %}Blueprint — {{ project.title }}{% endblock %}
+{% set screen = "commercial_builder.blueprint" %}
+{% block content %}
+
+{% include "_stepper.html" %}
+
+<div class="cb-page-head">
+  <div><h1>Blueprint — {{ client.name }}</h1>
+    <p>Target :{{ '%02d'|format(project.length_seconds) }} ·
+       <span class="cb-status-pill">{{ project.platform|capitalize }}</span> ·
+       <span id="wc-summary">checking narration length…</span></p>
+  </div>
+  <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.voice', project_id=project.id) }}">Continue to Voice &amp; music →</a>
+</div>
+
+{% if length_warning %}
+{# Said again here, not only at the moment of picking. Somebody who ticked
+   three lengths read that warning once, three screens ago, about a different
+   commercial from the one they are now looking at. #}
+<div class="cb-note"><strong>This is a :{{ '%02d'|format(project.length_seconds) }}</strong>
+  <p>{{ length_warning }}</p></div>
+{% endif %}
+
+<div class="cb-card" data-tour="cb-beats" style="margin-bottom:16px;">
+  <h3 style="margin-bottom:10px;">
+    The beats of a :{{ '%02d'|format(project.length_seconds) }}{% if social %} in a feed{% endif %}
+    {{ help_dot('commercial_builder.blueprint.beats') if help_dot is defined else '' }}
+  </h3>
+  <div class="cb-grid {{ 'cb-grid-3' if structure_beats|length == 3 else ('cb-grid-4' if structure_beats|length >= 4 else '') }}">
+    {% for beat in structure_beats %}
+      <div>
+        <div class="cb-badge cb-badge-mock" style="margin-bottom:6px;">{{ beat.start_pct }}%–{{ beat.end_pct }}%</div>
+        <div style="font-weight:650;font-size:13px;margin-bottom:2px;">{{ beat.label }}</div>
+        <p style="margin:0;font-size:12.5px;">{{ beat.guidance }}</p>
+      </div>
+    {% endfor %}
+  </div>
+  {% if social %}
+  <p class="cb-hint" style="margin-top:10px;">{{ social_rules.sound_off_note }}</p>
+  {% endif %}
+</div>
+
+{# The checks, on the screen the work is on.
+   They lived only on Preview, and every one of them is about something here:
+   a scene with no footage, a clip shorter than the scene it sits in,
+   narration outside the word budget. Finding out on the last step meant
+   coming back — and pressing Render then re-ran the identical checks, so the
+   tool answered a question it had just been asked. #}
+{# The published thresholds, scored against the plan.
+   A :30 built one scene per beat came out as three shots averaging ten
+   seconds; Google's own open-source detector wants two. Scoring the PLAN is
+   the point — a pacing problem found on a rendered file is a re-render. #}
+<div class="cb-card" style="margin-bottom:16px;">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">How it scores
+      {{ help_dot('commercial_builder.blueprint.abcd') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-hint" id="abcd-headline"></span>
+  </div>
+  <p class="cb-hint" style="margin-top:0;">
+    {{ shot_targets.note }}
+  </p>
+  <div id="abcd-rows"></div>
+  <details style="margin-top:10px;">
+    <summary style="cursor:pointer;font-size:12.5px;font-weight:640;">What Amazon measured</summary>
+    <table class="cb-table" style="margin-top:8px;">
+      <thead><tr><th>Element</th><th>Lift</th><th>What it means here</th></tr></thead>
+      <tbody>
+      {% for row in lift %}
+        <tr><td>{{ row.element }}</td><td><strong>{{ row.lift }}</strong></td>
+            <td class="cb-muted">{{ row.means }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="cb-hint">Amazon Ads, measured across streaming TV creative. Guidance for
+      building and for the proposal — nothing here fails a spot.</p>
+  </details>
+</div>
+
+{# What the published advertising rules require of this copy.
+   On the Blueprint because this is where the script is written, and the
+   whole value of the check is that the conversation happens before a frame
+   exists rather than after the spot has run. It never says the spot is
+   compliant -- compliance_spec.py says at length why a tick over that
+   question is worse than nothing. #}
+<div class="cb-card" style="margin-bottom:16px;" id="compliance-card">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">What the rules require
+      {{ help_dot('commercial_builder.blueprint.compliance') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-hint" id="compliance-headline"></span>
+  </div>
+  <div id="compliance-rows"><div class="cb-empty">Reading the copy…</div></div>
+  <div id="compliance-ack"></div>
+  <p class="cb-hint" id="compliance-disclaimer" style="margin-bottom:0;"></p>
+</div>
+
+<div class="cb-card" style="margin-bottom:16px;">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">Checks
+      {{ help_dot('commercial_builder.blueprint.checks') if help_dot is defined else '' }}
+    </h3>
+    <button type="button" class="cb-btn cb-btn-sm" id="run-checks-btn">Run checks</button>
+  </div>
+  <p class="cb-hint" style="margin-top:0;">The same checks Render runs. Everything here is
+    fixable on this screen — finding out on the last step means coming back.</p>
+  <div id="qc-list"><div class="cb-empty">Run checks to see results.</div></div>
+</div>
+
+<div class="cb-card" style="margin-bottom:16px;">
+  <div class="cb-flex-between">
+    <div>
+      <h3 style="margin-bottom:2px;">Narration
+        {{ help_dot('commercial_builder.blueprint.narration') if help_dot is defined else '' }}
+      </h3>
+      <p style="margin:0;" id="narration-budget">Counting…</p>
+    </div>
+    <button type="button" class="cb-btn" id="expand-narration-btn">Write more narration</button>
+  </div>
+  <div id="narration-note"></div>
+</div>
+
+<div id="scenes-wrap" data-project-id="{{ project.id }}" data-client-id="{{ client.id }}"
+     data-client-slug="{{ client.slug }}" data-length="{{ project.length_seconds }}"></div>
+
+<template id="scene-card-tpl">
+  <div class="cb-scene-card">
+    <div>
+      <div class="cb-scene-thumb"></div>
+      <div class="cb-scene-time" style="margin-top:6px;"></div>
+    </div>
+    <div>
+      <div class="cb-scene-meta">
+        <span class="cb-scene-drag" title="Drag to reorder">⠿ Shot <span class="scene-num"></span></span>
+        <span class="cb-badge cb-badge-owned beat-badge"></span>
+        <span class="cb-badge cb-badge-mock asset-type-badge"></span>
+      </div>
+      <div class="cb-field"><label class="cb-label">Visual</label><input type="text" class="visual-input"></div>
+      {# Shot grammar. Three fields, and they are not decoration: the two
+         things downstream of a shot are a stock query and a Runway prompt,
+         and both are the difference between "technician working" and
+         "close-up, low angle, slow push — hands on a gauge". #}
+      <div class="cb-grammar">
+        <select class="grammar-size" title="Shot size">
+          {% for o in shot_sizes %}<option value="{{ o.id }}" title="{{ o.hint }}">{{ o.label }}</option>{% endfor %}
+        </select>
+        <select class="grammar-angle" title="Camera angle">
+          {% for o in shot_angles %}<option value="{{ o.id }}" title="{{ o.hint }}">{{ o.label }}</option>{% endfor %}
+        </select>
+        <select class="grammar-move" title="Camera move">
+          {% for o in shot_moves %}<option value="{{ o.id }}" title="{{ o.hint }}">{{ o.label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="cb-field"><label class="cb-label">Narration</label><textarea class="narration-input" rows="2"></textarea></div>
+      <p class="cb-hint spokesperson-note"></p>
+      <div class="asset-picker"></div>
+    </div>
+    <div class="cb-scene-controls">
+      <div class="cb-field" style="width:100%;"><label class="cb-label">Duration (sec)</label><input type="number" step="0.5" min="0.5" class="duration-input"></div>
+
+      {# Two buttons that read as alternatives and are not. "Generate AI" makes
+         a picture; "Generate Video" animates the picture it made — Runway has
+         no usable text-only path, so the second one cannot run before the
+         first. Drawn as one ordered pair with the arrow between them, and the
+         second is disabled until the scene actually has a frame. #}
+      <div class="cb-step-pair">
+        <button class="cb-btn generate-ai-btn" title="Make a still frame for this scene">1 · Make a frame</button>
+        <span class="cb-step-pair-arrow">→</span>
+        <button class="cb-btn generate-video-btn" title="Animate this scene's frame into video">2 · Animate it</button>
+      </div>
+      <p class="cb-hint ai-pair-note" style="margin:2px 0 6px;"></p>
+
+      <div class="cb-scene-actions">
+        <button class="cb-btn find-stock-btn">Find footage</button>
+        <button class="cb-btn spokesperson-btn">Use Spokesperson</button>
+        <button class="cb-btn upload-btn">Upload</button>
+        <button class="cb-btn client-asset-btn">Use Client Asset</button>
+      </div>
+      <div class="cb-scene-actions">
+        <button class="cb-btn more-narration-btn">✎ More narration</button>
+        <button class="cb-btn regen-btn">↻ Regenerate</button>
+        <button class="cb-btn duplicate-btn">⧉ Duplicate</button>
+        <button class="cb-btn cb-btn-danger delete-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/blueprint.js') }}"></script>{% endblock %}

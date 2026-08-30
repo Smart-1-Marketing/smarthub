@@ -1,18 +1,87 @@
 """Voice Studio (spec section 9) — ElevenLabs voice selection, per-scene
 voiceover generation, and per-client pronunciation dictionaries."""
 
+import os
+import tempfile
+
 from flask import Blueprint, jsonify, request
 
 from ..db import db
 from ..models import Client, CommercialProject, Scene
-from ..services import elevenlabs_service
+from ..services import cloudinary_service, elevenlabs_service
+
+# The casting question, shared with the Radio Promo builder. Guarded because
+# this module runs standalone, where there is no hub to read it from.
+try:
+    from hub import voice_casting
+except Exception:                                    # noqa: BLE001
+    voice_casting = None
 
 bp = Blueprint("cb_voices", __name__, url_prefix="/api")
 
 
 @bp.get("/voices")
 def list_voices():
-    return jsonify({"ok": True, "voices": elevenlabs_service.list_voices(), "live": elevenlabs_service.is_live()})
+    return jsonify({"ok": True, "voices": elevenlabs_service.list_voices(),
+                    "live": elevenlabs_service.is_live()})
+
+
+@bp.get("/voice-characteristics")
+def voice_characteristics():
+    """What the read should sound like, as a set of choices.
+
+    The Voice Studio asked for a voice id out of a flat dropdown of everything
+    on the account, in whatever order ElevenLabs returned it and with no way
+    to hear any of it. The Radio Promo builder — same provider, same account,
+    same question — asks what the read should sound like and offers three
+    ranked voices with a preview on each. There is one question now, in
+    hub/voice_casting.py, and both tools ask it.
+    """
+    if voice_casting is None:
+        return jsonify({"ok": True, "characteristics": [], "default": {},
+                        "note": "Voice casting is unavailable outside the Hub."})
+    return jsonify({"ok": True,
+                    # The detailed form: each option carries the words it will
+                    # match on, and energy carries the `style` value it sends.
+                    # A picker built from labels alone gives somebody five rows
+                    # of choices and no idea what any of them does.
+                    "characteristics": voice_casting.characteristics_detail(),
+                    "default": voice_casting.DEFAULT_WANT, "note": ""})
+
+
+@bp.post("/voices/cast")
+def cast_voices():
+    """Rank the account's voices against what the read should sound like.
+
+    A POST because the answer depends on a body of choices, and because the
+    result is not cacheable by URL in any way a reader would expect. It reads
+    only — nothing is saved until a voice is picked.
+    """
+    data = request.get_json(force=True) or {}
+    want = data.get("want") or {}
+
+    # A spot's own tone is a real signal and it has already been captured on
+    # the brief. Folding it into the search terms means the casting starts
+    # somewhere sensible rather than from nothing — the Proposal Builder
+    # shipped four discovery answers that were read by nobody, and this is the
+    # same failure one screen along.
+    project_id = data.get("project_id")
+    if project_id:
+        project = CommercialProject.query.get(project_id)
+        if project:
+            terms = list(want.get("search_terms") or [])
+            tone = (project.brief or {}).get("tone")
+            if tone:
+                terms.append(str(tone))
+            want = {**want, "search_terms": terms}
+
+    matched, note = elevenlabs_service.cast_voices(want, int(data.get("count") or 3))
+    # How many characteristics were actually asked for. "No preference" is not
+    # a question, so counting it would make a voice that matched everything
+    # asked read as "2 of 5".
+    asked = voice_casting.asked_count(want) if voice_casting else 0
+    return jsonify({"ok": True, "voices": matched, "note": note, "asked": asked,
+                    "live": elevenlabs_service.is_live()})
 
 
 @bp.put("/clients/<int:client_id>/pronunciation")
@@ -69,4 +138,72 @@ def generate_full_voiceover(project_id):
         stability=float(data.get("stability", 0.5)), style=float(data.get("style", 0.5)),
         speed=float(data.get("speed", 1.0)), pronunciation_dict=client.pronunciation_dict,
     )
-    return jsonify({"ok": True, "voiceover": result, "live": elevenlabs_service.is_live()})
+
+    # Store it, or the render has no narration on it.
+    #
+    # This was called "preview" and behaved like one: it generated the whole
+    # voiceover, paid ElevenLabs for every character of it, reported the
+    # estimated duration and threw the audio away. `routes/render.py` reads
+    # `project.music["voice_track_url"]` to put the voice track on the
+    # timeline, and nothing in this module had ever written that key — so
+    # every commercial this tool rendered was silent, with no error at either
+    # end. The bytes go to the client's library and the URL onto the project.
+    stored = _store_voice_track(project, client, result)
+    result.update(stored)
+
+    return jsonify({"ok": True, "voiceover": result,
+                    "voice_track_url": (project.music or {}).get("voice_track_url") or "",
+                    "live": elevenlabs_service.is_live()})
+
+
+def _store_voice_track(project, client, result):
+    """Put the generated MP3 somewhere the renderer can reach it.
+
+    Returns what happened, in words, rather than a bare boolean: "no key set",
+    "generated but not stored" and "stored" are three different situations and
+    only the middle one is something to chase.
+    """
+    audio = result.get("audio_bytes")
+    if not audio:
+        if result.get("error"):
+            return {"stored": False, "store_note": f"ElevenLabs refused it: {result['error']}"}
+        return {"stored": False,
+                "store_note": ("Mock mode — no ELEVENLABS_API key is set, so no audio "
+                               "was produced and the render will have no narration.")}
+
+    tmp_path = ""
+    try:
+        # upload_asset takes a path or a URL, not bytes, so the MP3 goes
+        # through a temp file rather than a second upload path being invented
+        # here. Removed in the finally, whatever happens.
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fh:
+            fh.write(audio)
+            tmp_path = fh.name
+        upload = cloudinary_service.upload_asset(
+            tmp_path, client.slug, "voice",
+            public_id=f"project-{project.id}-voice", resource_type="video")
+    except Exception as exc:  # noqa: BLE001
+        return {"stored": False, "store_note": f"The voice track could not be stored: {exc}"}
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    url = upload.get("secure_url")
+    if not url:
+        return {"stored": False,
+                "store_note": ("The voice track was generated but could not be stored, so "
+                               "the render would have no narration. "
+                               + (upload.get("error") or ""))}
+
+    # Merged, never assigned: project.music also carries the mood and level,
+    # and the music panel writes those back.
+    music = dict(project.music or {})
+    music["voice_track_url"] = url
+    music["voice_id"] = (result.get("voice_id")
+                         or music.get("voice_id") or "")
+    project.music = music
+    db.session.commit()
+    return {"stored": True, "store_note": "Stored — the render will carry this narration."}

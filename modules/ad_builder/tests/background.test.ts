@@ -28,7 +28,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import sharp from 'sharp';
-import { compose, inkOverBackground, normaliseHex, resolveBgPosition } from '../src/svg';
+import { compose, coverRect, inkOverBackground, normaliseHex, resolveBgPosition } from '../src/svg';
+import { LOGO_TARGET, paletteVariants } from '../src/palette';
+import { hexLuminance } from '../src/raster';
 import type { Brand, CopySet, SizeLayout } from '../src/types';
 
 const brand: Brand = {
@@ -125,16 +127,74 @@ test('no chosen colour keeps the graded scrim exactly as it was', async () => {
   assert.match(out.svg, /stop-color="#0b1220" stop-opacity="0\.17"/);
 });
 
-test('the crop anchor reaches the image element', async () => {
+test('a legacy crop anchor still places the picture where it always did', async () => {
+  // Concepts saved before the nudge arrays existed carry one of the nine
+  // alignments, and they have to keep meaning the same thing.
   const out = await withPhoto({ backgroundPosition: 'xMidYMin' });
-  assert.match(out.svg, /preserveAspectRatio="xMidYMin slice"/);
+  // 4x4 source on a 300x250 canvas: covers at 300x300, top edge flush.
+  assert.match(out.svg, /<image x="0\.00" y="0\.00" width="300\.00" height="300\.00"/);
 });
 
-test('a crop anchor SVG would not accept never reaches the attribute', async () => {
-  // It is interpolated straight into markup out of a saved campaign file.
+test('a crop anchor SVG would not accept cannot reach the markup', async () => {
+  // It is interpolated out of a saved campaign file. Nothing unrecognised is
+  // emitted at all now — the picture is placed by arithmetic — but the value
+  // still has to be refused rather than carried.
   const out = await withPhoto({ backgroundPosition: 'xMidYMid" onload="x' });
-  assert.match(out.svg, /preserveAspectRatio="xMidYMid slice"/);
   assert.ok(!out.svg.includes('onload'), 'nothing smuggled through the attribute');
+  assert.match(out.svg, /<image x="0\.00" y="-25\.00"/, 'and it falls back to centred');
+});
+
+/* ------------------------------------------------- nudging and zooming */
+
+test('the offset names the part of the picture that shows', () => {
+  // The sign here is the whole thing: -1 means "show me the top", which
+  // slides the picture DOWN until its top edge meets the canvas. Backwards,
+  // every arrow moves the picture the opposite way from the one pressed —
+  // and on a symmetrical photograph that survives a glance.
+  const top = coverRect(400, 400, 300, 250, { offset: { x: 0, y: -1 } });
+  const mid = coverRect(400, 400, 300, 250, { offset: { x: 0, y: 0 } });
+  const bot = coverRect(400, 400, 300, 250, { offset: { x: 0, y: 1 } });
+  assert.equal(top!.y, 0, 'top of the picture flush with the top of the canvas');
+  assert.equal(mid!.y, -25, 'centred leaves equal overflow either side');
+  assert.equal(bot!.y, -50, 'bottom of the picture flush with the bottom');
+});
+
+test('a legacy alignment and its offset are the same placement', () => {
+  for (const [legacy, offset] of [
+    ['xMidYMin', { x: 0, y: -1 }], ['xMidYMid', { x: 0, y: 0 }],
+    ['xMidYMax', { x: 0, y: 1 }], ['xMinYMid', { x: -1, y: 0 }],
+    ['xMaxYMid', { x: 1, y: 0 }],
+  ] as const) {
+    assert.deepEqual(
+      coverRect(400, 400, 300, 250, { legacy }),
+      coverRect(400, 400, 300, 250, { offset }),
+      `${legacy} should place identically to its offset`,
+    );
+  }
+});
+
+test('zoom never drops below covering the canvas', () => {
+  // Under 1 the picture stops covering and the ad shows the brand colour
+  // through its own edges, which is not a look anybody is choosing.
+  const zoomed = coverRect(400, 400, 300, 250, { zoom: 0.2 })!;
+  const plain = coverRect(400, 400, 300, 250, {})!;
+  assert.deepEqual(zoomed, plain);
+  const big = coverRect(400, 400, 300, 250, { zoom: 2 })!;
+  assert.equal(big.w, 600);
+  assert.ok(big.x < 0 && big.y < 0, 'a zoomed picture overhangs on every side');
+});
+
+test('a source with no intrinsic size falls back rather than placing NaN', () => {
+  // sharp reports 0x0 for an SVG, and every number here would be NaN.
+  assert.equal(coverRect(0, 0, 300, 250, {}), null);
+  assert.equal(coverRect(400, 400, 0, 0, {}), null);
+});
+
+test('an offset past the edges is clamped, not extrapolated', () => {
+  assert.deepEqual(
+    coverRect(400, 400, 300, 250, { offset: { x: 0, y: 9 } }),
+    coverRect(400, 400, 300, 250, { offset: { x: 0, y: 1 } }),
+  );
 });
 
 test('with no background image the canvas is still the flat brand field', () => {
@@ -145,4 +205,90 @@ test('with no background image the canvas is still the flat brand field', () => 
     assert.ok(!out.svg.includes('bgScrim'), 'no scrim without a picture');
     assert.ok(!out.svg.includes('preserveAspectRatio'), 'no background image element');
   });
+});
+
+/* ------------------------------------------- a logo nobody can see */
+
+test('a logo that already reads gets no proposals', () => {
+  // Offering four ways to change a palette that works is how a tool teaches
+  // people to ignore it.
+  const out = paletteVariants({
+    brand, logoLuminance: 0.02, behind: 'light',   // near-black mark on white
+  });
+  assert.equal(out.verdict, 'fine');
+  assert.deepEqual(out.variants, []);
+});
+
+test('a dark logo on a dark brand colour gets palettes that make it read', () => {
+  // `primary` is the common case: most families paint the canvas with it,
+  // and unlike `light`/`dark` its name asserts nothing about lightness, so
+  // it is free to move.
+  const out = paletteVariants({
+    brand, logoLuminance: 0.02, behind: 'primary', // near-black on #8C1B1B
+  });
+  assert.equal(out.verdict, 'invisible');
+  assert.ok(out.variants.length, 'something is proposed');
+  for (const v of out.variants) {
+    assert.ok(v.ratio >= LOGO_TARGET, `${v.id} must actually clear the threshold`);
+    // The whole palette, every time. Applying part of one is how a set ends
+    // up half in one scheme and half in another.
+    assert.deepEqual(Object.keys(v.colors).sort(),
+                     ['accent', 'dark', 'light', 'primary', 'secondary']);
+  }
+});
+
+test('the light and dark roles are never inverted to fix a logo', () => {
+  // Setting `light` to near-black fixes the mark and silently changes what
+  // every template means by "light ink" on every other size.
+  const out = paletteVariants({
+    brand, logoLuminance: 0.95, behind: 'light',   // white mark on white
+  });
+  for (const v of out.variants) {
+    assert.ok(hexLuminance(v.colors.light) > 0.5,
+      `${v.id} left the light role at ${v.colors.light}, which is not light`);
+  }
+});
+
+test('nothing is proposed that is the colour it already is', () => {
+  // The shift walk returns the same colour whenever the current one is
+  // already at the end of its range: "#FFFFFF moves to #FFFFFF".
+  const out = paletteVariants({
+    brand, logoLuminance: 0.95, behind: 'light',
+  });
+  for (const v of out.variants) {
+    assert.notEqual(v.colors.light.toUpperCase(), brand.colors.light.toUpperCase());
+  }
+});
+
+test('the client\'s own site colours are offered first', () => {
+  const out = paletteVariants({
+    brand, logoLuminance: 0.02, behind: 'primary',
+    observed: { background: '#F4F1EA' },
+  });
+  assert.equal(out.variants[0].source, 'observed',
+    'observed evidence outranks anything computed from the palette we have');
+  assert.match(out.variants[0].why, /site scan/);
+});
+
+test('fixing the DARK role never makes it light', () => {
+  // A near-black mark on near-black. Lifting `dark` to a lighter charcoal is
+  // a fair proposal and is offered; turning `dark` into a light colour is
+  // not, because every template resolves ink against that role's name and
+  // the fix would silently invert it on every other size.
+  const out = paletteVariants({ brand, logoLuminance: 0.02, behind: 'dark' });
+  assert.equal(out.verdict, 'invisible', 'it is still reported as invisible');
+  for (const v of out.variants) {
+    assert.ok(v.ratio >= LOGO_TARGET, `${v.id} has to actually work`);
+    assert.ok(hexLuminance(v.colors.dark) < 0.5,
+      `${v.id} left the dark role at ${v.colors.dark}, which is not dark`);
+  }
+});
+
+test('a mark that nothing can rescue returns nothing rather than a guess', () => {
+  // A mid-grey logo clears 3:1 against neither white nor black.
+  const grey: typeof brand = { ...brand, colors: { ...brand.colors, primary: '#777777' } };
+  const out = paletteVariants({ brand: grey, logoLuminance: 0.21, behind: 'primary' });
+  for (const v of out.variants) {
+    assert.ok(v.ratio >= LOGO_TARGET, 'anything returned has to actually work');
+  }
 });

@@ -29,6 +29,7 @@ Read-only and cheap: it reads source, never runs it, and touches no API.
 """
 from __future__ import annotations
 
+import ast
 import os
 import pathlib
 import re
@@ -164,10 +165,29 @@ def check_untracked_provider_usage() -> list[dict]:
 
 
 def check_silent_modules() -> list[dict]:
-    """A module that never writes to the activity log is unauditable."""
+    """A module that never writes to the activity log is unauditable.
+
+    The question is whether the module's work is attributable, not whether a
+    string appears inside its own folder — and those came apart on the one
+    module that is not Python. `modules/ad_builder` is a TypeScript renderer
+    whose Hub-side half lives in hub/ad_builder_link.py and
+    hub/ad_builder_proxy.py and files everything under "display_ads"; the check
+    looked in the directory, found one maintenance script, and reported a
+    module that logs as a module that does not. A finding nobody can act on
+    without renaming a log name is a finding people learn to scroll past.
+
+    So the name a module logs under comes from hub/audit.LOG_NAMES, and the
+    search covers hub/ as well as the module's own files.
+    """
+    try:
+        from .audit import LOG_NAMES
+    except Exception:                               # noqa: BLE001
+        LOG_NAMES = {}
+
     out = []
     seen: dict[str, bool] = {}
-    for rel, src in _sources():
+    everything = list(_sources())
+    for rel, src in everything:
         if not rel.startswith("modules/"):
             continue
         mod = _module_of(rel)
@@ -176,6 +196,18 @@ def check_silent_modules() -> list[dict]:
         logs = ("hub import audit" in src or "hub.audit" in src
                 or "audit.log(" in src or "for_module(" in src)
         seen[mod] = seen.get(mod, False) or logs
+
+    # A module whose logging is written elsewhere — declared, and then actually
+    # looked for, so a declaration alone cannot silence this.
+    for mod in [m for m, logs in seen.items() if not logs]:
+        name = LOG_NAMES.get(mod)
+        if not name:
+            continue
+        needles = (f'audit.log("{name}"', f"audit.log('{name}'",
+                   f'for_module("{name}")', f"for_module('{name}')")
+        seen[mod] = any(n in src for rel, src in everything
+                        if rel.startswith("hub/") for n in needles)
+
     for mod, logs in sorted(seen.items()):
         if not logs:
             out.append({
@@ -183,7 +215,9 @@ def check_silent_modules() -> list[dict]:
                 "detail": "Never writes to the activity log, so nothing this "
                           "module does is attributable.",
                 "fix": "log = audit.for_module(\"" + mod + "\") and call it on "
-                       "the actions that matter.",
+                       "the actions that matter. If it logs under another name "
+                       "or from outside its own directory, declare that in "
+                       "hub/audit.py's LOG_NAMES.",
             })
     return out
 
@@ -423,24 +457,18 @@ def check_unbacked_json() -> list[dict]:
     means to get to. It is not a defect on its own: a module here works exactly
     as it always has, right up until the disk is recreated.
     """
-    # Files that legitimately write JSON somewhere other than the data disk:
-    # repo fixtures, build scripts and one-off tools, none of which hold state.
-    exempt_files = {"hub/jsonstore.py", "hub/errors.py", "hub/audit.py",
-                    "modules/ad_builder/scripts/fix_safezones.py",
-                    "ui_check.py"}
+    # The rule itself lives in hub/jsonstore.py, and this reads it rather than
+    # keeping a copy. It kept one until /api/db/structure and this check
+    # disagreed on the same Diagnostics page — that one exempted build scripts
+    # and repo tooling and this one did not, so the panel reported a file
+    # ad_builder does not write to the data disk directly above an audit that
+    # had found nothing. Two answers to one question is worse than either.
+    from . import jsonstore
     out = []
-    for rel, src in _sources():
-        if rel in exempt_files or "/scripts/" in rel or rel.startswith("tools/"):
+    for hit in jsonstore.unmirrored_json_writers(ROOT):
+        rel, mod = hit["file"], hit["module"]
+        if rel in SELF:
             continue
-        if "json.dump(" not in src:
-            continue
-        # json.dump (not dumps) always writes to a file object, so its
-        # presence is the signal. Matching on a "*_DIR" name instead missed
-        # every module that called its directory something else — REPORT_DIR,
-        # REPORTS_DIR — which is most of the ones worth finding.
-        if "jsonstore" in src:
-            continue                    # already mirrored
-        mod = _module_of(rel)
         out.append({
             "file": rel, "module": mod,
             "detail": f"{mod} writes JSON to the persistent disk without a "
@@ -454,6 +482,62 @@ def check_unbacked_json() -> list[dict]:
                    "rebuildable, pass durable=False and say why.",
         })
     return out
+
+
+def check_stale_json_exemptions() -> list[dict]:
+    """Exemptions from the check above that no longer name a real file.
+
+    The exemption list is the one part of an audit that fails silently in the
+    wrong direction: every other finding here is something appearing that
+    should not, and this is something disappearing that should. A path left in
+    the list after its file is deleted goes on covering whatever is written at
+    that path next, and the audit stays green while doing it.
+
+    This one started green — every entry named a file that existed — which is
+    the only way it is worth having. The list it replaced did not: it named
+    ``ui_check.py`` and two modules that had moved to append-only JSONL and so
+    had not matched ``json.dump(`` for some time.
+    """
+    from . import jsonstore
+    return [{
+        "file": rel, "module": "hub",
+        "detail": f"hub/jsonstore.py exempts {rel} from the unbacked-JSON "
+                  f"check, and that path no longer exists. The entry now "
+                  f"covers anything written there next.",
+        "fix": "Drop the entry from jsonstore.UNMIRRORED_EXEMPT, or point it "
+               "at the path the code moved to.",
+    } for rel in jsonstore.stale_exemptions(ROOT)]
+
+
+def check_creative_spec_disagreement() -> list[dict]:
+    """Products the creative gate and the spec kit read as different mediums.
+
+    Two readings of one question: `creative_needs.medium_of()` decides whether
+    to ask a client for creative, and `creative_specs.channels_for_product()`
+    decides what to ask for. They drifted apart on 25 of 90 products, in both
+    directions — display products gated as video, and whole categories (mobile
+    display, email, signage) gated as nothing at all — and every one of them
+    was silent, because each screen is internally consistent on its own.
+
+    High severity for the same reason `creative_medium_drift` is: the failure
+    is a launch date, and nothing anywhere looks wrong until the files arrive.
+    """
+    try:
+        from . import creative_needs
+        rows = creative_needs.spec_disagreements()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/creative_needs.py", "module": "sales_builder",
+        "detail": f'"{r["product"]}" under {r["category"]} is {r["gate"]} to the '
+                  f'creative gate and {"/".join(r["kit"])} to the spec kit. One '
+                  f'decides whether the client is asked for creative and the '
+                  f'other what they are asked for, so the rep is asked for one '
+                  f'thing and judged against another.',
+        "fix": "Reconcile CATEGORY_MEDIUM/EXPLICIT_MEDIUM in hub/creative_needs.py "
+               "with _PRODUCT_CHANNELS in hub/creative_specs.py, or name the pair "
+               "in SPEC_AGREE_EXEMPT with the reason both readings are right.",
+    } for r in rows]
 
 
 def check_creative_medium_drift() -> list[dict]:
@@ -487,6 +571,50 @@ def check_creative_medium_drift() -> list[dict]:
     } for name in missing]
 
 
+def _env_names_read(src: str) -> set[str]:
+    """Environment variable names a file genuinely reads.
+
+    Parsed rather than matched, because the pattern is quoted in prose all over
+    this codebase: the comment above pexels_service's `_key()` explains that it
+    used to read ``os.environ["PEXELS_API_KEY"]``, and a regex reported the
+    explanation of the fix as the defect. A check that flags a file for
+    describing the bug it no longer has is a check people learn to skip.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return set()
+    out: set[str] = set()
+
+    def _is_environ(node) -> bool:
+        return (isinstance(node, ast.Attribute) and node.attr == "environ"
+                and isinstance(node.value, ast.Name) and node.value.id == "os")
+
+    for node in ast.walk(tree):
+        target = None
+        if isinstance(node, ast.Subscript) and _is_environ(node.value):
+            target = node.slice
+        elif (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"get", "setdefault", "pop"}
+                and _is_environ(node.func.value)
+                and node.args):
+            target = node.args[0]
+        elif (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "getenv"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "os"
+                and node.args):
+            # os.getenv is the same read spelled differently, and it is how
+            # modules/sites_admin reached SECRET_KEY past a check that only
+            # knew os.environ.
+            target = node.args[0]
+        if isinstance(target, ast.Constant) and isinstance(target.value, str):
+            out.add(target.value)
+    return out
+
+
 def check_provider_key_drift() -> list[dict]:
     """A module reading one spelling of a key that is set under another.
 
@@ -497,40 +625,52 @@ def check_provider_key_drift() -> list[dict]:
     real footage. hub/config.py already accepts both spellings — the module
     just never asked it.
 
-    The alias groups are read out of hub/config.py's own _first(...) calls
-    rather than restated here, so a provider added to config is covered by this
-    check the same day, and a check that has drifted from the settings it is
-    policing cannot happen.
-    """
-    import re as _re
+    The alias groups come from `hub.config.ALIASES` itself, so a provider added
+    to config is covered by this check the same day, and a check that has
+    drifted from the settings it is policing cannot happen. It used to
+    regex the `_first("A", "B")` calls out of config's source instead, which
+    held right up until those calls were replaced by a table — at which point
+    the check found no groups, reported nothing, and read as a clean bill of
+    health. Importing the table means the same edit cannot silence it twice.
 
+    Two things it deliberately does *not* flag:
+
+      * A read that lists **every** spelling in the group. That is what a
+        fallback beneath `from hub.config import settings` looks like, and it
+        resolves exactly what config would. Flagging it teaches people to
+        ignore the check.
+      * Anything outside hub/ and modules/ — the test files set these variables
+        rather than reading them.
+
+    A file that imports config and *still* reads one spelling is flagged, which
+    is the case the old file-level skip hid: modules/image_creator/assets.py
+    routed its font key through settings and its Brandfetch key through
+    os.environ on the next screen up, and the skip covered the second because
+    of the first.
+    """
     try:
-        cfg = (ROOT / "hub" / "config.py").read_text(errors="ignore")
+        from .config import ALIASES
     except Exception:                               # noqa: BLE001
         return []
-
-    # _first("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY") -> one alias group
-    groups = []
-    for call in _re.findall(r"_first\(([^)]*)\)", cfg):
-        names = _re.findall(r'"([A-Z0-9_]+)"', call)
-        if len(names) > 1:
-            groups.append(names)
-    if not groups:
+    if not ALIASES:
         return []
-    alias_of = {name: names for names in groups for name in names}
+    alias_of = {name: names for names in ALIASES.values() for name in names}
 
     out, seen = [], set()
     for rel, src in _sources():
-        if not rel.startswith("modules/"):
+        if not (rel.startswith("modules/") or rel.startswith("hub/")):
             continue
-        if "from hub.config import" in src or "from hub import config" in src:
-            continue
-        for name in _re.findall(r'os\.environ(?:\.get)?[\(\[]\s*"([A-Z0-9_]+)"', src):
+        read_here = _env_names_read(src)
+        for name in sorted(read_here):
             names = alias_of.get(name)
             if not names or (rel, name) in seen:
                 continue
+            # The whole group present is a fallback, not a drift.
+            if set(names) <= read_here:
+                seen.update((rel, n) for n in names)
+                continue
             seen.add((rel, name))
-            others = [n for n in names if n != name]
+            others = [n for n in names if n != name and n not in read_here]
             out.append({
                 "file": rel, "module": _module_of(rel),
                 "detail": f"{rel} reads {name} directly. The same setting is "
@@ -539,7 +679,9 @@ def check_provider_key_drift() -> list[dict]:
                           f"the others, this module reports the key as missing "
                           f"and degrades silently.",
                 "fix": "Read it through hub.config.settings instead of "
-                       "os.environ, so every spelling in use resolves.",
+                       "os.environ, so every spelling in use resolves. If it "
+                       "genuinely cannot import config, read every name in the "
+                       "group rather than one.",
             })
     return out
 
@@ -558,17 +700,22 @@ CHECKS = [
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
     ("shared_services", "Not yet on shared services", "low", check_shared_services),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
+    ("stale_json_exemptions", "Unbacked-JSON exemption names a missing file",
+     "medium", check_stale_json_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
-    # Severity is deliberately medium, not high, and the reason is the same one
-    # recorded for the two mediums above: this check went in green-adjacent,
-    # with seven pre-existing findings it did not cause. Failing the build on
-    # them would have meant either reverting the check or fixing seven
-    # unrelated modules in the same commit, and a check switched on red is a
-    # check somebody turns off. Each finding is a real silent-degradation bug
-    # and should be cleared as those modules are next touched; raise this to
-    # high once the list is empty.
-    ("provider_key_drift", "Provider key read under one spelling only", "medium",
+    ("creative_spec_disagreement", "Creative gate and spec kit disagree", "high",
+     check_creative_spec_disagreement),
+    # High, as the note that stood here asked for once the list was empty. It
+    # went in at medium with seven pre-existing findings it did not cause,
+    # because a check switched on red is a check somebody turns off; the list
+    # is now empty, hub/ is covered as well as modules/, and os.getenv is read
+    # the same as os.environ. Every finding it can produce is a key that IS
+    # configured being reported as missing, which is silent by construction —
+    # the tool degrades to mock data, the screen looks healthy, and nobody
+    # finds out until a client is waiting on the output. That is worth a red
+    # build, and the fix is one line at the call site.
+    ("provider_key_drift", "Provider key read under one spelling only", "high",
      check_provider_key_drift),
 ]
 

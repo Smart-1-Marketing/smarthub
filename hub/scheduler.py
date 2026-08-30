@@ -297,13 +297,34 @@ def job_refresh_google_index(app) -> dict:
 
     Three hours, offset from the Knack pull so the two are not competing for
     the same worker: a property created this morning is findable this
-    afternoon, and eight sweeps a day is nothing against the Tag Manager
-    daily quota.
+    afternoon. Eight sweeps a day is not free, and the figure is worth having
+    rather than assuming — this login carries 180 Tag Manager accounts, so a
+    clean sweep is a little over 180 requests and eight of them are ~1,500
+    against a daily project quota of 10,000. The margin is in the retries: at
+    two and a half requests per account, which is what a fixed pace was
+    costing, the same eight sweeps are ~3,600.
     """
     try:
         from hub import google_index
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"google_index unavailable ({type(exc).__name__})"}
+
+    # Every job starts due, so a redeploy re-ran this one however recently it
+    # had finished — and this one is 180 rate-limited Tag Manager calls and
+    # seven minutes. On a day of three deploys that is three extra sweeps of
+    # the same accounts, each one hammering the per-user limit the last had
+    # just annoyed, for no information the index did not already hold. Half
+    # the interval: a genuine three-hourly tick always clears it, a restart
+    # minutes after a good sweep never does, and the skip is reported with
+    # the age rather than passed off as a run.
+    every, _fn, _desc = JOBS["google_index"]
+    min_age = every * 60 * 0.5
+    if not google_index.due_for_refresh(min_age):
+        age = google_index.age_seconds()
+        return {"skipped": (f"The index was rebuilt {round((age or 0) / 60)} "
+                            f"minutes ago; the sweep is expensive and nothing "
+                            f"is due yet."),
+                "age_seconds": round(age or 0)}
     try:
         return google_index.build(force=True)
     except Exception as exc:                            # noqa: BLE001
@@ -311,6 +332,147 @@ def job_refresh_google_index(app) -> dict:
         # index simply ages, and status() reports it as stale rather than
         # letting a page believe it is current.
         return {"ok": False, "error": type(exc).__name__}
+
+
+def job_refresh_purchased_domains(app) -> dict:
+    """Re-pull the two sources behind /tools/domains, once a night.
+
+    The page used to pull object_153 in full on every visit to answer a
+    question whose answer changes when somebody buys a domain. This ticks
+    hourly and the module decides: `refresh(force=False)` returns without
+    touching Knack unless the nightly window has passed, so a leader that
+    restarted through that window picks the pull up on its next tick rather
+    than skipping a day in silence.
+
+    The QuickBooks renewal charges ride on the same tick, because "was this
+    billed?" is read off them and a page whose two halves are pulled on
+    different schedules reports one age for an answer that came from the
+    other.
+    """
+    try:
+        from hub import domain_purchase
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        out = domain_purchase.refresh(force=False)
+    except Exception as exc:                            # noqa: BLE001
+        # A Knack outage must not take the scheduler down with it. The stored
+        # snapshot simply ages, and the page says how old it is.
+        out = {"ok": False, "error": type(exc).__name__}
+
+    # The billed column comes from QuickBooks and is cached the same way, so
+    # it is pulled on the same night. Only when the registry pull actually
+    # ran: `refresh(force=False)` returns "not due yet" on every other tick,
+    # and re-reading a year of invoices hourly for an answer that moves once a
+    # month is the per-visit pull wearing a schedule.
+    if out.get("ok") and not out.get("skipped"):
+        try:
+            import datetime as _dt
+
+            from hub import domain_renewals
+            qb = domain_renewals.charges(_dt.date.today().year, refresh=True)
+            # Named, never counted as a failure of this job: the registry half
+            # succeeded, and reporting the whole tick as failed would hide it.
+            out["quickbooks"] = {"charges": len(qb.get("lines") or []),
+                                 "error": qb.get("error") or ""}
+        except Exception as exc:                        # noqa: BLE001
+            out["quickbooks"] = {"charges": 0,
+                                 "error": f"{type(exc).__name__}: {exc}"}
+    return out
+
+
+def job_index_video_backlog(app) -> dict:
+    """Describe another bounded batch of the video background library.
+
+    The library is a back catalogue of a few thousand clips carrying no usable
+    filenames, and each one costs a vision call to describe, so this works
+    through it rather than doing it in one go: twenty clips an hour, with a
+    four-minute wall-clock budget so a slow provider cannot hold up every job
+    behind it on this one thread.
+
+    Safe to run late, skip and repeat, as the job contract requires. Progress
+    lives on the assets themselves as Cloudinary tags rather than in a cursor
+    here, so a missed hour costs an hour and a double run re-reads a handful of
+    already-tagged clips and describes none of them twice.
+    """
+    try:
+        from hub import video_library
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not video_library.can_index():
+        # Not an error and not silence: an unconfigured Hub would otherwise
+        # write an identical failure into the activity log every hour for ever,
+        # which is the noise hub/google_index.py had to learn to stop making.
+        return {"skipped": "CLOUDINARY_URL or OPENAI_API_KEY is not set"}
+    try:
+        return video_library.index_backlog(actor="scheduler")
+    except Exception as exc:                            # noqa: BLE001
+        # A provider outage must not take the scheduler down with it. The
+        # untagged clips simply come back next hour.
+        return {"ok": False, "error": type(exc).__name__}
+
+
+def job_describe_client_uploads(app) -> dict:
+    """Describe another batch of the photographs clients have sent us.
+
+    The same shape as the video sweep above and for the same reason: a client
+    who uploads forty photographs is never going to type forty descriptions,
+    and without one the gallery is forty thumbnails nobody can search. Bounded
+    by a count *and* a wall clock, because scheduler jobs share one thread and
+    a vision call has no useful ceiling on how long it takes.
+    """
+    try:
+        from modules.image_picker import vision
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not vision.can_describe():
+        # Not an error and not silence, per job_index_video_backlog above.
+        return {"skipped": "OPENAI_API_KEY is not set"}
+    try:
+        return vision.describe_backlog(actor="scheduler")
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": type(exc).__name__}
+
+
+def job_social_idea_batches(app) -> dict:
+    """Offer another week's ideas to the clients who are actually swiping.
+
+    `ideas.generate()` was reachable only from a button in the staff queue, so
+    a client who opened their swipe link saw "Nothing to look at just yet" —
+    for ever, unless a strategist had remembered that week. A link nobody has
+    a reason to open is a link nobody opens, and this one is the client's own.
+
+    Hourly ticks, weekly per client: the interval is decided inside
+    `ideas.sweep()` from each client's own last sweep rather than from this
+    job's schedule, so a redeploy cannot offer two batches in a day and a
+    leader that restarted through the window picks the week up rather than
+    skipping it in silence. Same shape as `purchased_domains`, for the same
+    reason.
+
+    Bounded on both axes — eight clients and three minutes — because these are
+    model calls, they share this one thread, and a call has no useful ceiling.
+    Whatever is left is simply due again next hour.
+
+    Safe to run late, skip and repeat, as the job contract requires: a client
+    is marked swept when they are offered a batch, so a double run generates
+    nothing twice.
+    """
+    try:
+        from modules.social_planner import ideas
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context, because the client lookup this enriches a batch with
+        # reads the shared engine — the flask.g trap that had the Google sweep
+        # reporting an empty book from a background thread.
+        result = ideas.sweep(actor="scheduler")
+    if result.get("ok") and not result.get("generated"):
+        # Nothing due is a *state*, not a failure, and an unconfigured Hub
+        # would otherwise write an identical line into the activity log every
+        # hour for ever — the noise hub/google_index.py had to learn to stop
+        # making.
+        return {"skipped": f"no client due ({result.get('clients', 0)} on file)"}
+    return result
 
 
 JOBS = {
@@ -328,6 +490,14 @@ JOBS = {
                           "Refresh public QuickBooks invoice links (3x daily)."),
     "google_index":      (180, job_refresh_google_index,
                           "Re-sweep Google and re-join every account to a client."),
+    "purchased_domains": (60, job_refresh_purchased_domains,
+                          "Re-pull the purchased-domain registry once a night."),
+    "video_backlog":     (60, job_index_video_backlog,
+                          "Describe another batch of the video background library."),
+    "picker_describe":   (60, job_describe_client_uploads,
+                          "Describe another batch of the photos clients sent us."),
+    "social_ideas":      (60, job_social_idea_batches,
+                          "Offer another week's ideas to clients who are swiping."),
 }
 
 

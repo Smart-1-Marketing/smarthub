@@ -161,7 +161,7 @@ check("a clean post raises nothing",
 
 check("an offer we were given is allowed",
       "price" not in codes("Our $89 seasonal tune-up runs through September."))
-check("an offer nobody authorised is blocked",
+check("an offer nobody authorized is blocked",
       level_of("Save with our $50 off any repair this month.", "price") == "block")
 check("a discount nobody supplied is blocked whichever way it is written",
       level_of("Take 20% off your next visit.", "price") == "block")
@@ -303,7 +303,7 @@ check("a plan can be created", r.status_code == 200 and made["ok"], made)
 batch_id = made["batch"]["id"] if made.get("ok") else ""
 check("it is filed against the client",
       made["batch"]["client"] == "Riverstone Heating")
-check("the authorised offer is stored on the plan, not just in the prompt",
+check("the authorized offer is stored on the plan, not just in the prompt",
       made["batch"]["brief"]["offers"] == "$89 tune-up")
 
 r = client.post("/api/batches", json={"client": "X", "month": "2026-09",
@@ -379,7 +379,7 @@ check("every tone option carries an instruction, not just a name",
           for t in sp.TONES.values()))
 guide = sp.tone_guidance(["friendly", "straight"], "no exclamation marks")
 check("picked tones are combined rather than ranked",
-      "neighbourly" in guide and "Plain and direct" in guide, guide)
+      "neighborly" in guide and "Plain and direct" in guide, guide)
 check("and the strategist's own words survive alongside them",
       "no exclamation marks" in guide, guide)
 check("an unknown tone key is ignored rather than passed through",
@@ -454,7 +454,7 @@ check("it is a focus, not a mandate on every post",
 check("the day being marked is named", "Thanksgiving" in prompt)
 check("and the model is told not to invent an offer for it",
       "Claim no offer or event" in prompt)
-check("the tone instruction travels with it", "neighbourly" in prompt)
+check("the tone instruction travels with it", "neighborly" in prompt)
 
 flags = sp.validate_copy(
     "Book a furnace tune-up before the cold sets in.",

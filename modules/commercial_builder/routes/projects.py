@@ -3,11 +3,27 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
+from .. import client_link, compliance_spec, library_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
-                      PLATFORMS, DEFAULT_PLATFORM, qr_eligible, get_structure)
+                      PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
+                      qr_eligible, qr_required, qr_default_on, get_structure,
+                      length_warning, in_build_order, DEFAULT_SHOT_GRAMMAR,
+                      SHOT_NUMBER_STEP, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
+                      CTV_PUBLISHERS, publisher_qr_note, shot_label)
 from ..db import db
-from ..models import Client, CommercialProject, Scene, Campaign, Variation
-from ..services import openai_service, qrcode_service, cloudinary_service
+from ..models import (Client, CommercialProject, Scene, Campaign, Variation,
+                      ComplianceAck)
+from ..services import (openai_service, qrcode_service, cloudinary_service,
+                        qc_service, abcd_service)
+
+# Where a QR code points and whose account the scan is filed under. In hub/
+# rather than here because the answer is the same for anything this Hub puts a
+# code on, and because the "HighLevel publishes no QR endpoint" finding needed
+# a home somebody would find before asking again.
+try:
+    from hub import qr_codes
+except Exception:                                       # noqa: BLE001 — standalone
+    qr_codes = None
 
 bp = Blueprint("cb_projects", __name__, url_prefix="/api/projects")
 
@@ -24,14 +40,48 @@ except Exception:  # noqa: BLE001
 # ---------------------------------------------------------------------------
 @bp.post("")
 def start_commercial():
+    """Start one commercial, or one per length in a single press.
+
+    `length_seconds` still starts one, unchanged, because everything that
+    already calls this route sends it. `lengths` starts several: a client
+    almost never wants only a :30, and building the :15 afterwards meant
+    walking the whole wizard a second time and getting a different concept out
+    of it — the same brief, quoted two ways, which is the failure
+    `modules/sales_builder` exists to have fixed once already.
+
+    Several lengths means several projects rather than one project with four
+    scripts, because a :15 and a :60 are genuinely different edits: different
+    beats, different word budgets, different scenes. They are tied together by
+    a Campaign so they share a concept, which is what `expand_campaign` below
+    was written for and what nothing has ever called.
+    """
     data = request.get_json(force=True) or {}
     client_id = data.get("client_id")
     if not client_id or not Client.query.get(client_id):
         return jsonify({"ok": False, "error": "A valid client_id is required."}), 400
 
-    length = int(data.get("length_seconds", 30))
-    if length not in COMMERCIAL_LENGTHS:
-        return jsonify({"ok": False, "error": f"length_seconds must be one of {COMMERCIAL_LENGTHS}"}), 400
+    requested = data.get("lengths")
+    if requested is None:
+        requested = [data.get("length_seconds", 30)]
+    lengths, seen = [], set()
+    for raw in requested:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value in COMMERCIAL_LENGTHS and value not in seen:
+            seen.add(value)
+            lengths.append(value)
+    if not lengths:
+        return jsonify({"ok": False,
+                        "error": f"Choose at least one length from {COMMERCIAL_LENGTHS}."}), 400
+    if len(lengths) > MAX_LENGTHS_PER_BUILD:
+        return jsonify({"ok": False,
+                        "error": f"At most {MAX_LENGTHS_PER_BUILD} lengths in one build."}), 400
+    # 30, then 15, then the :05, then the :60 — not shortest first. The :30 is
+    # the length the others are cut down from, so it is the one to get approved
+    # before anything else is built. config.BUILD_ORDER says why.
+    lengths = in_build_order(lengths)
 
     formats = data.get("formats") or ["16:9"]
     valid_ids = {f["id"] for f in OUTPUT_FORMATS}
@@ -45,15 +95,92 @@ def start_commercial():
     if platform not in {p["id"] for p in PLATFORMS}:
         platform = DEFAULT_PLATFORM
 
-    project = CommercialProject(
-        client_id=client_id, title=data.get("title") or "Untitled commercial",
-        length_seconds=length, commercial_type=commercial_type, platform=platform,
-        campaign_id=data.get("campaign_id"), status="draft",
-    )
-    project.formats = formats
-    db.session.add(project)
+    client = Client.query.get(client_id)
+    title = (data.get("title") or "").strip()
+
+    # Where the spot is running. On the brief rather than in a new column,
+    # because `create_all()` adds no column to an existing table — and because
+    # this is deliberately the smallest possible version of the publisher
+    # question. It drives one warning today (Amazon takes no QR code) and is
+    # shaped so that growing it into real publisher targeting, or dropping it,
+    # is neither a migration.
+    publishers = [p for p in (data.get("publishers") or [])
+                  if p in {x["id"] for x in CTV_PUBLISHERS}]
+
+    # More than one length is a campaign, so they share a concept rather than
+    # being quoted three different ways.
+    campaign_id = data.get("campaign_id")
+    if len(lengths) > 1 and not campaign_id:
+        campaign = Campaign(client_id=client_id,
+                            name=title or f"{client.name} commercials",
+                            master_concept="")
+        db.session.add(campaign)
+        db.session.flush()
+        campaign_id = campaign.id
+
+    projects = []
+    for length in lengths:
+        project = CommercialProject(
+            client_id=client_id,
+            title=(f"{title} — :{length:02d}" if title and len(lengths) > 1
+                   else title or f"{client.name} :{length:02d}"),
+            length_seconds=length, commercial_type=commercial_type, platform=platform,
+            campaign_id=campaign_id, status="draft",
+        )
+        project.formats = formats
+        if publishers:
+            project.brief = {"publishers": publishers}
+        db.session.add(project)
+        projects.append(project)
     db.session.commit()
-    return jsonify({"ok": True, "project": project.to_dict()}), 201
+
+    # What each length is going to cost, and what the published spec says about
+    # running it on this buy — both said now rather than after the work.
+    notes = []
+    for project in projects:
+        warning = length_warning(project.length_seconds)
+        if warning:
+            notes.append({"length": project.length_seconds, "kind": "cost",
+                          "message": warning})
+        verdict = qc_service.spec_preview(platform, project.length_seconds, formats)
+        if not verdict["passed"]:
+            notes.append({"length": project.length_seconds, "kind": "spec",
+                          "message": verdict["message"]})
+    publisher_note = publisher_qr_note(publishers)
+    if publisher_note:
+        notes.append({"length": 0, "kind": "publisher", "message": publisher_note})
+
+    return jsonify({"ok": True,
+                    "project": projects[0].to_dict(),
+                    "projects": [p.to_dict(include_scenes=False) for p in projects],
+                    "campaign_id": campaign_id,
+                    "notes": notes}), 201
+
+
+@bp.get("/spec-preview")
+def preview_spec():
+    """What the published creative spec says about a spot nobody has built yet.
+
+    Called from the Start page as the length and platform are picked. It is
+    advice, never a block: a :60 CTV cut is a real thing to want for a website
+    or a lobby screen, and a tool that refused it would be wrong. What it must
+    not do is stay quiet until the render.
+    """
+    platform = request.args.get("platform") or DEFAULT_PLATFORM
+    formats = [f for f in (request.args.get("formats") or "16:9").split(",") if f]
+    out = []
+    for raw in (request.args.get("lengths") or "").split(","):
+        try:
+            length = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if length not in COMMERCIAL_LENGTHS:
+            continue
+        verdict = qc_service.spec_preview(platform, length, formats)
+        out.append({"length": length, "passed": verdict["passed"],
+                    "message": verdict["message"],
+                    "cost_warning": length_warning(length)})
+    return jsonify({"ok": True, "lengths": out})
 
 
 @bp.get("")
@@ -80,8 +207,11 @@ def get_structure_guide(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     return jsonify({
         "ok": True,
-        "beats": get_structure(project.length_seconds),
+        "beats": get_structure(project.length_seconds, project.platform),
         "qr_eligible": qr_eligible(project.length_seconds),
+        "qr_required": qr_required(project.length_seconds, project.platform),
+        "qr_default_on": qr_default_on(project.length_seconds, project.platform),
+        "shot_targets": abcd_service.shot_targets(project.length_seconds),
         "platform": project.platform,
     })
 
@@ -101,19 +231,71 @@ def delete_project(project_id):
 def save_brief(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     data = request.get_json(force=True) or {}
-    brief = {
+    # Merged, not replaced — the same trap `set_music` had. The Start page
+    # writes `publishers` onto the brief before this screen is ever opened, so
+    # an assignment here would silently wipe the answer to "where is this
+    # running?" the first time somebody saved the brief, and the Amazon
+    # warning would go quiet with nothing saying why.
+    brief = dict(project.brief or {})
+    brief.update({
         "what_advertising": data.get("what_advertising", ""),
         "primary_cta": data.get("primary_cta", ""),
         "landing_page": data.get("landing_page", ""),
         "phone": data.get("phone", ""),
         "target_audience": data.get("target_audience", ""),
         "tone": data.get("tone") if data.get("tone") in TONE_OPTIONS else (data.get("tone") or ""),
-    }
+    })
+    if "publishers" in data:
+        brief["publishers"] = [p for p in (data.get("publishers") or [])
+                               if p in {x["id"] for x in CTV_PUBLISHERS}]
+    # The archetype — what the spot IS, as distinct from how it gets made.
+    # It lives here rather than on a column because `commercial_type` already
+    # holds both answers and `create_all()` adds no column to an existing
+    # table; `library_spec.archetype_for()` reads the legacy value so a
+    # project saved before this reads as the archetype it always was.
+    if "archetype" in data:
+        chosen = str(data.get("archetype") or "")
+        brief["archetype"] = chosen if chosen in library_spec.ARCHETYPES else ""
+    # What each archetype needs from the client, answered on the same screen
+    # it is asked on. Free text: "which customer" is a name, not an option.
+    for need in library_spec.NEED_KEYS:
+        if need in data:
+            brief[need] = str(data.get(need) or "").strip()[:600]
     project.brief = brief
     if project.status == "draft":
         project.status = "brief"
     db.session.commit()
     return jsonify({"ok": True, "project": project.to_dict()})
+
+
+
+def _with_hub_facts(client) -> dict:
+    """The adopted brand profile, plus what the rest of the Hub holds.
+
+    The profile is a copy taken at adoption -- fonts, pronunciation, preferred
+    voice -- and it is deliberately one-way, so it does not move when the
+    client record does. What it never had is the client's live products, the
+    industry on their Knack record and what their last site scan read off
+    their own pages, and a model writing a :30 for a client of eleven years
+    was working from a name, a color and a tagline.
+
+    `hub/client_context.for_prompt()` is the one reader every AI feature in
+    the Hub appends, so a fact added there reaches the commercial, the
+    campaign generator and the blog writer alike. It carries what is *not* on
+    file with it: a gap a model cannot see is a gap it fills in.
+
+    Never raises, and never writes back to the profile -- adopting is a copy,
+    and the copy is the one a person edited.
+    """
+    profile = client.to_dict()
+    try:
+        from hub.client_context import for_prompt
+        known = for_prompt(client.name or "", client.website or "")
+        if known:
+            profile["hub_record"] = known
+    except Exception:  # noqa: BLE001
+        pass
+    return profile
 
 
 @bp.post("/<int:project_id>/concepts")
@@ -124,7 +306,8 @@ def generate_concepts(project_id):
     if not project.brief or not project.brief.get("what_advertising"):
         return jsonify({"ok": False, "error": "Save a commercial brief before generating concepts."}), 400
 
-    concepts = openai_service.generate_concepts(project.brief, client.to_dict(), project.commercial_type)
+    concepts = openai_service.generate_concepts(
+        project.brief, _with_hub_facts(client), project.commercial_type)
     project.concepts = concepts
     project.selected_concept_id = None
     project.status = "concepts"
@@ -181,7 +364,17 @@ def generate_script(project_id):
         scene.visual_description = sc["visual"]
         scene.is_cta = is_last
         meta = scene.asset_meta or {}
+        # A Scene row is a SHOT now, not a beat. What holds a beat together is
+        # this metadata: every shot in a beat carries the same label and index,
+        # and the Blueprint groups on it. Written here rather than inferred
+        # later, because the beat is the model's answer and re-deriving it from
+        # timings would be guessing at an argument we were told.
         meta["beat"] = sc.get("beat")
+        meta["beat_index"] = sc.get("beat_index")
+        meta["grammar"] = sc.get("grammar") or dict(DEFAULT_SHOT_GRAMMAR)
+        # Numbered in tens, the way a storyboard is, so a shot inserted between
+        # 20 and 30 does not renumber the board.
+        meta["shot_no"] = (idx + 1) * SHOT_NUMBER_STEP
         scene.asset_meta = meta
         if is_last:
             scene.asset_type = "cta"
@@ -201,7 +394,18 @@ def generate_script(project_id):
 def set_music(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     data = request.get_json(force=True) or {}
-    project.music = {"mood": data.get("mood"), "level": data.get("level", "Medium")}
+    # Merged, not replaced.
+    #
+    # This used to assign a fresh two-key dict, which quietly wiped
+    # `voice_track_url` and `music_track_url` — the two keys
+    # routes/render.py reads to put audio on the render. So saving the music
+    # selection after generating a voiceover threw the voiceover away, and
+    # the finished commercial came back silent with nothing reading as an
+    # error anywhere.
+    music = dict(project.music or {})
+    music["mood"] = data.get("mood")
+    music["level"] = data.get("level", "Medium")
+    project.music = music
     db.session.commit()
     return jsonify({"ok": True, "music": project.music})
 
@@ -223,7 +427,13 @@ def set_cta(project_id):
     logo_persistent = bool(data.get("logo_persistent", eligible)) and eligible
 
     website = data.get("website") or client.website or ""
-    qr_target = data.get("qr_target_url") or (project.brief or {}).get("landing_page") or website
+
+    # Where the code sends somebody, and whose account the scan is filed
+    # under. hub/qr_codes.py owns both and refuses to invent a destination —
+    # a code that opens the wrong company's website is worse than an end card
+    # with no code on it, because nobody proof-reads the thing that scans.
+    plan = _qr_plan(project, client, website, data.get("qr_target_url") or "")
+    qr_target = plan["target_url"]
 
     prior_cta = project.cta or {}
     qr_image_url = prior_cta.get("qr_image_url")
@@ -243,8 +453,22 @@ def set_cta(project_id):
         "website": website,
         "phone": data.get("phone") or client.phone or "",
         "qr_enabled": qr_enabled,
+        "qr_required": qr_required(project.length_seconds, project.platform),
+        "qr_default_on": qr_default_on(project.length_seconds, project.platform),
+        # Which of the named publishers refuse a code, so the CTA step can say
+        # so the moment one is chosen rather than at the render.
+        "qr_publisher_note": publisher_qr_note((project.brief or {}).get("publishers")),
         "qr_corner": data.get("qr_corner") or "bottom-right",
         "qr_target_url": qr_target,
+        # What the code actually points at before the tracking was added, and
+        # which field it came from. Both are printed on the CTA step: a rep
+        # who cannot see the destination cannot tell a code aimed at the
+        # campaign landing page from one aimed at the home page.
+        "qr_destination_url": plan["destination_url"],
+        "qr_destination_source": plan["destination_source"],
+        "qr_missing": plan["missing"],
+        "qr_attribution": plan["attribution"],
+        "qr_provider_note": plan["provider_note"],
         "qr_image_url": qr_image_url,
         "qr_data_url": qr_data_url,
         "logo_persistent": logo_persistent,
@@ -254,6 +478,241 @@ def set_cta(project_id):
     }
     db.session.commit()
     return jsonify({"ok": True, "cta": project.cta})
+
+
+def _qr_plan(project, client, website, explicit_target):
+    """The QR decision for this project, or a flat answer when hub/ is absent.
+
+    Standalone there is no Suite and no attribution to report, so the
+    degraded answer says *not measured* rather than drawing a tick over a
+    question nothing asked — the rule the provider check and the Google sweep
+    both work to.
+    """
+    if qr_codes is None:
+        target = explicit_target or (project.brief or {}).get("landing_page") or website
+        return {"target_url": target, "destination_url": target,
+                "destination_source": "", "missing": "",
+                "attribution": {"state": "unknown", "location_id": "", "account": "",
+                                "note": "Not measured — running outside the Hub."},
+                "provider_note": ""}
+
+    if explicit_target:
+        # A destination typed by hand is still tracked and still attributed,
+        # but it is not second-guessed: somebody who pasted a URL meant it.
+        plan = qr_codes.plan(landing_page=explicit_target,
+                             campaign=project.title or "", platform=project.platform,
+                             content=f"{project.length_seconds}s",
+                             client_location_id=_suite_location(client),
+                             client_name=client.name)
+        return plan
+
+    return qr_codes.plan(
+        landing_page=(project.brief or {}).get("landing_page") or "",
+        cta_website=website, client_website=client.website or "",
+        campaign=project.title or "", platform=project.platform,
+        content=f"{project.length_seconds}s",
+        client_location_id=_suite_location(client), client_name=client.name)
+
+
+def _suite_location(client):
+    try:
+        return client_link.suite_location_id(client.name, client.website or "")
+    except Exception:                                    # noqa: BLE001
+        return ""
+
+
+@bp.get("/<int:project_id>/qr-plan")
+def get_qr_plan(project_id):
+    """Where this spot's QR code would point, before anybody saves anything.
+
+    On the CTA step so the destination and the account are visible while the
+    decision is being made rather than after it — the same reason the reach
+    panel sits beside the target areas in the Proposal Builder.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    cta = project.cta or {}
+    plan = _qr_plan(project, client, cta.get("website") or client.website or "", "")
+    return jsonify({"ok": True, "plan": plan,
+                    "eligible": qr_eligible(project.length_seconds),
+                    "required": qr_required(project.length_seconds, project.platform),
+                    "default_on": qr_default_on(project.length_seconds, project.platform),
+                    "publisher_note": publisher_qr_note(
+                        (project.brief or {}).get("publishers"))})
+
+
+# ---------------------------------------------------------------------------
+# Writing more narration.
+#
+# The script writer sizes the read once and stops, which is why a :60 came
+# back reading like a :30 with pauses in it. This writes more, inside the word
+# budget the length actually has — services/openai_service.narration_budget
+# computes the room and the prompt is told the number, because a model asked
+# to "write a bit more" writes a bit more whether there were four words of
+# room or forty.
+# ---------------------------------------------------------------------------
+@bp.post("/<int:project_id>/narration/expand")
+def expand_narration(project_id):
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    data = request.get_json(force=True) or {}
+
+    scenes = project.scenes.order_by(Scene.order_index).all()
+    payload = [s.to_dict() for s in scenes]
+    concept = next((c for c in (project.concepts or [])
+                    if c.get("id") == project.selected_concept_id), None)
+
+    scene_index = data.get("scene_index")
+    if scene_index is not None:
+        try:
+            scene_index = int(scene_index)
+        except (TypeError, ValueError):
+            scene_index = None
+
+    result = openai_service.expand_narration(
+        payload, project.length_seconds, project.brief or {}, client.to_dict(),
+        concept=concept, scene_index=scene_index)
+
+    written = 0
+    for row in result.get("scenes") or []:
+        scene = next((s for s in scenes if s.order_index == row["order_index"]), None)
+        # A locked scene is one somebody has approved. Rewriting its narration
+        # under them is exactly what the lock exists to stop.
+        if scene and not scene.locked:
+            scene.narration = row["narration"]
+            written += 1
+    if written:
+        db.session.commit()
+
+    refreshed = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
+    budget = openai_service.narration_budget(refreshed, project.length_seconds)
+    return jsonify({"ok": True, "written": written, "note": result.get("note", ""),
+                    "budget": budget, "scenes": refreshed,
+                    "live": openai_service.is_live()})
+
+
+# A shared-password session is a true statement about the session and a
+# useless one in a record whose entire value is the name on it. `hub/ad_copy.py`
+# refuses the same way, for the same reason.
+NOT_A_PERSON = {"", "Shared login", "shared login"}
+
+
+def _actor_name():
+    try:
+        from hub import auth as _hub_auth
+        user = _hub_auth.user_from_environ(request.environ)
+        return (getattr(user, "name", None) or getattr(user, "email", None)
+                or str(user or "") or "")[:200]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+@bp.get("/<int:project_id>/compliance")
+def get_compliance(project_id):
+    """Which published rules this spot's copy engages, and who has signed it off.
+
+    Its own route rather than a slice of /qc for the reason /abcd is: the
+    panel is read while the script is being edited, and QC makes an OpenAI
+    call for the spelling pass.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    result = compliance_spec.scan(
+        script=project.script, brief=project.brief, cta=project.cta,
+        client=client.to_dict(), commercial_type=project.commercial_type or "")
+    key = compliance_spec.findings_key(result)
+    ack = (ComplianceAck.query.filter_by(project_id=project.id)
+           .order_by(ComplianceAck.id.desc()).first())
+    return jsonify({
+        "ok": True,
+        "compliance": result,
+        "summary": compliance_spec.summary(result),
+        "needs_acknowledgment": compliance_spec.needs_acknowledgment(result),
+        "findings_key": key,
+        "acknowledgment": ack.to_dict() if ack else None,
+        # A sign-off against a different set of findings is not a sign-off on
+        # this one. Reported rather than silently ignored: "nobody has looked"
+        # and "somebody looked at an earlier cut" are different situations,
+        # and only the second has a name to go back to.
+        "acknowledged": bool(ack and ack.findings_key == key),
+        "superseded": bool(ack and ack.findings_key != key),
+        "not_enforced": compliance_spec.NOT_ENFORCED,
+    })
+
+
+@bp.post("/<int:project_id>/compliance/acknowledge")
+def acknowledge_compliance(project_id):
+    """One explicit "we have checked what these rules require".
+
+    Recorded against a name and against the exact findings that stood at the
+    time — never a boolean on the project, because the question somebody asks
+    later is *who* signed this off and *what did it say then*, and a flag
+    answers neither. The shape `hub/creative_needs.py` uses for a comp
+    confirmation on a low-spend medium.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    body = request.get_json(silent=True) or {}
+    result = compliance_spec.scan(
+        script=project.script, brief=project.brief, cta=project.cta,
+        client=client.to_dict(), commercial_type=project.commercial_type or "")
+
+    actor = _actor_name()
+    if actor in NOT_A_PERSON:
+        # `hub/ad_copy.py`'s rule. "Shared login" is a true statement about
+        # the session and a useless one in a record whose entire value is the
+        # name on it, so it is refused rather than written.
+        return jsonify({"ok": False, "error": (
+            "This session has no account behind it, so there is no name to "
+            "record. Sign in with your own Hub account to acknowledge "
+            "this.")}), 400
+
+    ack = ComplianceAck(
+        project_id=project.id, acknowledged_by=actor,
+        findings_key=compliance_spec.findings_key(result),
+        note=str(body.get("note") or "").strip()[:2000])
+    ack.findings = result.get("findings") or []
+    db.session.add(ack)
+    db.session.commit()
+    _cb_log("commercial_compliance_acknowledged", client=client.name,
+            detail=(f"{project.title or 'Commercial'} · "
+                    + (", ".join(compliance_spec.REGIMES[r]["label"]
+                                 for r in result.get("regimes", []))
+                       or "nothing engaged")),
+            project=project.id)
+    return jsonify({"ok": True, "acknowledgment": ack.to_dict()})
+
+
+@bp.get("/<int:project_id>/abcd")
+def get_abcd(project_id):
+    """How this plan scores against the published thresholds.
+
+    Its own route rather than a slice of /qc, because the Blueprint panel
+    updates as shots are edited and re-running the whole QC set — which makes
+    an OpenAI call for the spelling pass — on every camera-angle change would
+    be a model call per keystroke.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
+    # to_dict() gives the row's own field names; the scorer reads shot shape.
+    shots = [{"start": s["start"], "end": s["end"],
+              "visual": s.get("visual_description") or "",
+              "grammar_note": shot_label((s.get("asset_meta") or {}).get("grammar")),
+              "is_cta": s.get("is_cta")}
+             for s in scenes]
+    return jsonify({"ok": True,
+                    "abcd": abcd_service.score(shots, project.length_seconds,
+                                               project.platform),
+                    "targets": abcd_service.shot_targets(project.length_seconds),
+                    "lift": abcd_service.MEASURED_LIFT})
+
+
+@bp.get("/<int:project_id>/narration/budget")
+def get_narration_budget(project_id):
+    project = CommercialProject.query.get_or_404(project_id)
+    scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
+    return jsonify({"ok": True,
+                    "budget": openai_service.narration_budget(scenes, project.length_seconds)})
 
 
 # ---------------------------------------------------------------------------

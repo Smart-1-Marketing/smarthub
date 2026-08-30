@@ -1,3 +1,4 @@
+{% import "_scan_mark.html" as mark with context %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -70,10 +71,7 @@
     font-style:normal; }
   .steps i.on { background:var(--accent); }
 
-  .spin { display:inline-block; width:15px; height:15px; border:2px solid #fff;
-    border-top-color:transparent; border-radius:50%; animation:sp .7s linear infinite;
-    vertical-align:-2px; margin-right:7px; }
-  @keyframes sp { to { transform:rotate(360deg); } }
+{{ mark.scan_mark_css() }}
   .note { color:var(--muted); font-size:12.5px; margin-top:14px; text-align:center; }
   .brand { text-align:center; margin-top:14px; font-size:12px; color:var(--muted); }
   .brand a { color:var(--muted); }
@@ -159,7 +157,7 @@
       <p class="sub" id="doneSub"></p>
       <ul class="f" id="fullList"></ul>
       <div class="locked" id="deepBox">
-        <b id="deepTitle"><span class="spin" style="border-color:var(--accent);border-top-color:transparent"></span>Running the deep scan…</b>
+        <b id="deepTitle" style="display:flex;align-items:center;gap:7px;color:var(--accent)">{{ mark.scan_mark("16px", "Running the deep scan") }}<span style="color:var(--navy)">Running the deep scan…</span></b>
         <p id="deepSub">We're checking this site against every AI assistant, your
           Google listing, your structured data and 70+ other signals. It takes a
           couple of minutes — we'll show the full report here, and it's on its
@@ -178,6 +176,11 @@
 
 <script>
 (function(){
+  // The dish, rendered once by the shared macro and held as a string:
+  // these two buttons are rebuilt with innerHTML, and a second copy of
+  // the markup written out longhand here is the drift the macro exists
+  // to stop.
+  var MARK = {{ mark.scan_mark("15px", "Working")|string|tojson }};
   var SLUG = {{ w.slug|tojson }};
   var SOURCE = {{ source|tojson }};
   var API = "../api/w/" + encodeURIComponent(SLUG);
@@ -229,7 +232,7 @@
     hide('domainErr');
     var btn = $('checkBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spin"></span>Checking your site…';
+    btn.innerHTML = MARK + ' Checking your site…';
     fetch(API + '/check', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({domain:d, source: SOURCE || document.referrer || ''})
@@ -270,7 +273,7 @@
     });
     hide('unlockErr');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spin"></span>Building your report…';
+    btn.innerHTML = MARK + ' Building your report…';
     fetch(API + '/unlock', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({

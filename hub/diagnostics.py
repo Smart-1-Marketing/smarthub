@@ -67,8 +67,17 @@ def _timed(fn):
 
 
 def _off(key, label, env, what, required=False) -> Check:
+    """A provider that is switched off, and the variable that switches it on.
+
+    `env` may be a setting name from hub.config.ALIASES, in which case every
+    spelling it answers to is named. A fix line that names one of three sends
+    somebody to add a second copy of a variable that was never the problem —
+    and on a Hub whose environment comes from linked Render env groups, the
+    name they were about to add is often already there under another spelling.
+    """
+    names = settings.spellings(env) or env
     return Check(key, label, "off", f"Not configured — {what}", 0, required,
-                 f"Set {env} in the Render dashboard.")
+                 f"Set {names} in the Render dashboard.")
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +112,9 @@ def check_openai() -> Check:
 
 def check_cloudinary() -> Check:
     if not settings.cloudinary_ready:
-        return _off("cloudinary", "Cloudinary", "CLOUDINARY_URL",
+        return _off("cloudinary", "Cloudinary",
+                    "CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY "
+                    "+ CLOUDINARY_API_SECRET)",
                     "uploads go to local disk, which is wiped on every redeploy.")
     def go():
         import cloudinary, cloudinary.api
@@ -123,8 +134,8 @@ def check_cloudinary() -> Check:
 
 def check_brandfetch() -> Check:
     if not settings.brandfetch_key:
-        return _off("brandfetch", "Brandfetch", "BRANDFETCH_API_KEY",
-                    "logo and brand-colour lookup is disabled.")
+        return _off("brandfetch", "Brandfetch", "brandfetch_key",
+                    "logo and brand-color lookup is disabled.")
     def go():
         # Their own domain — a stable, cheap lookup.
         r = requests.get("https://api.brandfetch.io/v2/brands/brandfetch.com",
@@ -143,7 +154,7 @@ def check_brandfetch() -> Check:
 
 def check_insites() -> Check:
     if not settings.insites_key:
-        return _off("insites", "Insites", "INSITES_API_KEY",
+        return _off("insites", "Insites", "insites_key",
                     "Site Scans cannot start an audit.")
     # Still no free endpoint to ping — spending a credit to check whether we
     # can spend credits would be a poor trade. But this used to say "verified
@@ -185,7 +196,7 @@ def check_insites() -> Check:
 
 def check_removebg() -> Check:
     if not settings.remove_bg_key:
-        return _off("removebg", "remove.bg", "REMOVE_BG_API_KEY",
+        return _off("removebg", "remove.bg", "remove_bg_key",
                     "AI background removal is disabled (free white-background "
                     "removal still works).")
     def go():
@@ -229,7 +240,7 @@ def _simple(key, label, env, url, headers=None, params=None, what="",
 
 
 def check_pexels() -> Check:
-    return _simple("pexels", "Pexels", "PEXELS_API", value=settings.pexels_key, url=
+    return _simple("pexels", "Pexels", "pexels_key", value=settings.pexels_key, url=
                    "https://api.pexels.com/v1/search",
                    headers={"Authorization": settings.pexels_key},
                    params={"query": "test", "per_page": 1},
@@ -237,7 +248,7 @@ def check_pexels() -> Check:
 
 
 def check_pixabay() -> Check:
-    return _simple("pixabay", "Pixabay", "PIXABAY_API", value=settings.pixabay_key, url=
+    return _simple("pixabay", "Pixabay", "pixabay_key", value=settings.pixabay_key, url=
                    "https://pixabay.com/api/",
                    params={"key": settings.pixabay_key,
                            "q": "test", "per_page": 3},
@@ -245,7 +256,7 @@ def check_pixabay() -> Check:
 
 
 def check_unsplash() -> Check:
-    return _simple("unsplash", "Unsplash", "UNSPLASH_ACCESS_KEY", value=settings.unsplash_key, url=
+    return _simple("unsplash", "Unsplash", "unsplash_key", value=settings.unsplash_key, url=
                    "https://api.unsplash.com/search/photos",
                    headers={"Authorization":
                             f"Client-ID {settings.unsplash_key}"},
@@ -254,7 +265,7 @@ def check_unsplash() -> Check:
 
 
 def check_google_fonts() -> Check:
-    return _simple("google_fonts", "Google Fonts", "GOOGLE_FONTS_API", value=settings.google_fonts_key, url=
+    return _simple("google_fonts", "Google Fonts", "google_fonts_key", value=settings.google_fonts_key, url=
                    "https://www.googleapis.com/webfonts/v1/webfonts",
                    params={"key": settings.google_fonts_key,
                            "sort": "popularity"},
@@ -263,7 +274,9 @@ def check_google_fonts() -> Check:
 
 def check_ghl() -> Check:
     if not (settings.ghl_token and settings.ghl_company_id):
-        return _off("ghl", "GoHighLevel (Suite)", "GHL_PRIVATE_TOKEN / GHL_COMPANY_ID",
+        return _off("ghl", "GoHighLevel (Suite)",
+                    f"{settings.spellings('ghl_token')} + "
+                    f"{settings.spellings('ghl_company_id')}",
                     "Suite Panel and the billing audits cannot run.")
     def go():
         r = requests.get("https://services.leadconnectorhq.com/locations/search",
@@ -296,12 +309,12 @@ def check_ghl_app() -> Check:
     def go():
         st = ghl_oauth.status()
         if not st["connected"]:
-            return ("warn", "App not authorised yet — connect once from "
+            return ("warn", "App not authorized yet — connect once from "
                             "Suite → Status → Connect.")
         try:
             ghl_oauth.agency_token()
         except Exception as exc:  # noqa: BLE001
-            return ("error", f"Stored authorisation is not usable: {exc}")
+            return ("error", f"Stored authorization is not usable: {exc}")
         # A healthy token that was granted half the scope set is the failure
         # this check exists to catch: nothing is broken today, and the features
         # behind the missing scopes 401 later looking like a bad token. Warn
@@ -345,7 +358,7 @@ def check_google_oauth() -> Check:
         r = requests.get("https://accounts.google.com/.well-known/openid-configuration",
                          timeout=TIMEOUT)
         return ("ok", "Configured. Confirm /auth/google/callback is an "
-                      "authorised redirect URI.") if r.ok else \
+                      "authorized redirect URI.") if r.ok else \
                ("warn", "Configured, but Google's discovery endpoint didn't respond.")
     (state, detail), ms = _timed(go)
     return Check("google_oauth", "Google sign-in", state, detail, ms)

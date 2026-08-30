@@ -19,32 +19,22 @@ from urllib.parse import quote
 
 import requests
 
+from hub import voice_casting
+
 BASE = os.environ.get("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io/v1").rstrip("/")
 MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 
 _cache: dict = {"at": 0.0, "voices": []}
 
-ACCENT_ALIASES = {
-    "american": ["american", "us", "usa", "transatlantic"],
-    "british": ["british", "english", "uk", "received"],
-    "australian": ["australian", "aussie"],
-    "transatlantic": ["transatlantic", "american", "british"],
-}
-ENERGY_WORDS = {
-    "laid_back": ["calm", "relaxed", "soothing", "soft", "chill", "gentle", "meditative"],
-    "conversational": ["conversational", "casual", "natural", "friendly", "warm"],
-    "energetic": ["energetic", "upbeat", "excited", "confident", "expressive"],
-    "explosive": ["intense", "powerful", "shouty", "dramatic", "strong", "energetic"],
-}
-DELIVERY_WORDS = {
-    "announcer": ["announcer", "commercial", "advertisement", "broadcast", "promo"],
-    "narrator": ["narration", "narrator", "audiobook", "documentary"],
-    "best_friend": ["conversational", "casual", "friendly", "social media"],
-    "spokesperson": ["commercial", "advertisement", "professional", "corporate", "news"],
-    "character": ["characters", "animation", "video games", "character"],
-}
-STYLE_BY_ENERGY = {"laid_back": 0.15, "conversational": 0.3,
-                   "energetic": 0.55, "explosive": 0.75}
+# The characteristics, the word tables and the scoring moved to
+# hub/voice_casting.py when the Commercial Builder needed the same casting
+# step. They are re-exported here under their old names so this module's
+# callers and anything importing them are unchanged -- there is one copy, and
+# it is the shared one.
+ACCENT_ALIASES = voice_casting.ACCENT_ALIASES
+ENERGY_WORDS = voice_casting.ENERGY_WORDS
+DELIVERY_WORDS = voice_casting.DELIVERY_WORDS
+STYLE_BY_ENERGY = voice_casting.STYLE_BY_ENERGY
 
 
 class VoiceError(RuntimeError):
@@ -111,74 +101,27 @@ def list_voices(force: bool = False) -> list[dict]:
 
 
 def _score(voice: dict, want: dict) -> tuple[int, list[str]]:
-    labels = voice.get("labels") or {}
-    bag = _norm(" ".join(str(x) for x in [
-        labels.get("description"), labels.get("use_case"), labels.get("usecase"),
-        labels.get("descriptive"), voice.get("description"), voice.get("name")]))
-    score, reasons = 0, []
-
-    want_gender = want.get("gender")
-    if want_gender and want_gender != "any":
-        if _norm(labels.get("gender")) == _norm(want_gender):
-            score += 5
-            reasons.append(want_gender)
-        elif labels.get("gender"):
-            score -= 4
-    want_age = want.get("age")
-    if want_age and want_age != "any" and _norm(labels.get("age")) == _norm(want_age):
-        score += 3
-        reasons.append(str(labels.get("age")).replace("_", " "))
-    want_accent = want.get("accent")
-    if want_accent and want_accent != "any":
-        aliases = ACCENT_ALIASES.get(want_accent, [want_accent])
-        if any(_norm(a) in _norm(labels.get("accent")) for a in aliases):
-            score += 3
-            reasons.append(labels.get("accent"))
-    for key, table in (("energy", ENERGY_WORDS), ("delivery", DELIVERY_WORDS)):
-        picked = want.get(key)
-        if picked:
-            hits = [w for w in table.get(picked, []) if _norm(w) in bag]
-            score += min(len(hits), 2) * 2
-            if hits:
-                reasons.append(picked.replace("_", " "))
-    for term in want.get("search_terms") or []:
-        if _norm(term) and _norm(term) in bag:
-            score += 1
-    if "advertisement" in bag or "commercial" in bag:
-        score += 1
-    seen, unique = set(), []
-    for r in reasons:
-        if r and r not in seen:
-            seen.add(r)
-            unique.append(r)
-    return score, unique
+    return voice_casting.score(voice, want)
 
 
 def _shape(voice: dict, score: int = 0, reasons: list | None = None,
            custom: bool = False) -> dict:
-    labels = voice.get("labels") or {}
-    return {"voice_id": voice.get("voice_id"), "name": voice.get("name"),
-            "preview_url": voice.get("preview_url"),
-            "accent": labels.get("accent", ""), "age": labels.get("age", ""),
-            "gender": labels.get("gender", ""),
-            "descriptor": labels.get("description") or labels.get("descriptive") or "",
-            "use_case": labels.get("use_case") or labels.get("usecase") or "",
-            "match_reasons": reasons or (["added by ID"] if custom else []),
-            "score": score, "custom": custom}
+    return voice_casting.shape(voice, score, reasons, custom)
 
 
 def match_voices(want: dict, count: int = 3) -> list[dict]:
-    voices = list_voices()
-    ranked = []
-    for v in voices:
-        score, reasons = _score(v, want)
-        ranked.append((score, reasons, v))
-    ranked.sort(key=lambda row: row[0], reverse=True)
-    picked = ranked[:max(count, 1)]
-    if not picked:
+    """The best `count` voices for the picked characteristics.
+
+    The ranking is hub/voice_casting's; what stays here is the refusal. That
+    module ranks whatever list it is handed and never reaches the network, so
+    "the account has no voices" is this module's answer to give -- it is the
+    half that knows the key was accepted and the list came back empty.
+    """
+    matched = voice_casting.match(list_voices(), want, count)
+    if not matched:
         raise VoiceError("No voices came back from ElevenLabs. Check the API key "
                          "and that the account has voices in its library.")
-    return [_shape(v, score, reasons) for score, reasons, v in picked]
+    return matched
 
 
 def get_voice(voice_id: str) -> dict:

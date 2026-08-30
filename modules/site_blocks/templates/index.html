@@ -214,9 +214,23 @@
       });
     });
   }
+  // A message that is a *wait* is drawn with the running mark; one that is a
+  // result is not. A bare "Writing…" is indistinguishable from a label
+  // somebody left on the screen, so a model that is thinking and a model that
+  // has died read identically — and only the second is worth knowing about.
+  // hub-thinking.js is injected into every mounted module by HubBar, so
+  // nothing is loaded here; it is still guarded, because a mark that takes
+  // the message down with it is worse than no mark.
   function say(el, text, cls){
-    var n = $(el); n.textContent = text || '';
+    var n = $(el); if(!n) return;
+    if(n._s1think){ n._s1think.done(); n._s1think = null; }
     n.className = 'msg' + (cls ? ' ' + cls : '');
+    if(['ai','scan','wait'].indexOf(cls) >= 0 && window.S1Think){
+      n.className = 'msg';
+      n._s1think = window.S1Think.attach(n, {kind: cls, label: text});
+      return;
+    }
+    n.textContent = text || '';
   }
 
   // ------------------------------------------------------------ left rail
@@ -308,7 +322,7 @@
   function select(i){ state.sel = i; drawBlockList(); drawEditor(); refresh(); }
 
   // ------------------------------------------------------------- editor
-  // Drawn from the catalogue rather than written per block type, so a new
+  // Drawn from the catalog rather than written per block type, so a new
   // block in blocks.py needs no change here.
   function field(spec, value, onChange){
     var wrap = document.createElement('div');
@@ -555,7 +569,7 @@
     if(!state.blocks.length){ say('writeMsg', 'Add a section first.', 'err'); return; }
     var body = {brief: brief, blocks: state.blocks};
     if(!all) body.index = state.sel;
-    say('writeMsg', all ? 'Writing every section…' : 'Writing…');
+    say('writeMsg', all ? 'Writing every section…' : 'Writing…', 'ai');
     $('btnWriteAll').disabled = true;
     $('btnWriteOne').disabled = true;
     api('api/write', {method: 'POST', body: JSON.stringify(body)})
@@ -701,7 +715,7 @@
     }
   }).catch(function(){});
 
-  // Nothing can draw before the catalogue arrives: it is where the block
+  // Nothing can draw before the catalog arrives: it is where the block
   // types, their fields and the themes come from.
   api('api/catalogue').then(function(cat){
     CAT = cat;

@@ -4,6 +4,8 @@ duration, regenerate, replace footage, edit narration, duplicate, delete."""
 from flask import Blueprint, jsonify, request
 
 from ..db import db
+from ..config import (DEFAULT_SHOT_GRAMMAR, SHOT_SIZES, SHOT_ANGLES,
+                      SHOT_MOVES, shot_label)
 from ..models import CommercialProject, Scene, Client
 from ..services import openai_service
 
@@ -39,6 +41,24 @@ def list_scenes(project_id):
     return jsonify({"ok": True, "scenes": [s.to_dict() for s in project.scenes.all()]})
 
 
+def _clean_grammar(grammar):
+    """Only values the vocabularies know. The lists are closed because a
+    `<select>` and a stock query both read them, so a value from neither is
+    replaced by the default rather than written through: "size: banana"
+    reaches a stock search and an AI prompt as a search term.
+    """
+    grammar = grammar or {}
+    allowed = {"size": {x["id"] for x in SHOT_SIZES},
+               "angle": {x["id"] for x in SHOT_ANGLES},
+               "move": {x["id"] for x in SHOT_MOVES}}
+    out = dict(DEFAULT_SHOT_GRAMMAR)
+    for field, values in allowed.items():
+        value = str(grammar.get(field) or "").strip().lower()
+        if value in values:
+            out[field] = value
+    return out
+
+
 @bp.put("/<int:scene_id>")
 def update_scene(project_id, scene_id):
     """Edit narration/visual description, or set asset directly (upload / client asset)."""
@@ -50,6 +70,14 @@ def update_scene(project_id, scene_id):
             setattr(scene, field, data[field])
     if "asset_meta" in data:
         scene.asset_meta = data["asset_meta"]
+    if "grammar" in data:
+        # Merged into asset_meta rather than replacing it: `beat`, `beat_index`
+        # and `shot_no` live in the same dict, and an assignment here would
+        # drop the shot out of its beat the first time somebody changed a
+        # camera angle — the same trap `set_music` had.
+        meta = dict(scene.asset_meta or {})
+        meta["grammar"] = _clean_grammar(data.get("grammar"))
+        scene.asset_meta = meta
     if "duration" in data:
         new_duration = max(float(data["duration"]), 0.5)
         scene.end = scene.start + new_duration

@@ -27,7 +27,6 @@ load_dotenv()
 app = Flask(__name__)
 
 # Standardized webhook variable (falls back to the old name for safety).
-WEBHOOK_URL = (os.getenv("GHL_WEBHOOK_URL") or os.getenv("SMART1_WEBHOOK_URL") or "").strip()
 # Base name / Cloudinary folder for generated report PDFs.
 REPORT_NAME = (os.getenv("REPORT_NAME") or "smart1-ski-report").strip()
 # OpenAI model for the AI market analysis narrative.
@@ -744,13 +743,11 @@ def send_webhook(payload):
             pass
         return {"configured": True, "delivered": bool(out.get("delivered"))}
     except Exception:  # noqa: BLE001
-        pass
-    if not WEBHOOK_URL:
-        return {"configured": False, "delivered": False}
-    resp = requests.post(WEBHOOK_URL, json=payload, timeout=12)
-    if not resp.ok:
-        raise RuntimeError(f"GHL webhook returned {resp.status_code}: {resp.text[:180]}")
-    return {"configured": True, "delivered": True, "status": resp.status_code}
+        # No second route. The inbound Suite webhook this used to fall back to
+        # is retired, so a fallback would post a lead the panel has already
+        # stored at a URL nothing answers.
+        app.logger.exception("Ski lead capture failed")
+        return {"configured": True, "delivered": False}
 
 
 def validate(body):
@@ -777,7 +774,19 @@ def health():
 
 @app.post("/api/partial-lead")
 def partial_lead():
-    """Salvage partial leads (no email required). Always responds {ok: true}."""
+    """Salvage partial leads (no email required). Always responds {ok: true}.
+
+    It goes into the Hub's lead panel, not at the inbound Suite webhook this
+    used to post to: that route is retired, and it was the one lead on this
+    page the panel never saw. The beacon fires on ``pagehide``, so nobody was
+    ever watching when it failed.
+
+    The browser cannot send contact details here — the visitor left before
+    that step — so the panel stores the row and reports, in as many words,
+    that there is no email or phone to make a Suite contact from. That is the
+    resort name and the website of somebody who was part-way through, which is
+    worth having; it is not a contact, and it is not counted as one.
+    """
     try:
         body = request.get_json(silent=True) or {}
         if honeypot_tripped(body) or rate_limited("partial", limit=30):
@@ -798,9 +807,15 @@ def partial_lead():
             if v:
                 payload[k] = v[:300]
         try:
-            send_webhook(payload)
+            from hub import leads as hub_leads
+            hub_leads.capture_and_deliver(
+                source="ski",
+                page="Ski Resort Market Plan (partial)",
+                fields={"name": "", "email": "", "phone": "",
+                        "company": payload.get("resort_name", ""), **payload},
+                client=payload.get("resort_name", ""))
         except Exception as exc:
-            app.logger.warning("Partial-lead webhook failed: %s", exc)
+            app.logger.warning("Partial-lead capture failed: %s", exc)
     except Exception:
         app.logger.exception("Partial-lead handling failed")
     return jsonify({"ok": True})

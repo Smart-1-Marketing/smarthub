@@ -290,7 +290,7 @@ def _optimise_and_store(client: str, post: dict, img: dict) -> dict:
     try:
         from PIL import Image
     except Exception:                                   # noqa: BLE001
-        return {"note": "Pillow unavailable — stored unoptimised."}
+        return {"note": "Pillow unavailable — stored unoptimized."}
 
     raw = b""
     if img.get("b64"):
@@ -306,7 +306,7 @@ def _optimise_and_store(client: str, post: dict, img: dict) -> dict:
         except Exception:                               # noqa: BLE001
             raw = b""
     if not raw:
-        return {"note": "Couldn't retrieve the image bytes to optimise."}
+        return {"note": "Couldn't retrieve the image bytes to optimize."}
 
     try:
         im = Image.open(io.BytesIO(raw))
@@ -316,7 +316,7 @@ def _optimise_and_store(client: str, post: dict, img: dict) -> dict:
         im.save(buf, "WEBP", quality=82, method=6)
         data = buf.getvalue()
     except Exception as exc:                            # noqa: BLE001
-        return {"note": f"Couldn't optimise ({type(exc).__name__})."}
+        return {"note": f"Couldn't optimize ({type(exc).__name__})."}
 
     slug = re.sub(r"[^a-z0-9]+", "-",
                   str(post.get("title") or "post").lower()).strip("-")[:60]
@@ -325,7 +325,7 @@ def _optimise_and_store(client: str, post: dict, img: dict) -> dict:
         from hub.config import settings
         if not settings.cloudinary_ready:
             return {"bytes": len(data),
-                    "note": "Optimised, but Cloudinary isn't configured so it "
+                    "note": "Optimized, but Cloudinary isn't configured so it "
                             "wasn't filed in the gallery."}
         folder = f"{settings.folder('seo_images')}/{_slug(client)}/{FOLDER}"
         res = cloudinary.uploader.upload(
@@ -342,11 +342,11 @@ def _optimise_and_store(client: str, post: dict, img: dict) -> dict:
             pass
         return {"url": res.get("secure_url"), "bytes": len(data),
                 "folder": folder,
-                "note": f"Optimised to {len(data)//1024} KB and filed under "
+                "note": f"Optimized to {len(data)//1024} KB and filed under "
                         f"{FOLDER}."}
     except Exception as exc:                            # noqa: BLE001
         return {"bytes": len(data),
-                "note": f"Optimised but not filed ({type(exc).__name__})."}
+                "note": f"Optimized but not filed ({type(exc).__name__})."}
 
 
 def _slug(v: str) -> str:

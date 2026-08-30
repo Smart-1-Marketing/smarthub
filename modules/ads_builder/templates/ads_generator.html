@@ -1,5 +1,7 @@
 {% extends "ads_base.html" %}
 {% set active = 'generator' %}
+{% set screen = 'ads_builder.generator' %}
+{% set walkthrough = 'ads_builder.first_campaign' %}
 {% block title %}Campaign generator{% endblock %}
 {% block strap %}Build a full Google Ads search campaign from a landing page and a budget{% endblock %}
 
@@ -52,11 +54,11 @@
 
 <form id="gen" onsubmit="return false">
   {# The client comes first and is looked up, not typed. A campaign filed under
-     a name nobody recognises does not reach the client's record, and a name
+     a name nobody recognizes does not reach the client's record, and a name
      typed slightly differently ("Riverside HVAC" vs "Riverside HVAC LLC")
      reaches the wrong one — which is worse. #}
-  <div class="card">
-    <h3>Client <span class="sub">look one up, or start a new one</span></h3>
+  <div class="card" data-tour="ads-client">
+    <h3>Client {{ help_dot('ads_builder.generator.client') if help_dot is defined else '' }} <span class="sub">look one up, or start a new one</span></h3>
 
     <div id="clientSearch">
       <div class="field">
@@ -81,8 +83,8 @@
     </div>
 
     <div id="clientNew" style="display:none">
-      <div class="note n-info">
-        <b>New client</b>
+      <div class="note n-info" data-tour="ads-newclient">
+        <b>New client {{ help_dot('ads_builder.generator.newclient') if help_dot is defined else '' }}</b>
         They are not in the client list, so they go into Smart 1 Suite as a <strong>lead</strong> — not into
         the Knack client record, which this Hub does not write to. The campaign and its proposal are
         filed under this name and website, so they join the client record the day it exists.
@@ -110,11 +112,11 @@
     <div class="grid g2">
       <div class="field"><label>Client / business name</label>
         <input id="businessName" placeholder="Northside Roofing Co" required></div>
-      <div class="field"><label>Landing page URL</label>
+      <div class="field" data-tour="ads-landing"><label>Landing page URL {{ help_dot('ads_builder.generator.landing') if help_dot is defined else '' }}</label>
         <input id="websiteUrl" placeholder="https://northsideroofing.com/roof-repair" required></div>
       <div class="field"><label>Primary objective</label>
         <select id="objective">{% for o in objectives %}<option>{{ o }}</option>{% endfor %}</select></div>
-      <div class="field"><label>Sector</label>
+      <div class="field"><label>Sector {{ help_dot('ads_builder.generator.sector') if help_dot is defined else '' }}</label>
         <select id="sector" onchange="checkBudget()">
           {% for s in sectors %}
             <option value="{{ s.key }}" {{ 'selected' if s.key=='general' }}>{{ s.label }} (${{ s.low }}–${{ s.high }} CPC)</option>
@@ -133,8 +135,8 @@
      one campaign in four places, and typing them into a single field makes the
      reach estimate size them as one — hub/target_areas.py exists for exactly
      this, and this is the same list the Proposal Builder captures. #}
-  <div class="card">
-    <h3>Where the ads run <span class="sub">one campaign can target several areas</span></h3>
+  <div class="card" data-tour="ads-areas">
+    <h3>Where the ads run {{ help_dot('ads_builder.generator.areas') if help_dot is defined else '' }} <span class="sub">one campaign can target several areas</span></h3>
     <div id="areaRows"></div>
     <div class="row" style="margin-top:10px">
       <button type="button" class="b-sm" onclick="addArea()">+ Add another area</button>
@@ -146,7 +148,7 @@
   <div class="card">
     <h3>About the business <span class="sub">this is what the AI plans the campaign from</span></h3>
     <div class="grid g2">
-      <div class="field"><label>Are they targeting…</label>
+      <div class="field"><label>Are they targeting… {{ help_dot('ads_builder.generator.audience') if help_dot is defined else '' }}</label>
         <select id="audienceType">
           <option value="">Not sure yet</option>
           {% for a in audience_types %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
@@ -168,7 +170,7 @@
 
     <div class="grid g2">
       <div class="field">
-        <label>Is the business or campaign seasonal?</label>
+        <label>Is the business or campaign seasonal? {{ help_dot('ads_builder.generator.seasonal') if help_dot is defined else '' }}</label>
         <div class="row">
           <label class="pick"><input type="radio" name="seasonal" value="" checked> Not asked</label>
           <label class="pick"><input type="radio" name="seasonal" value="yes"> Yes</label>
@@ -189,8 +191,8 @@
       </div>
     </div>
 
-    <div class="field">
-      <label>What do they want from the campaign? <span style="font-weight:400">(choose as many as apply)</span></label>
+    <div class="field" data-tour="ads-goals">
+      <label>What do they want from the campaign? {{ help_dot('ads_builder.generator.goals') if help_dot is defined else '' }} <span style="font-weight:400">(choose as many as apply)</span></label>
       <div class="picks" id="conversionActions">
         {% for key, label, note in conversion_actions %}
           <label class="pick" title="{{ note }}">
@@ -203,7 +205,7 @@
     </div>
 
     <div class="field">
-      <label>Is there anything we should <em>not</em> be targeting?</label>
+      <label>Is there anything we should <em>not</em> be targeting? {{ help_dot('ads_builder.generator.donottarget') if help_dot is defined else '' }}</label>
       <textarea id="doNotTarget" style="min-height:64px"
                 placeholder="Anything the client ruled out — commercial work, a service they're dropping, a town they don't cover…"></textarea>
       <div class="hint">Written into the negative keywords <em>and</em> kept out of the
@@ -214,8 +216,8 @@
       <textarea id="notes" placeholder="Competitors, seasonality, services to exclude…"></textarea></div>
   </div>
 
-  <div class="card">
-    <h3>Budget <span class="sub">drag to see what the money actually buys</span></h3>
+  <div class="card" data-tour="ads-budget">
+    <h3>Budget {{ help_dot('ads_builder.generator.budget') if help_dot is defined else '' }} <span class="sub">drag to see what the money actually buys</span></h3>
     <label class="pick" style="margin-bottom:12px">
       <input type="checkbox" id="noBudget" onchange="toggleBudget()">
       They don't know a budget yet
@@ -244,11 +246,11 @@
     </div>
   </div>
 
-  <div class="card">
-    <h3>Generate</h3>
+  <div class="card" data-tour="ads-generate">
+    <h3>Generate {{ help_dot('ads_builder.generator.build') if help_dot is defined else '' }}</h3>
     <div id="genError"></div>
     <div class="row end">
-      <button class="b-primary" id="go" onclick="generate()">Generate campaign</button>
+      <button class="b-primary" id="go" data-demo="ads-generate" onclick="generate()">Generate campaign</button>
     </div>
 
     {# The build takes 30–60 seconds and does four distinct things. A bare
@@ -595,7 +597,7 @@ async function generate() {
 
   const btn = document.getElementById('go');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span> Generating…';
+  btn.innerHTML = '<span class="spin" data-s1-think="ai"></span> Generating…';
   document.getElementById('genHint').style.display = 'block';
   document.getElementById('genError').innerHTML = '';
   startBuild();

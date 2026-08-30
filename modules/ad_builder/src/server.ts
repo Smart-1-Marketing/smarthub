@@ -16,13 +16,17 @@ import { withBase } from './basepath.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { Campaign } from './types';
+import type { Campaign, SizeKey } from './types';
 import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
 import { renderPreview } from './render';
 import { buildCampaign, type Submission } from './intake';
-import { loadPlatforms, loadTemplates } from './registry';
-import { ProjectStore } from './projects';
+import { loadPlatforms, loadTemplates, acceptPlatforms } from './registry';
+import { logoInkLuminance } from './qa';
+import { paletteVariants } from './palette';
+import { ProjectStore, type Project } from './projects';
+import { PresetStore, presetFromConcept, conceptFromPreset, FIELD_ROLES } from './presets';
+import { readBatch, campaignFromBatch, BATCH_MAX_ROWS } from './batch';
 import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
 import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed } from './auth';
@@ -36,7 +40,7 @@ import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
-import { getPlatform } from './registry';
+import { getPlatform, getTemplate } from './registry';
 import { listFamilies } from './fonts';
 import sharp from 'sharp';
 import { notify } from './notify';
@@ -59,6 +63,7 @@ const BUILD_STAMP: { builtAt?: string; node?: string } = (() => {
 /** Base URL for links inside notifications. Set on Render to the public host. */
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? `http://localhost:${PORT}`).replace(/\/$/, '');
 const projects = new ProjectStore(OUT);
+const presets = new PresetStore(OUT);
 function newRequestIdFor(): string {
   // Same alphabet and entropy as intake ids: unguessable, no confusable chars.
   return `AD-${new Date().getFullYear()}-` +
@@ -155,6 +160,136 @@ function serveStatic(res: http.ServerResponse, urlPath: string): boolean {
   return true;
 }
 
+/**
+ * Record a finished render against its project.
+ *
+ * This is what writes the batch, and the batch is what carries the proof URL
+ * that the build screen's "Open proof" button reads. It used to live inline
+ * in the rebuild route and nowhere else — so a render started from the build
+ * screen produced a proof file on disk that nothing linked to, and the screen
+ * told the operator to go and look at a proof with no way to reach it.
+ *
+ * Deliberately fire-and-forget: the HTTP request that started the render
+ * returns immediately, because holding it open through a multi-minute render
+ * blocks the UI and trips proxies.
+ */
+function fileJobOntoProject(jobId: string, projectId: string): void {
+  void (async () => {
+    const started = Date.now();
+    const t = setInterval(() => {
+      const j = getJob(jobId);
+      const done = !j || j.status === 'complete' || j.status === 'failed';
+      // Five minutes, then stop watching. A job still running past that has
+      // hit the watchdog in jobs.ts and will be marked failed by it.
+      if (!done && Date.now() - started <= 300_000) return;
+      clearInterval(t);
+      if (j?.status === 'complete' && j.results?.length) {
+        const proofUrl = j.reports?.find((r) => r.includes('/proof_'));
+        try {
+          projects.addBatch(projectId, j.results, { reportUrl: proofUrl });
+        } catch (e) {
+          console.error(`[jobs] could not file job ${jobId} onto ${projectId}`, e);
+        }
+      }
+    }, 1500);
+  })();
+}
+
+/**
+ * Approve a proof, or send it back for changes.
+ *
+ * Two doors reach this and they are not the same door. A client presses a
+ * button on the proof page, which is public on purpose — the project id in
+ * that URL is the capability. Staff press it on the build screen, which
+ * arrives through the Hub proxy with an admin token and a name attached.
+ *
+ * One function for both, because approving has consequences beyond a status:
+ * it is the trigger for packaging the files, and two copies of that would
+ * drift into two different ideas of what "approved" delivers. What must NOT
+ * be shared is the claim. A record saying "approved by the client" about a
+ * decision an account manager made in the office is the confidently wrong
+ * answer this codebase keeps having to undo — it is the difference between a
+ * campaign that is signed off and one that somebody expects to be. So `by`
+ * travels with the decision and the note says which door it came through.
+ */
+async function recordDecision(
+  project: Project,
+  opts: { kind: 'approve' | 'revision'; concept?: string; notes?: string; by?: string },
+): Promise<{ code: number; body: Record<string, unknown> }> {
+  const at = new Date().toISOString();
+  const who = (opts.by ?? '').trim();
+  const source = who ? `internally by ${who}` : 'by the client';
+
+  if (opts.kind === 'approve') {
+    project.status = 'approved';
+    if (opts.concept) project.approvedConcept = opts.concept;
+    project.notes.push(`[${at}] Concept ${opts.concept ?? '?'} approved ${source}.`);
+    projects.save(project);
+    console.log(`[proof] ${project.projectId} -> approved (${who || 'client'})`);
+
+    // Approval IS the trigger for delivery — no human in the loop just to
+    // press "deliver". Package the approved concept now: platform folders,
+    // final names, QA failures withheld. The client gets the download link
+    // in this response; staff get it in the notification.
+    try {
+      const out = await deliverProject(project, { outDir: OUT, conceptId: opts.concept });
+      project.status = 'complete';
+      project.delivered = project.delivered ?? [];
+      project.delivered.push({ at, zipUrl: out.zipUrl, fileCount: out.fileCount });
+      project.notes.push(
+        `[${at}] Auto-delivered ${out.fileCount} file(s) on approval` +
+        (out.skipped.length ? `; withheld ${out.skipped.map((s) => s.size).join(', ')}` : ''),
+      );
+      projects.save(project);
+      await notify(
+        {
+          subject: `Approved & delivered — ${project.client} / ${project.projectName}`,
+          body: `Concept ${opts.concept ?? '?'} was approved ${source}. ${out.fileCount} finished file(s) are packaged — download from the build screen or the projects dashboard.` +
+            (out.skipped.length ? `\nNot included: ${out.skipped.map((s) => `${s.size} (${s.reason})`).join('; ')}` : ''),
+          url: `${PUBLIC_URL}/build?request=${project.requestId}`,
+        },
+        OUT,
+      );
+      return { code: 200, body: { status: 'complete', recordedAt: at, by: who || 'client',
+                                  downloadUrl: out.zipUrl, fileCount: out.fileCount,
+                                  skipped: out.skipped } };
+    } catch (e: any) {
+      // Delivery failing must not lose the approval. Record it, tell staff,
+      // and let the client know files are on the way manually.
+      project.notes.push(`[${at}] Auto-delivery failed: ${e?.message ?? e}. Deliver manually from the build screen.`);
+      projects.save(project);
+      await notify(
+        {
+          subject: `Approved (delivery needs attention) — ${project.client} / ${project.projectName}`,
+          body: `Concept ${opts.concept ?? '?'} was approved ${source} but packaging failed: ${e?.message ?? e}`,
+          url: `${PUBLIC_URL}/build?request=${project.requestId}`,
+        },
+        OUT,
+      );
+      return { code: 200, body: { status: 'approved', recordedAt: at, by: who || 'client',
+                                  deliveryError: e?.message ?? 'Packaging failed' } };
+    }
+  }
+
+  project.status = 'proof-sent';
+  project.notes.push(
+    `[${at}] Revision requested ${source} on concept ${opts.concept ?? '?'}: ${opts.notes ?? '(no detail)'}`);
+  projects.save(project);
+  console.log(`[proof] ${project.projectId} -> ${project.status} (${who || 'client'})`);
+
+  await notify(
+    {
+      subject: `Revision requested — ${project.client} / ${project.projectName}`,
+      body: `Concept ${opts.concept ?? '?'} needs changes (requested ${source}):\n\n"${opts.notes ?? '(no detail given)'}"`,
+      url: `${PUBLIC_URL}/build?request=${project.requestId}`,
+    },
+    OUT,
+  );
+
+  // TODO: push the status to HighLevel once the custom object exists there.
+  return { code: 200, body: { status: project.status, recordedAt: at, by: who || 'client' } };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const route = `${req.method} ${url.pathname}`;
@@ -169,11 +304,17 @@ const server = http.createServer(async (req, res) => {
     url.pathname === '/build.html' ||
     url.pathname === '/projects' ||
     url.pathname === '/projects.html' ||
+    url.pathname === '/presets' ||
+    url.pathname === '/presets.html' ||
     url.pathname === '/diagnostics' ||
     (url.pathname.startsWith('/api/campaign') && url.pathname !== '/api/campaign-search') ||
     url.pathname.startsWith('/api/campaigns') ||
     url.pathname.startsWith('/api/project') ||
     url.pathname.startsWith('/api/build/') ||
+    // Presets carry a client's brand and their finished creative, and a batch
+    // renders against a client record. Both are staff work, never a public
+    // route -- the split PUBLIC_PATTERNS draws for the proof page.
+    url.pathname.startsWith('/api/presets') ||
     // Both are editor-only: they fetch a picture on the server's behalf and
     // write it into a campaign's cache directory. The SSRF guard and the rate
     // limiter already stood behind them, but the only caller is build.html,
@@ -181,6 +322,10 @@ const server = http.createServer(async (req, res) => {
     // token attached -- so there is no reason to leave the work open.
     route === 'POST /api/background/apply' ||
     route === 'POST /api/logo/apply' ||
+    route === 'POST /api/palette/variants' ||
+    // Uploads into our own Cloudinary account. Staff only, for the reason the
+    // route itself gives at length.
+    route === 'POST /api/imagery/keep' ||
     url.pathname.startsWith('/api/diagnostics') ||
     (url.pathname.startsWith('/files/') && !url.pathname.startsWith('/files/imagery/') && !url.pathname.startsWith('/files/gallery/') && !url.pathname.startsWith('/files/deliveries/') && !url.pathname.startsWith('/files/renders/')) ||
     route === 'POST /api/render' ||
@@ -334,7 +479,7 @@ const server = http.createServer(async (req, res) => {
           path.join(OUT, 'campaigns', `${requestId}.json`),
           JSON.stringify({
             campaign: result.campaign,
-            platforms: (body.platforms ?? ['google']).filter((p: string) => p === 'google' || p === 'amazon'),
+            platforms: acceptPlatforms(body.platforms).platforms,
             notes: result.notes,
             assetSources: result.assetSources,
           }, null, 2),
@@ -398,9 +543,7 @@ const server = http.createServer(async (req, res) => {
         // uploaded a logo and a photo should not need staff to notice their
         // request before anything happens.
         if (result.renderable) {
-          const platforms = (body.platforms ?? ['google']).filter(
-            (p: string) => p === 'google' || p === 'amazon',
-          );
+          const platforms = acceptPlatforms(body.platforms).platforms;
           // First look BEFORE the batch job. Order matters on a small
           // instance: one 300x250 rendered alone lands in seconds, while the
           // same render competing with a 20-size batch for one starved CPU is
@@ -704,7 +847,15 @@ const server = http.createServer(async (req, res) => {
         }
       } catch { /* editor simply starts blank if the campaign can't be read */ }
 
+      // Who is reading this decides how much of it is drawn. Staff arrive
+      // through the Hub proxy, which attaches the admin token server-side; a
+      // client arrives with the project id in the URL and nothing else. The
+      // page itself is public either way -- that is the point of a proof --
+      // but the live editor rebuilds the creative and reaches billed
+      // endpoints, so it belongs to the operator.
+      const staffViewing = checkAuth(req, url).ok;
       let html = renderProof(manifest, {
+        editor: staffViewing,
         fileBase: '',
         actionBase: project ? `/api/proof/${project.projectId}` : undefined,
         initialCopy,
@@ -732,9 +883,19 @@ const server = http.createServer(async (req, res) => {
     if (deliverMatch && req.method === 'POST') {
       const project = projects.get(deliverMatch[1]);
       if (!project) return json(res, 404, { error: 'No such project' });
-      const body = JSON.parse((await readBody(req, 20_000)) || '{}') as { concept?: string };
+      const body = JSON.parse((await readBody(req, 20_000)) || '{}') as
+        { concept?: string; record?: boolean };
       try {
         const out = await deliverProject(project, { outDir: OUT, conceptId: body.concept });
+        // Packaging and delivering are two different events, and the build
+        // screen's "Download the full ZIP" is the first without the second:
+        // somebody wants the files in their hands. Recording it would set the
+        // project complete, push a "Delivered" note and mail the team, so a
+        // download taken to check one file would read on every screen as the
+        // campaign having been handed over. The zip is byte-for-byte the same
+        // either way -- one description of what a package is, two things you
+        // can do with it.
+        if (body.record === false) return json(res, 200, { ...out, recorded: false });
         project.status = 'complete';
         project.delivered = project.delivered ?? [];
         project.delivered.push({ at: new Date().toISOString(), zipUrl: out.zipUrl, fileCount: out.fileCount });
@@ -753,7 +914,7 @@ const server = http.createServer(async (req, res) => {
           },
           OUT,
         );
-        return json(res, 200, out);
+        return json(res, 200, { ...out, recorded: true });
       } catch (e: any) {
         return json(res, 422, { error: e?.message ?? 'Delivery failed' });
       }
@@ -842,6 +1003,77 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { saved: true, file: path.basename(file), bytes: data.length });
     }
 
+    /* ------------------------------------------- a logo nobody can see */
+    // The client's mark is the one asset in a campaign nobody may edit, so
+    // when it is dark on their dark brand colour the palette is what has to
+    // move. QA has always said the logo is invisible; this is what can be
+    // done about it.
+    if (route === 'POST /api/palette/variants') {
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        campaign?: any; conceptId?: string; size?: string; observed?: any;
+      };
+      const campaign = body.campaign;
+      const concept = campaign?.concepts?.find((c: any) => c.conceptId === body.conceptId)
+        ?? campaign?.concepts?.[0];
+      if (!campaign?.brand || !concept) {
+        return json(res, 400, { error: 'Provide a campaign and a concept' });
+      }
+      try {
+        const template = getTemplate(concept.layoutFamily);
+        const size = (body.size ?? '300x250') as SizeKey;
+        const layout = template.sizes[size];
+        if (!layout) return json(res, 422, { error: `${template.id} has no layout for ${size}` });
+
+        // Which brand role is behind the logo on THIS size. A layout that
+        // drops a panel under the mark means the panel's fill is what the
+        // logo has to read against, and proposing a fix for the canvas
+        // colour instead would change something nobody is looking at.
+        const lb = layout.logo;
+        let behind: string = String(layout.background ?? 'light');
+        if (lb) {
+          for (const panel of layout.panels ?? []) {
+            const overlaps = lb.x < panel.x + panel.w && panel.x < lb.x + lb.w &&
+                             lb.y < panel.y + panel.h && panel.y < lb.y + lb.h;
+            if (overlaps) { behind = String(panel.fill); break; }
+          }
+        }
+        // A hex straight off a template is not a role we can rewrite. Say so
+        // rather than proposing a palette change that would not be applied.
+        if (!['primary', 'secondary', 'accent', 'light', 'dark'].includes(behind)) {
+          return json(res, 200, {
+            ratio: null, verdict: 'not measured', variants: [],
+            reason: `On ${size} the logo sits on a fixed colour in the layout rather than a ` +
+              `brand colour, so changing the palette would not move it.`,
+          });
+        }
+
+        const logoFile = concept.useReverseLogo && campaign.brand.logos.reverse
+          ? campaign.brand.logos.reverse
+          : campaign.brand.logos.primary;
+        const abs = logoFile && path.isAbsolute(logoFile)
+          ? logoFile : path.resolve(ROOT, String(logoFile ?? ''));
+        const ink = logoFile ? await logoInkLuminance(abs) : null;
+        if (ink === null) {
+          return json(res, 200, {
+            ratio: null, verdict: 'not measured', variants: [],
+            reason: 'The logo file could not be read, so nothing here is measured. ' +
+              'A palette proposed without measuring it would be a guess.',
+          });
+        }
+
+        const out = paletteVariants({
+          brand: campaign.brand,
+          logoLuminance: ink,
+          behind: behind as any,
+          observed: body.observed && typeof body.observed === 'object' ? body.observed : undefined,
+        });
+        return json(res, 200, { ...out, behind, size });
+      } catch (e: any) {
+        return json(res, 200, { ratio: null, verdict: 'not measured', variants: [],
+                                reason: e?.message ?? 'Could not measure the logo.' });
+      }
+    }
+
     /* --------------------------------------------- one size, signed off */
     // Internal, unlike the customer approval below: this is the operator
     // saying "this one is finished, stop changing it", which is what makes it
@@ -865,8 +1097,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { approvals });
     }
 
-    /* ------------------------------------------------------------ approvals */
-    // Posted by the proof screen. Public on purpose: the customer opening a
     // In-place rebuild. The heart of "revisions happen in the same window":
     // apply edits (per-concept or per-size copy, CTA, colours) to the stored
     // campaign, re-render, and refresh the proof. No new request, no "a revised
@@ -1062,22 +1292,12 @@ const server = http.createServer(async (req, res) => {
       // open through a multi-minute render blocks the UI and trips proxies.
       project.autoJobId = job.id;
       projects.save(project);
-      void (async () => {
-        const started = Date.now();
-        const t = setInterval(() => {
-          const j = getJob(job.id);
-          if (!j || j.status === 'complete' || j.status === 'failed' || Date.now() - started > 300_000) {
-            clearInterval(t);
-            if (j?.status === 'complete' && j.results) {
-              const proofUrl = j.reports?.find((r) => r.includes('/proof_'));
-              projects.addBatch(project.projectId, j.results, { reportUrl: proofUrl });
-            }
-          }
-        }, 1500);
-      })();
+      fileJobOntoProject(job.id, project.projectId);
       return json(res, 200, { rebuilt: true, building: true, requestId: project.requestId, proofUrl: `/proof/${project.requestId}` });
     }
 
+    /* ------------------------------------------------------- the client's */
+    // Posted by the proof screen. Public on purpose: the customer opening a
     // proof link is not an authenticated user. The project id in the URL is
     // the capability, so treat it like a signed link, not a secret.
     const decision = url.pathname.match(/^\/api\/proof\/([\w.-]+)\/(approve|revision)$/);
@@ -1087,72 +1307,103 @@ const server = http.createServer(async (req, res) => {
       if (!project) return json(res, 404, { error: 'No such project' });
 
       const body = JSON.parse(await readBody(req, 50_000)) as { concept?: string; notes?: string };
-      const at = new Date().toISOString();
+      // No `by` is read here, and that is the point: this route is reached
+      // with nothing but the project id, so anything it claimed about who
+      // pressed the button would be a claim anyone with the link could make.
+      // The decision is recorded as the client's, which is what it is.
+      const out = await recordDecision(project, {
+        kind: kind === 'approve' ? 'approve' : 'revision',
+        concept: body.concept, notes: body.notes,
+      });
+      return json(res, out.code, out.body);
+    }
 
-      if (kind === 'approve') {
-        project.status = 'approved';
-        if (body.concept) project.approvedConcept = body.concept;
-        project.notes.push(`[${at}] Concept ${body.concept ?? '?'} approved by the client.`);
-        projects.save(project);
-        console.log(`[proof] ${projectId} -> approved`);
-
-        // Approval IS the trigger for delivery — no human in the loop just to
-        // press "deliver". Package the approved concept now: platform folders,
-        // final names, QA failures withheld. The client gets the download link
-        // in this response; staff get it in the notification.
-        try {
-          const out = await deliverProject(project, { outDir: OUT, conceptId: body.concept });
-          project.status = 'complete';
-          project.delivered = project.delivered ?? [];
-          project.delivered.push({ at, zipUrl: out.zipUrl, fileCount: out.fileCount });
-          project.notes.push(
-            `[${at}] Auto-delivered ${out.fileCount} file(s) on approval` +
-            (out.skipped.length ? `; withheld ${out.skipped.map((s) => s.size).join(', ')}` : ''),
-          );
-          projects.save(project);
-          await notify(
-            {
-              subject: `Approved & delivered — ${project.client} / ${project.projectName}`,
-              body: `Concept ${body.concept ?? '?'} was approved. ${out.fileCount} finished file(s) are packaged — download from the build screen or the projects dashboard.` +
-                (out.skipped.length ? `\nNot included: ${out.skipped.map((s) => `${s.size} (${s.reason})`).join('; ')}` : ''),
-              url: `${PUBLIC_URL}/build?request=${project.requestId}`,
-            },
-            OUT,
-          );
-          return json(res, 200, { status: 'complete', recordedAt: at, downloadUrl: out.zipUrl, fileCount: out.fileCount });
-        } catch (e: any) {
-          // Delivery failing must not lose the approval. Record it, tell
-          // staff, and let the client know files are on the way manually.
-          project.notes.push(`[${at}] Auto-delivery failed: ${e?.message ?? e}. Deliver manually from the build screen.`);
-          projects.save(project);
-          await notify(
-            {
-              subject: `Approved (delivery needs attention) — ${project.client} / ${project.projectName}`,
-              body: `Concept ${body.concept ?? '?'} was approved but packaging failed: ${e?.message ?? e}`,
-              url: `${PUBLIC_URL}/build?request=${project.requestId}`,
-            },
-            OUT,
-          );
-          return json(res, 200, { status: 'approved', recordedAt: at });
-        }
-      } else {
-        project.status = 'proof-sent';
-        project.notes.push(`[${at}] Revision requested on concept ${body.concept ?? '?'}: ${body.notes ?? '(no detail)'}`);
+    /* --------------------------------------- keeping a generated picture */
+    /*
+     * A generated picture lives on the render disk, under /files/imagery, and
+     * that is the right place for a draft: most of them are thrown away, and
+     * `retention.ts` sweeps the folder so they do not accumulate for ever.
+     *
+     * It is the wrong place for one worth keeping. The sweep does not know
+     * that somebody liked this one, the disk is not backed up, and a URL
+     * under /files needs a Hub login -- so filing that address onto a client
+     * record produces a gallery row that works today, 404s after the sweep,
+     * and was never openable by the client whose gallery it is in.
+     *
+     * So keeping a picture means moving it to Cloudinary, which is where
+     * every other client asset already lives, and handing back the address it
+     * got. Filing it onto the client is the Hub's job and stays there: this
+     * service does not know who our clients are, which is the line
+     * `hub/ad_builder_link.py` draws and the reason the renderer has never
+     * had to.
+     */
+    const keepMatch = url.pathname === '/api/imagery/keep';
+    if (keepMatch && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req, 20_000)) as
+        { url?: string; client?: string; campaign?: string; label?: string };
+      // Only a path this service wrote. The value comes from a page, and a
+      // route that uploads whatever URL it is handed is an open relay into
+      // our own Cloudinary account.
+      const rel = String(body.url ?? '').replace(/^\/files\//, '');
+      if (!/^imagery\/[\w.\-/]+\.(png|jpg|jpeg|webp)$/i.test(rel) || rel.includes('..')) {
+        return json(res, 400, { error: 'That is not a generated picture from this build.' });
       }
-      projects.save(project);
-      console.log(`[proof] ${projectId} -> ${project.status}`);
+      const file = path.join(OUT, rel);
+      if (!fs.existsSync(file)) {
+        return json(res, 404, { error: 'That picture is no longer on the render disk.' });
+      }
+      const cld = new CloudinaryService();
+      if (!cld.live) {
+        return json(res, 200, { ok: false,
+          error: 'Cloudinary is not configured here, so there is nowhere permanent ' +
+                 'to keep it. The picture still works on this build.' });
+      }
+      try {
+        const client = String(body.client || 'smart-1-marketing');
+        const campaign = String(body.campaign || 'display ads');
+        const up = await cld.uploadCreative({
+          file,
+          folder: `${cld.projectFolder(client, campaign)}/generated`,
+          publicId: `ai-${path.basename(rel).replace(/\.[^.]+$/, '')}`,
+          tags: ['smart1', 'display-ads', 'ai-generated'],
+          context: { client, campaign, source: 'ai' },
+        });
+        return json(res, 200, { ok: true, url: up.secureUrl, public_id: up.publicId,
+                                width: up.width, height: up.height,
+                                filename: `${slug(body.label || 'ai-background')}.${up.format}` });
+      } catch (e: any) {
+        return json(res, 502, { error: e?.message ?? 'That picture could not be stored.' });
+      }
+    }
 
-      await notify(
-        {
-          subject: `Revision requested — ${project.client} / ${project.projectName}`,
-          body: `Concept ${body.concept ?? '?'} needs changes:\n\n"${body.notes ?? '(no detail given)'}"`,
-          url: `${PUBLIC_URL}/build?request=${project.requestId}`,
-        },
-        OUT,
-      );
-
-      // TODO: push the status to HighLevel once the custom object exists there.
-      return json(res, 200, { status: project.status, recordedAt: at });
+    /* ------------------------------------------- the same call, from inside */
+    // The build screen's own approve / send-back, so an account manager who
+    // has just looked at eight sizes does not have to open the client's page
+    // and press the client's button to record what they decided.
+    //
+    // A separate route rather than a flag on the one above, because the two
+    // differ in exactly one way that matters: this path sits under
+    // /api/project, which the admin gate covers, so the name it records
+    // arrives from the Hub proxy rather than from whoever holds the link.
+    const staffDecision = url.pathname.match(/^\/api\/project\/([\w.-]+)\/decision$/);
+    if (staffDecision && req.method === 'POST') {
+      const project = projects.get(staffDecision[1]);
+      if (!project) return json(res, 404, { error: 'No such project' });
+      const body = JSON.parse(await readBody(req, 50_000)) as {
+        kind?: string; concept?: string; notes?: string;
+      };
+      const kind = body.kind === 'approve' ? 'approve' : body.kind === 'revision' ? 'revision' : null;
+      if (!kind) return json(res, 400, { error: 'kind must be "approve" or "revision"' });
+      // A change request with no detail is not actionable, and one recorded
+      // without it reads on the queue exactly like one that was explained.
+      if (kind === 'revision' && !String(body.notes ?? '').trim()) {
+        return json(res, 400, { error: 'Say what needs to change. A revision with no detail cannot be worked on.' });
+      }
+      const out = await recordDecision(project, {
+        kind, concept: body.concept, notes: body.notes,
+        by: (req.headers['x-s1-user'] as string) || 'a member of staff',
+      });
+      return json(res, out.code, out.body);
     }
 
     /* ------------------------------------------------------------ retention */
@@ -1653,6 +1904,17 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (route === 'GET /presets' || route === 'GET /presets.html') {
+      const file = path.join(PUBLIC, 'presets.html');
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'Presets screen not built' });
+      // withBase, like every other page here. This screen is all root-absolute
+      // fetches, and under the Hub's mount `/api/presets` leaves the module
+      // entirely -- the page would load perfectly and no button would do
+      // anything, which is the failure src/basepath.ts exists to stop.
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(withBase(req, fs.readFileSync(file, 'utf8')));
+    }
+
     if (route === 'GET /projects' || route === 'GET /projects.html') {
       const file = path.join(PUBLIC, 'projects.html');
       if (!fs.existsSync(file)) return json(res, 404, { error: 'Projects screen not built' });
@@ -1716,10 +1978,28 @@ const server = http.createServer(async (req, res) => {
         // worst kind of control. So the screen is told, per size, what this
         // family will render, and says so beside the field.
         const drawn: Record<string, string[]> = {};
+        // ...and where each of them starts, so a nudge arrow moves a block
+        // from where the layout put it rather than from zero, and Advanced
+        // shows the number it is overriding rather than an empty box.
+        const boxes: Record<string, Record<string, { x: number; y: number; w: number; h: number }>> = {};
         for (const [sizeKey, sizeLayout] of Object.entries(t.sizes as Record<string, any>)) {
           if (!sizeLayout) continue;
           drawn[sizeKey] = ['headline', 'support', 'offer', 'trust', 'cta']
             .filter((role) => !!sizeLayout[role]);
+          const forSize: Record<string, any> = {};
+          for (const role of ['logo', 'headline', 'support', 'offer', 'trust', 'cta']) {
+            const b = sizeLayout[role];
+            if (b && typeof b.x === 'number') {
+              forSize[role] = { x: b.x, y: b.y, w: b.w, h: b.h };
+            }
+          }
+          boxes[sizeKey] = forSize;
+          // Whether this size draws a panel at all decides whether the panel
+          // colour control is offered — a control for something the layout
+          // does not draw is the proof-point mistake again.
+          if (Array.isArray(sizeLayout.panels) && sizeLayout.panels.length) {
+            drawn[sizeKey] = drawn[sizeKey].concat('panel');
+          }
         }
         return {
           id: t.id,
@@ -1727,6 +2007,7 @@ const server = http.createServer(async (req, res) => {
           description: t.description,
           sizes: sizeKeys,
           blocks: drawn,
+          boxes,
           // The field colour matters as much as the boxes: two families differ
           // mainly in whether the ad is a flat brand field or a white card.
           wire: canvas?.w && canvas?.h
@@ -1802,6 +2083,14 @@ const server = http.createServer(async (req, res) => {
           ...doc,
           status: proj?.status,
           reportUrl: lastBatch?.reportUrl,
+          // What was read off the client's own page, and the page it was read
+          // from. Both live on the project record and neither reached the
+          // build screen, so the screen's "write this for me" and "draw me a
+          // picture" buttons were working from a business name and a headline
+          // somebody had already typed -- the analysis sat one fetch away and
+          // was never asked for.
+          landingPage: proj?.landingPage,
+          landing: proj?.landingAnalysis,
         });
       }
       if (req.method === 'PUT') {
@@ -1849,11 +2138,218 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    /* ------------------------------------------------------------- presets
+       A client's settled setup, so the next ad for them is a form fill rather
+       than a rebuild. Called presets and not templates because
+       `src/templates/*.json` are the layout families -- see presets.ts. */
+
+    if (route === 'GET /api/presets') {
+      // Matched exactly on name or domain inside the store, never a substring:
+      // a preset offered under the wrong client renders another company's
+      // brand onto this one's ad.
+      const client = url.searchParams.get('client') ?? undefined;
+      const list = presets.list(client).map((p) => ({
+        id: p.id, name: p.name, client: p.client, domain: p.domain,
+        layoutFamily: p.layoutFamily, platforms: p.platforms,
+        fields: p.fields, createdAt: p.createdAt, createdBy: p.createdBy,
+      }));
+      return json(res, 200, { presets: list, roles: FIELD_ROLES, maxBatchRows: BATCH_MAX_ROWS });
+    }
+
+    if (route === 'POST /api/presets') {
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        name?: string; requestId?: string; conceptId?: string;
+        fields?: { role: string; label?: string; fallback?: string }[];
+        createdBy?: string;
+      };
+      const name = String(body.name ?? '').trim();
+      if (!name) return json(res, 400, { error: 'A preset needs a name.' });
+      if (!body.requestId) return json(res, 400, { error: 'Which build is this cut from?' });
+
+      const file = path.join(OUT, 'campaigns', `${body.requestId}.json`);
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'No such campaign' });
+      const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const campaign: Campaign | undefined = doc.campaign;
+      const concept = campaign?.concepts?.find(
+        (c) => !body.conceptId || c.conceptId === body.conceptId,
+      );
+      if (!campaign || !concept) return json(res, 404, { error: 'No such concept on that build' });
+
+      const project = projects.byRequest(body.requestId);
+      const { preset, refused } = presetFromConcept({
+        name,
+        client: project?.client ?? campaign.brand.name,
+        domain: project?.domain,
+        brand: campaign.brand,
+        concept,
+        fields: Array.isArray(body.fields) && body.fields.length
+          ? body.fields
+          // Nothing named means every role this family draws, which is the
+          // ordinary case: somebody saving a finished build wants the copy
+          // editable and the brand fixed.
+          : FIELD_ROLES.map((role) => ({ role })),
+        // The campaign file records what the build was bought on; a project
+        // record does not carry platforms at all.
+        platforms: Array.isArray(doc.platforms) && doc.platforms.length ? doc.platforms : ['google'],
+        createdBy: body.createdBy,
+        sourceRequestId: body.requestId,
+      });
+      presets.save(preset);
+      // Refusals are returned rather than swallowed: a slot dropped in silence
+      // is a form field that renders nowhere, which is the proof-point failure
+      // this module already carries once.
+      return json(res, 201, { preset, refused });
+    }
+
+    const presetMatch = url.pathname.match(/^\/api\/presets\/([\w-]+)$/);
+    if (presetMatch && req.method === 'GET') {
+      const preset = presets.get(presetMatch[1]);
+      if (!preset) return json(res, 404, { error: 'No such preset' });
+      return json(res, 200, { preset });
+    }
+    if (presetMatch && req.method === 'DELETE') {
+      // Once. The first draft called remove() in the condition and again in
+      // the body, so the second call always answered false about a file the
+      // first had already deleted.
+      const removed = presets.remove(presetMatch[1]);
+      return removed
+        ? json(res, 200, { deleted: true })
+        : json(res, 404, { error: 'No such preset' });
+    }
+
+    /* One ad from a preset: the slots, filled in. Returns the campaign rather
+       than rendering it, so the build screen opens on it and somebody sees the
+       ad before eight renders are paid for. */
+    const genMatch = url.pathname.match(/^\/api\/presets\/([\w-]+)\/generate$/);
+    if (genMatch && req.method === 'POST') {
+      const preset = presets.get(genMatch[1]);
+      if (!preset) return json(res, 404, { error: 'No such preset' });
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        values?: Record<string, string>;
+        campaignName?: string;
+      };
+      const requestId = newRequestIdFor();
+      const campaignName = String(body.campaignName ?? '').trim() || `${preset.name} — new ad`;
+      const concept = conceptFromPreset(preset, (body.values ?? {}) as never, {
+        conceptId: 'A', name: campaignName,
+      });
+      const campaign: Campaign = {
+        requestId, campaignName, brand: preset.brand, concepts: [concept],
+      };
+      fs.mkdirSync(path.join(OUT, 'campaigns'), { recursive: true });
+      fs.writeFileSync(
+        path.join(OUT, 'campaigns', `${requestId}.json`),
+        JSON.stringify({ campaign, platforms: preset.platforms, fromPreset: preset.id }, null, 2),
+      );
+      projects.create({
+        projectName: campaignName, client: preset.client,
+        domain: preset.domain ?? '', campaignName, requestId,
+        brand: preset.brand,
+        notes: [`Built from preset "${preset.name}".`],
+      });
+      return json(res, 201, { requestId, campaign, platforms: preset.platforms });
+    }
+
+    /* The CSV data merge. One row per ad, one concept per row, one job. */
+    const batchMatch = url.pathname.match(/^\/api\/presets\/([\w-]+)\/batch$/);
+    if (batchMatch && req.method === 'POST') {
+      const preset = presets.get(batchMatch[1]);
+      if (!preset) return json(res, 404, { error: 'No such preset' });
+      const body = JSON.parse(await readBody(req, 2_000_000)) as {
+        csv?: string; campaignName?: string; platforms?: string[];
+        sizes?: string[]; render?: boolean;
+      };
+      if (!body?.csv) return json(res, 400, { error: 'Body must include the CSV text as `csv`.' });
+
+      const parsed = readBatch(preset, body.csv);
+      // A file-level failure -- no matching column, or over the row cap -- is
+      // reported before anything is written. Every row is wrong in the same
+      // way, and rendering fifty ads to discover it is expensive in a way one
+      // bad row is not.
+      if (parsed.error) {
+        return json(res, 422, {
+          error: parsed.error, rejected: parsed.rejected, ignoredColumns: parsed.ignoredColumns,
+        });
+      }
+      if (!parsed.rows.length) {
+        return json(res, 422, {
+          error: 'No usable rows in that file.',
+          rejected: parsed.rejected, ignoredColumns: parsed.ignoredColumns,
+        });
+      }
+
+      const requestId = newRequestIdFor();
+      const campaignName =
+        String(body.campaignName ?? '').trim() || `${preset.name} — batch`;
+      const campaign = campaignFromBatch({ preset, rows: parsed.rows, requestId, campaignName });
+
+      const { platforms, refused: refusedPlatforms } = acceptPlatforms(
+        body.platforms ?? preset.platforms, preset.platforms,
+      );
+
+      // Validated before the queue, so a bad brand font is a 422 here rather
+      // than a job that fails in the worker ten seconds later -- the rule
+      // POST /api/render already works to.
+      const findings = validateCampaign(campaign, { assetRoot: ROOT, platforms });
+      const errors = findings.filter((f) => f.level === 'error');
+      if (errors.length) {
+        return json(res, 422, { error: 'The batch failed validation', findings: errors });
+      }
+
+      fs.mkdirSync(path.join(OUT, 'campaigns'), { recursive: true });
+      fs.writeFileSync(
+        path.join(OUT, 'campaigns', `${requestId}.json`),
+        JSON.stringify({ campaign, platforms, fromPreset: preset.id }, null, 2),
+      );
+      const project = projects.create({
+        projectName: campaignName, client: preset.client,
+        domain: preset.domain ?? '', campaignName, requestId,
+        brand: preset.brand,
+        notes: [
+          `Batch of ${parsed.rows.length} from preset "${preset.name}".`,
+          ...(parsed.rejected.length
+            // On the record, not only in the response: the response is read
+            // once by whoever pressed the button, and "why is this batch three
+            // ads short" is asked later by somebody else.
+            ? [`${parsed.rejected.length} row(s) rejected: ` +
+               parsed.rejected.map((r) => `row ${r.line} (${r.reason})`).join('; ')]
+            : []),
+        ],
+      });
+
+      let jobId: string | undefined;
+      if (body.render !== false) {
+        const job = enqueue({
+          campaign, platforms, upload: false, outDir: OUT, assetRoot: ROOT,
+          sizes: Array.isArray(body.sizes) && body.sizes.length
+            ? (body.sizes as SizeKey[]) : undefined,
+        });
+        jobId = job.id;
+        fileJobOntoProject(job.id, project.projectId);
+      }
+
+      return json(res, 202, {
+        requestId,
+        projectId: project.projectId,
+        built: parsed.rows.length,
+        // Named, never a silent skip: twelve rows producing nine ads with no
+        // word about the other three is a folder nobody counts.
+        rejected: parsed.rejected,
+        ignoredColumns: parsed.ignoredColumns,
+        refusedPlatforms,
+        platforms,
+        jobId,
+        poll: jobId ? `/api/render/${jobId}` : undefined,
+        warnings: findings.filter((f) => f.level === 'warning'),
+      });
+    }
+
     if (route === 'POST /api/render') {
       const body = JSON.parse(await readBody(req)) as {
         campaign: Campaign;
         platforms?: string[];
         upload?: boolean;
+        sizes?: string[];
       };
       if (!body?.campaign) return json(res, 400, { error: 'Body must include a `campaign` object' });
 
@@ -1872,7 +2368,17 @@ const server = http.createServer(async (req, res) => {
         upload: body.upload ?? false,
         outDir: OUT,
         assetRoot: ROOT,
+        // An operator who changed one headline on the 300x600 was waiting on
+        // seven renders they did not ask for. Absent still means all of them.
+        sizes: Array.isArray(body.sizes) && body.sizes.length
+          ? (body.sizes as SizeKey[])
+          : undefined,
       });
+      // File it onto the project when it lands, so the proof this render
+      // writes is one the build screen can actually link to. Without this the
+      // proof exists on disk and nothing points at it.
+      const forProject = projects.byRequest(body.campaign.requestId);
+      if (forProject) fileJobOntoProject(job.id, forProject.projectId);
       return json(res, 202, {
         jobId: job.id,
         status: job.status,

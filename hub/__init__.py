@@ -55,7 +55,23 @@ _MOUNT_ACTIVE_HUB = {
     "/tools": "tools", "/qa": "qa", "/activity": "activity",
     "/diagnostics": "diagnostics", "/client360": "client360", "/seo": "seo",
     "/clients": "clients", "/status": "status",
+    # Two segments, matched before the one above it. A blueprint tool that has
+    # its own sidebar entry has to be able to say so: /tools/website-audit is
+    # under Sales in the nav, and resolving it to "tools" highlighted Client
+    # Tools instead -- nav pointing at the wrong entry is a small lie the
+    # reader corrects by ignoring the highlight.
+    "/tools/website-audit": "website_audit",
 }
+
+
+def _hub_active(path: str) -> str:
+    """Which sidebar entry a hub path belongs to. Longest prefix wins."""
+    parts = (path or "/").strip("/").split("/")
+    for depth in (2, 1):
+        key = "/" + "/".join(parts[:depth])
+        if key in _MOUNT_ACTIVE_HUB:
+            return _MOUNT_ACTIVE_HUB[key]
+    return ""
 
 
 def _read_document(raw: bytes, filename: str) -> str:
@@ -165,7 +181,7 @@ def create_hub_app() -> Flask:
     @app.context_processor
     def _inject_sidebar():
         """Expose the one shared nav to hub templates."""
-        from .sidebar import render_sidebar
+        from .sidebar import render_sidebar, collapses_by_default
 
         def hub_sidebar(active=""):
             try:
@@ -181,7 +197,16 @@ def create_hub_app() -> Flask:
             except Exception:  # noqa: BLE001
                 pass
             try:
-                return render_sidebar(active or "", is_admin=viewer_is_admin()).decode()
+                # The same one decision the injector makes. base.html calls
+                # this global directly, so a hub page rendering its own nav
+                # has to reach the same answer or a tool would behave one way
+                # through its template and another through the injector.
+                try:
+                    collapsed = collapses_by_default(request.path)
+                except Exception:  # noqa: BLE001
+                    collapsed = False
+                return render_sidebar(active or "", is_admin=viewer_is_admin(),
+                                      collapsed_default=collapsed).decode()
             except Exception:  # noqa: BLE001 — nav must never break a page
                 return ""
         return {"hub_sidebar": hub_sidebar}
@@ -288,12 +313,19 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .google_links import orphans
+        plats = [p for p in
+                 str(request.args.get("platforms", "")).split(",") if p.strip()]
         return jsonify(orphans(
             q=request.args.get("q", ""),
             platform=request.args.get("platform", ""),
+            platforms=plats,
             include_other=str(request.args.get("include_other", "")).lower()
             in ("1", "true", "yes"),
-            limit=clamp_int(request.args.get("limit"), 400, 1, 2000)))
+            # A page at a time. Clamped at both ends for the reason
+            # hub/webargs.py exists: ?limit=-1 was a 500 on Postgres and a
+            # full dump on SQLite.
+            limit=clamp_int(request.args.get("limit"), 25, 1, 200),
+            offset=clamp_int(request.args.get("offset"), 0, 0, 100000)))
 
     @app.route("/api/google/attach", methods=["POST"])
     def api_google_attach():
@@ -306,12 +338,17 @@ def create_hub_app() -> Flask:
         links = body.get("links")
         if links:
             from .google_links import attach_many
-            return jsonify(attach_many(links, actor=actor,
-                                       force=bool(body.get("force"))))
-        from .google_links import attach
-        return jsonify(attach(str(body.get("resource_id") or ""),
-                              str(body.get("client") or ""), actor=actor,
-                              force=bool(body.get("force"))))
+            out = attach_many(links, actor=actor, force=bool(body.get("force")))
+        else:
+            from .google_links import attach
+            out = attach(str(body.get("resource_id") or ""),
+                         str(body.get("client") or ""), actor=actor,
+                         force=bool(body.get("force")))
+        # The reports these rows come off are dropped by
+        # `google_index._forget_reports()`, which runs inside `set_client()` —
+        # one description of what an attachment invalidates, next to the write
+        # that causes it, rather than a second copy here that drifts.
+        return jsonify(out)
 
     @app.route("/api/google/rebuild", methods=["POST"])
     def api_google_rebuild():
@@ -337,6 +374,85 @@ def create_hub_app() -> Flask:
         out = jsonstore.status()
         out["restore_at_boot"] = app.config.get("HUB_JSONSTORE_RESTORE")
         return jsonify(out)
+
+    @app.route("/api/environment")
+    def api_environment():
+        """Which environment variable actually supplied each setting.
+
+        A setting here answers to several names — PEXELS_API and
+        PEXELS_API_KEY, GHL_PRIVATE_TOKEN and SMART1SUITE_PRIVATE_TOKEN,
+        SECRET_KEY and FLASK_SECRET_KEY and SESSION_SECRET — because this
+        deployment's environment is assembled from linked Render env groups
+        that each named things their own way. That resolves the key, and it
+        also means nobody can tell *which* name did it. On a second deployment
+        that matters twice: a variable set under a name nothing reads looks
+        exactly like one that took effect, and two names holding different
+        values silently resolve to whichever comes first.
+
+        No value is ever returned — this is read on a screen and pasted into
+        chats, the rule services/provider_check.py already works to.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .config import settings as _cfg
+        return jsonify({"settings": _cfg.env_report(),
+                        "problems": _cfg.placeholder_warnings()})
+
+    @app.route("/api/oauth-redirects")
+    def api_oauth_redirects():
+        """Every OAuth callback this Hub sends, and where it must be registered.
+
+        A redirect URI is matched by the provider as an exact string, hostname
+        included, and half of these are built from whichever hostname the
+        browser used. So a custom domain added to the service silently doubles
+        what has to be registered, and the first sign of the half that was not
+        is a customer meeting redirect_uri_mismatch on a consent screen.
+
+        The origin is taken from the request rather than from PUBLIC_BASE_URL,
+        because the point is to name the hostname somebody is actually on —
+        reading the variable instead would report the one host that was never
+        in doubt. No client id or secret is ever returned.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import oauth_redirects
+        return jsonify(oauth_redirects.report(request.url_root))
+
+    @app.route("/api/report-cache")
+    def api_report_cache():
+        """What the day cache is holding, and how old each entry is.
+
+        Names, days and sizes only. No payloads: this is read into a page,
+        and a report's rows carry client names — the rule
+        `services/provider_check.py` works to about what a diagnostic may
+        carry.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import report_cache
+        return jsonify(report_cache.state())
+
+    @app.route("/api/report-cache/clear", methods=["POST"])
+    def api_report_cache_clear():
+        """Empty the day cache, so the next open of each report re-runs it.
+
+        A POST, and behind Utilities: pressing it means every QA report and
+        every report-shaped tool page runs its whole build again on the next
+        visit. Each report also has its own Refresh button, which is the one
+        to use for a single report.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import report_cache
+        name = (request.args.get("name") or "").strip()
+        dropped = report_cache.invalidate(name) if name else report_cache.invalidate()
+        audit.log("hub", "report_cache_cleared", actor=current_user(),
+                  detail=name or "all", dropped=dropped)
+        return jsonify({"ok": True, "dropped": dropped})
 
     @app.route("/api/integrity")
     def api_integrity():
@@ -367,6 +483,95 @@ def create_hub_app() -> Flask:
         from .client_brand import brand_kit
         return jsonify(brand_kit(request.args.get("name", ""),
                                  request.args.get("domain", "")))
+
+    @app.route("/api/client/brand/lookup", methods=["POST"])
+    def api_client_brand_lookup():
+        """Look a client's brand up live, and keep what the call paid for.
+
+        A POST behind a button, never a page load: the lookup is billed, and
+        a GET that spends money is one a reload or a prefetch fires without
+        anybody asking — the rule /tools/domains' refresh already works to.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import brand_lookup
+        from .client_brand import brand_kit
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "").strip()
+        domain = str(body.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"error": "No website on this client to look a "
+                                     "brand up by."}), 400
+        # use_cache=False: this is the refresh button. Answering it out of the
+        # cache would make a press that changes nothing look like a press that
+        # did not work.
+        res = brand_lookup.lookup(domain, client=client, module="client360",
+                                  use_cache=False)
+        # A lookup that found nothing still answers with the whole card, not
+        # with a bare shell: their own website may have published the logo and
+        # the palette all along, and returning `{found: False}` alone would
+        # have the refresh button wipe them off the card it was pressed on —
+        # the two-blocks failure hub/client_brand._merge closes, coming back
+        # in through the one control that redraws the card.
+        if not res.get("found"):
+            kit = brand_kit(client, domain)
+            kit["note"] = res.get("note", "") or kit.get("note", "")
+            kit["unconfigured"] = bool(res.get("unconfigured"))
+            kit["refused"] = bool(res.get("refused"))
+            return jsonify(kit), 200
+        kit = brand_kit(client, domain)
+        kit["looked_up"] = True
+        kit["note"] = res.get("note", "")
+        # What the call we just paid for put into the client's gallery. Said
+        # on the card rather than done silently: a file that appears in a
+        # gallery with nothing announcing it is one nobody knows to look for.
+        try:
+            from . import client_logos
+            kit["logos_filed"] = client_logos.summary(res.get("logos") or {})
+        except Exception:  # noqa: BLE001
+            pass
+        return jsonify(kit)
+
+    @app.route("/api/client/logos", methods=["POST"])
+    def api_client_logos():
+        """File every logo we already hold for this client into their gallery.
+
+        A POST behind a button, and deliberately **not** a lookup: this reads
+        the brand record already stored and the last site scan, so it costs
+        nothing at Brandfetch. That matters because the scan is where the logo
+        comes from for most local businesses, and there was no way to get one
+        into the gallery without spending a lookup that would find nothing.
+
+        Filing the same logo twice is impossible — see hub/client_logos.py —
+        so pressing it again is safe and says what was already there.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_logos
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "").strip()
+        if not client:
+            return jsonify({"error": "No client named."}), 400
+        res = client_logos.file_logos(
+            client, str(body.get("domain") or "").strip(),
+            actor=current_user() or "system")
+        return jsonify({**res, "summary": client_logos.summary(res)})
+
+    @app.route("/api/client/scan-facts")
+    def api_client_scan_facts():
+        """What the last Insites scan knows about this client, grouped.
+
+        Client 360 read four fields out of a 440-field audit. This is the
+        rest of what is worth reading — read-only, no scan is started, and
+        nothing here is billed.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import scan_facts
+        return jsonify(scan_facts.facts(request.args.get("domain", "")))
 
     @app.route("/api/client/work")
     def api_client_work():
@@ -413,6 +618,23 @@ def create_hub_app() -> Flask:
         audit.log("brand", "pushed_to_suite", actor=current_user(),
                   client=client, ok=ok)
         return jsonify({"ok": ok, "delivered": ok, "payload": payload})
+
+    @app.route("/api/search")
+    def api_search():
+        """The top search box: clients first, then the Hub's own pages.
+
+        Read-only and reaches no provider, so it is a GET a keystroke can
+        fire. The client half is matched live through `clients_registry`
+        rather than from a stored index, because a search that cannot find a
+        client we signed last week is one people stop using.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import search_index
+        return jsonify(search_index.search(
+            request.args.get("q", ""),
+            limit=clamp_int(request.args.get("limit"), 12, 1, 30)))
 
     @app.route("/api/client/context")
     def api_client_context():
@@ -567,6 +789,51 @@ def create_hub_app() -> Flask:
                       client=body.get("client", ""))
         return jsonify(out)
 
+    @app.route("/api/sites-match/read-names", methods=["POST"])
+    def api_sites_match_read_names():
+        """Read the unmatched project titles for the business inside them.
+
+        A POST, and a button, because the call is billed: a GET that spends
+        money is one a reload or a link preview fires without anybody asking —
+        the rule `hub/domain_purchase.py` settled for the domain calendar and
+        `hub/brand_lookup.py` for the brand card.
+
+        The model is shown project titles and nothing else. It never sees the
+        client book, so it cannot name a client; what it returns is a run of
+        words out of the title, which then goes through
+        `site_names.exact_matches()` against the real book exactly like a
+        candidate a rule derived. Reading changes no match on its own.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import site_names_ai
+        from .sites_match import suggest
+        body = request.get_json(silent=True) or {}
+        include = bool(body.get("include_inactive"))
+        data = suggest(active_only=not include)
+        titles = [r.get("site") or "" for key in
+                  ("unmatched", "no_domain", "suggested")
+                  for r in (data.get(key) or [])]
+        out = site_names_ai.read_missing(titles)
+        # The report is held for the day, and a reading changes what it would
+        # say — so it is dropped here rather than leaving the page showing the
+        # answer from before the button was pressed, which reads as a button
+        # that did nothing. The drop lives beside the write, per
+        # hub/report_cache.py.
+        try:
+            from . import report_cache
+            report_cache.invalidate("sites-match")
+        except Exception:                               # noqa: BLE001
+            pass
+        try:
+            audit.log("sites_match", "read_names", actor=current_user() or "",
+                      read=out.get("read", 0), stored=out.get("stored", 0),
+                      ungrounded=out.get("ungrounded", 0))
+        except Exception:                               # noqa: BLE001
+            pass
+        return jsonify(out)
+
     @app.route("/api/sites-match/apply", methods=["POST"])
     def api_sites_match_apply():
         """Write only the matches a human accepted."""
@@ -634,12 +901,132 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/domains/purchased")
     def api_domains_purchased():
-        """Domains Smart 1 bought for a client, by renewal billing date."""
+        """Domains Smart 1 bought for a client, by renewal billing date.
+
+        Served from the nightly snapshot of object_153 and from the cached
+        QuickBooks renewal charges, not from either provider. The report says
+        how old each is; forcing a fresh pull is the POST below, so a page
+        load can never be the thing that pulls.
+        """
         gate = _require_api()
         if gate:
             return gate
         from .domain_purchase import report
         return jsonify(report(q=request.args.get("q", "")))
+
+    @app.route("/api/domains/do-not-renew", methods=["POST"])
+    def api_domains_do_not_renew():
+        """Mark one domain as not to be renewed, or clear the mark.
+
+        Knack publishes no such field either, so like the billed tick this is
+        the Hub's own — but unlike the billed tick it is never retired when
+        the renewal date rolls: a domain that renewed after we said it should
+        not is a finding, and clearing the mark would delete the evidence.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import set_do_not_renew
+        body = request.get_json(silent=True) or {}
+        out = set_do_not_renew(str(body.get("record_id") or ""),
+                               bool(body.get("do_not_renew")),
+                               for_date=str(body.get("for_date") or ""),
+                               reason=str(body.get("reason") or ""),
+                               actor=current_user() or "")
+        if out.get("ok"):
+            audit.log("hub", "domain_do_not_renew", actor=current_user(),
+                      detail=f"{body.get('record_id')} "
+                             f"{'marked' if body.get('do_not_renew') else 'cleared'}")
+        return jsonify(out)
+
+    @app.route("/api/domains/do-not-renew")
+    def api_domains_do_not_renew_report():
+        """Everything marked do-not-renew, and what renewed anyway."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import do_not_renew_report
+        return jsonify(do_not_renew_report())
+
+    @app.route("/api/domains/ytd")
+    def api_domains_ytd():
+        """Year to date, both directions: unbilled renewals and unknown charges.
+
+        The two questions nobody could ask before QuickBooks was joined to the
+        registry — a renewal that came due with no invoice behind it, and a
+        Website Domain Renewal charge that matches no record here.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_purchase import year_to_date
+        try:
+            year = int(request.args.get("year") or 0) or None
+        except ValueError:
+            year = None
+        # No refresh here either: this reads the same two caches the calendar
+        # does, and POST /api/domains/refresh is the one control that pulls.
+        return jsonify(year_to_date(year=year))
+
+    @app.route("/api/domains/charges/link", methods=["POST"])
+    def api_domains_charge_link():
+        """Attach one QuickBooks charge to one website record, or clear it.
+
+        A person saying "this charge is that domain" is the only fact in the
+        matcher — it outranks every rule and survives the next read of
+        QuickBooks, so a description nothing could join up is joined once
+        rather than every month.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .domain_renewals import link_charge
+        body = request.get_json(silent=True) or {}
+        out = link_charge(str(body.get("key") or ""),
+                          str(body.get("record_id") or ""),
+                          actor=current_user() or "",
+                          domain=str(body.get("domain") or ""))
+        if out.get("ok"):
+            audit.log("hub", "domain_charge_linked", actor=current_user(),
+                      detail=f"{body.get('key')} -> "
+                             f"{body.get('record_id') or '(cleared)'}")
+        return jsonify(out)
+
+    @app.route("/api/domains/refresh", methods=["POST"])
+    def api_domains_refresh():
+        """Pull object_153 now, for the Refresh button.
+
+        POST rather than a `?refresh=1` on the read: this reaches Knack and
+        rewrites the stored snapshot, and a GET that does that is one a
+        prefetch or a reload can fire without anybody asking for it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from datetime import date as _date
+
+        from .domain_purchase import refresh, report
+        out = refresh(force=True)
+        audit.log("hub", "domains_refresh", actor=current_user(),
+                  ok=bool(out.get("ok")), count=out.get("count"),
+                  error=out.get("error") or None)
+        # Both halves, through the one button. Billed is read from QuickBooks
+        # and cached exactly as the registry is, and a Refresh that pulled one
+        # of the two would leave the page reporting a fresh timestamp over a
+        # stale answer to the question it is actually asked.
+        qb = {}
+        try:
+            from .domain_renewals import charges
+            qb = charges(_date.today().year, refresh=True)
+            qb = {"error": qb.get("error", ""), "count": len(qb.get("lines") or []),
+                  "fetched": qb.get("fetched_at", "")}
+        except Exception as exc:                        # noqa: BLE001
+            qb = {"error": f"{type(exc).__name__}: {exc}", "count": 0,
+                  "fetched": ""}
+        # The report comes back with it, so the button is one round trip and
+        # the page cannot end up showing a fresh timestamp over old rows.
+        return jsonify({**report(q=request.args.get("q", ""), build=False),
+                        "refresh": out, "quickbooks_refresh": qb})
 
     @app.route("/api/domains/billed", methods=["POST"])
     def api_domains_billed():
@@ -695,7 +1082,10 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .client_key import crosswalk
-        return jsonify(crosswalk())
+        from . import report_cache
+        # Every module's client table, read and joined. Held for the day; the
+        # accept/attach paths that change what joins to what drop it.
+        return jsonify(report_cache.serve("crosswalk", crosswalk))
 
     @app.route("/api/client/records")
     def api_client_records():
@@ -869,8 +1259,22 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .knack_websites import domain_record
-        return jsonify(domain_record(request.args.get("name", ""),
-                                     request.args.get("domain", "")))
+        out = domain_record(request.args.get("name", ""),
+                            request.args.get("domain", ""))
+        # The renewal standing rides along with the record rather than being a
+        # second fetch: a domain attached to a client is a domain somebody on
+        # Client 360 wants the renewal answer for, and sending them to
+        # /tools/domains to find the same row again is how a list stays
+        # unactioned. Never raises — the domain record is the point of this
+        # route and a QuickBooks that will not answer must not cost it.
+        try:
+            from .domain_purchase import status_for_record
+            out["renewal"] = status_for_record(out.get("record_id", ""))
+        except Exception as exc:                        # noqa: BLE001
+            out["renewal"] = {"applies": False,
+                              "reason": f"The renewal standing could not be "
+                                        f"read ({type(exc).__name__})."}
+        return jsonify(out)
 
     @app.route("/api/client/website-record/save", methods=["POST"])
     def api_website_record_save():
@@ -906,7 +1310,11 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .analytics_ids import audit_all
-        return jsonify(audit_all())
+        from . import report_cache
+        # One Knack website record and one Google index lookup per client.
+        # Dropped by `google_index._forget_reports()` when a property is
+        # attached, which is the write that changes what this compares.
+        return jsonify(report_cache.serve("qa:analytics-ids", audit_all))
 
     @app.route("/api/scans/stuck")
     def api_scans_stuck():
@@ -1428,6 +1836,46 @@ def create_hub_app() -> Flask:
                             "error": "That lead could not be found."}), 404
         return jsonify({"ok": True, "lead": row})
 
+    @app.route("/api/leads/duplicates")
+    def api_leads_duplicates():
+        """Rows that look like one prospect arriving more than once.
+
+        A proposal list, never a merge. Grouping is on evidence that
+        identifies a business exactly — one email address, one website — and
+        an exact company name on its own is offered as *possible* and
+        nothing more, because two franchises of one brand carry one name and
+        are two businesses.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        return jsonify(leads.merge_candidates(
+            days=clamp_int(request.args.get("days"), 365, 1, 730)))
+
+    @app.route("/api/leads/merge", methods=["POST"])
+    def api_leads_merge():
+        """Fold one or more leads into another.
+
+        The survivor keeps its own details and fills only its blanks, the
+        merged rows are kept rather than deleted so where each came from
+        survives, and nothing is re-delivered — two delivered rows mean the
+        Suite already holds two contacts, and the answer to that is to say so
+        rather than to write a third.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import leads
+        body = request.get_json(silent=True) or {}
+        ids = body.get("from")
+        if isinstance(ids, str):
+            ids = [ids]
+        result = leads.merge(str(body.get("into") or ""),
+                             ids if isinstance(ids, list) else [],
+                             actor=current_user() or "")
+        return jsonify(result), (200 if result.get("ok") else 400)
+
     @app.route("/api/leads/ghl/preflight")
     def api_leads_ghl_preflight():
         """Check lead delivery config against the live Suite API. Reads only.
@@ -1480,7 +1928,10 @@ def create_hub_app() -> Flask:
         items = (request.get_json(silent=True) or {}).get("items") or []
         lines, monthly = [], 0.0
         for i in items:
-            p = rc.find(str(i.get("product") or "")) or {}
+            # The line carries its own category, and it is what tells a
+            # "Behavioral" on location lookback from the one on mobile.
+            p = rc.find(str(i.get("product") or ""),
+                        str(i.get("category") or "")) or {}
             budget = float(i.get("monthly") or 0)
             monthly += budget
             lines.append({**i, "listed_rate": p.get("listed_rate", ""),
@@ -1512,11 +1963,17 @@ def create_hub_app() -> Flask:
         if not client:
             return jsonify({"error": "client is required."}), 400
         actor = current_user() or ""
+        # Each of these three takes a client off the No Dashboards list — or,
+        # for unskip, puts one back — so each drops the day's stored copy of
+        # that report and of Active Clients, which carries the same dashboard
+        # column. Skip and unskip do it inside `qa`, beside the write; adding
+        # a URL writes through `knack_api`, which has no business knowing what
+        # a QA report is, so that one is dropped here.
         if action == "skip":
             audit.log("qa", "dashboard_skipped", actor=actor, client=client,
                       reason=str(body.get("reason") or ""))
-            return jsonify(qa.skip_dashboard(client, actor,
-                                             str(body.get("reason") or "")))
+            return jsonify(qa.skip_dashboard(
+                client, actor, str(body.get("reason") or "")))
         if action == "unskip":
             audit.log("qa", "dashboard_unskipped", actor=actor, client=client)
             return jsonify(qa.unskip_dashboard(client))
@@ -1526,6 +1983,8 @@ def create_hub_app() -> Flask:
             out = knack_api.set_dashboard_url(client, url)
             audit.log("qa", "dashboard_added", actor=actor, client=client,
                       ok=out.get("ok"), updated=out.get("updated"))
+            if out.get("ok"):
+                qa.forget("no-dashboards", "active-clients")
             return jsonify(out)
         return jsonify({"error": "Unknown action."}), 400
 
@@ -1990,7 +2449,9 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001 — never 500 a page over the gate
             return None
 
-    def viewer_is_admin() -> bool:
+    _UNREAD = object()
+
+    def viewer_is_admin(account=_UNREAD) -> bool:
         """Does this request get the Utilities section?
 
         Three cases, and the middle one is the decision worth stating:
@@ -2002,8 +2463,15 @@ def create_hub_app() -> Flask:
             the way to close the door is to clear the variable;
           * nobody signed in -> False, though no gate reaches here: the login
             redirect runs first.
+
+        `account` is for a caller that has already read the row: it is
+        deliberately not cached per request, so asking again is a second query
+        for an answer just fetched. Passing it in keeps the rule in one place
+        rather than having each such caller restate `account.is_admin` and
+        quietly disagree about what None means.
         """
-        account = current_account()
+        if account is _UNREAD:
+            account = current_account()
         if account is not None:
             return bool(account.is_admin)
         return bool(current_user())
@@ -2075,6 +2543,30 @@ def create_hub_app() -> Flask:
                                support_email=_support_email(),
                                support_name=_support_name()), 403
 
+    @app.before_request
+    def _record_presence():
+        """Note that this person was seen, for the headcount on the dashboard.
+
+        There is no session table — signing in issues a signed cookie and the
+        server keeps nothing — so "who is logged in" is answered by "who has
+        been seen lately", and `hub/presence.py` is where that is written down
+        along with why. Throttled to one write per person per minute per
+        worker, so this is a dict lookup on almost every request.
+
+        Registered after the gates rather than before them on purpose: a
+        person refused a Utilities page is still signed in and still at their
+        desk. It never returns a response and never raises — a headcount is a
+        nice-to-have and no route depends on it.
+        """
+        try:
+            name = current_user()
+            if name:
+                from . import presence
+                presence.touch_display(name)
+        except Exception:  # noqa: BLE001 — presence must never cost a page
+            pass
+        return None
+
     def _support_name() -> str:
         from .user_directory import SUPPORT_NAME
         return SUPPORT_NAME
@@ -2124,7 +2616,10 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
-        return render_template("dashboard.html", user=current_user(), modules=MODULES, active="dashboard")
+        from . import partner as partner_pages
+        return render_template("dashboard.html", user=current_user(),
+                               modules=MODULES, active="dashboard",
+                               partner_tiles=partner_pages.tiles())
 
     @app.route("/client360")
     def client360():
@@ -2464,6 +2959,101 @@ def create_hub_app() -> Flask:
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "social": social})
 
+    # ------------- the Smart 1 Suite app frame (a CLIENT, not a rep)
+    #
+    # The path is "/suite-app" and deliberately NOT "/suite/app": /suite is a
+    # dispatcher-mounted module, and a hub route under a mounted prefix never
+    # receives the request — it 404s with every template valid and every link
+    # resolving. This is the first trap CLAUDE.md names and it has bitten four
+    # times now; /api/integrity's high-severity check is what caught this one.
+    #
+    # hub/suite_embed.py solved the staff case: a rep already has a Hub session
+    # in that browser. A client has none and must never be given one, so
+    # identity comes from HighLevel's SSO handshake instead — the framed page
+    # asks its parent for the user payload, HighLevel replies encrypted under
+    # the app's SSO key, and hub/suite_sso.py decrypts it here to learn which
+    # sub-account this person is in.
+    #
+    # These two routes are deliberately the whole client-facing surface. They
+    # prove who is looking and then hand them their *existing* content link —
+    # the pages behind it are already client-facing, already scoped to one
+    # client and already tested, so no new place to see data is created here.
+    # Somewhere for one client to be shown another client's record is exactly
+    # what this handshake exists to prevent, and the smallest way to build it
+    # is not to build one.
+    @app.route("/suite-app")
+    def suite_app_frame():
+        from . import suite_sso
+        # Not configured is said in words rather than drawn as a broken frame.
+        # This page is only ever reached from inside Suite, so the reader is
+        # whoever configured the menu link.
+        return render_template("suite_app.html",
+                               configured=suite_sso.configured(),
+                               why_not=suite_sso.why_not())
+
+    @app.route("/suite-app/session", methods=["POST"])
+    def suite_app_session():
+        """Turn an SSO payload into somewhere this client may go.
+
+        No client name is taken from the request — the location id inside the
+        decrypted payload is the only thing identity comes from, which is the
+        whole security model and the reason this route accepts nothing else.
+        """
+        from . import suite_sso
+        body = request.get_json(silent=True) or {}
+        found = suite_sso.identify(str(body.get("payload") or ""))
+        if not found["ok"]:
+            # The four refusals are named for whoever has to fix one, and none
+            # of them says anything a prober could tune a guess against: an
+            # unreadable payload is unreadable whatever was wrong with it.
+            return jsonify({"ok": False, "state": found["state"],
+                            "error": found["detail"]}), 403
+        from modules.social_planner import links as social_links
+        target = social_links.link(found["client"], found.get("client_url", ""),
+                                   "approve", request.host_url)
+        audit.log("hub", "suite_sso_session", actor="suite",
+                  client=found["client"], location=found["location_id"],
+                  user=found["user"].get("email", ""))
+        return jsonify({"ok": True, "client": found["client"], "url": target})
+
+    # ------------- social content: requests, ideas, the client's own link
+    #
+    # The Social Media card above is the client's profile URLs, which is a
+    # different question from "is anybody at this client asking us for
+    # anything". Before this the record said nothing at all about the work:
+    # a client could have three requests overdue, a link nobody had sent them
+    # and four posts sitting unanswered, and none of it was on the one screen
+    # a rep opens. hub/social_status.py answers it, and the dashboard
+    # scoreboard reads the same module so the two cannot disagree.
+    @app.route("/api/client/social-content")
+    def api_client_social_content():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        if not name:
+            return jsonify({"measured": False, "error": "No client was named."})
+        return jsonify(social_status.for_client(name, url,
+                                                request.host_url))
+
+    @app.route("/api/social/scoreboard")
+    def api_social_scoreboard():
+        """Who is waiting on us, for the dashboard.
+
+        Deliberately not behind `access.UTILITY_PREFIXES`: this is the
+        workload of the people reading the dashboard, and the presence
+        headcount already showed what happens when a figure everybody sees is
+        served by a path most accounts are refused — the panel rendered a
+        confident green nothing for eleven of fourteen people.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        return jsonify(social_status.scoreboard())
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
@@ -2496,11 +3086,17 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import seo, client_groups
+        from . import seo, client_groups, scan_facts
         name = (request.args.get("name") or "").strip()
         if not name:
             return jsonify({"profile": {}})
         prof = seo.get_profile(name)
+        # What their own website publishes, offered into the fields nobody has
+        # filled in. Suggested, never saved: the profile is what a person
+        # typed and it wins from the moment they press Save — the overlay rule
+        # hub/client_urls.py works to. See hub/scan_facts.contact_suggestions.
+        prof["suggested"] = scan_facts.contact_suggestions(
+            prof, (request.args.get("domain") or "").strip())
         # Notes are shared across a group; contacts, address and category are
         # not. Two brands of one parent company have their own front desk, and
         # showing one company's phone number under the other's name is a
@@ -2614,6 +3210,49 @@ def create_hub_app() -> Flask:
                                  actor=current_user() or "")
             return jsonify({"configured": True, "tickets": [], "error": str(exc)})
 
+    @app.route("/api/client/requests/triage", methods=["POST"])
+    def api_client_request_triage():
+        """Read the description and propose the choices it already answers.
+
+        One route for both objects, because `ticket_form_fields()` and
+        `campaign_form_fields()` hand back the same shape and two copies of
+        this would be two descriptions of what a suggestion is.
+
+        A POST, and only ever into the fields the caller says are **empty**: a
+        value somebody chose is the better source and is never offered over,
+        and the gate is here rather than in the browser because a rule the
+        form keeps while the endpoint breaks it is not a rule. Nothing is
+        written — the suggestion is drawn dotted and one press keeps it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api, request_triage
+        body = request.get_json(silent=True) or {}
+        kind = str(body.get("kind") or "ticket")
+        if not knack_api.configured():
+            return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                            "error": "Knack is not configured, so the "
+                                     "options a field accepts cannot be read.",
+                            "note": ""})
+        try:
+            if kind == "ticket":
+                fields = knack_api.ticket_form_fields("create")
+            else:
+                fields = knack_api.campaign_form_fields(
+                    "support" if kind == "support" else "change")
+        except Exception as exc:                        # noqa: BLE001
+            # Named, not answered with an empty list: "this field accepts
+            # nothing" and "we could not read what it accepts" are different,
+            # and only the second is somebody's to fix.
+            return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                            "error": f"The live object could not be read "
+                                     f"({type(exc).__name__}).", "note": ""})
+        out = request_triage.suggest(
+            body.get("text") or "", fields, body.get("empty") or [],
+            module=("tickets" if kind == "ticket" else "campaign_support"))
+        return jsonify(out)
+
     @app.route("/api/client/tickets/fields")
     def api_client_ticket_fields():
         """The controls a ticket form should draw, from the live object.
@@ -2631,9 +3270,21 @@ def create_hub_app() -> Flask:
         if not knack_api.configured():
             return jsonify({"configured": False, "fields": []})
         try:
+            fields = knack_api.ticket_form_fields(scope)
+            # A ticket raised from a client record should not ask for the
+            # website that record has held since their last site scan. One
+            # reader, shared with the campaign request and the ad copy form:
+            # three copies of this mapping is how two of them come to offer a
+            # different answer for one client. Offered into empty fields only,
+            # and nothing is written until the ticket is created.
+            from .client_context import offer_into
+            values, notes = offer_into(fields, {},
+                                       request.args.get("client", ""),
+                                       request.args.get("url", ""))
             return jsonify({"configured": True, "scope": scope,
                             "object": knack_api.TICKETS_OBJECT,
-                            "fields": knack_api.ticket_form_fields(scope)})
+                            "fields": fields,
+                            "values": values, "notes": notes})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
@@ -2705,7 +3356,14 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/knack/campaign-fields")
     def api_knack_campaign_fields():
-        """Live field mapping shown in the modal BEFORE anything is written."""
+        """The controls a campaign request form should draw, from the live
+        object — plus the field mapping shown before anything is written.
+
+        The form asks for this rather than carrying its own copy: the support
+        ids are ours, but the dropdown choices, the connection records and the
+        field types are Knack's, and a form that guesses one writes a value
+        Knack refuses — which loses the whole request, not the one field.
+        """
         gate = _require_api()
         if gate:
             return gate
@@ -2714,14 +3372,22 @@ def create_hub_app() -> Flask:
         if kind not in ("change", "support"):
             return jsonify({"error": "kind must be change or support."}), 400
         if not knack_api.configured():
-            return jsonify({"configured": False})
+            return jsonify({"configured": False, "fields": []})
         try:
             info = knack_api.campaign_field_map(kind)
-            return jsonify({"configured": True, **info})
+            fields = knack_api.campaign_form_fields(kind)
+            # Same one reader as the web ticket above.
+            from .client_context import offer_into
+            values, notes = offer_into(fields, {},
+                                       request.args.get("client", ""),
+                                       request.args.get("url", ""))
+            return jsonify({"configured": True, "kind": kind, **info,
+                            "fields": fields,
+                            "values": values, "notes": notes})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-campaign", exc, path=request.path,
                                  actor=current_user() or "")
-            return jsonify({"configured": True, "error": str(exc)})
+            return jsonify({"configured": True, "fields": [], "error": str(exc)})
 
     @app.route("/api/knack/people")
     def api_knack_people():
@@ -2754,20 +3420,94 @@ def create_hub_app() -> Flask:
         if not knack_api.configured():
             return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID and "
                                      "KNACK_API_KEY, then redeploy."}), 400
+        values = body.get("values")
+        if values is not None and not isinstance(values, dict):
+            return jsonify({"error": "values must be an object."}), 400
         try:
             rec = knack_api.create_campaign_request(
                 kind, client, (body.get("campaign") or "").strip(),
                 (body.get("io") or "").strip(), subject,
                 (body.get("description") or "").strip(),
                 author=current_user() or "",
-                requested_by=(body.get("requested_by") or "").strip())
+                requested_by=(body.get("requested_by") or "").strip(),
+                values=values or {})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-campaign", exc, path=request.path,
                                  actor=current_user() or "")
             return jsonify({"error": str(exc)})
         audit.log("hub", f"campaign_{kind}_request", actor=current_user(),
                   detail=f"{client}: {subject[:60]}")
-        return jsonify({"ok": True, "id": rec.get("id")})
+        # What reached Knack and what did not. A request created with half its
+        # fields missing must not read as a clean success.
+        return jsonify({"ok": True, "id": rec.get("id"),
+                        "written": rec.get("written") or [],
+                        "rejected": rec.get("rejected") or []})
+
+    # ------------------------------------------------- Ad Copy Request
+    # Ad Copy used to be a Campaign Change Request with its subject already
+    # written: four boxes, and a rep retyping the client, the campaign, the
+    # order number and the media partner from the record on the screen
+    # behind it. hub/ad_copy.py is the object itself — pinned ids, the
+    # controls read off the live schema, and everything the client's own
+    # insertion orders can already answer.
+    @app.route("/api/client/ad-copy/fields")
+    def api_ad_copy_fields():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ad_copy
+        acct = current_account()
+        try:
+            data = ad_copy.form(
+                request.args.get("client", ""),
+                # The seller and the confirmation address are the signed-in
+                # *account's*, not a box to retype — and deliberately not
+                # `current_user()`, which answers "Shared login" for a
+                # PANEL_PASSWORD session. That is a true statement about the
+                # session and a wrong one in the Seller Name box, which the
+                # campaign team reads as a person. With no account behind the
+                # session the form falls back to the rep named on this
+                # client's own orders, and says so when there isn't one.
+                user_name=(getattr(acct, "name", "") or ""),
+                user_email=(getattr(acct, "email", "") or ""))
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("ad-copy-fields", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "error": str(exc),
+                            "fields": [], "values": {}, "options": {},
+                            "notes": []})
+        return jsonify(data)
+
+    @app.route("/api/client/ad-copy", methods=["POST"])
+    def api_ad_copy_create():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ad_copy, knack_api
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        values = body.get("values") or {}
+        if not client or not isinstance(values, dict):
+            return jsonify({"error": "client and values are required."}), 400
+        if not knack_api.configured():
+            return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID "
+                                     "and KNACK_API_KEY, then redeploy."}), 400
+        try:
+            rec = ad_copy.create(client, values, author=current_user() or "")
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("ad-copy", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"error": str(exc)})
+        # Logged under `ad_copy`, not `hub`: this is work filed against a
+        # client, and `client_brand.work_log()` skips a module its own table
+        # cannot name — which reads on the record as a client nobody has done
+        # anything for. `WORK_KINDS` carries the entry.
+        audit.log("ad_copy", "request_created", actor=current_user(),
+                  client=client,
+                  detail=f"{client}: {str(values.get('campaign') or '')[:60]}")
+        return jsonify({"ok": True, "id": rec.get("id"),
+                        "written": rec.get("written") or [],
+                        "rejected": rec.get("rejected") or []})
 
     @app.route("/api/client/website-hosted", methods=["POST"])
     def api_client_website_hosted():
@@ -3553,7 +4293,7 @@ def create_hub_app() -> Flask:
 
         # The rate card is given to the model so a line it reads as "OTT" is
         # matched against what we actually sell, rather than invented.
-        catalogue = [p.get("label", "") for p in (_rc.products() or [])][:120]
+        catalog = [p.get("label", "") for p in (_rc.products() or [])][:120]
 
         schema_hint = {
             "client": "business name the proposal is addressed to",
@@ -3562,7 +4302,7 @@ def create_hub_app() -> Flask:
             "start_date": "YYYY-MM-DD if stated, else null",
             "end_date": "YYYY-MM-DD if stated, else null",
             "products": "array of {product, monthly, notes} — product must be "
-                        "one of the catalogue labels, or the closest match",
+                        "one of the catalog labels, or the closest match",
             "geography": "markets or radius named, else null",
             "notes": "anything a trafficker would need that has no field",
         }
@@ -3572,11 +4312,11 @@ def create_hub_app() -> Flask:
                   "You read media proposals and extract the facts needed to "
                   "write an insertion order. Never invent a number: if the "
                   "proposal does not state something, return null for it. "
-                  "Match products to the supplied catalogue; if nothing is a "
+                  "Match products to the supplied catalog; if nothing is a "
                   "reasonable match, use the proposal's own wording and say so "
                   "in notes. Return JSON only."},
                  {"role": "user", "content":
-                  f"Catalogue: {catalogue}\n\nReturn JSON with these keys: "
+                  f"Catalog: {catalog}\n\nReturn JSON with these keys: "
                   f"{schema_hint}\n\nProposal text:\n{text}"}],
                 module="io_builder", purpose="proposal_to_io")
         except Exception as exc:                        # noqa: BLE001
@@ -3810,18 +4550,15 @@ def create_hub_app() -> Flask:
         # own pages, not table-returning functions. They still belong here —
         # somebody looking for "what's wrong" shouldn't have to know which
         # kind of thing each one is.
-        extras = [
-            ("Data Quality", "stale-creative", {
-                "title": "Stale Creative",
-                "desc": "How long since we last produced creative for each "
-                        "active client — and who has never had any.",
-                "ico": "&#9203;", "href": "/qa/stale-creative"}),
-            ("Data Quality", "web-tickets", {
-                "title": "Web Tickets",
-                "desc": "Website change requests from Knack: what's open, "
-                        "what's gone stale, and per-client history.",
-                "ico": "&#127915;", "href": "/tools/tickets/"}),
-        ]
+        # Six of these are whole tools rather than table-returning functions,
+        # and every one of them answers "what is wrong / what do we owe" —
+        # which is the question this page exists for and is not what the
+        # Tools page is for. They were on Tools under "Client Work", a group
+        # whose name described where the work came from rather than what the
+        # screen is for, and a report nobody thinks to look for is a report
+        # nobody works. Each keeps its own URL, so every existing link and
+        # every Client 360 crumb still resolves.
+        extras = qa.EXTRAS
         for g, key, meta in extras:
             if g not in groups:
                 groups[g] = []
@@ -3844,6 +4581,15 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/qa/<key>")
     def api_qa(key):
+        """Today's answer for one report — the stored run, or the first one.
+
+        A GET never re-runs a report that has already answered today. That is
+        the whole point: these builds walk a year of QuickBooks invoices, the
+        GoHighLevel pipeline and the Google index, and they were doing it on
+        every open, every Back button and every refresh of the tab. Re-running
+        is the POST below, because a GET that rebuilds is one a prefetch or a
+        link preview fires without anybody asking.
+        """
         gate = _require_api()
         if gate:
             return gate
@@ -3851,11 +4597,34 @@ def create_hub_app() -> Flask:
         if key not in qa.REPORTS:
             return jsonify({"error": f"Unknown report: {key}"}), 404
         try:
-            out = qa.run(key, month=(request.args.get("month") or "").strip())
+            out = qa.run_cached(key,
+                                month=(request.args.get("month") or "").strip())
         except Exception as exc:  # noqa: BLE001 — reports must degrade gracefully
-            out = {"key": key, "title": qa.REPORTS[key]["title"],
-                   "columns": [], "rows": [], "error": str(exc)}
-        audit.log("hub", "qa_report", actor=current_user(), detail=key)
+            out = {"columns": [], "rows": [], "error": str(exc)}
+        out.setdefault("key", key)
+        out.setdefault("title", qa.REPORTS[key]["title"])
+        audit.log("hub", "qa_report", actor=current_user(), detail=key,
+                  cached=bool((out.get("cache") or {}).get("from_cache")))
+        return jsonify(out)
+
+    @app.route("/api/qa/<key>/refresh", methods=["POST"])
+    def api_qa_refresh(key):
+        """Run this report again now, and keep what it returns for the day."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import qa
+        if key not in qa.REPORTS:
+            return jsonify({"error": f"Unknown report: {key}"}), 404
+        try:
+            out = qa.run_cached(key,
+                                month=(request.args.get("month") or "").strip(),
+                                force=True)
+        except Exception as exc:  # noqa: BLE001 — reports must degrade gracefully
+            out = {"columns": [], "rows": [], "error": str(exc)}
+        out.setdefault("key", key)
+        out.setdefault("title", qa.REPORTS[key]["title"])
+        audit.log("hub", "qa_report_refreshed", actor=current_user(), detail=key)
         return jsonify(out)
 
     @app.route("/api/qa/accounting/status", methods=["POST"])
@@ -3925,9 +4694,20 @@ def create_hub_app() -> Flask:
         _admin = viewer_is_admin()
         with open(os.path.join(CLIENTS_APP, "index.html"), "rb") as fh:
             body = fh.read()
-        snippet = b'<link rel="stylesheet" href="/assets/theme.css">'
+        # Two stylesheets, both after the bundle's own <link> so equal rules
+        # here win. theme.css is the shared typography-and-colour layer every
+        # module gets; clients-theme.css is this page's alone, because the
+        # bundle carries the old near-black-and-lime identity in class names
+        # (.kpi, .badge, .tabs) too ordinary to restyle globally. It is scoped
+        # to the body class added below for the same reason.
+        snippet = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                   b'<link rel="stylesheet" href="/assets/clients-theme.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", snippet + b"</head>", 1)
+        # Not data-module: that is what hub-demo.js floats "Walk me through
+        # this" onto, and this page has no walkthrough written for it.
+        if b"<body>" in body:
+            body = body.replace(b"<body>", b'<body class="s1-clients">', 1)
         bar = render_sidebar("clients", is_admin=_admin)
         # Deep links from Client 360: /clients?q=<client> auto-fills and runs
         # the React app's search (native value setter so React sees the input).
@@ -4172,6 +4952,93 @@ def create_hub_app() -> Flask:
             data.setdefault("seo_billing_monthly", None)
         return jsonify(data)
 
+    @app.route("/api/presence")
+    def api_presence():
+        """How many people are around, and who.
+
+        A route of its own rather than a key on `/api/status`, and that is not
+        tidiness: `/api/status` is in `access.UTILITY_PREFIXES`, so for the
+        eleven General accounts it answers 403 — the headcount would have been
+        admin-only while sitting on everybody's dashboard, reading as zero.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import presence
+        data = presence.active()
+        data["line"] = presence.summary_line(data)
+        return jsonify(data)
+
+    @app.route("/api/housekeeping")
+    def api_housekeeping():
+        """What needs filling in across the Hub, and the page it shows on.
+
+        A Utilities path (`hub/access.py`), which is the whole point: these
+        are to-dos for whoever can open the Users panel, and until now the
+        only place any of them appeared was underneath a dashboard card
+        everybody reads and three people can act on.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import housekeeping
+        return jsonify(housekeeping.findings())
+
+    @app.route("/api/celebrations")
+    def api_celebrations():
+        """Whose birthday and whose work anniversary, this month and today.
+
+        One request, two answers: the dashboard block reads the month and the
+        popup reads `today`. Splitting them into two routes would mean two
+        reads of the profile table on every page load for the same rows.
+
+        `me` is what the popup greets by name. It is resolved from the signed-
+        in *account* where there is one, and only falls back to the cookie's
+        display name — two people on this roster are called Todd, and the
+        shared PANEL_PASSWORD session carries a name with no account behind
+        it at all.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import celebrations
+        try:
+            data = celebrations.this_month()
+            data["today_list"] = celebrations.today()
+        except Exception as exc:  # noqa: BLE001 — never break the dashboard
+            return jsonify({"error": str(exc), "birthdays": [],
+                            "anniversaries": []})
+        email, name = "", current_user() or ""
+        account, account_read = None, False
+        try:
+            from .users_routes import current_account
+            account, account_read = current_account(), True
+            if account is not None:
+                email, name = (account.email or ""), (account.name or name)
+        except Exception:  # noqa: BLE001 — a session with no account row
+            pass
+        data["me"] = celebrations.mine(data["today_list"], email=email,
+                                       name=name)
+        data["me_name"] = name
+        # Who is missing a date is a job for whoever can open the Users panel,
+        # and eleven of the fourteen accounts are answered 403 by it. A
+        # General account is still told the list is not the whole roster —
+        # that was the point of the sentence — and is told none of the rest:
+        # the counts, the names and the link are on /diagnostics, where the
+        # person who can act on them is looking. hub/housekeeping.py decides,
+        # so the template cannot describe it a second, different way.
+        # A row we could not read is not an admin: the gaps are withheld
+        # rather than shown, because the failure mode of guessing the other
+        # way is a to-do published to somebody who cannot act on it, which is
+        # the thing being fixed. A shared-password session reads as an admin
+        # here exactly as it does everywhere else — `account_read` is true and
+        # the row is legitimately None.
+        if not (account_read and viewer_is_admin(account)):
+            from . import housekeeping
+            data["not_recorded"] = housekeeping.withheld(
+                data.get("not_recorded") or {})
+        return jsonify(data)
+
     @app.route("/api/c360")
     def api_c360():
         gate = _require_api()
@@ -4253,6 +5120,12 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
+        # Every credential below is read through hub.config rather than
+        # os.environ. A self-test is the one page where reading one spelling of
+        # a setting is worst: it reports a key as missing that the tool beside
+        # it is happily using, and somebody goes and sets a second copy of a
+        # variable that was never the problem.
+        from .config import settings as _cfg
         checks = []
 
         def add(name, status_, message):
@@ -4266,8 +5139,13 @@ def create_hub_app() -> Flask:
             add("Panel password", "warn", "Still set to a placeholder — change it.")
         else:
             add("Panel password", "ok", "Configured.")
-        add("Session secret", "ok" if os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET") else "warn",
-            "Configured — logins survive restarts." if os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET")
+        # Through hub.config, which knows all three spellings. Read directly
+        # this row said "not set" on a deployment carrying FLASK_SECRET_KEY and
+        # nothing else — a self-test reporting a fault that is not there is as
+        # expensive as one missing a fault that is.
+        _secret_set = bool(_cfg.secret_key)
+        add("Session secret", "ok" if _secret_set else "warn",
+            "Configured — logins survive restarts." if _secret_set
             else "Not set — everyone is logged out on every restart/redeploy.")
 
         # --- Knack data ---
@@ -4277,12 +5155,22 @@ def create_hub_app() -> Flask:
         elif age > 48:
             add("Smart 1 Team data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
         else:
-            add("Smart 1 Team data", "ok", f"Refreshed {age:.0f}h ago · {len(knack_data.products())} product rows · {len(knack_data.websites())} sites.")
+            # The site count says which source answered. Products and websites
+            # each prefer the live Knack object and fall back to the committed
+            # export, and a count with no source on it reads as live whichever
+            # it was — which is the whole reason the export went unnoticed.
+            _wsrc = knack_data.websites_source()
+            add("Smart 1 Team data", "ok",
+                f"Refreshed {age:.0f}h ago · {len(knack_data.products())} "
+                f"product rows · {len(knack_data.websites())} sites "
+                f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
 
         # --- GHL ---
-        token, company = os.environ.get("GHL_PRIVATE_TOKEN"), os.environ.get("GHL_COMPANY_ID")
+        token, company = _cfg.ghl_token, _cfg.ghl_company_id
         if not token or not company:
-            add("GoHighLevel API", "error", "GHL_PRIVATE_TOKEN and/or GHL_COMPANY_ID is not set.")
+            add("GoHighLevel API", "error",
+                f"{_cfg.spellings('ghl_token')} and/or "
+                f"{_cfg.spellings('ghl_company_id')} is not set.")
         else:
             try:
                 r = _rq.get(
@@ -4299,9 +5187,10 @@ def create_hub_app() -> Flask:
                 add("GoHighLevel API", "error", f"Could not reach GHL: {exc}")
 
         # --- Simvoly ---
-        skey = os.environ.get("SIMVOLY_API_KEY")
+        skey = _cfg.simvoly_key
         if not skey:
-            add("Smart 1 Sites Platform API", "warn", "SIMVOLY_API_KEY is not set — Smart 1 Sites module runs limited/mock.")
+            add("Smart 1 Sites Platform API", "warn",
+                f"{_cfg.spellings('simvoly_key')} is not set — Smart 1 Sites module runs limited/mock.")
         else:
             base = os.environ.get("SIMVOLY_API_BASE_URL", "https://api.smart1sites.com").rstrip("/")
             try:
@@ -4315,7 +5204,7 @@ def create_hub_app() -> Flask:
             else "DATABASE_URL not set — Sites inventory won't persist.")
 
         # --- Brandfetch ---
-        bkey = os.environ.get("BRANDFETCH_API_KEY")
+        bkey = _cfg.brandfetch_key
         if not bkey:
             add("Brandfetch API", "skipped", "Not configured — auto-fill from website is disabled (optional).")
         else:
@@ -4360,7 +5249,7 @@ def create_hub_app() -> Flask:
                     "manager account under Tools → API Center.")
             elif not ads_st["connected"]:
                 add("Smart 1 Ads", "warn",
-                    "Credentials set but no account authorised yet — open "
+                    "Credentials set but no account authorized yet — open "
                     "/tools/ads/settings and click Connect Google Ads.")
             else:
                 add("Smart 1 Ads", "ok",
@@ -4383,8 +5272,8 @@ def create_hub_app() -> Flask:
             add("QuickBooks", "ok", "Connected — client invoice lookup active on Client 360.")
 
         # --- Sales section (Proposal + Sales Builder) ---
-        add("OpenAI API", "ok" if os.environ.get("OPENAI_API_KEY") else "skipped",
-            "Configured — AI proposal generation enabled." if os.environ.get("OPENAI_API_KEY")
+        add("OpenAI API", "ok" if _cfg.openai_key else "skipped",
+            "Configured — AI proposal generation enabled." if _cfg.openai_key
             else "OPENAI_API_KEY not set — proposal generation falls back to templates (optional).")
         add("Cloudinary", "ok" if (os.environ.get("CLOUDINARY_URL") or "").startswith("cloudinary://") else "warn",
             "Configured — proposal PDFs and logs persist to Cloudinary."
@@ -4416,6 +5305,19 @@ def create_hub_app() -> Flask:
                 add("Video background library", "error",
                     "CLOUDINARY_URL is not set — the footage library cannot be "
                     "read at all.")
+            elif vs.get("missing_folders"):
+                # Checked before the indexing question, because it outranks it:
+                # indexing a folder Cloudinary does not have will report
+                # "nothing waiting" for ever and look like a quiet, healthy
+                # tool. Named as its own state rather than folded into the
+                # counts, which would be truthfully zero and useless.
+                add("Video background library", "error",
+                    "The library is scoped to folders this Cloudinary account "
+                    "does not have: "
+                    + ", ".join(vs["missing_folders"])
+                    + ". Nothing can be found until either the names or "
+                      "CLOUDINARY_URL is corrected — this is not an empty "
+                      "library.")
             elif not vs.get("indexing_started"):
                 add("Video background library", "warn",
                     "Indexing has never run, so nothing is searchable yet. "
@@ -4436,7 +5338,8 @@ def create_hub_app() -> Flask:
                        "described — what is already indexed stays searchable."
                        if not vs.get("openai") else
                        " Only our own Cloudinary footage is indexed; free "
-                       "stock is searched live in Commercial Builder."))
+                       "stock is searched live in Commercial Builder.")
+                    + " Scope: " + ", ".join(vs.get("folders") or []) + ".")
         except Exception as _vl_exc:  # noqa: BLE001
             add("Video background library", "warn",
                 f"Could not be checked: {_vl_exc}")
@@ -4525,7 +5428,40 @@ def create_hub_app() -> Flask:
                   # coincidence of the mimetype check.
                   "/robots.txt", "/llms.txt",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
-                  "/sales/landing/p/") + PUBLIC_EMBED_PREFIXES
+                  "/sales/landing/p/",
+                  # The Smart 1 Suite app frame. A *client* opens this inside
+                  # their own sub-account and has no Hub account at all, so
+                  # the staff sidebar, help layer and feedback tab must not be
+                  # injected into it — the same reason the landing pages above
+                  # are here, one audience further out.
+                  # NOT "/suite/…": that prefix is a mounted module, and a hub
+                  # route under a mount never receives the request. /api/integrity
+                  # has a high-severity check for exactly that, and it caught
+                  # this one before it shipped.
+                  "/suite-app",
+                  # The display-ad proof. A client opens this to approve or
+                  # send back a set of banners, so it must not arrive wearing
+                  # the staff sidebar, the help layer and a feedback tab --
+                  # the same reason the built landing pages above are here.
+                  # The longer prefix, so the builder itself at
+                  # /tools/display-ads keeps its chrome.
+                  "/tools/display-ads/proof/",
+                  # The commercial review link. A client opens this to approve
+                  # a finished cut or send it back, so it must not arrive
+                  # wearing the staff sidebar and a feedback tab — same reason
+                  # as the display-ad proof above, and the longer prefix again
+                  # so the builder at /tools/commercial-builder keeps its own.
+                  #
+                  # This is the second half of a pair: the first is the login
+                  # exemption in modules/commercial_builder/__init__.py. That
+                  # module is a BLUEPRINT on this app rather than a mounted
+                  # one, so wsgi.py's PUBLIC_PREFIXES — which does both halves
+                  # for ads_builder and scans — never sees it, and each half
+                  # has to be written out separately. A page exempted from the
+                  # login and not from the chrome is a client looking at our
+                  # nav; the other way round is a login form in front of
+                  # somebody with no account.
+                  "/tools/commercial-builder/review/") + PUBLIC_EMBED_PREFIXES
 
     @app.after_request
     def _embed_policy(resp):
@@ -4596,10 +5532,18 @@ def create_hub_app() -> Flask:
                 return resp                      # already has one
             if b"</body>" not in body:
                 return resp                      # a fragment, not a page
-            from .sidebar import render_sidebar
-            bar = render_sidebar(_MOUNT_ACTIVE_HUB.get(
-                "/" + path.strip("/").split("/")[0], ""),
-                is_admin=viewer_is_admin())
+            from .sidebar import render_sidebar, collapses_by_default
+            # A creative tool is itself a full-width workbench and opens with
+            # the nav as an icon rail. The Display Ad Builder is a
+            # three-column bench -- controls, canvas, size rail -- and every
+            # other creative tool wants the same room for the same reason,
+            # which is why the list lives in hub/sidebar.py and all three
+            # renderers of the nav read it. A stored preference still wins,
+            # so this is a starting point rather than the page overruling
+            # anybody.
+            bar = render_sidebar(_hub_active(path),
+                is_admin=viewer_is_admin(),
+                collapsed_default=collapses_by_default(path))
             # The help/demo/autofill layer has to come with the sidebar. It
             # was injected by HubBar for dispatcher-mounted modules and by
             # base.html for hub pages, which left blueprint-registered pages
@@ -4629,6 +5573,7 @@ def create_hub_app() -> Flask:
                 extra = (b'<script defer src="/hub-help.js"></script>'
                          b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
+                         b'<script defer src="/hub-thinking.js"></script>'
                          b'<script defer src="/hub-autofill.js"></script>'
                          b'<script defer src="/hub-accordion.js"></script>')
             if b"hub-help.css" not in body and b"</head>" in body:
@@ -4781,6 +5726,43 @@ def create_hub_app() -> Flask:
             errors.log_exception("hub", _sc_exc)
         except Exception:  # noqa: BLE001
             pass
+
+    # ---------------- Prospect 360 ----------------
+    # The record a scanned business gets before it is a client. Blueprint, so
+    # the login gate sits on the blueprint itself -- every route here names a
+    # real person and their phone number.
+    try:
+        from .prospect_routes import register_prospect
+        register_prospect(app)
+    except Exception as _pr_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _pr_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Website Audit (Tools > Sales) ----------------
+    # A blueprint rather than a mounted module, because everything it reads --
+    # the client registry, the discovered-URL overlay, the scan facts and the
+    # lead store -- is the hub's own. The login gate is on the blueprint
+    # itself: wsgi.py's AuthGuard only wraps dispatcher-mounted modules, and
+    # hub/auth.py names what happens when a blueprint is left to guard itself
+    # view by view.
+    try:
+        from .website_audit_routes import register_website_audit
+        register_website_audit(app)
+    except Exception as _wa_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _wa_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Imported for its side effect: the Presence model has to exist before the
+    # create_all() below or `hub_presence` is never created, and every read of
+    # it fails into "we could not look" for ever.
+    try:
+        from . import presence as _presence  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass
 
     # Create any tables the newly registered blueprints declared. Runs AFTER
     # all of them, so a module registered later still gets its tables. Guarded:

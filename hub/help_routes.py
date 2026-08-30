@@ -81,6 +81,18 @@ def static_ask_analytics_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/knack-form.js")
+def static_knack_form_js():
+    """The controls a form built from a live Knack object draws, shared by
+    the web ticket, campaign request and ad copy forms.
+
+    Root-level for the same reason as the scripts around it, and shared for
+    the reason CLAUDE.md gives twice over: the next fix to how a connection
+    picker or a dropdown is drawn should land once."""
+    return send_from_directory(_STATIC, "knack-form.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/campaign-request.js")
 def static_campaign_request_js():
     """The Campaign Change / Support / Ad Copy form, shared by Client 360 and
@@ -90,12 +102,50 @@ def static_campaign_request_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/ad-copy.js")
+def static_ad_copy_js():
+    """The Ad Copy Request form, shared by Client 360 and the dashboard.
+
+    Its own object rather than a Campaign Change Request with a pre-written
+    subject: the campaign team's form has fourteen fields and the old one
+    asked four questions, with the client, the campaign, the order number
+    and the media partner retyped out of the record on the screen behind
+    it."""
+    return send_from_directory(_STATIC, "ad-copy.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/web-ticket.js")
 def static_web_ticket_js():
     """The New Web Ticket / Manage Ticket form, root-level for the same reason
     as campaign-request.js: one copy of the form, reachable from any page that
     raises a ticket."""
     return send_from_directory(_STATIC, "web-ticket.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
+@bp.route("/hub-cheers.js")
+def static_cheers_js():
+    """The birthday / work-anniversary popup.
+
+    Root-level for the same reason as the scripts above, though today only
+    base.html loads it: the popup belongs on the page somebody lands on after
+    signing in, and that is a hub page. Serving it from the root means a
+    mounted module can opt in later without a second copy."""
+    return send_from_directory(_STATIC, "hub-cheers.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
+@bp.route("/hub-thinking.js")
+def static_thinking_js():
+    """The one mark that says something is running.
+
+    Root-level and served here rather than from any module's own static
+    folder, for the reason hub-crumbs.js gives: it is loaded by base.html on
+    hub pages and injected by HubBar into every mounted module, so a tool
+    added next month gets it without being edited. Nine separate copies of a
+    border spinner is what it replaces."""
+    return send_from_directory(_STATIC, "hub-thinking.js",
                                mimetype="application/javascript", max_age=3600)
 
 
@@ -144,7 +194,10 @@ def api_coverage():
                 "seo_images.review", "seo_images.results", "image_creator.canvas",
                 "image_creator.photos", "image_creator.logos", "image_creator.layers",
                 "image_creator.export", "bg_remover.upload", "utm.form",
-                "scans.new", "scans.table", "seo.schema", "seo.faq", "qa.reports"]
+                "scans.new", "scans.table", "seo.schema", "seo.faq", "qa.reports",
+                "ads_builder.generator", "ads_builder.proposal",
+                "ads_builder.approvals", "ads_builder.campaigns",
+                "ads_builder.settings", "ads_builder.activity"]
     return jsonify({"covered": help_registry.screens(),
                     "missing": help_registry.missing_for(expected)})
 

@@ -18,6 +18,20 @@
   <!-- ---------------- warnings ---------------- -->
   <div id="diag-alerts"></div>
 
+  <!-- ---------------- housekeeping ---------------- -->
+  <section class="diag-card">
+    <h2>Housekeeping &mdash; what needs filling in</h2>
+    <p class="diag-help">
+      Warnings that show on pages the whole company reads and that only an
+      admin can act on. The roster's missing start dates sat under the
+      dashboard's birthday block, addressed to eleven people the Users panel
+      answers 403 &mdash; so the person who could fix it found out by looking
+      at somebody else's screen. Each row says which page a reader meets it on
+      and where it is fixed.
+    </p>
+    <div id="diag-housekeeping" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- API health ---------------- -->
   <section class="diag-card">
     <h2>API health <span class="diag-note" id="diag-timing"></span></h2>
@@ -38,6 +52,38 @@
       under the line.
     </p>
     <div id="diag-quotas" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
+  <!-- ---------------- environment ---------------- -->
+  <section class="diag-card">
+    <h2>Environment &mdash; what actually resolved</h2>
+    <p class="diag-help">
+      Most settings here answer to more than one variable name, because this
+      Hub&rsquo;s environment is assembled from linked Render env groups that
+      each named things their own way. That is why a key set as
+      <code>PEXELS_API</code> works in code written against
+      <code>PEXELS_API_KEY</code> &mdash; and it is also why nobody can tell
+      which name did it. This says which one answered, and names any that were
+      set and ignored. Values are never shown.
+    </p>
+    <div id="diag-env" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
+  <!-- ---------------- oauth redirect URIs ---------------- -->
+  <section class="diag-card">
+    <h2>OAuth redirect URIs &mdash; what this Hub actually sends</h2>
+    <p class="diag-help">
+      Every provider matches a redirect URI as an <b>exact string, hostname
+      included</b>. Three of the six below are built from whichever hostname
+      the browser used, so a second domain answering for this service doubles
+      what has to be registered &mdash; and the other three are built from a
+      variable instead, so they do <em>not</em> follow the browser and change
+      only when that variable is edited. Registering the first three and
+      assuming the rest followed is how a client meets
+      <code>redirect_uri_mismatch</code> on a consent screen. No client id or
+      secret is shown.
+    </p>
+    <div id="diag-oauth" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
   </section>
 
   <!-- ---------------- integrity ---------------- -->
@@ -92,12 +138,16 @@
   <section class="diag-card">
     <h2>Database structure</h2>
     <p class="diag-help">
-      Where client data actually lives. There is no single client table &mdash;
-      several modules build their own database engine and identify a client in
-      their own way, so the same client can exist more than once under slightly
-      different names. That is what makes name-matching audits report false
-      alarms. Read from source, so it stays accurate even when a module fails
-      to load.
+      Where client data actually lives. There is still no single client table:
+      modules identify a client in their own way &mdash; a typed name, a
+      domain, a row id &mdash; and changing those columns needs a migration
+      that <code>create_all()</code> does not do. What closed the gap was
+      joining them on read in <code>hub/client_key.py</code> rather than
+      copying them, so a client renamed in Knack is re-joined on the next
+      request. A row below in gray is that arrangement working; amber and red
+      are findings. <a href="/api/clients/crosswalk">The crosswalk</a> lists
+      what is joined and what has no URL on file and therefore cannot be.
+      Read from source, so it stays accurate even when a module fails to load.
     </p>
     <div id="diag-structure" class="diag-rows">
       <div id="diag-structure-main"><p class="diag-loading">Loading…</p></div>
@@ -113,7 +163,7 @@
       Ads and Google Access on a typed business name, Image Picker on its own
       table. Rather than migrate four tables, the Hub derives one key on read
       (<code>hub/client_key.py</code>) and joins on that: a domain where there
-      is one, a normalised name where there is not. This is what that join
+      is one, a normalized name where there is not. This is what that join
       currently finds. A record with a name and no URL on file can only ever be
       matched to another name, so those are listed separately.
     </p>
@@ -251,7 +301,7 @@ function stateWord(state){
   return state==="not_measured" ? "not measured" : state;
 }
 
-// The provider's own counter, when it could be read. Always labelled as
+// The provider's own counter, when it could be read. Always labeled as
 // theirs: it is the number they bill on, and it is the one the ledger below
 // cannot see all of.
 function accountBlock(a, label){
@@ -321,11 +371,17 @@ function estimateDetail(e){
     var apis = e.apis||[];
     if(!apis.length) return "";
     return '<table class="diag-tbl"><tr><th>API</th><th class="num">Calls this month</th>'+
+      '<th class="num">Refused</th>'+
       '<th class="num">Today</th><th class="num">Busiest day</th>'+
       '<th class="num">Daily quota</th><th>State</th></tr>'+
       apis.map(function(a){
+        /* A refusal spends the daily quota and returns nothing, so it is its
+           own column rather than a share of the total. Zero refusals is a
+           real answer and prints as a dash, not as a worrying 0%. */
         return '<tr><td>'+esc(a.label)+'</td>'+
           '<td class="num">'+num(a.calls)+'</td>'+
+          '<td class="num">'+(a.failed?num(a.failed)+
+            ' <small>'+a.failed_percent+'%</small>':'—')+'</td>'+
           '<td class="num">'+num(a.today)+'</td>'+
           '<td class="num">'+(a.busiest_day_calls?num(a.busiest_day_calls)+
             ' <small>'+esc(a.busiest_day||"")+'</small>':"—")+'</td>'+
@@ -333,7 +389,7 @@ function estimateDetail(e){
             '<small>none published</small>')+'</td>'+
           '<td><span class="diag-pill p-'+pillFor(a.state)+'">'+
             esc(stateWord(a.state))+'</span></td></tr>'+
-          '<tr class="diag-subrow"><td colspan="6">'+esc(a.note)+'</td></tr>';
+          '<tr class="diag-subrow"><td colspan="7">'+esc(a.note)+'</td></tr>';
       }).join("")+'</table>'+
       modTable(e.by_module, [["Calls",function(v){return num(v);}]]);
   }
@@ -433,6 +489,124 @@ function renderOpenAI(o){
     '<p class="diag-caveat">'+esc(o.caveat)+'</p>';
 }
 
+// ---- environment ----------------------------------------------------------
+// One row per setting, and never a value: this panel is read on a screen and
+// screenshotted into chats. "Set, and ignored" is the row that earns the panel
+// — a variable somebody added under a name the Hub reads second looks exactly
+// like one that took effect.
+function renderEnv(d){
+  var rows = (d.settings||[]).slice().sort(function(a,b){
+    var rank = function(r){ return r.conflict ? 0 : (r.set ? 2 : 1); };
+    return rank(a)-rank(b) || a.label.localeCompare(b.label);
+  });
+  var problems = (d.problems||[]).map(function(p){
+    return '<div class="diag-row"><span class="diag-pill p-warn">check</span>'+
+      '<span class="diag-name">'+esc(p.name)+'</span>'+
+      '<span class="diag-detail">'+esc(p.detail)+'</span></div>';
+  }).join("");
+  document.getElementById("diag-env").innerHTML = problems + rows.map(function(r){
+    var state = r.conflict ? "warn" : (r.set ? "ok" : "off");
+    var pill  = r.conflict ? "clash" : (r.set ? "set" : "unset");
+    var detail = r.set
+      ? 'Read from <code>'+esc(r.resolved)+'</code>.'+
+        (r.ignored.length
+          ? ' Also set and ignored: <code>'+r.ignored.map(esc).join('</code>, <code>')+'</code>.'
+          : '')+
+        (r.conflict ? ' <b>Those hold different values, so one of them is doing nothing.</b>' : '')
+      : 'Not set under any of these names.';
+    return '<div class="diag-row">'+
+      '<span class="diag-pill p-'+state+'">'+pill+'</span>'+
+      '<span class="diag-name">'+esc(r.label)+'</span>'+
+      '<span class="diag-detail">'+detail+
+        '<em class="diag-fix">Accepted: '+r.names.map(esc).join(", ")+'</em>'+
+      '</span></div>';
+  }).join("");
+}
+
+function renderOauth(d){
+  var el = document.getElementById("diag-oauth"); if(!el) return;
+  if(!d.measured){
+    // "We could not look" is not "there are no redirect URIs".
+    el.innerHTML = '<p class="diag-loading">Not measured &mdash; the redirect '+
+      'URIs could not be read.'+(d.error?" "+esc(d.error):"")+'</p>';
+    return;
+  }
+  var hosts = (d.hosts||[]).map(function(h){
+    return '<code>'+esc(h.origin)+'</code> ('+esc(h.how)+')';
+  }).join(", ");
+  var head = '<div class="diag-row"><span class="diag-pill p-'+
+    ((d.hosts||[]).length>1?"warn":"ok")+'">'+((d.hosts||[]).length||"?")+'</span>'+
+    '<span class="diag-name">Hostnames seen</span>'+
+    '<span class="diag-detail">'+(hosts||"None could be read.")+
+    '<em class="diag-fix">Observed, not surveyed &mdash; an app cannot list its '+
+    'own custom domains. Render also keeps the onrender.com subdomain live '+
+    'unless it is switched off, so there may be more than these.</em></span></div>';
+
+  var problems = (d.problems||[]).map(function(p){
+    return '<div class="diag-row"><span class="diag-pill p-warn">act</span>'+
+      '<span class="diag-name">'+esc(p.name)+'</span>'+
+      '<span class="diag-detail">'+esc(p.detail)+'</span></div>';
+  }).join("");
+
+  var rows = (d.redirects||[]).map(function(r){
+    var uris = r.uris.length
+      ? r.uris.map(function(u){return '<code>'+esc(u)+'</code>';}).join("<br>")
+      : '<i>nothing to register</i>';
+    var origin = r.follows_browser
+      ? '<b>Follows the browser</b> &mdash; one entry per hostname.'
+      : 'Built from <code>'+esc(r.source)+'</code>, so it does not follow the browser.';
+    return '<div class="diag-row">'+
+      '<span class="diag-pill p-'+esc(r.state)+'">'+
+        (r.state==="ok"?"ok":r.state==="warn"?"check":"off")+'</span>'+
+      '<span class="diag-name">'+esc(r.label)+
+        (r.client_facing?' <b>(a client sees this one)</b>':'')+'</span>'+
+      '<span class="diag-detail">'+uris+'<br>'+origin+' '+esc(r.note)+
+        '<em class="diag-fix">Register at: '+esc(r.console)+'. OAuth client from '+
+        (r.client_var?'<code>'+esc(r.client_var)+'</code>':'none of '+esc(r.client_names.join(" / ")))+
+        '. Built in '+esc(r.where)+'.</em>'+
+      '</span></div>';
+  }).join("");
+  el.innerHTML = head + problems + rows;
+}
+
+function renderHousekeeping(d){
+  var el=document.getElementById("diag-housekeeping"); if(!el) return;
+  var rows=(d.findings||[]).map(function(f){
+    // "not measured" is its own state and never a zero: a source that could
+    // not be read must not render as a clean row with nothing outstanding.
+    var state = !f.measured ? "error" : (f.level==="low" ? "off" : "warn");
+    var pill  = f.measured ? String(f.count||1) : "?";
+    var who   = (f.names||[]).length
+      ? '<br><span class="diag-note">'+f.names.map(esc).join(", ")+
+        (f.names_truncated?" &hellip;and "+f.names_truncated+" more":"")+'</span>'
+      : "";
+    var where = f.page
+      ? '<br><span class="diag-note">Shows on: '+
+        (f.page_path?'<a href="'+esc(f.page_path)+'">'+esc(f.page)+'</a>':esc(f.page))+
+        '</span>'
+      : "";
+    var note = f.note
+      ? '<br><span class="diag-note">'+esc(f.note)+'</span>' : "";
+    var fix = f.fix
+      ? '<em class="diag-fix">'+esc(f.fix)+
+        (f.fix_path?' &mdash; <a href="'+esc(f.fix_path)+'">'+esc(f.fix_path)+'</a>':'')+
+        '</em>'
+      : "";
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+esc(pill)+'</span>'+
+      '<span class="diag-name">'+esc(f.page||f.key)+'</span>'+
+      '<span class="diag-detail">'+esc(f.issue)+who+where+note+fix+'</span></div>';
+  }).join("");
+  // What was checked and had nothing to say, so one row cannot be mistaken
+  // for one check having run.
+  var checked='<div class="diag-row"><span class="diag-pill p-'+
+    ((d.findings||[]).length?"warn":"ok")+'">'+((d.open||0)||"ok")+'</span>'+
+    '<span class="diag-name">Checked</span><span class="diag-detail">'+
+    esc((d.sources||[]).join(", ")||"nothing")+
+    ((d.clean||[]).length?' &mdash; nothing outstanding in '+esc(d.clean.join(", ")):'')+
+    '</span></div>';
+  el.innerHTML = checked + rows;
+}
+
 function renderIntegrity(d){
   document.getElementById("diag-integrity").innerHTML = d.groups.map(function(g){
     var state = g.count===0 ? "ok" : (g.severity==="high"?"error":g.severity==="medium"?"warn":"off");
@@ -450,14 +624,27 @@ function renderIntegrity(d){
 
 function renderStructure(d){
   var el=document.getElementById("diag-structure-main"); if(!el) return;
-  var head='<div class="diag-row"><span class="diag-pill p-'+(d.risks.length?"warn":"ok")+'">'+
+  // A "low" risk here is the *resolved* case: the columns still differ, and
+  // something joins them. Painting it amber put "this is handled, and here is
+  // what handles it" in the same color as a real finding directly above it,
+  // which is how a panel teaches people to skim past the rows that matter.
+  // Gray is what this page already uses for a row that is not a verdict.
+  // Not the pillFor() above: that one maps a check *state*, this maps a risk
+  // *level*, and two functions of one name reading two vocabularies is how the
+  // wrong one gets called from the wrong place later.
+  function pillForLevel(level){
+    return level==="high" ? "error" : level==="low" ? "off" : "warn";
+  }
+  var open=d.risks.filter(function(r){ return r.level!=="low"; });
+  var head='<div class="diag-row"><span class="diag-pill p-'+(open.length?"warn":"ok")+'">'+
     (d.own_engines)+'</span><span class="diag-name">Own engines</span>'+
     '<span class="diag-detail">'+d.engines.length+' engines total, '+d.shared_engine_users+
-    ' sharing hub/extensions.py. '+d.json_stores+' JSON stores. Client keys in use: <b>'+
+    ' sharing hub/extensions.py. '+d.json_stores+' JSON store'+
+    (d.json_stores===1?'':'s')+' outside hub/jsonstore.py. Client keys in use: <b>'+
     d.client_keys.map(esc).join(", ")+'</b>.</span></div>';
   el.innerHTML = head + d.risks.map(function(r){
-    return '<div class="diag-row"><span class="diag-pill p-'+
-      (r.level==="high"?"error":"warn")+'">'+esc(r.level)+'</span>'+
+    return '<div class="diag-row"><span class="diag-pill p-'+pillForLevel(r.level)+'">'+
+      esc(r.level)+'</span>'+
       '<span class="diag-name">'+esc(r.title)+'</span>'+
       '<span class="diag-detail">'+esc(r.detail)+
       '<em class="diag-fix">'+esc((r.where||[]).join(", "))+'</em></span></div>';
@@ -621,6 +808,18 @@ function loadAll(force){
     .then(r=>r.json()).then(renderChecks)
     .catch(()=>{document.getElementById("diag-checks").innerHTML=
       '<p class="diag-loading">Checks could not be run.</p>';});
+  fetch("/api/environment",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderEnv)
+    .catch(function(){document.getElementById("diag-env").innerHTML=
+      '<p class="diag-loading">Could not read the environment report.</p>';});
+  fetch("/api/oauth-redirects",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderOauth)
+    .catch(function(){document.getElementById("diag-oauth").innerHTML=
+      '<p class="diag-loading">Could not read the redirect URIs.</p>';});
+  fetch("/api/housekeeping",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderHousekeeping)
+    .catch(function(){document.getElementById("diag-housekeeping").innerHTML=
+      '<p class="diag-loading">Could not read the housekeeping list.</p>';});
   fetch("/api/integrity",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=

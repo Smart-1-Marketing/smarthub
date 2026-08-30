@@ -18,12 +18,76 @@ chip so phone layouts are untouched.
 EVERYONE = "everyone"
 ADMIN_ONLY = "admin"
 
+# ----------------------------------------------------------- the icon rail
+# Every tool on /creative opens with the nav as an icon rail. A creative tool
+# is a workbench -- a canvas with controls either side of it, a storyboard, a
+# gallery of squares, a waveform -- and the nav is 224px of a laptop that the
+# work itself needs. Losing it is what turns a step into a horizontal scroll,
+# which is the note the Display Ad Builder's own entry here made when it was
+# the only one named.
+#
+# The list is the tiles on hub/templates/creative.html, and it has to be:
+# that page is the answer to "which tools are creative", so a tool tiled
+# there and missing here would open with a nav nobody asked for while every
+# tool beside it behaved differently, with nothing on either screen saying
+# why. test_menu_layout.py asserts the two agree in both directions.
+#
+# This is a *default*, not a lock. A stored preference wins in both
+# directions (see the JS below), so somebody who opens the menu on Image
+# Creator keeps it open there and everywhere else, and the toggle is on
+# screen either way. A page that fights the person using it is worse than a
+# page with a nav they did not want.
+CREATIVE_PREFIXES = (
+    # Images
+    "/tools/display-ads",
+    "/tools/image-creator",
+    "/tools/image",              # Image Optimizer & Resizer
+    "/tools/bg-remover",
+    "/tools/page-images",
+    "/tools/image-picker",
+    "/tools/seo-images",
+    "/tools/landing-ads",
+    "/tools/stock-photos",
+    # Videos
+    "/tools/commercial-builder",
+    "/tools/video-backgrounds",
+    # Audio
+    "/tools/radio-promo",
+    "/tools/fan-radio",
+)
+
+
+def collapses_by_default(path: str) -> bool:
+    """Does the tool at ``path`` open with the nav as an icon rail?
+
+    One decision, read by all three places that render the nav: the hub app's
+    injector, `HubBar` in wsgi.py for the twenty mounted modules, and the
+    `hub_sidebar` global that base.html calls directly. Three copies of a
+    prefix test is how two of them come to disagree about one tool.
+
+    Matched on path *segments* through `hub/access.py`'s own matcher, not on
+    a bare `startswith`: `/tools/image` must not claim a future
+    `/tools/imagery-report`, and `/tools/image-creator` is underneath it on
+    purpose. `/creative` itself is an index, not a workbench, and is
+    deliberately not in the list.
+    """
+    try:
+        from .access import path_matches
+    except Exception:  # noqa: BLE001 — the nav must never break a page
+        return False
+    return path_matches(path or "", CREATIVE_PREFIXES)
+
+
 _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
     ("c360", "/client360", "&#127919;", "Client 360"),
     ("_sec2", "", "", "Sales"),
     # One entry, because there is one proposal builder. /sales/proposals is the
     # retired standalone tool: it redirects here and serves its archive only.
+    # Before the Proposal Builder because it is what happens before one: the
+    # audit is the evidence a proposal is written from, and the builder offers
+    # to run it anyway if nobody did.
+    ("website_audit", "/tools/website-audit", "&#128269;", "Website Audit"),
     ("salesb", "/sales/builder/", "&#128196;", "Proposal Builder"),
     # Sales, not Tools. It is the last step of the sales flow -- a proposal
     # becomes an insertion order -- and the Tools page is where staff looked
@@ -79,12 +143,20 @@ _CSS = """
   /* Offset the page for the fixed sidebar — but only when the host page
      isn't already doing it. hub.css lays the Hub's own pages out with
      .main{margin-left:224px}, so applying it to <body> as well pushed the
-     content 448px right. :not(:has(.main)) leaves those pages alone and
-     still offsets every module page, which has no such rule. */
-  body:not(:has(.main)) { margin-left: 224px; --s1hub-offset: 224px; }
+     content 448px right.
+
+     The guard is `.shell > .main`, not `.main`. "main" is one of the most
+     ordinary class names there is, and matching it anywhere in the document
+     meant any *module* that happened to use it got no offset at all: the
+     client lookup at /clients names its content wrapper `.main`, so the whole
+     React app was laid out from x=0 and its first column of tiles sat behind
+     the sidebar — on every visit, with nothing erroring. Only the Hub's own
+     base.html puts a `.main` directly inside `.shell`, which is precisely the
+     layout this needs to keep its hands off. */
+  body:not(:has(.shell > .main)) { margin-left: 224px; --s1hub-offset: 224px; }
   /* Published so full-height tools (Image Creator) can size themselves
      against the space the sidebar actually took, rather than guessing. */
-  body.s1hub-collapsed:not(:has(.main)) { --s1hub-offset: 56px; }
+  body.s1hub-collapsed:not(:has(.shell > .main)) { --s1hub-offset: 56px; }
   .s1hub-chip { display: none !important; }
 }
 /* Below 950px the sidebar becomes a slide-out drawer rather than vanishing.
@@ -105,7 +177,7 @@ _CSS = """
   .s1hub-sb { transition: none } .s1hub-scrim { transition: none }
 }
 /* Collapsed state: the nav folds to a 56px icon rail rather than vanishing.
-   Hiding it entirely is what the old mobile behaviour did, and it left people
+   Hiding it entirely is what the old mobile behavior did, and it left people
    with no way back — a hide control has to be reversible from the hidden
    state, so the toggle stays visible either way. */
 body.s1hub-collapsed .s1hub-sb { width: 56px !important; }
@@ -115,8 +187,8 @@ body.s1hub-collapsed .s1hub-sb .s1hub-foot,
 body.s1hub-collapsed .s1hub-sb .s1hub-logo span { display: none !important; }
 body.s1hub-collapsed .s1hub-sb a.s1hub-item { justify-content: center; padding: 11px 0; }
 body.s1hub-collapsed .s1hub-sb .s1hub-ico { margin: 0 }
-body.s1hub-collapsed:not(:has(.main)) { margin-left: 56px; }
-body.s1hub-collapsed .main { margin-left: 56px !important; }
+body.s1hub-collapsed:not(:has(.shell > .main)) { margin-left: 56px; }
+body.s1hub-collapsed .shell > .main { margin-left: 56px !important; }
 .s1hub-toggle { position: absolute; top: 10px; right: 8px; z-index: 2;
   width: 24px; height: 24px; border: 0; border-radius: 6px; cursor: pointer;
   background: rgba(255,255,255,.08); color: #c9d4ea; font-size: 13px;
@@ -134,7 +206,7 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
    has to assert its own layout rather than inherit whatever the host page
    happens to set. sites_admin ships `header>div,nav{display:flex;align-items:
    center}` -- a bare element selector -- which turned this sidebar into a
-   horizontal, vertically-centred row with every item overflowing off-screen.
+   horizontal, vertically-centered row with every item overflowing off-screen.
    Hence the explicit display/flex resets and the !important on the few
    properties a host stylesheet can plausibly clobber. */
 .s1hub-sb { position: fixed !important; top: 0 !important; bottom: 0 !important;
@@ -246,7 +318,8 @@ def visible_items(is_admin: bool = True) -> list[tuple]:
     return out
 
 
-def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
+def render_sidebar(active: str = "", is_admin: bool = True,
+                   collapsed_default: bool = False) -> bytes:
     """The nav. ``is_admin=False`` drops the Utilities section.
 
     Defaults to True because every existing caller renders for a signed-in
@@ -254,6 +327,14 @@ def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
     out the role gets the full nav and the server-side gate still refuses the
     click. The reverse default would hide Diagnostics from an admin whenever
     the role lookup hiccuped, which is a bug nobody would report as one.
+
+    ``collapsed_default`` starts the nav as an icon rail on tools that are
+    themselves a full-width workbench -- every creative tool, which is what
+    `CREATIVE_PREFIXES` above lists and `collapses_by_default()` decides. It
+    is a *default*, not a lock: a stored preference always wins, so somebody
+    who opens the menu there keeps it open, and the toggle still works
+    either way. Without that distinction it would be a page fighting the
+    person using it.
     """
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
@@ -289,19 +370,47 @@ def render_sidebar(active: str = "", is_admin: bool = True) -> bytes:
         "if(e.target.closest('a'))set(false);});"
         # Collapse to an icon rail, remembered across pages. Applied before
         # paint where possible so the layout doesn't jump on every navigation.
+        #
+        # A page asks for the rail two ways, and both are honored because
+        # both are in use: `collapsed_default` above, decided server-side from
+        # the path (every creative tool), and `data-s1hub-collapse="1"` on
+        # the body, declared by the page's own template (the Proposal
+        # Builder's wizard). The wide tools lose 224px of a laptop's width to
+        # a nav nobody is reading while they work, which is what turns a step
+        # into a horizontal scroll. The body attribute simply feeds the same
+        # flag, so there is one decision rather than two racing each other.
         "var t=document.querySelector('.s1hub-toggle');"
-        "function coll(on){document.body.classList.toggle('s1hub-collapsed',on);"
+        "if(document.body&&document.body.getAttribute("
+        "'data-s1hub-collapse')==='1')window.__s1hubCollapseDefault=true;"
+        # `persist` is what keeps a page default from becoming everybody's
+        # preference. `coll()` writes localStorage, and the automatic call
+        # below used to write it too -- so one visit to a collapsed-by-default
+        # tool stored 's1hub:collapsed=1' globally and every other screen in
+        # the Hub came up collapsed, without anybody having pressed anything.
+        # It also meant the page default was only ever consulted once, since
+        # after that first visit there was no longer such a thing as "no
+        # stored preference". Only a real press of the toggle records a
+        # preference now; asking for the rail is per page and per visit.
+        "function coll(on,persist){"
+        "document.body.classList.toggle('s1hub-collapsed',on);"
         "if(t){t.innerHTML=on?'\\u276F':'\\u276E';"
         "t.title=on?'Show menu':'Hide menu';"
         "t.setAttribute('aria-label',t.title);}"
-        "try{localStorage.setItem('s1hub:collapsed',on?'1':'0');}catch(e){}}"
-        "try{if(localStorage.getItem('s1hub:collapsed')==='1')coll(true);}catch(e){}"
+        "if(persist!==false){"
+        "try{localStorage.setItem('s1hub:collapsed',on?'1':'0');}catch(e){}}}"
+        # A stored preference wins over the page default in both directions,
+        # so a tool that starts collapsed can still be opened for good.
+        "try{var sv=localStorage.getItem('s1hub:collapsed');"
+        "if(sv==='1'||(sv===null&&window.__s1hubCollapseDefault))coll(true,false);}"
+        "catch(e){if(window.__s1hubCollapseDefault)coll(true,false);}"
         "if(t)t.addEventListener('click',function(){"
         "coll(!document.body.classList.contains('s1hub-collapsed'));});"
         "})();</script>"
     )
     html = (
-        _CSS
+        (f"<script>window.__s1hubCollapseDefault="
+         f"{'true' if collapsed_default else 'false'};</script>")
+        + _CSS
         + '<button class="s1hub-burger" aria-label="Open menu" '
           'aria-expanded="false" aria-controls="s1hub-nav">&#9776;</button>'
         + '<div class="s1hub-scrim"></div>'

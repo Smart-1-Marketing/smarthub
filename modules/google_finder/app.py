@@ -1,6 +1,5 @@
 import json
 import os
-import random
 import secrets
 import sqlite3
 import threading
@@ -35,7 +34,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("google-account-finder")
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
+# Through hub.config, which accepts SECRET_KEY, FLASK_SECRET_KEY and
+# SESSION_SECRET. This read one of the three, so on a deployment setting either
+# of the others the module minted a fresh secret at every boot: the Google
+# Finder OAuth flow lost its state cookie mid-handshake on each deploy, and the
+# only symptom was a sign-in that had to be started again.
+try:
+    from hub.config import settings as _hub_cfg
+    _flask_secret = _hub_cfg.secret_key
+except Exception:                                     # noqa: BLE001
+    _flask_secret = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+                     or os.environ.get("SESSION_SECRET") or "")
+app.secret_key = _flask_secret or secrets.token_hex(32)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 app.config.update(
@@ -393,7 +403,57 @@ def google_put(access_token, url, json_body=None):
     return r.text
 
 
-def fetch_ga_items(access_token, google_login):
+# ---------------------------------------------------------------------------
+# What each sweep actually managed
+# ---------------------------------------------------------------------------
+# Every fetcher below swallows its own exception and returns an empty list.
+# That is right — one platform failing must not cost the other three — and it
+# is also how "this login has no Tag Manager containers" and "Tag Manager
+# refused us" came to look identical on every screen that reads this index.
+# A login consented before a scope was added to SCOPES keeps the grant it was
+# given: Google does not widen an existing refresh token, so the call 403s for
+# ever and the page shows nothing, with nothing anywhere saying why.
+#
+# So each fetcher now files a note. `kind` is the answer to "why is this
+# empty", and the four are genuinely different situations:
+#
+#     ok        we asked and this is what there is (count may be 0)
+#     partial   we asked, part of it was refused, and the refused part is
+#               answered by the last sweep's reading rather than by a hole.
+#               Tag Manager's rate limit makes this the ordinary outcome on a
+#               login with 180 accounts, and it is neither a clean sweep nor a
+#               failure: every resource is listed, some of it is second-hand.
+#     refused   Google said no — almost always a scope this token never got,
+#               or an API not enabled on the Cloud project. Reconnecting the
+#               login re-consents, because the connect URL forces prompt=consent.
+#     failed    we could not ask — a network error, a bad token
+#     disabled  we did not ask, because this deployment switched it off
+#
+# A note with count 0 and kind "ok" is a real answer. A note with kind
+# "refused" is not, and must never be rendered as a clean nothing. `ok` is
+# True for "ok" alone: a partial sweep is worth surfacing, so it counts as a
+# problem for the pages that list them, and says which kind of problem it is.
+def _note(notes, email, platform, kind, count=0, error=""):
+    if notes is None:
+        return
+    notes.append({"email": email, "platform": platform, "kind": kind,
+                  "ok": kind == "ok", "count": count,
+                  "error": str(error)[:300]})
+
+
+def _refused(exc) -> bool:
+    """A 401/403 is a permission answer, not an outage.
+
+    Told apart because they need opposite things from a person: a refusal is
+    "reconnect this login" and an outage is "try again later", and calling
+    the first one a failure sends somebody to check their network.
+    """
+    text = str(exc)
+    return "401" in text or "403" in text or "insufficient" in text.lower() \
+        or "permission" in text.lower() or "forbidden" in text.lower()
+
+
+def fetch_ga_items(access_token, google_login, notes=None):
     items = []
     token = None
     try:
@@ -433,63 +493,186 @@ def fetch_ga_items(access_token, google_login):
             token = data.get("nextPageToken")
             if not token:
                 break
+        _note(notes, google_login, "Google Analytics", "ok", len(items))
     except Exception as exc:
         logger.warning("Failed fetching GA4 items for %s: %s", google_login, exc)
+        _note(notes, google_login, "Google Analytics",
+              "refused" if _refused(exc) else "failed", len(items), exc)
     return items
 
 
 # Tag Manager enforces a low per-user request rate — far lower than Analytics.
-# With 150+ GTM accounts on one login, firing container requests back to back
+# With 180 GTM accounts on one login, firing container requests back to back
 # means Google returns 429 for nearly all of them and every container is
 # skipped. That is why containers never appeared in the Hub: not missing
 # access, just rate limiting we weren't handling.
+#
+# A FIXED interval is the half of that fix which does not work, and the live
+# service is what proved it. Paced at 0.35s, one sweep of 180 accounts logged
+# a 429 on very nearly every first attempt, paid 1s + 2s + 4s of backoff to
+# get most of them through, exhausted its four attempts on 13 of them, and
+# took 440 seconds — while the *next* account started again at 0.35s and
+# rediscovered the same refusal from scratch. The pacer had no memory, so the
+# retry path was the normal path: roughly two and a half requests spent per
+# account, every one of the wasted ones counting against the daily quota.
+#
+# So the interval adapts. A 429 widens it for everything that follows, a long
+# run of clean calls narrows it back, and Google's own Retry-After beats our
+# guess whenever it sends one. Widening is fast and recovery is deliberately
+# slow — the opposite ratio oscillates, spending a 429 to rediscover the
+# ceiling every twenty calls.
 _GTM_MIN_INTERVAL = float(os.environ.get("GTM_MIN_INTERVAL_SECONDS") or 0.35)
-_GTM_MAX_RETRIES = int(os.environ.get("GTM_MAX_RETRIES") or 4)
-_gtm_last_call = [0.0]
+# The ceiling on the adaptive interval. 180 accounts at 8s is 24 minutes, well
+# inside the sweep's own budget, and past that something is wrong in a way
+# waiting longer will not fix.
+_GTM_MAX_INTERVAL = float(os.environ.get("GTM_MAX_INTERVAL_SECONDS") or 8.0)
+_GTM_MAX_RETRIES = int(os.environ.get("GTM_MAX_RETRIES") or 6)
+# One 429 multiplies the interval by this; _GTM_RECOVER_AFTER consecutive
+# clean calls divide it by the same. 1.6 and 25 means a single refusal is
+# answered immediately and it takes a sustained clean run to speed back up.
+_GTM_WIDEN = 1.6
+_GTM_RECOVER_AFTER = 25
+# A Retry-After we will honour. Google sends seconds here; a server that asks
+# for an hour is asking for more than this sweep has, and we would rather
+# carry the last reading forward than hang eight threads waiting for it.
+_GTM_RETRY_AFTER_CAP = 60.0
+
 # gunicorn runs --threads 8, so the pacing below was being read and written by
 # eight threads at once: each could see the same "last call" timestamp, each
 # decide no wait was needed, and all eight fire together — which is the burst
 # the pacing exists to prevent. The lock is held across the sleep on purpose.
 # Serialising Tag Manager calls is the entire point; a lock that let them
-# overlap would pace nothing.
+# overlap would pace nothing. It is also what makes the interval *shared*: a
+# 429 one thread meets slows the other seven down too, which is the only
+# useful thing to do with the news, since the limit Google applies is per user
+# and not per thread.
 #
 # Two WORKERS are a separate problem a lock cannot solve, and the fix for that
 # is not here: hub/scheduler.py sweeps under the leader lock, so only one
 # worker builds the index and only one paces itself against Google.
 _gtm_lock = threading.Lock()
+_gtm_pace = {"interval": _GTM_MIN_INTERVAL, "last": 0.0, "ok_streak": 0,
+             "calls": 0, "throttled": 0}
+
+
+def gtm_pace_state() -> dict:
+    """What the pacer has learned, for a sweep note or a diagnostic.
+
+    An adaptive limiter nobody can inspect is a magic number that moves. The
+    settled interval and the throttled count together answer the only question
+    worth asking about it: is Tag Manager letting us go faster or slower than
+    it did, and how much of the sweep was spent being refused.
+    """
+    with _gtm_lock:
+        state = dict(_gtm_pace)
+    state["floor"] = _GTM_MIN_INTERVAL
+    state["ceiling"] = _GTM_MAX_INTERVAL
+    return state
+
+
+def _gtm_retry_after(exc) -> float:
+    """Seconds Google asked us to wait, or 0 when it did not say.
+
+    Never raises and never guesses: the header also has an HTTP-date form,
+    which is not worth parsing for a hint we already have a fallback for.
+    """
+    try:
+        resp = getattr(exc, "response", None)
+        raw = str((getattr(resp, "headers", None) or {}).get("Retry-After") or "")
+        return max(0.0, min(float(raw), _GTM_RETRY_AFTER_CAP)) if raw else 0.0
+    except Exception:                                   # noqa: BLE001
+        return 0.0
+
+
+def _gtm_wait() -> None:
+    """Hold until the shared interval has elapsed since the last call."""
+    with _gtm_lock:
+        interval = _gtm_pace["interval"]
+        gap = time.time() - _gtm_pace["last"]
+        if gap < interval:
+            time.sleep(interval - gap)
+        _gtm_pace["last"] = time.time()
+        _gtm_pace["calls"] += 1
+
+
+def _gtm_throttled(retry_after: float = 0.0) -> float:
+    """Widen the shared pace after a 429, and say how long to wait now.
+
+    The widening is inside the lock so every thread sees it; the *waiting* is
+    left to the caller and happens outside, because blocking the other seven
+    threads for the whole backoff would serialise the backoff too — they will
+    already be pacing themselves at the new, wider interval.
+    """
+    with _gtm_lock:
+        _gtm_pace["throttled"] += 1
+        _gtm_pace["ok_streak"] = 0
+        _gtm_pace["interval"] = min(_gtm_pace["interval"] * _GTM_WIDEN,
+                                    _GTM_MAX_INTERVAL)
+        widened = _gtm_pace["interval"]
+    # Google's own number beats ours whenever it sends one — capped here as
+    # well as at the header, so the ceiling holds however this is called. An
+    # hour is longer than the whole sweep has, and carrying the last reading
+    # forward is a better answer than eight threads waiting for it.
+    return max(min(retry_after, _GTM_RETRY_AFTER_CAP), widened)
+
+
+def _gtm_succeeded() -> None:
+    """Narrow the shared pace after a long clean run, one step at a time."""
+    with _gtm_lock:
+        _gtm_pace["ok_streak"] += 1
+        if (_gtm_pace["ok_streak"] >= _GTM_RECOVER_AFTER
+                and _gtm_pace["interval"] > _GTM_MIN_INTERVAL):
+            _gtm_pace["interval"] = max(_GTM_MIN_INTERVAL,
+                                        _gtm_pace["interval"] / _GTM_WIDEN)
+            _gtm_pace["ok_streak"] = 0
 
 
 def gtm_get(access_token, url, params=None):
-    """GET against Tag Manager, paced and retried on 429.
+    """GET against Tag Manager, paced adaptively and retried on 429.
 
     Spacing every call is what actually fixes this — retrying alone still
-    sends the first burst too fast and just moves the failures later.
+    sends the first burst too fast and just moves the failures later. Spacing
+    it at a rate Google has *agreed to* is what stops the retries being the
+    normal path.
     """
     for attempt in range(_GTM_MAX_RETRIES):
-        with _gtm_lock:
-            gap = time.time() - _gtm_last_call[0]
-            if gap < _GTM_MIN_INTERVAL:
-                time.sleep(_GTM_MIN_INTERVAL - gap)
-            _gtm_last_call[0] = time.time()
+        _gtm_wait()
         try:
-            return google_get(access_token, url, params=params)
+            data = google_get(access_token, url, params=params)
         except Exception as exc:                        # noqa: BLE001
             is_429 = "429" in str(exc) or "Too Many Requests" in str(exc)
             if not is_429 or attempt == _GTM_MAX_RETRIES - 1:
                 raise
-            # Exponential backoff with a little jitter, so parallel workers
-            # don't retry in lockstep and re-create the burst.
-            wait = (2 ** attempt) + random.uniform(0, 0.4)
-            logger.info("GTM rate limited, waiting %.1fs (attempt %d/%d)",
-                        wait, attempt + 1, _GTM_MAX_RETRIES)
+            wait = _gtm_throttled(_gtm_retry_after(exc))
+            logger.info("GTM rate limited, pacing now %.2fs, waiting %.1fs "
+                        "(attempt %d/%d)", _gtm_pace["interval"], wait,
+                        attempt + 1, _GTM_MAX_RETRIES)
             time.sleep(wait)
-    return {}
+        else:
+            _gtm_succeeded()
+            return data
+    return {}                           # unreachable: the last attempt raises
 
 
-def fetch_gtm_items(access_token, google_login):
+def fetch_gtm_items(access_token, google_login, notes=None, previous=None):
+    """Every Tag Manager container this login can see.
+
+    `previous` is last sweep's containers keyed by GTM account id. Tag Manager
+    rate-limits hard enough that some accounts will be refused however politely
+    we ask, and dropping their containers means the index reports this login
+    owning fewer than it does — a smaller number, in a complete-looking list,
+    with nothing saying a reading is missing. So a refused account keeps what
+    the last sweep found, marked `carried_over` and counted apart. It is the
+    rule hub/knack_products.py and hub/domain_purchase.py already work to: a
+    failed pull never empties a good snapshot.
+    """
     items = []
     token = None
     accounts = []
+    previous = previous or {}
+    carried_accounts = 0
+    carried_rows = 0
+    lost: list[str] = []
 
     try:
         while True:
@@ -503,6 +686,8 @@ def fetch_gtm_items(access_token, google_login):
                 break
     except Exception as exc:
         logger.warning("Failed fetching GTM accounts for %s: %s", google_login, exc)
+        _note(notes, google_login, "Google Tag Manager",
+              "refused" if _refused(exc) else "failed", 0, exc)
         return items
 
     skipped: list[str] = []
@@ -554,18 +739,55 @@ def fetch_gtm_items(access_token, google_login):
                 if len(skipped) <= 3:
                     logger.warning("Skipping containers for GTM account %s (%s): %s",
                                    account_id, google_login, exc)
+                # Last sweep's reading beats no reading. Marked, never merged
+                # in quietly: a container carried over may have been renamed
+                # or deleted since, and a page saying so can be trusted where
+                # one that silently backfills cannot.
+                carried = previous.get(account_id) or []
+                if carried:
+                    carried_accounts += 1
+                    for row in carried:
+                        items.append(dict(row, carried_over=True))
+                        carried_rows += 1
+                else:
+                    lost.append(account_id)
                 break
 
             if not ctoken:
                 break
 
+    pace = gtm_pace_state()
     if skipped:
         # One summary line instead of 150 near-identical warnings — the
         # volume was hiding the GMB 403 further down the same log.
         logger.warning(
-            "GTM: %d of %d accounts skipped for %s after retries. "
-            "Raise GTM_MIN_INTERVAL_SECONDS if this persists.",
-            len(skipped), len(accounts), google_login)
+            "GTM: %d of %d accounts refused for %s after retries "
+            "(%d carried forward, %d with no earlier reading). Pace settled "
+            "at %.2fs after %d throttled call(s).",
+            len(skipped), len(accounts), google_login, carried_accounts,
+            len(lost), pace["interval"], pace["throttled"])
+        # A partial sweep is not a complete one, and "we kept last time's
+        # answer" and "this account has no reading at all" are the two halves
+        # of how partial it is. Only the second costs the index a container.
+        detail = (f"{len(skipped)} of {len(accounts)} Tag Manager account(s) "
+                  f"were rate-limited after retries. ")
+        if carried_accounts:
+            detail += (f"{carried_accounts} kept the {carried_rows} "
+                       f"container(s) the last sweep found, marked as carried "
+                       f"over. ")
+        if lost:
+            detail += (f"{len(lost)} have no earlier reading, so their "
+                       f"containers are missing from this list. ")
+        detail += (f"Tag Manager rate-limits per user; the pace settled at "
+                   f"{pace['interval']:.2f}s. Raise "
+                   f"GTM_MIN_INTERVAL_SECONDS if it keeps happening.")
+        # Everything came back, just not all of it first-hand: that is a
+        # weaker answer than a clean sweep and a much stronger one than a
+        # hole, so it is not reported as the same failure.
+        _note(notes, google_login, "Google Tag Manager",
+              "failed" if lost else "partial", len(items), detail)
+    else:
+        _note(notes, google_login, "Google Tag Manager", "ok", len(items))
     return items
 
 
@@ -577,8 +799,13 @@ GMB_ENABLED = (os.environ.get("GOOGLE_GMB_ENABLED", "").strip().lower()
                in {"1", "true", "yes", "on"})
 
 
-def fetch_gmb_items(access_token, google_login):
+def fetch_gmb_items(access_token, google_login, notes=None):
     if not GMB_ENABLED:
+        # Not a failure and not an empty book: nobody asked. The variable is
+        # named so the answer to "why is there no Business Profile here" is on
+        # the screen rather than in this file.
+        _note(notes, google_login, "Google Business Profile", "disabled", 0,
+              "GOOGLE_GMB_ENABLED is not set on this deployment.")
         return []
     items = []
     try:
@@ -633,14 +860,26 @@ def fetch_gmb_items(access_token, google_login):
                     })
             except Exception as loc_exc:
                 logger.warning("Failed fetching locations for GMB account %s (%s): %s", account_id, google_login, loc_exc)
-
+                _note(notes, google_login, "Google Business Profile",
+                      "refused" if _refused(loc_exc) else "failed", len(items),
+                      f"account {account_id}: {loc_exc}")
+        if not any(n.get("email") == google_login
+                   and n.get("platform") == "Google Business Profile"
+                   for n in (notes or [])):
+            _note(notes, google_login, "Google Business Profile", "ok", len(items))
     except Exception as exc:
         logger.warning("Failed fetching GMB accounts for %s: %s", google_login, exc)
+        # The usual answer here is a 403 that has nothing to do with the
+        # OAuth scope: the Business Profile APIs need per-project access
+        # granted by Google on top of it, so a login can be perfectly
+        # connected and still see none of its listings.
+        _note(notes, google_login, "Google Business Profile",
+              "refused" if _refused(exc) else "failed", len(items), exc)
 
     return items
 
 
-def fetch_gsc_items(access_token, google_login):
+def fetch_gsc_items(access_token, google_login, notes=None):
     items = []
     try:
         data = google_get(access_token, "https://www.googleapis.com/webmasters/v3/sites")
@@ -664,38 +903,79 @@ def fetch_gsc_items(access_token, google_login):
                 "google_login": google_login,
                 "open_url": f"https://search.google.com/search-console?resource_id={urlencode({'': site_url})[1:]}",
             })
+        _note(notes, google_login, "Search Console", "ok", len(items))
     except Exception as exc:
         logger.warning("Failed fetching Search Console sites for %s: %s", google_login, exc)
+        _note(notes, google_login, "Search Console",
+              "refused" if _refused(exc) else "failed", len(items), exc)
 
     return items
 
 
-def get_account_index(account, force=False):
+def get_account_index(account, force=False, notes=None, previous=None):
     email = account["email"].lower()
-    cached = CACHE.get(email, {"expires": 0, "items": []})
+    cached = CACHE.get(email, {"expires": 0, "items": [], "notes": []})
     now = time.time()
     if not force and cached["expires"] > now:
+        # The notes are cached with the items, or a cached sweep would report
+        # nothing about itself and a refusal would vanish for an hour.
+        if notes is not None:
+            notes.extend(cached.get("notes") or [])
         return cached["items"]
 
+    mine: list = []
     access_token = refresh_access_token(email, account["refresh_token"])
-    items = (
-        fetch_ga_items(access_token, email)
-        + fetch_gtm_items(access_token, email)
-        + fetch_gmb_items(access_token, email)
-        + fetch_gsc_items(access_token, email)
-    )
-    CACHE[email] = {"expires": now + CACHE_SECONDS, "items": items}
+    # Four separate calls rather than one expression, so a platform that
+    # raises where its own handler cannot catch it costs its own list and not
+    # the other three's.
+    items = []
+    for fetch in (fetch_ga_items, fetch_gtm_items, fetch_gmb_items,
+                  fetch_gsc_items):
+        try:
+            # Only Tag Manager has a previous reading worth carrying: it is
+            # the only platform here whose calls are refused often enough for
+            # a hole to be the ordinary outcome rather than the alarming one.
+            if fetch is fetch_gtm_items:
+                items.extend(fetch(access_token, email, mine,
+                                   previous=(previous or {}).get(email) or {}))
+            else:
+                items.extend(fetch(access_token, email, mine))
+        except Exception as exc:                        # noqa: BLE001
+            logger.warning("%s raised for %s: %s", fetch.__name__, email, exc)
+            _note(mine, email, fetch.__name__, "failed", 0, exc)
+    CACHE[email] = {"expires": now + CACHE_SECONDS, "items": items,
+                    "notes": mine}
+    if notes is not None:
+        notes.extend(mine)
     return items
 
 
-def get_index(force=False):
+def get_index(force=False, notes=None, previous=None):
+    """Every resource across every connected login.
+
+    `notes` is filled with one row per login per platform when a list is
+    passed: what was asked, what came back, and why it is empty when it is.
+    Callers that do not care pass nothing and behave exactly as before.
+
+    `previous` is the last sweep's Tag Manager containers, keyed by login and
+    then by GTM account id — see fetch_gtm_items for why it exists.
+    """
     items = []
     errors = []
     for account in connected_accounts():
+        email = account.get("email", "unknown")
         try:
-            items.extend(get_account_index(account, force=force))
+            items.extend(get_account_index(account, force=force, notes=notes,
+                                           previous=previous))
         except Exception as exc:
-            errors.append({"email": account.get("email", "unknown"), "error": str(exc)})
+            # Logged as well as recorded. This handler is where a whole login
+            # drops out of the sweep — a dead refresh token is the usual way —
+            # and until it said so the only trace was a returned `errors` list
+            # nothing printed and a resource count quietly short by a login's
+            # worth.
+            logger.warning("Sweep failed entirely for %s: %s", email, exc)
+            errors.append({"email": email, "error": str(exc)})
+            _note(notes, email, "all", "failed", 0, exc)
     return items, errors
 
 

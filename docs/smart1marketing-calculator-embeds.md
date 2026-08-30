@@ -33,14 +33,21 @@ through `wsgi.application`, requested with `Sec-Fetch-Dest: iframe`, the header
 a real browser sends when it frames a page. Each answers **200**, needs **no
 login**, carries **no staff chrome**, and is framable from smart1marketing.com.
 
+**The host is `smart1.agency`.** This service also answers on
+`smart1-hub.onrender.com`, and every URL below used to name that one.
+Retiring that hostname blanks any page still carrying it, silently on
+both sides — see the hostname note in
+`docs/smart1marketing-embeds.md`, which carries the full argument and
+the OAuth callbacks that also depend on it.
+
 | Page | Frame this URL | Calculator |
 |---|---|---|
-| `/ims` | `https://smart1-hub.onrender.com/tools/calculators/embed/trade` | IMS Advertising Trade |
-| `/ctv-ott-calculator` | `https://smart1-hub.onrender.com/tools/calculators/embed/ctv` | Connected TV Reach & Budget |
-| `/digital-audio-calculator` | `https://smart1-hub.onrender.com/tools/calculators/embed/digital-audio` | Digital Audio Reach & Budget |
-| `/dooh-calculator` | `https://smart1-hub.onrender.com/tools/calculators/embed/dooh` | DOOH Reach |
+| `/ims` | `https://smart1.agency/tools/calculators/embed/trade` | IMS Advertising Trade |
+| `/ctv-ott-calculator` | `https://smart1.agency/tools/calculators/embed/ctv` | Connected TV Reach & Budget |
+| `/digital-audio-calculator` | `https://smart1.agency/tools/calculators/embed/digital-audio` | Digital Audio Reach & Budget |
+| `/dooh-calculator` | `https://smart1.agency/tools/calculators/embed/dooh` | DOOH Reach |
 | `/paid-search-calculator` | **nothing to frame — see §5** | *(does not exist)* |
-| *(no page yet)* | `https://smart1-hub.onrender.com/tools/calculators/embed/female-18-34` | Female 18–34 Market |
+| *(no page yet)* | `https://smart1.agency/tools/calculators/embed/female-18-34` | Female 18–34 Market |
 
 There is no `?embed=1` on any of these. The calculators read the `/embed/`
 route itself, and unlike the boat and restaurant gameplan tools they have no
@@ -58,7 +65,7 @@ A plain iframe. **No `<script>`** — Simvoly code blocks are not a safe place
 for one, and nothing here needs it:
 
 ```html
-<iframe src="https://smart1-hub.onrender.com/tools/calculators/embed/trade"
+<iframe src="https://smart1.agency/tools/calculators/embed/trade"
         title="IMS Advertising Trade Calculator"
         style="display:block;width:100%;height:1500px;border:0"
         loading="lazy"></iframe>
@@ -73,7 +80,7 @@ one page means half the leads go nowhere and the split is invisible.
 `/ims`:
 
 ```html
-<iframe src="https://smart1-hub.onrender.com/tools/calculators/embed/trade"
+<iframe src="https://smart1.agency/tools/calculators/embed/trade"
         title="IMS Advertising Trade Calculator"
         style="display:block;width:100%;height:1500px;border:0"
         loading="lazy"></iframe>
@@ -82,7 +89,7 @@ one page means half the leads go nowhere and the split is invisible.
 `/ctv-ott-calculator`:
 
 ```html
-<iframe src="https://smart1-hub.onrender.com/tools/calculators/embed/ctv"
+<iframe src="https://smart1.agency/tools/calculators/embed/ctv"
         title="Connected TV Reach and Budget Calculator"
         style="display:block;width:100%;height:1500px;border:0"
         loading="lazy"></iframe>
@@ -91,7 +98,7 @@ one page means half the leads go nowhere and the split is invisible.
 `/digital-audio-calculator`:
 
 ```html
-<iframe src="https://smart1-hub.onrender.com/tools/calculators/embed/digital-audio"
+<iframe src="https://smart1.agency/tools/calculators/embed/digital-audio"
         title="Digital Audio Reach and Budget Calculator"
         style="display:block;width:100%;height:1500px;border:0"
         loading="lazy"></iframe>
@@ -100,7 +107,7 @@ one page means half the leads go nowhere and the split is invisible.
 `/dooh-calculator`:
 
 ```html
-<iframe src="https://smart1-hub.onrender.com/tools/calculators/embed/dooh"
+<iframe src="https://smart1.agency/tools/calculators/embed/dooh"
         title="DOOH Reach Calculator"
         style="display:block;width:100%;height:1500px;border:0"
         loading="lazy"></iframe>
@@ -118,18 +125,18 @@ services ticked, so give `/ims` room.
 
 The framed page already reports its own height on every change — it posts
 `{type:'s1calc:height'}` to the parent. The Hub serves the matching listener at
-`https://smart1-hub.onrender.com/tools/calculators/embed.js`. With it, the
+`https://smart1.agency/tools/calculators/embed.js`. With it, the
 frame grows to fit instead of scrolling inside itself:
 
 ```html
-<script src="https://smart1-hub.onrender.com/tools/calculators/embed.js"></script>
+<script src="https://smart1.agency/tools/calculators/embed.js"></script>
 ```
 
 Then add `data-s1calc` to the iframe and drop the fixed height:
 
 ```html
 <iframe data-s1calc
-        src="https://smart1-hub.onrender.com/tools/calculators/embed/trade"
+        src="https://smart1.agency/tools/calculators/embed/trade"
         title="IMS Advertising Trade Calculator"
         style="display:block;width:100%;height:900px;border:0"
         loading="lazy"></iframe>

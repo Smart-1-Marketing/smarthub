@@ -54,8 +54,114 @@ def products() -> list[dict]:
     return _records(_load("products.json"))
 
 
-def websites() -> list[dict]:
+def export_websites() -> list[dict]:
+    """The committed websites export, exactly as it is on disk.
+
+    Kept under its own name because one caller genuinely wants *the export*
+    rather than the current truth: `summary()` measures the dashboard's
+    scorecard against the export's own period and its thisM / lastM flags, and
+    a live site list folded into that would compare two things measured
+    differently at the two ends — the failure the whole trends section is
+    written about. Everything else wants the live registry; see websites().
+    """
     return _records(_load("websites.json"))
+
+
+def _website_source() -> tuple[list[dict], str, str]:
+    """(rows, source, error) — the website records, live if we can get them.
+
+    The same argument `_product_source()` makes, one object later. The client
+    registry, the SEO page's website matching, Client 360's website cards and
+    the website search all read this, and all of them were reading a 610-row
+    JSON file committed to the repo and refreshed by hand — so a site added in
+    Knack last week was invisible to every client picker in the Hub, silently,
+    because a short list looks exactly like a complete one. Meanwhile
+    `hub/knack_websites.py` has been reading the same object live for the
+    domain record, the renewals calendar and the orphan list: the Hub held a
+    live answer and a stale one, and the load-bearing readers took the stale.
+
+    **The export stays as the fallback, and a failed pull never empties it.**
+    Stale beats empty: a client record showing no website reads as "they have
+    none" rather than "we could not reach Knack", which is the confident wrong
+    answer this codebase keeps having to undo.
+    """
+    try:
+        from hub import knack_websites
+    except Exception as exc:                            # noqa: BLE001
+        return export_websites(), "export", f"{type(exc).__name__}"
+    try:
+        live = knack_websites.rows()
+    except Exception as exc:                            # noqa: BLE001
+        return export_websites(), "export", f"{type(exc).__name__}"
+    if not live:
+        # Not configured, or the pull failed and knack_websites swallowed it.
+        # Either way it is named rather than passed off as an empty registry.
+        return export_websites(), "export", knack_websites.last_error()
+    return [website_row_from_live(r) for r in live], "knack", ""
+
+
+_WEB_CACHE: dict = {"rows": None, "source": "", "at": 0.0}
+_WEB_CACHE_SECONDS = 60
+
+
+def websites() -> list[dict]:
+    """Every website record, live where Knack will answer.
+
+    Mapped into the export's own field names so the eight call sites reading
+    `name` / `domain` / `liveUrl` / `platform` need no edit — one shape, so a
+    reader cannot tell which source answered and cannot come to depend on one.
+    `websites_source()` is how a *screen* says which it was.
+
+    Cached for a minute on top of `knack_websites`' own cache, because
+    `seo._client_websites()` calls this three times in one function and the
+    mapping is 600-odd dicts each time.
+    """
+    import time
+    now = time.time()
+    if _WEB_CACHE["rows"] is not None and now - _WEB_CACHE["at"] < _WEB_CACHE_SECONDS:
+        return _WEB_CACHE["rows"]
+    rows, source, _err = _website_source()
+    _WEB_CACHE.update({"rows": rows, "source": source, "at": now})
+    return rows
+
+
+def websites_source() -> str:
+    """"knack" or "export" — which answered the last read. For screens only."""
+    if _WEB_CACHE["rows"] is None:
+        websites()
+    return _WEB_CACHE["source"]
+
+
+def website_row_from_live(rec: dict, domain: str = "") -> dict:
+    """One live object_153 record in the export's field names.
+
+    The one mapping. It was written inside `_attachment_only_websites()` for
+    the attachment path and is read from both now — two descriptions of "the
+    same record in the other shape" is how one of them comes to carry a field
+    the other does not.
+
+    `active`, `hmFreq`, `notes`, `manager`, `created` and `domainCost` are
+    deliberately **absent** rather than invented: object_153 does not publish
+    them, and a False `active` here would read as a dead site on every row.
+    That is why `summary()` reads `export_websites()` — it is the only caller
+    that needs them, and it needs them measured the same way at both ends.
+    """
+    dom = str(domain or rec.get("domain") or "").strip().lower()
+    return {
+        "id": rec.get("id", ""),
+        "name": rec.get("client") or rec.get("client_name") or rec.get("organization") or dom,
+        "domain": dom,
+        "liveUrl": rec.get("production_url") or (("https://" + dom) if dom else ""),
+        "platform": rec.get("platform", ""),
+        "status": rec.get("client_status", ""),
+        "hm": rec.get("hm_fee", 0),
+        "hmMonthly": rec.get("hm_fee", 0),
+        "partner": rec.get("media_partner", ""),
+        "ga": rec.get("ga_account", ""),
+        "gtm": rec.get("gtm_account", ""),
+        "registrar": rec.get("registrar", ""),
+        "domainPurchased": rec.get("domain_bought", ""),
+    }
 
 
 def data_age_hours() -> float | None:
@@ -211,39 +317,36 @@ def _snapshot(period: str, values: dict) -> dict:
     return hist
 
 
-def _delta(now, before, period: str = ""):
-    """A movement, or an explicit "we don't have that yet".
-
-    `available: False` is the point of this shape. A month we have no snapshot
-    for is not a month where nothing changed, and rendering it as 0 would state
-    something we do not know — the same mistake as showing an empty rate card
-    as "no products".
-
-    `period` is the month `before` was taken in, carried through so the card
-    can name it. A comparison that will not say what it compared against is
-    one nobody can check.
-    """
-    label = _period_label(period)
-    if not isinstance(before, (int, float)) or not isinstance(now, (int, float)):
-        return {"available": False, "period": label}
-    diff = now - before
-    pct = round(diff / before * 100, 1) if before else None
-    return {"available": True, "from": before, "diff": diff, "pct": pct,
-            "period": label,
-            "dir": "up" if diff > 0 else "down" if diff < 0 else "flat"}
-
-
-def _trends(period: str, current: dict) -> dict:
-    """Each trended metric against last month and the same month last year."""
-    hist = _snapshot(period, {k: current.get(k) for k in TRENDED})
-    m_key, y_key = _period_minus(period, 1), _period_minus(period, 12)
-    prev_m = hist.get(m_key) or {}
-    prev_y = hist.get(y_key) or {}
-    out = {}
-    for k in TRENDED:
-        out[k] = {"last_month": _delta(current.get(k), prev_m.get(k), m_key),
-                  "last_year": _delta(current.get(k), prev_y.get(k), y_key)}
-    return out
+# ---------------------------------------------------------------------------
+# Why there is no month-over-month comparison on the scorecard
+# ---------------------------------------------------------------------------
+#
+# There was one, and it was removed rather than fixed, because the arithmetic
+# under it could not be made honest at this size.
+#
+# The snapshot history above can only start when it is switched on: the first
+# reading is taken the month the Hub is opened, so on a new deployment last
+# month has no bucket and the same month last year does not arrive for twelve.
+# The obvious way round that is to rebuild the missing months from the export
+# — every insertion order has a start date, an end date and a monthly rate, so
+# which IOs were billing in March is arithmetic. That was built, and it
+# reproduced Knack's own `thisM` / `lastM` flags exactly.
+#
+# It still had to go. `is_running` — the definition behind every headline
+# number on that page — is deliberately a *union*: an IO counts if its term
+# covers today **or** Knack still calls it Live, which takes in about 140
+# month-to-month rows whose end date has passed and which nobody has closed
+# out. A term rebuild cannot see those, so the rebuilt month and the number
+# printed above it were measured differently, and no reader could reproduce
+# the percentage from the two figures on the card. A number nobody can check
+# is worse than no number, and a red 30% on the CEO's dashboard is the worst
+# place to learn that.
+#
+# So the cards carry the headline figures alone. `_snapshot()` still runs on
+# every load, because a reading taken this month is the only thing that can
+# ever produce a comparison measured the same way at both ends — and it costs
+# one small write. When there are two of them, a comparison can come back
+# without inventing anything.
 
 
 def _website_movement(period, websites_active) -> tuple:
@@ -299,10 +402,44 @@ def month_over_month(prods: list[dict]) -> dict:
     return {"new": new, "lost": lost, "increased": increased, "decreased": decreased}
 
 
+def export_state() -> dict:
+    """The month the committed products export was generated for.
+
+    One place decides what "stale" means, because two things ask: the
+    dashboard, which labels its month-over-month counts with it, and
+    `hub/housekeeping.py`, which lists the export as something to regenerate.
+    A second copy of the comparison would let the scorecard and the
+    Diagnostics row disagree about whether the export is current, with nothing
+    on either screen saying which to believe.
+
+    `_load` is cached on the file's mtime, so this is a dictionary lookup on
+    every call after the first.
+    """
+    raw = _load("products.json")
+    period = str(raw.get("thisMonth") or "") if isinstance(raw, dict) else ""
+    current = _current_period()
+    return {
+        "period": period,
+        "label": _period_label(period),
+        "current": current,
+        "current_label": _period_label(current),
+        # An export with no month in it is neither stale nor current: the
+        # caller is told there is no period rather than handed a False.
+        "stale": bool(period and period != current),
+    }
+
+
 def summary() -> dict:
     raw = _load("products.json")
     prods = products()
-    webs = websites()
+    # The EXPORT, deliberately, not the live registry. Every figure below is
+    # measured against the export's own period and its thisM / lastM flags,
+    # and `_active()` reads an `active` field only the export carries. A live
+    # list folded in here would compare two things measured differently at the
+    # two ends and report 0 active websites and $0 of H&M billing on the
+    # dashboard — arithmetic no reader could reproduce, which is the failure
+    # the whole trends section of this file exists to undo.
+    webs = export_websites()
 
     live = [r for r in prods if _is_live(r)]
     live_clients = {str(r.get("client", "")).strip() for r in live if r.get("client")}
@@ -322,9 +459,24 @@ def summary() -> dict:
     # `period` is now — what the snapshot history is keyed on. `export_period`
     # is the month products.json was generated for, which is what its lastM /
     # thisM flags describe and all the new/lost/up/down counts are measured in.
-    period = _current_period()
-    export_period = str(raw.get("thisMonth") or "") if isinstance(raw, dict) else ""
+    export = export_state()
+    period = export["current"]
+    export_period = export["period"]
     export_prev = str(raw.get("lastMonth") or "") if isinstance(raw, dict) else ""
+    # Recorded even though nothing renders a comparison today: a reading of
+    # this month is the only thing that can ever produce one measured the same
+    # way at both ends, and it cannot be taken retrospectively.
+    try:
+        _snapshot(period, {
+            "clients_live": len(live_clients),
+            "live_products": len(live),
+            "live_budget_monthly": round(live_budget),
+            "websites_active": len(active_sites),
+            "hm_monthly": round(hm_monthly),
+            "estimated_total_monthly": round(live_budget + hm_monthly),
+        })
+    except Exception:  # noqa: BLE001 — never break the dashboard on history I/O
+        pass
     mom = month_over_month(prods)
     try:
         movement, movement_from = _website_movement(period, len(active_sites))
@@ -346,24 +498,13 @@ def summary() -> dict:
         "decreased_customers": mom["decreased"],
         "website_movement": movement,
         "website_movement_from": movement_from,
-        # Which way each headline number moved, against last month and against
-        # the same month a year ago. Absent history is reported as absent
-        # rather than as no change.
-        "trends": _trends(period, {
-            "clients_live": len(live_clients),
-            "live_products": len(live),
-            "live_budget_monthly": round(live_budget),
-            "websites_active": len(active_sites),
-            "hm_monthly": round(hm_monthly),
-            "estimated_total_monthly": round(live_budget + hm_monthly),
-        }),
         "this_period": _period_label(export_period),
         "last_period": _period_label(export_prev),
         # The month-over-month counts above come from the export's own flags,
         # so they describe the export's month — not necessarily this one. When
         # the export is behind the calendar they are history, and the card has
         # to say so rather than presenting last quarter's movement as today's.
-        "export_stale": bool(export_period and export_period != period),
+        "export_stale": export["stale"],
         "period": _period_label(period),
         "data_age_hours": data_age_hours(),
     }
@@ -522,20 +663,14 @@ def _attachment_only_websites(client: str) -> list[dict]:
             extra = _kw.record_for_domain(d) or {}
         except Exception:                               # noqa: BLE001
             extra = {}
-        out.append({
-            "name": extra.get("client") or a.get("name") or d,
-            "domain": d,
-            "liveUrl": extra.get("production_url") or a.get("liveUrl")
-                       or ("https://" + d),
-            "platform": extra.get("platform", ""),
-            "status": extra.get("client_status", ""),
-            "hmMonthly": extra.get("hm_fee", 0),
-            "partner": extra.get("media_partner", ""), "manager": "",
-            "ga": extra.get("ga_account", ""), "gtm": extra.get("gtm_account", ""),
-            "registrar": extra.get("registrar", ""),
-            "domainPurchased": extra.get("domain_bought", ""),
-            "attached": True,
-        })
+        row = website_row_from_live(extra, d)
+        # What the attachment itself knows, where the live record does not.
+        row["name"] = extra.get("client") or a.get("name") or d
+        row["liveUrl"] = (extra.get("production_url") or a.get("liveUrl")
+                          or ("https://" + d))
+        row["manager"] = ""
+        row["attached"] = True
+        out.append(row)
     return out
 
 
@@ -734,6 +869,45 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
             "domainPurchased": w.get("domainPurchased"),
         })
 
+    # Clients whose only trace is an insertion order.
+    #
+    # Client 360 reads Knack's products and website records, and a client
+    # written up on their first IO has neither until the campaign is set up in
+    # Knack — so the day their record is most worth opening it comes back
+    # empty, which reads exactly like a name typed wrong. hub/io_clients.py
+    # registers them at submit, and only when they resolve to nobody, so this
+    # can never shadow a real client: a group is added here ONLY when nothing
+    # above produced one under that name.
+    try:
+        from hub import io_clients as _ioc
+        from hub.client_key import normalise_name as _nn
+        for row in _ioc.overlay().values():
+            nm = str(row.get("name") or "").strip()
+            if not nm or ql not in nm.lower():
+                continue
+            if any(_nn(g["client"]) == _nn(nm) for g in groups.values()):
+                continue        # Knack has them; its record is the real one
+            g = groups.setdefault(nm.lower(), {"client": nm, "products": [],
+                                               "websites": []})
+            # Said on the record, not merely stored: "no products yet" and
+            # "we have never confirmed this client exists" are different
+            # answers, and only one of them is a new business to set up.
+            g["io_only"] = True
+            g["io_orders"] = list(row.get("orders") or [])
+            g["io_first_seen"] = row.get("first_seen") or ""
+            g["io_contact"] = row.get("contact") or {}
+            if row.get("domain") and not g["websites"]:
+                g["websites"].append({
+                    "name": nm, "domain": row.get("domain"),
+                    "liveUrl": row.get("url") or "",
+                    "platform": "", "status": "", "hmMonthly": None,
+                    "partner": "", "manager": "", "ga": "", "gtm": "",
+                    "registrar": "", "domainPurchased": None,
+                    "from_io": True,
+                })
+    except Exception:  # noqa: BLE001 — a client with a Knack record is
+        pass           # unaffected, and this must never break search
+
     # Grouped clients: fold the other members of the group in. A no-op unless
     # somebody has pressed Group on Client 360 for one of these clients.
     for g in groups.values():
@@ -822,4 +996,7 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
             f"Live from Knack, {product_age} min old." if product_source == "knack"
             else "From the committed export in clients_app/data — nothing "
                  "refreshes it, so this may be out of date.")
+        # The same for the website cards, which read the same two sources and
+        # were the half still on the export until now.
+        g["websites_source"] = websites_source()
     return out[:limit]

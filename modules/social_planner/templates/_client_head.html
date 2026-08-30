@@ -1,0 +1,56 @@
+{# Shared chrome for the four pages a client opens with their link.
+
+   One partial rather than four copies: these pages are read on a phone by
+   somebody who is not our staff, and a style that drifts between them reads
+   as four different tools from four different companies. There is no Hub
+   sidebar, no help layer and no version tag here on purpose — /c/ is in
+   PUBLIC_PREFIXES, which wsgi.py hands to HubBar as well as to AuthGuard. #}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<style>
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--muted:#64748b;
+        --bad:#dc2626;--ok:#16a34a;--soft:#f8fafc}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;
+       font:15px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif}
+  .wrap{max-width:620px;margin:0 auto;padding:26px 18px 90px}
+  h1{color:var(--navy);font-size:21px;margin:0 0 4px}
+  .who{color:var(--muted);font-size:13px;margin:0 0 18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;
+        padding:18px 18px;margin-bottom:14px}
+  label.f{display:block;font-size:13px;font-weight:600;color:#334155;margin:14px 0 5px}
+  label.f:first-of-type{margin-top:0}
+  label.f .opt{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=email],input[type=tel],input[type=date],
+  select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);
+    border-radius:10px;font:15px 'Segoe UI',system-ui,sans-serif;background:#fff}
+  textarea{resize:vertical;line-height:1.55;min-height:88px}
+  input:focus,select:focus,textarea:focus{outline:2px solid #bfdbfe;
+    outline-offset:-1px;border-color:var(--blue)}
+  .btn{border:0;background:var(--blue);color:#fff;
+       font:600 15px 'Segoe UI',system-ui,sans-serif;padding:13px 20px;
+       border-radius:10px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.wide{display:block;width:100%;text-align:center}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>*{flex:1 1 0}
+  .hint{color:var(--muted);font-size:13px;margin-top:6px}
+  .msg{font-size:14px;margin-top:12px}
+  .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:22px;
+        padding:7px 13px;font-size:14px;cursor:pointer;user-select:none}
+  .chip[aria-pressed="true"]{background:#eef4ff;border-color:#bfdbfe;color:#1d4ed8;
+        font-weight:600}
+  .nav{display:flex;gap:14px;flex-wrap:wrap;margin:22px 2px 0;
+       font-size:13px}
+  .nav a{color:var(--blue);text-decoration:none}
+  .files{margin-top:8px;font-size:13px;color:var(--muted)}
+  .done{text-align:center;padding:26px 10px}
+  .done .tick{font-size:34px}
+  @media(prefers-reduced-motion:no-preference){
+    .card{transition:box-shadow .15s ease}
+  }
+</style>

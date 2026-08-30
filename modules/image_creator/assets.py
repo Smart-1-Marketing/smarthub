@@ -81,7 +81,7 @@ def icon_svg(prefix: str, name: str, color: str = "", size: int = 256) -> str | 
 
 
 # ------------------------------------------------------------------- brands
-def brand_lookup(query: str) -> dict:
+def brand_lookup(query: str, client: str = "") -> dict:
     """Logos and brand colours for a company or domain, via Brandfetch.
 
     Accepts either a domain ("nike.com") or a plain company name ("Nike") —
@@ -95,7 +95,16 @@ def brand_lookup(query: str) -> dict:
     if not query:
         return {"error": "Enter a company name or domain."}
 
-    key = (os.environ.get("BRANDFETCH_API_KEY") or "").strip()
+    # Through hub.config, like the font key forty lines down. This one read
+    # BRANDFETCH_API_KEY alone, so on a deployment naming it BRANDFETCH_API the
+    # brand lookup answered "not configured" while the same key drew logos in
+    # Smart 1 Ads — one setting, two answers, neither of them an error.
+    try:
+        from hub.config import settings as _cfg
+        key = (_cfg.brandfetch_key or "").strip()
+    except Exception:                                 # noqa: BLE001
+        key = (os.environ.get("BRANDFETCH_API")
+               or os.environ.get("BRANDFETCH_API_KEY") or "").strip()
     domain = re.sub(r"^https?://", "", query.lower()).removeprefix("www.").split("/")[0]
     if "." not in domain:                             # a name, not a domain
         domain = _resolve_domain_by_name(query, key)
@@ -116,6 +125,21 @@ def brand_lookup(query: str) -> dict:
                 pass
             if r.ok:
                 payload = r.json()
+                # Keep what the call paid for. This lookup used to be
+                # discarded on every search, so the plan's hundred calls a
+                # month bought nothing that outlived the tab -- and the Client
+                # 360 brand card, which reads STORED brand data and never
+                # fetches, sat empty for clients somebody had looked up here
+                # that morning. Saved against the domain and, when the caller
+                # named a client, against the client too: the two readers key
+                # on different things and a payload filed under one is
+                # invisible to the other.
+                try:
+                    from hub import seo as _hub_seo
+                    _hub_seo.save_brandfetch(payload.get("domain") or domain,
+                                             payload, client=client or "")
+                except Exception:                     # noqa: BLE001
+                    pass                              # best-effort, as elsewhere
         except Exception:                             # noqa: BLE001
             payload = None
 

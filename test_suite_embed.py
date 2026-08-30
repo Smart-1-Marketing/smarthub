@@ -203,7 +203,7 @@ check("logout clears the embed cookie too — or the frame stays signed in",
 section("The client-facing path is written down, not half-built")
 
 check("the SSO note exists", bool(embed.SSO_NOT_BUILT.strip()), True)
-check("and names the location id as the authorisation",
+check("and names the location id as the authorization",
       "location id" in embed.SSO_NOT_BUILT, True)
 check("and warns about the cross-client failure",
       "worst outcome" in embed.SSO_NOT_BUILT, True)

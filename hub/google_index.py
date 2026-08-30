@@ -98,8 +98,14 @@ def load() -> dict:
     data.setdefault("items", [])
     data.setdefault("accounts", [])
     data.setdefault("errors", [])
+    data.setdefault("sweep", [])
     data.setdefault("last_attempt", "")
     data.setdefault("last_error", "")
+    # An index built before these existed answers "not measured" rather than
+    # "every connected login answered", which is the wrong half of the pair.
+    data.setdefault("accounts_answered", None)
+    data.setdefault("accounts_silent", None)
+    data.setdefault("accounts_error", "")
     data["never_built"] = not data.get("built_at")
     return data
 
@@ -141,7 +147,15 @@ def status() -> dict:
         "mapped": len(mapped),
         "unmapped": len(items) - len(mapped),
         "accounts": data.get("accounts") or [],
+        # None, not [], where the index predates the distinction: a page must
+        # be able to tell "no login was silent" from "we did not record which".
+        "accounts_answered": data.get("accounts_answered"),
+        "accounts_silent": data.get("accounts_silent"),
+        "accounts_error": data.get("accounts_error") or "",
         "errors": data.get("errors") or [],
+        "sweep": data.get("sweep") or [],
+        "sweep_problems": [n for n in (data.get("sweep") or [])
+                           if not n.get("ok")],
         "by_platform": _count(items, "platform"),
         "by_match": _count(mapped, "match"),
     }
@@ -315,6 +329,69 @@ def match_item(item: dict, *, attachments: dict, by_domain: dict) -> dict:
 # Building
 # ---------------------------------------------------------------------------
 
+def _previous_gtm() -> dict:
+    """Last sweep's Tag Manager containers, keyed by login then account id.
+
+    Handed to the sweep so an account Tag Manager rate-limits this time keeps
+    the containers it had last time. The join fields are stripped on the way
+    out — `client`, `match` and `match_detail` are *derived*, re-made against
+    the client list as it stands now, and carrying a stored one forward would
+    turn a six-hour-old guess into a fact that outlives the domain it came
+    from. That is the rule hub/client_key.py states as never store the key.
+    """
+    out: dict[str, dict[str, list]] = {}
+    for it in load().get("items") or []:
+        if it.get("platform") != "Google Tag Manager":
+            continue
+        login = str(it.get("google_login") or "")
+        acct = str(it.get("account_id") or "")
+        if not login or not acct:
+            continue
+        row = {k: v for k, v in it.items()
+               if k not in ("client", "match", "match_detail", "carried_over")}
+        out.setdefault(login, {}).setdefault(acct, []).append(row)
+    return out
+
+
+def due_for_refresh(min_age: float) -> bool:
+    """Whether a rebuild is worth the Tag Manager budget right now.
+
+    The scheduler starts every job due, so a redeploy re-ran this one whatever
+    the index's age — and on this deployment the sweep is 180 rate-limited Tag
+    Manager calls that take seven minutes. A deploy ten minutes after a good
+    sweep spent the whole of it again for no new information, and did it into
+    the same per-user rate limit the last sweep had just finished annoying.
+    That is the shape `hub/domain_purchase.due_for_refresh()` already has, for
+    the same reason.
+
+    Never built is always due. A clock that has gone backwards (a restored
+    index, a machine whose time moved) reads as due rather than as fresh for
+    ever: too often is recoverable, never is not.
+    """
+    age = age_seconds()
+    return age is None or age < 0 or age >= min_age
+
+
+def _forget_reports() -> None:
+    """Drop the day-cached reports this index feeds.
+
+    Google Accounts & Mapping, Clients Without Analytics, Clients Without GTM
+    and the orphan book are all derived from the stored index, and all four
+    are cached for the day. A sweep, an attachment or a domain re-match that
+    left them cached would report yesterday's mapping beside a row somebody
+    had just fixed — and on the attach path, the row would still say
+    "not mapped" on the report whose own button had just mapped it. Never
+    raises: failing to drop a cache must not fail the write.
+    """
+    try:
+        from hub import report_cache
+        report_cache.invalidate("qa:google-accounts", "qa:no-analytics",
+                                "qa:no-gtm", "qa:analytics-ids",
+                                "google-orphans")
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def build(force: bool = True) -> dict:
     """Sweep Google, join to clients, and persist.
 
@@ -392,31 +469,65 @@ def build(force: bool = True) -> dict:
         return failed(f"Google Finder is not loaded ({type(exc).__name__}), "
                       f"so there is nothing to sweep.")
 
+    # Asked for by inspection rather than by calling and catching TypeError:
+    # a sweep that genuinely fails raises too, and retrying it in the handler
+    # both hides the real error and sweeps Google twice.
+    sweep: list = []
     try:
-        raw, errors = gf.get_index(force=force)
-        accounts = sorted({str(i.get("google_login") or "") for i in raw} - {""})
+        import inspect
+        params = inspect.signature(gf.get_index).parameters
+        takes_notes = "notes" in params
+        takes_previous = "previous" in params
+    except Exception:                                   # noqa: BLE001
+        takes_notes = takes_previous = False
+    kwargs = {}
+    if takes_notes:
+        kwargs["notes"] = sweep
+    if takes_previous:
+        kwargs["previous"] = _previous_gtm()
+    try:
+        # Without `notes`, reported as unmeasured rather than as a clean
+        # sweep: "we did not ask per platform" and "every platform answered"
+        # are different.
+        raw, errors = gf.get_index(force=force, **kwargs)
     except Exception as exc:                            # noqa: BLE001
         return failed(f"{type(exc).__name__} while sweeping Google: {exc}"[:300])
+
+    # Who was asked, read once and used twice below.
+    #
+    # "Nobody has connected an account" and "we could not read the list of
+    # connected accounts" are different answers, and only the first means
+    # there is nothing to do. Google Finder used to answer both with an empty
+    # list, so a background sweep with no Flask application context — which is
+    # every scheduled sweep — reported an unconfigured Hub while the accounts
+    # sat in the table. Ask the question that can say which.
+    connected, why = [], ""
+    try:
+        fn = getattr(gf, "connected_accounts_result", None)
+        if fn is not None:
+            connected, why = fn()
+        else:                           # an older google_finder, still honest
+            connected = gf.connected_accounts() or []
+    except Exception as exc:                            # noqa: BLE001
+        connected, why = [], f"{type(exc).__name__}: {exc}"
+
+    # Which logins ANSWERED, and how many there were to answer. Deriving the
+    # list from the returned rows alone is what made the activity log read
+    # "accounts: 1" on a sweep whose `errors` named a second login that had
+    # dropped out entirely: a login that returns nothing — a dead refresh
+    # token, every platform refused — simply was not in the set, so the count
+    # shrank to fit the answer and nothing anywhere said a login was missing.
+    answered = sorted({str(i.get("google_login") or "") for i in raw} - {""})
+    known = {str(a.get("email") or "").lower() for a in connected} - {""}
+    # A list we could not read leaves `accounts` as what answered, and `silent`
+    # empty — not as a claim that every login answered, but because there is
+    # nothing to compare against. `accounts_error` below says so.
+    accounts = sorted(known | set(answered))
+    silent = sorted(known - set(answered))
 
     # A sweep that reached Google and came back with nothing is worth saying
     # out loud rather than storing as an empty success.
     if not raw and not errors:
-        # "Nobody has connected an account" and "we could not read the list of
-        # connected accounts" are different answers, and only the first means
-        # there is nothing to do. Google Finder used to answer both with an
-        # empty list, so a background sweep with no Flask application context
-        # — which is every scheduled sweep — reported an unconfigured Hub
-        # while the accounts sat in the table. Ask the question that can say
-        # which, and treat an unreadable list as the failure it is.
-        connected, why = [], ""
-        try:
-            fn = getattr(gf, "connected_accounts_result", None)
-            if fn is not None:
-                connected, why = fn()
-            else:                       # an older google_finder, still honest
-                connected = gf.connected_accounts() or []
-        except Exception as exc:                        # noqa: BLE001
-            connected, why = [], f"{type(exc).__name__}: {exc}"
         if why:
             return failed("The list of connected Google accounts could not be "
                           f"read, so this sweep proves nothing: {why}"[:300])
@@ -443,14 +554,29 @@ def build(force: bool = True) -> dict:
         "took_seconds": round(time.time() - started, 1),
         "items": items,
         "accounts": accounts,
+        # "Connected" and "came back with something" are different numbers and
+        # only the gap between them is actionable.
+        "accounts_answered": answered,
+        "accounts_silent": silent,
+        # A rotated TOKEN_ENCRYPTION_KEY, or a list we could not read at all.
+        # It used to be reported only when the sweep came back completely
+        # empty, so one unreadable row out of three was invisible behind two
+        # logins that worked.
+        "accounts_error": why,
         "errors": errors,
+        # One row per login per platform: what was asked and what came back.
+        # Without it a Tag Manager 403 and a login with no containers are the
+        # same empty list on every screen that reads this index.
+        "sweep": sweep,
     }
     jsonstore.write_json(_path(), payload)
+    _forget_reports()
     try:
         from hub import audit
         audit.log("google_index", "build", resources=len(items),
                   mapped=len([i for i in items if i.get("client")]),
-                  accounts=len(accounts), seconds=payload["took_seconds"])
+                  accounts=len(accounts), answered=len(answered),
+                  silent=len(silent) or None, seconds=payload["took_seconds"])
     except Exception:                                   # noqa: BLE001
         pass
     return {"ok": True, **{k: v for k, v in payload.items() if k != "items"},
@@ -572,6 +698,7 @@ def set_client(resource_id: str, client: str, detail: str = "") -> dict:
                 "error": "That resource is not in the stored Google index."}
     data.pop("never_built", None)
     jsonstore.write_json(_path(), data)
+    _forget_reports()
     return {"ok": True, "updated": hit}
 
 
@@ -653,6 +780,7 @@ def apply_domain_matches() -> dict:
 
     data.pop("never_built", None)
     jsonstore.write_json(_path(), data)
+    _forget_reports()
     try:
         from hub import audit
         audit.log("google_index", "domain_auto_map", mapped=len(done),

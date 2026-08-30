@@ -86,7 +86,7 @@ QUOTAS: dict[str, Quota] = {
     "brandfetch": Quota(
         "brandfetch", "Brandfetch", "lookups", 80, 100,
         "BRANDFETCH_WARN_AT", "BRANDFETCH_MONTHLY_LIMIT",
-        "Logo and brand-colour lookups from Image Creator and Suite Panel. "
+        "Logo and brand-color lookups from Image Creator and Suite Panel. "
         "Cached results do not count."),
     "insites": Quota(
         "insites", "Insites", "scans", 900, 1000,
@@ -511,7 +511,11 @@ def elevenlabs_account() -> dict:
         from hub.config import settings
         key = settings.elevenlabs_key
     except Exception:                                   # noqa: BLE001
-        key = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+        # Every spelling, not one: a fallback that knows fewer names than
+        # config does turns an unimportable config into a missing key.
+        key = (os.environ.get("ELEVENLABS_API")
+               or os.environ.get("ELEVENLABS_API_KEY")
+               or os.environ.get("ELEVENLABS_KEY") or "").strip()
     if not key:
         return {"available": False,
                 "reason": "ELEVENLABS_API / ELEVENLABS_API_KEY is not set on "
@@ -848,8 +852,15 @@ def google_estimate(month: str | None = None, rows: list[dict] | None = None,
         total += n
         by_module[r.get("tool") or "unknown"] = (
             by_module.get(r.get("tool") or "unknown", 0) + n)
-        acc = by_api.setdefault(key, {"calls": 0, "days": {}})
+        acc = by_api.setdefault(key, {"calls": 0, "failed": 0, "days": {}})
         acc["calls"] += n
+        # Per API, not only in the total. One number for every Google call
+        # this month cannot say that Tag Manager is refusing a third of its
+        # requests while Analytics is fine — and a refusal rate is the whole
+        # early warning here, since a 429 spends the daily quota exactly as a
+        # useful call does and returns nothing for it.
+        if r.get("ok") is False:
+            acc["failed"] += n
         day = str(r.get("time") or "")[:10]
         if day:
             acc["days"][day] = acc["days"].get(day, 0) + n
@@ -860,6 +871,7 @@ def google_estimate(month: str | None = None, rows: list[dict] | None = None,
         if not acc and key in ("other", "oauth"):
             continue                    # don't invent rows for APIs never called
         calls = acc["calls"] if acc else 0
+        fails = acc.get("failed", 0) if acc else 0
         days = acc["days"] if acc else {}
         quota = _env_int(env, default_quota) if env else default_quota
         used_today = days.get(today, 0)
@@ -877,6 +889,10 @@ def google_estimate(month: str | None = None, rows: list[dict] | None = None,
             state = "ok"
         apis.append({
             "key": key, "label": label, "calls": calls,
+            "failed": fails,
+            # Of the calls we made, not of the ones that worked: a refusal is
+            # a call, and the percentage is the number worth reading.
+            "failed_percent": (round(100 * fails / calls) if calls else None),
             "today": used_today, "busiest_day": peak_day or None,
             "busiest_day_calls": peak,
             "daily_quota": quota or None,
@@ -1010,6 +1026,23 @@ def _google_calls(src: str) -> bool:
                                    "requests.delete"))
 
 
+def _brandfetch_calls(src: str) -> bool:
+    """A file that looks a CLIENT up, not one that checks the key still works.
+
+    The sign-in health panel and diagnostics both fetch
+    ``brands/brandfetch.com`` -- Brandfetch's own domain -- to prove the key is
+    valid. That is a probe, not attributable client work, and flagging it would
+    have this check report a finding nobody can act on from the day it lands.
+    A check that starts life red is one somebody switches off, which is the
+    note tools/integritycheck.py already carries.
+
+    Same shape as _google_calls below: strip the thing that is not a call,
+    then ask whether anything is left.
+    """
+    body = src.replace("api.brandfetch.io/v2/brands/brandfetch.com", "")
+    return "api.brandfetch.io" in body
+
+
 _PROVIDER_MARKERS = {
     "elevenlabs": {
         "calls": lambda src: "/text-to-speech" in src,
@@ -1030,6 +1063,24 @@ _PROVIDER_MARKERS = {
                   "attributed to this module.",
         "fix": "Move the upload onto hub.storage.put(), which records it, or "
                "add quotas.record_asset(module=..., nbytes=len(data)).",
+    },
+    "brandfetch": {
+        # Every caller hits api.brandfetch.io. The two type routes Brandfetch
+        # publishes -- /v2/brands/<domain> and the newer explicit
+        # /v2/brands/domain/<domain> -- are both real, so match the host
+        # rather than either path, or a module gets a clean bill for using
+        # the spelling this check did not think of.
+        "calls": _brandfetch_calls,
+        "recorded": ("record(\"brandfetch\"", "record('brandfetch'",
+                     "from hub import brand_lookup", "from hub.brand_lookup import",
+                     "hub.brand_lookup"),
+        "detail": "Looks a brand up at Brandfetch outside hub/brand_lookup.py, "
+                  "so the call is not counted against the monthly plan and the "
+                  "answer is not saved -- Client 360's brand card stays empty "
+                  "for a client somebody looked up this morning.",
+        "fix": "Move the lookup onto hub.brand_lookup.lookup(domain, "
+               "client=..., module=...), which records it and keeps what it "
+               "paid for.",
     },
     "google": {
         "calls": _google_calls,

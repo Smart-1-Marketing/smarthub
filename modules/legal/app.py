@@ -8,7 +8,6 @@ import uuid
 from collections import defaultdict, deque
 from typing import Any
 
-import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
 
@@ -36,7 +35,6 @@ app = Flask(__name__)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 # Standardized single webhook target.
-WEBHOOK_URL = os.getenv("GHL_WEBHOOK_URL", "").strip()
 ENABLE_PDF = os.getenv("ENABLE_PDF", "1").strip() not in ("0", "false", "False", "")
 
 # Standardized report name — every generated PDF is stored in Cloudinary under this.
@@ -724,12 +722,6 @@ class PacingBars(Flowable):
             y -= 20
 
 
-def _money_to_int(value: str):
-    """'$7,500/month' -> 7500 (int) or None."""
-    digits = re.sub(r"[^\d]", "", (value or "").split("/")[0])
-    return int(digits) if digits else None
-
-
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "report").lower()).strip("-") or "report"
 
@@ -1313,44 +1305,20 @@ def serve_local_pdf(report_id: str):
                      as_attachment=False, download_name=f"{REPORT_NAME}.pdf")
 
 
-def _report_json_str(report: dict) -> str:
-    """Serialize the report for the webhook, guaranteed to remain valid JSON.
-
-    A blind [:60000] slice could cut mid-token and break downstream parsing, so we
-    only send the full string when it fits, otherwise progressively drop the
-    heaviest sections and re-serialize."""
-    full = json.dumps(report, separators=(",", ":"))
-    if len(full) <= 60000:
-        return full
-    trimmed = dict(report)
-    for key in ("geofence_locations", "monthly_plan", "how_it_works", "dooh_advantages",
-                "creative_tips", "expected_outcomes"):
-        trimmed.pop(key, None)
-        s = json.dumps(trimmed, separators=(",", ":"))
-        if len(s) <= 60000:
-            return s
-    return json.dumps({
-        "note": "report exceeded webhook size limit; sections omitted",
-        "market_summary": str(report.get("market_summary", ""))[:2000],
-    })
-
-
-def _post_webhook(body: dict) -> None:
-    if not WEBHOOK_URL:
-        return
-    try:
-        requests.post(WEBHOOK_URL, json=body, timeout=12)
-    except requests.RequestException:
-        app.logger.exception("Webhook delivery failed")
-
-
 def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "",
                  download_url: str = "", public_id: str = "") -> None:
     """Deliver the lead through the Hub's lead panel.
 
-    Was a fire-and-forget POST that returned silently with no WEBHOOK_URL —
-    so a blank env var discarded every lead while the visitor saw success.
-    The panel stores first and forwards second.
+    Was a fire-and-forget POST that returned silently with an unset webhook
+    URL, so a blank env var discarded every lead while the visitor saw
+    success.
+
+    The panel is the only route. It stores the lead first and forwards second,
+    so a Suite outage delays delivery rather than destroying it, and anything
+    undelivered stays visible. There is deliberately nothing to fall back to:
+    the inbound Suite webhook this used to try next is retired, so a fallback
+    could only write the second contact the panel exists to prevent — or,
+    once the trigger behind it is off, nothing at all, silently.
     """
     _rep = report or {}
     try:
@@ -1377,40 +1345,10 @@ def send_webhook(payload: dict, report: Any, status: str, pdf_url: str = "",
             pass
         return
     except Exception:  # noqa: BLE001
-        pass
-
-    if not WEBHOOK_URL:
-        return
-    report = report or {}
-    mp = report.get("market_profile", {}) or {}
-    rp = report.get("recommended_package", {}) or {}
-    monthly = _money_to_int(rp.get("monthly_investment", ""))
-    body = {
-        # --- Contact / lead fields ---
-        **payload,
-        "source": "Smart 1 Legal Conquesting Market Intelligence",
-        "report_status": status,
-        # --- Opportunity fields ---
-        "opportunity_name": f"{payload.get('firm_name', 'Lead')} — Legal Conquesting Plan",
-        "recommended_package": rp.get("package_name", ""),
-        "recommended_investment": rp.get("monthly_investment", ""),
-        "opportunity_value_monthly": monthly,
-        "opportunity_value_annual": monthly * 12 if monthly else None,
-        # --- Report custom fields ---
-        "practice_area": report.get("practice_area", payload.get("practice_area", "")),
-        "market_type": report.get("market_type", ""),
-        "market_summary": report.get("market_summary", ""),
-        "estimated_annual_cases_base": mp.get("estimated_annual_cases_base"),
-        "case_volume_label": mp.get("case_volume_label", ""),
-        "weather_triggers": ", ".join(report.get("weather_triggers", []) or []),
-        # --- Standardized report (stored in Cloudinary, named "legal-conquesting-report") ---
-        "report_name": REPORT_NAME,
-        "report_pdf_url": pdf_url,
-        "report_pdf_download_url": download_url or pdf_url,
-        "report_pdf_public_id": public_id,
-        "report_json": _report_json_str(report),
-    }
-    _post_webhook(body)
+        # No second route. The inbound Suite webhook this used to fall back to
+        # is retired, so a fallback would post a lead the panel has already
+        # stored at a URL nothing answers.
+        app.logger.exception("Legal lead capture failed")
 
 
 def send_webhook_async(payload: dict, report: Any, status: str, pdf_url: str = "",
@@ -1453,7 +1391,18 @@ QUEUED_MESSAGE = (
 def partial_lead():
     """Partial lead capture (SPEC §3): fired by the client when the user advances past
     the firm/market step or abandons the page. No email or ZIP requirement — salvage
-    whatever came in. Always responds {ok:true}."""
+    whatever came in. Always responds {ok:true}.
+
+    It goes into the Hub's lead panel, not at the inbound Suite webhook this
+    used to post to: that route is retired, and it was the one lead on this
+    page the panel never saw. The beacon fires on ``pagehide``, so nobody was
+    ever watching when it failed.
+
+    The browser cannot send contact details here — the visitor left before
+    that step — so the panel stores the row and reports, in as many words,
+    that there is no email or phone to make a Suite contact from. That is the
+    firm name and the website of somebody who was part-way through, which is
+    worth having; it is not a contact, and it is not counted as one."""
     raw = request.get_json(silent=True) or {}
 
     # Honeypot: bots fill the hidden "fax" field. Pretend success; never forward.
@@ -1485,13 +1434,25 @@ def partial_lead():
         "landing_page_url",
     ]
     body = {k: str(raw.get(k, "")).strip()[:1500] for k in fields}
-    # Need at least something identifying to be worth forwarding.
+    # Need at least something identifying to be worth keeping.
     if not body["website"] and not body["firm_name"]:
         return jsonify({"ok": True})
-    body["source"] = "Smart 1 Legal Conquesting Market Intelligence"
     body["report_status"] = "partial"
-    # Fire-and-forget (same pattern as send_webhook_async) so the beacon returns fast.
-    threading.Thread(target=_post_webhook, args=(body,), daemon=True).start()
+
+    def _file():
+        try:
+            from hub import leads as hub_leads
+            hub_leads.capture_and_deliver(
+                source="legal",
+                page="Legal Market Plan (partial)",
+                fields={"name": "", "email": "", "phone": "",
+                        "company": body.get("firm_name", ""), **body},
+                client=body.get("firm_name", ""))
+        except Exception:                               # noqa: BLE001
+            app.logger.exception("Legal partial lead capture failed")
+
+    # Off-thread so the beacon returns fast, same as send_webhook_async.
+    threading.Thread(target=_file, daemon=True).start()
     return jsonify({"ok": True})
 
 
