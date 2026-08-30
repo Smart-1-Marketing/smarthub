@@ -51,22 +51,42 @@ SECTOR_CPC = {
 }
 
 
-def analyse_budget(monthly_budget, sector_key="general") -> dict:
-    """Below ~100 clicks/month you cannot optimise; below ~30 you are donating."""
+def analyse_budget(monthly_budget, sector_key="general", *,
+                   cpc=None, cpc_source="benchmark") -> dict:
+    """Below ~100 clicks/month you cannot optimise; below ~30 you are donating.
+
+    ``cpc`` overrides the sector mid-point with a cost per click somebody
+    measured — Google's forecast for this keyword set, via
+    ``modules/ads_builder/keyword_plan.py``. The arithmetic is identical; what
+    changes is the number it runs on and, crucially, the caveat that comes back
+    with it. ``cpc_source`` decides that caveat and is carried rather than
+    inferred, because a screen printing a measured number under the words
+    "industry estimate" is the same wrong answer as the reverse.
+    """
     sector = SECTOR_CPC.get(sector_key) or SECTOR_CPC["general"]
     try:
         budget = float(monthly_budget or 0)
     except (TypeError, ValueError):
         budget = 0.0
 
-    mid_cpc = (sector["low"] + sector["high"]) / 2
+    try:
+        measured_cpc = float(cpc or 0)
+    except (TypeError, ValueError):
+        measured_cpc = 0.0
+    if measured_cpc <= 0:
+        measured_cpc, cpc_source = 0.0, "benchmark"
+
+    mid_cpc = measured_cpc or (sector["low"] + sector["high"]) / 2
     clicks = budget / mid_cpc if mid_cpc else 0
+    # The pessimistic case still runs on the sector ceiling. A measured CPC is
+    # one number, so it cannot describe its own worst case, and dropping the
+    # row would quietly remove the only downside figure on the page.
     worst_case = budget / sector["high"] if sector["high"] else 0
 
     if clicks < 30:
         status = "CRITICAL"
         advice = (
-            f"At roughly ${mid_cpc:.2f} average CPC in {sector['label']}, ${budget:,.0f}/mo buys "
+            f"At roughly ${mid_cpc:.2f} per click in {sector['label']}, ${budget:,.0f}/mo buys "
             f"about {clicks:.0f} clicks. That is not enough traffic for Google to optimize or for "
             f"you to read the data. Either raise the budget, or cut scope hard: one tight "
             f"exact-match ad group, a small radius, business-hours-only scheduling."
@@ -98,8 +118,13 @@ def analyse_budget(monthly_budget, sector_key="general") -> dict:
         # Travels with the numbers rather than being added by each screen: the
         # CPCs above are sector benchmarks, and every place that prints one has
         # to say so. test_ads_estimate.py asserts the templates carry it.
-        "cpc_note": spec.CPC_NOTE,
-        "cpc_note_long": spec.CPC_NOTE_LONG,
+        # Travels with the numbers rather than being added by each screen, and
+        # names WHICH of the three CPCs this is. test_ads_estimate.py asserts
+        # every template that prints one carries the words for it.
+        "cpc_source": cpc_source,
+        "cpc_used": round(mid_cpc, 2),
+        "cpc_note": spec.CPC_SOURCES[cpc_source]["short"],
+        "cpc_note_long": spec.CPC_SOURCES[cpc_source]["long"],
     }
 
 
@@ -479,6 +504,48 @@ Respond with pure JSON only:
 }"""
 
 
+def measured_cpc(campaign: dict) -> dict:
+    """The measured CPC on a campaign as keyword arguments for analyse_budget.
+
+    Empty when nothing has been measured, so every call site can splat it
+    unconditionally rather than branching — and so the default stays the
+    benchmark rather than becoming whatever a caller forgot to pass.
+    """
+    block = (campaign or {}).get("cpcMeasured") or {}
+    if not block.get("measured") or not block.get("cpc"):
+        return {}
+    return {"cpc": block["cpc"], "cpc_source": block.get("source") or "benchmark"}
+
+
+def retier(campaign: dict) -> dict:
+    """Recompute the existing tiers' click estimates against a new CPC.
+
+    Measuring a CPC has to change the tiers, or the page contradicts itself:
+    a headline saying $12.40 measured over three tiers costed at the sector's
+    $19.00 shows a client two different campaigns. Recomputing rather than
+    re-asking the model keeps every tier's *wording* — which a rep may have
+    edited and a client may already have read — and changes only the
+    arithmetic, which is ours.
+    """
+    tiers = ((campaign or {}).get("budgetTiers") or {}).get("tiers") or []
+    if not tiers:
+        return (campaign or {}).get("budgetTiers") or {}
+    sector_key = campaign.get("sectorKey") or "general"
+    measured = measured_cpc(campaign)
+    out = []
+    for tier in tiers:
+        check = analyse_budget(tier.get("monthly"), sector_key, **measured)
+        out.append({**tier,
+                    "estimatedClicks": check["estimated_clicks"],
+                    "status": check["status"],
+                    "belowFloor": check["estimated_clicks"] < spec.MIN_READABLE_CLICKS})
+    reference = analyse_budget(campaign.get("monthlyBudget"), sector_key, **measured)
+    return {**(campaign.get("budgetTiers") or {}), "tiers": out,
+            "cpcSource": reference["cpc_source"],
+            "cpcUsed": reference["cpc_used"],
+            "cpcNote": reference["cpc_note_long"]}
+
+
 def budget_tiers(campaign: dict, sector_key: str = "general", model: str = None) -> dict:
     """Good / better / best, offered whether or not the client named a budget.
 
@@ -488,7 +555,8 @@ def budget_tiers(campaign: dict, sector_key: str = "general", model: str = None)
     rather than to a number nobody discussed.
     """
     stated = _num((campaign or {}).get("monthlyBudget"))
-    viability = analyse_budget(stated, sector_key)
+    measured = measured_cpc(campaign)
+    viability = analyse_budget(stated, sector_key, **measured)
     intake = (campaign or {}).get("intake") or {}
 
     user = f"""Business: {campaign.get('businessName', '')}
@@ -516,7 +584,7 @@ A campaign needs roughly {spec.MIN_READABLE_CLICKS} clicks a month before its da
         # The click estimate is recomputed here rather than trusted: it is the
         # number a client checks the tier against, and a model that rounds it
         # generously makes the cheapest tier look workable when it is not.
-        check = analyse_budget(monthly, sector_key)
+        check = analyse_budget(monthly, sector_key, **measured)
         tiers.append({
             "key": key,
             "label": spec.TIER_LABELS[key],
@@ -543,7 +611,9 @@ A campaign needs roughly {spec.MIN_READABLE_CLICKS} clicks a month before its da
         "floorWarning": _trunc(data.get("floorWarning"), 500),
         "statedBudget": round(stated),
         "sector": viability["sector"],
-        "cpcNote": spec.CPC_NOTE_LONG,
+        "cpcSource": viability["cpc_source"],
+        "cpcUsed": viability["cpc_used"],
+        "cpcNote": viability["cpc_note_long"],
     }
 
 

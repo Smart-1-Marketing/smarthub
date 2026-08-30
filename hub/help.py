@@ -858,6 +858,19 @@ REGISTRY: list[Help] = [
        "other. Revoked, deleted and never-existed all answer the same 404, so "
        "somebody probing tokens learns nothing.",
        step=6, selector="[data-tour='ads-share']"),
+    _h("ads_builder.proposal.cpc", "Three numbers, and only one of them is a cost",
+       "Without a measurement this is our sector benchmark \u2014 an opening "
+       "figure, labeled as one. Ask Google and it prices this campaign\u2019s own "
+       "keywords in its own target areas, but the two things Google returns are "
+       "not interchangeable: a top-of-page bid is what you would have to bid to "
+       "show at the top, always the larger figure, and never what you pay; the "
+       "forecast average CPC is. Whichever you are looking at is named, with its "
+       "own caveat, here and on the client\u2019s estimate. An area Google could "
+       "not place is named rather than quietly widened, because a CPC measured "
+       "across three of five counties is not this campaign\u2019s. Measuring "
+       "re-costs the tiers too, so the page cannot show a measured headline over "
+       "tiers priced at the sector rate.",
+       selector="[data-tour='ads-cpc']"),
     _h("ads_builder.proposal.client_record", "Filed, or filed in one of two places",
        "Generating writes the proposal onto the client record as a live link "
        "rather than a PDF snapshot — it gains comments and changes status, and "
@@ -922,6 +935,18 @@ REGISTRY: list[Help] = [
        "described as down when only its last step is unavailable is how a "
        "working generator went unused for months.",
        step=1, selector="[data-tour='ads-status']"),
+    _h("ads_builder.settings.tier", "A token that works is not a token that measures",
+       "A developer token carries an access tier, and the tiers differ in what "
+       "they may call. Google grants a new one Explorer access automatically: "
+       "production accounts, 2,880 operations a day, and the keyword planning "
+       "services excluded \u2014 so a perfectly healthy token answers "
+       "DEVELOPER_TOKEN_NOT_APPROVED to a cost-per-click request. Read as a bad "
+       "key that sends somebody to rotate a credential that was fine. Basic "
+       "access is the first tier that can measure anything, and it is applied "
+       "for and reviewed rather than granted. Google publishes the tier nowhere "
+       "an API can read it, so a value typed here is a claim and this check is "
+       "the only observation \u2014 which is why it is a button: it spends an "
+       "operation against the cap a deploy also needs."),
     _h("ads_builder.settings.openai", "The key is the deployment\u2019s, not yours",
        "The generator reads OPENAI_API_KEY from this service at call time — the "
        "same key the SEO, FAQ and proposal tools use. This page will never ask "
