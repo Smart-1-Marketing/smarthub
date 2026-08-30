@@ -149,6 +149,43 @@ export function assetUrlIsSafe(raw: string): { ok: boolean; reason?: string } {
   return { ok: true };
 }
 
+/**
+ * A `/files/...` URL turned back into a path on this disk, or null.
+ *
+ * Two routes take one of these from a request body: `POST /api/imagery/keep`,
+ * which uploads it to our own Cloudinary account, and `POST
+ * /api/images/generate`, which copies it into the campaign's cache directory
+ * as a reference for the model. Only the first was checking.
+ *
+ * `path.join(OUT, "../../../etc/passwd")` is `/etc/passwd`, and the generate
+ * route then copied whatever it found into `imagery/`, which is served under
+ * `/files/`. So an arbitrary readable file on the render disk could be lifted
+ * into a web-served directory and handed to an image model, from a value that
+ * arrives in a POST body. Nothing errored: a path that resolves is a path that
+ * copies.
+ *
+ * It is one function rather than the check written out twice, for the reason
+ * this repo keeps paying for elsewhere -- the second copy is the one that
+ * drifts, and here the second copy was simply never written. The rule is the
+ * `keep` route's own, unchanged: a path under `imagery/`, an image extension,
+ * and no `..` anywhere in it, tested before the join rather than after.
+ */
+export function generatedImagePath(raw: unknown, outDir: string): string | null {
+  const rel = String(raw ?? '').replace(/^\/files\//, '');
+  if (!/^imagery\/[\w.\-/]+\.(png|jpg|jpeg|webp)$/i.test(rel)) return null;
+  if (rel.includes('..')) return null;
+  const file = path.join(outDir, rel);
+  // Unreachable today -- the pattern above forbids `..` outright and its
+  // character class cannot spell one. It is here for the edit that loosens
+  // that pattern: containment is the property that actually matters, and a
+  // traversal reopened by a widened regex would otherwise be silent again.
+  // Deliberately not covered by a test, because nothing can reach it without
+  // first breaking the line above.
+  const root = path.resolve(outDir) + path.sep;
+  if (!path.resolve(file).startsWith(root)) return null;
+  return file;
+}
+
 /* ------------------------------------------------------------- resolution */
 
 export interface ResolveOptions {

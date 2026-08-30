@@ -1096,9 +1096,35 @@ def submit_io():
     try:
         from hub import audit
         _body = request.get_json(silent=True) or {}
-        audit.log("io_builder", "io_submitted",
-                  client=str(_body.get("client") or _body.get("client_name") or ""),
-                  order=str(_body.get("order_number") or ""))
+        # The browser posts the wizard's own state, whose key is
+        # `orderNumber`. Reading `order_number` alone wrote an empty order on
+        # every entry this route has ever logged -- while the
+        # `client_registered` entry written a few lines below, through
+        # `io_clients.register_from_io`, read the real key and got it right.
+        # Two readers of one payload, and the wrong one is the record a
+        # reconciliation depends on.
+        def _num(v):
+            try:
+                return float(v or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        audit.log(
+            "io_builder", "io_submitted",
+            actor=str(_body.get("salesContact")
+                      or _body.get("sales_contact") or "") or None,
+            client=str(_body.get("client") or _body.get("client_name") or ""),
+            order=str(_body.get("orderNumber")
+                      or _body.get("order_number") or ""),
+            # What a chase list needs beside the number: who to ask, and
+            # whether the flight has already begun. An order whose start date
+            # has passed with no campaign in Knack is running in nobody's
+            # system, which is a different urgency from one starting next
+            # month -- and neither is knowable from the number alone.
+            partner=str(_body.get("partner") or "") or None,
+            start=str(_body.get("start") or "") or None,
+            monthly=round(sum(_num(i.get("budget"))
+                              for i in (_body.get("items") or [])
+                              if isinstance(i, dict)), 2) or None)
     except Exception:  # noqa: BLE001
         pass
 

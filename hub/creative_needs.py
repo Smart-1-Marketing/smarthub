@@ -184,6 +184,26 @@ CATEGORY_MEDIUM = {
     "mobile only": DISPLAY,
     "email marketing": EMAIL,
     "smart 1 signage": DOOH,
+    # ...and two headings that are not media buys at all, which the keyword
+    # pass below could not tell apart from one. Adding SOCIAL to the gate made
+    # the word "social" decisive, so `Social Media Ad Creation per platform` --
+    # the card's own $35 *production* line -- was gated as a social buy and
+    # asked whether the client already had the creative it exists to produce;
+    # and `Social Media Management`, a $199/month organic posting retainer
+    # that buys no advertising, was asked the same. Both then printed "the
+    # spec kit maps no unit for this" onto the client's creative section, and
+    # both counted their spend into the social medium, which is what decides
+    # whether a comped $35 line is questioned at all.
+    #
+    # Named by category rather than product, because the other four lines
+    # under CREATIVE / DESIGN SERVICES already answered OTHER by accident --
+    # they simply contain no medium keyword -- and the next production line
+    # added there must not depend on that luck. It is the reason
+    # `SPEC_AGREE_EXEMPT` already carries ("other", "email") in writing: a
+    # creative-production line item is not a media buy that needs creative
+    # supplied for it.
+    "creative / design services": OTHER,
+    "social media management": OTHER,
 }
 
 
@@ -573,7 +593,7 @@ def required_units(state, medium: str) -> dict:
                         f"Sizes not measured."}
 
     seen, units = set(), []
-    unmapped = []
+    unmapped, chan_ids = [], set()
     for item in products:
         rows = creative_specs.units_for_product(
             str(item.get("product") or ""), str(item.get("category") or ""))
@@ -581,6 +601,7 @@ def required_units(state, medium: str) -> dict:
             unmapped.append(str(item.get("product") or item.get("category") or ""))
             continue
         for unit in rows:
+            chan_ids.add(unit.get("channel", ""))
             if unit["id"] in seen:
                 continue
             seen.add(unit["id"])
@@ -600,13 +621,32 @@ def required_units(state, medium: str) -> dict:
                 "seconds": list(duration) if len(duration) == 2 else [],
             })
 
+    # Formats the kit sells for these channels that this Hub has no unit for.
+    # Not the same answer as `unmapped` above: there the kit maps nothing at
+    # all and the requirement says so, here it maps most of the buy and is
+    # silent about the rest — which reads as a complete list and is the more
+    # dangerous of the two. A Meta requirement listing Stories and never Reels
+    # is the confident wrong answer this module exists to avoid, and the
+    # published page says in as many words that the two are not
+    # interchangeable.
+    try:
+        unmodelled = creative_specs.unmodelled_for(chan_ids)
+    except Exception:                                   # noqa: BLE001
+        unmodelled = []
+
     note = ""
     if unmapped:
         note = ("The spec kit maps no unit for " + ", ".join(sorted(set(unmapped)))
                 + " — sizes for those are not measured here.")
+    if unmodelled:
+        extra = ("The kit also sells " + ", ".join(unmodelled)
+                 + " on this buy, and there is no unit here to measure "
+                   "those against — ask for them separately.")
+        note = f"{note} {extra}".strip()
     return {"units": units,
             "products": [str(p.get("product") or "") for p in products],
             "measured": bool(units), "note": note,
+            "not_measured_formats": unmodelled,
             "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
 
 
@@ -643,8 +683,19 @@ def units_line(state, medium: str) -> str:
 
     # Banner units are listed as a run of sizes, because there are nine of
     # them and nine labels is a wall. Anything else is described.
-    images = [u for u in result["units"] if (u.get("kind") or "image") == "image"]
-    others = [u for u in result["units"] if (u.get("kind") or "image") != "image"]
+    # An image unit with no size of its own has to be *named*, not folded
+    # into the run of sizes -- folded in it contributes nothing and vanishes.
+    # Every social unit is in that position (the kit publishes a ratio and a
+    # recommended resolution for those rather than a fixed size), so a paid
+    # social buy's whole requirement read "Stories Video (MP4/MOV, 0-120s)":
+    # four image units silently absent, and the one line a rep and the client
+    # document read never said an image was needed at all. That is this
+    # function's own audio rule running the other way -- there it is a unit
+    # described by the wrong terms, here it is one described by none.
+    images = [u for u in result["units"]
+              if (u.get("kind") or "image") == "image" and u.get("sizes")]
+    others = [u for u in result["units"]
+              if (u.get("kind") or "image") != "image" or not u.get("sizes")]
     # Desktop, mobile and tablet each carry their own "HTML5 package" unit,
     # so describing all three printed the same words three times.
     described = list(dict.fromkeys(_describe_unit(u) for u in others))
@@ -656,9 +707,18 @@ def units_line(state, medium: str) -> str:
     # spot, and the 300x250 beside it is the optional companion; named first
     # it reads as the whole requirement, which is how somebody sends a banner
     # and no audio.
+    # "plus a companion banner" is a claim about one unit -- digital radio's
+    # optional 300x250 -- and it was fired on a *count*: one sized image plus
+    # anything described. So Snapchat's Single Image Ad and TikTok's In-Feed
+    # Image, which are the primary image of those buys, were each announced to
+    # the client as an optional companion to the video. That is the sentence
+    # above running the other way: named as the whole requirement it costs the
+    # spot, named as a companion it costs the image.
+    companion = (len(images) == 1
+                 and images[0].get("id") == "radio_companion")
     if not sizes:
         parts = described
-    elif len(sizes) == 1 and described:
+    elif companion and described:
         parts = described + [f"plus a companion banner: {sizes[0]}"]
     elif described:
         parts = [", ".join(sizes)] + [f"or {d}" for d in described]
@@ -666,4 +726,19 @@ def units_line(state, medium: str) -> str:
         parts = [", ".join(sizes)]
     if not parts:
         return result.get("note") or "Sizes not measured."
+    # The published formats we hold no unit for ride on this line as well as
+    # in the note, because this is the line that reaches the client document.
+    # Left in the note alone, the requirement a client actually reads lists
+    # Stories and never Reels and looks complete.
+    extra = result.get("not_measured_formats") or []
+    if extra:
+        parts = parts + [f"the kit also sells {_and(extra)} — not sized here"]
     return " · ".join(parts)
+
+
+def _and(items) -> str:
+    """"a", "a and b", "a, b and c" — a list a person reads, not a join."""
+    items = [str(i) for i in items if i]
+    if len(items) <= 1:
+        return items[0] if items else ""
+    return ", ".join(items[:-1]) + " and " + items[-1]

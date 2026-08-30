@@ -46,6 +46,7 @@ Every failure this covers is one that leaves every screen looking healthy:
 """
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -293,6 +294,79 @@ check("and shows it to Admin",
 # gone, the four checks above are what would still catch it.
 check("a hidden section is still refused when typed in by hand",
       _general.get("/activity").status_code, 403)
+
+section("Every admin-shaped route is gated, or says why it is not")
+# ---------------------------------------------------------------------------
+# The nav check below asks whether the gate covers what the sidebar hides.
+# This asks the other half: whether anything that LOOKS like machinery is
+# reachable by the eleven General accounts. It is the question no existing
+# check asked -- `test_blueprint_guards.py` probes with no session at all, so
+# a route open to every signed-in member of staff is invisible to it.
+#
+# It found four APIs and one POST. /api/db/structure is the sibling of
+# /api/integrity -- same Diagnostics panel, same question -- and only one of
+# the two was on the list; /api/environment describes the settings; and
+# /api/scheduler/run/<name> fires a job on demand, which for the Google sweep
+# is 180 rate-limited accounts against a per-day quota and for the Cloudinary
+# reconcile is billed Admin API calls.
+
+_ADMIN_SHAPED = re.compile(
+    r"/(diagnostics|admin|users|activity|integrity|backup|quotas|report-cache|"
+    r"environment|oauth-redirects|housekeeping|presence|db/|scheduler|version)",
+    re.I)
+
+# Open to General on purpose, each with the reason. Held to the rule
+# `check_stale_json_exemptions()` works to: an entry naming a route that no
+# longer exists goes on covering whatever is served at that path next.
+_OPEN_ON_PURPOSE = {
+    "/api/version":
+        "on the sign-in page and in the footer of every page, so it cannot "
+        "require a signed-in admin -- it is already in access.UTILITY_EXEMPT",
+    "/login/health":
+        "diagnoses sign-in for somebody who cannot sign in; being locked out "
+        "of it is how a locked-out person reports the problem",
+    "/api/presence":
+        "the headcount on everybody's dashboard. The count is everybody's; "
+        "the account-by-account list on /status stays in Utilities",
+}
+
+_open, _unexplained = set(), []
+for _rule in _flask.url_map.iter_rules():
+    _p = str(_rule.rule)
+    if not _ADMIN_SHAPED.search(_p) or access.is_utility(_p):
+        continue
+    if _p in _OPEN_ON_PURPOSE:
+        _open.add(_p)
+    else:
+        _unexplained.append(f"{_p} [{','.join(sorted(_rule.methods - {'HEAD','OPTIONS'}))}]")
+
+check("no admin-shaped route is open to General without a reason on file",
+      _unexplained, [])
+check("and every reason still names a route that exists",
+      sorted(set(_OPEN_ON_PURPOSE) - _open - {"/login/health"}), [])
+
+# The five this found, asserted by behavior rather than by the list -- a rule
+# the list keeps while the gate breaks it is not a rule.
+for _path in ("/api/db/structure", "/api/db/urls", "/api/environment",
+              "/api/scheduler"):
+    check(f"General is refused {_path}", _general.get(_path).status_code, 403)
+    check(f"...and Admin still reaches it",
+          _admin_client.get(_path).status_code, 200)
+check("General cannot fire a scheduled job",
+      _general.post("/api/scheduler/run/purchased_domains").status_code, 403)
+check("...and Admin still can",
+      _admin_client.post("/api/scheduler/run/purchased_domains").status_code, 200)
+
+# Gating an API a General-visible page fetches is how /api/status came to
+# render "0 checks OK" at somebody who was refused it. Nothing outside the
+# Diagnostics page fetches any of these.
+_diag = (ROOT / "hub" / "templates" / "diagnostics.html").read_text()
+for _path in ("api/db/structure", "api/db/urls", "api/environment",
+              "api/scheduler"):
+    _elsewhere = [str(_f) for _f in (ROOT / "hub" / "templates").rglob("*.html")
+                  if _f.name != "diagnostics.html" and _path in _f.read_text(errors="ignore")]
+    check(f"only the Diagnostics page fetches /{_path}", _elsewhere, [])
+
 
 section("The gate list and the nav cannot drift apart")
 

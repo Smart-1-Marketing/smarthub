@@ -72,17 +72,32 @@ for key in ("site_blocks.intro", "social.planner", "video_backgrounds.overview")
 print("\nBoth ways a bubble is placed, and the one that cannot be resolved")
 print("-" * 62)
 
-# The reach panel on the Proposal Builder's areas step writes
-# data-help="sales_builder.areas.${key}" from a loop. A scan for help_dot()
-# alone calls its four entries dead; a scan that resolved the interpolation
-# would be guessing. Named, the way tools/linkcheck.py names a URL built by
+# Two screens build a key from a loop. The Proposal Builder's reach panel
+# writes data-help="sales_builder.areas.${key}" -- the interpolation inside
+# the attribute's own quotes -- and the prospect record's card() concatenates
+# outside them, 'data-help="hub.prospect.'+esc(key)+'". A scan for help_dot()
+# alone calls both sets dead; a scan that resolved the interpolation would be
+# guessing. Named, the way tools/linkcheck.py names a URL built by
 # concatenation.
+#
+# Asserted as prefixes rather than as one hard-coded count: a third screen
+# building a key is a thing this file should keep working, and what matters is
+# that every entry a runtime prefix reaches is accounted for rather than
+# reported as a bubble nobody registered.
+RUNTIME_PREFIXES = ("sales_builder.areas.", "hub.prospect.")
 ok("a key built at runtime is named rather than resolved",
    any("${" in r["key"] for r in DATA["runtime"]),
    str([r["key"] for r in DATA["runtime"]]))
-ok("and the entries its prefix reaches are not called dead",
-   all(k.startswith("sales_builder.areas.") for k in DATA["runtime_covers"])
-   and len(DATA["runtime_covers"]) == 4,
+ok("including one concatenated outside the attribute's quotes",
+   any(r["key"] == "hub.prospect." for r in DATA["runtime"]),
+   str([r["key"] for r in DATA["runtime"]]))
+ok("and the entries those prefixes reach are not called dead",
+   bool(DATA["runtime_covers"])
+   and all(k.startswith(RUNTIME_PREFIXES) for k in DATA["runtime_covers"]),
+   str(DATA["runtime_covers"]))
+ok("with every runtime prefix actually reaching something",
+   all(any(k.startswith(p) for k in DATA["runtime_covers"])
+       for p in RUNTIME_PREFIXES),
    str(DATA["runtime_covers"]))
 check("nothing registered is left unaccounted for", DATA["unplaced"], [])
 
@@ -186,6 +201,240 @@ check("an unconditional data-screen names a tour that exists",
 # module both get it.
 ok("has_tour is a template global on both halves of the app",
    "has_tour" in _help_routes_src and _help_routes_src.count("has_tour") >= 3)
+
+
+print("\nThe walkthrough says which step it cannot run")
+print("-" * 62)
+
+# hub/demos.py drives a tool's real screen -- filling its real fields,
+# clicking its real buttons -- and every step names the element to act on.
+# A step whose element is not there used to be silent in both halves: the
+# ring hid itself, and "Do it for me" returned without doing or saying
+# anything. That is the failure CLAUDE.md names about Smart 1 Ads' scenario,
+# fixed for OFFERING a walkthrough on a screen it was not written for and
+# never for RUNNING one.
+with open(os.path.join(ROOT, "hub", "static", "hub-demo.js"),
+          encoding="utf-8") as _fh:
+    DEMOJS = _fh.read()
+with open(os.path.join(ROOT, "hub", "static", "hub-help.css"),
+          encoding="utf-8") as _fh:
+    HELPCSS = _fh.read()
+
+ok("a step whose target is missing says so",
+   "s1-demo-gone" in DEMOJS and "cannot be shown or filled in for you" in DEMOJS)
+ok("and the button that could only do nothing is not drawn",
+   "|| gone;" in DEMOJS.replace(" ", " "))
+ok("perform() no longer returns in silence",
+   "target-missing" in DEMOJS)
+# A target drawn by a fetch arrives after the step is painted. Without a
+# repaint the amber line would stand and the button stay hidden on a step
+# about to become perfectly workable — a worse answer than the silence it
+# replaced. Same debounced observer hub-help.js uses to mount bubbles on
+# late-rendered content.
+ok("a target that arrives late brings the button back",
+   "MutationObserver" in DEMOJS)
+# And the observer must not see paint()'s own work: paint writes into the
+# panel and moves the ring, so unfiltered it would repaint every 150ms for as
+# long as a walkthrough is open.
+_obs = DEMOJS[DEMOJS.index("var repaint = null;"):
+              DEMOJS.index('window.addEventListener("resize"')]
+ok("and it does not repaint on its own writes",
+   "ours(records[i].target)" in _obs
+   and '"s1-demo-panel"' in _obs and '"s1-demo-ring"' in _obs)
+ok("only while a walkthrough is open", "if (!S" in _obs)
+ok("the line is styled, or it is invisible",
+   ".s1-demo-gone{" in HELPCSS)
+# Amber, not red: the narration above it is still correct and still worth
+# reading — only the driving cannot happen.
+ok("and drawn amber rather than red",
+   "#c08a2e" in HELPCSS or "#6b4a12" in HELPCSS)
+
+DEMO = help_audit.demo_targets()
+ok("the walkthroughs were measured", DEMO.get("measured") is True)
+ok("and every scenario was looked at",
+   DEMO["scenarios"] >= 20, str(DEMO["scenarios"]))
+ok("steps that name an element were counted",
+   DEMO["steps"] > 100, str(DEMO["steps"]))
+# Deliberately not asserted to be zero. Fifty-five steps across eighteen
+# scenarios name a hook that is in no template; that is a backlog, and a
+# check switched on red is a check somebody turns off -- it would take the
+# bubble check down with it. What is asserted is that the number is *known*.
+ok("the unanchored ones are named rather than counted",
+   all(r.get("unanchored") for r in DEMO["rows"]))
+ok("and a scenario that drives none of its steps is marked apart",
+   all(isinstance(r.get("dead"), bool) for r in DEMO["rows"]))
+ok("a fully anchored scenario is not in the list",
+   set(DEMO["clean"]).isdisjoint({r["key"] for r in DEMO["rows"]}))
+
+# Fed a scenario whose target plainly exists, it must not be reported.
+_anchored = [r for r in DEMO["clean"]]
+ok("some walkthroughs are clean, so this is not reporting everything",
+   len(_anchored) >= 5, str(len(_anchored)))
+
+
+print("\nThe panel that shows it")
+print("-" * 62)
+
+with open(os.path.join(ROOT, "hub", "templates", "diagnostics.html"),
+          encoding="utf-8") as _fh:
+    DIAG = _fh.read()
+with open(os.path.join(ROOT, "hub", "access.py"), encoding="utf-8") as _fh:
+    ACCESS = _fh.read()
+
+ok("Diagnostics draws the help layer", 'id="diag-help-audit"' in DIAG)
+ok("and asks the route for it", '"/api/help-audit"' in DIAG)
+ok("the route is behind Utilities", '"/api/help-audit"' in ACCESS)
+# One panel, because they are one question asked of two mechanisms.
+ok("both halves are on the one panel",
+   "renderHelpAudit" in DIAG and "walkthroughs" in DIAG and "bubbles" in DIAG)
+# A runtime-built key gets the pill this panel already has for exactly this
+# state. The class is composed by row(), so the literal never appears inside
+# the renderer -- what is asserted is the state it passes, and that the pill
+# it names is one the stylesheet defines.
+_render = DIAG[DIAG.index("function renderHelpAudit"):DIAG.index("function loadAll")]
+ok("a key built at runtime is drawn as unverified, not as a fault",
+   'row("unverified"' in _render and ".p-unverified{" in DIAG)
+# And it is never drawn as a warning, which would make a thing nobody can act
+# on look like a thing somebody must.
+ok("and never as a warning",
+   'row("warn"' not in _render.split("Built at runtime")[0].rsplit("row(", 1)[-1])
+# --------------------------------------------------------------- coverage
+print()
+print("And the coverage audit is measured against what the Hub serves")
+
+from hub import help_coverage                                     # noqa: E402
+
+_cov = help_coverage.report()
+
+# The load-bearing assertion, and the one the old version could not make.
+# `/api/help/coverage` answered `missing: []` against a hand-typed list of 23
+# screens while two dozen tiled tools carried no explanation -- a clean bill
+# of health produced by not looking. Finding no tiles must therefore be a
+# refusal to answer, never an empty sweep: the same rule the anonymous route
+# sweep works to about a mount table it could not read.
+ok("the index pages were actually read", _cov["measured"] is True,
+   _cov.get("reason", ""))
+ok("and they hold the tools the Hub tiles", _cov["tools"] >= 40,
+   f"{_cov['tools']} tiles")
+
+# A parse that comes back empty is the failure above. Fed markup that no
+# longer matches, the report must say it could not measure rather than
+# reporting that nothing is missing.
+_real = help_coverage._TILE
+try:
+    help_coverage._TILE = re.compile(r"<a class=\"no-such-tile\" href=\"([^\"]+)\">(.*?)</a>")
+    _blind = help_coverage.report()
+    check("a parse that finds no tiles refuses to answer", _blind["measured"], False)
+    check("  ...and claims nothing about what is missing", _blind["missing"], [])
+    ok("  ...saying why, rather than reporting a clean bill",
+       "coverage" in _blind.get("reason", ""), _blind.get("reason", ""))
+finally:
+    help_coverage._TILE = _real
+
+# Every tile lands in exactly one bucket. A tile in none of them is the
+# silence this file exists to end -- it would read as covered by absence.
+_seen = sum(len(_cov[k]) for k in ("covered", "missing", "unmapped", "client_facing"))
+check("every tile is accounted for", _seen, _cov["tools"])
+check("and none is unmapped", [t["href"] for t in _cov["unmapped"]], [])
+
+# A page a prospect reads takes no staff help, and is not reported as a gap:
+# the help layer is our explanation of our own screens, so a bubble there is
+# an internal note in front of somebody we are selling to.
+_client = {t["href"] for t in _cov["client_facing"]}
+for _href in ("/land/boat/", "/land/stadium/", "/msa/"):
+    ok(f"{_href} is named client-facing rather than unexplained",
+       _href in _client)
+ok("and each says why", all(t.get("reason") for t in _cov["client_facing"]))
+
+# The other direction, which fails silently: help written under a prefix no
+# tile maps to leaves that tool reading as missing while its copy sits there
+# written, so somebody writes it twice.
+check("no help is registered under a prefix nothing maps to",
+      help_coverage.stray_prefixes(), [])
+
+# And the routes read this rather than restating it. Two hand-typed lists is
+# how one surface came to report a retired module as its only finding while
+# the other reported nothing at all.
+ok("both coverage routes read hub/help_coverage",
+   _help_routes_src.count("help_coverage.report()") >= 2)
+
+# Read as an assignment through the AST, not matched as text: the docstrings
+# at those two call sites now *explain* the hand-typed lists they replaced,
+# and a full-text pass reports the explanation of the fix as the defect --
+# the rule check_provider_key_drift() and check_orphan_templates() both work
+# to, met here for the third time.
+import ast as _ast                                                # noqa: E402
+
+_tree = _ast.parse(_help_routes_src)
+_hardcoded = []
+for _node in _ast.walk(_tree):
+    if not isinstance(_node, _ast.Assign):
+        continue
+    _names = [t.id for t in _node.targets if isinstance(t, _ast.Name)]
+    if "expected" not in _names:
+        continue
+    if isinstance(_node.value, (_ast.List, _ast.Tuple)) and any(
+            isinstance(e, _ast.Constant) for e in _node.value.elts):
+        _hardcoded.append(_ast.unparse(_node.value)[:60])
+check("neither route assigns a literal list of what to expect",
+      _hardcoded, [])
+
+# The bubble text and the tour steps stay outside the login -- they are our
+# own explanation of our own screens and the chrome fetches them on every
+# page, including the ones a prospect reads. Coverage is a different thing:
+# it returns the whole tool inventory and which of it is unfinished, which is
+# a roadmap rather than help copy, and it sat under the same anonymous
+# prefix.
+import tempfile as _tf                                            # noqa: E402
+
+_T = _tf.mkdtemp()
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_T, "t.db")
+os.environ["SECRET_KEY"] = "help-layer-test"
+os.environ["PANEL_PASSWORD"] = "test"
+os.environ["HUB_DATA_DIR"] = _T
+os.environ["AUDIT_LOG_PATH"] = os.path.join(_T, "audit.jsonl")
+
+import wsgi                                                       # noqa: E402
+from werkzeug.test import Client                                  # noqa: E402
+
+_anon = Client(wsgi.application)
+for _path in ("/api/help/coverage", "/api/demos/coverage"):
+    check(f"{_path} refuses a stranger", _anon.get(_path).status_code, 401)
+for _path in ("/api/help", "/api/demos"):
+    check(f"{_path} stays public, because the chrome fetches it everywhere",
+          _anon.get(_path).status_code, 200)
+
+_staff = Client(wsgi.application)
+_staff.post("/login", data={"password": "test"})
+_r = _staff.get("/api/help/coverage")
+check("and a signed-in reader gets the coverage", _r.status_code, 200)
+ok("which names what is missing rather than answering none",
+   len(_r.get_json()["missing"]) > 0,
+   "an empty answer here is what the hand-typed list used to give")
+
+# And it is on the panel the other two halves are on, rather than being a
+# report reachable only over the API. Bubbles, walkthroughs and coverage are
+# one question asked of three mechanisms, and split across screens they come
+# to disagree about which tools are explained -- the trap
+# jsonstore.unmirrored_json_writers() exists to close.
+_audit = _staff.get("/api/help-audit")
+check("the help-audit panel carries coverage too", _audit.status_code, 200)
+ok("with all three halves on the one answer",
+   set(_audit.get_json()) >= {"bubbles", "walkthroughs", "coverage"})
+
+with open(os.path.join(ROOT, "hub", "templates", "diagnostics.html"),
+          encoding="utf-8") as _fh:
+    _DIAG = _fh.read()
+_r = _DIAG[_DIAG.index("function renderHelpAudit"):_DIAG.index("function loadAll")]
+ok("and the panel draws it", "d.coverage" in _r and '"Coverage"' in _r)
+# "we could not look" must not render as "nothing is missing" -- the failure
+# this whole change is about, one layer up in the renderer.
+ok("checking measured before it draws a count", "c.measured===false" in _r)
+ok("and it names the client-facing tiles rather than counting them as gaps",
+   "client_facing" in _r)
+
+import shutil as _shutil                                          # noqa: E402
+_shutil.rmtree(_T, ignore_errors=True)
 
 
 print()
