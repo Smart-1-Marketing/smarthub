@@ -184,16 +184,27 @@ window.KnackForm = (function () {
     }
     if (f.control === 'connection') {
       if (!f.choices || !f.choices.length) {
+        // The server says which of the two empties this is — an object with
+        // no records and a read that failed are different answers, and only
+        // the first means the field is genuinely unanswerable. Without a
+        // reason from the server this stays the older, safer wording.
         return '<input id="' + id + '" value="' + esc(v) + '" placeholder="Knack record id" style="' + INPUT + '">' +
-          '<div class="muted" style="font-size:11.5px;margin-top:3px">This connection’s records could not be read — ' +
-          'a name will be refused, an id will be written.</div>';
+          '<div class="muted" style="font-size:11.5px;margin-top:3px">' +
+          esc(f.hint || 'This connection’s records could not be read.') + ' ' +
+          'A name will be refused, an id will be written.</div>';
       }
       var picked = Array.isArray(v) ? String(v[0] || '') : String(v);
+      // A truncated picker is drawn amber rather than in the muted style the
+      // other hints use: it is not a note about the field, it is a warning
+      // that the answer somebody wants may not be on the list.
+      var short = f.hint && /Showing /.test(f.hint)
+        ? '<div style="font-size:11.5px;margin-top:3px;color:#b45309">' + esc(f.hint) + '</div>'
+        : hint;
       return '<select id="' + id + '" style="' + INPUT + '">' + blank +
         f.choices.map(function (c) {
           return '<option value="' + esc(c.id) + '"' + (c.id === picked ? ' selected' : '') +
             '>' + esc(c.label) + '</option>';
-        }).join('') + '</select>' + hint;
+        }).join('') + '</select>' + short;
     }
     if (f.control === 'date') {
       // Left as text on purpose: Knack shows dates as MM/DD/YYYY and a date
