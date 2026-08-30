@@ -155,3 +155,98 @@ def check_dead_bubbles(root: str | None = None) -> list[dict]:
                         "the key to one that is there."),
             })
     return out
+
+
+# ---------------------------------------------------------------- the demo
+# The third layer, and the one that fails hardest. `hub/demos.py` drives a
+# tool's real screen -- filling its real fields, clicking its real buttons --
+# and every step names the element to act on. A step whose element is not
+# there used to hide the ring and, on "Do it for me", return without doing or
+# saying anything: the learner presses a button that promises to fill a field
+# in, and nothing happens. CLAUDE.md names that failure for Smart 1 Ads'
+# scenario; it is the norm rather than the exception, and nothing measured it.
+#
+# `hub-demo.js` says so on the step now. This is the other half: the same
+# question asked of the whole book at once, so the scenarios written against
+# a screen that has since been rebuilt are a list somebody can work down
+# rather than something a learner discovers one step at a time.
+
+# What a selector needs to exist. Only the shapes demos.py actually uses:
+# an id, a [data-demo='…'] hook, a [name='…'] field. A speculative pattern
+# costs nothing to write and a great deal to police -- hub/config.py's
+# ALIASES rule, on a different shelf.
+_SEL_ID = re.compile(r"#([A-Za-z0-9_-]+)")
+_SEL_DATA = re.compile(r"""\[data-demo=["']([^"']+)["']\]""")
+_SEL_NAME = re.compile(r"""\[name=["']([^"']+)["']\]""")
+
+
+def _needs(selector: str) -> list[tuple[str, str]]:
+    out = []
+    for m in _SEL_ID.finditer(selector or ""):
+        out.append(("id", m.group(1)))
+    for m in _SEL_DATA.finditer(selector or ""):
+        out.append(("data-demo", m.group(1)))
+    for m in _SEL_NAME.finditer(selector or ""):
+        out.append(("name", m.group(1)))
+    return out
+
+
+def demo_targets(root: str | None = None) -> dict:
+    """Every walkthrough step, and whether its target exists anywhere.
+
+    Deliberately **anywhere** rather than on the scenario's own page. A
+    walkthrough drives a screen whose markup half a dozen scripts write, so
+    tying a target to one template would report a hook that is drawn at
+    runtime as missing -- the guess `tools/linkcheck.py` refuses to make about
+    a URL built by concatenation. A target that appears in no file at all is
+    missing beyond argument; one that appears somewhere is *not verified*,
+    and this says which it is rather than implying it surveyed the pages.
+    """
+    from . import demos
+
+    base = root or _root()
+    blob = []
+    for path in _sources(base):
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                blob.append(fh.read())
+        except OSError:
+            continue
+    everything = "\n".join(blob)
+
+    rows, steps, missing = [], 0, 0
+    for scenario in demos.SCENARIOS:
+        gone = []
+        for i, step in enumerate(getattr(scenario, "steps", []), 1):
+            selector = getattr(step, "selector", "") or ""
+            if not selector:
+                continue
+            steps += 1
+            absent = [f"{kind} {name!r}" for kind, name in _needs(selector)
+                      if name not in everything]
+            if absent:
+                missing += 1
+                gone.append({"step": i, "title": getattr(step, "title", ""),
+                             "selector": selector, "absent": absent})
+        rows.append({
+            "key": getattr(scenario, "key", ""),
+            "module": getattr(scenario, "module", ""),
+            "title": getattr(scenario, "title", ""),
+            "steps": len(getattr(scenario, "steps", [])),
+            "unanchored": gone,
+            # A scenario every one of whose driving steps is missing does not
+            # drive anything at all -- a different thing from one with a step
+            # or two out of date, and the only one worth retiring rather than
+            # repairing.
+            "dead": bool(gone) and len(gone) == len(
+                [s for s in getattr(scenario, "steps", [])
+                 if getattr(s, "selector", "")]),
+        })
+    return {
+        "scenarios": len(rows),
+        "steps": steps,
+        "unanchored": missing,
+        "rows": [r for r in rows if r["unanchored"]],
+        "clean": [r["key"] for r in rows if not r["unanchored"]],
+        "measured": True,
+    }

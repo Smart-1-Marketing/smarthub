@@ -32,6 +32,22 @@
     <div id="diag-housekeeping" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
   </section>
 
+  <!-- ---------------- the help layer ---------------- -->
+  <section class="diag-card">
+    <h2>The help layer &mdash; what still explains itself</h2>
+    <p class="diag-help">
+      Every failure in this layer is silent by design. A bubble whose key is
+      not in the registry is removed rather than left as a dead
+      &ldquo;?&rdquo;, and a walkthrough step whose element is not on the page
+      hides its ring &mdash; so a screen that opted in and got nothing reads
+      exactly like one that never tried. The bubbles are a defect and are on
+      <code>/api/integrity</code>; the walkthrough steps are a backlog, listed
+      here so they can be worked down rather than met one at a time by
+      whoever pressed &ldquo;Walk me through this&rdquo;.
+    </p>
+    <div id="diag-help-audit" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- API health ---------------- -->
   <section class="diag-card">
     <h2>API health <span class="diag-note" id="diag-timing"></span></h2>
@@ -846,6 +862,81 @@ function clearStuck(){
    .catch(function(){ alert("Could not reach the Scans module."); });
 }
 
+/* The help layer. Two questions on one panel because they are one question
+   asked of two mechanisms, and splitting them is how two screens come to
+   answer it differently — the trap jsonstore.unmirrored_json_writers() exists
+   to close, one panel over.
+
+   Nothing here is drawn red. The bubbles are already a finding on the
+   integrity panel above, and the walkthrough steps are a backlog: a page of
+   red is a page people scroll past, which is the note this file already makes
+   about a resolved finding in an open finding's color. */
+function renderHelpAudit(d){
+  var el=document.getElementById("diag-help-audit"); if(!el) return;
+  d=d||{};
+  var b=d.bubbles||{}, w=d.walkthroughs||{}, out=[];
+
+  function row(state,pill,name,detail){
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
+      esc(pill)+'</span><span class="diag-name">'+esc(name)+
+      '</span><span class="diag-detail">'+detail+'</span></div>';
+  }
+
+  // "We could not look" is never a zero.
+  if(b.measured===false){
+    out.push(row("error","?","Bubbles",
+      "Could not be read: "+esc(b.error||"no reason given")));
+  }else{
+    var miss=b.missing||[];
+    out.push(row(miss.length?"warn":"ok", miss.length?String(miss.length):"ok",
+      "Bubbles",
+      miss.length
+        ? "placed on a screen with no entry behind them, so the dot is "+
+          "removed and the screen shows nothing: "+
+          miss.map(function(r){return "<code>"+esc(r.key)+"</code>";}).join(", ")
+        : esc(String(b.placed||0))+" placed, all of them in the registry of "+
+          esc(String(b.registry||0))+"."));
+    /* Named rather than resolved: a key assembled while the page runs cannot
+       be checked from the source, and guessing at it in either direction is
+       the mistake linkcheck refuses to make about a concatenated URL. */
+    (b.runtime||[]).forEach(function(r){
+      out.push(row("unverified","built","Built at runtime",
+        "<code>"+esc(r.key)+"</code> is assembled by a script, so it is not "+
+        "verified here. Its prefix reaches "+
+        esc(String((b.runtime_covers||[]).length))+" registered key"+
+        ((b.runtime_covers||[]).length===1?"":"s")+"."));
+    });
+  }
+
+  if(w.measured===false){
+    out.push(row("error","?","Walkthroughs",
+      "Could not be read: "+esc(w.error||"no reason given")));
+  }else{
+    var rows=w.rows||[], dead=rows.filter(function(r){return r.dead;}).length;
+    out.push(row(w.unanchored?"warn":"ok",
+      w.unanchored?String(w.unanchored):"ok","Walkthroughs",
+      w.unanchored
+        ? "step"+(w.unanchored===1?"":"s")+" name an element that is in no "+
+          "template, out of "+esc(String(w.steps||0))+" that name one. "+
+          esc(String((w.clean||[]).length))+" of "+esc(String(w.scenarios||0))+
+          " walkthroughs can drive every step they name"+
+          (dead?"; "+esc(String(dead))+" can drive none of theirs.":".")+
+          '<em class="diag-fix">Each one says so on the step now, rather '+
+          'than the button doing nothing. Placing the hooks is the fix.</em>'
+        : esc(String(w.steps||0))+" steps, every one of them anchored."));
+    rows.forEach(function(r){
+      out.push(row(r.dead?"warn":"off", r.dead?"none":"some", r.key,
+        esc(r.title||"")+" &mdash; "+esc(String((r.unanchored||[]).length))+
+        " of "+esc(String(r.steps||0))+" step"+(r.steps===1?"":"s")+
+        (r.dead?", which is every one it drives":"")+
+        '<em class="diag-fix">'+
+        esc((r.unanchored||[]).map(function(u){return u.selector;}).join("  "))+
+        '</em>'));
+    });
+  }
+  el.innerHTML=out.join("");
+}
+
 function loadAll(force){
   if(force){
     document.getElementById("diag-checks").innerHTML='<p class="diag-loading">Running checks…</p>';
@@ -866,6 +957,10 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderHousekeeping)
     .catch(function(){document.getElementById("diag-housekeeping").innerHTML=
       '<p class="diag-loading">Could not read the housekeeping list.</p>';});
+  fetch("/api/help-audit",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderHelpAudit)
+    .catch(function(){document.getElementById("diag-help-audit").innerHTML=
+      '<p class="diag-loading">Could not read the help layer.</p>';});
   fetch("/api/integrity",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=

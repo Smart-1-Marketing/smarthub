@@ -81,6 +81,14 @@
       '<p class="s1-demo-body"></p>' +
       '<p class="s1-demo-notice"></p>' +
       '<div class="s1-demo-sim" hidden>Simulated here so it doesn\'t spend a credit.</div>' +
+      /* A step whose target is not on this page. It used to be silent in
+         both halves: the ring hid itself, and "Do it for me" returned
+         without doing or saying anything -- the learner presses a button
+         that promises to fill a field in and nothing at all happens. That
+         is the failure CLAUDE.md names about Smart 1 Ads' one scenario,
+         fixed for OFFERING a walkthrough on a screen it was not written
+         for and never for RUNNING one. */
+      '<div class="s1-demo-gone" hidden></div>' +
       '<div class="s1-demo-actions">' +
         '<button type="button" class="s1-demo-back">Back</button>' +
         '<button type="button" class="s1-demo-do">Do it for me</button>' +
@@ -130,9 +138,29 @@
     p.querySelector(".s1-demo-sim").hidden = !st.simulated;
     p.querySelector(".s1-demo-back").disabled = S.i === 0;
 
+    /* Said once, here, rather than discovered by pressing the button. A step
+       that names a selector and cannot find it is a scenario written against
+       a screen that has since been rebuilt -- worth seeing, and the reason
+       the walkthrough is not simply skipping ahead: the narration is still
+       correct and still worth reading, it is only the driving that cannot
+       happen. */
+    var gone = st.selector && !el(st.selector);
+    var goneEl = p.querySelector(".s1-demo-gone");
+    goneEl.hidden = !gone;
+    if (gone) {
+      goneEl.textContent =
+        "This step points at something that is not on this page, so it "
+        + "cannot be shown or filled in for you. The note above still "
+        + "applies \u2014 the walkthrough was written before this screen "
+        + "was last changed.";
+    }
+
     var doBtn = p.querySelector(".s1-demo-do");
     var actionable = ["fill", "choose", "click", "upload"].indexOf(st.action) > -1;
-    doBtn.hidden = !actionable || st.autofill === false || st.simulated;
+    /* A button that can only do nothing is worse than no button: it is
+       pressed once, nothing happens, and the whole walkthrough reads as
+       broken rather than one step of it. */
+    doBtn.hidden = !actionable || st.autofill === false || st.simulated || gone;
     doBtn.textContent = st.action === "fill" ? "Fill it in"
                       : st.action === "click" ? "Click it"
                       : st.action === "upload" ? "Load the sample"
@@ -147,7 +175,16 @@
   function perform() {
     if (!S) return;
     var st = S.scenario.steps[S.i], node = el(st.selector);
-    if (!node) return;
+    if (!node) {
+      /* paint() already hides this button when the target is missing, so
+         reaching here means the element went between the paint and the
+         press -- a panel redrawn under the walkthrough, which half this Hub
+         does. Repainting says so rather than returning in silence, which is
+         what this function did for every missing target. */
+      beacon({ scenario: S.scenario.key, step: S.i + 1, action: "target-missing" });
+      paint();
+      return;
+    }
     if (st.action === "fill") { typeInto(node, st.value); }
     else if (st.action === "choose") { setValue(node, st.value); }
     else if (st.action === "click") { node.click(); }
@@ -185,6 +222,38 @@
       })
       .catch(function () { return false; });
   }
+
+  /* Half this Hub draws its panels from a fetch -- Client 360, the SEO client
+     page, the tools with a results grid -- so a step's target routinely
+     arrives a second after the step is painted. Without this, the amber line
+     above would stand and the button would stay hidden on a step that is
+     about to become perfectly workable, which is a worse answer than the
+     silence it replaced. Debounced, and only while a walkthrough is running:
+     the same arrangement hub-help.js uses to mount bubbles on late-rendered
+     content, for the same reason. */
+  var repaint = null;
+  function ours(node) {
+    for (var n = node; n; n = n.parentNode) {
+      if (n.classList && (n.classList.contains("s1-demo-panel")
+                          || n.classList.contains("s1-demo-ring"))) return true;
+    }
+    return false;
+  }
+  new MutationObserver(function (records) {
+    if (!S || repaint) return;
+    /* paint() writes into the panel and moves the ring, so an unfiltered
+       observer would see its own work and repaint every 150ms for as long as
+       the walkthrough is open. Only a change somewhere else can mean a step's
+       target has arrived. */
+    for (var i = 0; i < records.length; i++) {
+      if (!ours(records[i].target)) {
+        repaint = setTimeout(function () {
+          repaint = null; if (S) paint();
+        }, 150);
+        return;
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
 
   window.addEventListener("resize", function () { if (S) paint(); });
   window.addEventListener("scroll", function () { if (S) highlight(S.scenario.steps[S.i].selector); },

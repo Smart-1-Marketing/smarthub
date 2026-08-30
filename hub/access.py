@@ -53,6 +53,11 @@ UTILITY_PREFIXES = (
     "/api/backup",
     "/api/quotas",
     "/api/housekeeping",    # what needs filling in, and on which page
+    # Which help bubbles resolve and which walkthrough steps can still drive.
+    # Names templates and scenario keys, not client data — but it is a
+    # maintenance report and the panel that draws it is on Diagnostics, so it
+    # is gated with the page rather than left readable beside it.
+    "/api/help-audit",
     "/api/activity",
     "/api/users",
     "/api/status",
