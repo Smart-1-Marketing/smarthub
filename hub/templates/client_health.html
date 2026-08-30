@@ -194,10 +194,20 @@
   }
 
   function ownerCell(o){
-    if(!o || !o.email) return '<span class="s1d-muted">nobody</span>';
-    if(!o.known) return '<span class="s1d-pill warn">' + esc(o.email)
-      + ' &mdash; no account</span>';
-    return esc(o.name);
+    if(!o || !o.email){
+      if(o && o.contested && o.contested.length)
+        return '<span class="s1d-pill warn">two partner rules disagree</span>';
+      if(o && o.pinned)
+        return '<span class="s1d-muted">nobody &mdash; held off the rule</span>';
+      return '<span class="s1d-muted">nobody</span>';
+    }
+    var name = o.known
+      ? esc(o.name)
+      : '<span class="s1d-pill warn">' + esc(o.email) + ' &mdash; no account</span>';
+    /* Named on the row, because a standing rule that cannot say it was one
+       leaves somebody holding a client with nothing explaining why. */
+    return name + (o.source === "rule"
+      ? '<div class="s1d-muted">' + esc(o.partner) + ' rule</div>' : "");
   }
 
   function draw(){

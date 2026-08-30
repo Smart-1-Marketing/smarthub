@@ -3618,16 +3618,53 @@ to answer. Reassigning is allowed and carries who held it before — a handover
 is the ordinary case, and refusing it would be two presses to record one
 decision.
 
-**Assigning "at partner level" is expanded to the clients it names, now.** It
-is deliberately *not* stored as a standing rule. A rule would silently claim
-next year's clients for whoever was on the screen this year — including
-somebody who has since left — and nothing on any record would say the
-assignment had been made by a rule nobody remembers writing. So the partner
-control **selects** and what is written is one ordinary assignment per client,
-each with a name and a date against it. What that costs is a re-press when a
-partner gains a client, and the page says so rather than leaving somebody to
-discover it. `test_client_owners.py` reads the stored file and requires that
-nothing in it names a partner.
+**A media partner is a standing rule, resolved on read rather than written
+into rows.** "Everything Moto Media carries belongs to Erik" is the ordinary
+shape of this book, and expanding it into one assignment per client meant a
+re-press every time a partner gained one — which in practice means the new
+client belongs to nobody until somebody notices.
+
+What makes a standing rule safe is that it can never quietly become the only
+account of who owns a client, and four things carry that:
+
+- **A rule materialises nothing.** `resolved()` lays it over the direct
+  assignments on every read, so a rule that changes, or a client who leaves
+  the partner, takes effect at once and leaves no orphan row behind — and
+  clearing a rule needs no row-by-row undo, because there were never any rows.
+  The reason `hub/creative_evergreen.py` applies its mark on read: two
+  gunicorn workers, and rows written by one of them are a second account of
+  the truth. `test_client_owners.py` reads the stored file and requires a rule
+  to have written no assignment rows at all.
+- **Every row says where its owner came from** — `direct`, or `rule` with the
+  partner named. The objection to a standing rule is that somebody ends up
+  holding a client with nothing anywhere saying why; the provenance is on the
+  row and all three screens print it.
+- **A person beats a rule, in both directions.** A direct assignment wins, and
+  taking a client off everybody **sticks**: where a rule would otherwise
+  re-claim them, `unassign()` records an explicit "nobody" rather than
+  deleting the row, or the press would undo itself on the next read — the
+  failure `hub/client_urls.missing()` had to undo. `follow_rule()` is the way
+  back, and it is its own verb rather than a second meaning for unassign,
+  because "take this off everyone" and "let the rule decide again" are
+  different answers and one control for both cannot say which it did.
+- **Two rules claiming one client are named and refused.** A client billed
+  under two media partners is under both rules, and picking between them is
+  picking whose book a client is on. They are left unassigned, marked
+  `contested` with both partners named — the rule `hub/suite_accounts.py`
+  applies to two rows naming different sub-accounts.
+
+The **one-off bulk assignment** stays beside it, because the two are different
+statements: "these forty clients are Erik's" is a fact about those forty, and
+"whatever this partner carries is Erik's" is a fact about the partner. Only
+the second follows the book as it changes.
+
+**The partner map is read once per run, not once per reader.** `resolved()`,
+`summary()` and `unassign_many()` all take one, and `hub/client_health.build()`
+hands over the grouping it already has — `qa.client_groups()` carries the
+partners on every client's lines. Two pulls would be two answers to "who
+carries this client", taken a moment apart. And the products are only read at
+all when a rule exists: a book with no standing rules must not pay for a pull
+it cannot use.
 
 **A bulk assignment reports every row's own outcome, and writes the file
 once.** The first half is `client_urls.accept_many()`'s rule — one number back

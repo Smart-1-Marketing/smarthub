@@ -714,10 +714,24 @@ def build(today: date | None = None) -> dict:
         def is_active(g):                               # noqa: ANN001, ANN202
             return bool(g.get("live")) or bool(g.get("thisM"))
 
+    # The partner map for the standing rules, built from the grouping this
+    # function already has rather than a second products pull: `groups` is
+    # `qa.client_groups()`, which carries the partners on every client's
+    # lines, and two readings of one question is what this module is written
+    # to avoid.
+    partner_map: dict[str, list[str]] = {}
+    for name, g in (groups or {}).items():
+        for partner in sorted(g.get("partners") or ()):
+            if str(partner or "").strip():
+                partner_map.setdefault(partner, []).append(name)
+
     owned = {}
     try:
         from hub import client_owner
-        owned = client_owner.owners()
+        # The *resolution*, not the raw rows: a client owned through a partner
+        # rule is owned, and reading only the direct assignments would leave
+        # them off this report entirely.
+        owned = client_owner.resolved(partner_map=partner_map)
     except Exception:                                   # noqa: BLE001
         owned = {}
 
@@ -729,6 +743,12 @@ def build(today: date | None = None) -> dict:
             if key:
                 names.setdefault(key, name)
     for key, row in owned.items():
+        # Only somebody actually owns them. A resolution row exists for every
+        # client any rule reaches, including the ones it leaves unassigned,
+        # and carrying those in would quietly widen this report to the whole
+        # book of every partner under a rule.
+        if not row.get("email"):
+            continue
         name = str(row.get("client") or "").strip()
         if key and name:
             names.setdefault(key, name)
@@ -927,6 +947,11 @@ def build(today: date | None = None) -> dict:
         "generated_at": _now(),
         "today": today.isoformat(),
         "sources": sources,
+        # Carried on the payload so the per-request overlay resolves the
+        # standing rules against the same partners this run was built from.
+        # Re-reading the products there would be a second answer to "who
+        # carries this client", taken a day apart from the first.
+        "partner_map": partner_map,
         "rows": rows,
         "renewal_days": RENEWAL_DAYS,
         "stale_days": AUDIT_STALE_DAYS,
@@ -1002,6 +1027,14 @@ def _apply_overlay(data: dict, *, owner_index: dict, mark_index: dict,
             # read as unassigned: the client has somebody's name on it and
             # nobody behind it, which is the state a handover has to find.
             "known": bool(email and email in user_index),
+            # How they came to own it. A standing partner rule is safe only
+            # while the row can say it was one -- somebody holding a client
+            # with nothing anywhere saying why is the whole objection to
+            # having rules at all.
+            "source": str(assignment.get("source") or ""),
+            "partner": str(assignment.get("partner") or ""),
+            "contested": list(assignment.get("contested") or []),
+            "pinned": bool(assignment.get("pinned")),
             "at": str(assignment.get("at") or ""),
             "by": str(assignment.get("by") or ""),
         }
@@ -1053,7 +1086,8 @@ def report(*, owner: str = "", scope: str = "", q: str = "",
     data = cached(force=force)
     try:
         from hub import client_owner
-        owner_index = client_owner.owners()
+        owner_index = client_owner.resolved(
+            partner_map=data.get("partner_map") or None)
         users, user_error = client_owner.assignable_users()
     except Exception as exc:                            # noqa: BLE001
         owner_index, users = {}, []
@@ -1321,13 +1355,17 @@ def client_owners_page():
 def api_client_owners():
     """Who owns what, plus the two ways of selecting a group of clients."""
     from hub import client_owner
+    # One products pull, handed to both readers. `summary()` needs it to
+    # resolve the standing rules and the partner picker needs it to draw them,
+    # and asking twice is two answers to "who carries this client" taken a
+    # moment apart.
+    partners, partner_error = client_owner.clients_by_partner()
     try:
-        data = client_owner.summary()
+        data = client_owner.summary(partner_map=partners or None)
     except Exception as exc:                            # noqa: BLE001
         return jsonify({"measured": False, "rows": [], "counts": {},
                         "error": f"{type(exc).__name__}: {exc}"[:300]})
     users, user_error = client_owner.assignable_users()
-    partners, partner_error = client_owner.clients_by_partner()
     data["users"] = users
     data["user_error"] = user_error
     # Sorted by how many clients each partner carries, biggest first: the
@@ -1371,8 +1409,63 @@ def api_client_owners_unassign():
     result = client_owner.unassign_many(clients or [], actor=_actor())
     if not result.get("ok"):
         return jsonify(result), 400
-    _log("client_owner_cleared", detail=f"{result['cleared']} clients")
+    _log("client_owner_cleared",
+         detail=f"{result['cleared']} clients"
+                + (f", {result['pinned']} held off a partner rule"
+                   if result.get("pinned") else ""))
     return jsonify(result)
+
+
+@bp.route("/api/client-owners/rule", methods=["POST"])
+def api_client_owners_rule():
+    """Set or clear a standing rule: everything a partner carries is theirs.
+
+    Nothing is written per client. The rule is laid over the direct
+    assignments on every read, so it takes effect on the partner's book as it
+    stands today and stops claiming a client the moment they leave it — and
+    clearing one needs no row-by-row undo, because there were never any rows.
+    """
+    from hub import client_owner
+    body = request.get_json(silent=True) or {}
+    partner = str(body.get("partner") or "")
+    email = str(body.get("email") or "").strip()
+    if email:
+        result = client_owner.set_rule(partner, email, actor=_actor(),
+                                       note=str(body.get("note") or ""))
+    else:
+        result = client_owner.clear_rule(partner, actor=_actor())
+    if not result.get("ok"):
+        return _json_error(result.get("error") or "The rule was not saved.")
+    _log("client_owner_rule_set" if email else "client_owner_rule_cleared",
+         detail=f"{result['partner']} -> {email or '(nobody)'}")
+    return jsonify(result)
+
+
+@bp.route("/api/client-owners/follow-rule", methods=["POST"])
+def api_client_owners_follow_rule():
+    """Drop a client's own row so the partner rule decides again.
+
+    The undo for both halves of a direct decision — an assignment to somebody,
+    and a pin holding a client off the rule. Its own route rather than a
+    second meaning for unassign, because "take this off everyone" and "let the
+    rule decide" are different answers and one control for both cannot say
+    which it did.
+    """
+    from hub import client_owner
+    body = request.get_json(silent=True) or {}
+    clients = body.get("clients")
+    if isinstance(clients, str):
+        clients = [clients]
+    if not clients and body.get("client"):
+        clients = [str(body["client"])]
+    results = [client_owner.follow_rule(str(c or ""), actor=_actor())
+               for c in (clients or [])]
+    ok = sum(1 for r in results if r.get("ok"))
+    if not results:
+        return _json_error("No clients were selected.")
+    _log("client_owner_rule_followed", detail=f"{ok} clients")
+    return jsonify({"ok": ok > 0, "results": results, "cleared": ok,
+                    "failed": len(results) - ok})
 
 
 # ---- the one client, from Client 360 --------------------------------------
@@ -1389,7 +1482,11 @@ def api_client_owner():
     name = (request.args.get("client") or "").strip()
     if not name:
         return _json_error("A client is required.")
-    row = client_owner.owner_of(name) or {}
+    # `resolved()` bounded to one client answers with at most one row, so the
+    # value is taken rather than the normalised key being re-derived here --
+    # a second copy of that derivation is the drift `hub/client_key.py` warns
+    # about, in the one place it would be invisible.
+    row = next(iter(client_owner.resolved([name]).values()), {})
     users, user_error = client_owner.assignable_users()
     index = {u["email"]: u for u in users}
     email = client_owner.normalise_email(row.get("email"))
@@ -1397,6 +1494,15 @@ def api_client_owner():
         "ok": True, "client": name, "email": email,
         "owner": client_owner.display_name(email, index) if email else "",
         "known": bool(email and email in index),
+        # Where the owner came from, so the card can say "through the Moto
+        # rule" rather than leaving somebody to wonder why they have a client
+        # nobody remembers giving them. `contested` is two rules disagreeing,
+        # which is a setup problem and reads as one.
+        "source": str(row.get("source") or ""),
+        "partner": str(row.get("partner") or ""),
+        "contested": list(row.get("contested") or []),
+        "pinned": bool(row.get("pinned")),
+        "rule": bool((client_owner.rule_for_client(name) or {})),
         "at": str(row.get("at") or ""), "by": str(row.get("by") or ""),
         "users": users, "user_error": user_error,
     })
@@ -1417,7 +1523,9 @@ def api_client_owner_set():
     email = str(body.get("email") or "").strip()
     if not name:
         return _json_error("A client is required.")
-    if email:
+    if str(body.get("follow_rule") or "").strip() or body.get("follow_rule") is True:
+        result = client_owner.follow_rule(name, actor=_actor())
+    elif email:
         result = client_owner.assign(name, email, actor=_actor(),
                                      note=str(body.get("note") or ""))
     else:

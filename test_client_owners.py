@@ -83,6 +83,17 @@ def section(name):
     print(f"\n{name}")
 
 
+def field(value, key, default=""):
+    """`value[key]`, for a value that may legitimately be None.
+
+    An assertion that raises takes every check after it out of the run, so a
+    caught regression reads as a traceback naming one line rather than as the
+    list of what actually broke. This is the same reason the first version of
+    this file reads every payload field with `.get()`.
+    """
+    return (value or {}).get(key, default)
+
+
 from hub import auth, client_health, client_owner, create_hub_app   # noqa: E402
 
 # One app, one application context, held for the whole file. `assignable_users`
@@ -106,7 +117,7 @@ r = client_owner.assign("Riverside HVAC", "aimee@smart1marketing.com",
 check("assigning answers ok", r["ok"], True)
 check("and is not a reassignment", r["reassigned"], False)
 check("the owner reads back",
-      client_owner.owner_of("Riverside HVAC")["email"],
+      field(client_owner.owner_of("Riverside HVAC"), "email"),
       "aimee@smart1marketing.com")
 
 r = client_owner.assign("Riverside HVAC", "erik@smart1marketing.com",
@@ -117,7 +128,7 @@ check("one row per client, never two",
       len([x for x in client_owner.assignments()
            if x["client"] == "Riverside HVAC"]), 1)
 check("the newest decision is the one that stands",
-      client_owner.owner_of("Riverside HVAC")["email"],
+      field(client_owner.owner_of("Riverside HVAC"), "email"),
       "erik@smart1marketing.com")
 
 # The rule this module would pay for hardest. A substring match here files one
@@ -125,13 +136,13 @@ check("the newest decision is the one that stands",
 check("a longer name is a different client",
       client_owner.owner_of("Riverside HVAC Supply"), None)
 check("and punctuation and a legal suffix are not",
-      client_owner.owner_of("The Riverside HVAC, LLC")["email"],
+      field(client_owner.owner_of("The Riverside HVAC, LLC"), "email"),
       "erik@smart1marketing.com")
 
 check("an address with no @ is refused",
       client_owner.assign("Riverside HVAC", "erik")["ok"], False)
 check("and refusing changes nothing",
-      client_owner.owner_of("Riverside HVAC")["email"],
+      field(client_owner.owner_of("Riverside HVAC"), "email"),
       "erik@smart1marketing.com")
 check("a client with no name is refused",
       client_owner.assign("", "erik@smart1marketing.com")["ok"], False)
@@ -185,12 +196,8 @@ check("leaving nobody holding anything", client_owner.owners(), {})
 
 
 # ---------------------------------------------------------------------------
-section("Partner assignment is a selection, never a stored rule")
+section("A one-off bulk assignment is still one row per client")
 # ---------------------------------------------------------------------------
-#
-# A stored rule would quietly claim next year's clients for whoever was on the
-# screen this year -- including somebody who has since left -- with nothing on
-# any record saying the assignment had been made by a rule nobody remembers.
 
 import json                                                      # noqa: E402
 
@@ -200,12 +207,152 @@ raw = json.loads(Path(client_owner._path()).read_text())
 check("what is stored is one row per client",
       sorted(x["client"] for x in raw["owners"]),
       ["Moto Client A", "Moto Client B"])
-check("and nothing anywhere names a partner",
-      any("partner" in json.dumps(x).lower() for x in raw["owners"]), False)
 check("every row says who assigned it",
       sorted({x["by"] for x in raw["owners"]}), ["Tester"])
 check("and when", all(len(x["at"]) > 10 for x in raw["owners"]), True)
 client_owner.unassign_many(["Moto Client A", "Moto Client B"])
+
+
+# ---------------------------------------------------------------------------
+section("A standing partner rule, and the four things that keep it safe")
+# ---------------------------------------------------------------------------
+#
+# "Everything this partner carries is X's." The objection to a rule is that
+# somebody ends up holding a client with nothing anywhere saying why, and that
+# it goes on claiming clients nobody looked at. Each assertion below is one of
+# those, closed.
+
+# One client under two partners, which is what makes `contested` reachable.
+PARTNERS = {
+    "Moto Media": ["Acme Plumbing", "Acme Roofing"],
+    "FabLocal": ["Acme Roofing", "Delta Signs"],
+    "": ["Unfiled Co"],
+}
+
+
+def owner_of(name):
+    hit = client_owner.resolved([name], partner_map=PARTNERS)
+    return next(iter(hit.values()), {})
+
+
+check("with no rule, a partner's client is owned by nobody",
+      owner_of("Acme Plumbing")["source"], "")
+
+r = client_owner.set_rule("Moto Media", "erik@smart1marketing.com",
+                          actor="Tester")
+check("setting a rule answers ok", r["ok"], True)
+check("and is not a replacement", r["replaced"], False)
+
+# 1. A rule materialises nothing. Written into rows it would go on claiming a
+#    client after they left the partner, and would need a re-press whenever
+#    the partner gained one -- which is the whole reason to have a rule.
+raw = json.loads(Path(client_owner._path()).read_text())
+check("the rule writes no assignment rows at all", raw["owners"], [])
+check("it lives in its own file",
+      sorted(json.loads(Path(client_owner._rules_path()).read_text())["rules"][0]),
+      ["at", "by", "email", "note", "partner", "previous"])
+
+# 2. Every row says where its owner came from.
+row = owner_of("Acme Plumbing")
+check("the client is owned", row["email"], "erik@smart1marketing.com")
+check("through a rule", row["source"], "rule")
+check("and the row names the partner", row["partner"], "Moto Media")
+check("a client of no partner is untouched", owner_of("Unfiled Co")["source"], "")
+check("clients_for follows the rule",
+      client_owner.clients_for("erik@smart1marketing.com",
+                               partner_map=PARTNERS),
+      ["Acme Plumbing", "Acme Roofing"])
+check("and the client keeps its real name rather than the derived key",
+      row["client"], "Acme Plumbing")
+
+# The rule follows the book. A client the partner gains is claimed with no
+# second press, which a materialised assignment could never do.
+PARTNERS["Moto Media"].append("Brand New Co")
+check("a client the partner gains later is claimed by itself",
+      owner_of("Brand New Co")["email"], "erik@smart1marketing.com")
+PARTNERS["Moto Media"].remove("Brand New Co")
+check("and one that leaves stops being claimed, with no row to clean up",
+      owner_of("Brand New Co")["source"], "")
+
+# 3. A person beats a rule, in both directions.
+client_owner.assign("Acme Plumbing", "aimee@smart1marketing.com",
+                    actor="Tester")
+row = owner_of("Acme Plumbing")
+check("a direct assignment wins over the rule", row["source"], "direct")
+check("and names the person who was chosen",
+      row["email"], "aimee@smart1marketing.com")
+
+u = client_owner.unassign("Acme Plumbing", partner_map=PARTNERS)
+check("taking a rule-covered client off everybody answers ok", u["ok"], True)
+check("it is recorded as an explicit nobody rather than deleted",
+      u["pinned"], True)
+check("naming the rule it is holding off", u["overrides_rule"], "Moto Media")
+row = owner_of("Acme Plumbing")
+check("so the rule does not claim them straight back", row["email"], "")
+check("and the row says it was a decision, not a gap", row["pinned"], True)
+
+check("following the rule again answers ok",
+      client_owner.follow_rule("Acme Plumbing")["ok"], True)
+check("and hands the client back to it", owner_of("Acme Plumbing")["source"],
+      "rule")
+
+# 4. Two rules naming different people is named and refused.
+client_owner.set_rule("FabLocal", "brandon@smart1marketing.com", actor="Tester")
+row = owner_of("Acme Roofing")
+check("a client two rules disagree about is owned by nobody", row["email"], "")
+check("and both partners are named", row["contested"],
+      ["FabLocal", "Moto Media"])
+check("rather than one of them being picked", row["source"], "")
+check("the clients each rule alone covers are unaffected",
+      (owner_of("Acme Plumbing")["email"], owner_of("Delta Signs")["email"]),
+      ("erik@smart1marketing.com", "brandon@smart1marketing.com"))
+# A person still settles it, which is the way out of a contested row.
+client_owner.assign("Acme Roofing", "erik@smart1marketing.com")
+check("a direct assignment settles a contested client",
+      owner_of("Acme Roofing")["source"], "direct")
+client_owner.follow_rule("Acme Roofing")
+
+# Replacing and clearing.
+r = client_owner.set_rule("Moto Media", "aimee@smart1marketing.com")
+check("replacing a rule says so", r["replaced"], True)
+check("and names who held it", r["previous"], "erik@smart1marketing.com")
+check("one rule per partner", len(client_owner.rules_by_partner()), 2)
+check("a rule folds on case, the way Knack spells one partner two ways",
+      client_owner.rules_by_partner().get("moto media") is not None, True)
+
+check("clearing a rule answers ok",
+      client_owner.clear_rule("Moto Media")["ok"], True)
+check("a second clear is not a failure",
+      client_owner.clear_rule("Moto Media")["already"], True)
+check("and the clients it claimed are free again, with nothing to undo",
+      owner_of("Acme Plumbing")["source"], "")
+
+check("a rule with no owner is refused",
+      client_owner.set_rule("Moto Media", "")["ok"], False)
+check("and a rule with no partner is refused",
+      client_owner.set_rule("", "erik@smart1marketing.com")["ok"], False)
+
+# The summary is what both screens read, so it carries the provenance.
+book = [{"name": n} for n in
+        ["Acme Plumbing", "Acme Roofing", "Delta Signs", "Unfiled Co"]]
+summary = client_owner.summary(book, partner_map=PARTNERS)
+check("the summary counts what a rule owns apart from what a person did",
+      (summary["counts"]["by_rule"], summary["counts"]["by_hand"]), (2, 0))
+check("and lists the rules with what each claims today",
+      [(r["partner"], r["claims"]) for r in summary["rules"]],
+      [("FabLocal", 2)])
+by_client = {r["client"]: r for r in summary["rows"]}
+check("every owned row says where its owner came from",
+      by_client["Delta Signs"]["source"], "rule")
+check("naming the partner", by_client["Delta Signs"]["partner"], "FabLocal")
+check("and an unowned one is not claimed by it",
+      by_client["Unfiled Co"]["email"], "")
+
+client_owner.clear_rule("FabLocal")
+for _n in ("Acme Plumbing", "Acme Roofing", "Delta Signs"):
+    client_owner.follow_rule(_n)
+check("the book is clear again", client_owner.owners(), {})
+check("and so are the rules", client_owner.rules(), [])
 
 
 # ---------------------------------------------------------------------------

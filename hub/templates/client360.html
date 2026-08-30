@@ -2599,11 +2599,22 @@ function renderGroupBanner(info){
 function renderOwner(d){
   var el=document.getElementById('c-owner'); if(!el) return;
   d=d||{};
+  /* Where the owner came from. A standing partner rule is safe only while
+     the record can say it was one -- somebody holding a client with nothing
+     anywhere saying why is the whole objection to having rules. */
   var who=d.email
     ? (d.known
         ? '<b>'+esc(d.owner)+'</b>'
         : '<b>'+esc(d.email)+'</b> <span class="pill warn">no Hub account</span>')
-    : '<span class="muted">nobody yet</span>';
+      +(d.source==='rule'
+        ? ' <span class="muted">through the '+esc(d.partner)+' rule</span>' : '')
+    : (d.contested&&d.contested.length
+        ? '<span class="pill warn">two partner rules disagree: '
+          +d.contested.map(esc).join(' / ')+'</span>'
+        : (d.pinned
+            ? '<span class="muted">nobody \u2014 held off the '
+              +'partner rule</span>'
+            : '<span class="muted">nobody yet</span>'));
   var opts='<option value="">— nobody —</option>'+(d.users||[]).map(function(u){
       return '<option value="'+esc(u.email)+'"'+(u.email===d.email?' selected':'')
         +'>'+esc(u.name)+'</option>'; }).join('');
@@ -2616,10 +2627,31 @@ function renderOwner(d){
     +'<select id="c-owner-pick" style="margin-left:auto;padding:5px 8px;'
     +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
     +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Save</a>'
+    /* Offered only where there is a rule to go back to. A control that can
+       only ever do nothing is one people learn to skip past. */
+    +(d.rule&&d.source!=='rule'
+      ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
+        +'partner rule</a>' : '')
     +'<a class="open-link" href="/my-clients">What is outstanding →</a>'
     +(d.user_error?'<div style="flex-basis:100%;font-size:12px;color:#7a5b00">'
         +esc(d.user_error)+'</div>':'')
     +'</div>';
+  var follow=document.getElementById('c-owner-follow');
+  if(follow) follow.onclick=function(){
+    follow.textContent='Saving\u2026';
+    fetch('/api/client/owner/set',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({client:window.CURRENT_CLIENT||'',follow_rule:true})})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(j.ok===false) throw new Error(j.error||'That did not save.');
+        loadOwner(window.CURRENT_CLIENT||'');
+      })
+      .catch(function(err){
+        follow.textContent='Follow the partner rule';
+        alert((err&&err.message)||'That did not save.');
+      });
+  };
   var save=document.getElementById('c-owner-save');
   if(save) save.onclick=function(){
     var pick=document.getElementById('c-owner-pick');

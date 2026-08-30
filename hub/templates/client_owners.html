@@ -50,16 +50,17 @@
     <div class="card">
       <h3>1 &middot; Pick the clients</h3>
 
-      <label for="partner">Everything of one media partner</label>
-      <div id="partners" class="co-results" style="max-height:190px;margin-bottom:12px">
+      <label for="partners">By media partner</label>
+      <div id="partners" class="co-results" style="max-height:220px;margin-bottom:12px">
         <span class="s1d-muted">Reading the partners… <span class="spin"></span></span>
       </div>
-      <p class="s1d-hint">Picking a partner ticks the clients it has
-        <em>today</em>. It is not stored as a standing rule: a rule would
-        quietly claim next year's clients for whoever was on this screen this
-        year — including somebody who has since left — and nothing on any
-        record would say so. When a partner gains a client, come back and tick
-        it again.</p>
+      <p class="s1d-hint"><b>Standing rule</b> means whatever that partner
+        carries belongs to the person you pick — including clients they gain
+        later. Nothing is written per client: the rule is applied when the
+        book is read, so it stops claiming a client the moment they leave the
+        partner, and clearing it needs no undoing row by row.
+        <b>Tick these</b> is the one-off instead: it selects the clients the
+        partner has <em>today</em> so you can assign those and nothing more.</p>
 
       <label for="filter" style="margin-top:14px">Or pick them by hand</label>
       <input id="filter" type="search" placeholder="Search clients…" style="width:100%">
@@ -85,11 +86,31 @@
 
       <div class="ch-acts s1d-inline" style="margin-top:14px">
         <button type="button" id="assign">Assign the picked clients</button>
+        <button type="button" class="sec" id="follow">Let the partner rule decide</button>
         <button type="button" class="danger" id="clear">Take them off whoever holds them</button>
       </div>
+      <p class="s1d-hint">Taking a client off everybody sticks even where a
+        standing rule would claim them &mdash; otherwise the press would undo
+        itself on the next read. <b>Let the partner rule decide</b> is how that
+        is undone.</p>
 
       <div id="result" style="margin-top:14px"></div>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="s1d-tablehead"><b>Standing rules</b>
+      <span class="s1d-muted" id="rules-count"></span></div>
+    <div class="s1d-scroll">
+      <table>
+        <thead><tr><th>Media partner</th><th>Owner</th><th>Claiming</th>
+          <th>Set by</th><th></th></tr></thead>
+        <tbody id="rules"><tr><td colspan="5">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="s1d-hint">A rule decides only where nothing else does. A client
+      assigned by hand keeps that owner, and one taken off everybody stays off
+      — both override the rule, and the table below says which.</p>
   </div>
 
   <div class="card">
@@ -142,6 +163,14 @@
       out += '<div class="s1d-note warn">The media partners could not be read ('
         + esc(DATA.partner_error) + '), so only the by-hand list below is '
         + 'complete.</div>';
+    /* Two rules naming different people. Not picked between: choosing one is
+       choosing whose book a client is on. Named so somebody can settle it. */
+    if((DATA.counts || {}).contested)
+      out += '<div class="s1d-note warn"><b>' + DATA.counts.contested
+        + ' client' + (DATA.counts.contested === 1 ? " is" : "s are")
+        + ' carried by two partners whose rules name different people.</b> '
+        + 'They are left unassigned rather than given to one of them &mdash; '
+        + 'assign them by hand, or change one of the rules.</div>';
     if((DATA.unknown_owners || []).length)
       out += '<div class="s1d-note warn"><b>'
         + DATA.unknown_owners.length + ' client'
@@ -157,7 +186,8 @@
     var c = DATA.counts || {};
     el("tiles").innerHTML = [
       ["Clients", c.clients || 0],
-      ["Assigned", c.assigned || 0],
+      ["Owned by a standing rule", c.by_rule || 0],
+      ["Assigned by hand", c.by_hand || 0],
       ["Nobody owns", c.unassigned || 0],
       ["People with a book", c.owners || 0]
     ].map(function(t){
@@ -180,15 +210,27 @@
       : "";
   }
 
+  function ruleFor(partner){
+    var want = String(partner || "").trim().toLowerCase();
+    return (DATA.rules || []).filter(function(r){
+      return String(r.partner || "").trim().toLowerCase() === want; })[0];
+  }
+
   function drawPartners(){
     var parts = DATA.partners || [];
     if(!parts.length){ el("partners").innerHTML =
       '<span class="s1d-muted">No media partners on the products on file.</span>';
       return; }
     el("partners").innerHTML = parts.map(function(p, i){
-      return '<div class="co-partner"><button type="button" class="sec small" '
-        + 'data-partner="' + i + '">Tick these</button> '
+      var rule = ruleFor(p.partner);
+      return '<div class="co-partner">'
+        + '<button type="button" class="sec small" data-partner="' + i
+        + '">Tick these</button> '
+        + '<button type="button" class="small" data-rule="' + i + '">'
+        + (rule ? "Change rule" : "Standing rule") + '</button> '
         + '<span>' + esc(p.partner || "— no partner recorded —") + '</span>'
+        + (rule ? '<span class="s1d-pill ok">' + esc(rule.owner || rule.email)
+            + '</span>' : "")
         + '<span class="n">' + p.count + '</span></div>';
     }).join("");
     el("partners").querySelectorAll("[data-partner]").forEach(function(b){
@@ -196,6 +238,52 @@
         var p = parts[Number(b.getAttribute("data-partner"))];
         (p.clients || []).forEach(function(n){ PICKED[n] = true; });
         drawClients();
+      };
+    });
+    el("partners").querySelectorAll("[data-rule]").forEach(function(b){
+      b.onclick = function(){
+        var p = parts[Number(b.getAttribute("data-rule"))];
+        var email = el("email").value;
+        if(!email){ el("result").innerHTML = '<div class="s1d-note warn">'
+          + 'Pick somebody on the right first — a standing rule needs an owner.'
+          + '</div>'; return; }
+        if(!window.confirm('Everything ' + p.partner + ' carries becomes '
+            + (el("email").options[el("email").selectedIndex].text)
+            + '\u2019s, including clients they gain later. Clients assigned by '
+            + 'hand keep the owner they have.')) return;
+        send("/api/client-owners/rule", {partner: p.partner, email: email,
+                                         note: el("note").value});
+      };
+    });
+  }
+
+  function drawRules(){
+    var rules = DATA.rules || [];
+    el("rules-count").textContent = rules.length
+      ? rules.length + (rules.length === 1 ? " rule" : " rules")
+      : "none yet";
+    el("rules").innerHTML = rules.length ? rules.map(function(r){
+      return '<tr><td><b>' + esc(r.partner) + '</b></td>'
+        + '<td>' + (r.known
+            ? esc(r.owner)
+            : '<span class="s1d-pill warn">' + esc(r.email)
+              + ' &mdash; no account</span>') + '</td>'
+        /* What it is claiming today. A rule naming a partner nobody carries
+           any more reads exactly like a working one without this number. */
+        + '<td>' + r.claims + ' client' + (r.claims === 1 ? "" : "s") + '</td>'
+        + '<td class="s1d-muted">' + esc(r.by || "somebody") + ' &middot; '
+        + esc(String(r.at || "").slice(0, 10)) + '</td>'
+        + '<td><button type="button" class="sec small" data-clear="'
+        + esc(r.partner) + '">Clear</button></td></tr>';
+    }).join("") : '<tr><td colspan="5" class="s1d-muted">No standing rules. '
+      + 'Every client below was assigned by hand.</td></tr>';
+    el("rules").querySelectorAll("[data-clear]").forEach(function(b){
+      b.onclick = function(){
+        var partner = b.getAttribute("data-clear");
+        if(!window.confirm('Clear the rule for ' + partner + '? The clients it '
+            + 'is claiming go back to unassigned unless somebody was assigned '
+            + 'them by hand. Nothing on any client record changes.')) return;
+        send("/api/client-owners/rule", {partner: partner, email: ""});
       };
     });
   }
@@ -211,12 +299,19 @@
   function drawClients(){
     var rows = shownRows();
     el("clients").innerHTML = rows.length ? rows.map(function(r){
+      /* Where the owner came from, on the row. The whole objection to a
+         standing rule is somebody holding a client with nothing saying why,
+         and this is the answer to it. */
+      var who = r.email
+        ? esc(r.owner) + (r.known ? "" : " (no account)")
+          + (r.source === "rule" ? " &middot; " + esc(r.partner) + " rule" : "")
+        : (r.contested && r.contested.length
+            ? "two rules disagree: " + r.contested.map(esc).join(" / ")
+            : (r.pinned ? "nobody \u2014 held off the rule" : "nobody"));
       return '<label><input type="checkbox" data-client="' + esc(r.client) + '"'
         + (PICKED[r.client] ? " checked" : "") + '>'
         + '<span>' + esc(r.client) + '</span>'
-        + '<span class="co-who">' + (r.email
-            ? esc(r.owner) + (r.known ? "" : " (no account)")
-            : "nobody") + '</span></label>';
+        + '<span class="co-who">' + who + '</span></label>';
     }).join("") : '<span class="s1d-muted" style="display:block;padding:11px">'
       + 'No client matches that.</span>';
     el("clients").querySelectorAll("input[data-client]").forEach(function(cb){
@@ -255,7 +350,7 @@
   }
 
   function draw(){
-    drawNotes(); drawTiles(); drawUsers(); drawPartners();
+    drawNotes(); drawTiles(); drawUsers(); drawPartners(); drawRules();
     drawClients(); drawOwned();
   }
 
@@ -275,9 +370,25 @@
            answers with a total hides the two that failed. */
         var rows = d.results || [];
         var bad = rows.filter(function(r){ return !r.ok; });
+        /* A rule answers about a partner and has no per-client rows, so the
+           count is the rows where there are any and the partner where there
+           are not. One renderer either way, saying what actually happened. */
+        var saved = d.assigned != null ? d.assigned
+                  : (d.cleared != null ? d.cleared : null);
+        var head = saved != null
+          ? saved + ' saved' + (bad.length ? ", " + bad.length + " refused" : "")
+          : (d.partner
+              ? (d.email ? 'Standing rule set for ' + esc(d.partner)
+                         : 'Rule cleared for ' + esc(d.partner))
+              : 'Saved');
+        /* Held off a rule rather than simply cleared: the press did something
+           different from what it says on the button, so it says so. */
+        var pinned = d.pinned
+          ? ' ' + d.pinned + ' of them would have been claimed back by a '
+            + 'standing rule and are held off it.'
+          : "";
         box.innerHTML = '<div class="s1d-note ' + (bad.length ? "warn" : "ok") + '">'
-          + '<b>' + (d.assigned != null ? d.assigned : d.cleared) + ' saved'
-          + (bad.length ? ", " + bad.length + " refused" : "") + '.</b>'
+          + '<b>' + head + '.</b>' + pinned
           + (bad.length ? '<div class="co-results">' + bad.map(function(r){
               return '<div>' + esc(r.client) + " &mdash; " + esc(r.error) + '</div>';
             }).join("") + '</div>' : "")
@@ -311,6 +422,13 @@
         + (clients.length === 1 ? "" : "s") + " off whoever holds them? "
         + "Nothing on the client record changes.")) return;
     send("/api/client-owners/unassign", {clients: clients});
+  };
+
+  el("follow").onclick = function(){
+    var clients = Object.keys(PICKED);
+    if(!clients.length){ el("result").innerHTML =
+      '<div class="s1d-note warn">Pick at least one client first.</div>'; return; }
+    send("/api/client-owners/follow-rule", {clients: clients});
   };
 
   el("all").onclick = function(){

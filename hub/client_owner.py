@@ -10,7 +10,7 @@ recognised four names, and the other hundred and fifty were somebody's.
 
 This is that record: one client, one owner, stored as a small Hub overlay.
 
-## Six rules, each a way this goes quietly wrong
+## The rules, each a way this goes quietly wrong
 
 **Nothing is written to Knack.** Knack owns the client record and this Hub
 does not write to it — the rule `hub/client_urls.py` and `hub/client_groups.py`
@@ -34,15 +34,47 @@ ordinary case and a refusal there would send somebody to unassign first.
 `hub/client_urls.py` says why: a bulk action that answers with one number
 hides the two that failed.
 
-**Assigning "at partner level" is expanded to the clients it names, now.** It
-is deliberately *not* stored as a standing rule. A rule would silently claim
-next year's clients for whoever was on the screen this year — including
-somebody who has since left — and nothing on any record would say the
-assignment had been made by a rule nobody remembers writing. So the partner
-control is a way of *selecting* a group of clients, and what is written is
-one ordinary assignment per client, each with the name of whoever pressed it
-against it. What that costs is a re-press when the partner gains a client,
-and the page says so rather than leaving somebody to discover it.
+**A media partner can be assigned as a standing rule, and the rule is
+resolved on read rather than written into rows.** "Everything Moto Media
+carries belongs to Erik" is the ordinary shape of this book, and expanding it
+into one row per client meant a re-press every time a partner gained one —
+which in practice means the new client belongs to nobody until somebody
+notices. `RULES` is that decision stored once.
+
+What makes a standing rule safe is that it can never quietly become the only
+account of who owns a client. Four things follow, and each is a way this goes
+wrong otherwise:
+
+  * **A rule materialises nothing.** `resolved()` lays it over the direct
+    assignments on every read, so a rule that changes, or a client that leaves
+    the partner, takes effect at once and leaves no orphan row behind. The
+    same reason `hub/creative_evergreen.py` applies its mark on read: two
+    gunicorn workers, and rows written by one of them are a second account of
+    the truth.
+
+  * **Every row says where its owner came from.** `source` is `direct` or
+    `rule`, and a rule names the partner it came from. The objection to a
+    standing rule is that somebody ends up holding a client with nothing
+    anywhere saying why; carrying the provenance on the row is the answer to
+    it, and the screens print it.
+
+  * **A person beats a rule, in both directions.** A direct assignment on one
+    client wins over any rule, and taking a client off everyone *sticks*:
+    where a rule would otherwise re-claim it, `unassign()` writes an explicit
+    "nobody" rather than deleting the row, or the button would appear to do
+    nothing on the next read. `follow_rule()` is how that is undone.
+
+  * **Two rules claiming one client is named and refused.** A client billed
+    under two media partners is under both rules, and picking between them is
+    picking whose book a client is on. `resolved()` leaves them unassigned,
+    marks them `contested` and names both partners — the rule
+    `hub/suite_accounts.py` applies to two rows naming different sub-accounts,
+    and `hub/client_key.py` to a name two clients answer to.
+
+A **one-off bulk assignment** stays beside it, because the two are different
+statements: "these forty clients are Erik's" is a fact about those forty, and
+"whatever this partner carries is Erik's" is a fact about the partner. Only
+the second follows the book as it changes.
 
 **An owner who has left is named, never dropped.** An assignment pointing at
 an email that is no longer an account is reported as `unknown_owner` rather
@@ -64,6 +96,11 @@ from hub import jsonstore
 
 _LOCK = threading.Lock()
 _FILE = "owners.json"
+# Standing partner rules, in a file of their own rather than as rows in the
+# one above. They are different kinds of statement -- one is about a named
+# client and the other about whatever a partner carries -- and keeping them
+# apart is what lets `resolved()` say which of the two answered for a row.
+_RULES_FILE = "partner_rules.json"
 
 MAX_NOTE = 300
 # A bulk press is a selection somebody made on one screen. The cap is here so
@@ -108,10 +145,13 @@ def _load() -> list[dict]:
         rows = rows.get("owners")
     if not isinstance(rows, list):
         return []
+    # An empty email is kept: it is an explicit "nobody owns this", written
+    # to stop a standing rule re-claiming a client somebody has deliberately
+    # taken off everyone. Dropping it here would make that press appear to do
+    # nothing on the next read, which is the failure `hub/client_urls.missing()`
+    # had to undo.
     return [r for r in rows
-            if isinstance(r, dict)
-            and str(r.get("client") or "").strip()
-            and str(r.get("email") or "").strip()]
+            if isinstance(r, dict) and str(r.get("client") or "").strip()]
 
 
 def _save(rows: list[dict]) -> bool:
@@ -146,24 +186,332 @@ def owners() -> dict[str, dict]:
     return out
 
 
-def owner_of(client: str) -> dict | None:
-    """The assignment for one client, or None. Never raises."""
+def owner_of(client: str, *, partner_map=None) -> dict | None:
+    """Who owns one client, direct row or standing rule. None if nobody.
+
+    The resolution rather than the raw row: a client owned through a partner
+    rule is owned, and a reader handed `None` for one would go and assign them
+    a second time.
+    """
     key = _key(client)
-    return owners().get(key) if key else None
+    if not key:
+        return None
+    hit = resolved([client], partner_map=partner_map).get(key)
+    return hit if hit and hit.get("email") else None
 
 
-def clients_for(email: str) -> list[str]:
-    """The client names assigned to one account, alphabetically."""
+def clients_for(email: str, *, partner_map=None) -> list[str]:
+    """The client names one account owns, alphabetically -- rules included."""
     want = normalise_email(email)
     if not want:
         return []
-    names = [str(r.get("client") or "").strip() for r in owners().values()
-             if normalise_email(r.get("email")) == want]
+    names = [str(r.get("client") or "").strip()
+             for r in resolved(partner_map=partner_map).values()
+             if r.get("email") == want]
     return sorted({n for n in names if n}, key=str.lower)
 
 
 def normalise_email(value) -> str:
     return str(value or "").strip().lower()
+
+
+# ---------------------------------------------------------------------------
+# Standing partner rules
+# ---------------------------------------------------------------------------
+#
+# "Everything this media partner carries belongs to X." Stored once, applied
+# on read, and never expanded into rows: a rule that wrote one assignment per
+# client would go on claiming a client after it left the partner, and would
+# have to be re-pressed every time the partner gained one -- which is the
+# whole reason for having a rule.
+
+def _rules_path() -> str:
+    return os.path.join(jsonstore.data_dir("client_owner"), _RULES_FILE)
+
+
+def _partner_key(name: str) -> str:
+    """Partner names fold on case, the way `qa._join()` folds them.
+
+    Knack holds "MOTO" and "Moto" as separate values for one company, so a
+    rule written against either has to answer for both -- otherwise a rule
+    reads as covering a partner while half their clients sit outside it.
+    """
+    return " ".join(str(name or "").split()).casefold()
+
+
+def _load_rules() -> list[dict]:
+    rows = jsonstore.read_json(_rules_path(), default=None)
+    if isinstance(rows, dict):
+        rows = rows.get("rules")
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows
+            if isinstance(r, dict)
+            and str(r.get("partner") or "").strip()
+            and str(r.get("email") or "").strip()]
+
+
+def _save_rules(rows: list[dict]) -> bool:
+    return jsonstore.write_json(_rules_path(), {"rules": rows}, indent=2)
+
+
+def rules() -> list[dict]:
+    """Every standing rule, newest first. Never raises."""
+    try:
+        rows = _load_rules()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return sorted(rows, key=lambda r: str(r.get("at") or ""), reverse=True)
+
+
+def rules_by_partner() -> dict[str, dict]:
+    """`{folded partner name: rule}` — one rule per partner, newest winning."""
+    out: dict[str, dict] = {}
+    for row in rules():                                 # newest first
+        key = _partner_key(row.get("partner"))
+        if key:
+            out.setdefault(key, row)
+    return out
+
+
+def set_rule(partner: str, email: str, *, actor: str = "",
+             note: str = "") -> dict:
+    """Everything this partner carries belongs to this account, from now on.
+
+    Replacing a rule carries `previous`, like a reassignment: a partner
+    changing hands is the ordinary case, and the row that records it is the
+    only place anybody can later find out that it did.
+    """
+    name = " ".join(str(partner or "").split())
+    addr = normalise_email(email)
+    if not name:
+        return {"ok": False, "partner": name, "error": "No partner named."}
+    if not addr or "@" not in addr:
+        return {"ok": False, "partner": name,
+                "error": f"{addr or 'That'} is not an email address."}
+    key = _partner_key(name)
+    try:
+        with _LOCK:
+            rows = _load_rules()
+            previous = ""
+            keep = []
+            for r in rows:
+                if _partner_key(r.get("partner")) == key:
+                    previous = previous or normalise_email(r.get("email"))
+                    continue
+                keep.append(r)
+            keep.append({
+                "partner": name, "email": addr, "previous": previous,
+                "note": str(note or "")[:MAX_NOTE],
+                "by": str(actor or "")[:120], "at": _now(),
+            })
+            if not _save_rules(keep):
+                return {"ok": False, "partner": name,
+                        "error": "The rule could not be saved. Nothing changed."}
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "partner": name,
+                "error": f"The rule could not be saved: {exc}"[:200]}
+    return {"ok": True, "partner": name, "email": addr, "previous": previous,
+            "replaced": bool(previous and previous != addr)}
+
+
+def clear_rule(partner: str, *, actor: str = "") -> dict:
+    """Drop a standing rule. Never raises.
+
+    The clients it was claiming go back to unassigned on the next read, unless
+    somebody has assigned them directly. Nothing has to be undone row by row,
+    which is the point of never having written the rows.
+    """
+    name = " ".join(str(partner or "").split())
+    if not name:
+        return {"ok": False, "partner": name, "error": "No partner named."}
+    key = _partner_key(name)
+    try:
+        with _LOCK:
+            rows = _load_rules()
+            keep = [r for r in rows if _partner_key(r.get("partner")) != key]
+            if len(keep) == len(rows):
+                return {"ok": True, "partner": name, "already": True}
+            if not _save_rules(keep):
+                return {"ok": False, "partner": name,
+                        "error": "The change could not be saved. "
+                                 "Nothing changed."}
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "partner": name,
+                "error": f"The change could not be saved: {exc}"[:200]}
+    return {"ok": True, "partner": name}
+
+
+# ---------------------------------------------------------------------------
+# Resolution: the direct assignments, with the rules laid over them
+# ---------------------------------------------------------------------------
+
+def partner_index(mapping=None) -> tuple[dict[str, list[str]], dict[str, str], str]:
+    """`({client key: [partners]}, {client key: name}, error)`.
+
+    `mapping` is `clients_by_partner()`'s answer, handed in where the caller
+    already has it: `hub/client_health.build()` reads the same products for
+    its own grouping, and a second pull there would be a second reading of one
+    question.
+
+    A client billed under two partners is under both, named twice rather than
+    filed under whichever came out of the dict first — which is what makes
+    `contested` below possible to detect at all.
+
+    The **names** come back beside the keys because the key is normalised and
+    a caller that has only met a client through a rule has nowhere else to
+    learn what they are actually called: `clients_for()` would otherwise
+    answer with a list of blanks.
+    """
+    error = ""
+    if mapping is None:
+        mapping, error = clients_by_partner()
+    out: dict[str, list[str]] = {}
+    names: dict[str, str] = {}
+    for partner, clients in (mapping or {}).items():
+        if not str(partner or "").strip():
+            continue                                    # no partner recorded
+        for name in clients or ():
+            key = _key(name)
+            if not key:
+                continue
+            if partner not in out.setdefault(key, []):
+                out[key].append(partner)
+            if name and not names.get(key):
+                names[key] = str(name)
+    return out, names, error
+
+
+def _blank(name: str = "") -> dict:
+    return {"client": name, "email": "", "source": "", "partner": "",
+            "contested": [], "at": "", "by": "", "pinned": False}
+
+
+def resolved(clients=None, *, partner_map=None) -> dict[str, dict]:
+    """`{client key: resolution}` — who owns each client, and how.
+
+    Resolution order, and every step of it is a decision somebody could
+    otherwise not account for:
+
+      1. **A direct row wins**, including one with an empty email, which is an
+         explicit "nobody owns this" and is what stops a standing rule
+         re-claiming a client somebody has taken off everyone.
+      2. **Otherwise the rules for the partners this client is carried by.**
+         Exactly one distinct owner among them is the answer, and the row says
+         which partner it came from.
+      3. **Two rules naming different people leave the client unassigned**,
+         marked `contested` with both partners named. Picking between them is
+         picking whose book a client is on, which is not a thing this file
+         decides — the rule `hub/suite_accounts.py` applies to two rows naming
+         different sub-accounts.
+
+    `clients` bounds the answer to a book; left out, it answers for every
+    client any row or rule reaches. Never raises.
+    """
+    try:
+        direct = owners()
+    except Exception:                                   # noqa: BLE001
+        direct = {}
+    try:
+        by_partner = rules_by_partner()
+    except Exception:                                   # noqa: BLE001
+        by_partner = {}
+
+    # The products are only read when there is a rule to apply. A book with no
+    # standing rules must not pay for a pull it cannot use.
+    index: dict[str, list[str]] = {}
+    index_names: dict[str, str] = {}
+    if by_partner:
+        index, index_names, _err = partner_index(partner_map)
+
+    # A key can be reached three ways and only some of them know the client's
+    # actual name. A non-empty one always wins: the key is normalised, so a
+    # row that kept "" here would hand `clients_for()` a blank for every
+    # client owned through a rule.
+    keys: dict[str, str] = {}
+
+    def _remember(key: str, name) -> None:
+        name = str(name or "").strip()
+        if not key:
+            return
+        if name or key not in keys:
+            keys[key] = name or keys.get(key, "")
+
+    for key, row in direct.items():
+        _remember(key, row.get("client"))
+    for key in index:
+        _remember(key, index_names.get(key))
+    for name in (clients or ()):
+        nm = name.get("name") if isinstance(name, dict) else name
+        _remember(_key(nm), nm)
+    if clients is not None:
+        wanted = {_key(c.get("name") if isinstance(c, dict) else c)
+                  for c in clients}
+        keys = {k: v for k, v in keys.items() if k in wanted}
+
+    out: dict[str, dict] = {}
+    for key, name in keys.items():
+        row = direct.get(key)
+        if row is not None:
+            email = normalise_email(row.get("email"))
+            out[key] = {
+                "client": str(row.get("client") or name),
+                "email": email,
+                # An empty email is a decision, and it says so: "nobody owns
+                # this" and "nobody has got to this yet" are different states
+                # and only the second is somebody's to fix.
+                "source": "direct" if email else "",
+                "partner": "", "contested": [],
+                "at": str(row.get("at") or ""), "by": str(row.get("by") or ""),
+                "pinned": not email,
+            }
+            continue
+
+        claims: dict[str, list[str]] = {}
+        for partner in index.get(key) or ():
+            rule = by_partner.get(_partner_key(partner))
+            if rule:
+                claims.setdefault(normalise_email(rule.get("email")),
+                                  []).append(partner)
+        if len(claims) == 1:
+            email, partners = next(iter(claims.items()))
+            rule = by_partner.get(_partner_key(partners[0])) or {}
+            out[key] = {
+                "client": name, "email": email, "source": "rule",
+                "partner": ", ".join(sorted(partners, key=str.lower)),
+                "contested": [],
+                "at": str(rule.get("at") or ""), "by": str(rule.get("by") or ""),
+                "pinned": False,
+            }
+        elif len(claims) > 1:
+            out[key] = dict(_blank(name), contested=sorted(
+                {p for ps in claims.values() for p in ps}, key=str.lower))
+        else:
+            out[key] = _blank(name)
+    return out
+
+
+def rule_for_client(client: str, *, partner_map=None) -> dict | None:
+    """The standing rule that would claim one client, ignoring direct rows.
+
+    What `unassign()` asks before it decides whether taking a client off
+    somebody means deleting the row or writing an explicit "nobody".
+    """
+    key = _key(client)
+    if not key:
+        return None
+    try:
+        by_partner = rules_by_partner()
+    except Exception:                                   # noqa: BLE001
+        return None
+    if not by_partner:
+        return None                                     # no rule, no pull
+    index, _names, _err = partner_index(partner_map)
+    for partner in index.get(key) or ():
+        rule = by_partner.get(_partner_key(partner))
+        if rule:
+            return dict(rule, partner=partner)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +665,68 @@ def assign(client: str, email: str, *, actor: str = "", note: str = "") -> dict:
     return out
 
 
-def unassign(client: str, *, actor: str = "") -> dict:
-    """Take a client off whoever holds it. Never raises."""
+def _unassign_rows(rows: list[dict], name: str, actor: str,
+                   pin: bool) -> dict:
+    """Take one client off whoever holds it, in `rows`, in place.
+
+    `pin` is the whole subtlety. With a standing rule covering this client,
+    deleting the row hands them straight back to the rule on the next read --
+    a button that appears to do nothing, which is the failure
+    `hub/client_urls.missing()` had to undo. So it writes an explicit
+    "nobody" instead, and says so. With no rule in play the row is simply
+    removed, because a pin nothing is overriding is a row that reads as a
+    decision somebody made about a client nobody was claiming.
+    """
+    key = _key(name)
+    keep = [r for r in rows if _key(r.get("client")) != key]
+    changed = len(keep) != len(rows)
+    was_pinned = any(r for r in rows
+                     if _key(r.get("client")) == key
+                     and not normalise_email(r.get("email")))
+    if pin:
+        keep.append({"client": name, "email": "", "previous": "",
+                     "note": "", "by": str(actor or "")[:120], "at": _now()})
+    rows[:] = keep
+    return {"ok": True, "client": name, "email": "", "pinned": bool(pin),
+            "already": (not changed and not pin) or (was_pinned and pin)}
+
+
+def unassign(client: str, *, actor: str = "", partner_map=None) -> dict:
+    """Take a client off whoever holds it. Never raises.
+
+    Where a standing rule would otherwise claim them back, this records an
+    explicit "nobody owns this" rather than deleting the row, and the answer
+    says `pinned` so a screen can offer the way back (`follow_rule`).
+    """
+    name = str(client or "").strip()
+    if not name:
+        return {"ok": False, "client": name, "error": "No client named."}
+    rule = rule_for_client(name, partner_map=partner_map)
+    try:
+        with _LOCK:
+            rows = _load()
+            out = _unassign_rows(rows, name, actor, pin=bool(rule))
+            if not _save(rows):
+                return {"ok": False, "client": name,
+                        "error": "The change could not be saved. "
+                                 "Nothing changed."}
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "client": name,
+                "error": f"The change could not be saved: {exc}"[:200]}
+    if rule:
+        out["overrides_rule"] = str(rule.get("partner") or "")
+    return out
+
+
+def follow_rule(client: str, *, actor: str = "") -> dict:
+    """Drop the direct row so this client follows the standing rule again.
+
+    The undo for both halves of a direct decision -- an assignment to somebody
+    and a pin to nobody. Deliberately its own verb rather than a second
+    meaning for `unassign`: "take this off everyone" and "let the partner rule
+    decide again" are different answers and a screen offering one control for
+    both cannot say which it did.
+    """
     name = str(client or "").strip()
     if not name:
         return {"ok": False, "client": name, "error": "No client named."}
@@ -328,10 +736,7 @@ def unassign(client: str, *, actor: str = "") -> dict:
             rows = _load()
             keep = [r for r in rows if _key(r.get("client")) != key]
             if len(keep) == len(rows):
-                # Not an error: the row is already in the state that was asked
-                # for. Saying so is what stops a second press reading as a
-                # failure on a screen two workers are answering.
-                return {"ok": True, "client": name, "email": "", "already": True}
+                return {"ok": True, "client": name, "already": True}
             if not _save(keep):
                 return {"ok": False, "client": name,
                         "error": "The change could not be saved. "
@@ -339,7 +744,7 @@ def unassign(client: str, *, actor: str = "") -> dict:
     except Exception as exc:                            # noqa: BLE001
         return {"ok": False, "client": name,
                 "error": f"The change could not be saved: {exc}"[:200]}
-    return {"ok": True, "client": name, "email": ""}
+    return {"ok": True, "client": name}
 
 
 def _selection(clients) -> list[str]:
@@ -419,30 +824,57 @@ def assign_many(clients, email: str, *, actor: str = "",
     }
 
 
-def unassign_many(clients, *, actor: str = "") -> dict:
-    """Take a selection off whoever holds it, reporting each row separately."""
+def unassign_many(clients, *, actor: str = "", partner_map=None) -> dict:
+    """Take a selection off whoever holds it, reporting each row separately.
+
+    Each row is pinned or deleted on its own merits: a selection can hold one
+    client a standing rule covers and one it does not, and treating them alike
+    would either leave a pin on a client nothing was claiming or hand a client
+    straight back to the rule the press was meant to override.
+    """
     names = _selection(clients)
     if not names:
         return {"ok": False, "results": [], "cleared": 0, "failed": 0,
                 "error": "No clients were selected."}
-    wanted = {_key(n) for n in names}
-    results = [{"ok": True, "client": n, "email": ""} for n in names]
+
+    # Asked once for the whole selection rather than once per client: the
+    # rules are one small file and the partner index is one products read.
+    covered: dict[str, str] = {}
+    try:
+        by_partner = rules_by_partner()
+        if by_partner:
+            index, _names, _err = partner_index(partner_map)
+            for name in names:
+                for partner in index.get(_key(name)) or ():
+                    if by_partner.get(_partner_key(partner)):
+                        covered[_key(name)] = partner
+                        break
+    except Exception:                                   # noqa: BLE001
+        covered = {}
+
+    results = []
     try:
         with _LOCK:
             rows = _load()
-            keep = [r for r in rows if _key(r.get("client")) not in wanted]
-            if len(keep) != len(rows) and not _save(keep):
+            for name in names:
+                out = _unassign_rows(rows, name, actor,
+                                     pin=_key(name) in covered)
+                if out["pinned"]:
+                    out["overrides_rule"] = covered[_key(name)]
+                results.append(out)
+            if not _save(rows):
                 results = [dict(r, ok=False,
                                 error="The change could not be saved. "
                                       "Nothing changed.")
                            for r in results]
     except Exception as exc:                            # noqa: BLE001
-        results = [dict(r, ok=False,
-                        error=f"The change could not be saved: {exc}"[:200])
-                   for r in results]
+        results = [{"ok": False, "client": n,
+                    "error": f"The change could not be saved: {exc}"[:200]}
+                   for n in names]
     cleared = sum(1 for r in results if r.get("ok"))
     return {"ok": cleared > 0, "results": results, "cleared": cleared,
             "failed": len(results) - cleared,
+            "pinned": sum(1 for r in results if r.get("pinned")),
             "error": "" if cleared else "Nothing was changed."}
 
 
@@ -501,7 +933,7 @@ def clients_by_partner() -> tuple[dict[str, list[str]], str]:
 # The whole picture
 # ---------------------------------------------------------------------------
 
-def summary(clients=None) -> dict:
+def summary(clients=None, *, partner_map=None) -> dict:
     """Who owns what, against the client list as it stands.
 
     `clients` is the client book — handed in rather than imported, so this
@@ -510,6 +942,12 @@ def summary(clients=None) -> dict:
     counting assignments against an empty book would report every client as
     assigned, which is a confident wrong answer of exactly the kind this
     codebase keeps having to undo.
+
+    Every row carries how its owner was decided — `direct`, `rule` with the
+    partner named, an explicit `pinned` nobody, or `contested` where two rules
+    disagree. That provenance is the whole safety of a standing rule: the
+    objection to one is that somebody ends up holding a client with nothing
+    saying why, and this is where the why lives.
     """
     error = ""
     if clients is None:
@@ -519,43 +957,80 @@ def summary(clients=None) -> dict:
         except Exception as exc:                        # noqa: BLE001
             clients, error = [], f"{type(exc).__name__}: {exc}"[:200]
 
-    held = owners()
-    index = user_index()
-    rows, by_email = [], {}
-    unassigned = 0
+    names = []
     for c in clients or ():
-        name = str(c.get("name") or "").strip() if isinstance(c, dict) else str(c or "").strip()
-        if not name:
-            continue
-        row = held.get(_key(name))
-        email = normalise_email((row or {}).get("email"))
+        name = (str(c.get("name") or "").strip() if isinstance(c, dict)
+                else str(c or "").strip())
+        if name:
+            names.append(name)
+
+    held = resolved(names, partner_map=partner_map)
+    index = user_index()
+    rows, by_email, by_rule = [], {}, {}
+    unassigned = contested = pinned = 0
+    for name in names:
+        row = held.get(_key(name)) or _blank(name)
+        email = row.get("email") or ""
         if email:
             by_email.setdefault(email, []).append(name)
+            if row.get("source") == "rule":
+                by_rule.setdefault(email, []).append(name)
         else:
             unassigned += 1
+            if row.get("contested"):
+                contested += 1
+            elif row.get("pinned"):
+                pinned += 1
         rows.append({
             "client": name,
             "email": email,
             "owner": display_name(email, index) if email else "",
             "known": bool(email and email in index),
-            "at": str((row or {}).get("at") or ""),
-            "by": str((row or {}).get("by") or ""),
+            "source": row.get("source") or "",
+            "partner": row.get("partner") or "",
+            "contested": row.get("contested") or [],
+            "pinned": bool(row.get("pinned")),
+            "at": str(row.get("at") or ""),
+            "by": str(row.get("by") or ""),
         })
 
     # An assignment whose account is gone. Named rather than counted as
     # assigned: the client has an owner on paper and nobody in practice, which
-    # is the one state a handover has to be able to find.
+    # is the one state a handover has to be able to find. A standing rule can
+    # be in that state too, and for a whole partner at once.
     unknown = sorted({r["email"] for r in rows if r["email"] and not r["known"]})
+    rule_rows = []
+    for rule in rules():
+        addr = normalise_email(rule.get("email"))
+        rule_rows.append({
+            "partner": str(rule.get("partner") or ""),
+            "email": addr,
+            "owner": display_name(addr, index) if addr else "",
+            "known": bool(addr and addr in index),
+            "by": str(rule.get("by") or ""),
+            "at": str(rule.get("at") or ""),
+            "note": str(rule.get("note") or ""),
+            # What the rule is actually claiming today, which is the number
+            # that makes it reviewable: a rule naming a partner nobody carries
+            # any more reads exactly like a working one without it.
+            "claims": len(by_rule.get(addr) or []),
+        })
     return {
         "measured": not error,
         "error": error,
         "rows": sorted(rows, key=lambda r: r["client"].lower()),
+        "rules": rule_rows,
         "counts": {
             "clients": len(rows),
             "assigned": len(rows) - unassigned,
             "unassigned": unassigned,
+            "by_rule": sum(1 for r in rows if r["source"] == "rule"),
+            "by_hand": sum(1 for r in rows if r["source"] == "direct"),
+            "contested": contested,
+            "pinned": pinned,
             "owners": len(by_email),
             "unknown_owners": len(unknown),
+            "rules": len(rule_rows),
         },
         "by_owner": {e: sorted(v, key=str.lower) for e, v in by_email.items()},
         "unknown_owners": unknown,

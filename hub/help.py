@@ -84,10 +84,14 @@ REGISTRY: list[Help] = [
        "An assignment is a Hub overlay and is never written to the client "
        "record \u2014 taking one off leaves everything exactly as it was. What it "
        "changes is My Clients, which is where the person you assign sees the "
-       "work. Picking a media partner ticks the clients it carries today and "
-       "is not stored as a standing rule: a rule would quietly claim next "
-       "year\u2019s clients for whoever was on this screen this year, including "
-       "somebody who has since left, with nothing on any record saying so."),
+       "work. A media partner can be a **standing rule**: whatever that "
+       "partner carries belongs to the person named, including clients they "
+       "gain later. Nothing is written per client, so the rule follows the "
+       "book as it changes and clearing it needs no undoing row by row. A "
+       "client assigned by hand keeps that owner, one taken off everybody "
+       "stays off, and a client two partners\u2019 rules disagree about is left "
+       "unassigned and named rather than given to one of them \u2014 every row "
+       "says which of those decided it."),
     _h("social.planner", "A month of posts in one pass",
        "Builds a client's organic month from what the Hub already knows about "
        "them, so the calendar starts full rather than empty. It stops at a "
