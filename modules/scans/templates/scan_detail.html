@@ -5,25 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{{ scan.domain }} · Scan · Smart 1 Hub</title>
 <style>
+  /* The page head, cards, pills and buttons come from hub/static/hub-detail.css
+     via `s1d-page` on the wrapper below. What is left is what is genuinely a
+     scan detail: the big score, the finding rows and their severity dots, the
+     per-check chips, and the broken-link list. */
   :root { --navy:#1a2e58; --blue:#5b8bff; --ink:#1e293b; --muted:#64748b;
     --line:#e2e8f0; --bg:#f4f6fa; --ok:#16a34a; --warn:#d97706; --bad:#dc2626; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:14px 'Segoe UI',system-ui,sans-serif; }
   .wrap { max-width:1000px; margin:0 auto; padding:28px 22px 80px; }
   a.back { color:var(--blue); text-decoration:none; font-weight:600; font-size:13px; }
-  h1 { color:var(--navy); font-size:24px; margin:8px 0 2px; }
-  .sub { color:var(--muted); margin:0 0 20px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin-bottom:18px; }
-  .card h2 { font-size:13px; color:var(--navy); margin:0 0 14px; text-transform:uppercase; letter-spacing:.04em; }
   .scoreline { display:flex; align-items:baseline; gap:12px; }
   .bigscore { font-size:44px; font-weight:800; color:var(--navy); }
-  .badge { display:inline-block; padding:3px 12px; border-radius:999px; font-size:12px; font-weight:700; }
-  .badge.complete { background:#ecfdf3; color:var(--ok); }
-  .badge.running { background:#fef9ec; color:var(--warn); }
-  .badge.error { background:#fdecec; color:var(--bad); }
-  dl { display:grid; grid-template-columns:180px 1fr; gap:8px 16px; margin:0; }
-  dt { color:var(--muted); font-size:12.5px; }
-  dd { margin:0; }
   pre { background:#0f172a; color:#dbe6ff; padding:16px; border-radius:8px; overflow:auto;
     max-height:460px; font-size:12px; line-height:1.5; }
   .menu { display:flex; flex-wrap:wrap; gap:10px; }
@@ -59,9 +52,6 @@
   details.more[open] > summary:before { content:"▾ "; }
   .lc { margin-top:18px; border-top:1px solid var(--line); padding-top:14px; }
   .lc-head { display:flex; gap:16px; align-items:flex-start; justify-content:space-between; }
-  .lc button { background:var(--navy); color:#fff; border:0; border-radius:8px;
-    padding:9px 16px; font:600 13px inherit; cursor:pointer; white-space:nowrap; }
-  .lc button[disabled] { background:#94a3b8; cursor:default; }
   .lc a.csv { color:var(--blue); font-weight:600; font-size:13px; text-decoration:none; }
   .lcrow { border-top:1px solid var(--line); padding:9px 0; font-size:13px; }
   .lcrow .u { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px;
@@ -74,11 +64,15 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <a class="back" href="../">&larr; Back to Scans</a>
-  <h1>{{ scan.domain }}</h1>
-  <p class="sub">{{ scan.business_name or detected.name or "" }}
-    {% if scan.created_at %}· scanned {{ scan.created_at }}{% endif %}</p>
+<div class="wrap s1d-page">
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb"><a href="../">Site Scans</a> / {{ scan.domain }}</div>
+      <h1>{{ scan.domain }}</h1>
+      <p>{{ scan.business_name or detected.name or "" }}
+        {% if scan.created_at %}&middot; scanned {{ scan.created_at }}{% endif %}</p>
+    </div>
+  </div>
 
   <div class="card">
     <h2>Result</h2>
@@ -224,7 +218,7 @@
 
   <div class="card">
     <h2>Detected Business</h2>
-    <dl>
+    <dl class="s1d-kvlist">
       <dt>Name</dt><dd>{{ detected.name or "—" }}</dd>
       <dt>Phone</dt><dd>{{ detected.phone or "—" }}</dd>
       <dt>Address</dt><dd>{{ detected.address or "—" }}</dd>
