@@ -181,6 +181,24 @@
       "notes": "Responsive display square image asset, 1:1. Recommended 1200x1200 (300x300 minimum). Google pairs it with the landscape asset; supplying both is what lets a responsive ad serve across the whole network.",
       "source": "doc",
       "_verifiedAgainst": "https://support.google.com/google-ads/answer/13676244 (responsive display image assets), checked 2026-08-28"
+    },
+    "1200x1500": {
+      "w": 1200,
+      "h": 1500,
+      "maxFileBytes": 5242880,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        18
+      ],
+      "minFontPx": 30,
+      "notes": "Responsive display portrait image asset, 4:5. Recommended 1200x1500 (320x400 minimum). Optional where the landscape and square are not: Google serves without it, and supplying it buys the taller placements the other two cannot fill.",
+      "source": "doc",
+      "_verifiedAgainst": "https://support.google.com/google-ads/answer/13676244 (responsive display image assets), checked 2026-08-30"
     }
   }
 }

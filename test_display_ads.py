@@ -361,12 +361,20 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
     # its two image assets are a different animal from an uploaded banner: they
     # are composed into an ad by Google rather than delivered finished, so the
     # 150 KB ceiling does not apply to them and 5 MB does.
-    check("Google buys the responsive display image assets",
-          {"1200x628", "1200x1200"} <= google,
+    check("Google buys all three responsive display image assets",
+          {"1200x628", "1200x1200", "1200x1500"} <= google,
           f"google has {sorted(google)}")
+    check("the portrait asset is derived from the Meta 4:5, not drawn fresh",
+          "1200x1500" in _json.loads((TEMPLATES / "T01.json").read_text())["sizes"])
+    amz = _json.loads((cfg / "amazon.json").read_text())["sizes"]
+    check("the Amazon medium rectangle is no longer an assumption",
+          "VERIFY" not in _json.dumps(amz["300x250"]))
+    check("and it takes the published non-billboard rule",
+          amz["300x250"]["maxFileBytes"] == 40960 and amz["970x250"]["maxFileBytes"] == 204800)
     gsz = _json.loads((cfg / "google.json").read_text())["sizes"]
     check("and they carry the 5 MB asset ceiling, not the banner's 150 KB",
-          all(gsz[k]["maxFileBytes"] == 5242880 for k in ("1200x628", "1200x1200")))
+          all(gsz[k]["maxFileBytes"] == 5242880
+              for k in ("1200x628", "1200x1200", "1200x1500")))
     check("while an uploaded banner still carries 150 KB",
           gsz["300x250"]["maxFileBytes"] == 153600)
     check("1200x628 is one shape sold by two platforms, filed under both",

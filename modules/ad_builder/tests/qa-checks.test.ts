@@ -168,7 +168,7 @@ test('a family that draws no photograph still answers the resolution check', asy
 
 test('the new Google responsive assets render at their exact pixels', async () => {
   const cfg = getPlatform('google');
-  for (const size of ['1200x628', '1200x1200'] as SizeKey[]) {
+  for (const size of ['1200x628', '1200x1200', '1200x1500'] as SizeKey[]) {
     assert.ok(cfg.sizes[size], `google buys ${size}`);
     const out = await renderPreview({
       brand: campaign.brand, concept: campaign.concepts[0], platform: 'google', size, assetRoot: ROOT,
@@ -182,10 +182,63 @@ test('the new Google responsive assets render at their exact pixels', async () =
   }
 });
 
-test('every family can draw the square Google asks for', () => {
+test('every family can draw all three shapes Google composes from', () => {
   for (const [id, t] of loadTemplates()) {
-    assert.ok(t.sizes['1200x1200'], `${id} draws 1200x1200`);
-    const c = t.sizes['1200x1200']!.canvas;
-    assert.deepEqual({ w: c.w, h: c.h }, { w: 1200, h: 1200 }, `${id} canvas`);
+    for (const [key, w, h] of [
+      ['1200x628', 1200, 628], ['1200x1200', 1200, 1200], ['1200x1500', 1200, 1500],
+    ] as [SizeKey, number, number][]) {
+      assert.ok(t.sizes[key], `${id} draws ${key}`);
+      const c = t.sizes[key]!.canvas;
+      assert.deepEqual({ w: c.w, h: c.h }, { w, h }, `${id} ${key} canvas`);
+    }
   }
+});
+
+test('a derived Google asset is its Meta twin scaled, not a fresh guess', () => {
+  // The two derived shapes are the same aspect ratio 10/9 larger, so every
+  // length is exactly 10/9 of the source rounded to a pixel. If that stops
+  // being true, somebody has hand-edited one of them and the two shapes no
+  // longer say the same thing about where the copy sits.
+  const S = 1200 / 1080;
+  for (const [id, t] of loadTemplates()) {
+    for (const [from, to] of [['1080x1080', '1200x1200'], ['1080x1350', '1200x1500']] as [SizeKey, SizeKey][]) {
+      const a = t.sizes[from]!;
+      const b = t.sizes[to]!;
+      for (const role of ['logo', 'headline', 'support', 'offer', 'trust', 'cta'] as const) {
+        const src = (a as Record<string, any>)[role];
+        const dst = (b as Record<string, any>)[role];
+        if (!src) { assert.equal(dst, undefined, `${id} ${to} ${role} appeared from nowhere`); continue; }
+        for (const k of ['x', 'y', 'w', 'h'] as const) {
+          assert.equal(dst[k], Math.round(src[k] * S), `${id} ${to} ${role}.${k}`);
+        }
+      }
+    }
+  }
+});
+
+test("Meta's interface exclusion zone does not travel to a Google asset", () => {
+  // A Google responsive asset is composed into a unit Google draws. Carrying
+  // Meta's story safe zone across would reserve space against a platform that
+  // is not showing anything there.
+  for (const [id, t] of loadTemplates()) {
+    for (const key of ['1200x1200', '1200x1500'] as SizeKey[]) {
+      assert.equal(t.sizes[key]!.safeZone, undefined, `${id} ${key}`);
+    }
+  }
+});
+
+test('the Amazon medium rectangle carries a rule, not an assumption', () => {
+  // It was 40 KB by analogy with two neighbours. Amazon publishes a rule that
+  // covers it -- 40 KB for every static desktop unit except the billboard --
+  // so the number is unchanged and the claim behind it is not.
+  const amazon = getPlatform('amazon');
+  assert.equal(amazon.sizes['300x250']!.maxFileBytes, 40960);
+  assert.equal(amazon.sizes['970x250']!.maxFileBytes, 204800, 'the billboard is the exception');
+  for (const key of ['300x250', '728x90', '160x600'] as SizeKey[]) {
+    assert.equal(amazon.sizes[key]!.maxFileBytes, 40960, `${key} takes the non-billboard rule`);
+  }
+  assert.ok(
+    !/VERIFY/.test(JSON.stringify(amazon.sizes['300x250'])),
+    'and it is no longer flagged as needing confirmation',
+  );
 });
