@@ -219,14 +219,77 @@ UNITS: list[dict[str, Any]] = [
      "max_bytes": 10 * GB, "duration": (15, 60), "bitrate_kbps": (15000, 30000),
      "notes": ["VAST 2.0 / 3.0 compliant.",
                "Third-party VAST must contain MP4 and FLV format videos."]},
-    {"id": "youtube_trueview", "channel": "youtube", "name": "TrueView",
-     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
-     "max_bytes": 10 * MB, "duration": (12, 180),
-     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+    # Transcribed against the 2026 kit. "TrueView" is no longer a format name
+    # at all -- Google repurposed it in October 2025 as a *metric*, TrueView
+    # views, spanning skippable in-stream, in-feed, Shorts and Masthead -- so
+    # the requirement line asked a client to supply a thing that does not
+    # exist. The id survives because the format survives in substance
+    # (skippable in-stream is what TrueView was) and `tags_for()` has written
+    # `unit_youtube_trueview` onto delivered creative: the rule `billboard`
+    # already follows from when the IAB retired the Rising Stars name.
+    #
+    # The weight was the half that refused real work: 10 MB against a
+    # published 256 GB, which is the kit's own "wrong by four orders of
+    # magnitude". A checker refusing files the client was told to send is the
+    # Half Page failure this module already carries a note about, and the
+    # third transcription of four to run that way.
+    {"id": "youtube_trueview", "channel": "youtube",
+     "name": "Skippable in-stream", "kind": "video",
+     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     # No duration: the kit publishes "no maximum, under 3:00 recommended",
+     # and a ceiling invented from the recommendation would refuse a cut the
+     # kit permits -- the `target_bytes` lesson, wearing a stopwatch.
+     "text": {"headline": 40, "description": 35},
+     "notes": ["Skip becomes available at 5 seconds.",
+               "No maximum length; under 3:00 recommended. Google Ads "
+               "reservations run :12 minimum to 6:00 maximum.",
+               "Headline is 40 characters per line over two lines, and the "
+               "description 35 per line over two.",
+               "Video Action campaigns take their own copy: headline 30, "
+               "long headline 90, description 90, call to action 10.",
+               "16:9 is 1920x1080, 9:16 is 1080x1920 and 1:1 is 1080x1080.",
+               "Video asset must be loaded to YouTube. Google's ad policy "
+               "requires a public video; the Shorts asset page permits "
+               "unlisted. Use public unless a Google rep confirms otherwise "
+               "for the campaign type."]},
+    {"id": "youtube_nonskippable", "channel": "youtube",
+     "name": "Non-skippable in-stream", "kind": "video",
+     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "duration": (7, 30),
+     "notes": [":07 to :15 is standard; :16 to :30 runs on CTV.",
+               "The policy cap is :30 on auction and :60 on reservation, so a "
+               "cut over :30 is a reservation buy rather than a free choice.",
+               "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_bumper", "channel": "youtube", "name": "Bumper",
-     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
-     "max_bytes": 10 * MB, "duration": (0, 6),
-     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "duration": (0, 6),
+     "notes": ["Non-skippable.",
+               "Video asset must be loaded to YouTube as a public video."]},
+    {"id": "youtube_in_feed", "channel": "youtube", "name": "In-feed video",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "text": {"headline": 40, "description": 35},
+     "notes": ["Formerly TrueView Discovery.",
+               "No maximum length specified.",
+               "Thumbnail 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Video asset must be loaded to YouTube as a public video."]},
+    {"id": "youtube_shorts", "channel": "youtube", "name": "YouTube Shorts",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(9, 16)], "max_bytes": 256 * GB, "duration": (0, 180),
+     "notes": ["The feed shows the first :60 only; under :60 recommended.",
+               ":06 to :60 in Video Reach campaigns, :10 to :30 for action.",
+               "CTA overlay copy: headline 40, description 90, channel "
+               "description 90."]},
+    {"id": "youtube_masthead", "channel": "youtube", "name": "Masthead",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "size": (1920, 1080), "max_bytes": 256 * GB,
+     "notes": ["Any length; over :10 recommended.",
+               "Companion banner 300x60, 5:1, under 150 KB — desktop only.",
+               "Video asset must be loaded to YouTube as a public video."]},
     {"id": "ctv", "channel": "ctv", "name": "Connected TV / OTT",
      "kind": "video", "formats": ["mp4"], "size": (1920, 1080),
      "max_bytes": 10 * GB, "duration": (15, 30), "bitrate_kbps": (15000, 30000),
@@ -855,6 +918,27 @@ _KIT_SECTIONS = {"desktop-display": "desktop_display",
                  "mobile-display": "mobile_display",
                  "dooh": "dooh"}
 
+# The same three sections, read as a fact about what the buy IS rather than
+# about what this parser can read. Where the kit's table is Unit / Dimensions
+# / weight, the size *is* the unit and the name adds nothing a client can act
+# on: "Leaderboard" is 728x90, and eleven labels beside eleven sizes is a wall
+# nobody reads to the bottom of. Where the first column is a Format, the name
+# is the ask and the sizes belong to it -- so folding those into one anonymous
+# run loses exactly the thing the client is being asked to choose.
+#
+# It had, on every channel published that way. An X buy asked for nine bare
+# sizes with Image Ads, Carousel Ads, Conversation Button and Spotlight
+# Takeover all dissolved into them; LinkedIn the same across six; and native
+# display printed "1200x628, 200x200" with nothing saying the second one is
+# the brand logo. That is `creative_needs._shape_of()`'s note about a unit
+# reaching the line as a bare name, running the other way: here the shape is
+# all that arrives and the *name* is what went missing.
+#
+# `tablet_display` is ours rather than the kit's -- the kit publishes no
+# tablet section, which is why those four units carry `source: "house"` --
+# and it is the same shape as the two display sections beside it.
+SIZE_SET_CHANNELS = frozenset(_KIT_SECTIONS.values()) | {"tablet_display"}
+
 # ...and that sentence covered three sections of twenty-three while the check
 # answered "no drift", which is a clean bill of health about seven per cent of
 # the thing it is auditing. The page in the repo is now the **2026** kit and
@@ -937,7 +1021,8 @@ def _plain(fragment: str) -> str:
 
 
 _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
-                     "tiktok": "tiktok", "snapchat": "snapchat"}
+                     "tiktok": "tiktok", "snapchat": "snapchat",
+                     "youtube-video": "youtube"}
 
 # Transcribed against the 2025 kit and not yet re-checked against 2026, with
 # what is known to have moved. Not findings -- a backlog somebody works down,
@@ -945,10 +1030,11 @@ _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
 # the build on them. Each is a client being asked for a format under a name
 # its platform has changed or dropped.
 _KIT_NAMES_PENDING = {
-    "youtube": "'TrueView' is retired branding for what the kit calls "
-               "Skippable in-stream; the kit also sells Shorts and Masthead",
     "native_display": "the kit's asset list is per-platform (The Trade Desk "
-                      "and Google Demand Gen) and names 8 assets to our 2",
+                      "and Google Demand Gen) and names 8 assets to our 2. "
+                      "Its first column is a field to supply rather than a "
+                      "format to buy, so it is a different transcription "
+                      "from the four above rather than more of the same",
 }
 
 
