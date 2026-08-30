@@ -571,6 +571,220 @@ check("and a client with a clear queue still gets a mix",
 
 
 # ---------------------------------------------------------------------------
+print("\nThe weekly sweep spends a model call only where somebody is listening")
+# ---------------------------------------------------------------------------
+SWEEP = "Northgate Dental"
+SWEEP_URL = "northgatedental.com"
+
+check("with no clients on file, nothing is due", ideas.sweep()["due"] == 0)
+
+ideas.save_preferences(SWEEP, SWEEP_URL, topics_wanted=["promo"])
+reasons = {r["client"]: r["skip"] for r in ideas.sweep_candidates()}
+check("a client who has never swiped is not swept",
+      "swiped" in reasons.get(SWEEP, ""), reasons.get(SWEEP))
+check("and the reason names the step rather than a code",
+      "strategist" in reasons.get(SWEEP, ""), reasons.get(SWEEP))
+
+seed = ideas.add(SWEEP, SWEEP_URL, title="Meet the hygienists",
+                 idea_tag="team_spotlight")
+ideas.respond(seed["id"], "liked")
+reasons = {r["client"]: r["skip"] for r in ideas.sweep_candidates()}
+check("once somebody has swiped and the deck is empty, they are due",
+      reasons.get(SWEEP) == "", reasons.get(SWEEP))
+
+run = ideas.sweep()
+check("the sweep generates for them", len(run["generated"]) == 1, run)
+check("and says which kind of batch it was",
+      run["generated"][0]["source"] in ("model", "house"))
+check("it reports what it skipped, not only what it did",
+      run["skipped"] >= 1 and run["clients"] > run["due"], run)
+
+again = ideas.sweep()
+check("a second sweep the same day offers nothing twice",
+      again["due"] == 0 and not again["generated"], again)
+reasons = {r["client"]: r["skip"] for r in ideas.sweep_candidates()}
+check("and says it is the weekly interval holding it back",
+      "days" in reasons.get(SWEEP, ""), reasons.get(SWEEP))
+
+# A separate client, so the weekly interval cannot be what answers this.
+FULL = "Harbour Point Vets"
+FULL_URL = "harbourpointvets.com"
+ideas.save_preferences(FULL, FULL_URL)
+answered = ideas.add(FULL, FULL_URL, title="A day in the surgery",
+                     idea_tag="behind_the_scenes")
+ideas.respond(answered["id"], "liked")
+for n in range(ideas.SWEEP_PENDING_FLOOR):
+    ideas.add(FULL, FULL_URL, title=f"Unanswered {n}", idea_tag="educational")
+full_reason = {r["client"]: r["skip"] for r in ideas.sweep_candidates()}.get(FULL, "")
+check("a client with a full deck is not topped up",
+      "unanswered" in full_reason, full_reason)
+check("and that is the deck, not the weekly interval, answering",
+      "days" not in full_reason, full_reason)
+
+# The weekly interval, isolated. Above, a client who had just been swept also
+# had a full deck, so the deck gate was quietly covering for the interval —
+# removing the interval left the suite green. This client's deck is empty, so
+# only the interval can hold them: it is the gate that stops a redeploy
+# offering two batches in a day.
+RECENT = "Coldstream Roofing"
+RECENT_URL = "coldstreamroofing.com"
+ideas.save_preferences(RECENT, RECENT_URL)
+tap = ideas.add(RECENT, RECENT_URL, title="Storm season is coming",
+                idea_tag="seasonal")
+ideas.respond(tap["id"], "passed")
+ideas._mark_swept(RECENT, RECENT_URL)                             # noqa: SLF001
+recent_reason = {r["client"]: r["skip"] for r in ideas.sweep_candidates()}.get(RECENT, "")
+check("a client swept this week is held even with an empty deck",
+      "days" in recent_reason, recent_reason)
+check("and it is the interval saying so, not the deck",
+      "unanswered" not in recent_reason, recent_reason)
+check("so a redeploy cannot offer the same client two batches in a day",
+      RECENT not in [g["client"] for g in ideas.sweep()["generated"]])
+check("the sweep is bounded by a count as well as a clock",
+      ideas.SWEEP_MAX_CLIENTS > 0 and ideas.SWEEP_BUDGET_SECONDS > 0)
+check("a budget of nothing generates nothing rather than raising",
+      ideas.sweep(budget_seconds=0.0)["generated"] == [])
+
+from hub import scheduler                                         # noqa: E402
+check("the sweep is on the scheduler", "social_ideas" in scheduler.JOBS)
+every, fn, desc = scheduler.JOBS["social_ideas"]
+check("it ticks hourly and decides the week itself", every == 60, every)
+check("and it is described for the diagnostics page", bool(desc))
+
+
+# ---------------------------------------------------------------------------
+print("\nThe record a rep opens says what this client has asked for")
+# ---------------------------------------------------------------------------
+from hub import social_status                                     # noqa: E402
+
+card = social_status.for_client(CLIENT, CLIENT_URL, "https://smart1.agency")
+check("the card is measured", card["measured"] is True, card.get("error"))
+check("it counts what is waiting on us", card["requests"]["open"] >= 1, card["requests"])
+check("it lists the requests themselves, not only a total",
+      len(card["recent"]) >= 1)
+check("it reports what the client has swiped",
+      card["ideas"]["answered"] >= 1, card["ideas"])
+check("it carries the client's own link, with an origin on it",
+      [p["url"] for p in card["link"]["pages"]
+       if p["page"] == "request"][0].startswith("https://smart1.agency"))
+check("it says whether that link is turned off",
+      card["link"]["revoked"] is False)
+check("it reads the posts sitting with the client",
+      card["posts"]["measured"] is True and
+      card["posts"]["waiting_on_client"] >= 0, card["posts"])
+check("every count links to the rows behind it",
+      card["requests"]["url"].startswith("/tools/social/requests?client="))
+check("a client nobody named is not answered with an empty card",
+      social_status.for_client("")["measured"] is False)
+
+quiet = social_status.for_client("Nobody At All Ltd")
+check("a client with nothing is measured, not an error",
+      quiet["measured"] is True and quiet["requests"]["open"] == 0, quiet)
+
+
+# ---------------------------------------------------------------------------
+print("\nThe dashboard says who is waiting on us")
+# ---------------------------------------------------------------------------
+board = social_status.scoreboard()
+check("the scoreboard is measured", board["measured"] is True, board.get("error"))
+check("it counts the work and the conversations separately",
+      "waiting" in board and "clients" in board)
+check("overdue is its own figure", board["overdue"] >= 1, board)
+check("every row opens that client's queue",
+      all(r["url"].startswith("/tools/social/requests?client=") for r in board["rows"]))
+check("the line says it in words beside the number", bool(board["line"]))
+check("and an empty queue says which kind of empty it is",
+      "link" in social_status._scoreboard_line(0, 0, 0))
+check("a queue with work in it does not say that",
+      "link" not in social_status._scoreboard_line(4, 1, 2))
+check("the scoreboard never opens a plan file",
+      "posts" not in board)
+
+
+# ---------------------------------------------------------------------------
+print("\nA photograph the client sends reaches the gallery, not only Cloudinary")
+# ---------------------------------------------------------------------------
+# The half of the spec's §5 that was actually missing. Image Creator already
+# had the three social canvas presets; what nothing did was put a client's own
+# photograph anywhere the composer could see it. storage.put() stores bytes;
+# every "the client's own assets first" screen reads the image picker gallery.
+class _Asset:
+    public_id = "smart1-social-requests/riverstone/van"
+    url = "https://res.cloudinary.com/demo/image/upload/van.jpg"
+    resource_type = "image"
+
+
+filed = mod._file_into_gallery(CLIENT, _Asset(), "van.jpg", "Westside")  # noqa: SLF001
+check("the upload is filed into the client's gallery", filed is True)
+
+from hub.client_context import gallery_images                     # noqa: E402
+pics, note = gallery_images(CLIENT)
+check("and the composer can now see it",
+      any(p.get("public_id") == _Asset.public_id for p in pics), note)
+
+check("a client nobody named files nothing rather than raising",
+      mod._file_into_gallery("", _Asset(), "x.jpg", "") is False)   # noqa: SLF001
+
+
+class _Broken:
+    public_id = ""
+    url = ""
+
+
+check("an asset with no stored URL is refused, not filed as one",
+      mod._file_into_gallery(CLIENT, _Broken(), "x.jpg", "") is False)  # noqa: SLF001
+
+# Reported separately from the upload, the hub/domain_links.py rule: "stored"
+# and "stored in one of two places" are different outcomes.
+import inspect                                                    # noqa: E402
+upload_src = inspect.getsource(mod.api_client_upload)
+check("the upload route reports the two writes apart",
+      "unfiled" in upload_src, upload_src[-200:])
+# The client is watching and their photograph did arrive. `unfiled` is
+# recorded and nothing branches on it, so a gallery that would not answer
+# costs the composer a picture and never costs the client their upload.
+check("nothing branches on the gallery write",
+      "if unfiled" not in upload_src and "if not unfiled" not in upload_src)
+check("and the gallery helper swallows its own failures",
+      "except Exception" in inspect.getsource(mod._file_into_gallery))  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+print("\nThe queue explains itself, and every bubble resolves")
+# ---------------------------------------------------------------------------
+import re as _re                                                  # noqa: E402
+from hub import help as hub_help                                  # noqa: E402
+
+_QUEUE_TPL = os.path.join(ROOT, "modules", "social_planner", "templates",
+                          "staff_requests.html")
+with open(_QUEUE_TPL, encoding="utf-8") as fh:
+    _queue_html = fh.read()
+placed = sorted(set(_re.findall(r"help_dot\(\s*'([^']+)'", _queue_html)))
+check("the queue places help bubbles at all", len(placed) >= 5, placed)
+missing = [k for k in placed if hub_help.get(k) is None]
+# A bubble whose key is not in the registry is removed client-side, so the
+# template reads as helped and the page shows nothing. Nothing reports that.
+check("every key it places resolves in the registry", not missing, missing)
+check("every one of them is guarded with `if help_dot is defined`",
+      _queue_html.count("if help_dot is defined")
+      == _queue_html.count("help_dot("), "an unguarded call 500s the page "
+      "wherever install_template_helpers did not run")
+for key in placed:
+    entry = hub_help.get(key)
+    check(f"  {key} says something worth reading",
+          entry and len(entry.body) > 80 and entry.title, key)
+
+# The body tag itself, not the file: the comment above it explains why there
+# is no data-screen, and matching the whole file would read the explanation
+# as the defect — the AST-vs-full-text lesson tools/spellcheck.py learned.
+_body_tag = _re.search(r"<body[^>]*>", _queue_html).group(0)
+check("the queue offers no tour, because none is registered for it",
+      "data-screen" not in _body_tag, _body_tag)
+check("and it opts out of the walkthrough written for another screen",
+      'data-demo="off"' in _queue_html)
+
+
+# ---------------------------------------------------------------------------
 print("\nStorage goes through the mirror")
 # ---------------------------------------------------------------------------
 from hub import jsonstore                                         # noqa: E402

@@ -272,6 +272,19 @@ jobs:
             echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
+      - name: Prospect record tests
+        # The record a scanned business gets before it is a client: four kinds
+        # of empty on the Suite card, a timeline that names what it could not
+        # read, and files that report the record and the stored copy apart.
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_prospect_record.py ]; then
+            python test_prospect_record.py
+          else
+            echo "test_prospect_record.py not on this branch — nothing to run."
+          fi
+
       - name: Website audit tests
         # The spend block that leads every rendering of a site audit, the
         # customer-facing audit placement, the lead every audit files, and
@@ -959,3 +972,12 @@ jobs:
       # counts. Reproduced before it was fixed, and both runs are green now.
       - name: Content requests, ideas and the Suite push
         run: python3 test_social_content.py
+
+      # The client registry ran on a 610-row JSON file committed to the repo
+      # while hub/knack_websites.py read the same object live. This holds the
+      # switch: live where Knack answers, the export where it will not, a
+      # failed pull that never empties a good export, and summary() still
+      # measuring the dashboard scorecard against the export -- pointed at the
+      # live list it reports 2 active websites instead of 610.
+      - name: Websites read live, with the export as the fallback
+        run: python3 test_knack_websites_source.py

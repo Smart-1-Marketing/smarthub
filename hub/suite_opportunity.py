@@ -410,3 +410,149 @@ def push_proposal(*, client: str, title: str = "", value: float = 0.0,
         return {"ok": False, "reason": f"Suite push failed ({type(exc).__name__})."}
 
     return {"ok": True, "contact": found, **result}
+
+
+# ==========================================================================
+# Reading a prospect back out of the Suite
+# ==========================================================================
+#
+# Everything above writes. These read, and they exist because the Hub needs to
+# *show* where a prospect has got to without becoming a second place that
+# decides it. Smart 1 Suite is the CRM: it holds the stage, the owner, the
+# calls and the texts, and a second pipeline in the Hub would be two systems
+# answering "what stage is this at" differently, with nothing on either screen
+# saying which to believe — the failure `jsonstore.unmirrored_json_writers()`
+# exists to close, wearing a sales pipeline.
+#
+# So the Hub reads and never writes a stage. Three rules follow:
+#
+# * **Every one of these raises `SuiteError` rather than returning empty.**
+#   "This prospect has no opportunity" and "we could not ask" are different
+#   answers, and only the first means there is nothing to chase. The caller
+#   turns the exception into *not measured*.
+# * **A stage id is not a stage.** `opportunities_for()` resolves the id
+#   against the pipeline's own stage names, because an id on a screen names
+#   nothing a person can act on — the note `hub/domain_links.py` makes about
+#   printing `field_3298` at a rep.
+# * **Nothing here is cached across requests.** A stage a rep just moved in
+#   Suite has to read back on the next refresh, and a five-minute memo on this
+#   is a page confidently showing yesterday's answer.
+
+def contact_snapshot(contact_id: str) -> dict:
+    """The Suite contact behind a lead: tags, owner, source, when it landed."""
+    contact_id = str(contact_id or "").strip()
+    if not contact_id:
+        raise SuiteError("No Suite contact id on this lead.")
+    data = _call("GET", f"/contacts/{contact_id}")
+    raw = data.get("contact") or data
+    row = _contact_row(raw)
+    row.update({
+        "tags": [str(t) for t in (raw.get("tags") or []) if t],
+        "source": str(raw.get("source") or ""),
+        "assigned_to": str(raw.get("assignedTo") or ""),
+        "created": str(raw.get("dateAdded") or "")[:19].replace("T", " "),
+        "updated": str(raw.get("dateUpdated") or "")[:19].replace("T", " "),
+        "url": _contact_url(contact_id),
+    })
+    return row
+
+
+def _contact_url(contact_id: str) -> str:
+    """Where a rep opens this contact in Suite.
+
+    Built from the location id, because that is the only part of the address
+    that varies. `SUITE_APP_BASE` overrides it for a white-labelled domain —
+    a link that 404s is worse than no link, and this deployment's Suite is
+    reached on more than one hostname.
+    """
+    base = (os.environ.get("SUITE_APP_BASE")
+            or "https://app.gohighlevel.com").rstrip("/")
+    loc = location_id()
+    if not (loc and contact_id):
+        return ""
+    return f"{base}/v2/location/{loc}/contacts/detail/{contact_id}"
+
+
+def _stage_names() -> dict:
+    """`{stage_id: (pipeline name, stage name)}` for this location."""
+    data = _call("GET", "/opportunities/pipelines",
+                 params={"locationId": location_id()})
+    out = {}
+    for p in (data.get("pipelines") or []):
+        for s in (p.get("stages") or []):
+            if s.get("id"):
+                out[s["id"]] = (str(p.get("name") or ""), str(s.get("name") or ""))
+    return out
+
+
+def opportunities_for(contact_id: str) -> list[dict]:
+    """Every open or closed deal against this contact, newest first."""
+    contact_id = str(contact_id or "").strip()
+    loc = location_id()
+    if not contact_id:
+        raise SuiteError("No Suite contact id on this lead.")
+    if not loc:
+        raise SuiteError("No Smart 1 Marketing location id is configured.")
+    data = _call("GET", "/opportunities/search",
+                 params={"location_id": loc, "contact_id": contact_id,
+                         "limit": 20})
+    try:
+        names = _stage_names()
+    except SuiteError:
+        # The deals are worth showing even when the pipeline names are not
+        # readable; the stage then says so rather than printing a raw id.
+        names = {}
+    out = []
+    for raw in (data.get("opportunities") or []):
+        stage_id = str(raw.get("pipelineStageId") or "")
+        pipeline, stage = names.get(stage_id, ("", ""))
+        out.append({
+            "id": raw.get("id") or "",
+            "name": str(raw.get("name") or ""),
+            "status": str(raw.get("status") or ""),
+            "value": raw.get("monetaryValue"),
+            "pipeline": pipeline,
+            "stage": stage,
+            "stage_measured": bool(stage),
+            "updated": str(raw.get("updatedAt") or raw.get("dateUpdated")
+                           or "")[:19].replace("T", " "),
+        })
+    out.sort(key=lambda o: o.get("updated") or "", reverse=True)
+    return out
+
+
+def notes_for(contact_id: str, limit: int = 20) -> list[dict]:
+    """The notes on a Suite contact, newest first."""
+    contact_id = str(contact_id or "").strip()
+    if not contact_id:
+        raise SuiteError("No Suite contact id on this lead.")
+    data = _call("GET", f"/contacts/{contact_id}/notes")
+    out = []
+    for raw in (data.get("notes") or []):
+        out.append({
+            "id": raw.get("id") or "",
+            "body": str(raw.get("body") or "")[:2000],
+            "created": str(raw.get("dateAdded") or "")[:19].replace("T", " "),
+            "by": str(raw.get("userId") or ""),
+        })
+    out.sort(key=lambda n: n.get("created") or "", reverse=True)
+    return out[:max(1, limit)]
+
+
+def add_note(contact_id: str, body: str) -> dict:
+    """Write a note onto the Suite contact.
+
+    The one write in this section, and it is deliberate: notes belong with the
+    conversation, which is in Suite, so a note typed on a Hub prospect record
+    goes *there* rather than into a second notebook only this Hub can read.
+    """
+    contact_id = str(contact_id or "").strip()
+    body = str(body or "").strip()
+    if not contact_id:
+        raise SuiteError("No Suite contact id on this lead.")
+    if not body:
+        raise SuiteError("A note needs some words in it.")
+    data = _call("POST", f"/contacts/{contact_id}/notes",
+                 body={"body": body[:2000]})
+    raw = data.get("note") or data
+    return {"id": raw.get("id") or "", "body": body[:2000]}
