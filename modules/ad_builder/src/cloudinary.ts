@@ -246,6 +246,75 @@ export class CloudinaryService {
     };
   }
 
+  /**
+   * Upload an animated GIF, byte for byte.
+   *
+   * Its own method rather than a flag on uploadCreative, because the one thing
+   * that must not happen here is the thing that method does deliberately:
+   * `quality: 100` is an incoming transformation, and ANY re-encode of a GIF
+   * rewrites its frame delays and its loop block. Those two numbers are the
+   * compliance check -- 5 frames a second or slower, and the animation stops
+   * within 30 seconds -- so a re-encoded file is one whose measured
+   * properties are no longer the ones that were measured. It would still play,
+   * still look right, and be a different file from the one QA passed.
+   *
+   * So nothing is passed but the destination: no quality, no format, no eager
+   * transformation. What was rendered is what is stored.
+   */
+  async uploadAnimation(args: {
+    file: string;
+    folder: string;
+    publicId: string;
+    tags: string[];
+    context: Record<string, string | number>;
+  }): Promise<UploadedAsset> {
+    this.assertUsable();
+    const { file, folder, publicId, tags, context } = args;
+
+    if (!this.live) {
+      const stat = fs.statSync(file);
+      return {
+        publicId: this.folderMode === 'fixed' ? `${folder}/${publicId}` : publicId,
+        assetFolder: folder,
+        secureUrl: `https://res.cloudinary.com/<cloud>/image/upload/${folder}/${publicId}.gif`,
+        format: 'gif',
+        width: 0,
+        height: 0,
+        bytes: stat.size,
+        version: 0,
+        tags,
+        createdAt: new Date().toISOString(),
+        simulated: true,
+      };
+    }
+
+    const res = await cloudinary.uploader.upload(file, {
+      folder,
+      public_id: publicId,
+      // An animated GIF is an image resource in Cloudinary. `video` would
+      // accept the file and then serve a still frame of it.
+      resource_type: 'image',
+      overwrite: true,
+      tags,
+      context,
+      use_filename: false,
+      unique_filename: false,
+    });
+
+    return {
+      publicId: res.public_id,
+      assetFolder: (res as any).asset_folder ?? folder,
+      secureUrl: res.secure_url,
+      format: res.format,
+      width: res.width,
+      height: res.height,
+      bytes: res.bytes,
+      version: res.version,
+      tags: res.tags ?? tags,
+      createdAt: res.created_at,
+    };
+  }
+
   /* -------------------------------------------------------------- search */
 
   /**

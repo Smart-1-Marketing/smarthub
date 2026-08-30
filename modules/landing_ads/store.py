@@ -33,12 +33,23 @@ def slugify(value: str, fallback: str = "spec") -> str:
 
 
 def data_dir() -> str:
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "data")
-    path = os.path.join(base, "landing_ads")
-    os.makedirs(path, exist_ok=True)
-    return path
+    """This module's corner of the data root.
+
+    `jsonstore.data_dir("landing_ads")` is the whole of it -- the six-line
+    expression it replaces was a copy of data_root() that skipped
+    HUB_DATA_DIR. Falls back to the old spelling if the Hub is not importable,
+    because this module can be run on its own.
+    """
+    try:
+        from hub import jsonstore
+        return jsonstore.data_dir("landing_ads")
+    except Exception:  # noqa: BLE001 — standalone, or the Hub is not on the path
+        base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "data")
+        path = os.path.join(base, "landing_ads")
+        os.makedirs(path, exist_ok=True)
+        return path
 
 
 # Reads and writes go through hub.jsonstore, which keeps the atomic .tmp +

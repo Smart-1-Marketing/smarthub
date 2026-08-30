@@ -185,6 +185,125 @@ def findings_in(text: str, rel: str, line_offset: int = 1) -> list[tuple[int, st
     return out
 
 
+# ---------------------------------------------------------------- TypeScript
+
+# A TS/JS token that is code rather than copy, in the two shapes the Python
+# rule's `_IDENTIFIER` does not cover because they only occur here.
+#
+# `_TS_INTERP` is a `${...}` span inside a template literal. Its contents are
+# expressions -- `${step.colours}` is sharp's own option name -- and reading
+# them as copy reports an external API's spelling as a defect, which is the
+# `colour_scheme` rule one language over.
+_TS_INTERP = re.compile(r"\$\{[^{}]*\}")
+
+
+def _ts_strings(src: str) -> list[tuple[int, str]]:
+    """Every string literal in a TS/JS source, as (offset, text).
+
+    The equivalent of reading Python through its AST, done with a scanner
+    because there is no TypeScript parser here and adding one would put a
+    node dependency inside a check that has to run wherever Python does.
+
+    What it has to get right is that comments and code are NOT copy. This
+    module is ten thousand lines of TypeScript carrying `rasterise`,
+    `normalise`, `optimise` and sharp's own `colours` option, none of which is
+    a word on a screen -- a full-text pass over it would be a rename of the
+    renderer dressed up as a copy change, the exact thing the Python rule
+    exists to avoid.
+
+    One ambiguity is handled explicitly: a `/` starts a regex literal or a
+    division depending on what came before it, and reading a regex as division
+    would leave the scanner inside a string it never entered. The previous
+    significant character decides, which is the same rule a JS tokenizer uses.
+    """
+    out: list[tuple[int, str]] = []
+    i, n = 0, len(src)
+    prev = ""                      # last significant char, for the regex test
+    while i < n:
+        c = src[i]
+        # comments -- for whoever opens the file, never for a screen
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            j = src.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            j = src.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        # a regex literal, skipped whole: it is a pattern, not a sentence
+        if c == "/" and prev in "(,=:[!&|?{};+-*%~^" + "\n":
+            j, esc, cls = i + 1, False, False
+            while j < n:
+                d = src[j]
+                if esc:
+                    esc = False
+                elif d == "\\":
+                    esc = True
+                elif d == "[":
+                    cls = True
+                elif d == "]":
+                    cls = False
+                elif d == "/" and not cls:
+                    break
+                elif d == "\n":
+                    break
+                j += 1
+            i = j + 1
+            prev = "/"
+            continue
+        if c in "'\"`":
+            quote, j, esc, buf, start = c, i + 1, False, [], i + 1
+            while j < n:
+                d = src[j]
+                if esc:
+                    esc = False
+                elif d == "\\":
+                    esc = True
+                elif d == quote:
+                    break
+                elif d == "\n" and quote != "`":
+                    break              # an unterminated quote is not a string
+                buf.append(d)
+                j += 1
+            body = "".join(buf)
+            if quote == "`":
+                # Blank the interpolations to same-width filler so offsets --
+                # and therefore line numbers -- still line up, the trick
+                # tools/checktemplates.py uses on Jinja.
+                body = _TS_INTERP.sub(lambda m: " " * len(m.group(0)), body)
+            out.append((start, body))
+            i = j + 1
+            prev = quote
+            continue
+        if not c.isspace():
+            prev = c
+        i += 1
+    return out
+
+
+def _ts_literals(path: pathlib.Path) -> list[tuple[int, str]]:
+    src = path.read_text(encoding="utf-8", errors="ignore")
+    rel = _rel(path)
+    out: list[tuple[int, str]] = []
+    for offset, body in _ts_strings(src):
+        # The same rule the Python literals follow: one bare lowercase token is
+        # a key, a stored id or an enum value, not a sentence. `focal:
+        # 'centre'` and `background: 'grey'` are values the renderer switches
+        # on and that saved concepts already carry -- renaming those is a data
+        # migration wearing a copy change.
+        if _IDENTIFIER.match(body.strip()):
+            continue
+        # The line the LITERAL starts on, handed to findings_in as the base so
+        # what comes back is the line the WORD is on. proof.ts renders its
+        # whole page from one 400-line template literal, and reporting every
+        # finding in it at the line the backtick opens on is a report nobody
+        # can act on -- which is why the interpolations above are blanked to
+        # same-width filler rather than removed.
+        base = src.count("\n", 0, offset) + 1
+        out.extend(findings_in(body, rel, base))
+    return out
+
+
 def _python_literals(path: pathlib.Path) -> list[tuple[int, str]]:
     src = path.read_text(encoding="utf-8", errors="ignore")
     try:
@@ -227,6 +346,19 @@ def scan() -> dict[str, list[tuple[int, str]]]:
         if _skipped(p):
             continue
         hits = _python_literals(p)
+        if hits:
+            found[_rel(p)] = hits
+    # TypeScript, string literals only, for the same reason Python is.
+    #
+    # It was outside this check entirely until now, and the one module that is
+    # not Python is the one that renders a client-facing page from `.ts` -- so
+    # the proof a client opens and the panel a rep reads were the only screens
+    # in the Hub no spelling rule applied to. Nothing reported that: the page
+    # renders, the link resolves, and the English is correct.
+    for p in sorted(ROOT.rglob("*.ts")):
+        if _skipped(p) or p.name.endswith(".d.ts"):
+            continue
+        hits = _ts_literals(p)
         if hits:
             found[_rel(p)] = hits
     return found

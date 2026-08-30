@@ -19,6 +19,8 @@
   white-space:nowrap;margin-top:4px}
 .seo-wm-btn:hover{background:#24406f}
 .seo-loading{padding:34px;text-align:center;color:#64748b}
+.seo-srcnote{padding:8px 14px;font-size:12px;color:#64748b;border-bottom:1px solid #eef2f7}
+.seo-srcnote.warn{background:#fef9c3;color:#854d0e;font-weight:600}
 table.seo-t{width:100%;border-collapse:collapse;font-size:13.5px}
 table.seo-t th{background:#f8fafc;text-align:left;padding:10px 14px;font-size:11.5px;text-transform:uppercase;
   letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap}
@@ -56,6 +58,18 @@ table.seo-t tr:hover td{background:#f4f6fa}
 (function(){
   var wrap=document.getElementById('seoWrap');
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+  function $src(d){
+    if(d.products_source==='export'){
+      return '<div class="seo-srcnote warn">Committed export &mdash; nothing refreshes it, '
+           + 'so this may be out of date</div>';
+    }
+    if(d.products_source==='knack'){
+      var m=d.products_age_minutes;
+      return '<div class="seo-srcnote">Live from Knack'
+           + ((m===0||m) ? ' &middot; '+esc(String(m))+' min old' : '')+'</div>';
+    }
+    return '';                       /* not measured -- say nothing, not "live" */
+  }
   function statusDots(st){
     /* Two by two rather than one nowrap row. Four pills on one line held the
        Status column at 288px — wider than the client name beside it — and the
@@ -82,7 +96,12 @@ table.seo-t tr:hover td{background:#f4f6fa}
   fetch('/api/seo/clients').then(function(r){return r.json();}).then(function(d){
     if(d.error){wrap.innerHTML='<div class="seo-loading">'+esc(d.error)+'</div>';return;}
     var rows=d.clients||[];
-    if(!rows.length){wrap.innerHTML='<div class="seo-loading">No clients with a live SEO product.</div>';return;}
+    /* Say which source answered. This list decides who is on the SEO book at
+       all, and it read the committed export while Client 360 read the same
+       object live -- a stale export looks exactly like live data on screen,
+       which is the whole reason that went unnoticed. */
+    var note=$src(d);
+    if(!rows.length){wrap.innerHTML='<div class="seo-loading">No clients with a live SEO product.</div>'+note;return;}
     var totBill=0, totBlogs=0;
     rows.forEach(function(c){totBill+=Number(c.billing||0);if(c.blogs)totBlogs++;});
     document.getElementById('seoSummary').style.display='grid';
@@ -101,7 +120,7 @@ table.seo-t tr:hover td{background:#f4f6fa}
         +'</tr>';
     });
     h+='</tbody></table>';
-    wrap.innerHTML=h;
+    wrap.innerHTML=note+h;
     wrap.querySelectorAll('tr[data-name]').forEach(function(tr){
       tr.onclick=function(){location.href='/seo/client?name='+encodeURIComponent(tr.dataset.name);};
     });

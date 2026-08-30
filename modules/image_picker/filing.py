@@ -38,6 +38,12 @@ KIND_LABELS = {
     "blog": "Blog images",
     "seo_image": "SEO images",
     "display_ad": "Display ads",
+    # Its own heading rather than folded into display_ad. A client looking at
+    # their gallery is choosing what to run, and "the 300x250" and "the 300x250
+    # that moves" are two files that run in different placements -- most
+    # placements take only the still one. Grouped together they read as
+    # duplicates and somebody deletes one.
+    "animated_ad": "Animated display ads",
     # Filed by hub/client_logos.py from the client's brand record or their
     # last site scan. Declared here so the gallery groups them under a name
     # rather than under a bare key -- the same reason hub/audit.LOG_NAMES
@@ -77,6 +83,7 @@ SOURCE_LABELS = {
     "unsplash": "Unsplash", "pexels": "Pexels", "pixabay": "Pixabay",
     "library": "Our own library",
     "io_creative": "Creative for their insertion orders",
+    "animated_ad": "Animated display ads",
     "blog": "Blog images",
     "seo_image": "SEO images",
     "seo_images": "SEO images",
@@ -103,6 +110,13 @@ SOURCE_LABELS = {
     # across -- so the heading has to exist here or they arrive in the new
     # client's gallery as a bare key under nothing.
     "prospect": "Collected before they were a client",
+    # A photograph a location manager sent in with a social content request.
+    # `modules/social_planner` has filed these under this provider since the
+    # day it was written and the table never named it, so they arrived in the
+    # client's gallery as a bare `social_request` chip under no heading and,
+    # unlisted, in the tier that claims nothing -- a photograph the client
+    # themselves sent us, sorted in with stock.
+    "social_request": "Sent with a social request",
 }
 
 # Which of the three questions a group answers. The first thing anybody asks
@@ -110,7 +124,7 @@ SOURCE_LABELS = {
 # not a column. Anything unlisted is stock, which is the safe default: it
 # sorts last and claims nothing.
 THEIRS = ("local", "camera", "google_drive", "dropbox", "instagram",
-          "facebook", "url")
+          "facebook", "url", "social_request")
 WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
            "display_ads", "ad_builder", "logo", "logo_brand", "logo_scan",
            "client_logos", "bg_remover", "cutout", "image_creator", "graphic",

@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 # Ads are filed under their own kind so a gallery can show "the display ads we
 # made" separately from stock picks and client uploads.
 GALLERY_KIND = "display_ad"
+# Animated versions are filed under their own kind. See filing.KIND_LABELS for
+# why they are not folded in with the stills.
+ANIMATION_KIND = "animated_ad"
 
 # The logo a person chose for this client's ads, when it is not the one
 # Brandfetch finds. Filed into the same gallery rather than a table of its own:
@@ -344,6 +347,136 @@ def finished_ads(project: dict) -> list[dict]:
                 "rendered_at": str(batch.get("renderedAt") or ""),
             }
     return sorted(by_size.values(), key=lambda a: a["size"])
+
+
+def approved_animations(project: dict) -> list[dict]:
+    """Every animation on a project that is cleared to go to a client.
+
+    Three conditions, and each one is a way an animation reaches somebody it
+    should not:
+
+    APPROVED. The delivery zip does not carry animations -- it is one act
+    covering the static set -- so this is the only path from a rendered GIF to
+    a client, and the approval is the only gate on it. An unapproved row is a
+    file nobody has watched.
+
+    STORED. `cloudinaryPublicId` is written when the approval uploads the file.
+    Without one there is nothing a gallery could point at, and filing the
+    renderer's own /files/ path would put a row in the client's gallery that
+    needs a Hub login to open and 404s after the retention sweep.
+
+    NOT FAILING. Belt and braces: the renderer refuses to approve a QA-failing
+    animation, and this refuses to file one anyway. A gate enforced in one
+    place is a gate that moves the day somebody adds a second door.
+    """
+    out: dict[str, dict] = {}
+    for a in project.get("animations") or []:
+        if not isinstance(a, dict):
+            continue
+        if not a.get("approvedAt") or a.get("status") == "fail":
+            continue
+        public_id = str(a.get("cloudinaryPublicId") or "")
+        url = str(a.get("cloudinaryUrl") or "")
+        if not public_id or not url.startswith("https://"):
+            continue
+        size = str(a.get("size") or "").strip()
+        out[size] = {
+            "size": size,
+            "public_id": public_id,
+            "url": url,
+            "bytes": int(a.get("bytes") or 0),
+            "frames": int(a.get("frames") or 0),
+            "loop": int(a.get("loop") or 0),
+            "total_ms": int(a.get("totalMs") or 0),
+            "kind": str(a.get("kind") or ""),
+            "concept": str(a.get("conceptId") or ""),
+            "platform": str(a.get("platform") or ""),
+            "approved_at": str(a.get("approvedAt") or ""),
+            "approved_by": str(a.get("approvedBy") or ""),
+        }
+    return sorted(out.values(), key=lambda a: a["size"])
+
+
+def attach_animations(*, project: dict, client_name: str, sizes: list | None = None,
+                      actor: str = "") -> dict:
+    """File approved animations into a client's gallery, one file each.
+
+    Deliberately its own function and its own call rather than a branch inside
+    ``attach_ads``. Attaching the static set is one decision about eight files;
+    an animation is one decision about one file, taken at a different moment by
+    somebody who has just watched it. Sharing the entry point would mean either
+    filing unapproved animations alongside approved stills, or holding the
+    stills back until every animation had been watched.
+    """
+    from modules.image_picker import filing
+
+    client_name = str(client_name or "").strip()
+    if not client_name:
+        return {"ok": False, "error": "A client is required."}
+
+    wanted = {str(s).strip() for s in (sizes or []) if str(s).strip()}
+    rows = [a for a in approved_animations(project)
+            if not wanted or a["size"] in wanted]
+    if not rows:
+        return {"ok": False, "error":
+                "No animation on this build is approved and stored yet. Approve "
+                "one on the build screen and it is filed from there."}
+
+    campaign = str(project.get("campaignName") or project.get("projectName") or "")
+    results, filed, duplicates = [], 0, 0
+
+    for a in rows:
+        width, height = _dimensions(a["size"])
+        seconds = round((a["total_ms"] or 0) / 1000, 1)
+        motion = ("changing text" if a["kind"] == "text"
+                  else "pulsing button" if a["kind"] == "button" else "")
+        # No creative_specs check here, and that is deliberate. The kit's units
+        # describe a static file, and the numbers that decide whether an
+        # animated one is accepted -- frame rate, how long it runs, whether it
+        # stops -- were measured at render time against Google's own rules and
+        # travel on the row. Re-running the static check would print a verdict
+        # about the wrong question.
+        res = filing.file_asset(
+            client_name=client_name,
+            public_id=a["public_id"],
+            url=a["url"],
+            kind=ANIMATION_KIND,
+            key=str(project.get("projectId") or ""),
+            label=f"Animated display ads - {campaign}" if campaign else "Animated display ads",
+            filename=f"{a['size']}_animated.gif",
+            alt=(f"{campaign} animated display ad, {a['size']}"
+                 f"{', ' + motion if motion else ''}").strip(", "),
+            width=width or None, height=height or None,
+            size_bytes=a["bytes"] or None,
+            provider=ANIMATION_KIND,
+            saved_by=actor or "display-ad-builder",
+        )
+        if res.get("ok") and res.get("duplicate"):
+            duplicates += 1
+        elif res.get("ok"):
+            filed += 1
+        results.append({
+            "size": a["size"],
+            "frames": a["frames"],
+            "plays": a["loop"],
+            "seconds": seconds,
+            **res,
+        })
+
+    gallery_url = next((r.get("gallery_url") for r in results
+                        if r.get("gallery_url")), "")
+
+    try:
+        from hub import audit
+        audit.log("display_ads", "animation_attached", actor=actor,
+                  client=client_name, project=project.get("projectId"),
+                  campaign=campaign, filed=filed, duplicates=duplicates)
+    except Exception:                                  # noqa: BLE001
+        logger.warning("display_ads: could not record the animation attach")
+
+    return {"ok": True, "filed": filed, "duplicates": duplicates,
+            "results": results, "gallery_url": gallery_url,
+            "client": client_name}
 
 
 def _dimensions(size: str) -> tuple[int, int]:
@@ -794,6 +927,28 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         res = attach_ads(project=project,
                          client_name=body.get("client") or project.get("client", ""),
                          sizes=sizes, actor=_user() or "")
+        return jsonify(res), (200 if res.get("ok") else 400)
+
+    @bp.route("/attach-animation", methods=["POST"])
+    def attach_animation_submit():
+        """File approved animations onto the client, one file at a time.
+
+        Called by the build screen straight after an approval lands, so
+        approving is the whole of "send this to the client" rather than a mark
+        somebody then has to remember to act on. Its own route rather than a
+        flag on /attach for the reason attach_animations gives: the static set
+        and one animation are two decisions taken at two moments.
+        """
+        body = request.form if request.form else (request.get_json(silent=True) or {})
+        project = _project(str(body.get("project") or "").strip())
+        if project is None:
+            return jsonify({"ok": False,
+                            "error": "That build could not be found."}), 404
+        sizes = (request.form.getlist("sizes") if request.form
+                 else (body.get("sizes") or []))
+        res = attach_animations(project=project,
+                                client_name=body.get("client") or project.get("client", ""),
+                                sizes=sizes, actor=_user() or "")
         return jsonify(res), (200 if res.get("ok") else 400)
 
     @bp.route("/logo", methods=["GET", "POST"])

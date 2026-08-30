@@ -25,13 +25,17 @@ comment above ``engine_for`` for why that matters.
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
+import time
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine as _sa_create_engine
 from sqlalchemy import make_url
 from sqlalchemy.orm import scoped_session, sessionmaker
+
+log = logging.getLogger(__name__)
 
 _initialised: set[int] = set()
 
@@ -47,9 +51,19 @@ def database_url() -> str:
     url = (os.environ.get("DATABASE_URL") or "").strip()
     if url:
         return normalise_url(url)
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-    os.makedirs(base, exist_ok=True)
+    # Only reached with DATABASE_URL unset. data_root() rather than a copy of
+    # its expression -- jsonstore imports this module lazily and data_root()
+    # touches nothing but the environment, so there is no cycle.
+    try:
+        from . import jsonstore
+        base = jsonstore.data_root()
+    except Exception:  # noqa: BLE001 — a database URL must always resolve
+        base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        pass
     return "sqlite:///" + os.path.join(base, "hub.sqlite3")
 
 
@@ -174,7 +188,7 @@ class _HubSQLAlchemy(SQLAlchemy):
     ``SessionLocal`` would still be talking to the same Postgres down two
     different pools. Overriding engine construction is the only hook
     Flask-SQLAlchemy offers for that, so it is written to fall back to the
-    stock behaviour on any surprise rather than to take the Hub down.
+    stock behavior on any surprise rather than to take the Hub down.
     """
 
     def _make_engine(self, bind_key, options, app, *args, **kwargs):
@@ -242,8 +256,105 @@ def _is_benign_ddl_race(exc) -> bool:
     ))
 
 
-def _locked_create_all(engine, run) -> str:
-    """Run ``run()`` — a create_all — with only one worker inside it at a time.
+# ---------------------------------------------------------------------------
+# A database briefly unreachable is not a database that is misconfigured
+# ---------------------------------------------------------------------------
+#
+# Every module that calls create_all here stores what it reported in a
+# module-level DB_BOOT_ERROR, computed once at import -- and several of them
+# then gate every request on it for the life of the worker. modules/scans
+# returns 503 from a before_request, which is the widget embedded on a client's
+# own website and the audit report a prospect reads; modules/image_picker
+# raises from session(), which is the client upload link; sales_builder skips
+# its late-column migration, and that stays skipped after the database comes
+# back.
+#
+# That verdict is right for a DATABASE_URL nobody set. It is wrong for what the
+# live service actually logs, which is
+#
+#     psycopg2.OperationalError: connection to server ... failed:
+#     SSL connection has been closed unexpectedly
+#
+# across four modules and both workers, for about six seconds during a deploy,
+# after which the service came up and served. The pool has pool_pre_ping, so
+# every *request* from then on would have reconnected happily -- nothing
+# re-asked the boot question, so a six-second blip was carried as a permanent
+# answer until somebody deployed again. And modules/scans logs nothing at all
+# at boot, so its half of that is invisible from either end.
+#
+# Two halves, because either alone leaves the failure in: the DDL retries while
+# the database is still coming up, and a verdict that came from a failure to
+# *connect* can be revised afterwards.
+
+_TRANSIENT_SIGNS = (
+    "ssl connection has been closed unexpectedly",
+    "server closed the connection unexpectedly",
+    "connection refused",
+    "could not connect to server",
+    "could not translate host name",
+    "connection reset by peer",
+    "connection timed out",
+    "timeout expired",
+    "the database system is starting up",
+    "the database system is shutting down",
+    "too many connections",
+    "remaining connection slots are reserved",
+    "terminating connection due to administrator command",
+    "server closed the connection",
+    "eof detected",
+    "broken pipe",
+)
+
+
+def is_transient(err) -> bool:
+    """Could this error answer differently in a moment?
+
+    Deliberately a list of signatures rather than "any OperationalError": a
+    password Postgres refuses is one of those too, and retrying that is four
+    failed logins and a slower boot for an answer that cannot change.
+
+    Where it is wrong it is wrong in the safe direction. An error read as
+    permanent keeps exactly today's behavior; one read as transient costs a
+    few seconds of boot and a re-check on a cooldown, and the real error is
+    still what every screen prints.
+    """
+    text = f"{type(err).__name__}: {err}" if isinstance(err, BaseException) else str(err or "")
+    text = text.lower()
+    return any(sign in text for sign in _TRANSIENT_SIGNS)
+
+
+# Boot spends at most this long, for the whole process, waiting on a database
+# that is not answering yet. Process-wide rather than per call deliberately:
+# create_all runs from nine places at import, so a per-call budget would
+# multiply by nine on the one deploy where the database is genuinely down, and
+# gunicorn boots the app inside its own timeout. The first module to meet an
+# unreachable database absorbs the wait; the rest already have the answer and
+# fail fast.
+_BOOT_WAIT_BUDGET = 12.0
+_BOOT_BACKOFF = (0.5, 1.0, 2.0, 4.0)
+
+_boot_wait_lock = threading.Lock()
+_boot_wait_spent = 0.0
+
+
+def _claim_boot_wait(seconds: float) -> bool:
+    """Take ``seconds`` off the process-wide retry budget, or refuse."""
+    global _boot_wait_spent
+    with _boot_wait_lock:
+        if _boot_wait_spent + seconds > _BOOT_WAIT_BUDGET:
+            return False
+        _boot_wait_spent += seconds
+        return True
+
+
+def boot_wait_spent() -> float:
+    """How much of the retry budget this process has used. For diagnostics."""
+    with _boot_wait_lock:
+        return _boot_wait_spent
+
+
+def _create_all_once(engine, run) -> str:
+    """One attempt at ``run()`` — a create_all — with only one worker inside it.
 
     Returns "" on success or the error text. Guarded rather than raising: a
     database slow to wake must not take a module offline for the life of the
@@ -276,18 +387,80 @@ def _locked_create_all(engine, run) -> str:
         return str(exc)
 
 
-def create_all(app) -> str:
+def _locked_create_all(engine, run, retry: bool = True) -> str:
+    """``_create_all_once``, retried while the database is still coming up.
+
+    A deploy races the database awake, and the loser gets one connection error
+    a second or two before the winner would have got none. Retrying only a
+    *transient* failure is what keeps that from costing the whole boot budget
+    on a database that is genuinely misconfigured: a bad password answers the
+    same however many times it is asked, so it is returned on the first pass.
+
+    ``retry=False`` is for a caller that is **not** boot. ``hub/jsonstore.py``
+    re-initialises the mirror lazily, on the write path, and waiting here would
+    put the whole budget inside somebody's save -- which is the per-visit
+    timeout this codebase refuses to carry on a page load. That module keeps
+    its own retry deadline, and two backoffs stacked is worse than either.
+    """
+    if not retry:
+        return _create_all_once(engine, run)
+    attempt = 0
+    while True:
+        error = _create_all_once(engine, run)
+        if not error or not is_transient(error):
+            return error
+        if attempt >= len(_BOOT_BACKOFF):
+            return error
+        delay = _BOOT_BACKOFF[attempt]
+        attempt += 1
+        if not _claim_boot_wait(delay):
+            return error            # the process has already waited its share
+        log.warning("database not ready (%s); retrying in %.1fs", error, delay)
+        time.sleep(delay)
+
+
+def boot_retry(run, *, label: str = "") -> str:
+    """Run a boot step that raises, retrying only while it fails transiently.
+
+    ``_locked_create_all`` is this for the modules that go through SQLAlchemy.
+    ``modules/sites_admin`` talks to psycopg2 directly and creates its schema
+    with its own SQL, so it had no way to share the budget and gave up on the
+    first connection error like everything else did.
+
+    Returns "" on success or the error text, and draws on the same
+    process-wide budget: nine modules cannot add up to nine waits.
+    """
+    attempt = 0
+    while True:
+        try:
+            run()
+            return ""
+        except Exception as exc:            # noqa: BLE001
+            error = f"{type(exc).__name__}: {exc}"
+            if not is_transient(exc) or attempt >= len(_BOOT_BACKOFF):
+                return error
+            delay = _BOOT_BACKOFF[attempt]
+            attempt += 1
+            if not _claim_boot_wait(delay):
+                return error
+            log.warning("%s: database not ready (%s); retrying in %.1fs",
+                        label or "boot", error, delay)
+            time.sleep(delay)
+
+
+def create_all(app, *, retry: bool = True) -> str:
     """Create any tables that don't exist yet, for Flask-SQLAlchemy models."""
     try:
         with app.app_context():
-            return _locked_create_all(db.engine, db.create_all)
+            return _locked_create_all(db.engine, db.create_all, retry)
     except Exception as exc:        # noqa: BLE001
         if _is_benign_ddl_race(exc):
             return ""
         return str(exc)
 
 
-def create_all_metadata(metadata, url: str | None = None) -> str:
+def create_all_metadata(metadata, url: str | None = None, *,
+                        retry: bool = True) -> str:
     """The same protection for modules that use a classic declarative ``Base``.
 
     Scans, Sales Builder and Ads call ``Base.metadata.create_all(engine)`` at
@@ -298,4 +471,78 @@ def create_all_metadata(metadata, url: str | None = None) -> str:
     itself.
     """
     engine = engine_for(url)
-    return _locked_create_all(engine, lambda: metadata.create_all(engine))
+    return _locked_create_all(engine, lambda: metadata.create_all(engine), retry)
+
+
+class BootProbe:
+    """A boot-time database verdict that a transient failure cannot make final.
+
+    A module holds one of these beside its ``DB_BOOT_ERROR`` and asks
+    ``error()`` where it used to read the string. A permanent verdict — no
+    DATABASE_URL, a schema Postgres refuses — comes back unchanged for ever,
+    which is exactly today's behavior. A transient one is re-asked, and the
+    module comes back by itself rather than staying down until somebody
+    notices and redeploys.
+
+    Three rules on it.
+
+    **The re-check is on a cooldown.** A database that is up and slow would
+    otherwise cost every visitor the full connect timeout in turn, which is the
+    per-visit pull ``hub/domain_purchase.py`` refuses to carry on a page load.
+
+    **Nothing in it may raise.** A probe that breaks the request it is
+    reporting on is worse than a stale verdict, so a re-check that itself
+    explodes keeps the answer it had and tries again after the next cooldown.
+
+    **A recovery is said out loud.** The failure it revises was logged (or, in
+    Scans' case, was not logged at all), and a module that quietly starts
+    working again leaves the deploy log reading as though it never did.
+    """
+
+    def __init__(self, rerun, *, cooldown: float = 30.0, label: str = ""):
+        self._rerun = rerun
+        self._cooldown = float(cooldown)
+        self._label = label or "database"
+        self._error = ""
+        self._transient = False
+        self._next_check = 0.0
+        self._lock = threading.Lock()
+
+    def record(self, error) -> str:
+        """Store what the boot DDL reported. Returns it, so a caller can log."""
+        text = str(error or "")
+        with self._lock:
+            self._error = text
+            self._transient = bool(text) and is_transient(text)
+            self._next_check = time.monotonic() + self._cooldown
+        return text
+
+    def transient(self) -> bool:
+        """Is the standing verdict one that could still answer differently?"""
+        with self._lock:
+            return self._transient
+
+    def error(self) -> str:
+        """The verdict as it stands, re-asking a transient one when due."""
+        with self._lock:
+            if not self._error or not self._transient:
+                return self._error
+            if time.monotonic() < self._next_check:
+                return self._error
+            # Claimed before the lock is released, so a burst of concurrent
+            # requests produces one re-check rather than one each.
+            self._next_check = time.monotonic() + self._cooldown
+            previous, rerun = self._error, self._rerun
+
+        try:
+            fresh = str(rerun() or "")
+        except Exception as exc:    # noqa: BLE001 — never break the caller
+            fresh = previous
+
+        with self._lock:
+            self._error = fresh
+            self._transient = bool(fresh) and is_transient(fresh)
+        if not fresh:
+            log.warning("%s: recovered after boot reported: %s",
+                        self._label, previous)
+        return fresh
