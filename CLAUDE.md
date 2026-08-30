@@ -6551,6 +6551,30 @@ line `hub/ad_builder_link.py` draws. Without that move, the gallery gains a row
 that opens today, 404s after the sweep, and was never openable by the client
 whose gallery it is in.
 
+**Except that the sweep was not removing it, and the paragraph above was the
+rule people reasoned from.** `retention.PRUNABLE` listed `google`, `amazon`,
+`cache` and `jobs`; `imagery/` was in neither that list nor the protected one,
+so every generated hero stayed on the volume for ever — on the one module whose
+whole job is to stop this service eating the disk its neighbours live on.
+Nothing errored in either direction: `keep` worked, the drafts simply also
+survived. A rule the code does not keep is worse than no rule.
+
+The platform directories were the same failure with a name on it. `render.ts`
+writes to `<outDir>/<platform>/<concept>` and the list here said google and
+amazon while `meta.json` sat in the registry being rendered — the **fourth**
+hardcoded platform list in this app, after the three `.filter(p => p ===
+'google' || p === 'amazon')` calls that dropped a Meta buy outright. It is read
+from `loadPlatforms()` now, so a platform added next month is swept without
+anybody remembering.
+
+And **`deliveries/` is named in `PROTECTED` rather than merely left out**,
+which is the difference between a decision and an oversight: an omission reads
+as something to fix, and the next person to widen this list takes the file
+behind the proof page's download button with it — the link a client opens
+whenever they like, turned into a 404 for the one person the tool is for.
+`tests/retention.test.ts` drives the clock rather than waiting on it, and holds
+all three.
+
 **The scan photographed their website and nobody was shown the photograph.**
 `website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
 so an operator judging brand colour on a dark canvas had to open the client's
