@@ -304,6 +304,8 @@ const server = http.createServer(async (req, res) => {
     url.pathname === '/build.html' ||
     url.pathname === '/projects' ||
     url.pathname === '/projects.html' ||
+    url.pathname === '/presets' ||
+    url.pathname === '/presets.html' ||
     url.pathname === '/diagnostics' ||
     (url.pathname.startsWith('/api/campaign') && url.pathname !== '/api/campaign-search') ||
     url.pathname.startsWith('/api/campaigns') ||
@@ -1900,6 +1902,17 @@ const server = http.createServer(async (req, res) => {
         if (!existing) return json(res, 404, { error: 'No such project' });
         return json(res, 200, projects.save({ ...existing, ...body, projectId: existing.projectId }));
       }
+    }
+
+    if (route === 'GET /presets' || route === 'GET /presets.html') {
+      const file = path.join(PUBLIC, 'presets.html');
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'Presets screen not built' });
+      // withBase, like every other page here. This screen is all root-absolute
+      // fetches, and under the Hub's mount `/api/presets` leaves the module
+      // entirely -- the page would load perfectly and no button would do
+      // anything, which is the failure src/basepath.ts exists to stop.
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(withBase(req, fs.readFileSync(file, 'utf8')));
     }
 
     if (route === 'GET /projects' || route === 'GET /projects.html') {

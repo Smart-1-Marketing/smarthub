@@ -1074,6 +1074,77 @@ def test_one_ad_structure_many_offers():
     check("nothing is invented for a blank cell", "Nothing is invented" in batch)
 
 
+def test_a_preset_can_actually_be_used():
+    """Saving one was built and using one was not.
+
+    The generate and batch routes existed and no screen called either, so a
+    preset could be saved and then reached only with curl -- the whole premise
+    of it, that the next ad for a client is a form fill, was unavailable to
+    anybody. A feature with no control is the failure this file counts six
+    tools for.
+    """
+    page = (MODULE / "public" / "presets.html")
+    check("there is a screen for them", page.exists())
+    if not page.exists():
+        return
+    html = page.read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+
+    check("it is served", "route === 'GET /presets'" in server)
+    check("and it is staff-only, like the API behind it",
+          "url.pathname === '/presets' ||" in server)
+    # The trap this module names about itself: a page of root-absolute fetches
+    # loads perfectly under the Hub's mount and no button does anything.
+    check("served through withBase, or no button works under the mount",
+          "withBase(req, fs.readFileSync(file, 'utf8'))" in
+          server.split("route === 'GET /presets'")[1].split("route === 'GET /projects'")[0])
+
+    check("one ad from a preset is reachable", "/generate" in html)
+    check("a CSV of them is reachable", "/batch" in html)
+    check("a chosen file is read into the box rather than posted unseen",
+          "Read into the box rather than posting straight off" in html)
+    check("the fields are keyed on the role, never the label",
+          "i.getAttribute('data-f')" in html and "data-f=\"' + esc(f.role)" in html)
+
+    # A batch that built nine of twelve and said only "9 built" is a folder
+    # nobody counts.
+    check("rejected rows are listed by the line the spreadsheet shows",
+          "was not built" in html and "Row ' + esc(r.line)" in html)
+    check("an ignored column is named, not silently dropped",
+          "Ignored column" in html)
+    check("a refused platform is named", "refusedPlatforms" in html)
+    check("a partial batch is amber rather than a clean success",
+          "level = 'warn';" in html)
+    check("a blank line is said to fall back rather than render empty",
+          "nothing here is invented" in html)
+
+    check("the row cap is documented where it is set",
+          "BATCH_MAX_ROWS" in (MODULE / ".env.example").read_text())
+
+
+def test_the_preset_screen_is_linked_rather_than_tiled_twice():
+    """It is the other half of one tool, not a second tool.
+
+    A second tile is two things to keep in step with only one of them ever
+    updated -- the note the social planner makes about its own queue. So it is
+    linked from the screens somebody is already on, and the start page is the
+    one that matters: whoever is filling that form in for the SECOND ad for a
+    client should not be filling it in at all.
+    """
+    start = (ROOT / "hub" / "templates" / "ad_builder_start.html").read_text()
+    check("the Hub's start page offers it", "/presets" in start)
+    check("beside the builds link rather than as a rival tile",
+          "Saved presets" in start)
+    for name in ("build.html", "projects.html", "presets.html"):
+        page = MODULE / "public" / name
+        if page.exists():
+            check(f"{name} carries the nav entry", 'href="/presets"' in page.read_text())
+    creative = (ROOT / "hub" / "templates" / "creative.html").read_text()
+    check("and there is still exactly one Display Ad Builder tile",
+          creative.count("/tools/display-ads/") == 1,
+          f"{creative.count('/tools/display-ads/')} tiles")
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()
