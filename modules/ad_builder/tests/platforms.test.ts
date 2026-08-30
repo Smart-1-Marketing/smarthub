@@ -57,7 +57,7 @@ test('an unknown platform is refused by name, never dropped in silence', () => {
   const { platforms, refused } = acceptPlatforms(['google', 'tiktok']);
   assert.deepEqual(platforms, ['google']);
   assert.deepEqual(refused, ['tiktok'],
-                   'the caller can say which name it did not recognise');
+                   'the caller can say which name it did not recognize');
 });
 
 test('"not sure - recommend" is a form answer, not a platform', () => {

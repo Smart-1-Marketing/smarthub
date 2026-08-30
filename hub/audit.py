@@ -13,13 +13,34 @@ _lock = threading.Lock()
 
 
 def _path() -> str:
+    """Where the activity log lives.
+
+    `AUDIT_LOG_PATH` still wins -- it names one file rather than a root, so it
+    is the more specific answer. Everything else defers to
+    `jsonstore.data_root()`, which is *the* place that decides where persistent
+    files live and whose own docstring names this failure: "every module had
+    its own copy of this expression. They all agreed, which is luck rather
+    than design: the moment one of them disagreed, its files would land
+    somewhere the backup sweep never looks."
+
+    This was that copy, and it did disagree -- on `HUB_DATA_DIR`, which
+    data_root() reads first and this did not read at all. Nothing moves on
+    Render, where HUB_DATA_DIR is unset and /var/data is mounted; what changes
+    is a test that sets it, which used to be handed the real shared log.
+
+    Never raises: this is the log, and a log that can break a boot is worse
+    than one in the wrong place.
+    """
     p = os.environ.get("AUDIT_LOG_PATH")
     if p:
         return p
-    # Prefer the persistent disk when mounted, fall back to local ./data.
-    if os.path.isdir("/var/data"):
-        return "/var/data/hub-audit.log.jsonl"
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hub-audit.log.jsonl")
+    try:
+        from . import jsonstore
+        return os.path.join(jsonstore.data_root(), "hub-audit.log.jsonl")
+    except Exception:  # noqa: BLE001 — fall back to the expression it replaced
+        if os.path.isdir("/var/data"):
+            return "/var/data/hub-audit.log.jsonl"
+        return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hub-audit.log.jsonl")
 
 
 def log(module: str, type_: str, actor: str | None = None, **extra) -> None:

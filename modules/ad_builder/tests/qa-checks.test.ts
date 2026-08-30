@@ -61,7 +61,7 @@ test('the same photograph at a size it covers is not reported', async () => {
   assert.equal(finding(out.qa, 'source-resolution')!.status, 'pass');
 });
 
-test('softness is never a fail — it is a judgement somebody may ship on', async () => {
+test('softness is never a fail — it is a judgment somebody may ship on', async () => {
   // 320px into Amazon's 1940x500 is as stretched as this gets. If even that
   // blocks delivery, the override click becomes routine and stops meaning
   // anything on the checks that must genuinely stop one.

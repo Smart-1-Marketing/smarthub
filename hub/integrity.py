@@ -565,7 +565,15 @@ def check_orphan_templates() -> list[dict]:
     for f in files:
         src = f.read_text(encoding="utf-8", errors="ignore")
         for ref in re.findall(r"{%-?\s*(?:extends|include|import|from)\s+[\'\"]([^\'\"]+)", src):
-            rendered.add(ref.split("/")[-1])
+            # ...but not its own name, the guard the bare-.html pass below has
+            # always had. Without it a template that documents its own include
+            # line makes itself invisible to this check -- which is what
+            # `_scorecard_stale_creative.html` did: its first line is a Jinja
+            # comment reading `drop {% include "_scorecard_stale_creative.html" %}
+            # into the dashboard`, so it registered itself as rendered and sat
+            # there included by nothing while this check reported no orphans.
+            if ref.split("/")[-1] != f.name:
+                rendered.add(ref.split("/")[-1])
         for ref in re.findall(r"[\w./-]+\.html", src):
             if ref.split("/")[-1] != f.name:            # not its own name
                 rendered.add(ref.split("/")[-1])
