@@ -3189,6 +3189,71 @@ onto a sibling's record through a shared parent, which is what
 `hub/client_groups.py` exists to do **on purpose and by opt-in**. The rows
 came live; the rule that decides whose they are did not move.
 
+**And `/qa` was the third reader on the export, behind two flags that made it
+look like a one-line swap.** Every client report on that page — Active
+Clients, No Dashboards, Lapsed, Lost by Partner, both Scorecards, the two
+Analytics reports — is built by grouping `_client_groups()`, which read
+`knack_data.products()` while Client 360 read the same object live. Same
+failure as the SEO section, one page later, and silent in the same way: a
+short book looks exactly like a complete one.
+
+**The reason it had stood is that pointing it at the live source would have
+made four reports go quiet rather than wrong.** `thisM` and `lastM` are
+Knack's own flags and they exist **only on the export** —
+`knack_products._row()` emits neither — so the swap alone would set both False
+on every row: "billed this month" reads $0 for the whole book, `lost_by_partner`
+reports that nobody has ever churned, `stale_90` loses the guard that keeps a
+client we are billing off the lapsed list, and `no_gtm` loses half the test
+that decides which clients are priority. Four confident wrong answers to fix
+one staleness problem, each of them an *empty* answer, which is the shape this
+page's own cache is built to refuse.
+
+**And the flags do not mean what the reports read them as.** They describe the
+month the export was generated **for**, and nothing recomputes them — so on a
+deployment whose export has slipped a month, "billed this month" is a true
+statement about a month that has passed, printed under a heading that says
+otherwise. `export_state()` has known that all along and no report on `/qa`
+asked it.
+
+`knack_data.ran_in_month()` — the neighbour of `is_running()` written for the
+Scorecards — answers the same question from the dates and the status, which
+live rows *do* carry, against the calendar rather than against whenever
+somebody last exported. On this deployment's own export the two agree
+**exactly**, 373 of 373 rows for this month and 510 of 510 for last, which is
+what makes this safe: every row of all nineteen reports is unchanged today,
+and the change only bites when the export slips or Knack answers. That is
+deliberately *not* the scorecard rebuild this file describes being removed —
+nothing here is compared against a differently-measured number; `live` is
+still `is_running()`'s union and only the two month flags moved, from being
+read to being computed.
+
+Three smaller rules. The two reports that read a row's flag **outside** the
+grouping (`no_dashboards`' product fallback, `no_gtm`'s priority test) go
+through the same computed test, or the fix covers the grouping and leaves two
+call sites behind — and `test_qa_reports.py` sweeps the **AST** of `hub/`
+for any product row's flag read, with `month_over_month()` named as the one
+allowed reader **and its reason**: the dashboard scorecard is deliberately
+measured against the export's own period, and that decision predates this one.
+`products_error()` asks **whichever source answered** rather than the export
+alone — those were one question while `/qa` read the export directly, and
+asking the export now would refuse to measure on the strength of a file
+nothing read. And the source is **named on the report**, appended once in
+`run()` from what `_products()` recorded rather than by a table of which
+reports read products: a report that asks gets the sentence, one that does not
+gets nothing, and there is no list to keep in step. `products_note()` moved to
+`knack_data` while it was at it — `hub/seo.py`'s own comment already said the
+wording was knack_data's while the string sat in seo, which is how a third
+screen comes to word it a third way.
+
+**What is deliberately not here is a memo.** `products_error()` and
+`_client_groups()` now ask within a few lines of each other and a scorecard
+asks four times, so a minute's cache of the shape `_WEB_CACHE` uses next door
+is the obvious addition. It was written and removed: it costs about a tenth of
+a second a day, because these reports are built once and held by
+`hub/report_cache.py`, and it buys a window in which a source swapped
+underneath is invisible to every caller — `test_seo_page.py` swaps one, and
+found the memo hiding it within minutes of it being added.
+
 **Websites now read live too, and the split between the two readers is the
 point.** `clients_registry.all_clients()` — which feeds client search, every
 client picker, Client 360's lookup and the social content link — built its
