@@ -386,6 +386,97 @@ except _sub.CalledProcessError as _exc:         # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
+section("what the plan is warned about, on both halves at once")
+# ---------------------------------------------------------------------------
+# `guardrailsJs()` was fixed to read the card's own per-product minimum and its
+# comment says "paid search is now $400 in one place and every document reads
+# it there". That was true of the screen a rep edits on and false of
+# `compute_guardrails()`, which held every SEARCH ENGINE MARKETING line to a
+# flat $1,500 -- so it warned about valid $500 and $1,000 search buys, quoting
+# a figure that is not that product's minimum, and said nothing at all about a
+# $500 Connected TV line whose real floor is $1,500 and which the IO refuses.
+#
+# Wrong in both directions, and the server's is the reading that rides the
+# quote payload into the proposals list, the dashboard nudges and
+# `ioDataPayload()`'s `guardrailWarnings` -- so the insertion order carried the
+# stale answer while the wizard showed the right one.
+
+_GUARD_PLANS = [
+    ("a $500 Connected TV line, which the IO refuses under $1,500",
+     {"months": 6, "budget": 500, "items": [
+         {"category": "OTT",
+          "product": "Connected TV - Targeted  - This is played on a TV",
+          "dollars": 500}]}),
+    ("a $500 paid search line, which the card sells from $400",
+     {"months": 6, "budget": 500, "items": [
+         {"category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
+          "product": "Pay Per Click", "dollars": 500}]}),
+    ("a $600 IP Targeted Display line, floor $1,000",
+     {"months": 6, "budget": 600, "items": [
+         {"category": "IP TARGETS", "product": "IP Targeted Display - New Movers",
+          "dollars": 600}]}),
+    ("a healthy plan, which is warned about nothing",
+     {"months": 6, "budget": 5000, "items": [
+         {"category": "DISPLAY", "product": "Category", "dollars": 2000},
+         {"category": "OTT",
+          "product": "Connected TV - Targeted  - This is played on a TV",
+          "dollars": 3000}]}),
+    ("a two-month flight",
+     {"months": 2, "budget": 2000, "items": [
+         {"category": "DISPLAY", "product": "Category", "dollars": 2000}]}),
+    ("five thin products",
+     {"months": 6, "budget": 2000, "items": [
+         {"category": "DISPLAY", "product": "Category", "dollars": 400}
+         for _ in range(5)]}),
+    ("Smart 1 building the creative with no fee on the plan",
+     {"months": 6, "budget": 2000, "creativeSource": "Smart 1", "items": [
+         {"category": "DISPLAY", "product": "Category", "dollars": 2000}]}),
+    # A one-time build is not a monthly buy. Judged against a monthly floor,
+    # an ordinary website-only proposal reported that the IO would refuse it.
+    ("a one-time website build, which has no monthly floor to be under",
+     {"months": 6, "budget": 350, "items": [
+         {"category": "WEB DEVELOPMENT", "product": "Smart 1 Site / 2-5 pages",
+          "dollars": 349.5, "basis": "one_time"}]}),
+]
+
+_mins = B.hub_rate_card.minimums_for_js()
+_gharness = (
+    _lift("function money") + _lift("function minimumFor")
+    + _lift("function guardrailsJs")
+    + "const MIN_BY_PRODUCT=%s,MIN_BY_CATEGORY=%s,MIN_MONTHLY_DEFAULT=%s;\n"
+    % (json.dumps(_mins.get("byProduct", {})), json.dumps(_mins.get("byCategory", {})),
+       json.dumps(_mins.get("default", B.hub_rate_card.MIN_MONTHLY_DEFAULT)))
+    + "const PLANS=" + json.dumps([p for _, p in _GUARD_PLANS]) + ";\n"
+    + "console.log(JSON.stringify(PLANS.map(st=>{S=st;S.items=st.items||[];"
+      "return guardrailsJs();})));\n")
+_gjs = os.path.join(_TMP, "guards.js")
+open(_gjs, "w", encoding="utf-8").write("var S;\n" + _gharness)
+try:
+    _gb = json.loads(_sub.run(["node", _gjs], capture_output=True, text=True,
+                              timeout=60, check=True).stdout)
+    for (_name, _state), _wiz in zip(_GUARD_PLANS, _gb):
+        check("%s: the server and the wizard say the same thing" % _name,
+              B.compute_guardrails(_state) == _wiz,
+              (B.compute_guardrails(_state), _wiz))
+except FileNotFoundError:                       # pragma: no cover
+    print("  skip node is not installed — the guardrails are unchecked")
+except _sub.CalledProcessError as _exc:         # pragma: no cover
+    check("the wizard's guardrails run", False, _exc.stderr[:400])
+
+# The minimum is the card's, per product, rather than a figure written here --
+# so a product whose floor moves on the card moves in both documents.
+check("a paid search line at $500 is not warned about, because the card sells "
+      "it from $400 and the flat $1,500 rule was never that product's minimum",
+      B.compute_guardrails(_GUARD_PLANS[1][1]) == [])
+check("and a $500 Connected TV line is, because $1,500 is",
+      any("1,500" in w for w in B.compute_guardrails(_GUARD_PLANS[0][1])),
+      B.compute_guardrails(_GUARD_PLANS[0][1]))
+check("neither half writes a minimum of its own",
+      "1500" not in re.sub(r"COMP_CONFIRM_UNDER=1500", "",
+                           tpl.split("function guardrailsJs")[1][:900]))
+
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

@@ -206,6 +206,10 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
           replacements. Each one plays ${esc(String(moving[0].loop))} times and
           stops, which is what Google requires. The still versions above are what
           runs everywhere an animated file is not accepted.</p>
+          <p class="moving-note"><b>Approving below covers the still set.</b>
+          Each animated version is signed off and sent to you on its own, as its
+          own file, so the download you get from this page will not contain
+          them. Tell us in the notes if you would like any of them changed.</p>
           <div class="grid">
             ${moving.map((a) => {
               const [w, h] = a.size.split('x').map(Number);
