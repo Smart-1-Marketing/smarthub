@@ -2709,6 +2709,14 @@ def create_hub_app() -> Flask:
         shared_ok = bool(auth.panel_password()) and auth.check_password(password)
 
         # ---- 2. real user account ----
+        #
+        # Every line in here talks to the database, and the guard around it
+        # caught ImportError alone -- so a Postgres that was briefly
+        # unreachable came back out of by_email() as an OperationalError,
+        # escaped the route, and the one page nobody can already be signed in
+        # to read answered "Internal Server Error". That is the same failure
+        # the deploy log shows four other modules recording quietly, except
+        # here it locks the whole company out and explains nothing.
         account = None
         if not shared_ok:
             try:
@@ -2725,6 +2733,28 @@ def create_hub_app() -> Flask:
                         return page(str(exc), last_email=email, code=401)
             except ImportError:
                 account = None
+            except Exception as exc:  # noqa: BLE001
+                # Deliberately NOT counted as a failed attempt: the password
+                # was never checked, and a throttle strike would lock somebody
+                # out of retrying over a fault that is not theirs.
+                app.config["HUB_LOGIN_DB_ERROR"] = f"{type(exc).__name__}: {exc}"
+                try:
+                    errors.log_exception("hub", exc)
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    audit.log("hub", "login_unavailable", actor=email or "?", ip=ip)
+                except Exception:  # noqa: BLE001
+                    pass
+                # 503 rather than 500, and said in words: "the server had an
+                # error" sends somebody to check their own password, which is
+                # the one thing that is definitely not wrong.
+                return page(
+                    "Sign-in can't reach the Hub's database right now, so your "
+                    "password could not be checked. Nothing is wrong with your "
+                    "account - try again in a minute. If it keeps happening, "
+                    "/login/health says what is broken without needing a login.",
+                    last_email=email, code=503)
 
         # ---- 3. legacy shared password (emergency access) ----
         if shared_ok:
@@ -5324,6 +5354,17 @@ def create_hub_app() -> Flask:
 
         # Plain-English verdict, so nobody has to interpret the booleans.
         problems = []
+        out["login_db_error"] = app.config.get("HUB_LOGIN_DB_ERROR") or None
+        if out["login_db_error"]:
+            # Recorded by the login route itself, so this names the failure a
+            # person actually met rather than only the one boot saw. A boot
+            # that went fine and a database that dropped out an hour later are
+            # different situations and only one of them is in HUB_DB_BOOT_ERROR.
+            problems.append(
+                "Sign-in could not reach the database when somebody last tried: "
+                + str(out["login_db_error"])
+                + " - the shared PANEL_PASSWORD path does not touch the "
+                  "database and is the way back in while that is true.")
         if app.config.get("HUB_USERS_REGISTERED") is False:
             problems.append(
                 "The user-accounts blueprint failed to register, so /signup "
