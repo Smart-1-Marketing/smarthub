@@ -3615,6 +3615,33 @@ alone: the heading is right about them, and reclassifying a generic "Paid
 Social Media Advertising" on our own reading of which platforms are
 video-first would be inventing.
 
+**And the heading was answering for a platform the kit has never heard of.**
+The same reading one step further on: `channels_for_product()` matches on the
+category as well as the product, and **Pinterest** is on the card with no name
+rule of its own — so "SOCIAL ADS - VIDEO" hit the `social ads?` pattern and a
+Pinterest buy was asked for **Facebook and Instagram units**. Not a near miss.
+The kit publishes no Pinterest section at all, Pinterest's feed is 2:3 and what
+was asked for is a 1:1 square and a 9:16 story, so a client who supplied
+*exactly what the requirement listed* delivers creative Pinterest crops — and
+nothing errors at either end, because the sizes are real sizes and the request
+looks like every other social requirement on the screen. Snapchat, TikTok, X
+and LinkedIn each carry a name rule above that pattern and were right all
+along; Pinterest was the one platform the category was answering for, which is
+why four of the five looked like proof the reading worked.
+
+It maps to **nothing** now, and that is the fix rather than a guess at the
+nearest platform: `required_units()` already says *the spec kit maps no unit
+for Pinterest* when it is handed an empty list, which is the rule this module
+works to everywhere else — a format the kit maps no unit for is *not measured*,
+never judged against the nearest channel. The gate is unchanged and still asks
+whether the creative exists; only the claim about **what** it has to be is
+withdrawn. `spec_disagreements()` skips an empty kit rather than reporting one,
+so this is silent to the check that would otherwise have caught it — which is
+why `test_proposal_spec.py` asserts it directly, and asserts the other four
+platforms still reach their own units: the tempting edit is to widen the entry
+to cover "the social ones", and that would take Snapchat's and TikTok's real
+sizes away to fix Pinterest's absent ones.
+
 **Two readings of one question, disagreeing in both directions.**
 `medium_of()` decides *whether* to ask for creative;
 `creative_specs.channels_for_product()` decides *what* to ask for. They

@@ -451,6 +451,36 @@ check("the genuinely video social products still ask for a spot",
       cn.medium_of({"category": "SOCIAL ADS - VIDEO",
                     "product": "Tik Tok - Paid Social Media Advertising"}) == cn.VIDEO)
 
+# Pinterest is on the card and is in no part of the kit, so the category was
+# answering for it: "SOCIAL ADS - VIDEO" matched the `social ads?` pattern and
+# a Pinterest buy was asked for Facebook and Instagram units -- 1:1 feed
+# squares and 9:16 stories against a platform whose feed is 2:3. A client who
+# supplied exactly what was asked for delivers creative Pinterest crops, with
+# every screen reading as correct while it happens.
+_pin = next(p for p in _rc_for_media.products() if "Pinterest" in p["product"])
+check("a Pinterest buy is still asked whether the creative exists",
+      cn.medium_of(_pin) in cn.GATED, cn.medium_of(_pin))
+check("but it is not judged against Meta's units",
+      cs.channels_for_product(_pin["product"], _pin["category"]) == [],
+      cs.channels_for_product(_pin["product"], _pin["category"]))
+_pin_req = cn.required_units({"items": [dict(_pin, dollars=2000)], "months": 3},
+                             cn.medium_of(_pin))
+check("and the screen says the kit maps no unit for it, rather than a size",
+      _pin_req["measured"] is False and "Pinterest" in _pin_req["note"],
+      _pin_req["note"])
+check("which is a statement about the kit: it publishes no Pinterest section",
+      not any("pinterest" in (u.get("channel") or "").lower() for u in cs.UNITS))
+
+# ...and the entry above the Meta rule must stay about Pinterest alone. The
+# other four platforms on that heading each have units of their own, and
+# widening one pattern to cover "the social ones" would take those away.
+for _plat, _chan in (("Snapchat", "snapchat"), ("Tik Tok", "tiktok"),
+                     ("Twitter", "x")):
+    _row = next(p for p in _rc_for_media.products() if _plat in p["product"])
+    check(f"{_plat} still reaches its own units",
+          cs.channels_for_product(_row["product"], _row["category"]) == [_chan],
+          cs.channels_for_product(_row["product"], _row["category"]))
+
 # ---------------------------------------------------------------------------
 section("the gate and the spec kit read the same product the same way")
 # ---------------------------------------------------------------------------
