@@ -1267,3 +1267,19 @@ jobs:
       # their own copy of it.
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
+
+      # Every module's work is attributable, and the two checks that say so
+      # both bite. /api/integrity's silent-module check tested whether the
+      # STRING "for_module(" appeared in a module's source, which binding the
+      # logger satisfies -- so seven modules imported hub.audit, bound it,
+      # wrapped it in a no-op fallback, wrote a comment above the import
+      # explaining why attribution mattered, and called it nowhere. Deleting a
+      # client's live website, connecting a domain, deploying a tag into
+      # somebody's Tag Manager container and compressing a client's documents
+      # were the least attributable actions in the Hub, behind a check
+      # reporting them clean. Its neighbour had the same shape one step on:
+      # check_work_kinds() could not see a module's own log() wrapper, so
+      # radio_promo logged client work that never reached the client record
+      # while fan_radio, doing the same job, did.
+      - name: Every module's work is attributable
+        run: python3 test_activity_logging.py
