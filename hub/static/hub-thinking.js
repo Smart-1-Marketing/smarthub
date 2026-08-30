@@ -302,8 +302,30 @@
       });
     } catch (e) { return handle; }
 
-    handle.stage = function (text) {
-      try { if (label && text) label.textContent = text; } catch (e) {}
+    /* A wait that changes what it is waiting on. `stage(text)` moves the
+       words; `stage(text, kind)` moves the glyph with them, because some
+       waits genuinely change hands halfway. The Display Ad Builder fetches
+       the client's own landing page and then asks a model to write from
+       it: one is somebody else's server and one is billed, they run back to
+       back, and drawing the dish for both says the model never started
+       while drawing the star for both bills them for a page fetch.
+
+       Two marks in sequence would say it too, and would read as two waits
+       rather than one that moved on -- and each would restart the elapsed
+       line, which on the longest wait on that screen is the number that
+       matters. So the box is kept and its glyph is swapped. An unknown kind
+       changes nothing rather than drawing the wrong one. */
+    handle.stage = function (text, nextKind) {
+      try {
+        if (label && text) label.textContent = text;
+        if (box && nextKind && KINDS.indexOf(nextKind) >= 0
+            && nextKind !== kind) {
+          var was = box.querySelector(".s1-think-svg");
+          if (was) box.replaceChild(mark(nextKind), was);
+          box.className = "s1-thinking s1-thinking-" + nextKind;
+          kind = nextKind;
+        }
+      } catch (e) {}
       return handle;
     };
     /* Stops and removes. Deliberately does not write "Done" or draw a tick:
