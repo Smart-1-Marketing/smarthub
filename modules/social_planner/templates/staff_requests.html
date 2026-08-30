@@ -96,20 +96,20 @@
   <div id="client-half" class="hidden">
 
     <div class="card">
-      <h2>Where it stands</h2>
+      <h2>Where it stands {{ help_dot('social.requests.turnaround') if help_dot is defined else '' }}</h2>
       <div class="counts" id="counts"></div>
       <p class="hint" id="turnaround"></p>
-      <p class="hint" id="suite"></p>
+      <p class="hint"><span id="suite"></span> {{ help_dot('social.requests.suite') if help_dot is defined else '' }}</p>
     </div>
 
     <div class="card">
-      <h2>The queue</h2>
+      <h2>The queue {{ help_dot('social.requests.queue') if help_dot is defined else '' }}{{ help_dot('social.requests.overdue') if help_dot is defined else '' }}{{ help_dot('social.requests.duplicate') if help_dot is defined else '' }}</h2>
       <div class="grid3" style="margin-bottom:14px">
         <div><label class="f" for="fLoc">Location</label>
           <select id="fLoc"><option value="">All locations</option></select></div>
         <div><label class="f" for="fStatus">Status</label>
           <select id="fStatus"></select></div>
-        <div><label class="f" for="fBatch">Promote into</label>
+        <div><label class="f" for="fBatch">Promote into {{ help_dot('social.requests.promote') if help_dot is defined else '' }}</label>
           <select id="fBatch"><option value="">Newest open plan</option></select></div>
       </div>
       <table><thead><tr>
@@ -119,7 +119,7 @@
     </div>
 
     <div class="card">
-      <h2>Their link</h2>
+      <h2>Their link {{ help_dot('social.requests.link') if help_dot is defined else '' }}</h2>
       <div id="links"></div>
       <p style="margin:12px 0 0">
         <button class="btn sec sm" id="revoke">Turn this client's link off</button>
@@ -150,7 +150,7 @@
     </div>
 
     <div class="card">
-      <h2>Ideas</h2>
+      <h2>Ideas {{ help_dot('social.requests.ideas') if help_dot is defined else '' }}</h2>
       <p style="margin:0 0 12px">
         <button class="btn sec" id="genIdeas">Suggest a batch</button>
         <span class="msg" id="ideaMsg"></span></p>

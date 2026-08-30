@@ -46,6 +46,69 @@ def _h(*a, **kw) -> Help:
 
 REGISTRY: list[Help] = [
 
+    # ---------------- Social content requests ----------------
+    # This screen shipped with no explanation on it at all, which is exactly
+    # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
+    # all working, and nothing on the page opting into any of it. Every key
+    # below is placed by modules/social_planner/templates/staff_requests.html;
+    # test_social_content.py asserts the two stay in step, because a bubble
+    # whose key is not in this registry is removed client-side and reads as
+    # helped from the template while showing nothing on the page.
+    _h("social.requests.queue", "One queue, every location",
+       "A client account is one social presence and often several shops. "
+       "Everybody at the client opens the same link, says which location they "
+       "are, and their request lands here — instead of in whichever inbox "
+       "they happened to know. The location is how you sort it, not where it "
+       "gets posted: one shared page is what the client has."),
+    _h("social.requests.overdue", "Overdue, and what it is not",
+       "The day the client asked for has passed and the request still is not "
+       "scheduled. A request that said \u201cas soon as you can\u201d is never "
+       "overdue — it named no day, and treating that as today would turn "
+       "every one of them red by tomorrow. Declined and duplicate requests "
+       "drop out too: they have been answered."),
+    _h("social.requests.duplicate", "Possible duplicate",
+       "Another open request from this same client wants something live in "
+       "an overlapping window. It is a flag and nothing else — as often two "
+       "locations legitimately both wanting that week as it is one ask sent "
+       "twice, and nothing here can tell them apart. Nothing is merged or "
+       "declined automatically; you confirm it or clear it. It never pairs "
+       "across clients: two businesses wanting the same Friday is a Friday."),
+    _h("social.requests.link", "Their link",
+       "One signed link per client account, not one per location — a link "
+       "each would be the inbox-per-shop arrangement this replaces. It is "
+       "derived from the client's name rather than stored, so it is the same "
+       "string every time and there is nothing to lose. Turning it off stops "
+       "all four of their pages at once, including any copy already pasted "
+       "on their intranet."),
+    _h("social.requests.turnaround", "The turnaround line",
+       "What the client's confirmation screen is allowed to promise. It is "
+       "measured from requests actually triaged, and until there are a few "
+       "it says so rather than quoting a number nobody has checked — a "
+       "figure invented here is a commitment made on the client's behalf."),
+    _h("social.requests.promote", "Promote into a plan",
+       "Turns the request into a slot on that client's month, carrying its "
+       "copy, its photographs and its date across, and joins the two so the "
+       "post says which request it came from. It will not invent a plan: "
+       "with no month built it refuses and names the step, because the "
+       "channels and the post mix belong to the plan rather than to one "
+       "request. What the client typed also becomes authorized text, so "
+       "their own offer is not flagged as invented."),
+    _h("social.requests.ideas", "Ideas and the weighting",
+       "One-line ideas the client swipes Like or Pass on. The weighting is "
+       "liked \u00f7 (liked + passed + 1), which you can check against the two "
+       "counts beside it, and it only ever decides which kinds of post get "
+       "offered next — never the words of anything. A share of each batch "
+       "goes to kinds nobody has answered on, or the mix converges on "
+       "whatever they liked first and stops learning."),
+    _h("social.requests.suite", "Pushing to Smart 1 Suite",
+       "Posting from here needs the social-media-posting.write scope on the "
+       "Suite app, and HighLevel grants what it recognizes at consent "
+       "without saying anything about the rest — so it is checked before a "
+       "push rather than discovered by one. Until the agency re-consents, "
+       "the CSV export loads the same plan into Social Planner's Bulk "
+       "Upload; the line here says which of the two you are being offered."),
+
+
     # ---------------- Proposal Builder: the reach panel ----------------
     # Four numbers sat above a target area with nothing saying what any of
     # them counted, so "addressable audience" got read as "people who will
@@ -672,6 +735,24 @@ REGISTRY: list[Help] = [
        "two-second average would be three cuts a second, which is a strobe, not "
        "a bumper.",
        step=2, selector="#abcd-rows"),
+    _h("commercial_builder.blueprint.compliance", "Which rules this copy puts in play",
+       "This tool renders finished, deliverable video, and some copy engages "
+       "published advertising rules. A payment, a rate or \u201cno money "
+       "down\u201d engages Truth in Lending. A testimonial engages the FTC\u2019s "
+       "endorsement guides. A law firm, a broker-dealer or a brewery brings its "
+       "own regime with it. Each row names the rule, the authority behind it and "
+       "what it requires \u2014 so the conversation happens while the script is "
+       "still being written rather than after the spot has run. "
+       "\u201cEngaged by\u201d quotes the words that put it in play, so you can "
+       "find them in the script. "
+       "It never says the spot is compliant, and it cannot: that is a judgment "
+       "about a specific ad in a specific state and it belongs to the client\u2019s "
+       "counsel or compliance officer. Nothing here blocks a render either. What "
+       "it asks for is one acknowledgment before a rendered cut is FILED \u2014 a "
+       "record that these were put in front of a named person, which is why a "
+       "shared login cannot give one. Rewrite the offer afterwards and that "
+       "sign-off is retired, because it was a statement about the copy as it was.",
+       step=3, selector="#compliance-card"),
     _h("commercial_builder.blueprint.checks", "The same checks Render runs",
        "They were only on the last step, and every one of them is about "
        "something on this screen: a scene with no footage, a clip shorter than "
@@ -681,7 +762,7 @@ REGISTRY: list[Help] = [
        "buying this inventory work from \u2014 and it is checked on the plan, before "
        "a frame exists, because length and aspect ratio are what a platform "
        "refuses creative over and both are decided here.",
-       step=3, selector="#run-checks-btn"),
+       step=4, selector="#run-checks-btn"),
     _h("commercial_builder.blueprint.narration", "A longer spot needs more script, not longer pauses",
        "The script writer sizes the read once, against the word budget for this "
        "length, and stops \u2014 which is why a :60 can come back reading like a :30 "
@@ -689,7 +770,7 @@ REGISTRY: list[Help] = [
        "has, and re-measures. When there is no room left it says so rather than "
        "quietly doing nothing: shorten a line first, or build a longer cut. A "
        "scene you have locked is never rewritten under you.",
-       step=4, selector="#expand-narration-btn"),
+       step=5, selector="#expand-narration-btn"),
     _h("commercial_builder.blueprint.assets", "Make a frame, then animate it",
        "The two AI buttons are one job in order, not two ways of doing the same "
        "thing. Runway animates a starting image and has no usable text-only "
@@ -699,7 +780,7 @@ REGISTRY: list[Help] = [
        "than 10 seconds is refused rather than handed a clip that stops early. "
        "Footage we already own is listed first and badged OWNED: it costs "
        "nothing and needs no license check.",
-       step=5, selector=".cb-step-pair"),
+       step=6, selector=".cb-step-pair"),
 
     _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",
        "Ranked against the account\u2019s own voices by the same casting rules the "

@@ -412,7 +412,7 @@ def job_index_video_backlog(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
-def job_describe_client_uploads():
+def job_describe_client_uploads(app) -> dict:
     """Describe another batch of the photographs clients have sent us.
 
     The same shape as the video sweep above and for the same reason: a client
@@ -432,6 +432,47 @@ def job_describe_client_uploads():
         return vision.describe_backlog(actor="scheduler")
     except Exception as exc:                            # noqa: BLE001
         return {"ok": False, "error": type(exc).__name__}
+
+
+def job_social_idea_batches(app) -> dict:
+    """Offer another week's ideas to the clients who are actually swiping.
+
+    `ideas.generate()` was reachable only from a button in the staff queue, so
+    a client who opened their swipe link saw "Nothing to look at just yet" —
+    for ever, unless a strategist had remembered that week. A link nobody has
+    a reason to open is a link nobody opens, and this one is the client's own.
+
+    Hourly ticks, weekly per client: the interval is decided inside
+    `ideas.sweep()` from each client's own last sweep rather than from this
+    job's schedule, so a redeploy cannot offer two batches in a day and a
+    leader that restarted through the window picks the week up rather than
+    skipping it in silence. Same shape as `purchased_domains`, for the same
+    reason.
+
+    Bounded on both axes — eight clients and three minutes — because these are
+    model calls, they share this one thread, and a call has no useful ceiling.
+    Whatever is left is simply due again next hour.
+
+    Safe to run late, skip and repeat, as the job contract requires: a client
+    is marked swept when they are offered a batch, so a double run generates
+    nothing twice.
+    """
+    try:
+        from modules.social_planner import ideas
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context, because the client lookup this enriches a batch with
+        # reads the shared engine — the flask.g trap that had the Google sweep
+        # reporting an empty book from a background thread.
+        result = ideas.sweep(actor="scheduler")
+    if result.get("ok") and not result.get("generated"):
+        # Nothing due is a *state*, not a failure, and an unconfigured Hub
+        # would otherwise write an identical line into the activity log every
+        # hour for ever — the noise hub/google_index.py had to learn to stop
+        # making.
+        return {"skipped": f"no client due ({result.get('clients', 0)} on file)"}
+    return result
 
 
 JOBS = {
@@ -455,6 +496,8 @@ JOBS = {
                           "Describe another batch of the video background library."),
     "picker_describe":   (60, job_describe_client_uploads,
                           "Describe another batch of the photos clients sent us."),
+    "social_ideas":      (60, job_social_idea_batches,
+                          "Offer another week's ideas to clients who are swiping."),
 }
 
 

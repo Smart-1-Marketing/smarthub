@@ -460,6 +460,20 @@ ok("and accept() is the only thing that touches it",
    "def accept" in _vsrc and
    _vsrc.index("def accept") < _vsrc.index("image.alt_text ="))
 
+# The sweep is a scheduler job, and `_run_job` calls every one of them as
+# `fn(app)`. A job written without that argument raises TypeError on every
+# single run, and the only trace is one line in the activity log nobody is
+# reading — so the signature is asserted for all of them rather than for the
+# one added here.
+import ast as _ast                                              # noqa: E402
+_sched = _ast.parse((ROOT / "hub" / "scheduler.py").read_text(encoding="utf-8"))
+_jobs = {n.name: [a.arg for a in n.args.args] for n in _ast.walk(_sched)
+         if isinstance(n, _ast.FunctionDef) and n.name.startswith("job_")}
+ok("the upload sweep is registered as a scheduler job",
+   "job_describe_client_uploads" in _jobs)
+_wrong = {k: v for k, v in _jobs.items() if v != ["app"]}
+ok("and every job takes the argument the runner passes", not _wrong, str(_wrong))
+
 _tsrc = (ROOT / "hub" / "request_triage.py").read_text(encoding="utf-8")
 ok("triage never writes to Knack",
    not any(_calls_in(_tsrc, fn) for fn in

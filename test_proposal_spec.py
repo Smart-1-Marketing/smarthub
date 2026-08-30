@@ -185,6 +185,18 @@ CASES = [
     ("MOBILE ONLY", "Geo-Fence", cn.DISPLAY),
     ("LOCATION LOOKBACK", "Brand Affinity", cn.DISPLAY),
     ("IP TARGETS", "IP Targeted Video - List is supplied", cn.VIDEO),
+    # The card files IP targeting under a heading called "Display & Video",
+    # and that heading rides in every row's `label`. Read as words about the
+    # product it made all three display products video, which asks a client
+    # for a TV spot to run a banner buy.
+    ("IP TARGETS", "IP Targeted Display - New Movers", cn.DISPLAY),
+    ("IP TARGETS", "IP Targeted Display - Venue Replay", cn.DISPLAY),
+    # These three answered OTHER, and OTHER is not a medium -- it is the
+    # Creative step never mentioning the line at all.
+    ("MOBILE ONLY", "RON (Run of Network)", cn.DISPLAY),
+    ("MOBILE ONLY", "In-Store Visits", cn.DISPLAY),
+    ("EMAIL MARKETING", "List Provided Email", cn.EMAIL),
+    ("SMART 1 SIGNAGE", "Digital Outdoor & Indoor Signage", cn.DOOH),
 ]
 for category, product, want in CASES:
     got = cn.medium_of({"category": category, "product": product})
@@ -370,8 +382,18 @@ for token in ("const EXPLICIT_MEDIUM=", "const CATEGORY_MEDIUM=", "function medi
                         js_source.find("\n/*", i + 10)) if j > 0]
     extract += js_source[i:min(ends)] + "\n"
 
-harness = (extract + "\nconst C=" + json.dumps([{"category": c, "product": p}
-                                                for c, p, _ in CASES]) + ";\n"
+# Every product on the real card, not a fixture. A hand-written list proves
+# the halves agree about the rows somebody thought to write down, which is
+# exactly the set that was already right: the four the label bleed broke were
+# not in it. This is also self-maintaining -- a product added to the card is
+# covered without anybody remembering to add it here.
+from hub import rate_card as _rc_for_media                         # noqa: E402
+
+_ALL = [{"category": p["category"], "product": p["product"],
+         "description": p["description"], "label": p["label"]}
+        for p in _rc_for_media.products()] \
+    + [{"category": c, "product": p} for c, p, _ in CASES]
+harness = (extract + "\nconst C=" + json.dumps(_ALL) + ";\n"
            "console.log(JSON.stringify(C.map(mediumOf)));\n")
 js_path = os.path.join(_TMP, "medium.js")
 open(js_path, "w", encoding="utf-8").write(harness)
@@ -379,15 +401,66 @@ try:
     out = subprocess.run(["node", js_path], capture_output=True, text=True,
                          timeout=30, check=True).stdout
     js_media = json.loads(out)
-    py_media = [cn.medium_of({"category": c, "product": p}) for c, p, _ in CASES]
+    py_media = [cn.medium_of(row) for row in _ALL]
     check("the wizard classifies every rate-card product exactly as the server does",
           js_media == py_media,
-          [f"{c}/{p}: js={j} py={y}" for (c, p, _), j, y
-           in zip(CASES, js_media, py_media) if j != y])
+          [f"{r.get('category')}/{r.get('product')}: js={j} py={y}"
+           for r, j, y in zip(_ALL, js_media, py_media) if j != y][:8])
 except FileNotFoundError:
     print("  skip node is not installed — wizard/server agreement unchecked")
 except subprocess.CalledProcessError as exc:
     check("the wizard's creative helpers run", False, exc.stderr[:300])
+
+# ---------------------------------------------------------------------------
+section("the gate and the spec kit read the same product the same way")
+# ---------------------------------------------------------------------------
+# Two readings of one question -- whether to ask for creative, and what to ask
+# for -- disagreed on 25 of 90 products, in both directions, and silently:
+# each screen was internally consistent, so the rep was asked for one thing
+# and judged against another.
+from hub import creative_specs as cs                               # noqa: E402
+
+_dis = cn.spec_disagreements()
+check("the creative gate and the spec kit agree on every product",
+      _dis == [], [f"{d['category']}/{d['product'][:30]}: gate={d['gate']} kit={d['kit']}"
+                   for d in _dis][:8])
+
+# ...and the check can go red, or it is furniture. Read OTT as audio and the
+# two Connected TV products must be named.
+_saved_cat = dict(cn.CATEGORY_MEDIUM)
+try:
+    cn.CATEGORY_MEDIUM["ott"] = cn.AUDIO
+    _bit = cn.spec_disagreements()
+finally:
+    cn.CATEGORY_MEDIUM.clear()
+    cn.CATEGORY_MEDIUM.update(_saved_cat)
+check("and a wrong reading is reported rather than passing quietly",
+      any("Connected TV" in d["product"] for d in _bit), _bit[:3])
+check("with both sides of the disagreement named, not just the count",
+      bool(_bit) and {"gate", "kit"} <= set(_bit[0]), _bit[:1])
+
+# The four products whose names identify nothing must reach a *video* unit.
+# They are named in EXPLICIT_MEDIUM so the gate asks for a spot; the kit has
+# to agree, or the rep is asked for a spot and handed a list of banner sizes.
+for _name in cn.EXPLICIT_MEDIUM:
+    _row = next((p for p in _rc_for_media.products()
+                 if p["product"].lower() == _name), None)
+    if not _row:
+        continue
+    _units = cs.units_for_product(_row["product"], _row["category"])
+    check(f"{_row['product'][:34]!r} is asked for video, not banners",
+          bool(_units) and all(u.get("kind") == "video" for u in _units),
+          [u.get("name") for u in _units][:4])
+
+# The same product name under DIGITAL RADIO is the $18 CPM audio buy, and the
+# rule above must not have reached it.
+_radio = next((p for p in _rc_for_media.products()
+               if p["product"].lower().startswith("programmatic - targeted")
+               and p["category"] == "DIGITAL RADIO"), None)
+if _radio:
+    check("but its DIGITAL RADIO twin still asks for a spot",
+          cs.channels_for_product(_radio["product"], _radio["category"]) == ["digital_radio"],
+          cs.channels_for_product(_radio["product"], _radio["category"]))
 
 # ---------------------------------------------------------------------------
 section("one minimum rule, read by both documents")

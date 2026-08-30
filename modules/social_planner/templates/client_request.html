@@ -134,6 +134,13 @@ el("file").addEventListener("change", function(){
   if (!files || !files.length) { return; }
   var body = new FormData(), i;
   for (i = 0; i < files.length; i++) { body.append("file", files[i]); }
+  // The location travels with the file, so the client's gallery says which
+  // shop a photograph came from. A gallery of unlabelled photos from a
+  // five-location client is one nobody can pick from.
+  var picked = el("loc");
+  body.append("location_label", picked.value === "__other"
+    ? el("locOther").value
+    : ((picked.options[picked.selectedIndex] || {}).text || ""));
   el("fileNote").textContent = "Uploading " + files.length + "…";
   fetch("upload", {method:"POST", body:body}).then(function(r){ return r.json(); })
     .then(function(d){

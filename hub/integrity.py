@@ -509,6 +509,37 @@ def check_stale_json_exemptions() -> list[dict]:
     } for rel in jsonstore.stale_exemptions(ROOT)]
 
 
+def check_creative_spec_disagreement() -> list[dict]:
+    """Products the creative gate and the spec kit read as different mediums.
+
+    Two readings of one question: `creative_needs.medium_of()` decides whether
+    to ask a client for creative, and `creative_specs.channels_for_product()`
+    decides what to ask for. They drifted apart on 25 of 90 products, in both
+    directions — display products gated as video, and whole categories (mobile
+    display, email, signage) gated as nothing at all — and every one of them
+    was silent, because each screen is internally consistent on its own.
+
+    High severity for the same reason `creative_medium_drift` is: the failure
+    is a launch date, and nothing anywhere looks wrong until the files arrive.
+    """
+    try:
+        from . import creative_needs
+        rows = creative_needs.spec_disagreements()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/creative_needs.py", "module": "sales_builder",
+        "detail": f'"{r["product"]}" under {r["category"]} is {r["gate"]} to the '
+                  f'creative gate and {"/".join(r["kit"])} to the spec kit. One '
+                  f'decides whether the client is asked for creative and the '
+                  f'other what they are asked for, so the rep is asked for one '
+                  f'thing and judged against another.',
+        "fix": "Reconcile CATEGORY_MEDIUM/EXPLICIT_MEDIUM in hub/creative_needs.py "
+               "with _PRODUCT_CHANNELS in hub/creative_specs.py, or name the pair "
+               "in SPEC_AGREE_EXEMPT with the reason both readings are right.",
+    } for r in rows]
+
+
 def check_creative_medium_drift() -> list[dict]:
     """Rate-card products the creative gate names by hand, that no longer exist.
 
@@ -673,6 +704,8 @@ CHECKS = [
      "medium", check_stale_json_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
+    ("creative_spec_disagreement", "Creative gate and spec kit disagree", "high",
+     check_creative_spec_disagreement),
     # High, as the note that stood here asked for once the list was empty. It
     # went in at medium with seven pre-existing findings it did not cause,
     # because a check switched on red is a check somebody turns off; the list
