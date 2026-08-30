@@ -11,7 +11,7 @@ import sharp from 'sharp';
 import type { Box, Brand, ColorRef, CopySet, HeroSet, SizeLayout, TextBox } from './types';
 import { resolveFont, textPath } from './fonts';
 import { baselines, countWords, fitText, xForAlign, type FitResult } from './typeset';
-import { hexLuminance } from './raster';
+import { hexLuminance, regionLuminance } from './raster';
 
 export interface ComposeInput {
   layout: SizeLayout;
@@ -274,6 +274,57 @@ export function reverseLogoOnPanel(
   // Mid-point on relative luminance. A panel darker than this reads white ink
   // better than dark ink, which is the whole question being asked.
   return dark(layout.background);
+}
+
+/**
+ * The same question, answered from the pixels that will actually be behind the
+ * mark rather than from the layout that describes them.
+ *
+ * reverseLogoOnPanel() reads roles and panels. That is right for a flat panel
+ * and blind to a photograph: T03 is "Full background with copy panel", its
+ * hero box is the top half of the canvas, and its logo sits *inside* that box
+ * on twelve sizes -- so the layout says `light`, the mark lands on the picture,
+ * and the full-colour logo goes onto a photo at 1.5:1. The old
+ * `background === 'dark'` test made the identical choice, so this is not new;
+ * it was simply invisible while logo-contrast averaged the mark into one tone.
+ *
+ * Measuring costs nothing here. The background pass -- no glyphs, no logo --
+ * is rendered on both paths already, because QA samples the same buffer for
+ * text contrast; this only asks for it before the composite instead of after.
+ * It is one rule covering every case the three special cases covered and the
+ * hero besides, so a template that puts the logo somewhere new is right
+ * without anybody adding a fourth branch.
+ *
+ * The region sampled is `layout.logo` -- the box the layout reserves -- not
+ * the fitted rect, which depends on the aspect ratio of the very file being
+ * chosen. Sampling the reserved box keeps the answer independent of the
+ * question.
+ */
+export async function reverseLogoOnBackdrop(
+  backgroundPng: Buffer,
+  layout: SizeLayout,
+  scale: number,
+  brand: Brand,
+  input: { backgroundImage?: string; backgroundOverlayColor?: string; backgroundOverlay?: number } = {},
+): Promise<boolean> {
+  const lb = layout.logo;
+  if (lb) {
+    try {
+      const lum = await regionLuminance(backgroundPng, {
+        left: lb.x * scale,
+        top: lb.y * scale,
+        width: lb.w * scale,
+        height: lb.h * scale,
+      });
+      // Same midpoint the flat-panel rule uses, so the two cannot disagree
+      // about a panel they both can see.
+      if (Number.isFinite(lum)) return lum < 0.5;
+    } catch {
+      // A backdrop we could not read is not a dark one. Fall through to the
+      // layout, which is the answer this had before it could measure.
+    }
+  }
+  return reverseLogoOnPanel(layout, brand, input);
 }
 
 /**

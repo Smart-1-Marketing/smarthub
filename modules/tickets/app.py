@@ -333,6 +333,15 @@ def api_fieldmap():
         "client_fieldmap": body.get("client_fieldmap") or {},
         "saved_at": datetime.now().isoformat(),
     })
+    # The one write this module has: the field map decides what every column
+    # in every ticket report means, so changing it silently re-points the
+    # whole report at different Knack fields. _audit was bound at the top of
+    # this module and called nowhere, so that change was unattributable --
+    # which on a config nobody re-reads is how a report comes to be wrong
+    # with no way back to who changed it. Plain reads, never an expression.
+    _audit("fieldmap_saved", tickets_object=body.get("tickets_object") or "",
+           clients_object=body.get("clients_object") or "",
+           fields_mapped=len(fieldmap))
     saved["ok"] = True
     return jsonify(saved)
 

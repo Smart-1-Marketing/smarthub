@@ -271,6 +271,17 @@ def process_image():
         filename = f"{stem}.{extension}"
         mime = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif"}[output_format]
 
+        # The row this module never wrote: _audit was imported, wrapped in a
+        # no-op fallback and called nowhere, so every image it has resized was
+        # work nobody could point to. Written here, after the bytes exist, so
+        # an upload that failed Pillow is not filed as delivered work -- and
+        # every value is a plain read rather than an expression, because
+        # audit.log swallows what it is given and cannot save a caller that
+        # raises while building its own arguments.
+        _audit("image_optimized", output_format=output_format,
+               width=size[0], height=size[1], optimized=optimize,
+               output_bytes=len(result), animated=animated)
+
         return send_file(
             io.BytesIO(result),
             mimetype=mime,

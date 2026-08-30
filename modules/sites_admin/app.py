@@ -762,6 +762,14 @@ def project_action(pid, action):
             set_lifecycle(pid, "")
         else:
             abort(404)
+        # Suspending, cancelling or reactivating changes whether a client's
+        # website is serving. _audit was bound at the top of this module and
+        # called nowhere, so none of that was attributable. Logged inside the
+        # try, after the Simvoly call returned, so a refused change is not
+        # recorded as a made one.
+        _audit(f"project_{action}", project=pid,
+               client=p.get("internal_client_name") or "",
+               site=p.get("name") or "")
         try:
             sync_project(pid)
         except Exception:
@@ -782,6 +790,10 @@ def connect_domain(website_id):
     domain = request.form.get("domain", "").strip()
     try:
         client.connect_domain(website_id, domain)
+        # Logged after Simvoly accepted it, so a refused connect is not
+        # recorded as a made one.
+        _audit("domain_connected", website=website_id, domain=domain,
+               project=w.get("project_id") or "")
         sync_project(w["project_id"])
         flash(f"Domain connection requested for {domain}.", "success")
     except Exception as exc:
@@ -799,6 +811,8 @@ def disconnect_domain(website_id):
     domain = request.form.get("domain", "").strip() or w.get("domain", "")
     try:
         client.disconnect_domain(website_id, domain)
+        _audit("domain_disconnected", website=website_id, domain=domain,
+               project=w.get("project_id") or "")
         sync_project(w["project_id"])
         flash(f"Domain disconnect requested for {domain}.", "success")
     except Exception as exc:
@@ -844,6 +858,10 @@ def delete_website(website_id):
         return redirect(url_for("project_detail", pid=w["project_id"]))
     try:
         client.set_website_status(website_id, "DELETED")
+        # Deleting a client's live site is the least reversible thing this
+        # module does and was the least attributable.
+        _audit("website_deleted", website=website_id,
+               domain=w.get("domain") or "", project=w.get("project_id") or "")
         sync_project(w["project_id"])
         flash("Website/funnel delete request completed.", "success")
     except Exception as exc:

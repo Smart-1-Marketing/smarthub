@@ -126,6 +126,19 @@ def optimize_pdf():
             optimized_size = original_size
         savings = ((original_size - optimized_size) / original_size * 100) if original_size else 0.0
 
+        # The row this module has always described in its own docstring and
+        # never written: _audit was imported, wrapped in a no-op fallback and
+        # called nowhere, so every document it has ever compressed was work
+        # nobody could point to. Logged here rather than at the top of the
+        # route, so a PDF that failed Ghostscript is not filed as delivered
+        # work -- the rule approve_render arrived at for a mock render.
+        #
+        # Every value is a plain read, never an expression: audit.log swallows
+        # what it is *given*, and a caller that raises while building its own
+        # arguments is the failure that 500'd every Commercial Builder render.
+        _audit("pdf_optimized", quality=quality, original_bytes=original_size,
+               optimized_bytes=optimized_size, saved_percent=round(savings, 1))
+
         @after_this_request
         def _remove(response):
             _cleanup()

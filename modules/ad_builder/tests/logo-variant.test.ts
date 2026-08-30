@@ -119,6 +119,38 @@ test('the background pass QA measures against no longer contains the logo', asyn
     'the rect is still published either way -- it is the region to sample');
 });
 
+test('a logo over a hero photograph is decided from the photograph', async () => {
+  const campaign = example();
+  const bella = JSON.parse(fs.readFileSync(path.join(ROOT, 'campaigns/bella-vista-catering.json'), 'utf8'));
+  const t03 = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/templates/T03.json'), 'utf8'));
+
+  // T03 is "Full background with copy panel": its hero box is the top of the
+  // canvas and its logo sits inside that box, so the layout says `light` while
+  // the mark lands on the picture. reverseLogoOnPanel() cannot see that -- it
+  // reads roles and panels -- and the navy copy panel it CAN see is nowhere
+  // near the logo.
+  const layout = t03.sizes['300x250'];
+  const lb = layout.logo, hb = layout.hero;
+  assert.equal(layout.background, 'light', 'the canvas role is the light one');
+  assert.ok(lb.x >= hb.x && lb.y >= hb.y && lb.y + lb.h <= hb.y + hb.h,
+    'and the logo sits inside the hero box');
+  assert.equal(reverseLogoOnPanel(layout, campaign.brand), false,
+    'so the layout-only rule reaches for the full-colour logo');
+
+  // Measured against what actually renders, the answer changes.
+  const concept = {
+    conceptId: 'H', name: 'hero', layoutFamily: 'T03',
+    hero: bella.concepts[0].hero,
+    copy: { default: { headline: 'Solar Installation', supporting: 'Financing available.', cta: 'Get Offer' } },
+  } as any;
+  const out = await renderPreview({
+    brand: campaign.brand, concept, platform: 'google', size: '300x250' as SizeKey, assetRoot: ROOT,
+  });
+  const finding = out.qa.find((f) => f.check === 'logo-contrast');
+  assert.equal(finding?.status, 'pass',
+    'the mark reads against the photo it is actually printed on');
+});
+
 test('a two-tone logo is measured per pixel, not averaged into a tone it has nowhere', async () => {
   const primary = path.join(ROOT, 'assets/brand/icon-solar-primary.png');
   const navyPanel = 0.033;                       // the resolved `primary` panel
