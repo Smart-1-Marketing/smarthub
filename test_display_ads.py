@@ -381,6 +381,48 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
           "1200x628" in google and "1200x628" in meta)
 
 
+def test_the_palette_says_whether_anybody_chose_it():
+    """An ad in Smart 1's placeholder navy looks plausibly branded.
+
+    `assetSources` has recorded provenance for the logo and the hero since it
+    was written -- upload, brandfetch, wordmark, placeholder, none. The
+    palette had no equivalent: `finalizeColors()` spread DEFAULTS underneath
+    whatever was discovered and said nothing at all. So a client with no
+    brand colours on file got the placeholder navy and gold on every size,
+    and nothing on any screen said so. Absent data reading as a confident
+    value, on the thing the client receives.
+
+    Three rules on the line the operator reads. The all-default case is said
+    plainly, because that is the one that ships a stock ad. A role somebody
+    answered for is not listed -- five rows of "from Brandfetch" is noise,
+    and a line that appears on every campaign is one people stop reading. And
+    a campaign built before the field existed says NOTHING rather than
+    reading as default: absent is not the same answer as placeholder, which
+    is the whole point of the line.
+    """
+    intake = (MODULE / "src" / "intake.ts").read_text()
+    screen = BUILD_HTML.read_text()
+
+    check("the build records where each color role came from",
+          "colorSources" in intake and "export type ColorSource" in intake)
+    check("and finalizeColors is what decides it",
+          "sources: BuildResult['colorSources']" in intake)
+    check("a color we moved for readability is ours, not theirs",
+          "sources.accent = 'adjusted';" in intake
+          and "sources.light = 'adjusted';" in intake)
+    check("a wholly placeholder palette is said once, in words",
+          "No brand colors were discovered or supplied" in intake)
+    check("it survives into the campaign record",
+          "colorSources: result.colorSources," in (MODULE / "src" / "server.ts").read_text())
+
+    check("the screen draws it beside the swatches",
+          "paletteProvenance()" in screen and "palette-note" in screen)
+    check("and says nothing at all when the field is absent",
+          "if (!src) return '';" in screen)
+    check("naming only the roles nobody answered for",
+          "still placeholder" in screen and "adjusted for readability" in screen)
+
+
 def test_a_white_box_round_the_logo_is_named_rather_than_scored():
     """logo-tools.ts opens with a rule nothing asked.
 

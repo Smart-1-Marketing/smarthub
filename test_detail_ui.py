@@ -425,6 +425,67 @@ EDITOR = (ROOT / "modules/image_creator/templates/index.html").read_text(encodin
 check("the canvas editor is left alone", _wears(EDITOR, "s1d-page"), False)
 
 
+# ------------------------------------ 8. the last two second branded bars
+section("Chrome twice, on the two tools that still shipped it")
+
+CBL = (ROOT / "modules/commercial_builder/templates/_layout.html").read_text(encoding="utf-8")
+CBC = (ROOT / "modules/commercial_builder/static/css/commercial-builder.css").read_text(encoding="utf-8")
+IOB = (ROOT / "modules/io_builder/templates/index.html").read_text(encoding="utf-8")
+
+# Both are the Proposal Builder's finding again: a bar carrying the tool's own
+# name, above the Hub's sidebar that is already on the page.
+#
+# Read as markup and as rules rather than as text: the reason each bar is gone
+# is written in a comment in the file it left, and a check a file's own
+# explanation of itself can fail is one somebody deletes.
+check("the Commercial Builder no longer ships a branded bar",
+      _wears(CBL, "cb-topbar"), False)
+check("...and its stylesheet no longer draws one",
+      bool(_re.search(r"^\.cb-topbar[a-z-]*\{", CBC, _re.M)), False)
+check("...nor the brand lockup that sat on it",
+      bool(_re.search(r"^\.cb-brand[a-z-]*\{", CBC, _re.M)), False)
+check("the IO Builder no longer ships one either", "<header>" in IOB, False)
+check("...and its stylesheet no longer draws one",
+      "header{background:var(--navy)" in IOB, False)
+
+# What each genuinely needed survives.
+check("the Commercial Builder's two views are the shared strip",
+      "cb-topnav s1d-subnav" in CBL, True)
+check("...marked from the request, not passed in by each view",
+      "request.endpoint" in CBL, True)
+# A wizard step has its own stepper; lighting up Dashboard on step four says
+# somebody is somewhere they are not. Only these two views mark anything.
+check("...and only the two views it names can mark anything",
+      sorted(set(_re.findall(r"_here == '(\w+)'", CBL))), ["dashboard", "library"])
+# A full-bleed strip at the top of the viewport is the branded bar again
+# wearing the shared classes, over the Hub's own breadcrumb.
+check("the strip sits inside the page container",
+      CBL.index('<main class="cb-main">') < CBL.index('<nav class="cb-topnav'), True)
+
+# The IO Builder is one screen, so there is no strip to put in its place --
+# what it needed was the icon rail CLAUDE.md has always described it as having.
+check("the IO Builder asks for the icon rail",
+      'data-s1hub-collapse="1"' in IOB, True)
+check("...and the height math that followed the bar is gone",
+      "61px" in IOB, False)
+# The tile, the sidebar and Client 360 all call it the IO Builder.
+check("...and the tab is named what the Hub calls the tool",
+      "<title>IO Builder" in IOB, True)
+# No walkthrough is registered for it, and offering a tour that does not exist
+# is the silence Smart 1 Ads shipped on Settings and Live campaigns.
+check("...and it claims no walkthrough it does not have",
+      "data-module" in IOB, False)
+
+# A button in the strip keeps its own look. The Commercial Builder paid for
+# this once inside its own sheet; the shared strip would have done it again,
+# and this time the module could not have answered -- hub-detail.css is
+# injected after a module's own stylesheet and wins every tie.
+check("the strip leaves an element that names itself a button alone",
+      '.s1d-subnav a:not([class*="btn"])' in SHEET, True)
+check("...so the module no longer restates the fix",
+      ".cb-topnav a.cb-btn{" in CBC, False)
+
+
 # ------------------------------------------ the failure markup cannot show
 section("The wrapper still contains the page")
 

@@ -433,6 +433,67 @@ check("and the kit has units to ask for",
 check("social production is the card's own $35 per platform, not a number invented here",
       cn.TYPICAL_PRODUCTION[cn.SOCIAL] == 35, cn.TYPICAL_PRODUCTION.get(cn.SOCIAL))
 
+# Every Meta product on this card is named "Facebook | Instagram ...", and the
+# `instagram` rule -- written for a product named only Instagram, and returning
+# a deliberately narrower list -- sits above the Facebook one. So five of the
+# seven Meta buys were asked for an Instagram image and a Story and never for
+# the Facebook feed, the Facebook video or the carousel. The two named
+# "Facebook - ..." got the full set the whole time, which is why it read as
+# working.
+_meta_rows = [p for p in _rc_for_media.products()
+              if "facebook" in p["product"].lower()
+              and "instagram" in p["product"].lower()]
+check("the card really does name both platforms in one product",
+      len(_meta_rows) >= 4, len(_meta_rows))
+for _row in _meta_rows:
+    _ch = cs.channels_for_product(_row["product"], _row["category"])
+    check(f"{_row['product'][:34]!r} is asked for the whole Meta set",
+          set(_ch) >= {"facebook", "facebook_video", "facebook_carousel",
+                       "instagram", "stories"}, _ch)
+
+# ...and the narrow answer is still there for a product that names one of them.
+check("an Instagram-only buy is not asked for the Facebook feed",
+      cs.channels_for_product("Instagram - Paid Social Media Advertising", "") ==
+      ["instagram", "stories"],
+      cs.channels_for_product("Instagram - Paid Social Media Advertising", ""))
+check("and the Meta list is written once, so the two rules cannot drift",
+      cs.channels_for_product("Facebook - Boosted Posts", "META") is
+      cs.channels_for_product("Facebook | Instagram - Awareness Paid Social Media Advertising",
+                              "META"))
+
+# An image unit with no size of its own was folded into the run of sizes,
+# where it contributed nothing and vanished. Every social unit is in that
+# position, so a paid social buy's whole requirement read "Stories Video
+# (MP4/MOV, 0-120s)" -- four image units silently absent from the one line a
+# rep and the client document read.
+_meta_state = {"items": [dict(_meta_rows[0], dollars=3000)], "months": 3}
+_meta_line = cn.units_line(_meta_state, cn.medium_of(_meta_rows[0]))
+for _want in ("Facebook Display", "Instagram Display", "Carousel Image",
+              "Stories Display"):
+    check(f"a paid social requirement names {_want}",
+          _want in _meta_line, _meta_line)
+
+# "plus a companion banner" is a claim about digital radio's optional 300x250
+# and was fired on a count -- one sized image plus anything described -- so
+# Snapchat's Single Image Ad was announced to the client as an optional
+# companion to the video.
+_snap = next(p for p in _rc_for_media.products() if "Snapchat" in p["product"])
+_snap_line = cn.units_line({"items": [dict(_snap, dollars=3000)], "months": 3},
+                           cn.medium_of(_snap))
+check("a Snapchat image is not called a companion banner",
+      "companion banner" not in _snap_line, _snap_line)
+
+# ...and the unit the phrase was written for still carries it.
+_radio_row = next(p for p in _rc_for_media.products()
+                  if p["category"] == "DIGITAL RADIO"
+                  and p["product"].lower().startswith("programmatic - targeted"))
+_radio_line = cn.units_line({"items": [dict(_radio_row, dollars=3000)], "months": 3},
+                            cn.medium_of(_radio_row))
+check("but digital radio's optional 300x250 still is one",
+      "plus a companion banner: 300x250" in _radio_line, _radio_line)
+check("and the spot is still named first, not the banner",
+      _radio_line.index("Audio Spot") < _radio_line.index("companion"), _radio_line)
+
 # The card files LinkedIn's display-and-text product under a heading called
 # SOCIAL ADS - VIDEO, and the heading is what the keyword pass reads -- so a
 # product whose own name says "Display & Text Ads" was asked for a video spot.

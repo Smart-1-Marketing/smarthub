@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SMART1 Campaign Builder AI</title>
+<title>IO Builder — Smart 1 Hub</title>
 <style>
 :root{
  --navy:#14284b;--blue:#1f63ae;--sky:#eaf2fa;--line:#d5dee9;--text:#1d2a3a;
@@ -11,10 +11,8 @@
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
-header{background:var(--navy);color:#fff;padding:17px 26px;display:flex;align-items:center;justify-content:space-between}
-header h1{font-size:21px;margin:0} header span{font-size:12px;opacity:.86}
-.app{display:grid;grid-template-columns:minmax(370px,40%) minmax(600px,60%);height:calc(100vh - 61px)}
-.chat-panel{display:flex;flex-direction:column;background:#fff;border-right:1px solid var(--line);height:calc(100dvh - 61px);min-height:560px;overflow:hidden;position:sticky;top:0}
+.app{display:grid;grid-template-columns:minmax(370px,40%) minmax(600px,60%);height:100dvh}
+.chat-panel{display:flex;flex-direction:column;background:#fff;border-right:1px solid var(--line);height:100dvh;min-height:560px;overflow:hidden;position:sticky;top:0}
 .progress-wrap{padding:14px 18px;border-bottom:1px solid var(--line)}
 .progress-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:7px}
 .progress{height:8px;background:#e8edf3;border-radius:20px;overflow:hidden}
@@ -136,7 +134,7 @@ td{padding:7px;border:1px solid var(--line);vertical-align:top}
 .gallery-file{height:78px;display:flex;align-items:center;justify-content:center;background:#eef3f8;border-radius:5px;font-weight:700;color:var(--navy)}
 
 .creative-checklist{border:1px solid var(--line);border-top:0;padding:12px}.check-product{margin-bottom:16px}.check-product h3{font-size:13px;color:var(--navy);margin:0 0 8px}.check-item{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #edf1f5;font-size:12px}.check-item input{margin-top:2px}.check-item.done span{text-decoration:line-through;color:var(--muted)}
-@media(max-width:980px){.toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.app{display:block;height:auto}.chat-panel{height:calc(100dvh - 61px);min-height:560px;position:relative;top:auto}.output-panel{padding:16px}.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:980px){.toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.app{display:block;height:auto}.chat-panel{height:100dvh;min-height:560px;position:relative;top:auto}.output-panel{padding:16px}.cards{grid-template-columns:repeat(2,1fr)}}
 @media print{
  header,.chat-panel,.toolbar{display:none!important}.app{display:block;height:auto}.output-panel{padding:0;overflow:visible}
  .report{box-shadow:none;max-width:none;padding:8px}.section{break-inside:avoid}.report-head{margin-top:0}
@@ -179,11 +177,29 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
 
 </style>
 </head>
-<body>
-<header>
- <h1>SMART1 Campaign Builder AI</h1>
- <span>Conversational intake • Media plan • Audience strategy • KPI framework • Delivery estimate</span>
-</header>
+<!--
+  No branded bar. This module is mounted inside the Hub, so the page already
+  carries the Hub's sidebar; a navy strip reading SMART1 Campaign Builder AI
+  above it was chrome twice, and it named the tool a third thing -- the tile,
+  the sidebar and Client 360 all call it the IO Builder. The Proposal Builder
+  and the Commercial Builder shipped the same bar and lost it for the same
+  reason.
+
+  There is no tab strip to put in its place: this is one screen, a
+  conversational intake beside the document it is filling in, and the progress
+  bar under the chat already says where you are.
+
+  `data-s1hub-collapse="1"` is the icon rail. CLAUDE.md has named this tool as
+  one of the three wide ones since the flag was written -- "the Display Ad
+  Builder's bench, the Proposal Builder's wizard, the IO's printable
+  documents" -- and it was the one of the three that never asked: the other two
+  are covered by the `/tools/display-ads` prefix and by this same attribute.
+  The two panels want 970px between them before anything wraps, and 224px of a
+  nav nobody reads while they work is what turns that into a horizontal scroll
+  on an ordinary laptop. Asking is not choosing: a real press of the toggle
+  still records a preference, and a stored one still wins.
+-->
+<body data-s1hub-collapse="1">
 <div class="app">
 <section class="chat-panel">
  <div class="progress-wrap">

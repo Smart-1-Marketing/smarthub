@@ -494,6 +494,19 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: IO reconciliation tests — orders with no campaign in Knack
+        # Whether the campaign an insertion order was written for was ever set
+        # up. A stale source read as proof that nothing was trafficked is the
+        # failure this must not have, so the refusal is asserted as hard as
+        # the finding. Guarded like the steps around it; nothing in it reaches
+        # a third party, and the only write it makes is its own overlay.
+        run: |
+          if [ -f test_io_reconcile.py ]; then
+            python test_io_reconcile.py
+          else
+            echo "test_io_reconcile.py not on this branch — nothing to run."
+          fi
+
       - name: Sales scoreboard tests — the pipeline on the dashboard
         # The five signals, one reading behind both screens, and each count
         # landing on the rows it counted. Guarded like the steps around it;

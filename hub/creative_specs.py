@@ -461,6 +461,13 @@ CHANNEL_LABELS = {
 # Product text -> channels, most specific pattern first. A product can map to
 # several channels: a display buy legitimately accepts desktop, mobile and
 # tablet units, and a file only has to satisfy one of them.
+# The Meta placements, named once. Two rules below answer with this list --
+# a product naming both platforms, and the general Facebook/Meta rule -- and
+# two hand-written copies of it is how one of them comes to be missing the
+# carousel.
+_META_CHANNELS = ["facebook", "instagram", "facebook_video",
+                  "facebook_carousel", "stories"]
+
 _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     # First, because "GPT display" must not be read as a display buy by the
     # generic `display` pattern near the bottom of this list.
@@ -479,6 +486,19 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     (r"\btwitter\b|\bx ads\b", ["x"]),
     (r"stor(y|ies)", ["stories"]),
     (r"carousel", ["facebook_carousel"]),
+    # A product naming *both* platforms is one buy running across both, and
+    # the wider answer is the right one. The `instagram` rule below returns a
+    # deliberately narrower list, written for a product named only Instagram
+    # -- and every Meta product on this card is called "Facebook | Instagram
+    # ...", so five of the seven took the narrow one and were asked for an
+    # Instagram image and a Story and never for the Facebook feed, the
+    # Facebook video or the carousel. On the video buy that is worse than it
+    # sounds: `facebook_video` was dropped from a product whose own name says
+    # Video. Nothing errors -- the units returned are real Meta units, just
+    # not all of the ones being bought -- and the two products named
+    # "Facebook - ..." got the full set the whole time, which is why it read
+    # as working.
+    (r"(?=.*facebook)(?=.*instagram)", _META_CHANNELS),
     (r"instagram", ["instagram", "stories"]),
     # Pinterest is on the rate card and is in no part of the kit -- S1M
     # CREATIVE SPEC KIT 2025 publishes no Pinterest section at all. Its own
@@ -496,9 +516,7 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     # format the kit maps no unit for is *not measured* and never judged
     # against the nearest channel.
     (r"pinterest", []),
-    (r"facebook|\bmeta\b|social ads?", ["facebook", "instagram",
-                                        "facebook_video", "facebook_carousel",
-                                        "stories"]),
+    (r"facebook|\bmeta\b|social ads?", _META_CHANNELS),
     (r"radio|podcast|audio", ["digital_radio"]),
     # ...and only below it. Four programmatic *video* products are filed
     # under the card's DISPLAY heading beside banner inventory, and three of

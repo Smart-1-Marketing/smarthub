@@ -1931,6 +1931,127 @@ def sites_billing() -> dict:
     }
 
 
+
+def io_reconcile_report() -> dict:
+    """Insertion orders we sent that Knack has no campaign for.
+
+    The one seam nothing watched. Submitting an order logs it, registers the
+    client when nobody has heard of them, and POSTs it to Smart 1 Suite --
+    and then the Hub's involvement ends. A campaign that was never written
+    into Knack is indistinguishable from one that was: the log says the order
+    went, the overlay row still stands in for a record that never arrived, and
+    Client 360 goes on saying the cards are empty. Nobody is billed and
+    nothing is trafficked.
+
+    `hub/io_reconcile.py` holds every rule. What matters here is that a run
+    which could not read Knack live returns `measured: False`, so
+    `report_cache` never freezes "we could not look" into the shape of "there
+    is nothing to see".
+    """
+    from . import io_reconcile
+
+    data = io_reconcile.report()
+    note = io_reconcile.note(data)
+    if not data.get("measured"):
+        return {"columns": ["Order"], "rows": [], "row_styles": [],
+                "measured": False, "error": data.get("error", ""),
+                "note": note}
+
+    columns = ["Order", "Client", "Submitted", "Flight starts", "Monthly",
+               "Partner", "Recorded in", "Settle"]
+    rows, styles = [], []
+
+    def _when(row):
+        at = row.get("at")
+        if not at:
+            return "not recorded"
+        days = row.get("days")
+        stamp = at.strftime("%b %-d, %Y")
+        return stamp if days is None else f"{stamp} · {days}d ago"
+
+    def _start(row):
+        start = row.get("start")
+        if not start:
+            return "\u2014"
+        stamp = start.strftime("%b %-d, %Y")
+        return ("started " + stamp) if row.get("started") else stamp
+
+    for row in data["outstanding"]:
+        client = str(row.get("client") or "")
+        rows.append([
+            str(row.get("order") or ""),
+            _c360_link(client) if client else "(no client name)",
+            _when(row),
+            _start(row),
+            _money(row.get("monthly")) if row.get("monthly") else "\u2014",
+            str(row.get("partner") or "") or "\u2014",
+            ", ".join(row.get("sources") or []) or "\u2014",
+            {"io_settle": str(row.get("order") or "")},
+        ])
+        # A flight already running is red; one merely late is amber. A page of
+        # red is a page people scroll past, which is the note this codebase
+        # makes about a recommendation drawn in a finding's color.
+        styles.append("bad" if row.get("started") else "warn")
+
+    if data["unreconcilable"]:
+        rows.append([{"group": f"No order number recorded "
+                               f"({len(data['unreconcilable'])})",
+                      "tone": "later"}, "", "", "", "", "", "", ""])
+        styles.append(None)
+        for row in data["unreconcilable"]:
+            client = str(row.get("client") or "")
+            rows.append([
+                "(none)",
+                _c360_link(client) if client else "(no client name)",
+                _when(row), _start(row),
+                _money(row.get("monthly")) if row.get("monthly") else "\u2014",
+                str(row.get("partner") or "") or "\u2014",
+                ", ".join(row.get("sources") or []) or "\u2014",
+                "",
+            ])
+            styles.append(None)
+
+    if data["settled"]:
+        rows.append([{"group": f"Settled — not expected in Knack "
+                               f"({len(data['settled'])})", "tone": "later"},
+                     "", "", "", "", "", "", ""])
+        styles.append(None)
+        for row in data["settled"]:
+            mark = row.get("settled") or {}
+            client = str(row.get("client") or "")
+            who = mark.get("by") or "not recorded"
+            when = str(mark.get("at") or "")[:10]
+            # Why it was settled goes in the settle cell rather than borrowing
+            # the Partner column: a column whose heading means one thing above
+            # a group rule and another below it is a table nobody can read.
+            detail = (io_reconcile.SETTLE_REASONS.get(
+                mark.get("reason"), str(mark.get("reason") or ""))
+                + f" — {who}, {when}"
+                + (f". {mark['note']}" if mark.get("note") else ""))
+            rows.append([
+                str(row.get("order") or ""),
+                _c360_link(client) if client else "(no client name)",
+                _when(row), _start(row),
+                _money(row.get("monthly")) if row.get("monthly") else "\u2014",
+                str(row.get("partner") or "") or "\u2014",
+                ", ".join(row.get("sources") or []) or "\u2014",
+                {"io_unsettle": str(row.get("order") or ""), "detail": detail},
+            ])
+            styles.append(None)
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        "measured": True,
+        "note": note,
+        # Read by the settle control, so the reasons on screen cannot drift
+        # from the ones the write accepts.
+        "settle_reasons": [{"key": k, "label": v}
+                           for k, v in io_reconcile.SETTLE_REASONS.items()],
+    }
+
+
 # Whole tools rather than table-returning functions, and every one of them
 # answers "what is wrong / what do we owe" -- which is the question the QA page
 # exists for. They were on the Tools page under a group called "Client Work",
@@ -2016,6 +2137,15 @@ REPORTS = {
         "ico": "&#9679;",
         "fn": active_clients,
         "group": "Clients",
+    },
+    "io-not-in-knack": {
+        "title": "Orders With No Campaign",
+        "desc": "Insertion orders we sent that Knack has no campaign for \u2014 "
+                "with the ones whose flight has already started at the top, "
+                "because those are running in nobody\u2019s system.",
+        "ico": "&#128203;",
+        "fn": io_reconcile_report,
+        "group": "Data Quality",
     },
     "no-dashboards": {
         "title": "No Dashboards",

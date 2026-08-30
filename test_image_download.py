@@ -378,11 +378,18 @@ check("a row with no preview falls back to the asset",
 print("\nEvery tile bound to a stored URL, and why each is what it is")
 print("-----------------------------------------------------------")
 
-# Twelve of the twenty <img> tags bound to a stored URL now draw a preview.
-# The other eight are deliberate, and the reason is written down rather than
-# left implicit -- a screen silently missing from a completeness report is the
-# same failure the report is about. Keyed on a marker from the line itself, so
-# an entry cannot go on covering whatever is written at that path next.
+# Every <img> bound to a stored URL either draws a preview or is named here
+# with the reason it does not -- a screen silently missing from a completeness
+# report is the same failure the report is about. No counts in this comment on
+# purpose: the first draft carried two, they were wrong, and a paragraph that
+# contradicts the rows beneath it costs the rows their credibility.
+#
+# Keyed on a marker from the line itself, so an entry cannot go on covering
+# whatever is written at that path next -- which is not hypothetical. The
+# Display Ad Builder's background grid was exempted here as "the one this
+# change cannot reach from Python", and when its rows turned out to come from
+# hub/ad_builder_link.py after all, this check is what reported the exemption
+# as stale rather than letting it sit.
 _LOGO = ("a logo, drawn at its own size, one per page, and as often observed "
          "off the client's own site as stored by us")
 
@@ -422,13 +429,6 @@ FULL_ASSET_ON_PURPOSE = {
     ("modules/ads_builder/templates/_estimate_doc.html", "logo.url"): _LOGO,
     ("modules/ads_builder/templates/ads_proposal.html", 'alt="logo"'): _LOGO,
 
-    # The one genuine gallery still drawing full assets, named rather than
-    # quietly left out: it is the Display Ad Builder's background picker, and
-    # it is served by the Node renderer, whose rows never pass through
-    # hub/storage.py. Fixing it is a TypeScript change rather than this one.
-    ("modules/ad_builder/public/build.html", "esc(it.url)"):
-        "the Node renderer's own background grid — a real gallery, and the "
-        "one this change cannot reach from Python",
 }
 
 import pathlib

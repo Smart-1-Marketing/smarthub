@@ -29,26 +29,25 @@ h1,h2,h3,h4{margin:0 0 .4em;font-weight:650;letter-spacing:-.01em;}
 h1{font-size:22px;} h2{font-size:18px;} h3{font-size:15px;} h4{font-size:13px;}
 p{margin:0 0 .8em;color:var(--cb-text-muted);}
 
-.cb-topbar{background:var(--cb-surface);border-bottom:1px solid var(--cb-border);position:sticky;top:0;z-index:50;}
-.cb-topbar-inner{max-width:1200px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;}
-.cb-brand{display:flex;align-items:center;gap:10px;color:var(--cb-text);}
-.cb-brand:hover{text-decoration:none;}
-.cb-brand-mark{background:var(--cb-primary);color:#fff;font-weight:700;font-size:12px;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;}
-.cb-brand-text{font-weight:650;font-size:15px;}
-.cb-brand-sub{color:var(--cb-text-muted);font-weight:500;margin-left:4px;}
-.cb-topnav{display:flex;align-items:center;gap:16px;}
-.cb-topnav a{color:var(--cb-text-muted);font-weight:500;}
-/* A button in the nav is a button, not a nav link. `.cb-topnav a` is (0,1,1)
-   and `.cb-btn-primary` is (0,1,0), so the muted gray above was winning on
-   specificity and painting the "+ New Commercial" label a dull gray-brown on
-   solid blue -- unreadable, and it looked like a broken theme rather than a
-   cascade order. Scoped rather than !important so the rule is still
-   overridable, and written for every button class the bar can carry. */
-.cb-topnav a.cb-btn{color:var(--cb-text);}
+/* The branded top bar is gone: this module is blueprint-registered on the hub
+   app, so the Hub's own sidebar is already on every page here and a second bar
+   carrying the tool's name was chrome twice. The nav that was inside it is the
+   Hub's shared strip now (`.s1d-subnav`, hub/static/hub-detail.css), so
+   .cb-topbar, .cb-topbar-inner and the three brand rules went with it.
+
+   What the rule that used to sit here found is still worth knowing: a button
+   in the nav is a button, not a nav link, and `.cb-topnav a` (0,1,1) beat
+   `.cb-btn-primary` (0,1,0) and painted the "+ New Commercial" label a dull
+   gray-brown on solid blue. The shared strip would have done it again and this
+   sheet could no longer have answered, because hub-detail.css is injected
+   *after* this file and wins every tie -- so the exclusion lives there, on the
+   strip itself, as `a:not([class*="btn"])`. Nothing here restates it.
+
+   `.cb-topnav` stays as the name the markup carries; the strip supplies the
+   layout. */
 .cb-topnav a.cb-btn-primary,
 a.cb-btn-primary,
 a.cb-btn-primary:hover{color:#fff;}
-.cb-topnav a.cb-btn-ghost{color:var(--cb-primary);}
 
 .cb-main{max-width:1200px;margin:0 auto;padding:28px 20px 80px;}
 .cb-footer{text-align:center;color:var(--cb-text-muted);font-size:12px;padding:24px;}
