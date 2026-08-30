@@ -1125,6 +1125,87 @@ check("including the spec preview",
       anon.get(MOUNT + "/api/projects/spec-preview?lengths=30").status_code, 401)
 
 
+# ---------------------------------------------------------------------------
+# 12. The Cloudinary read path goes through the shared service
+#
+# CLAUDE.md's standing rule: never leave a module you have just touched still
+# doing its own Cloudinary. The write path moved last change; this is the read
+# path and the configure, which were the last direct SDK use in the module.
+# ---------------------------------------------------------------------------
+section("Listing a client's tree goes through hub.storage, and pages")
+import types                                                            # noqa: E402
+import hub.storage as _storage                                          # noqa: E402
+from modules.commercial_builder.services import cloudinary_service as _cs  # noqa: E402
+
+check("hub.storage offers a public configure()", callable(
+    getattr(_storage, "configure", None)), True)
+# Called by provider_check to ping the account, and by this module. It must be
+# safe to call with Cloudinary unconfigured, or a deployment with no key would
+# 500 on the panel that exists to say the key is missing.
+try:
+    _storage.configure(); _storage.configure()
+    _cfg_ok = True
+except Exception:                                                       # noqa: BLE001
+    _cfg_ok = False
+check("and it is idempotent and safe unconfigured", _cfg_ok, True)
+
+_seen = {}
+
+
+class _FakeAPI:
+    @staticmethod
+    def resources(**kw):
+        _seen.update(kw)
+        return {"resources": [{"public_id": "acme/photos/a", "secure_url": "u",
+                               "format": "jpg", "created_at": "t", "bytes": 1}],
+                "next_cursor": None}
+
+
+# Patched on the module object, not in sys.modules: `from hub import storage`
+# binds the attribute on the package, so replacing the entry alone leaves the
+# real one in play — the trap the QR upload's own test hit.
+_real_cloudinary, _real_ready, _real_configured = (
+    _storage.cloudinary, _storage.ready, _storage._configured)
+_storage.cloudinary = types.SimpleNamespace(api=_FakeAPI, config=lambda **k: None)
+_storage.ready = lambda: True
+_storage._configured = True
+try:
+    rows = _storage.manifest("commercials", prefix="acme/photos/")
+    check("manifest lists the folder it was given", _seen.get("prefix"), "acme/photos/")
+    # The orphaned-asset audit reads these; a prefix must not narrow the row.
+    check("and a row still carries what the audit needs",
+          all(k in rows[0] for k in ("public_id", "secure_url", "format", "bytes")), True)
+    _seen.clear()
+    check("no prefix still means the bucket's own folder",
+          bool(_storage.manifest("commercials")) and _seen.get("prefix") != "acme/photos/", True)
+
+    _seen.clear()
+    _real_live, _cs._CONFIGURED = _cs.is_live, True
+    _cs.is_live = lambda: True
+    listed = _cs.list_client_assets("acme", "photo")
+    check("list_client_assets reads the client's own folder",
+          _seen.get("prefix"), "acme/photos/")
+    # Read with a guard rather than listed[0]: an assertion that raises on the
+    # empty case takes every check after it out of the run, which is how a
+    # regression hides behind a test file that stopped early.
+    check("and returns the picker's shape",
+          sorted(listed[0]) if listed else [],
+          ["created_at", "format", "public_id", "secure_url"])
+    # It asked for one page of 100 and reported it as the whole folder, so a
+    # client with more photographs than that was quietly shown some of them.
+    check("asking for one page of 100 is gone", _seen.get("max_results") == 100, False)
+    _cs.is_live = _real_live
+finally:
+    _storage.cloudinary, _storage.ready, _storage._configured = (
+        _real_cloudinary, _real_ready, _real_configured)
+
+# The point of the migration: no second reading of how to reach the account.
+_cs_src = (ROOT / "modules/commercial_builder/services/cloudinary_service.py").read_text()
+check("the module still names hub.storage for the listing",
+      "storage.manifest(" in _cs_src, True)
+check("and for the configure", "storage.configure()" in _cs_src, True)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

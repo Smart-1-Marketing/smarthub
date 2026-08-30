@@ -2307,6 +2307,32 @@ mood — it is a search for *announcer, commercial, broadcast, promo* in the tex
 ElevenLabs publishes, and a screen that says so lets somebody pick differently
 before listening to three wrong voices.
 
+**And the read path was the last thing here still doing its own
+Cloudinary.** The write path moved onto `hub/storage.py` when `upload_asset`
+learned to take bytes; `_ensure_configured()` and `list_client_assets()` did
+not, which left this module carrying a second answer to *how do we reach the
+account* and a second answer to *how do we list a folder*. The configure had
+already drifted in the way that matters: `hub/config.export_cloudinary_url()`
+composes `CLOUDINARY_URL` from the three-part credential group and exports it
+for exactly this, so a deployment given only the three parts was configured in
+the Hub and configured **here by a separate hand-written branch** — right
+today, and one edit away from not being. `hub/storage.configure()` is public
+now for the legitimate direct uses (`services/provider_check.py` pings the
+account to tell a refused key from an unreachable one), and the local branch
+survives only as the standalone fallback this module is written to have.
+
+**The listing was quietly showing some of a client's photographs.** It asked
+`cloudinary.api.resources` for `max_results=100` with no paging and reported
+what came back as the whole folder — the truncation `connection_choices()`
+already pays for one form up, where 500 of several thousand records came back
+in a complete-looking `<select>`. `hub/storage.manifest()` takes a `prefix`
+now rather than only a bucket, so the shared reader — which pages properly —
+answers this too. Extending the shared one rather than leaving the copy in
+place is the rule that file exists for: the next fix to paging, or to what a
+row carries, lands once. `manifest()`'s own caller is the orphaned-asset
+audit, so the check asserts a prefixed row still carries everything that audit
+reads.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered

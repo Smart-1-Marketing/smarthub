@@ -446,7 +446,23 @@ def bundle_zip(items, *, bucket: str = "", timeout: int = 25) -> tuple[bytes, li
     return buf.getvalue(), missing
 
 
-def manifest(kind: str, max_results: int = 500) -> list[dict]:
+def configure() -> None:
+    """Point the Cloudinary SDK at this deployment's account.
+
+    Public because a module sometimes has to reach the SDK directly for
+    something the functions here do not wrap — `services/provider_check.py`
+    pings the account to tell a refused key from an unreachable one. Those
+    call sites should not each carry their own `cloudinary.config()`: that is
+    the drift this module exists to stop, and one of those copies read the
+    three-part credential group by hand while this one reads the composed
+    `CLOUDINARY_URL` that `hub/config.export_cloudinary_url()` puts into the
+    environment for exactly this purpose. Idempotent, and a no-op where
+    Cloudinary is not configured at all.
+    """
+    _configure()
+
+
+def manifest(kind: str, max_results: int = 500, prefix: str = "") -> list[dict]:
     """Inventory of what is actually stored — feeds the orphaned-asset audit.
 
     Carries `secure_url` and `format` as well as the id. Without the URL the
@@ -454,6 +470,14 @@ def manifest(kind: str, max_results: int = 500) -> list[dict]:
     report a list of ids somebody has to go and look up by hand — and this
     function had no caller at all until that audit was built, so nothing
     depended on the narrower shape.
+
+    `prefix` lists one folder inside the bucket rather than the whole of it —
+    the Commercial Builder keeps a tree per client (`<slug>/photos/`) and was
+    calling `cloudinary.api.resources` itself to read one. Extending this
+    rather than leaving that copy in place is the rule `hub/storage.py` exists
+    for: the next fix to paging, or to what a row carries, lands once. The
+    bucket still decides where a missing prefix looks, so no caller has to
+    know how a folder is composed.
     """
     if not ready():
         root = _disk_root(kind)
@@ -461,7 +485,7 @@ def manifest(kind: str, max_results: int = 500) -> list[dict]:
                 for f in sorted(os.listdir(root))]
     _configure()
     out, cursor = [], None
-    prefix = settings.folder(kind)
+    prefix = prefix or settings.folder(kind)
     while True:
         res = cloudinary.api.resources(type="upload", prefix=prefix,
                                        max_results=min(500, max_results),
