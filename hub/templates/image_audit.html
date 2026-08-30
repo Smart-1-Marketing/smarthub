@@ -173,7 +173,7 @@ function drawStores(d){
       + rows.map(r=>'<tr>'
           + '<td><input type="checkbox" class="pick" data-store="'+esc(s.key)
           + '" data-id="'+esc(r.id)+'"></td>'
-          + '<td>'+(r.url?'<img class="thumb" loading="lazy" src="'+esc(r.url)+'" alt="">':'')+'</td>'
+          + '<td>'+(r.url?'<img class="thumb" loading="lazy" src="'+esc(r.thumb||r.url)+'" alt="">':'')+'</td>'
           + '<td>'+esc(r.label)+'</td>'
           + '<td class="muted">'+esc(r.where||'—')+'</td>'
           + '<td class="muted">'+esc(String(r.when||'').slice(0,16))+'</td>'
@@ -307,7 +307,7 @@ function drawRecon(d){
       + '<table><thead><tr><th></th><th>Asset</th><th>Proposed owner</th>'
       + '<th>File it to</th></tr></thead><tbody>'
       + f.rows.map(r=>'<tr>'
-        + '<td>'+(r.url?'<img class="thumb" loading="lazy" src="'+esc(r.url)+'" alt="">':'')+'</td>'
+        + '<td>'+(r.url?'<img class="thumb" loading="lazy" src="'+esc(r.thumb||r.url)+'" alt="">':'')+'</td>'
         + '<td style="font:11.5px ui-monospace,Consolas,monospace;overflow-wrap:anywhere">'
         + esc(r.public_id)+'</td>'
         /* A proposal from a folder path is a guess and says so. Filing one

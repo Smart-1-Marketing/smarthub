@@ -557,7 +557,7 @@ function renderSaved(saved, errors){
       <div class="saved">
         <input type="checkbox" class="savedSel" data-id="${esc(s.id)}" checked
                title="Include this image in a download">
-        <img src="${esc(s.url)}" alt="">
+        <img src="${esc(s.thumb||s.url)}" alt="">
         <div style="flex:1;min-width:0">
           <b class="fn">${esc(s.filename)}</b>
           <div style="font-size:12.5px;margin:2px 0 3px">${esc(s.alt_text)}</div>
@@ -684,7 +684,7 @@ function renderArchive(rows){
     + '<th>Alt text</th><th>Saved</th><th>Actions</th></tr></thead><tbody>'
     + rows.map(r => `<tr data-id="${esc(r.id)}">
         <td class="selcell"><input type="checkbox" class="archSel" data-id="${esc(r.id)}"></td>
-        <td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.url)}" alt=""></a></td>
+        <td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.thumb||r.url)}" alt=""></a></td>
         <td><b>${esc(r.company)}</b>${r.web_url?'<div><a class="lnk" href="'+esc(r.web_url)+'" target="_blank" rel="noopener">'+esc(r.web_url.replace(/^https?:\/\//,''))+'</a></div>':''}</td>
         <td>${esc(r.project)}${r.page?'<div class="count">'+esc(r.page)+'</div>':''}</td>
         <td class="fn">${esc(r.filename)}<div class="count">${r.width?r.width+'×'+r.height+' · ':''}${kb(r.bytes)}</div></td>

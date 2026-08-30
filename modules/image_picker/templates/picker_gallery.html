@@ -289,7 +289,7 @@
             ? '<span style="display:flex;width:64px;height:48px;align-items:center;' +
               'justify-content:center;border:1px solid var(--line);border-radius:7px;' +
               'font-size:20px;background:var(--paper)">&#128196;</span>'
-            : '<img src="' + esc(im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
+            : '<img src="' + esc(im.thumb || im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
           '</a></td>' +
         '<td><strong>' + esc(im.filename) + '</strong><br>' +
           '<span style="color:var(--ink-3);font-size:.8rem">' + esc(im.alt_text || "—") + '</span>' +
