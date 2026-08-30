@@ -43,15 +43,26 @@
     if (!live) CB.toast("Concepts generated in mock mode (no OPENAI_API_KEY set).");
   }
 
+  /* A model call long enough that a 14-pixel spinner reads as a page that has
+     stopped. The panel draws what is happening; the animation itself sits
+     behind a prefers-reduced-motion guard in the stylesheet. */
+  function showWorking(title) {
+    wrap.innerHTML = '<div style="grid-column:1/-1;">' + CB.working(
+      "concepts", title,
+      "Three materially different angles on the brief \u2014 not the same idea "
+      + "reworded. This takes a few seconds.") + "</div>";
+  }
+
   document.getElementById("regen-btn").addEventListener("click", () => {
     scriptBtn.disabled = true;
-    wrap.innerHTML = '<div class="cb-empty" style="grid-column:1/-1;"><span class="cb-spinner"></span> Regenerating…</div>';
+    showWorking("Rewriting the concepts\u2026");
     loadConcepts(true);
   });
 
   scriptBtn.addEventListener("click", async () => {
     scriptBtn.disabled = true;
-    scriptBtn.innerHTML = '<span class="cb-spinner"></span> Writing script…';
+    scriptBtn.innerHTML = '<span class="cb-spinner"></span> Writing script\u2026';
+    showWorking("Writing the timed script\u2026");
     try {
       await CB.api(`/api/projects/${projectId}/script`, { method: "POST" });
       location.href = `${CB.API_ROOT}/project/${projectId}/storyboard`;
@@ -61,5 +72,6 @@
     }
   });
 
+  showWorking("Writing three concepts\u2026");
   loadConcepts(false);
 })();

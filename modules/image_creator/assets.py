@@ -81,7 +81,7 @@ def icon_svg(prefix: str, name: str, color: str = "", size: int = 256) -> str | 
 
 
 # ------------------------------------------------------------------- brands
-def brand_lookup(query: str) -> dict:
+def brand_lookup(query: str, client: str = "") -> dict:
     """Logos and brand colours for a company or domain, via Brandfetch.
 
     Accepts either a domain ("nike.com") or a plain company name ("Nike") —
@@ -95,47 +95,41 @@ def brand_lookup(query: str) -> dict:
     if not query:
         return {"error": "Enter a company name or domain."}
 
-    key = (os.environ.get("BRANDFETCH_API_KEY") or "").strip()
+    # Through hub/brand_lookup.py -- the Hub's one live brand lookup.
+    #
+    # What this used to do was fetch FIRST and consult the Hub's stored brand
+    # data only if the fetch came back with nothing. So the store was a
+    # fallback for a failed call rather than a way to avoid one, and every
+    # search for a client whose brand was already on file spent one of the
+    # plan's hundred monthly lookups on an answer the Hub was already holding.
+    # The comment here used to say the cache path was "recorded separately so
+    # the saving is visible"; there was no saving to see, because the cache was
+    # never reached while the call was working.
+    #
+    # lookup() has the order the other way round: a hit on what is stored
+    # returns without spending anything, and only a miss goes to Brandfetch. It
+    # also saves what a live call paid for, against the domain and against the
+    # client when one is named, and records both outcomes -- so the usage page
+    # can show a cached answer as the saving it is.
+    #
+    # Aliased because this module's own function is also called brand_lookup.
+    from hub import brand_lookup as _shared
+
     domain = re.sub(r"^https?://", "", query.lower()).removeprefix("www.").split("/")[0]
     if "." not in domain:                             # a name, not a domain
-        domain = _resolve_domain_by_name(query, key)
+        # Brandfetch's search endpoint, which is a billed call of its own. The
+        # local version of this recorded nothing, so resolving "Nike" to a
+        # domain was spending the allowance invisibly; the shared one counts it.
+        domain = _shared.domain_for_name(query, module="image_creator")
 
-    payload = None
-
-    if domain and key:
-        try:
-            r = requests.get(f"https://api.brandfetch.io/v2/brands/{domain}",
-                             headers={"Authorization": f"Bearer {key}"}, timeout=TIMEOUT)
-            # Counted against the monthly Brandfetch allowance (warns at 80).
-            # Only a real HTTP call is billable; the Hub cache path below is
-            # recorded separately so the saving is visible.
-            try:
-                from hub import quotas as _q
-                _q.record("brandfetch", module="image_creator", detail=domain)
-            except Exception:                         # noqa: BLE001
-                pass
-            if r.ok:
-                payload = r.json()
-        except Exception:                             # noqa: BLE001
-            payload = None
-
-    if payload is None and domain:                    # the Hub's own cache
-        try:
-            from hub import seo
-            cached = seo.brand_for("", domain)
-            if cached:
-                payload = cached
-                try:
-                    from hub import quotas as _q
-                    _q.record("brandfetch", module="image_creator",
-                              detail=domain, cached=True)
-                except Exception:                     # noqa: BLE001
-                    pass
-        except Exception:                             # noqa: BLE001
-            pass
+    result = _shared.lookup(domain, client=client, module="image_creator") if domain else {}
+    payload = result.get("payload") if result.get("found") else None
 
     if payload is None:
-        if not key:
+        # A cache hit answers even with no key, which is what this function has
+        # always promised -- so "not configured" is only the right message when
+        # nothing was stored either, and lookup() has already looked.
+        if not _shared.configured():
             return {"error": "Brandfetch isn't configured (BRANDFETCH_API_KEY), "
                              "and nothing is cached for that domain."}
         if not domain:
@@ -145,28 +139,6 @@ def brand_lookup(query: str) -> dict:
 
     return {"name": payload.get("name") or domain, "domain": domain,
             "logos": _brand_logos(payload), "colors": _brand_colors(payload)}
-
-
-def _resolve_domain_by_name(name: str, key: str) -> str:
-    """Turn a plain company name into a domain via Brandfetch's Brand Search
-    API, so "Nike" works the same as "nike.com" the way the Logos panel's
-    placeholder text promises. Best-effort: returns the top match's domain,
-    or '' on any failure (no key, no matches, network error) — the caller
-    then reports a clear "couldn't find that company" error rather than the
-    old generic one."""
-    if not key:
-        return ""
-    try:
-        r = requests.get(f"https://api.brandfetch.io/v2/search/{name}",
-                         params={"c": key}, timeout=TIMEOUT)
-        if not r.ok:
-            return ""
-        hits = r.json()
-        if isinstance(hits, list) and hits:
-            return (hits[0].get("domain") or "").strip().lower()
-    except Exception:                                 # noqa: BLE001
-        pass
-    return ""
 
 
 def _brand_logos(payload: dict) -> list[dict]:

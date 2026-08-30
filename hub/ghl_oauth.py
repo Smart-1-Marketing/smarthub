@@ -56,6 +56,23 @@ APP_ID = (os.environ.get("GHL_APP_ID") or CLIENT_ID.split("-")[0]).strip()
 # Resolved per call rather than at import: GHL_OAUTH_SCOPES is the one knob
 # available mid-incident, and a module-level snapshot would need a redeploy to
 # take effect — which is when nobody wants one.
+def _company_id_from_env() -> str:
+    """The agency id, under either name it is set as.
+
+    GHL_COMPANY_ID and SUITE_COMPANY_ID are one setting on this deployment and
+    hub/config.py reads both. Reading one here meant a Marketplace token stored
+    with an empty company id on a Hub that had the value set — and a token
+    whose company id is blank cannot list sub-accounts, which reads on the
+    panel as a bad token rather than a missing variable.
+    """
+    try:
+        from hub.config import settings
+        return settings.ghl_company_id
+    except Exception:                                 # noqa: BLE001
+        return (os.environ.get("GHL_COMPANY_ID")
+                or os.environ.get("SUITE_COMPANY_ID") or "")
+
+
 def _scopes() -> str:
     from . import ghl_scopes
     return ghl_scopes.scope_string()
@@ -208,7 +225,7 @@ def _store_from_token_response(data: dict) -> dict:
     record = {
         "access_token": data["access_token"],
         "refresh_token": data.get("refresh_token", ""),
-        "company_id": data.get("companyId") or os.environ.get("GHL_COMPANY_ID", ""),
+        "company_id": data.get("companyId") or _company_id_from_env(),
         "user_type": data.get("userType", "Company"),
         "scope": data.get("scope", ""),
         "expires_at": time.time() + float(data.get("expires_in") or 86400),
@@ -259,7 +276,7 @@ def agency_token() -> str:
         if not record:
             raise NotConnected(
                 "The Smart 1 Suite app isn't connected yet. Open Suite and "
-                "click Connect to authorise it once for the agency.")
+                "click Connect to authorize it once for the agency.")
         if record.get("expires_at", 0) - _EXPIRY_MARGIN <= time.time():
             try:
                 record = _refresh(record)
@@ -276,7 +293,7 @@ def agency_token() -> str:
 
 def company_id() -> str:
     record = _load() or {}
-    return record.get("company_id") or os.environ.get("GHL_COMPANY_ID", "")
+    return record.get("company_id") or _company_id_from_env()
 
 
 def location_token(location_id: str) -> str:
@@ -354,7 +371,7 @@ def status() -> dict:
                           "Create the Marketplace app, then add them."}
     if not record:
         return {"configured": True, "connected": False,
-                "detail": "Not authorised yet — connect once as the agency owner."}
+                "detail": "Not authorized yet — connect once as the agency owner."}
     from . import ghl_scopes
     left = int(record.get("expires_at", 0) - time.time())
     scopes = ghl_scopes.compare(record.get("scope", ""))

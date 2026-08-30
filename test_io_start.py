@@ -139,7 +139,7 @@ check("a named-month flight is read too",
 none = io_prefill.from_proposal("", "12 month campaign at $5,000 per month.")
 check("with no dates stated a flight is still suggested",
       bool(none["fields"].get("start_date")), True)
-check("but it is labelled assumed, not read",
+check("but it is labeled assumed, not read",
       none["sources"].get("start_date"), "assumed")
 check("and the note says so in words",
       "suggested flight" in none["note"], True)
@@ -294,7 +294,13 @@ check("only a name the card holds survives", 'rc.find(picked)' in src, True)
 # insertion order that nothing downstream recognises.
 from hub import ai, rate_card                                   # noqa: E402
 _card_names = [p["product"] for p in rate_card.products()]
-_real, _fake = _card_names[3], "Totally Made Up Product"
+# Deliberately a product whose name identifies exactly one row. Several card
+# names do not -- "Demographic" is four products at four rates -- and those
+# resolve to candidates rather than to a suggestion, which is a different
+# behaviour asserted below. Picking one by index quietly picked one of those.
+_real = next(n for n in _card_names
+             if _card_names.count(n) == 1 and rate_card.find(n) is not None)
+_fake = "Totally Made Up Product"
 _prompt = {}
 
 
@@ -323,6 +329,33 @@ check("and is offered first, so confirming it is one keypress",
 check("but it is still only a suggestion", answered[0]["product"], "")
 check("an invented product is dropped, not shown",
       answered[1].get("suggested"), None)
+
+# A model answer that names a product the card carries more than once. It is
+# not an invention and it is not an answer either -- "Demographic" is four
+# products at four rates -- so the row keeps the real options rather than
+# being dropped or being given a rate nobody quoted.
+_ambiguous = next((n for n in _card_names
+                   if _card_names.count(n) > 1), "")
+
+
+def _stub_ambiguous(messages, **kw):
+    return {"matches": [{"quoted": "Audience targeting", "product": _ambiguous,
+                         "confidence": "high", "why": "audience segments"}]}
+
+
+ai.ready, ai.chat_json = (lambda: True), _stub_ambiguous
+try:
+    amb = product_intake.ai_match(product_intake.read_products(
+        [{"product": "Audience targeting", "monthly": 2500}], months=4))
+finally:
+    ai.ready, ai.chat_json = _saved
+
+check("an ambiguous card name is not suggested as though it were one product",
+      amb[0].get("suggested"), None)
+check("but the real options are offered rather than the row being dropped",
+      len(amb[0].get("candidates") or []) > 1, True)
+check("and every option offered is that same name at its own rate",
+      {c["product"] for c in amb[0]["candidates"]}, {_ambiguous})
 check("and its candidate list is the card's own, unchanged",
       _fake in [c["product"] for c in answered[1]["candidates"]], False)
 check("the model is given the card to choose from",
@@ -434,6 +467,48 @@ check("it still answers the question the rep has",
 check("the numbers' real provenance is still recorded where they live",
       "S1M CREATIVE SPEC KIT 2025" in
       (ROOT / "hub" / "creative_specs.py").read_text(), True)
+
+
+# =====================================================================
+section("One reading of where the IO builder lives")
+# =====================================================================
+
+# This file read IO_API_BASE TWICE with different defaults. `_io_api_base()`
+# returned the mount and carries a docstring explaining that the old external
+# default made every conversion call 404; `/api/config` still returned that
+# external default -- and /api/config is the read that counts, because
+# index.html seeds CFG with the mount and then assigns this route's answer
+# over the top. So /health reported "/tools/io" and looked healthy while every
+# proposal-to-IO conversion posted to a different Render service: a cold
+# start, a different login, and "The IO API did not return an order number."
+# in the conversion log with nothing saying where the request had gone.
+from modules.sales_builder import app as sb                    # noqa: E402
+
+sb_client = sb.app.test_client()
+cfg = sb_client.get("/api/config").get_json()
+health = sb_client.get("/health").get_json()
+
+check("the config route answers with the mount", cfg["io_api_base"], "/tools/io")
+check("and health agrees with it", health["io_api_base"], cfg["io_api_base"])
+check("no external service is named by default",
+      "onrender.com" in str(cfg["io_api_base"]), False)
+
+# The override still works -- the IO moving back to its own service is the
+# case the variable exists for.
+os.environ["IO_API_BASE"] = "https://example.invalid/io/"
+try:
+    over = sb_client.get("/api/config").get_json()
+    over_health = sb_client.get("/health").get_json()
+finally:
+    os.environ.pop("IO_API_BASE", None)
+check("an override is honored", over["io_api_base"], "https://example.invalid/io")
+check("by both readers at once", over_health["io_api_base"], over["io_api_base"])
+
+# The browser overwrites its own default with whatever the route says, which
+# is why a wrong answer here is not caught by the sensible literal in the page.
+_page = (ROOT / "modules" / "sales_builder" / "templates" / "index.html").read_text()
+check("the page does assign the route's answer over its own default",
+      "CFG=Object.assign(CFG,c)" in _page.replace(" ", ""), True)
 
 
 # ------------------------------------------------------------------- summary

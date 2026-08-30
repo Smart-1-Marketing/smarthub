@@ -28,11 +28,19 @@ or fail to say that it could not decide.
   11. the QA rows              — unmapped first, and each carries its reason
   12. _live_google is fixed    — the bug that made every client read the same
   13. the round trip           — build → persist → load survives a new process
+  14. a sweep with no request  — the scheduler has no Flask context, and the
+                                account table has to be readable anyway
+  15. none vs cannot look      — an unreadable list is never an empty one
+  16. the Tag Manager pace     — it adapts, or the retry path IS the path
+  17. a refused account        — keeps the last sweep's containers, and says so
+  18. a login that went silent — is still counted as a login
+  19. the sweep is not free    — a redeploy must not re-run a fresh one
 """
 import json
 import os
 import shutil
 import sys
+import threading
 import tempfile
 from pathlib import Path
 
@@ -43,6 +51,8 @@ TMP = tempfile.mkdtemp(prefix="s1gindex_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
+os.environ["TOKEN_DB_PATH"] = os.path.join(TMP, "google_tokens.db")
+os.environ["SESSION_FILE_DIR"] = os.path.join(TMP, "sessions")
 
 from hub import google_index as gi                       # noqa: E402
 
@@ -358,6 +368,459 @@ check("...which still reads as built", st["never_built"], False)
 rep = qa.google_accounts()
 check("so the report still lists them", len(rep["rows"]), 4)
 
+
+section("The scheduled sweep has no request, and must read the accounts anyway")
+
+# The bug this section exists for: google_finder reached its token database
+# through flask.g, which only exists inside an application context. The
+# scheduler sweeps from a background thread, so every read raised
+# RuntimeError inside connected_accounts()'s except and came back as [] —
+# and the index announced "No Google accounts are connected" every three
+# hours while the accounts sat in the table. Nothing errored, on either side.
+from cryptography.fernet import Fernet                   # noqa: E402
+
+os.environ["TOKEN_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+from modules.google_finder import app as gf              # noqa: E402
+
+with gf.app.app_context():
+    gf.save_account("rep@smart1marketing.com", "refresh-token-value")
+    check("an account connected in a request reads back inside it",
+          [a["email"] for a in gf.connected_accounts()],
+          ["rep@smart1marketing.com"])
+
+# The scheduler's world: no application context at all.
+check("...and reads back with no application context",
+      [a["email"] for a in gf.connected_accounts()],
+      ["rep@smart1marketing.com"])
+
+_thread_saw = []
+_t = threading.Thread(target=lambda: _thread_saw.extend(gf.connected_accounts()))
+_t.start()
+_t.join()
+check("...and from a background thread, which is how the sweep runs",
+      [a["email"] for a in _thread_saw], ["rep@smart1marketing.com"])
+
+# The hub app calls the same sweep from /api/google/rebuild. flask.g exists
+# there, but google_finder's teardown does not run for another app's context,
+# so the cached connection would leak one handle per rebuild.
+from flask import Flask as _Flask                        # noqa: E402
+with _Flask("not-google-finder").app_context() as _ctx:
+    check("...and under another app's context",
+          [a["email"] for a in gf.connected_accounts()],
+          ["rep@smart1marketing.com"])
+    from flask import g as _g                            # noqa: E402
+    check("...without parking a connection on that app's g",
+          "db" in _g, False)
+
+accounts, why = gf.connected_accounts_result()
+check("a readable list reports no reason", why, "")
+check("...and carries the accounts", len(accounts), 1)
+
+# A rotated TOKEN_ENCRYPTION_KEY leaves rows that will not decrypt. Skipping
+# them in silence turns a key rotation into "nobody has ever connected one".
+_real_key = os.environ["TOKEN_ENCRYPTION_KEY"]
+os.environ["TOKEN_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+gf.TOKEN_ENCRYPTION_KEY = os.environ["TOKEN_ENCRYPTION_KEY"]
+accounts, why = gf.connected_accounts_result()
+check("a row that will not decrypt is not silently dropped", bool(why), True)
+check("...and the reason names the key", "TOKEN_ENCRYPTION_KEY" in why, True)
+check("...and the list really is empty, so it must not read as 'none'",
+      accounts, [])
+os.environ["TOKEN_ENCRYPTION_KEY"] = _real_key
+gf.TOKEN_ENCRYPTION_KEY = _real_key
+
+# No key at all is the same shape of answer.
+gf.TOKEN_ENCRYPTION_KEY = ""
+_, why = gf.connected_accounts_result()
+check("an unreadable table is reported, not answered with none", bool(why), True)
+gf.TOKEN_ENCRYPTION_KEY = _real_key
+
+
+section("Nothing connected and could not look are different answers")
+
+from hub import audit as _audit                          # noqa: E402
+
+
+def _log_types():
+    return [e.get("type") for e in _audit.read(limit=500, module="google_index")]
+
+
+def _build_with(stub):
+    sys.modules["gf_app"] = stub
+    try:
+        return gi.build(force=True)
+    finally:
+        sys.modules.pop("gf_app", None)
+
+
+class _Unreadable:
+    """Reached Google, swept nothing, and cannot say whether that is right."""
+
+    @staticmethod
+    def get_index(force=False):
+        return [], []
+
+    @staticmethod
+    def connected_accounts_result():
+        return [], "RuntimeError: Working outside of application context."
+
+    @staticmethod
+    def connected_accounts():                # the silent zero, still available
+        return []
+
+
+class _NoAccounts:
+    @staticmethod
+    def get_index(force=False):
+        return [], []
+
+    @staticmethod
+    def connected_accounts_result():
+        return [], ""
+
+    @staticmethod
+    def connected_accounts():
+        return []
+
+
+_before = _log_types().count("build_failed")
+res = _build_with(_Unreadable)
+check("an unreadable account list is a failure", res["ok"], False)
+check("...and says so", "could not be read" in res["error"], True)
+check("...rather than reporting an unconfigured Hub",
+      "nothing to index" in res["error"], False)
+check("...and is not filed as a skip", res.get("skipped"), None)
+check("...and a failure is logged every time it happens",
+      _log_types().count("build_failed"), _before + 1)
+_build_with(_Unreadable)
+check("...including the second time", _log_types().count("build_failed"),
+      _before + 2)
+
+res = _build_with(_NoAccounts)
+check("genuinely nothing connected is a skip, not a failure",
+      res.get("skipped"), True)
+check("...and says what to do about it", "/google/login" in res["error"], True)
+check("...logged once, when the state starts",
+      _log_types().count("build_skipped"), 1)
+res = _build_with(_NoAccounts)
+check("...and not again on every three-hourly run, for ever",
+      _log_types().count("build_skipped"), 1)
+check("...while the reason still reaches a reader",
+      "No Google accounts" in gi.status()["last_error"], True)
+check("...and yesterday's index is not wiped by it",
+      gi.status()["resources"], 4)
+check("...which still reads as built", gi.status()["never_built"], False)
+
+
+section("Tag Manager pacing adapts, or the retry path is the normal path")
+
+# The failure this section exists for, measured on the live service: paced at
+# a FIXED 0.35s, one sweep of 180 Tag Manager accounts logged a 429 on very
+# nearly every first attempt, paid 1s + 2s + 4s of backoff to push most of
+# them through, exhausted its retries on 13, and took 440 seconds — while the
+# next account started again at 0.35s and rediscovered the same refusal. The
+# pacer had no memory, so roughly two and a half requests were spent per
+# account and the wasted ones counted against the daily quota exactly as the
+# useful ones did.
+
+
+class _Resp:
+    def __init__(self, retry_after=None):
+        self.headers = {} if retry_after is None else {"Retry-After": retry_after}
+
+
+class _429(Exception):
+    def __init__(self, retry_after=None):
+        super().__init__("429 Client Error: Too Many Requests for url: x")
+        self.response = _Resp(retry_after)
+
+
+def _reset_pace():
+    gf._gtm_pace.update({"interval": gf._GTM_MIN_INTERVAL, "last": 0.0,
+                         "ok_streak": 0, "calls": 0, "throttled": 0})
+
+
+# time.sleep is replaced so the assertions are about what the pacer DECIDED,
+# not about how long this test file takes to run.
+_slept = []
+_real_sleep = gf.time.sleep
+gf.time.sleep = lambda s: _slept.append(s)
+
+_reset_pace()
+_start = gf._gtm_pace["interval"]
+gf._gtm_throttled(0.0)
+check("one 429 widens the pace for everything after it",
+      gf._gtm_pace["interval"] > _start, True)
+check("...and it is the shared pace, not this call's own",
+      gf.gtm_pace_state()["interval"], gf._gtm_pace["interval"])
+
+_reset_pace()
+check("Google's own Retry-After beats our guess when it sends one",
+      gf._gtm_throttled(9.0), 9.0)
+_reset_pace()
+# A server that asks for an hour is asking for more than a sweep has.
+check("...but a Retry-After longer than the cap is not honored in full",
+      gf._gtm_throttled(3600.0) <= max(gf._GTM_RETRY_AFTER_CAP,
+                                       gf._GTM_MAX_INTERVAL), True)
+_reset_pace()
+check("...and a Retry-After we cannot read is not a crash",
+      gf._gtm_retry_after(_429("Fri, 01 Jan 2027 00:00:00 GMT")), 0.0)
+check("...nor is a 429 carrying no response at all",
+      gf._gtm_retry_after(Exception("429")), 0.0)
+
+_reset_pace()
+for _ in range(40):
+    gf._gtm_throttled(0.0)
+check("the widening is bounded, not unbounded",
+      gf._gtm_pace["interval"], gf._GTM_MAX_INTERVAL)
+
+# Recovery must be far slower than widening. The other ratio oscillates:
+# it speeds up, spends a 429 rediscovering the ceiling, and does it again.
+gf._gtm_throttled(0.0)
+_wide = gf._gtm_pace["interval"]
+gf._gtm_succeeded()
+check("one clean call does not undo a refusal",
+      gf._gtm_pace["interval"], _wide)
+for _ in range(gf._GTM_RECOVER_AFTER):
+    gf._gtm_succeeded()
+check("...a sustained clean run does", gf._gtm_pace["interval"] < _wide, True)
+for _ in range(gf._GTM_RECOVER_AFTER * 40):
+    gf._gtm_succeeded()
+check("...and never below the floor",
+      gf._gtm_pace["interval"], gf._GTM_MIN_INTERVAL)
+
+# The point of all of it: the SECOND account must not repeat the first's
+# mistake. Two calls that are both refused once, with the pace carried over.
+_reset_pace()
+_calls = []
+
+
+def _fake_get(token, url, params=None):
+    _calls.append(url)
+    # Refused while the pace is still at the floor; allowed once it widens.
+    if gf._gtm_pace["interval"] <= gf._GTM_MIN_INTERVAL:
+        raise _429()
+    return {"account": []}
+
+
+_real_google_get = gf.google_get
+gf.google_get = _fake_get
+try:
+    gf.gtm_get("t", "https://tagmanager.googleapis.com/a")
+    _first = len(_calls)
+    gf.gtm_get("t", "https://tagmanager.googleapis.com/b")
+    _second = len(_calls) - _first
+finally:
+    gf.google_get = _real_google_get
+check("a refusal costs the first call a retry", _first, 2)
+check("...and the next call does not pay for it again", _second, 1)
+
+gf.time.sleep = _real_sleep
+
+
+section("A Tag Manager account we were refused keeps its last reading")
+
+# Tag Manager rate-limits hard enough that some accounts will be refused
+# however politely we ask. Dropping their containers reports this login owning
+# fewer than it does — a smaller number in a complete-looking list, with
+# nothing saying a reading is missing. It is the rule knack_products and
+# domain_purchase already work to: a failed pull never empties a good snapshot.
+gf.time.sleep = lambda s: None
+_reset_pace()
+
+_PREV = {"6372951359": [{"platform": "Google Tag Manager", "type": "GTM Container",
+                         "name": "Riverside HVAC", "account_id": "6372951359",
+                         "resource_id": "GTM-AAA", "domains": ["riversidehvac.com"],
+                         "google_login": "adops@smart1marketing.com"}]}
+
+
+def _gtm_two_accounts(refuse):
+    """Two accounts; `refuse` names the ids Tag Manager turns down."""
+    def _get(token, url, params=None):
+        if url.endswith("/accounts"):
+            return {"account": [{"accountId": "6372951359", "path": "accounts/6372951359"},
+                                {"accountId": "6366317523", "path": "accounts/6366317523"}]}
+        if any(a in url for a in refuse):
+            raise _429()
+        return {"container": [{"publicId": "GTM-BBB", "containerId": "9",
+                               "name": "Buckeye", "domainName": ["buckeyelakewinery.com"]}]}
+    return _get
+
+
+_notes = []
+gf.google_get = _gtm_two_accounts(["6372951359"])
+try:
+    rows = gf.fetch_gtm_items("t", "adops@smart1marketing.com", _notes,
+                              previous=_PREV)
+finally:
+    gf.google_get = _real_google_get
+check("a refused account keeps the containers the last sweep found",
+      sorted(r["resource_id"] for r in rows), ["GTM-AAA", "GTM-BBB"])
+check("...marked as carried over, never merged in quietly",
+      [r["resource_id"] for r in rows if r.get("carried_over")], ["GTM-AAA"])
+check("...and the fresh one is not marked",
+      [r["resource_id"] for r in rows if not r.get("carried_over")], ["GTM-BBB"])
+_n = [n for n in _notes if n["platform"] == "Google Tag Manager"][0]
+check("...the sweep is partial, which is neither clean nor a hole",
+      _n["kind"], "partial")
+check("...and a partial sweep is still surfaced as a problem", _n["ok"], False)
+check("...saying how many accounts kept an older reading",
+      "1 kept the 1 container(s)" in _n["error"], True)
+
+# The other half: refused, and no earlier reading to fall back on. That one
+# genuinely costs the index a container and must not read the same way.
+_notes = []
+gf.google_get = _gtm_two_accounts(["6366317523"])
+try:
+    rows = gf.fetch_gtm_items("t", "adops@smart1marketing.com", _notes, previous={})
+finally:
+    gf.google_get = _real_google_get
+_n = [n for n in _notes if n["platform"] == "Google Tag Manager"][0]
+check("a refusal with nothing to carry is a failure, not a partial",
+      _n["kind"], "failed")
+check("...and says the containers are missing rather than implying none",
+      "missing from this list" in _n["error"], True)
+
+# Nothing refused is still a clean sweep, and `previous` must not leak into it.
+_notes = []
+gf.google_get = _gtm_two_accounts([])
+try:
+    rows = gf.fetch_gtm_items("t", "adops@smart1marketing.com", _notes,
+                              previous=_PREV)
+finally:
+    gf.google_get = _real_google_get
+check("a clean sweep reports ok",
+      [n["kind"] for n in _notes if n["platform"] == "Google Tag Manager"], ["ok"])
+check("...and carries nothing forward into it",
+      [r for r in rows if r.get("carried_over")], [])
+gf.time.sleep = _real_sleep
+
+# The map handed to the sweep must not carry the JOIN forward. client, match
+# and match_detail are derived against the client list as it stands now, and a
+# stored one carried into the next sweep is a six-hour-old guess promoted to a
+# fact — the rule hub/client_key.py states as never store the key.
+gi.jsonstore.write_json(gi._path(), {
+    "built_at": "2026-08-26T19:26:04+00:00", "accounts": [], "errors": [],
+    "items": [{"platform": "Google Tag Manager", "account_id": "1",
+               "resource_id": "GTM-AAA", "google_login": "a@b.com",
+               "client": "Riverside HVAC", "match": "domain",
+               "match_detail": "matched on riversidehvac.com",
+               "carried_over": True}]})
+_prev = gi._previous_gtm()
+check("the carry-forward map is keyed by login then account",
+      list(_prev), ["a@b.com"])
+check("...and the derived join is stripped on the way out",
+      sorted(k for k in _prev["a@b.com"]["1"][0]
+             if k in ("client", "match", "match_detail", "carried_over")), [])
+check("...while the resource itself survives",
+      _prev["a@b.com"]["1"][0]["resource_id"], "GTM-AAA")
+
+
+section("A login that answered nothing is still a login")
+
+
+class _OneSilent:
+    """Two logins connected; only one of them came back with anything.
+
+    This is the live shape: the activity log read "accounts: 1" on a sweep
+    whose own `errors` named a second login that had dropped out entirely,
+    because the account list was derived from the returned rows and so shrank
+    to fit the answer.
+    """
+
+    @staticmethod
+    def get_index(force=False, notes=None, previous=None):
+        return ([{"platform": "Google Tag Manager", "type": "GTM Container",
+                  "name": "Buckeye", "account_id": "1", "resource_id": "GTM-BBB",
+                  "domains": ["buckeyelakewinery.com"],
+                  "google_login": "adops@smart1marketing.com"}],
+                [{"email": "old@smart1marketing.com",
+                  "error": "ReauthRequired: token revoked"}])
+
+    @staticmethod
+    def connected_accounts_result():
+        return ([{"email": "adops@smart1marketing.com", "refresh_token": "x"},
+                 {"email": "old@smart1marketing.com", "refresh_token": "y"}], "")
+
+
+res = _build_with(_OneSilent)
+check("both connected logins are counted", len(res["accounts"]), 2)
+check("...only one of them answered", res["accounts_answered"],
+      ["adops@smart1marketing.com"])
+check("...and the silent one is named rather than dropped",
+      res["accounts_silent"], ["old@smart1marketing.com"])
+st = gi.status()
+check("...which a page can read back", st["accounts_silent"],
+      ["old@smart1marketing.com"])
+
+
+class _KeyRotated:
+    """One login answered; another row would not decrypt."""
+
+    @staticmethod
+    def get_index(force=False, notes=None, previous=None):
+        return ([{"platform": "Search Console", "type": "Site",
+                  "name": "https://buckeyelakewinery.com/", "account_id": "",
+                  "resource_id": "https://buckeyelakewinery.com/",
+                  "domains": ["buckeyelakewinery.com"],
+                  "google_login": "adops@smart1marketing.com"}], [])
+
+    @staticmethod
+    def connected_accounts_result():
+        return ([{"email": "adops@smart1marketing.com", "refresh_token": "x"}],
+                "1 of 2 stored Google account(s) could not be decrypted — "
+                "TOKEN_ENCRYPTION_KEY has changed since they were connected.")
+
+
+_build_with(_KeyRotated)
+check("a rotated key is reported even when the sweep found things",
+      "TOKEN_ENCRYPTION_KEY" in gi.status()["accounts_error"], True)
+
+
+section("The sweep is expensive, so a redeploy must not re-run a fresh one")
+
+# Every scheduler job starts due, so a deploy re-ran this one however recently
+# it had finished — and it is 180 rate-limited Tag Manager calls and seven
+# minutes. The live service swept at 19:19, deployed at 19:29, and swept the
+# identical 180 accounts again at 19:33.
+def _hours_ago(n):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc)
+            - timedelta(hours=n)).isoformat(timespec="seconds")
+
+
+check("a fresh index is not due", gi.due_for_refresh(3600), False)
+_saved = gi.load()
+gi.jsonstore.write_json(gi._path(),
+                        dict(_saved, built_at=_hours_ago(2)))
+check("...and is due once it has aged past the window",
+      gi.due_for_refresh(3600), True)
+gi.jsonstore.write_json(gi._path(), _saved)
+gi.jsonstore.write_json(gi._path(), dict(_saved, built_at=""))
+check("an index that was never built is always due",
+      gi.due_for_refresh(10 ** 9), True)
+# Too often is recoverable; never is not.
+gi.jsonstore.write_json(gi._path(), dict(_saved, built_at="2099-01-01T00:00:00+00:00"))
+check("...and so is one whose timestamp is in the future",
+      gi.due_for_refresh(10 ** 9), True)
+gi.jsonstore.write_json(gi._path(), _saved)
+
+from hub import scheduler as _sched                      # noqa: E402
+
+_swept = []
+_real_build = gi.build
+gi.build = lambda force=True: _swept.append(force) or {"ok": True}
+try:
+    res = _sched.job_refresh_google_index(None)
+    check("the scheduled job skips a sweep it does not need", _swept, [])
+    check("...and says so with the age, rather than reporting a run",
+          "rebuilt" in res.get("skipped", ""), True)
+    gi.jsonstore.write_json(gi._path(), dict(gi.load(),
+                                             built_at="2020-01-01T00:00:00+00:00"))
+    _sched.job_refresh_google_index(None)
+    check("...and sweeps when the index really has aged out", _swept, [True])
+finally:
+    gi.build = _real_build
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

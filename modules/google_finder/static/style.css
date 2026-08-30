@@ -1,47 +1,44 @@
+/* Smart 1 Google Finder — what is left after adopting the Hub's detail look.
+ *
+ * The page head, the sub-nav, cards, buttons and pills come from
+ * hub/static/hub-detail.css, which wsgi.py's HubBar injects into this module.
+ * They are not restated here: this module wrapped its whole page in one card
+ * with a 28px <h1> reading "Smart 1 Google Account Command Center" inside it,
+ * and carried a tab strip hand-copied into six templates.
+ *
+ * What remains is what is genuinely Google Finder: the result rows and their
+ * per-platform badges, the search box, the connected-account chips, the
+ * per-tool panels, the toast stack and the skeleton loader. Each is a shape no
+ * other screen in the Hub has.
+ *
+ * `.search-spinner` keeps its name deliberately. It is this module's own SVG,
+ * and hub/static/hub-thinking.js lists only the spellings actually in use so it
+ * does not upgrade a glyph that means something else — see CLAUDE.md.
+ */
 * { box-sizing: border-box; }
 body { margin: 0; background: #f4f6fa; color: #1e293b; font-family: 'Segoe UI', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 22px; }
-.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 12px 32px rgba(20,40,80,.08); padding: 24px; }
-.topline { display: flex; gap: 20px; justify-content: space-between; align-items: flex-start; }
-.topline h1 { margin: 0 0 6px; font-size: 28px; color: #1a2e58; }
-.topline p { margin: 0; color: #64748b; }
-.auth { display: flex; gap: 12px; align-items: center; font-size: 13px; }
-.auth a { color: #2563eb; text-decoration: none; }
-.btn, .open { background: #2563eb; color: #fff!important; padding: 10px 14px; border-radius: 9px; text-decoration: none; font-weight: 700; border: 0; cursor: pointer; display: inline-block; }
+/* .btn stays local rather than becoming .s1d-btn, for two reasons that are
+   about this module rather than about taste: app.js builds most of them, each
+   with a per-platform background override (#24519c for Tag Manager, #c5221f
+   for Search Console) that color-codes the action to the account it acts on;
+   and "btn" is far too ordinary a name to put in a stylesheet injected into
+   twenty modules. It is the shared button's shape, so the two read as one
+   control -- a change to what a button looks like still starts there. */
+.btn { background: #2563eb; color: #fff !important; border: 0; border-radius: 8px;
+  padding: 9px 16px; font: 600 13px 'Segoe UI', system-ui, sans-serif; cursor: pointer;
+  text-decoration: none; display: inline-block; line-height: 1.3; }
+.btn:hover { filter: brightness(.93); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
 
-/* CLEAN TOP NAVIGATION BAR */
-.nav-anchor-bar {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 18px;
-  padding: 8px;
-  background: #f0f4f9;
-  border: 1px solid #d8e0eb;
-  border-radius: 12px;
-}
-.nav-anchor-bar a {
-  font-size: 13px;
-  font-weight: 600;
-  color: #4a5568;
-  background: transparent;
-  padding: 8px 16px;
-  border-radius: 8px;
-  text-decoration: none!important;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.nav-anchor-bar a:hover {
-  background: #e2e8f0;
-  color: #1a2e58;
-}
-.nav-anchor-bar a.active-page {
-  background: #1a2e58;
-  color: #ffffff!important;
-  box-shadow: 0 2px 6px rgba(26,46,88,0.2);
-}
+/* The control on a result row: 'open this property in Google'. Not the shared
+   button -- it sits inside a grid cell sized to it, and it is the one blue
+   thing in a row read left to right. */
+.open { background: #2563eb; color: #fff !important; padding: 8px 12px; border-radius: 8px;
+  text-decoration: none; font-weight: 700; border: 0; cursor: pointer; display: inline-block;
+  font-size: 13px; }
+.open:hover { background: #1d4ed8; }
+
 
 .filters { display: flex; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
 .filters button { border: 1px solid #cfd7e4; background: #fff; color: #1a2e58; border-radius: 999px; padding: 8px 13px; cursor: pointer; }
@@ -70,35 +67,39 @@ body { margin: 0; background: #f4f6fa; color: #1e293b; font-family: 'Segoe UI', 
 .main h3 { margin: 0 0 5px; font-size: 17px; }
 .meta { font-size: 13px; color: #58677e; }
 .meta span { margin-left: 6px; color: #8a95a7; }
-.open { padding: 8px 12px; font-size: 13px; }
 .empty, .connect-panel { border: 1px dashed #cbd5e3; border-radius: 12px; padding: 24px; text-align: center; color: #64748b; }
 .connect-panel { margin-top: 24px; }
 .connect-panel strong { color: #1a2e58; font-size: 18px; }
 .connect-panel p { margin-bottom: 0; }
 
 @media(max-width: 700px) {
-  .topline { display: block; }
-  .auth { margin-top: 14px; }
   .result { grid-template-columns: 1fr; }
   .badge { width: max-content; }
   .open { width: max-content; }
   .filters .refresh { margin-left: 0; }
   .wrap { padding: 10px; }
-  .card { padding: 16px; }
+  .manual-lookup-card, .ai-comparator-card, .saved-reports-section { padding: 14px; }
 }
 
-.accounts { margin-top: 20px; padding: 14px; border: 1px solid #e1e7ef; border-radius: 12px; background: #f8fafc; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.accounts { margin-top: 16px; padding: 14px; border: 1px solid #e1e7ef; border-radius: 12px; background: #f8fafc; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .accounts-title { font-size: 13px; font-weight: 800; color: #1a2e58; margin-right: 4px; }
 .account-chip { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #d8e0eb; border-radius: 999px; padding: 7px 8px 7px 10px; font-size: 12px; }
 .check { color: #16824b; font-weight: 900; }
 .disconnect { border: 0; background: #edf1f6; color: #64748b; width: 21px; height: 21px; border-radius: 50%; cursor: pointer; line-height: 1; font-size: 16px; }
 .muted { font-size: 13px; color: #748096; }
 .login { font-size: 13px; color: #1a2e58; margin-bottom: 4px; }
-.connect { display: inline-block; margin-top: 10px; }
+.connect-panel .s1d-btn { margin-top: 10px; }
 
-.ai-comparator-card, .manual-lookup-card { margin-top: 20px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; }
-.ai-comparator-card h3, .manual-lookup-card h3 { margin: 0 0 4px; font-size: 16px; color: #1a2e58; }
-.ai-comparator-card p, .manual-lookup-card p { font-size: 13px; color: #64748b; margin: 0 0 12px; }
+/* Each tool page is a stack of these, so they are the page's cards now that
+   the page-wide one is gone. White on the page ground, like every other card
+   in the Hub -- GTM's and Search Console's keep the inline tint that
+   color-codes them by platform. */
+.ai-comparator-card, .manual-lookup-card, .saved-reports-section {
+  margin-top: 16px; padding: 18px; background: #fff; border: 1px solid #e2e8f0;
+  border-radius: 12px; }
+.ai-comparator-card h3, .manual-lookup-card h3, .saved-reports-section h3 {
+  margin: 0 0 4px; font-size: 15px; color: #1a2e58; }
+.ai-comparator-card p, .manual-lookup-card p, .saved-reports-section p { font-size: 12.5px; color: #64748b; margin: 0 0 12px; }
 .comp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .comp-grid label, .comp-grid-secondary label { display: block; font-size: 12px; font-weight: 700; color: #1a2e58; margin-bottom: 4px; }
 .comp-grid input, .comp-grid select, .comp-grid-secondary input, .comp-grid-secondary select { width: 100%; font-size: 13px; padding: 8px 10px; border: 1px solid #ccd6e5; border-radius: 6px; background: #fff; }

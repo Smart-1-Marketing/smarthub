@@ -43,6 +43,7 @@ order number and the two IO PDFs, because those belong to the IO.
 import json
 import os
 import re
+import secrets
 import threading
 import logging
 from datetime import datetime, timezone
@@ -56,6 +57,7 @@ from flask_cors import CORS
 from sqlalchemy import (Column, DateTime, Integer, LargeBinary, String, Text,
                         func, or_)
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import object_session as _sa_object_session
 
 # ---- PDF (reportlab, same stack as the IO app) ----
 from reportlab.lib import colors as rl_colors
@@ -63,8 +65,8 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (Paragraph, SimpleDocTemplate, Spacer, Table,
-                                TableStyle)
+from reportlab.platypus import (Image as RLImage, KeepTogether, Paragraph,
+                                SimpleDocTemplate, Spacer, Table, TableStyle)
 from xml.sax.saxutils import escape as xml_escape
 
 # ---- Word export ----
@@ -81,9 +83,14 @@ from hub import business_description as hub_desc
 from hub import creative_needs as hub_creative
 from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
+from hub import kpi_framework as hub_kpi
 from hub import proposal_spec as hub_spec
+from hub import quote_validity as hub_validity
 from hub import rate_card as hub_rate_card
 from hub import target_areas as hub_areas
+from hub import target_map as hub_map
+from hub import view_tracking as hub_views
+from hub.config import settings as hub_config
 
 # Activity logging. Guarded so this module still runs standalone, but
 # inside the Hub every action is attributable — this module created client quotes,
@@ -161,9 +168,75 @@ class Quote(Base):
     suite_contact_id = Column(String(64), default="")
     suite_opportunity_id = Column(String(64), default="")
     delivered_at = Column(DateTime, nullable=True)
+    # Who opened it, from the Hub session rather than from the state. The
+    # `salesperson` column above is the *sales contact typed onto the
+    # proposal* -- a field a rep fills in for the client's benefit, blank on
+    # most drafts and sometimes somebody else's name entirely. The list was
+    # showing that, so "who wrote this?" had no answer on the one screen the
+    # question is asked.
+    created_by = Column(String(160), default="")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# The client's copy: one link, what it was opened by, and whether they said yes
+#
+# Three tables rather than columns on `quotes`, because `create_all()` creates
+# missing tables and never adds a column to an existing one -- six columns
+# added to the live Postgres would be silently absent there while every local
+# test passed, which is the trap `hub_user_profiles` and `cb_render_approvals`
+# were each made their own table to avoid.
+#
+# They are also genuinely three things. A share is an address that outlives
+# the revisions sent to it. A view is an event. An acceptance is a statement
+# about **one specific revision**, so it is a row rather than a flag -- an
+# edit does not delete what a client agreed to last week, it supersedes it,
+# and both facts have to survive for the panel to say so.
+# ---------------------------------------------------------------------------
+class QuoteShare(Base):
+    __tablename__ = "quote_shares"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quote_id = Column(Integer, index=True, nullable=False)
+    # One token per quote, minted once and kept. A second token would mean a
+    # link already in a client's inbox stops working the day somebody presses
+    # the button again.
+    token = Column(String(64), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_by = Column(String(120), default="")
+    revoked_at = Column(DateTime, nullable=True)
+    # The revision the rep last deliberately sent. The page always shows the
+    # current one; this is how the panel can say "you have edited it since".
+    sent_revision = Column(Integer, default=1)
+    sent_at = Column(DateTime, nullable=True)
+
+
+class QuoteView(Base):
+    __tablename__ = "quote_views"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quote_id = Column(Integer, index=True, nullable=False)
+    token = Column(String(64), index=True, nullable=False)
+    at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    # Which revision they were reading. A count with no revision on it cannot
+    # answer "did they ever open the one I sent on Tuesday".
+    revision = Column(Integer, default=1)
+    # A keyed digest, never an address -- see hub/view_tracking.py. Used to
+    # recognise a reload inside the window and for nothing else.
+    visitor = Column(String(64), default="", index=True)
+    device = Column(String(20), default="")
+
+
+class QuoteAcceptance(Base):
+    __tablename__ = "quote_acceptances"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quote_id = Column(Integer, index=True, nullable=False)
+    token = Column(String(64), index=True, default="")
+    revision = Column(Integer, default=1)
+    at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    name = Column(String(200), default="")
+    email = Column(String(200), default="")
+    visitor = Column(String(64), default="")
 
 
 class Activity(Base):
@@ -192,6 +265,7 @@ _LATE_QUOTE_COLUMNS = [
     ("suite_contact_id", "VARCHAR(64)"),
     ("suite_opportunity_id", "VARCHAR(64)"),
     ("delivered_at", "TIMESTAMP"),
+    ("created_by", "VARCHAR(160)"),
 ]
 
 
@@ -327,20 +401,120 @@ def _client_key(name, url):
         return ""
 
 
-def quote_json(q, include_data=False):
+def _signed_in_as() -> str:
+    """Who is using the builder, from the Hub session.
+
+    `AuthGuard` puts the display name on the WSGI environ before Flask sees
+    the request, which is the only place it exists for a dispatcher-mounted
+    module -- this app has no Hub app context and no `flask.g` of its own.
+    Empty is a real answer: the module runs standalone in the tests and
+    behind the shared password in an emergency, and "" reads as "not
+    recorded" on the list rather than as somebody's name.
+    """
+    try:
+        return str(request.environ.get("s1hub.user") or "").strip()[:160]
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
+_UNSET = object()
+
+
+def _sent_at_of(q):
+    """When this quote was last deliberately sent, or None.
+
+    Read through the session that loaded the quote -- one small indexed query
+    -- so every caller of quote_json() gets the right answer without nine call
+    sites having to remember. `list_quotes` prefetches instead, because one
+    query per row on a 300-row list is the N+1 this would otherwise be.
+    """
+    try:
+        db = _sa_object_session(q)
+        if db is None:
+            return None
+        share = (db.query(QuoteShare)
+                 .filter(QuoteShare.quote_id == q.id)
+                 .order_by(QuoteShare.id.desc()).first())
+        return share.sent_at if share else None
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
+def _sent_at_map(db, quotes) -> dict:
+    """{quote_id: sent_at} for a page of quotes, in one query."""
+    ids = [q.id for q in quotes]
+    if not ids:
+        return {}
+    out = {}
+    try:
+        for share in (db.query(QuoteShare)
+                      .filter(QuoteShare.quote_id.in_(ids))
+                      .order_by(QuoteShare.id.asc()).all()):
+            out[share.quote_id] = share.sent_at
+    except Exception:                                   # noqa: BLE001
+        return {}
+    return out
+
+
+def _state_of(q) -> dict:
+    """A quote's saved answers, or an empty dict. Never raises: half this
+    module reads the blob to answer one question about it, and a malformed one
+    must cost that answer rather than the page."""
+    try:
+        state = json.loads(q.data or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def _quote_window(q, state, sent_at=_UNSET):
+    """How long this quote's pricing stands. hub/quote_validity.py has the rules."""
+    if sent_at is _UNSET:
+        sent_at = _sent_at_of(q)
+    try:
+        return hub_validity.window(q.status or "", sent_at=sent_at,
+                                   created_at=q.created_at, state=state)
+    except Exception:                                   # noqa: BLE001
+        # A window that cannot be computed must not cost the quote: every
+        # screen reads `applies`, and False is "no window here", which is what
+        # every quote had before this existed.
+        return {"applies": False, "measured": False, "expired": False}
+
+
+def _validity_block(win):
+    """What a screen is handed. The sentence travels with the dates, so no
+    caller can render a date without the words that explain it."""
+    out = dict(win or {})
+    out["note"] = hub_validity.staff_note(win)
+    out["client_note"] = hub_validity.client_note(win)
+    return out
+
+
+def quote_json(q, include_data=False, sent_at=_UNSET):
     state = {}
     try:
         state = json.loads(q.data or "{}")
     except Exception:
         state = {}
+    win = _quote_window(q, state, sent_at)
     out = {
         "id": q.id,
         "quote_number": q.quote_number,
         "status": q.status,
+        # What a screen shows. `status` stays exactly as stored, because that
+        # is what a status change writes back and what the picker sets; this
+        # is the same fact with the clock applied. Two fields rather than one
+        # so nothing can round-trip a derived value into the column.
+        "shown_status": (hub_validity.EXPIRED_STATUS if win.get("expired")
+                         else q.status),
         "client": q.client,
         "website": q.website,
         "industry": q.industry,
         "salesperson": q.salesperson,
+        # Two different questions, and the list was answering the wrong one.
+        # `salesperson` is the sales contact typed onto the proposal for the
+        # client's benefit; `created_by` is who opened it here.
+        "created_by": getattr(q, "created_by", "") or "",
         "monthly_budget": q.monthly_budget,
         "months": q.months,
         "total_budget": q.total_budget,
@@ -354,6 +528,19 @@ def quote_json(q, include_data=False):
         # against a column that was silently absent in production.
         "client_key": _client_key(q.client, q.website),
         "revision": q.revision,
+        # How long the pricing stands, and whether it still does. Derived on
+        # read and never stored: there are two gunicorn workers, so a status
+        # written by whichever one ran a sweep is one the other disagrees
+        # with -- and a stored "Expired" would survive an extension, leaving a
+        # quote reading as dead on the one screen a rep would go to revive it.
+        # hub/quote_validity.py owns the rules.
+        "validity": _validity_block(win),
+        # How far into the wizard this quote was left. Read from the state
+        # blob rather than a column of its own: create_all() adds no column
+        # to an existing table, so one here would be silently absent on the
+        # live Postgres with every local test green. It is what lets the list
+        # say a draft is half-finished instead of only that it is a draft.
+        "step": (state.get("_step") if isinstance(state.get("_step"), int) else 0),
         "io_number": q.io_number,
         "io_client_pdf_url": q.io_client_pdf_url,
         "io_internal_pdf_url": q.io_internal_pdf_url,
@@ -365,7 +552,13 @@ def quote_json(q, include_data=False):
         "gaps": compute_gaps(state),
         "growth": growth_options(state),
         "guardrails": compute_guardrails(state),
+        # Computed here rather than stored, exactly like `growth` above: it is
+        # derived from the KPIs and the media mix, and a stale copy of it is a
+        # measurement framework that no longer matches the plan under it.
+        "kpi_framework": hub_kpi.framework(state),
         "target_areas": campaign_areas(state),
+        "targets_of_interest": targets_of_interest(state),
+        "zip_exceptions": hub_areas.zip_exceptions(campaign_areas(state)),
         "creative": hub_creative.evaluate(state),
         "suggestions": hub_discovery.suggestions(state),
         "pdf_url": q.pdf_url or "",
@@ -374,7 +567,54 @@ def quote_json(q, include_data=False):
     }
     if include_data:
         out["data"] = state
+        # The plan as the PDF and the Word export draw it, so the builder's
+        # preview shows the delivery figures rather than carrying a fourth
+        # copy of the arithmetic. Only on a single quote: the list does not
+        # draw this table, and computing it per row there is work nothing
+        # reads.
+        out["media_plan"] = media_plan_rows(state)
+        # What the campaign costs, and the investment summary as the PDF and
+        # the Word export draw it. Shipped for the same reason the media plan
+        # is: the preview had its own copy of this arithmetic, which summed
+        # every line including a one-time production as though it recurred.
+        out["campaign_cost"] = campaign_cost(state)
+        out["investment"] = investment_lines(state, q)
     return out
+
+
+def targets_of_interest(state) -> list[dict]:
+    """The competitors, venues and places this campaign is going after.
+
+    The audience step offered "Competitor conquesting" as a tick box and
+    nothing anywhere asked which competitors -- so the proposal promised to
+    target a client's rivals without naming one and the insertion order
+    arrived with the same two words on it. Named rows only: an empty name is
+    a row somebody started and abandoned, and it must not reach a client
+    document as a blank line.
+
+    A row with no address is kept. Conquesting by brand and browsing
+    behaviour needs no location at all, and dropping those would mean the
+    list is only ever as long as somebody's patience for looking up street
+    addresses. `fenceable` says which of the two each row can do, so nothing
+    downstream has to guess -- and nothing here invents an address from a
+    name, the rule modules/ads_builder/logo.py works to.
+    """
+    rows = []
+    for raw in (state or {}).get("targetsOfInterest") or []:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "").strip()
+        if not name:
+            continue
+        address = str(raw.get("address") or "").strip()
+        rows.append({
+            "kind": str(raw.get("kind") or "competitor").strip() or "competitor",
+            "name": name[:200],
+            "address": address[:200],
+            "note": str(raw.get("note") or "").strip()[:200],
+            "fenceable": bool(address),
+        })
+    return rows
 
 
 def campaign_areas(state):
@@ -397,9 +637,21 @@ def summarize_into(q, state):
     q.industry = str(state.get("industry") or "")[:100]
     q.salesperson = str(state.get("salesContact") or "")[:120]
     q.months = int(state.get("months") or 1)
+    # The plan is the number. This used to read the selected package or the
+    # budget the rep typed on the Budget step -- what the client *asked for* --
+    # so a plan edited down to $5,750 still put $8,000 on the cover, in the
+    # investment summary and on the dashboard's pipeline, while the media mix
+    # table and the insertion order both said $5,750. See campaign_cost().
+    cost = campaign_cost(state)
     sel = state.get("selectedPackage") or {}
-    q.monthly_budget = int(sel.get("monthly") or state.get("budget") or 0)
-    q.total_budget = int(sel.get("total") or (q.monthly_budget * q.months))
+    if cost["has_plan"]:
+        q.monthly_budget = int(round(cost["recurring"]))
+        q.total_budget = int(round(cost["campaign"]))
+    else:
+        # No plan yet: the ask is the only figure there is, and a quote at the
+        # Budget step still has to read sensibly on the list.
+        q.monthly_budget = int(sel.get("monthly") or state.get("budget") or 0)
+        q.total_budget = int(sel.get("total") or (q.monthly_budget * q.months))
     q.package = str(sel.get("name") or "")[:40]
     items = state.get("items") or []
     q.products_summary = " · ".join([str(i.get("product") or "") for i in items])[:500]
@@ -450,13 +702,73 @@ def index():
 @app.get("/api/config")
 def api_config():
     return jsonify({
-        "io_api_base": os.getenv("IO_API_BASE", "https://insertionordersmart.onrender.com"),
+        # Through _io_api_base(), not a second os.getenv with its own default.
+        # This read still carried the OLD external default -- the very one the
+        # docstring on that function describes as the bug -- and it is the read
+        # the browser actually uses: index.html seeds CFG with "/tools/io" and
+        # then assigns whatever this route returns over the top. So /health
+        # reported the mount while every proposal-to-IO conversion posted to a
+        # different Render service: a cold start, a different login, and a
+        # "The IO API did not return an order number." in the conversion log
+        # with nothing saying where it had gone. One reader, the rule this
+        # codebase applies to rate cards, client keys and source labels alike.
+        "io_api_base": _io_api_base(),
         # Now mounted inside the Hub rather than iframed from Render, so it
         # shares the login and can reach the client registry. The external URL
         # still works as an override if the standalone app is ever needed.
         "io_app_url": os.getenv("IO_APP_URL", "/tools/io/?embed=1"),
         "ai_enabled": bool(os.getenv("OPENAI_API_KEY")),
+        # Served rather than mirrored. Target areas and the creative
+        # classifier each carry a JavaScript copy of a server rule, and each
+        # needs a test proving the two halves still agree; that cost is paid
+        # twice already, so the sizes and the markup rule come down the wire
+        # and the browser renders what it is given -- the choice Social
+        # Planner made about its calendar, for the same reason.
+        "creative_sizes": _creative_sizes(),
+        "rate_rules": hub_rate_card.rate_rules_for_js(),
     })
+
+
+def _creative_sizes() -> dict:
+    """The spec-kit sizes each gated medium needs, for the creative step.
+
+    The exact answer is per product and lives in
+    `hub.creative_needs.required_units()`, which is what travels to the
+    insertion order. This is the same kit read one level up, so the wizard can
+    say "here is what we will be asking the client for" before a product has
+    been picked. A medium the kit maps nothing for is left out rather than
+    sent as an empty list a screen would render as "no creative needed".
+    """
+    try:
+        from hub import creative_specs
+    except Exception:                                   # noqa: BLE001
+        return {}
+    # One representative product per medium, only to reach the kit's own
+    # channel mapping. Naming products here rather than channels keeps this
+    # honest: if the mapping changes, this follows it.
+    probes = {
+        "video": ("Connected TV - Targeted", "OTT"),
+        "audio": ("Programmatic - Targeted", "DIGITAL RADIO"),
+        "display": ("Select Tactics - Comes with Retargeting", "DATA TARGETED DISPLAY"),
+        "retargeting": ("Website Retargeting", "RETARGETING"),
+    }
+    out = {}
+    for medium, (product, category) in probes.items():
+        # The same sentence the proposal prints, from the same function.
+        # Built here from a flat list of pixel sizes, the audio row read
+        # "300x250" -- the optional companion banner presented as the whole
+        # requirement, on the screen that asks whether the client has the
+        # creative. Somebody sends a banner and no spot.
+        probe = {"months": 1, "items": [{"product": product, "category": category,
+                                         "dollars": 1}]}
+        line = hub_creative.units_line(probe, medium)
+        detail = hub_creative.required_units(probe, medium)
+        if detail["measured"]:
+            out[medium] = {"line": line,
+                           "sizes": [sz for unit in detail["units"]
+                                     for sz in unit["sizes"]],
+                           "source": detail.get("source") or ""}
+    return out
 
 
 # ---- Quotes CRUD ----
@@ -467,6 +779,7 @@ def create_quote():
     db = SessionLocal()
     try:
         q = Quote(quote_number=next_quote_number(db),
+                  created_by=_signed_in_as(),
                   status=body.get("status") or "Draft",
                   data=json.dumps(state, ensure_ascii=False))
         summarize_into(q, state)
@@ -499,7 +812,10 @@ def list_quotes():
                 func.lower(Quote.io_number).like(like),
             ))
         rows = query.order_by(Quote.updated_at.desc()).limit(limit).all()
-        return jsonify({"ok": True, "quotes": [quote_json(r) for r in rows]})
+        sent = _sent_at_map(db, rows)
+        return jsonify({"ok": True,
+                        "quotes": [quote_json(r, sent_at=sent.get(r.id))
+                                   for r in rows]})
     finally:
         db.close()
 
@@ -628,7 +944,10 @@ def duplicate_quote(qid):
         # New quotes start clean of decision/IO fields
         for k in ("startDate", "ioPayload",):
             state.pop(k, None)
+        # A duplicate is a new proposal, so it is credited to whoever made
+        # it rather than to whoever wrote the one it was copied from.
         q = Quote(quote_number=next_quote_number(db), status="Draft",
+                  created_by=_signed_in_as(),
                   data=json.dumps(state, ensure_ascii=False))
         summarize_into(q, state)
         db.add(q)
@@ -667,6 +986,16 @@ def mark_converted(qid):
         db.close()
 
 
+def _pipeline_signals() -> dict:
+    """What needs chasing, read by the Hub dashboard and by this one."""
+    try:
+        from hub import sales_status
+        return sales_status.scoreboard()
+    except Exception as exc:                            # noqa: BLE001
+        return {"measured": False,
+                "error": f"The pipeline could not be read ({type(exc).__name__})."}
+
+
 # ---- Dashboard ----
 @app.get("/api/dashboard")
 def dashboard():
@@ -693,9 +1022,18 @@ def dashboard():
         acts = db.query(Activity).order_by(Activity.created_at.desc()).limit(12).all()
         stale = [r for r in sent_rows if (now - aware(r.updated_at)).days >= 7]
         nudges = []
+        sent_map = _sent_at_map(db, stale[:3])
         for r in stale[:3]:
+            # Whether the pricing still stands changes what the follow-up is.
+            # "Chase this" and "this one needs re-quoting before they can say
+            # yes" are different jobs, and the second one has a client sitting
+            # in front of a page that will not let them accept.
+            win = _quote_window(r, _state_of(r), sent_map.get(r.id))
             nudges.append({"tag": "FOLLOW-UP NUDGE", "text": f"{r.client} ({r.quote_number}) was sent "
-                          f"{(now - aware(r.updated_at)).days} days ago with no response. Consider a follow-up."})
+                          f"{(now - aware(r.updated_at)).days} days ago with no response. "
+                          + ("The pricing has expired — re-send it to quote at "
+                             "current rates." if win.get("expired")
+                             else "Consider a follow-up.")})
         for r in approved[:3]:
             g = compute_gaps(json.loads(r.data or "{}"))
             nudges.append({"tag": "READY TO CONVERT", "text": f"{r.client} ({r.quote_number}) is approved. "
@@ -714,7 +1052,15 @@ def dashboard():
             "converted_month_count": len(conv_month),
             "converted_month_monthly": sum(r.monthly_budget or 0 for r in conv_month),
             "win_rate_90d": round(100 * len(won_90) / len(decided_90)) if decided_90 else 0,
-        }, "activity": [{"icon": a.icon, "text": a.text,
+        },
+            # The same five signals the Hub dashboard's pipeline card draws,
+            # from the same reading. Two screens answering "what needs
+            # chasing" separately is how they come to disagree in front of
+            # the same rep -- the /api/db/structure versus /api/integrity
+            # trap. Never allowed to cost this dashboard: a failure here is
+            # `measured: False` and the panel says so.
+            "pipeline": _pipeline_signals(),
+            "activity": [{"icon": a.icon, "text": a.text,
                          "when": a.created_at.isoformat() if a.created_at else ""} for a in acts],
             "nudges": nudges[:6]})
     finally:
@@ -732,8 +1078,230 @@ SOFT = rl_colors.HexColor("#eef3f8")
 MUTED = rl_colors.HexColor("#53657a")
 
 
+# The one tag generated copy is allowed to carry. `clean_ai_text` normalises
+# every other form of emphasis away and leaves this, so escaping the string
+# and then putting these two back is the whole of "bold is fine": reportlab
+# reads <b> natively, and nothing else in the copy can reach it as markup.
+_BOLD_OPEN, _BOLD_CLOSE = xml_escape("<b>"), xml_escape("</b>")
+
+
 def _p(text, style):
-    return Paragraph(xml_escape(str(text or "")).replace("\n", "<br/>"), style)
+    body = xml_escape(str(text or "")).replace("\n", "<br/>")
+    body = body.replace(_BOLD_OPEN, "<b>").replace(_BOLD_CLOSE, "</b>")
+    return Paragraph(body, style)
+
+
+def _inline(text) -> str:
+    """One line of cleaned copy, escaped, with the one allowed tag put back."""
+    body = xml_escape(str(text or ""))
+    return body.replace(_BOLD_OPEN, "<b>").replace(_BOLD_CLOSE, "</b>")
+
+
+def show_map(state) -> bool:
+    """Whether this proposal carries a coverage map.
+
+    Default on, and switched off per proposal the same way a generated table
+    is -- one flag on the areas section, read by the preview, the PDF and the
+    Word export, rather than three screens each deciding for themselves.
+    """
+    for sec in (state or {}).get("sections") or []:
+        if sec.get("kind") == "areas":
+            return sec.get("showMap") is not False and sec.get("enabled", True)
+    # No outline on this quote yet -- which is every quote at the moment the
+    # target areas are being described, three steps before the document
+    # exists. Answering False there meant the map panel on the areas screen
+    # said "left out of this proposal" about a proposal with no sections in
+    # it at all. Only an explicit no is a no.
+    return True
+
+
+def campaign_map(state):
+    """The campaign's map, and what it does and does not show. Never raises."""
+    if not show_map(state):
+        return None, {"reason": "The map is left out of this proposal.",
+                      "plotted": [], "not_plotted": [], "measured": False}
+    try:
+        return hub_map.render(campaign_areas(state))
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("target map failed: %s", exc)
+        return None, {"reason": f"The map could not be drawn ({exc}).",
+                      "plotted": [], "not_plotted": [], "measured": False}
+
+
+def _docx_body(d, text) -> None:
+    """Section copy in Word, with a bulleted list as a bulleted list.
+
+    Word has a List Bullet style and python-docx will raise if the template
+    does not carry it, so the fallback writes the bullet character itself --
+    a list that looks slightly hand-made beats an export that 500s, and beats
+    the run-on sentence this replaced.
+    """
+    for block in hub_spec.blocks(text):
+        rows = ([block] if block["kind"] == "para" else block["items"])
+        for row in rows:
+            para = None
+            if block["kind"] == "list":
+                try:
+                    para = d.add_paragraph(style="List Bullet")
+                except Exception:                   # noqa: BLE001
+                    para = d.add_paragraph()
+                    para.add_run("\u2022  ")
+            if para is None:
+                para = d.add_paragraph()
+            for piece, bold in row["runs"]:
+                run = para.add_run(piece)
+                run.font.bold = bold
+
+
+def _docx_map(d, png: bytes, meta: dict) -> None:
+    """The same map the PDF carries, at the same place in the document."""
+    try:
+        # Bounded on both axes for the reason `_map_flowables` gives: width
+        # alone lets a tall crop fill a page on its own.
+        from PIL import Image as PILImage
+        with PILImage.open(BytesIO(png)) as probe:
+            pw, ph = probe.size
+        scale = min(6.4 / max(1, pw), 4.0 / max(1, ph))
+        d.add_picture(BytesIO(png), width=Inches(pw * scale),
+                      height=Inches(ph * scale))
+    except Exception as exc:                        # noqa: BLE001
+        logger.warning("map could not be placed in the Word export: %s", exc)
+        return
+    covered = [row["label"] for row in meta.get("not_plotted") or []
+               if row.get("kind") in hub_map.NOT_DRAWN]
+    if covered:
+        note = d.add_paragraph()
+        run = note.add_run("Also covered, and not drawn on the map: "
+                           + ", ".join(covered) + ".")
+        run.font.size = Pt(8.5)
+        run.font.color.rgb = RGBColor(0x53, 0x65, 0x7A)
+
+
+# How big the map is allowed to be on the page. Half the text column's height
+# is plenty to recognise where a campaign runs, and it leaves the section's
+# copy and its table on the same page as the picture far more often.
+MAP_MAX_W = 7.4 * inch
+MAP_MAX_H = 4.3 * inch
+
+
+def _map_flowables(png: bytes, meta: dict, small_style) -> list:
+    """The map, sized to the text column, with what it leaves out named.
+
+    The caveat line is deliberately short and factual. It exists because a
+    map showing two rings on a campaign that also covers a whole DMA is a
+    picture of *part* of the buy, and a client reading it as the whole buy is
+    the confidently wrong answer this codebase keeps having to undo. What is
+    never printed here is the internal half -- a geocoder that could not find
+    a spelling is the rep's to fix, and belongs on the builder's screen.
+    """
+    from PIL import Image as PILImage           # already a dependency
+    try:
+        with PILImage.open(BytesIO(png)) as im:
+            width, height = im.size
+    except Exception:                           # noqa: BLE001
+        return []
+    # Bounded on BOTH axes, not just scaled to the column width.
+    #
+    # A three-rooftop campaign running north-south cropped to 511x606, and at
+    # the column width that is a picture 8.8 inches tall: most of page two, a
+    # half-empty page one above it, and one slightly taller campaign away from
+    # a flowable the page frame cannot place at all. `target_map` keeps the
+    # crop landscape now and this is the guarantee at the other end, because a
+    # map that cannot be placed takes the whole PDF with it.
+    scale = min(MAP_MAX_W / max(1, width), MAP_MAX_H / max(1, height))
+    image = RLImage(BytesIO(png), width=width * scale, height=height * scale)
+    image.hAlign = "CENTER"
+    block = [image]
+    covered = [row["label"] for row in meta.get("not_plotted") or []
+               if row.get("kind") in hub_map.NOT_DRAWN]
+    if covered:
+        block.append(_p("Also covered, and not drawn on the map: "
+                        + ", ".join(covered) + ".", small_style))
+    # The caption is about the picture directly above it. Orphaned onto the
+    # next page it is a sentence about nothing, on a document a client reads.
+    return [Spacer(1, 4), KeepTogether(block), Spacer(1, 4)]
+
+
+def _body_flowables(text, style) -> list:
+    """Section copy as paragraphs and real bullet lists.
+
+    A bulleted list used to arrive here as one string with the bullet
+    characters inside it, so reportlab set it as a paragraph and the client
+    read "we will target three areas: • Carmel • Fishers • Noblesville" as a
+    sentence. `proposal_spec.blocks()` is the one place that decides what is a
+    list -- the preview and the Word export read the same function, so the
+    three renderers cannot disagree about it.
+    """
+    out = []
+    for block in hub_spec.blocks(text):
+        if block["kind"] == "para":
+            out.append(Paragraph(_inline(block["text"]).replace("\n", "<br/>"), style))
+            continue
+        bullet = ParagraphStyle(
+            f"bul{id(block)}", parent=style, leftIndent=style.fontSize * 1.6,
+            bulletIndent=style.fontSize * 0.5, spaceAfter=max(1, style.spaceAfter - 2))
+        for item in block["items"]:
+            out.append(Paragraph(_inline(item["text"]), bullet, bulletText="\u2022"))
+        if out:
+            out.append(Spacer(1, 3))
+    return out
+
+
+# Sections whose generated table a rep may leave out or replace by hand.
+# `text` and `cover` carry no table, so offering them the control would make
+# the button mean nothing.
+TABLE_KINDS = ("areas", "reach", "friction", "channels", "creative", "timeline",
+               "kpis", "mediaplan", "packages", "roi", "growth", "zips")
+
+
+def section_table(sec) -> dict:
+    """What to render under one section: the generated table, an edit, or none.
+
+    Three answers, and the document has to honour all three. The builder can
+    leave a table out (the copy above it still prints) or replace it with one
+    edited by hand -- for the case the generator cannot cover, a row naming a
+    location under NDA or a KPI the client asked us to drop. Read here rather
+    than in each of the twelve `kind` branches so a section added later
+    cannot quietly ignore the setting, which is how the creative check came
+    to be missing from the Preview panel's label map.
+
+        {"show": bool, "rows": [[...]] or None, "head": [...] or None}
+    """
+    sec = sec or {}
+    if sec.get("kind") not in TABLE_KINDS:
+        return {"show": True, "rows": None, "head": None}
+    if sec.get("showTable") is False:
+        return {"show": False, "rows": None, "head": None}
+    edit = sec.get("tableEdit")
+    if isinstance(edit, dict) and isinstance(edit.get("rows"), list) and edit["rows"]:
+        head = [str(h) for h in (edit.get("head") or [])]
+        rows = [[str(c) for c in row] for row in edit["rows"] if isinstance(row, list)]
+        return {"show": True, "rows": rows, "head": head}
+    return {"show": True, "rows": None, "head": None}
+
+
+def _sell_rate(item):
+    """What one media line is quoted at, or None where there is no rate.
+
+    The card's rate is the buy-side number. Every CPM and CPV line is quoted
+    at a multiple of it -- 2x to start, and a rep's own number once they set
+    one -- and everything downstream of the plan has to read the same figure,
+    or the delivery table promises impressions the campaign cannot buy. A
+    management-fee, flat-fee or custom-quote line has nothing to multiply and
+    reports None rather than a plausible number.
+    """
+    item = item or {}
+    rate_type = item.get("rate") or item.get("rate_type")
+    if not hub_rate_card.is_marked_up(rate_type):
+        return None
+    try:
+        own = float(item.get("sellRate") or 0)
+    except (TypeError, ValueError):
+        own = 0.0
+    if own > 0:
+        return round(own, 2)
+    return hub_rate_card.sell_rate(item.get("rateValue") or item.get("rate_value"),
+                                   rate_type)
 
 
 def _money(n):
@@ -869,18 +1437,50 @@ def investment_lines(state, q):
     """
     state = state or {}
     months = max(1, int(getattr(q, "months", 0) or state.get("months") or 1))
-    monthly_media = float(getattr(q, "monthly_budget", 0) or 0) or \
-        sum(float(i.get("dollars") or 0) for i in state.get("items") or [])
+    # From the plan, not from the quote's summary column and not from a naked
+    # sum of every line: that sum counted a one-time production line as if it
+    # were charged every month, so a $1,500 shoot added $1,500 to the monthly
+    # figure and $9,000 to a six-month campaign.
+    cost = campaign_cost(state)
+    monthly_media = cost["recurring"] if cost["has_plan"] else \
+        float(getattr(q, "monthly_budget", 0) or 0)
 
     lines = []
     suite = state.get("suiteTier") or {}
     if suite.get("include") is not False:
-        tier = suite if suite.get("name") else hub_spec.suggested_tier(monthly_media)
-        lines.append({"label": f"Smart 1 Suite — {tier['name']} ({tier.get('specs', '')})",
-                      "amount": float(tier.get("monthly") or 0),
-                      "recurs": "Monthly", "kind": "saas"})
-    lines.append({"label": "Media spend", "amount": round(monthly_media, 2),
+        # The tier's own name and specs come from the specification; only the
+        # price is the rep's to move. Reading `specs` off whatever the wizard
+        # saved left the line as "Smart 1 Suite — Smarter ()" the moment a
+        # tier was picked, because the wizard stores the choice rather than a
+        # copy of the tier.
+        listed = hub_spec.suggested_tier(monthly_media)
+        if suite.get("name"):
+            listed = next((t for t in hub_spec.SAAS_TIERS
+                           if t["name"] == suite["name"]), listed)
+        try:
+            quoted = float(suite["monthly"]) if suite.get("monthly") is not None \
+                else float(listed.get("monthly") or 0)
+        except (TypeError, ValueError):
+            quoted = float(listed.get("monthly") or 0)
+        lines.append({"label": f"Smart 1 Suite — {listed['name']} ({listed.get('specs', '')})",
+                      "amount": quoted,
+                      "recurs": "Monthly", "kind": "saas",
+                      # Printed nowhere on the client document. It is here so
+                      # the internal copy and the IO can tell a negotiated
+                      # price from the list one -- a discount nobody recorded
+                      # is a discount nobody can renew.
+                      "listed": float(listed.get("monthly") or 0),
+                      "adjusted": abs(quoted - float(listed.get("monthly") or 0)) > 0.001})
+    lines.append({"label": "Campaign media & services",
+                  "amount": round(monthly_media, 2),
                   "recurs": "Monthly", "kind": "media"})
+    # One-time lines on the plan are their own rows rather than being folded
+    # into a monthly figure. Named individually, because "$3,250 one-time" on
+    # a document a client signs is a number they are entitled to see the
+    # parts of.
+    for row in cost["one_time_lines"]:
+        lines.append({"label": row["label"], "amount": row["amount"],
+                      "recurs": "One-time", "kind": "setup"})
 
     creative = hub_creative.evaluate(state)
     for row in creative["media"]:
@@ -898,10 +1498,22 @@ def investment_lines(state, q):
 
     recurring = sum(l["amount"] for l in lines if l["recurs"] == "Monthly")
     one_time = sum(l["amount"] for l in lines if l["recurs"] == "One-time")
+    # The campaign total is the plan's own arithmetic plus what sits beside
+    # it, never `recurring * months`: a line bought for three months of a
+    # six-month flight is not charged for six, and the plan's one-time rows
+    # are already counted inside cost["campaign"], so adding them again from
+    # `lines` would bill a video shoot twice.
+    plan_one_time = sum(r["amount"] for r in cost["one_time_lines"])
+    campaign_media = (cost["campaign"] if cost["has_plan"]
+                      else monthly_media * months)
+    suite_monthly = sum(l["amount"] for l in lines
+                        if l["recurs"] == "Monthly" and l["kind"] == "saas")
+    campaign_total = (campaign_media + suite_monthly * months
+                      + (one_time - plan_one_time))
     return {"lines": lines, "recurring_monthly": round(recurring, 2),
             "one_time": round(one_time, 2),
             "first_month": round(recurring + one_time, 2),
-            "campaign_total": round(recurring * months + one_time, 2),
+            "campaign_total": round(campaign_total, 2),
             "months": months}
 
 
@@ -938,6 +1550,27 @@ _CHANNEL_ROLE = {
                            "Click-through rate and cost per action"),
     hub_creative.OTHER: ("Supports the campaign", "Cost per action"),
 }
+
+
+def channel_lines(state) -> list:
+    """The plan's lines that are actually channels.
+
+    A production line and a management fee are not channels, and listing them
+    here put "Video Production — top of funnel, builds awareness and trust on
+    the screens the household already watches" and "Management Fee — supports
+    the campaign" in a table headed Recommended Channel Strategy, on a
+    document a client reads. A one-time line is a cost of making the creative;
+    a line with no rate and no gated medium is a fee. Neither runs anywhere.
+    """
+    out = []
+    for item in state.get("items") or []:
+        if str(item.get("basis") or "monthly") == "one_time":
+            continue
+        if (_sell_rate(item) is None
+                and hub_creative.medium_of(item) == hub_creative.OTHER):
+            continue
+        out.append(item)
+    return out
 
 
 def _channel_role(item):
@@ -1008,7 +1641,7 @@ def _type_scale(state) -> float:
     return round(max(TYPE_SCALE_MIN, 1.0 - (load - TYPE_SCALE_FULL_UNDER) * 0.009), 3)
 
 
-def build_proposal_pdf(q, state):
+def build_proposal_pdf(q, state, sent_at=_UNSET):
     title = f"S1M Proposal - {q.quote_number} - {q.client or 'Client'}"
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, rightMargin=0.55 * inch, leftMargin=0.55 * inch,
@@ -1050,12 +1683,22 @@ def build_proposal_pdf(q, state):
     areas = campaign_areas(state)
     meta = [["Client", q.client or ""],
             ["Website", q.website or ""],
-            ["Campaign Goals", ", ".join(state.get("objectives") or [])],
+            # One per line, the way the target-area cell beside it already
+            # reads. Three goals joined by commas in a two-inch cell wraps
+            # into a paragraph and stops looking like a list of three things.
+            ["Campaign Goals", "\n".join(state.get("objectives") or [])],
             ["Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
              "\n".join(hub_areas.names(areas)) or q.geo_summary or ""],
             ["Term", f"{q.months} months"],
-            ["Monthly Investment", _money(sel.get("monthly") or q.monthly_budget)],
-            ["Total Investment", _money(sel.get("total") or q.total_budget)]]
+            # The plan's own figures, labelled with their scope. These used
+            # to read the selected package first, so the cover quoted the
+            # budget the client asked for while the media mix five pages
+            # later totalled what was actually being bought. The licence and
+            # any one-time production are added in the Investment Summary,
+            # which says so; the two same-scope figures now agree exactly.
+            ["Monthly campaign investment", _money(q.monthly_budget)],
+            [f"Total campaign investment ({q.months} months)",
+             _money(q.total_budget)]]
     meta = [[row[0], _p(row[1], st_body)] for row in meta]
     t = Table(meta, colWidths=[1.55 * inch, 5.85 * inch])
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, -1), SOFT), ("TEXTCOLOR", (0, 0), (0, -1), NAVY),
@@ -1071,9 +1714,37 @@ def build_proposal_pdf(q, state):
             continue
         story.append(Paragraph(xml_escape(sec.get("title") or ""), st_h2))
         if sec.get("body"):
-            story.append(_p(sec.get("body"), st_body))
+            story += _body_flowables(sec.get("body"), st_body)
         kind = sec.get("kind")
+        # Excluded or hand-edited, decided once. A branch per kind is how the
+        # setting comes to be honoured by eleven of the twelve.
+        table_plan = section_table(sec)
+        if not table_plan["show"]:
+            continue
+        if table_plan["rows"] is not None:
+            head = table_plan["head"] or []
+            rows = ([[_p(c, st_small) for c in head]] if head else []) + \
+                   [[_p(c, st_small) for c in row] for row in table_plan["rows"]]
+            width = max((len(r) for r in rows), default=0)
+            if width:
+                for row in rows:
+                    row.extend([_p("", st_small)] * (width - len(row)))
+                col = (7.4 * inch) / width
+                et = Table(rows, colWidths=[col] * width,
+                           repeatRows=1 if head else 0)
+                et.setStyle(_head_style() if head
+                            else TableStyle(_head_style_rows()[2:]))
+                story.append(et)
+            continue
         if kind == "areas":
+            # The map first, then the table that names what it shows. A client
+            # recognises where the campaign runs far faster than they read
+            # three sentences describing it -- and the areas a map cannot draw
+            # (a DMA, a state, a national buy) are in the table underneath,
+            # which is why the picture never stands alone.
+            png, map_meta = campaign_map(state)
+            if png:
+                story += _map_flowables(png, map_meta, st_small)
             if areas:
                 rows = [["Target area", "Coverage", "Est. population"]]
                 for area in areas:
@@ -1100,6 +1771,23 @@ def build_proposal_pdf(q, state):
                 if len(areas) > 1:
                     story.append(_p("Populations are shown per area and are not de-duplicated "
                                     "where areas overlap.", st_small))
+            targets = targets_of_interest(state)
+            if targets:
+                rows = [["Who we are going after", "What we want from them",
+                         "How we reach them"]]
+                for row in targets:
+                    rows.append([
+                        _p(row["name"], st_small),
+                        _p(row["note"] or ("Their customers"
+                                           if row["kind"] == "competitor"
+                                           else "The people who go there"), st_small),
+                        _p(f"Geo-fenced at {row['address']}" if row["fenceable"]
+                           else "Brand and behavior — no address on file to fence",
+                           st_small)])
+                tt = Table(rows, colWidths=[2.1 * inch, 2.6 * inch, 2.7 * inch],
+                           repeatRows=1)
+                tt.setStyle(_head_style())
+                story += [Spacer(1, 6), tt]
         elif kind == "reach":
             est = state.get("estimates") or {}
             if est:
@@ -1114,23 +1802,46 @@ def build_proposal_pdf(q, state):
                 story.append(rt)
             auds = state.get("audiences") or []
             if auds:
-                story.append(_p("Audience layers: " + ", ".join(auds), st_small))
+                story += _body_flowables(
+                    hub_spec.bullets(auds, "Audience layers"), st_body)
         elif kind == "mediaplan":
-            items = state.get("items") or []
-            if items:
-                rows = [["Product", "Category", "Rate", "Monthly", f"Total ({q.months} mo)"]]
-                for i in items:
-                    rows.append([_p(i.get("product") or "", st_small), _p(i.get("category") or "", st_small),
-                                 _p((i.get("rate") or "Managed") if not i.get("rateValue")
-                                    else f"{i.get('rate')} {i.get('rateValue')}", st_small),
-                                 _money(i.get("dollars") or 0), _money((i.get("dollars") or 0) * q.months)])
-                mt = Table(rows, colWidths=[2.3 * inch, 1.7 * inch, 1.1 * inch, 1.15 * inch, 1.15 * inch], repeatRows=1)
+            # One reading of the plan, shared with the Word export and the
+            # builder's preview -- the three had already drifted, and the
+            # delivery column is the reason it matters: three copies of that
+            # arithmetic is three answers to what a line buys.
+            plan = media_plan_rows(state)
+            if plan["rows"]:
+                rows = [[*plan["columns"][:4], f"Total ({plan['months']} mo)",
+                         plan["columns"][5]]]
+                for r in plan["rows"]:
+                    rows.append([_p(r["product"], st_small),
+                                 _p(r["category"], st_small),
+                                 _p(r["rate"], st_small),
+                                 (r["monthly_label"] if r["monthly_label"]
+                                  else _money(r["monthly"])),
+                                 _money(r["campaign"]),
+                                 _p(r["delivery"], st_small)])
+                # The totals a client adds up themselves if they are not
+                # printed, and gets a different answer from the investment
+                # summary when a one-time line is in the plan.
+                rows.append(["Campaign total", "", "",
+                             _money(plan["monthly_total"]),
+                             _money(plan["campaign_total"]), ""])
+                mt = Table(rows, colWidths=[1.85 * inch, 1.35 * inch, 1.0 * inch,
+                                            0.95 * inch, 1.0 * inch, 1.25 * inch],
+                           repeatRows=1)
                 mt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), NAVY), ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
                                         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8),
                                         ("GRID", (0, 0), (-1, -1), 0.4, LINE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                                        ("ALIGN", (3, 1), (-1, -1), "RIGHT"), ("TOPPADDING", (0, 0), (-1, -1), 5),
+                                        ("ALIGN", (3, 1), (4, -1), "RIGHT"), ("TOPPADDING", (0, 0), (-1, -1), 5),
+                                        ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SOFT),
+                                        ("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1), "Helvetica-Bold"),
                                         ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
                 story.append(mt)
+                # An estimate printed with no words around it reads as a
+                # guarantee, which is what the ROI section was rebuilt to undo.
+                if plan["note"]:
+                    story += [Spacer(1, 4), Paragraph(plan["note"], st_small)]
         elif kind == "packages":
             # Recurring platform licensing, recurring media and one-time
             # production, shown apart. A client reading one blended number
@@ -1141,7 +1852,9 @@ def build_proposal_pdf(q, state):
                 rows.append([_p(line["label"], st_small), _money(line["amount"]),
                              _p(line["recurs"], st_small)])
             rows.append(["Total first month", _money(invest["first_month"]), ""])
-            rows.append([f"Total campaign ({q.months} mo)",
+            # Named as including the licence, because the cover and the media
+            # plan both print a campaign total that deliberately does not.
+            rows.append([f"Total campaign ({q.months} mo, including licensing)",
                          _money(invest["campaign_total"]), ""])
             it = Table(rows, colWidths=[4.2 * inch, 1.6 * inch, 1.6 * inch], repeatRows=1)
             style = _head_style_rows()
@@ -1173,10 +1886,22 @@ def build_proposal_pdf(q, state):
                 pt.setStyle(TableStyle(style))
                 story.append(pt)
                 story.append(_p("★ recommended package", st_small))
+            # How long these figures stand, under the figures. An expiry the
+            # client cannot see is one we cannot hold them to, and this is the
+            # section it qualifies. Nothing at all on a quote that has not
+            # been sent -- that one has no window yet, and a date invented for
+            # it would be a promise made before the document went out.
+            validity = hub_validity.client_note(
+                _quote_window(q, state, sent_at=sent_at))
+            if validity:
+                story += [Spacer(1, 6), _p(validity, st_small)]
         elif kind == "kpis":
+            # A list of things the campaign will be judged on is a list. Six
+            # KPIs joined by commas is a sentence a client skims, and the
+            # fourth one is the one they would have argued with.
             kpis = state.get("kpis") or []
             if kpis:
-                story.append(_p("KPIs: " + ", ".join(kpis), st_body))
+                story += _body_flowables(hub_spec.bullets(kpis), st_body)
         elif kind == "friction":
             picks = hub_discovery.suggestions(state)
             if picks:
@@ -1191,7 +1916,7 @@ def build_proposal_pdf(q, state):
             # Every channel with its role in the funnel and its KPI. The
             # specification forbids listing channels without that mapping.
             rows = [["Channel", "Role in the funnel", "Primary KPI"]]
-            for item in state.get("items") or []:
+            for item in channel_lines(state):
                 role, kpi = _channel_role(item)
                 rows.append([_p(item.get("product") or "", st_small),
                              _p(role, st_small), _p(kpi, st_small)])
@@ -1202,12 +1927,20 @@ def build_proposal_pdf(q, state):
         elif kind == "creative":
             plan = hub_creative.evaluate(state)
             if plan["media"]:
-                rows = [["Medium", "Campaign spend", "Creative"]]
+                # The sizes are on the client's copy on purpose: "do you have
+                # banners" has no answer until somebody says which, and the
+                # client is the one being asked to send them. They come from
+                # the IO's own spec kit, so what the proposal asks for and
+                # what the insertion order checks are the same list.
+                rows = [["Medium", "Campaign spend", "Creative", "What we need"]]
                 for row in plan["media"]:
                     rows.append([_p(row["label"], st_small),
                                  _money(row["spend"]),
-                                 _p(_creative_phrase(row), st_small)])
-                kt = Table(rows, colWidths=[2.9 * inch, 1.5 * inch, 3.0 * inch], repeatRows=1)
+                                 _p(_creative_phrase(row), st_small),
+                                 _p(hub_creative.units_line(state, row["medium"]),
+                                    st_small)])
+                kt = Table(rows, colWidths=[2.0 * inch, 1.1 * inch, 2.1 * inch,
+                                            2.2 * inch], repeatRows=1)
                 kt.setStyle(_head_style())
                 story.append(kt)
         elif kind == "timeline":
@@ -1219,44 +1952,51 @@ def build_proposal_pdf(q, state):
             tt.setStyle(_head_style())
             story.append(tt)
         elif kind == "roi":
-            results = expected_results(state)
-            rows = [["Product", "Monthly", f"Campaign ({results['months']} mo)",
-                     "Rate", "Estimated delivery"]]
-            for row in results["rows"]:
-                # "Not impression-based" rather than a blank or a zero: a
-                # management fee has no impressions, and either alternative
-                # reads as a product that delivers nothing.
-                delivery = (f"{row['units']:,} {row['unit_label']}" if row["units"]
-                            else "Not impression-based")
-                rows.append([_p(row["product"], st_small), _money(row["monthly"]),
-                             _money(row["campaign"]), _p(row["rate"], st_small),
-                             _p(delivery, st_small)])
-            totals = results["totals"]
-            summary = []
-            if totals["impressions"]:
-                summary.append(f"{totals['impressions']:,} impressions")
-            if totals["views"]:
-                summary.append(f"{totals['views']:,} video views")
-            rows.append(["Campaign total", _money(totals["monthly"]),
-                         _money(totals["campaign"]), "",
-                         _p(" · ".join(summary) or "—", st_small)])
-            rt = Table(rows, colWidths=[2.0 * inch, 1.0 * inch, 1.15 * inch,
-                                        1.25 * inch, 2.0 * inch], repeatRows=1)
-            style = _head_style_rows()
-            style.append(("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SOFT))
-            style.append(("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1),
-                          "Helvetica-Bold"))
-            rt.setStyle(TableStyle(style))
-            story.append(rt)
-            if results["unpriced"]:
-                story.append(_p("Not included in the delivery totals (no "
-                                "impression-based rate): "
-                                + ", ".join(results["unpriced"]) + ".", st_small))
-            if results["metrics"]:
-                story.append(_p("Tracked and reported monthly in the Smart 1 Suite: "
-                                + ", ".join(results["metrics"]) + ".", st_body))
-            if results.get("traditional_note"):
-                story.append(_p(results["traditional_note"], st_body))
+            # The KPI framework, not a table of impressions.
+            #
+            # "Expected Results & ROI" asks what counts as this campaign
+            # working, and an impression count answers a different question:
+            # it says what the money bought, not what the business gets. The
+            # insertion order has carried a KPI framework all along, so the
+            # two documents described one campaign two ways — the client
+            # agreed to impressions and the campaign was run against KPIs.
+            # `hub/kpi_framework.py` is the one description now, and the IO's
+            # own copy is asserted against it.
+            plan = hub_kpi.framework(state)
+            if plan["measured"]:
+                story += _body_flowables(
+                    hub_spec.bullets([plan["primary"]], "<b>Primary KPI</b>"), st_body)
+                if plan["secondary"]:
+                    story += _body_flowables(
+                        hub_spec.bullets(plan["secondary"], "<b>Secondary KPIs</b>"),
+                        st_body)
+            else:
+                story.append(_p(plan["note"], st_small))
+            if plan["additional_metrics"]:
+                story += _body_flowables(
+                    hub_spec.bullets(plan["additional_metrics"],
+                                     "<b>Also tracked and reported monthly</b>"),
+                    st_body)
+            if plan["rows"]:
+                rows = [["Product", "Key KPI", "Expected benchmark"]]
+                for row in plan["rows"]:
+                    rows.append([_p(row["product"], st_small),
+                                 _p(row["kpi"], st_small),
+                                 _p(row["expected"], st_small)])
+                kt = Table(rows, colWidths=[2.9 * inch, 2.2 * inch, 2.3 * inch],
+                           repeatRows=1)
+                kt.setStyle(_head_style())
+                story += [Spacer(1, 4), kt]
+                # A range is what this inventory normally delivers. Said once,
+                # in the client's own document, because a benchmark printed
+                # without it reads as a number we have promised to hit.
+                story.append(_p("Benchmark ranges are what this inventory "
+                                "normally delivers for campaigns of this "
+                                "shape. They are expectations to measure "
+                                "against, not guarantees.", st_small))
+            traditional = hub_discovery.roi_note(state)
+            if traditional:
+                story.append(_p(traditional, st_body))
         elif kind == "growth":
             growth = growth_options(state)
             if not growth["any"]:
@@ -1296,16 +2036,22 @@ def build_proposal_pdf(q, state):
                     story.append(_p("Add what the discovery answers pointed at", st_small))
                     story.append(at2)
                 story.append(_p("Raising a line uses the Accelerated option above; "
-                                "adding one starts at the rate-card minimum.", st_small))
+                                "adding one starts at our listed minimum for "
+                                "that product.", st_small))
         elif kind == "zips":
             # The trafficking reference, at the back. Monospaced and small on
             # purpose: it is a list to be checked against, not read.
+            # `zip_list(area)` was being handed the whole area dict, so it
+            # regexed five-digit runs out of every field on it. Correct only
+            # by accident, and it read the found list rather than the
+            # running one -- so an area restricted to one state printed the
+            # ZIPs it was restricted away from.
             rows = [["Target Area", "ZIP Codes"]]
             for area in campaign_areas(state):
-                codes = hub_areas.zip_list(area)
-                if codes:
+                result = hub_areas.area_zips(area)
+                if result["kept"]:
                     rows.append([_p(hub_areas.label(area), st_small),
-                                 _p(", ".join(codes), st_small)])
+                                 _p(", ".join(result["kept"]), st_small)])
             if len(rows) > 1:
                 zt = Table(rows, colWidths=[2.1 * inch, 5.3 * inch], repeatRows=1)
                 zt.setStyle(TableStyle(_head_style_rows()))
@@ -1314,12 +2060,25 @@ def build_proposal_pdf(q, state):
                 story.append(_p("No ZIP Codes were captured for this campaign. "
                                 "The insertion order needs them before trafficking.",
                                 st_small))
+            # An exception is part of what was agreed, so it is printed where
+            # the list is -- including one the system could not read, which
+            # is the row that most needs somebody's eye on it.
+            for rule in hub_areas.zip_exceptions(state.get("targetAreas")
+                                                 or campaign_areas(state)):
+                if rule["applied"]:
+                    story.append(_p(f"{rule['area']} — exception: “{rule['text']}”. "
+                                    f"{rule['dropped']} ZIP Code(s) excluded, "
+                                    f"{rule['kept']} running.", st_small))
+                else:
+                    story.append(_p(f"{rule['area']} — the exception “{rule['text']}” "
+                                    f"could not be read and has NOT been applied. "
+                                    f"Every ZIP above is running.", st_small))
 
 
     # Footer
     story += [Spacer(1, 16),
               _p("Smart 1 Marketing  ·  smart1marketing.com  ·  This proposal is valid for 30 days. "
-                 "Rates follow the current Smart 1 rate card; final schedules are confirmed on the insertion order.", st_small)]
+                 "Final rates and schedules are confirmed on the insertion order.", st_small)]
     doc.build(story)
     return buf.getvalue(), title
 
@@ -1363,7 +2122,7 @@ def quote_pdf_archived(qid):
 # =====================================================================
 # Word (.docx) export
 # =====================================================================
-def build_proposal_docx(q, state):
+def build_proposal_docx(q, state, sent_at=_UNSET):
     d = Document()
     for section in d.sections:
         section.top_margin = Inches(0.7)
@@ -1394,12 +2153,13 @@ def build_proposal_docx(q, state):
     table = d.add_table(rows=0, cols=2)
     table.style = "Light Grid Accent 1"
     for label, val in [("Client", q.client), ("Website", q.website),
-                       ("Campaign Goals", ", ".join(state.get("objectives") or [])),
+                       ("Campaign Goals", "\n".join(state.get("objectives") or [])),
                        ("Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
                         "\n".join(hub_areas.names(areas)) or q.geo_summary),
                        ("Term", f"{q.months} months"),
-                       ("Monthly Investment", _money(sel.get("monthly") or q.monthly_budget)),
-                       ("Total Investment", _money(sel.get("total") or q.total_budget))]:
+                       ("Monthly campaign investment", _money(q.monthly_budget)),
+                       (f"Total campaign investment ({q.months} months)",
+                        _money(q.total_budget))]:
         row = table.add_row().cells
         row[0].text = label
         row[1].text = str(val or "")
@@ -1412,8 +2172,33 @@ def build_proposal_docx(q, state):
         for run in h.runs:
             run.font.color.rgb = NAVY_D
         if sec.get("body"):
-            d.add_paragraph(str(sec.get("body")))
+            _docx_body(d, sec.get("body"))
         kind = sec.get("kind")
+        if kind == "areas":
+            png, map_meta = campaign_map(state)
+            if png:
+                _docx_map(d, png, map_meta)
+        table_plan = section_table(sec)
+        if not table_plan["show"]:
+            continue
+        if table_plan["rows"] is not None:
+            head = table_plan["head"] or []
+            body = table_plan["rows"]
+            width = max([len(r) for r in body] + ([len(head)] if head else []), default=0)
+            if width:
+                t = d.add_table(rows=1 if head else 0, cols=width)
+                t.style = "Light Grid Accent 1"
+                if head:
+                    cells = t.rows[0].cells
+                    for i, value in enumerate(head[:width]):
+                        cells[i].text = value
+                        if cells[i].paragraphs[0].runs:
+                            cells[i].paragraphs[0].runs[0].font.bold = True
+                for row in body:
+                    cells = t.add_row().cells
+                    for i, value in enumerate(row[:width]):
+                        cells[i].text = value
+            continue
         if kind == "areas" and areas:
             t0 = d.add_table(rows=1, cols=3)
             t0.style = "Light Grid Accent 1"
@@ -1428,19 +2213,40 @@ def build_proposal_docx(q, state):
                 row[0].text = hub_areas.label(area)
                 row[1].text = area.get("notes") or (f"{len(zips)} ZIP Codes" if zips else area["type"])
                 row[2].text = f"{population:,}" if population else "Not measured"
+            for row in targets_of_interest(state):
+                d.add_paragraph(
+                    f"{row['name']} — "
+                    + (row["note"] or ("their customers" if row["kind"] == "competitor"
+                                       else "the people who go there"))
+                    + (f" (geo-fenced at {row['address']})" if row["fenceable"]
+                       else " (brand and behavior — no address on file to fence)"))
         elif kind == "mediaplan" and state.get("items"):
-            t2 = d.add_table(rows=1, cols=4)
+            # Same reading as the PDF and the preview. This table used to be
+            # four columns to the PDF's five -- one client's proposal saying
+            # two different things depending on which file was sent.
+            plan = media_plan_rows(state)
+            t2 = d.add_table(rows=1, cols=len(plan["columns"]))
             t2.style = "Light Grid Accent 1"
             hdr = t2.rows[0].cells
-            for i, htxt in enumerate(["Product", "Category", "Monthly", f"Total ({q.months} mo)"]):
+            heads = [*plan["columns"][:4], f"Total ({plan['months']} mo)",
+                     plan["columns"][5]]
+            for i, htxt in enumerate(heads):
                 hdr[i].text = htxt
                 hdr[i].paragraphs[0].runs[0].font.bold = True
-            for it in state.get("items") or []:
+            for r in plan["rows"]:
                 row = t2.add_row().cells
-                row[0].text = str(it.get("product") or "")
-                row[1].text = str(it.get("category") or "")
-                row[2].text = _money(it.get("dollars") or 0)
-                row[3].text = _money((it.get("dollars") or 0) * q.months)
+                row[0].text = r["product"]
+                row[1].text = r["category"]
+                row[2].text = r["rate"]
+                row[3].text = r["monthly_label"] or _money(r["monthly"])
+                row[4].text = _money(r["campaign"])
+                row[5].text = r["delivery"]
+            total_row = t2.add_row().cells
+            total_row[0].text = "Campaign total"
+            total_row[3].text = _money(plan["monthly_total"])
+            total_row[4].text = _money(plan["campaign_total"])
+            if plan["note"]:
+                d.add_paragraph(plan["note"])
         elif kind == "packages" and state.get("packages"):
             pkgs = state.get("packages") or []
             t3 = d.add_table(rows=1, cols=1 + len(pkgs))
@@ -1455,53 +2261,56 @@ def build_proposal_docx(q, state):
                 row[0].text = label
                 for i, pkg in enumerate(pkgs):
                     row[i + 1].text = _money(pkg.get(key))
+            # The same line the PDF prints under the same table: one client
+            # note, so a Word copy and a PDF copy of one proposal cannot
+            # disagree about how long the price stands.
+            validity = hub_validity.client_note(_quote_window(q, state, sent_at))
+            if validity:
+                d.add_paragraph(validity)
         elif kind == "kpis" and state.get("kpis"):
-            d.add_paragraph("KPIs: " + ", ".join(state.get("kpis") or []))
+            _docx_body(d, hub_spec.bullets(state.get("kpis") or []))
         elif kind == "friction":
             for pick in hub_discovery.suggestions(state):
                 d.add_paragraph(f"We suggest they should {pick['title'][0].lower()}"
                                 f"{pick['title'][1:]} — {pick['detail']}")
         elif kind == "channels":
-            for item in state.get("items") or []:
+            for item in channel_lines(state):
                 role, kpi = _channel_role(item)
                 d.add_paragraph(f"{item.get('product') or ''} — {role}. Measured on: {kpi}.")
         elif kind == "creative":
             for row in hub_creative.evaluate(state)["media"]:
                 d.add_paragraph(f"{row['label']} — {_money(row['spend'])} campaign. "
-                                f"{_creative_phrase(row)}.")
+                                f"{_creative_phrase(row)}. "
+                                f"Needs: {hub_creative.units_line(state, row['medium'])}")
         elif kind == "timeline":
             for phase in hub_spec.TIMELINE:
                 d.add_paragraph(f"{phase['phase']} · {phase['title']} — {phase['detail']}")
         elif kind == "roi":
-            results = expected_results(state)
-            t4 = d.add_table(rows=1, cols=4)
-            t4.style = "Light Grid Accent 1"
-            hdr = t4.rows[0].cells
-            for i, htxt in enumerate(["Product", "Monthly",
-                                      f"Campaign ({results['months']} mo)",
-                                      "Estimated delivery"]):
-                hdr[i].text = htxt
-                hdr[i].paragraphs[0].runs[0].font.bold = True
-            for row in results["rows"]:
-                cells = t4.add_row().cells
-                cells[0].text = row["product"]
-                cells[1].text = _money(row["monthly"])
-                cells[2].text = _money(row["campaign"])
-                cells[3].text = (f"{row['units']:,} {row['unit_label']}" if row["units"]
-                                 else "Not impression-based")
-            totals = results["totals"]
-            bits = []
-            if totals["impressions"]:
-                bits.append(f"{totals['impressions']:,} impressions")
-            if totals["views"]:
-                bits.append(f"{totals['views']:,} video views")
-            if bits:
-                d.add_paragraph("Campaign delivery: " + " · ".join(bits))
-            if results["metrics"]:
-                d.add_paragraph("Tracked in the Smart 1 Suite: "
-                                + ", ".join(results["metrics"]) + ".")
-            if results.get("traditional_note"):
-                d.add_paragraph(results["traditional_note"])
+            plan = hub_kpi.framework(state)
+            if plan["measured"]:
+                _docx_body(d, hub_spec.bullets([plan["primary"]], "Primary KPI"))
+                if plan["secondary"]:
+                    _docx_body(d, hub_spec.bullets(plan["secondary"], "Secondary KPIs"))
+            else:
+                d.add_paragraph(plan["note"])
+            if plan["additional_metrics"]:
+                _docx_body(d, hub_spec.bullets(plan["additional_metrics"],
+                                               "Also tracked and reported monthly"))
+            if plan["rows"]:
+                kt = d.add_table(rows=1, cols=3)
+                kt.style = "Light Grid Accent 1"
+                head = kt.rows[0].cells
+                for i, htxt in enumerate(["Product", "Key KPI", "Expected benchmark"]):
+                    head[i].text = htxt
+                    head[i].paragraphs[0].runs[0].font.bold = True
+                for row in plan["rows"]:
+                    cells = kt.add_row().cells
+                    cells[0].text = row["product"]
+                    cells[1].text = row["kpi"]
+                    cells[2].text = row["expected"]
+                d.add_paragraph("Benchmark ranges are what this inventory normally "
+                                "delivers for campaigns of this shape. They are "
+                                "expectations to measure against, not guarantees.")
         elif kind == "reach" and state.get("estimates"):
             est = state.get("estimates") or {}
             d.add_paragraph(f"Estimated population {int(est.get('pop') or 0):,} · addressable audience "
@@ -1526,13 +2335,21 @@ def build_proposal_docx(q, state):
         elif kind == "zips":
             wrote = False
             for area in campaign_areas(state):
-                codes = hub_areas.zip_list(area)
-                if codes:
-                    d.add_paragraph(f"{hub_areas.label(area)} — {', '.join(codes)}")
+                result = hub_areas.area_zips(area)
+                if result["kept"]:
+                    d.add_paragraph(f"{hub_areas.label(area)} — "
+                                    f"{', '.join(result['kept'])}")
                     wrote = True
             if not wrote:
                 d.add_paragraph("No ZIP Codes were captured for this campaign. "
                                 "The insertion order needs them before trafficking.")
+            for rule in hub_areas.zip_exceptions(state.get("targetAreas")
+                                                 or campaign_areas(state)):
+                d.add_paragraph(
+                    f"{rule['area']} — exception: “{rule['text']}”. "
+                    + (f"{rule['dropped']} ZIP Code(s) excluded, {rule['kept']} running."
+                       if rule["applied"] else
+                       "This could not be read and has NOT been applied; every ZIP above is running."))
 
     p = d.add_paragraph("Smart 1 Marketing · smart1marketing.com · This proposal is valid for 30 days.")
     hcolor(p, 8, MUTED_D, bold=False, center=True)
@@ -1600,7 +2417,16 @@ def industry_template(state):
 # Expected Results & ROI — computed, never written
 # =====================================================================
 def expected_results(state):
-    """What the money actually buys, product by product, from the rate card.
+    """What the money buys, product by product, at the rates the client is quoted.
+
+    No longer printed on the client's document: "Expected Results & ROI" is
+    the KPI framework now, because an impression count says what the money
+    bought rather than what the business gets, and the insertion order was
+    already describing the campaign the second way. This stays because it is
+    the one place that knows the delivery arithmetic — the quoted rate rather
+    than the listed one, a one-time line spread across the flight rather than
+    charged monthly, and a management fee reporting no units at all — and
+    that arithmetic is what any future delivery figure has to come from.
 
     Directive: every proposal ends with this section. It is calculated here
     rather than asked of the model, because a projection written next to a
@@ -1643,13 +2469,35 @@ def expected_results(state):
             line_campaign = round(monthly * term, 2)
             line_monthly = monthly
         totals["monthly"] += line_monthly
-        product = hub_rate_card.find(item.get("label") or item.get("product") or "")
+        product = hub_rate_card.find(item.get("label") or item.get("product") or "",
+                                     item.get("category") or "")
         if product is None:
             # Fall back to the rate the wizard carried, so an off-card product
             # a rep added by hand is still estimated rather than dropped.
             product = {"rate_type": item.get("rate"), "rate_value": item.get("rateValue"),
                        "listed_rate": item.get("rate") or ""}
-        delivery = hub_rate_card.estimate_delivery(product, monthly)
+        # Delivery is what the client's money buys at the rate the client is
+        # quoted. Estimated off the card's own rate it said a $1,000 line
+        # buys 235,000 impressions at $4.25 -- printed on the client's ROI
+        # table, and undeliverable, because the line is sold at $8.50 and
+        # buys half of that.
+        quoted = _sell_rate(item)
+        priced = dict(product)
+        if quoted:
+            # The line's own rate wins over the looked-up row. `find()`
+            # matches on the product name, and four categories carry a
+            # product called "Demographic" -- so a location-lookback line
+            # resolved to the $4.25 display row and its delivery was
+            # estimated against a rate nobody quoted. The wizard carried the
+            # rate off the card row the rep actually picked; that is the
+            # one to price against.
+            priced["rate_type"] = item.get("rate") or priced.get("rate_type")
+            priced["rate_value"] = quoted
+            priced["listed_rate"] = f"{item.get('rate')} ${quoted:,.2f}"
+        delivery = hub_rate_card.estimate_delivery(priced, monthly)
+        if quoted:
+            delivery["note"] = (f"At the quoted rate of {item.get('rate')} "
+                                f"${quoted:,.2f}.")
         units = delivery.get("units")
         run = 1 if basis == "one_time" else term
         if units and delivery["unit_label"].startswith("impressions"):
@@ -1657,16 +2505,20 @@ def expected_results(state):
         elif units:
             totals["views"] += units * run
         if not units:
-            unpriced.append(str(item.get("product") or ""))
+            unpriced.append(hub_rate_card.quote_label(item.get("product"),
+                                                      item.get("category")))
         rows.append({
-            "product": item.get("product") or "",
+            "product": hub_rate_card.quote_label(item.get("product"),
+                                                 item.get("category")),
             "category": item.get("category") or "",
             "medium": hub_creative.medium_of(item),
+            "quoted_rate": quoted,
             "monthly": line_monthly,
             "campaign": line_campaign,
             "basis": basis,
             "term_months": 1 if basis == "one_time" else term,
-            "rate": product.get("listed_rate") or "",
+            "rate": (f"{item.get('rate')} ${quoted:,.2f}" if quoted
+                     else (product.get("listed_rate") or "")),
             "units": units,
             "unit_label": delivery.get("unit_label") or "",
             "note": delivery.get("note") or "",
@@ -1685,24 +2537,208 @@ def expected_results(state):
     }
 
 
+# Column headings for the media plan, in one place because three renderers
+# draw this table and they had already drifted: the PDF carried Rate and the
+# Word export did not, so the same client's proposal said two different things
+# depending on which file was sent.
+MEDIA_PLAN_COLUMNS = ("Product", "Category", "Rate", "Monthly", "Total",
+                      "Delivery / mo")
+
+
+def campaign_cost(state) -> dict:
+    """What this campaign costs, once, for every screen that prints a number.
+
+    ## Why this exists
+
+    One proposal used to carry three different monthly figures and hand a
+    fourth to the insertion order. `summarize_into()` took `monthly_budget`
+    from the selected package or from `state["budget"]` -- the number the rep
+    typed on the Budget step, which is what the *client asked for* -- while
+    the media plan table totalled the lines that are actually being bought
+    and `ioDataPayload()` billed those same lines. So a plan edited down from
+    $8,000 to $5,750 produced a cover reading "$8,000 / mo", a media mix
+    totalling $5,750, an investment summary quoting $8,000 of media, and an
+    insertion order for $5,750: a client signing a document $2,250 a month
+    away from the order that bills them, with every screen internally
+    consistent and nothing erroring anywhere.
+
+    **The plan is the number.** Once there are line items they are what is
+    being bought, and every other figure is derived from them.
+
+    ## The rules
+
+      * **Recurring and one-time are never added together.** A $1,500 video
+        shoot is not $1,500 a month, and folding it into the monthly figure
+        overstates every month of the campaign -- which is exactly what the
+        old `sum(i["dollars"])` fallback did.
+      * **A line runs for its own term.** `expected_results()` already reads
+        `termMonths`; the same reading is used here rather than a second one.
+      * **The Suite licence is not campaign cost.** It is a separate product
+        with its own line in the investment summary, and blending it is how a
+        client comes to believe the platform stops costing money when they
+        pause the media -- the rule `hub/proposal_spec.py` states.
+      * **A quote with no plan yet still answers.** `stated` carries what the
+        client asked for, so a proposal at the Budget step reads sensibly and
+        nothing has to branch on "are there items".
+    """
+    state = state or {}
+    months = max(1, int(state.get("months") or 1))
+    recurring = one_time = campaign = 0.0
+    monthly_lines, one_time_lines = [], []
+    for item in state.get("items") or []:
+        try:
+            dollars = float(item.get("dollars") or 0)
+        except (TypeError, ValueError):
+            dollars = 0.0
+        label = hub_rate_card.quote_label(item.get("product"),
+                                          item.get("category"))
+        if str(item.get("basis") or "monthly") == "one_time":
+            one_time += dollars
+            campaign += dollars
+            one_time_lines.append({"label": label, "amount": round(dollars, 2)})
+            continue
+        try:
+            term = int(item.get("termMonths") or months)
+        except (TypeError, ValueError):
+            term = months
+        term = max(1, min(months, term))
+        recurring += dollars
+        campaign += dollars * term
+        monthly_lines.append({"label": label, "amount": round(dollars, 2),
+                              "term_months": term})
+
+    try:
+        stated = float(state.get("budgetAsked") or state.get("budget") or 0)
+    except (TypeError, ValueError):
+        stated = 0.0
+    has_plan = bool(monthly_lines or one_time_lines)
+    return {
+        "months": months,
+        "has_plan": has_plan,
+        # The recurring campaign cost: media and the services bought beside
+        # it, which is what a rep means by "the campaign" and what the
+        # insertion order bills every month.
+        "recurring": round(recurring, 2),
+        "one_time": round(one_time, 2),
+        "campaign": round(campaign, 2),
+        "monthly_lines": monthly_lines,
+        "one_time_lines": one_time_lines,
+        # What the client asked for, kept whatever the plan became. Losing it
+        # would lose the only record of the conversation the tiers were sized
+        # against.
+        "stated": round(stated, 2),
+        "differs_from_stated": bool(has_plan and stated
+                                    and abs(stated - recurring) >= 1),
+    }
+
+
+def media_plan_rows(state) -> dict:
+    """The media plan as every renderer draws it, computed once.
+
+    **Delivery is back on the client's document, and this is where it belongs.**
+    It came off the proposal with "Expected Results & ROI", correctly: an
+    impression count answers what the money *bought*, not what the business
+    gets, and printed under that heading it read as a promise about outcomes.
+    Under the media plan it is answering the question the media plan asks --
+    what does this line buy -- and a client comparing two proposals has no
+    other way to tell a $4.25 CPM apart from an $8.50 one.
+
+    It is `expected_results()`'s arithmetic and not a second copy: the quoted
+    rate rather than the listed one, a one-time line spread across the flight,
+    and a management fee reporting **no units at all** rather than a plausible
+    number. That last one is most of the value of doing it this way.
+    """
+    est = expected_results(state)
+    months = est["months"]
+    rows = []
+    for r in est["rows"]:
+        units, label = r.get("units"), r.get("unit_label") or ""
+        unit = label.replace("/month", "").strip()
+        if not units:
+            # Never a zero and never a dash on its own: a fee that buys no
+            # impressions is a different statement from one nobody priced.
+            delivery = "Not impression-based"
+        elif (r.get("basis") or "monthly") == "one_time":
+            # A one-time line does not deliver every month, and printing its
+            # units under a per-month heading multiplies it by the flight.
+            delivery = f"{units:,} {unit}, once"
+        else:
+            # The column's own heading carries "per month"; repeating it on
+            # every row makes the narrowest column the widest.
+            delivery = f"{units:,} {unit}"
+        one_time = (r.get("basis") or "monthly") == "one_time"
+        rows.append({
+            "product": r["product"], "category": r["category"],
+            "rate": r["rate"] or "Managed",
+            # `expected_results()` spreads a one-time cost across the flight,
+            # which is right for its own arithmetic and wrong in a column
+            # headed Monthly: a $1,500 shoot shown as $250 a month made the
+            # media plan's monthly total $5,750 where the investment summary
+            # said $5,500 recurring plus $1,500 once. The row says which it
+            # is and the Monthly column carries only what recurs.
+            "monthly": None if one_time else r["monthly"],
+            "monthly_label": "One-time" if one_time else None,
+            "campaign": r["campaign"],
+            "units": units, "unit_label": label, "delivery": delivery,
+            "basis": r.get("basis") or "monthly",
+        })
+    # The totals are campaign_cost()'s, so this table, the cover, the
+    # investment summary, the insertion order and the dashboard all print one
+    # number for what the campaign costs.
+    cost = campaign_cost(state)
+    return {
+        "columns": list(MEDIA_PLAN_COLUMNS),
+        "months": months,
+        "rows": rows,
+        "monthly_total": cost["recurring"],
+        "campaign_total": cost["campaign"],
+        "one_time_total": cost["one_time"],
+        "impressions": (est["totals"].get("impressions") or 0),
+        "views": (est["totals"].get("views") or 0),
+        # Named, so the table can say which lines are not in the delivery
+        # column rather than quietly under-reporting the campaign.
+        "unpriced": est.get("unpriced") or [],
+        "note": delivery_note(est),
+    }
+
+
+def delivery_note(est) -> str:
+    """The sentence under the delivery column. An estimate printed with no
+    words around it reads as a guarantee, which is the failure the ROI section
+    was rebuilt to undo -- so the words travel with the figures."""
+    est = est or {}
+    totals = est.get("totals") or {}
+    bits = []
+    if totals.get("impressions"):
+        bits.append(f"{int(totals['impressions']):,} impressions")
+    if totals.get("views"):
+        bits.append(f"{int(totals['views']):,} views")
+    if not bits:
+        return ("No line in this plan is bought on an impression or view rate, "
+                "so there is no delivery estimate to show.")
+    note = ("Delivery is estimated at the rates quoted above and is what this "
+            "plan is expected to buy over the campaign — "
+            + " and ".join(bits) + " — not a guarantee of results.")
+    unpriced = [u for u in (est.get("unpriced") or []) if u]
+    if unpriced:
+        one = len(unpriced) == 1
+        note += (" " + ", ".join(unpriced)
+                 + (" is not bought on an impression rate, so it is"
+                    if one else
+                    " are not bought on impression rates, so they are")
+                 + " not counted in that figure.")
+    return note
+
+
 def _tracked_metrics(state):
-    """What we will report on, drawn from the campaign's own KPIs and media."""
-    metrics = list((state or {}).get("kpis") or [])
-    media = {hub_creative.medium_of(i) for i in (state or {}).get("items") or []}
-    if hub_creative.VIDEO in media:
-        metrics += ["Completed video views", "Video completion rate"]
-    if hub_creative.AUDIO in media:
-        metrics += ["Audio listen-through rate"]
-    if any(m in media for m in (hub_creative.DISPLAY, hub_creative.SOCIAL)):
-        metrics += ["Click-through rate", "Cost per click"]
-    metrics += ["Cost per lead", "Lead-to-close rate (from the Smart 1 Suite)"]
-    seen, out = set(), []
-    for m in metrics:
-        key = str(m).strip().lower()
-        if key and key not in seen:
-            seen.add(key)
-            out.append(str(m).strip())
-    return out[:10]
+    """What we will report on — the shared reading, not a second copy.
+
+    This was its own list until the ROI section became the KPI framework, and
+    two answers to "what do we report on" is how the proposal and the
+    insertion order came to describe one campaign differently in the first
+    place.
+    """
+    return hub_kpi.success_metrics(state)
 
 
 # =====================================================================
@@ -1785,10 +2821,15 @@ def _seeded_sections(state):
                             "\n\nBudget is concentrated on the moments that produce "
                             "revenue: " + ", ".join(template["triggers"]) + ".").strip()
 
+    # Deliberately says nothing about markup. This read "every rate is the
+    # Smart 1 card rate -- there is no markup between the line item and what
+    # runs", which named our internal pricing on a document a client reads
+    # and, since sell_rate() started quoting CPM at 2x, was printed directly
+    # above a table disproving it.
     body["mediaplan"] = (
         "The split below is weighted toward the stage of the funnel this campaign has "
-        "to move. Every rate is the Smart 1 card rate — there is no markup between the "
-        "line item and what runs.")
+        "to move, and the delivery column is what each line is expected to buy at the "
+        "rate it is quoted at.")
 
     body["creative"] = _creative_section_body(state)
 
@@ -1802,7 +2843,7 @@ def _seeded_sections(state):
         "it into revenue you can trace.")
 
     body["reporting"] = (
-        "Optimisation is a routine, not a promise: bids adjusted against delivery and "
+        "Optimization is a routine, not a promise: bids adjusted against delivery and "
         "cost per action, negative keywords and placement exclusions updated, creative "
         "checked against performance and rotated before it fatigues. Everything reports "
         "into one live dashboard inside the Smart 1 Suite that you can open whenever "
@@ -1813,11 +2854,11 @@ def _seeded_sections(state):
         "separately below so it is clear what recurs and what does not.")
 
     body["roi"] = (
-        "The delivery figures below are calculated from the Smart 1 rate card at the "
-        "budgets in this plan — they are what the money buys, not a forecast. The "
-        "Smart 1 Suite is the single source of truth for what those impressions "
-        "produced: every lead is attributed to the channel that created it, so the "
-        "spend can be judged against the business, not against a click count.")
+        "This is what the campaign will be judged on, product by product, with the "
+        "result each one normally delivers. The Smart 1 Suite is the single source "
+        "of truth for what the media produced: every lead is attributed to the "
+        "channel that created it, so the spend can be judged against the business "
+        "rather than against a click count.")
 
     body["next"] = "\n".join(f"{i}. {step}" for i, step in
                               enumerate(hub_spec.NEXT_STEPS, 1))
@@ -1849,27 +2890,95 @@ def _creative_section_body(state):
 # =====================================================================
 # AI routes (optional — need OPENAI_API_KEY; same pattern as the IO app)
 # =====================================================================
-def _openai_response(prompt, max_output_tokens=6000):
+def _openai_error(resp):
+    """What the API actually said, rather than the status line.
+
+    ``raise_for_status()`` raises "400 Client Error: Bad Request for url:
+    https://api.openai.com/v1/responses", which names neither the model nor
+    the thing it refused -- so every button in this module reported a
+    different invented diagnosis of one shared failure, and none of them was
+    checkable. The body carries the sentence somebody can act on.
+    """
+    try:
+        detail = (resp.json().get("error") or {}).get("message") or ""
+    except (ValueError, AttributeError):
+        detail = ""
+    if not detail:
+        detail = (resp.text or "")[:400].strip()
+    return f"OpenAI returned HTTP {resp.status_code}" + (f": {detail}" if detail else ".")
+
+
+def _openai_call(payload, api_key):
+    return requests.post("https://api.openai.com/v1/responses",
+                         headers={"Authorization": f"Bearer {api_key}",
+                                  "Content-Type": "application/json"},
+                         json=payload, timeout=120)
+
+
+def _openai_response(prompt, max_output_tokens=6000, search=False):
+    """One call to the Responses API, with three ways of failing named.
+
+    ``search`` is opt-in. The hosted web-search tool used to ride on **every**
+    call in this module, including the rewrites and the JSON drafts that have
+    nothing to look up -- and whether a hosted tool is available depends on
+    the model, which is ``OPENAI_MODEL`` and is set to a 4o-class model on
+    this deployment rather than the ``gpt-5-mini`` default written here. A
+    model that refuses the tool refuses the whole request, so the tool that
+    was meant to help the ZIP lookup was what stopped it, and stopped the
+    other seven buttons with it. Where a caller genuinely wants live search
+    we ask for it and **fall back without it** rather than losing the answer:
+    a list assembled without a live lookup is worth having and is labelled;
+    no list at all is a button that does nothing.
+
+    An **incomplete** response is named too. Reasoning and tool tokens count
+    against ``max_output_tokens``, so a truncated answer arrives with an empty
+    text body -- which every caller here read as its own kind of nothing
+    ("the AI returned no description", "No ZIP Codes were returned") and none
+    of them as the one thing it was.
+    """
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OpenAI is not configured. Add OPENAI_API_KEY.")
     payload = {"model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "input": prompt,
-               "tools": [{"type": "web_search"}], "max_output_tokens": max_output_tokens}
-    r = requests.post("https://api.openai.com/v1/responses",
-                      headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                      json=payload, timeout=120)
-    r.raise_for_status()
-    parts = []
+               "max_output_tokens": max_output_tokens}
+    if search:
+        payload["tools"] = [{"type": "web_search"}]
+
+    r = _openai_call(payload, api_key)
+    if r.status_code == 400 and search:
+        # The model would not take the tool. The question is still answerable.
+        # Only on a 400: that is "this request is not something I can accept",
+        # which is the tool refusal. A 401 is a key, a 429 is a rate limit and
+        # a 5xx is theirs -- asking the identical question again costs a second
+        # call and cannot change any of those answers.
+        payload.pop("tools", None)
+        r = _openai_call(payload, api_key)
+    if r.status_code >= 400:
+        raise RuntimeError(_openai_error(r))
+
+    try:
+        data = r.json()
+    except ValueError:
+        raise RuntimeError(
+            "OpenAI returned a response that could not be read as JSON.") from None
     try:  # record spend so /diagnostics doesn't under-report
         from hub import ai as _hub_ai
-        _hub_ai.note_usage("sales_builder", r.json(), purpose="quote")
+        _hub_ai.note_usage("sales_builder", data, purpose="quote")
     except Exception:  # noqa: BLE001
         pass
-    for item in r.json().get("output") or []:
+
+    parts = []
+    for item in data.get("output") or []:
         for content in item.get("content") or []:
             if content.get("type") in ("output_text", "text") and content.get("text"):
                 parts.append(content["text"])
-    return "\n".join(parts).strip()
+    text = "\n".join(parts).strip()
+    if not text and data.get("status") == "incomplete":
+        why = ((data.get("incomplete_details") or {}).get("reason") or "").replace("_", " ")
+        raise RuntimeError("The model stopped before it answered"
+                           + (f" ({why})" if why else "")
+                           + ". Nothing was returned to show.")
+    return text
 
 
 def _json_from_ai(text):
@@ -1926,6 +3035,7 @@ def ai_rewrite():
         rewritten = _openai_response(prompt, 2500)
     except Exception as exc:                            # noqa: BLE001
         return jsonify({"ok": False, "error": "AI rewrite failed", "detail": str(exc)}), 502
+    rewritten = hub_spec.clean_ai_text(rewritten)
     problems = hub_spec.violations(rewritten)
     if problems:
         # Returned unchanged rather than silently handing back copy that
@@ -1995,6 +3105,23 @@ def ai_draft_sections():
         "current_marketing": hub_discovery.for_prompt(state),
         "traditional_guidance": hub_discovery.guidance(state),
         "we_suggest": [s["title"] for s in hub_discovery.suggestions(state)],
+        # Named competitors and places. Without these the audience section
+        # says "competitor conquesting", which is a tactic rather than a
+        # campaign, and is the paragraph a client checks hardest.
+        "targets_of_interest": [
+            {"name": row["name"], "what_we_want": row["note"],
+             "reached_by": ("geo-fenced at their address" if row["fenceable"]
+                            else "brand and behavior targeting — no address on file")}
+            for row in targets_of_interest(state)],
+        # What the Suite licence is on the quote for, in this client's own
+        # terms. The technology section used to describe the Suite in the
+        # abstract on every proposal ever produced here, which is why nobody
+        # read it.
+        "suite_covers": hub_discovery.suite_line(
+            state, (state.get("suiteTier") or {}).get("name") or ""),
+        "zip_exceptions": [r["note"] for r in
+                           hub_areas.zip_exceptions(campaign_areas(state))
+                           if r["applied"]],
         "suite_tier": hub_spec.suggested_tier(
             (state.get("selectedPackage") or {}).get("monthly")
             or state.get("budget") or 0)["name"],
@@ -2043,6 +3170,11 @@ def ai_draft_sections():
     # Labs exclusion is the whole reason this check exists.
     breaches = {}
     for sec_id, text in list(written.items()):
+        # Markdown and emoji are cleaned rather than discarded. A section is
+        # thrown away for breaking a standing directive -- naming Smart 1
+        # Labs -- and a stray asterisk is not that: dropping otherwise good
+        # copy over one would cost the rep the section and tell them nothing.
+        written[sec_id] = text = hub_spec.clean_ai_text(text)
         problems = hub_spec.violations(text)
         if problems:
             breaches[sec_id] = problems
@@ -2141,36 +3273,113 @@ def api_business_description():
     except Exception as exc:                            # noqa: BLE001
         return jsonify({"ok": False, "error": "Description request failed",
                         "detail": str(exc)}), 502
+    # A Google Business Profile description is pasted straight into Google,
+    # which renders no markup at all -- so this one is cleaned to plain text
+    # with the bold markers taken out as well.
+    description = hub_spec.plain_text(description)
     if not description:
         return jsonify({"ok": False, "error": "The AI returned no description."}), 502
     return jsonify({"ok": True, "description": description,
                     "warnings": hub_desc.check(description)})
 
 
+def _headings_line(observed):
+    """The page's headings as one line, each with the level it was set at.
+
+    ``landing_page.observe`` returns ``{"level": "h1", "text": ...}`` rows, and
+    the level is half the fact: one h1 and nine h2s is a different page from
+    nine h1s, and "is the headline clear" cannot be judged without knowing
+    which of them is the headline.
+    """
+    out = []
+    for h in (observed or {}).get("headings") or []:
+        text = str(h.get("text") or "").strip() if isinstance(h, dict) else str(h).strip()
+        if not text:
+            continue
+        level = str(h.get("level") or "").strip() if isinstance(h, dict) else ""
+        out.append(f"{level}: {text}" if level else text)
+    return " | ".join(out)
+
+
 @app.post("/api/review-landing-page")
 def api_review_landing_page():
-    """Conversion review of the landing page, before the campaign is priced."""
+    """Conversion review of the landing page, before the campaign is priced.
+
+    **The page is fetched.** It used to be a URL handed to a model with the
+    word "Visit", which no model here can do -- so the answer was either a
+    confident review of a page nobody had looked at, or, once the model was
+    honest about it, the criteria it would have used followed by a sentence
+    saying it could not reach the site. Both read to a rep as a broken
+    button, and the first is worse than broken: it is fiction quoted to a
+    client.
+
+    ``modules.ads_builder.landing_page`` already does this properly for Smart
+    1 Ads -- it requests the page and counts the conversion points off the
+    markup, each carrying the evidence found -- so it is read here rather
+    than copied. The observed half is fact and the model is given the facts
+    and asked only for judgment, and the two are kept apart in the response
+    so the screen can say which is which.
+    """
     body = request.get_json(force=True) or {}
     url = str(body.get("url") or "").strip()
     if not url:
         return jsonify({"ok": False, "error": "A landing-page URL is required."}), 400
+
+    try:
+        from modules.ads_builder import landing_page as _lp
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": "The page reader is unavailable",
+                        "detail": str(exc)}), 502
+
+    observed = _lp.observe(url)
+    if not observed.get("measured"):
+        # A page we could not fetch is reported as a page we could not fetch,
+        # with the status behind it. Asking the model anyway is how a review
+        # of a 404 gets written and pasted into a proposal.
+        return jsonify({"ok": False, "url": url, "observed": observed,
+                        "error": "That page could not be read.",
+                        "detail": observed.get("error")
+                                  or "The site did not answer."}), 502
+
+    points = observed.get("conversion_points") or []
+    facts = "\n".join(f"- {p['label']}: {p['evidence']}" for p in points[:25]) \
+        or "- none found on the page"
     prompt = (
-        f"Review this campaign landing page: {url}\n"
+        "Review a campaign landing page as a conversion-focused page. Everything below was read "
+        "off the live page just now -- treat it as fact, do not contradict it, and do not describe "
+        "anything that is not in it.\n\n"
+        f"URL: {observed.get('url') or url}\n"
         f"Client: {str(body.get('client') or '')}\n"
         f"Product or use: {str(body.get('product') or 'Campaign landing page')}\n"
         f"Campaign goals: {', '.join(str(o) for o in (body.get('objectives') or []))}\n"
-        "Visit the page and evaluate it as a conversion-focused landing page. Determine whether it has "
-        "a clear primary call to action above the fold and throughout the page. Review message match, "
-        "headline clarity, offer clarity, forms, phone calls, buttons, mobile usability, page speed "
-        "signals, trust indicators, testimonials, privacy language, tracking readiness, distractions, "
-        "and whether the conversion action is easy to complete. Return a concise internal note with "
-        "these headings: CTA Status, Strengths, Required Fixes Before Launch, Recommended Improvements, "
-        "Tracking Checks. Be specific and practical. If the page cannot be accessed, say so clearly.")
+        f"Page title: {observed.get('title') or '(none)'}\n"
+        f"Meta description: {observed.get('meta_description') or '(none)'}\n"
+        f"Declares a mobile viewport: "
+        f"{'yes' if observed.get('mobile_viewport') else 'no' if observed.get('mobile_viewport') is False else 'not measured'}\n"
+        f"Headings, in order: {_headings_line(observed) or '(none)'}\n"
+        f"Conversion points found on the page:\n{facts}\n\n"
+        f"Page text:\n{observed.get('text') or '(no readable text)'}\n\n"
+        "Return a concise internal note with these headings: CTA Status, Strengths, Required Fixes "
+        "Before Launch, Recommended Improvements, Tracking Checks. Be specific and practical, and "
+        "quote what is actually on the page. Page speed and anything else not listed above was not "
+        "measured -- say so rather than estimating it.\n"
+        # The review is read on screen and pasted into the proposal's landing
+        # section, and neither renders Markdown -- so a heading written as
+        # "## CTA Status" arrived as literally that. Asked for here, and
+        # enforced by clean_ai_text below, for the reason the Smart 1 Labs
+        # exclusion is checked rather than merely requested.
+        + hub_spec.FORMATTING_DIRECTIVE)
     try:
-        return jsonify({"ok": True, "review": _openai_response(prompt, 5000), "url": url})
+        review = hub_spec.clean_ai_text(_openai_response(prompt, 5000))
     except Exception as exc:                            # noqa: BLE001
-        return jsonify({"ok": False, "error": "Landing-page review failed",
+        logger.exception("Landing-page review failed")
+        # The reading survives the model failing: what was found on the page
+        # is the checkable half, and it is worth showing on its own.
+        return jsonify({"ok": False, "url": url, "observed": observed,
+                        "error": "The page was read, but the AI review failed",
                         "detail": str(exc)}), 502
+    return jsonify({"ok": True, "review": review, "url": observed.get("url") or url,
+                    "observed": observed, "summary": _lp.summary_line(observed)})
 
 
 @app.post("/api/zipcodes-in-radius")
@@ -2194,16 +3403,268 @@ def api_zipcodes_in_radius():
         "Use current authoritative geographic sources where possible. Return only five-digit ZIP Codes, "
         "comma-separated, sorted ascending, with no commentary. Be exhaustive and do not intentionally "
         "omit any matching ZIP Code.")
+    # `search=True`, and the call falls back without the tool rather than
+    # failing: the tool riding on this request is what stopped the button.
     try:
-        zips = hub_areas.zip_list(_openai_response(prompt, 12000))
+        zips = hub_areas.zip_list(_openai_response(prompt, 12000, search=True))
     except Exception as exc:                            # noqa: BLE001
+        logger.exception("ZIP-radius lookup failed")
         return jsonify({"ok": False, "error": "ZIP-radius lookup failed",
                         "detail": str(exc)}), 502
     if not zips:
-        return jsonify({"ok": False, "error": "No ZIP Codes were returned."}), 502
+        # Said in the terms of the question that was asked. "No ZIP Codes were
+        # returned" reads as a radius with nothing in it, which is not a thing
+        # that happens -- it was always the call, never the geography.
+        return jsonify({"ok": False,
+                        "error": f"The lookup came back with no ZIP Codes for "
+                                 f"{radius} miles around {origin}. Check the "
+                                 f"origin is a real city or ZIP Code, or enter "
+                                 f"the list by hand."}), 502
     return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
                     "warning": "AI-assisted ZIP-radius results should be reviewed before "
                                "trafficking — ZIP boundaries and radius intersections change."})
+
+
+@app.get("/api/quotes/<int:qid>/target-map.png")
+def quote_target_map(qid):
+    """The campaign's coverage map, as the proposal carries it.
+
+    A URL rather than a data URL in the page, because the preview redraws on
+    every keystroke of an edited section and a re-encoded PNG in the DOM each
+    time is the same picture paid for a hundred times. `hub.target_map`
+    caches the composed image, so the PDF built a second later is free.
+
+    `v` is ignored deliberately: it carries the areas' signature so a changed
+    campaign gets a new URL and the browser stops serving the old picture.
+    A stale map on a proposal is the worst version of this bug -- it is
+    plausible, it is dated, and it is about somewhere else.
+    """
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        number, raw = q.quote_number, q.data
+    finally:
+        db.close()
+    # Only a malformed blob is caught. A broader except here read an
+    # AttributeError on the wrong column name as "quote could not be read",
+    # which is a 404 that looks exactly like an empty campaign -- the whole
+    # feature silently absent with nothing anywhere saying why.
+    try:
+        state = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "This quote's data could not be read"}), 404
+    png, meta = campaign_map(state)
+    if not png:
+        # 404 rather than a placeholder image: the builder asks for the reason
+        # separately and the client document simply leaves the map out. An
+        # "unavailable" graphic is the one outcome that could reach a client.
+        return jsonify({"ok": False, "error": meta.get("reason") or "No map"}), 404
+    resp = send_file(BytesIO(png), mimetype="image/png",
+                     download_name=f"target-map-{number or qid}.png")
+    resp.headers["Cache-Control"] = "private, max-age=600"
+    return resp
+
+
+@app.post("/api/target-map/status")
+def api_target_map_status():
+    """What the map would show, for the builder — never for the client.
+
+    Answers the three questions separately, because they need three different
+    things done about them: which areas are drawn, which are covered but not
+    drawable (a DMA, a state), and which could not be placed at all and are
+    therefore somebody's to fix.
+    """
+    body = request.get_json(force=True) or {}
+    areas = hub_areas.normalize(body.get("areas") or body.get("targetAreas")) \
+        or hub_areas.from_legacy(body)
+    ok, why = hub_map.available()
+    if not ok:
+        return jsonify({"ok": True, "measured": False, "reason": why,
+                        "plotted": [], "not_plotted": [], "unfound": []})
+    try:
+        placed = hub_map.locate(areas)
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": True, "measured": False, "plotted": [],
+                        "not_plotted": [], "unfound": [],
+                        "reason": f"We could not look the areas up ({exc})."}), 200
+    drawn = [row["kind"] in hub_map.NOT_DRAWN for row in placed["not_plotted"]]
+    return jsonify({
+        "ok": True,
+        "measured": bool(placed["points"]),
+        "plotted": [{"label": p["label"], "found": p["found"],
+                     "radius": p["radius"]} for p in placed["points"]],
+        # Covered by the campaign and not drawable, versus not found at all.
+        # Only the second is a defect, and a screen that lists them together
+        # asks somebody to fix a DMA.
+        "not_plotted": [r for r, is_kind in zip(placed["not_plotted"], drawn) if is_kind],
+        "unfound": [r for r, is_kind in zip(placed["not_plotted"], drawn) if not is_kind],
+        # Through hub_map's own reader rather than a sentence written here.
+        # This said "an area needs a city or a ZIP Code" whenever nothing was
+        # plotted, whichever of the four ways it went -- so it printed directly
+        # above the warnbox naming the city the area already carries, and told
+        # somebody to fix a DMA that is correctly not drawn.
+        "reason": "" if placed["points"] else hub_map.nothing_plotted_reason(placed),
+        "attribution": hub_config.map_tile_attribution})
+
+
+@app.post("/api/paste-areas")
+def api_paste_areas():
+    """A pasted block of locations, read into target areas.
+
+    Nothing is added here. The rows come back with a sentence per line saying
+    how each was read, and the rep presses Add -- because a paste that
+    silently assumed a ten-mile radius on eight of twelve lines is eight
+    decisions nobody made, and a line this could not read must be seen rather
+    than counted.
+    """
+    body = request.get_json(force=True) or {}
+    result = hub_areas.parse_paste(body.get("text"), existing=body.get("areas"))
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/api/paste-places")
+def api_paste_places():
+    """The same paste, for competitors, venues and places to target."""
+    body = request.get_json(force=True) or {}
+    result = hub_areas.parse_places(body.get("text"),
+                                    kind=str(body.get("kind") or "competitor"),
+                                    existing=body.get("existing"))
+    return jsonify({"ok": True, **result})
+
+
+# The research prompt. Separate from the route so the rules are readable and
+# so the test harness can assert they are still in it -- three of them are the
+# difference between a list a rep can use and a list that puts a business on a
+# client's proposal for being plausible.
+FIND_TARGETS_RULES = (
+    "Rules you must follow:\n"
+    "1. Only name businesses, venues or places that genuinely exist today and "
+    "are inside or adjacent to the target areas given. Do not invent a name, "
+    "and do not list a national brand that has no location there.\n"
+    "2. Give a street address ONLY where you are confident it is that "
+    "location's real address. If you are not sure, leave the address empty. An "
+    "empty address is correct and useful — the campaign can still target the "
+    "brand and its customers' behavior. A wrong address builds a geo-fence "
+    "around somebody else's building.\n"
+    "3. Say in one short line what targeting them is FOR — whose customers "
+    "they are and why this client wants them. Not a description of the "
+    "business.\n"
+    "4. Prefer places the client's actual customers overlap with. A stadium, a "
+    "trade show, a hospital campus or a university is worth more than a "
+    "competitor nobody visits.\n"
+    "5. Return at most 12 rows, strongest first, and no commentary.\n")
+
+
+@app.post("/api/find-targets")
+def api_find_targets():
+    """Research competitors, venues and places worth targeting.
+
+    Everything this returns is a **suggestion**. Nothing is added to the
+    campaign and nothing reaches the client document until a person ticks it:
+    printing a researched list on a proposal is us telling a client who their
+    competitors are on a model's say-so, and that is the paragraph a client
+    checks hardest. Same rule `modules/ads_builder` applies to its competitor
+    research.
+
+    An address is carried only where the model gave one, is labelled
+    unverified, and is never derived from the name -- the rule
+    `modules/ads_builder/logo.py` works to. "We could not research this" and
+    "there is nobody worth naming" are answered differently, because only the
+    second means stop looking.
+    """
+    body = request.get_json(force=True) or {}
+    client = str(body.get("client") or "").strip()
+    areas = hub_areas.normalize(body.get("areas") or body.get("targetAreas")) \
+        or hub_areas.from_legacy(body)
+    where = hub_areas.summary(areas, limit=6) or str(body.get("geo") or "").strip()
+    if not where:
+        return jsonify({"ok": False, "error": "Add at least one target area first — "
+                                              "without somewhere to look, this would "
+                                              "return national brands."}), 400
+    kinds = [k for k in (body.get("kinds") or ["competitor", "venue", "place"])
+             if k in hub_areas.PLACE_KINDS] or list(hub_areas.PLACE_KINDS)
+    already = [str((r or {}).get("name") or "").strip()
+               for r in (body.get("existing") or []) if isinstance(r, dict)]
+    prompt = (
+        "You are a media planner at Smart 1 Marketing building the targeting "
+        "for a local advertising campaign. Research, using the web, who and "
+        "where this campaign should go after.\n\n"
+        f"Client: {client or 'the advertiser'}\n"
+        f"Their website: {str(body.get('url') or '') or 'not given'}\n"
+        f"Industry: {str(body.get('industry') or '') or 'not given'}\n"
+        f"What they sell: {str(body.get('sells') or '') or 'not given'}\n"
+        f"Target areas: {where}\n"
+        f"Campaign goals: {', '.join(str(o) for o in (body.get('objectives') or [])) or 'not given'}\n"
+        + (f"Already named on this campaign, do not repeat: {', '.join(already[:40])}\n"
+           if already else "")
+        + "\nReturn STRICT JSON only: {\"targets\":[{\"kind\":\"competitor|venue|place\","
+        "\"name\":\"\",\"address\":\"\",\"why\":\"\",\"confidence\":\"confirmed|likely\"}]}\n"
+        f"Kinds to include: {', '.join(kinds)}. "
+        "competitor = a business that takes this client's customers. "
+        "venue = somewhere their customers gather (a stadium, an arena, an "
+        "expo center, a campus). place = any other location worth fencing (a "
+        "retail park, a hospital, an employer, an event site).\n\n"
+        + FIND_TARGETS_RULES)
+    try:
+        raw = _json_from_ai(_openai_response(prompt, 6000))
+    except Exception as exc:                            # noqa: BLE001
+        # Deliberately not an empty list: "we could not look" and "there is
+        # nobody" send a rep to two different places, and only the second one
+        # means the campaign has no conquesting to do.
+        return jsonify({"ok": False, "error": "The research request failed",
+                        "detail": str(exc)}), 502
+
+    seen = {n.lower() for n in already if n}
+    out = []
+    for row in (raw.get("targets") or [])[:12]:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()[:200]
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        kind = str(row.get("kind") or "competitor").strip().lower()
+        out.append({
+            "kind": kind if kind in hub_areas.PLACE_KINDS else "competitor",
+            "name": name,
+            "address": str(row.get("address") or "").strip()[:200],
+            "note": hub_spec.plain_text(str(row.get("why") or ""))[:200],
+            "confidence": ("confirmed" if str(row.get("confidence") or "").lower()
+                           == "confirmed" else "likely"),
+            # Ticked by a person before it is anything at all.
+            "accepted": False,
+        })
+    return jsonify({
+        "ok": True, "targets": out, "searched": where,
+        "note": ("Nothing came back for this campaign. That is an answer — it "
+                 "does not mean the search failed." if not out else
+                 "Researched, not verified. Tick what belongs on this campaign; "
+                 "check any address before it is used to build a geo-fence."),
+    })
+
+
+@app.post("/api/zip-rule")
+def api_zip_rule():
+    """Read a ZIP exception written in words, and apply it to a ZIP list.
+
+    Deliberately a round trip rather than a JavaScript copy of the rule.
+    Target areas and the creative classifier each carry a mirror already, and
+    each needs its own test proving the two halves still agree; a third --
+    carrying a table of every state's ZIP prefixes -- is a mirror that would
+    drift silently and be wrong about which state a campaign runs in. The
+    browser stores what comes back on the area, so every later read is local
+    and `hub.target_areas` stays the only thing that knows what
+    "only New Jersey" means.
+    """
+    body = request.get_json(force=True) or {}
+    rule = hub_areas.parse_zip_rule(body.get("text"))
+    result = hub_areas.apply_zip_rule(body.get("zips"), rule)
+    return jsonify({"ok": True, "rule": rule, "kept": result["kept"],
+                    "dropped": result["dropped"], "applied": result["applied"],
+                    "note": result["note"],
+                    "describe": hub_areas.describe_zip_rule(rule)})
 
 
 @app.post("/api/estimate-audience")
@@ -2318,6 +3779,454 @@ def _upload_proposal_pdf(quote_number, client, pdf_bytes, revision):
     except Exception as exc:                            # noqa: BLE001
         logger.warning("proposal PDF upload failed: %s", exc)
         return ""
+
+
+# =====================================================================
+# The client's copy of the proposal
+#
+# Until now a proposal reached a client as a PDF and stopped there: nothing
+# knew whether it had been opened, and the status was a pill a rep clicked
+# from memory. `/sales/builder/p/<token>` is the document a client opens, and
+# the one thing they can do on it is accept it.
+#
+# Deliberately **no edits from the client**. Smart 1 Ads offers three answers
+# because a campaign estimate is a thing to negotiate line by line; a proposal
+# is a document somebody says yes to, and a change request arriving here would
+# be a second inbox for something the rep is already having a conversation
+# about. A client who wants something different says so to the rep, who edits
+# the quote and sends the same link again.
+#
+# The page **embeds the PDF** rather than re-rendering the proposal in HTML.
+# That is the whole reason it is cheap: the PDF, the Word export and the
+# preview are already three renderers of one document, and a fourth would be
+# the drift this codebase pays for twice already. The client reads exactly the
+# document that was signed off, and there is nothing to keep in step.
+# =====================================================================
+# wsgi.py hands this to BOTH the AuthGuard (so a client with no Hub login can
+# reach it) and HubBar (so the sidebar, help layer and feedback tab are not
+# injected into a document a client reads). One list, so the mount and the
+# module cannot disagree about what is public -- the arrangement
+# modules/scans and modules/ads_builder already use.
+PUBLIC_PREFIXES = ("/p/", "/api/p/")
+
+_TOKEN_BYTES = 16       # 128 bits: the token is the whole security model
+
+
+def _client_base() -> str:
+    """The origin a client-facing link is built from.
+
+    `PUBLIC_BASE_URL` first, because a link is pasted into an email and has to
+    work from outside; `request.host_url` only as the fallback. Trimmed to an
+    origin for the reason `modules/image_picker/provisioning.py` gives: a
+    dispatcher-mounted module's url_root carries its own mount, and pasting a
+    path onto it builds /sales/builder/sales/builder/p/… -- a 404 the client
+    meets and nobody else does.
+    """
+    base = (hub_config.public_base_url or "").strip()
+    if not base:
+        try:
+            base = request.host_url
+        except Exception:                       # noqa: BLE001
+            base = ""
+    base = (base or "").rstrip("/")
+    # PUBLIC_BASE_URL has held a whole callback URL before now, so trim to the
+    # origin rather than trusting it.
+    match = re.match(r"^(https?://[^/]+)", base)
+    return match.group(1) if match else base
+
+
+def share_url(token: str) -> str:
+    return f"{_client_base()}/sales/builder/p/{token}"
+
+
+def _get_or_make_share(db, q, sending: bool = False) -> "QuoteShare":
+    """This quote's client link, minted once and kept.
+
+    `sending` marks the revision the rep deliberately sent, which is what lets
+    the panel say "you have edited this since you sent it" rather than leaving
+    a rep to remember.
+    """
+    share = (db.query(QuoteShare)
+             .filter(QuoteShare.quote_id == q.id)
+             .order_by(QuoteShare.id.desc()).first())
+    if share is None:
+        share = QuoteShare(quote_id=q.id, token=secrets.token_urlsafe(_TOKEN_BYTES),
+                           created_by=_signed_in_as(), sent_revision=q.revision or 1)
+        db.add(share)
+        db.flush()
+    if sending:
+        share.revoked_at = None
+        share.sent_revision = q.revision or 1
+        share.sent_at = datetime.now(timezone.utc)
+    return share
+
+
+def _staff_reader() -> str:
+    """The signed-in Hub user, or "" for a client.
+
+    The rule the whole feature was asked for with: a rep has to be able to
+    open the client's link and read the document without marking it read. A
+    session cookie is what tells the two apart, and it costs the rep nothing
+    to remember.
+    """
+    try:
+        from hub import auth as hub_auth
+        return hub_auth.verify_cookie_value(
+            request.cookies.get(hub_auth.COOKIE_NAME)) or ""
+    except Exception:                           # noqa: BLE001
+        return ""
+
+
+def _share_state(db, q) -> dict:
+    """Everything the builder's panel says about the client's copy."""
+    share = (db.query(QuoteShare)
+             .filter(QuoteShare.quote_id == q.id)
+             .order_by(QuoteShare.id.desc()).first())
+    if share is None:
+        return {"shared": False, "url": "", "views": 0, "opens": [],
+                "accepted": None, "superseded": None, "revision": q.revision or 1}
+    views = (db.query(QuoteView)
+             .filter(QuoteView.quote_id == q.id)
+             .order_by(QuoteView.at.desc()).limit(50).all())
+    accepts = (db.query(QuoteAcceptance)
+               .filter(QuoteAcceptance.quote_id == q.id)
+               .order_by(QuoteAcceptance.id.desc()).all())
+    current = q.revision or 1
+    live = next((a for a in accepts if (a.revision or 1) == current), None)
+    superseded = next((a for a in accepts if (a.revision or 1) != current), None)
+
+    def _acc(row):
+        if not row:
+            return None
+        return {"name": row.name, "email": row.email,
+                "revision": row.revision or 1,
+                "at": row.at.isoformat() if row.at else ""}
+
+    return {
+        "shared": True,
+        "revoked": bool(share.revoked_at),
+        "url": share_url(share.token),
+        "token": share.token,
+        "revision": current,
+        "sent_revision": share.sent_revision or 1,
+        # "You have edited it since you sent it" is the thing a rep cannot
+        # know from a list of opens, and the reason to re-send the link.
+        "edited_since_sent": bool(share.sent_at) and (share.sent_revision or 1) != current,
+        "sent_at": share.sent_at.isoformat() if share.sent_at else "",
+        "views": len(views),
+        "views_this_revision": sum(1 for v in views if (v.revision or 1) == current),
+        "first_view": views[-1].at.isoformat() if views else "",
+        "last_view": views[0].at.isoformat() if views else "",
+        "opens": [{"at": v.at.isoformat() if v.at else "",
+                   "revision": v.revision or 1, "device": v.device or ""}
+                  for v in views[:12]],
+        "accepted": _acc(live),
+        "superseded": _acc(superseded) if not live else None,
+        "validity": _validity_block(_quote_window(q, _state_of(q), share.sent_at)),
+    }
+
+
+@app.get("/api/quotes/<int:qid>/share")
+def api_share_state(qid):
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+@app.post("/api/quotes/<int:qid>/share")
+def api_share_create(qid):
+    """Mint (or re-send) the client link for this quote."""
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        share = _get_or_make_share(db, q, sending=True)
+        if q.status == "Draft":
+            q.status = "Sent"
+        log_activity(db, q.id, "🔗", f"Client link sent — revision {q.revision or 1}")
+        db.commit()
+        # `actor` is the wrapper's own keyword -- audit.for_module passes it
+        # from its actor_fn -- so who did this travels under its own name. The
+        # first-positional trap this file's own docstring names, one keyword on.
+        _audit("quote_shared", client=q.client, quote=q.quote_number,
+               sent_by=_signed_in_as(), revision=q.revision or 1)
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+@app.post("/api/quotes/<int:qid>/validity")
+def api_share_validity(qid):
+    """How long this quote's pricing stands, if not the house window.
+
+    Written into the quote's own data blob -- never a new column, the
+    `create_all()` rule -- and set from the share panel because that is where
+    the send happens and where the answer matters. Clearing it (0 or blank)
+    puts the quote back on the house window rather than removing the window,
+    which is a different thing and not one this button offers.
+    """
+    body = request.get_json(silent=True) or {}
+    raw = body.get("days")
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        state = _state_of(q)
+        if raw in (None, "", 0, "0"):
+            state.pop("validityDays", None)
+            chosen = 0
+        else:
+            try:
+                chosen = int(raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False,
+                                "error": "Give the number of days as a whole number."}), 400
+            if not (hub_validity.MIN_DAYS <= chosen <= hub_validity.MAX_DAYS):
+                # Refused by name rather than silently clamped: a rep who
+                # typed 3650 and got 365 has been told something different
+                # from what they asked for, on a date a client relies on.
+                return jsonify({"ok": False, "error":
+                                f"A proposal can stand for between "
+                                f"{hub_validity.MIN_DAYS} and "
+                                f"{hub_validity.MAX_DAYS} days."}), 400
+            state["validityDays"] = chosen
+        q.data = json.dumps(state, ensure_ascii=False)
+        log_activity(db, q.id, "⏰",
+                     (f"Pricing held for {chosen} days" if chosen
+                      else "Pricing back on the standard window"))
+        db.commit()
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+@app.post("/api/quotes/<int:qid>/share/revoke")
+def api_share_revoke(qid):
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        share = (db.query(QuoteShare).filter(QuoteShare.quote_id == q.id)
+                 .order_by(QuoteShare.id.desc()).first())
+        if share:
+            share.revoked_at = datetime.now(timezone.utc)
+            log_activity(db, q.id, "🔒", "Client link revoked")
+            db.commit()
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+# ------------------------------------------------------------------ public
+def _open_share(db, token):
+    """The quote behind a token, or (None, None).
+
+    Revoked, deleted and never-existed all answer the same 404, because a
+    client-facing URL that says "this one expired" tells somebody probing
+    which tokens are real -- the rule `modules/ads_builder` settled.
+    """
+    share = db.query(QuoteShare).filter(QuoteShare.token == str(token or "")).first()
+    if not share or share.revoked_at:
+        return None, None
+    q = db.get(Quote, share.quote_id)
+    if not q:
+        return None, None
+    return share, q
+
+
+@app.get("/p/<token>")
+def page_client_proposal(token):
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return render_template("client_gone.html"), 404
+        staff = _staff_reader()
+        state = _state_of(q)
+        win = _quote_window(q, state, share.sent_at)
+        return render_template(
+            "client_proposal.html", q=q, token=token, staff=staff,
+            revision=q.revision or 1,
+            # Past the date the page says so and names who to ask rather than
+            # 404ing. A revoked or invented token answers 404 because saying
+            # "that one expired" tells somebody probing which tokens are real;
+            # an expired quote is a real quote belonging to a real client who
+            # is trying to say yes.
+            validity=win, validity_note=hub_validity.client_note(win),
+            expired=bool(win.get("expired")),
+            contact_name=str(state.get("salesContact") or q.salesperson or ""),
+            contact_email=str(state.get("salesEmail") or ""),
+            accepted=_share_state(db, q)["accepted"])
+    finally:
+        db.close()
+
+
+@app.get("/p/<token>.pdf")
+def page_client_pdf(token):
+    """The document itself, for the embed and for the download button.
+
+    Deliberately no view recorded here. The page reports its own open once,
+    and counting this too would report every client as having read it twice --
+    and would count the rep's own check of the link, which is the one thing
+    the feature was asked not to do.
+    """
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        state = json.loads(q.data or "{}")
+        ensure_sections(state)
+        # The share row is right here, so the validity line is dated from the
+        # send rather than from a second lookup that could disagree with the
+        # page the client just read it on.
+        pdf_bytes, title = build_proposal_pdf(q, state, sent_at=share.sent_at)
+    except Exception as exc:                    # noqa: BLE001
+        logger.warning("client PDF failed for %s: %s", token, exc)
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    finally:
+        db.close()
+    resp = send_file(BytesIO(pdf_bytes), mimetype="application/pdf",
+                     as_attachment=request.args.get("download") == "1",
+                     download_name=title + ".pdf")
+    resp.headers["Cache-Control"] = "private, max-age=60"
+    return resp
+
+
+@app.post("/api/p/<token>/opened")
+def api_client_opened(token):
+    """The page reporting that a browser actually rendered it.
+
+    Called from the page rather than recorded on the HTML request, because a
+    mail security gateway fetches every link in a message within seconds of
+    delivery and runs no JavaScript. Counted there, every proposal reads as
+    opened the moment it is sent -- a confident wrong answer that stops a rep
+    chasing a client who has never seen it.
+
+    Answers 200 whatever it decides. This is a beacon: a client's page must
+    not show an error because we chose not to count their visit.
+    """
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return jsonify({"ok": True, "counted": False, "reason": "unknown link"})
+        staff = _staff_reader()
+        if staff:
+            return jsonify({"ok": True, "counted": False,
+                            "reason": "staff preview — not counted"})
+        agent = request.headers.get("User-Agent", "")
+        automated, why = hub_views.looks_automated(agent, request.headers)
+        if automated:
+            return jsonify({"ok": True, "counted": False, "reason": why})
+        visitor = hub_views.visitor_hash(
+            _client_ip(), hub_config.secret_key)
+        # The window is per visitor **per revision**. A reload of the same
+        # document is one read; the first sight of a revision the rep has just
+        # sent is a new one, whatever the clock says -- and "have they opened
+        # the version I sent this morning" is the whole question a revised
+        # quote asks.
+        last = (db.query(QuoteView)
+                .filter(QuoteView.quote_id == q.id,
+                        QuoteView.visitor == visitor,
+                        QuoteView.revision == (q.revision or 1))
+                .order_by(QuoteView.at.desc()).first())
+        last_seen = last.at.replace(tzinfo=timezone.utc).timestamp() if last and last.at else None
+        now = datetime.now(timezone.utc)
+        if not hub_views.counts_as_new_view(last_seen, now.timestamp()):
+            return jsonify({"ok": True, "counted": False,
+                            "reason": "already counted this visit"})
+        db.add(QuoteView(quote_id=q.id, token=share.token, at=now,
+                         revision=q.revision or 1, visitor=visitor,
+                         device=hub_views.device_kind(agent)))
+        log_activity(db, q.id, "👁", f"Client opened revision {q.revision or 1}")
+        db.commit()
+        return jsonify({"ok": True, "counted": True})
+    except Exception as exc:                    # noqa: BLE001
+        logger.warning("view beacon failed for %s: %s", token, exc)
+        return jsonify({"ok": True, "counted": False, "reason": "not recorded"})
+    finally:
+        db.close()
+
+
+@app.post("/api/p/<token>/accept")
+def api_client_accept(token):
+    """The client says yes, to one specific revision.
+
+    Name and email are required and are the whole of it: an acceptance nobody
+    can attribute is not an acceptance, and anything more is a form standing
+    between a client and the word yes. Stamped with the revision, because
+    approving is a statement about a specific document -- if the quote is
+    revised afterwards the panel says the acceptance was superseded rather
+    than quietly carrying it forward onto a document nobody agreed to.
+    """
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()[:200]
+    email = str(body.get("email") or "").strip()[:200]
+    if not name or "@" not in email:
+        return jsonify({"ok": False,
+                        "error": "Please give your name and an email address so "
+                                 "we know who accepted."}), 400
+    db = SessionLocal()
+    try:
+        share, q = _open_share(db, token)
+        if not share:
+            return jsonify({"ok": False, "error": "This link is no longer active."}), 404
+        if _staff_reader():
+            # A rep pressing Accept on the client's page would file an
+            # acceptance in a client's name that the client never gave.
+            return jsonify({"ok": False,
+                            "error": "You are signed in to the Hub — a proposal is "
+                                     "accepted by the client, on their own copy."}), 403
+        state = _state_of(q)
+        win = _quote_window(q, state, share.sent_at)
+        if win.get("expired"):
+            # Server-side as well as on the form: a rule the page keeps while
+            # the write breaks it is not a rule. 409 rather than 404 -- the
+            # link is genuinely theirs and the answer is "not at this price",
+            # which is a different thing from "no such quote".
+            out = hub_validity.refusal(
+                win, str(state.get("salesContact") or q.salesperson or ""),
+                str(state.get("salesEmail") or ""))
+            _audit("quote_accept_expired", quote=q.quote_number,
+                   client=q.client, expired_on=win.get("expires_on", ""))
+            return jsonify({"ok": False, **out}), 409
+        revision = q.revision or 1
+        existing = (db.query(QuoteAcceptance)
+                    .filter(QuoteAcceptance.quote_id == q.id,
+                            QuoteAcceptance.revision == revision).first())
+        if existing:
+            return jsonify({"ok": True, "already": True,
+                            "accepted": {"name": existing.name,
+                                         "at": existing.at.isoformat() if existing.at else ""}})
+        db.add(QuoteAcceptance(
+            quote_id=q.id, token=share.token, revision=revision,
+            name=name, email=email,
+            visitor=hub_views.visitor_hash(_client_ip(), hub_config.secret_key)))
+        q.status = "Approved"
+        log_activity(db, q.id, "✅", f"Accepted by {name} — revision {revision}")
+        db.commit()
+        _audit("quote_accepted", client=q.client, quote=q.quote_number,
+               accepted_by=f"{name} <{email}>", revision=revision)
+        return jsonify({"ok": True, "accepted": {"name": name, "revision": revision}})
+    finally:
+        db.close()
+
+
+def _client_ip() -> str:
+    try:
+        from hub import auth as hub_auth
+        return hub_auth.client_ip(request.headers, request.remote_addr or "")
+    except Exception:                           # noqa: BLE001
+        return request.remote_addr or ""
 
 
 @app.post("/api/quotes/<int:qid>/deliver")

@@ -60,6 +60,7 @@ record — is `hub/domain_links.attach()`, which calls this as its first step.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 
 from hub import jsonstore
@@ -157,6 +158,95 @@ def looks_like_a_website(domain: str) -> bool:
         if d == bad or d.endswith("." + bad):
             return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Reading a domain out of free text
+# ---------------------------------------------------------------------------
+#
+# Two reports need this and neither owns it: the Sites Billing report reads a
+# hosting charge's line description for the website it pays for, and the
+# domain renewal reconciliation reads a renewal charge's for the domain it
+# renews. It lives here because this is the file that already decides what
+# counts as a client's website at all — `looks_like_a_website` and the list
+# behind it — and a second copy of the judgement is how the two reports come
+# to disagree about the same string.
+_EMAIL = re.compile(r"\S+@\S+")
+
+# The path is matched and thrown away rather than left for the next pass:
+# "acme.com/index.html" otherwise yields acme.com AND index.html, because
+# "html" is a four-letter last label and every domain test in this codebase
+# accepts one. A file name read as a domain joins a charge to nothing and
+# reports it as naming a site we do not hold.
+_DOMAINISH = re.compile(
+    r"(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+)(?:/\S*)?", re.I)
+
+# Last labels that are file types rather than top-level domains. A short list
+# on purpose: the alternative is a TLD table this repo would have to keep in
+# step with IANA, and being wrong in that direction only costs a suggestion,
+# while being wrong in this one costs a wrong join.
+_NOT_A_TLD = {
+    "html", "htm", "php", "asp", "aspx", "jsp", "js", "css", "json", "xml",
+    "txt", "csv", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "zip",
+    "jpg", "jpeg", "png", "gif", "webp", "svg", "ico", "mp3", "mp4", "mov",
+}
+
+
+def domains_in(text: str, *, spans: bool = False) -> list:
+    """Every domain in a line of free text that could be a client's website.
+
+    Emails are stripped **before** the scan rather than filtered after it:
+    "billing@acme.com" contains the string "acme.com", and a reader that finds
+    it there has joined a charge to a website on the strength of somebody's
+    email address.
+
+    A file host, a social profile and a website platform's own domain are all
+    rejected — the first two by `looks_like_a_website` and the list above it,
+    which this codebase learned the hard way, and the third because an
+    unlaunched project's domain identifies the platform rather than the
+    business.
+
+    `spans=True` returns `(domain, start, end)` against the *email-stripped*
+    text, for a caller that has to take the domains back out of the string to
+    read what is left — the renewal report does, because the rest of the line
+    is the client's name.
+    """
+    from hub.sites_match import PLATFORM_DOMAINS
+    raw = _EMAIL.sub(" ", str(text or ""))
+    out, seen = [], set()
+    for m in _DOMAINISH.finditer(raw):
+        d = canonical_domain(m.group(1))
+        if not d:
+            continue
+        if d.rsplit(".", 1)[-1] in _NOT_A_TLD:
+            continue
+        if any(d == pd or d.endswith("." + pd) for pd in PLATFORM_DOMAINS):
+            continue
+        if not looks_like_a_website(d):
+            continue
+        if spans:
+            out.append((d, m.start(), m.end()))
+        elif d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
+def strip_domains(text: str) -> str:
+    """The same text with every URL-shaped span taken out.
+
+    Every one of them, not only the domains that were accepted: a Drive link
+    or a Facebook page is still not part of anybody's name, and leaving it in
+    makes the remainder look like a business name that matches nothing.
+    """
+    raw = _EMAIL.sub(" ", str(text or ""))
+    out, last = [], 0
+    for m in _DOMAINISH.finditer(raw):
+        out.append(raw[last:m.start()])
+        out.append(" \n ")
+        last = m.end()
+    out.append(raw[last:])
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -311,10 +401,26 @@ def clear(name: str, domain: str = "") -> dict:
 
 
 def _forget_registry_cache() -> None:
-    """The registry caches for a minute; an accepted URL must show at once."""
+    """The registry caches for a minute; an accepted URL must show at once.
+
+    And the day-cached reports built on top of it go with it. This module
+    already carries the note about why: accepting a domain used to be followed
+    by the same client being proposed the same domain again, as if the click
+    had done nothing, because the scan after the accept ran in the worker that
+    had not seen it. A report held for a day is that failure with a longer
+    fuse — the row would come back for the rest of the day rather than for the
+    next two minutes. The overlay is the durable record and it decides; these
+    are derivations of it and are simply dropped.
+    """
     try:
         from hub import clients_registry
         clients_registry._cache["at"] = 0          # noqa: SLF001 - same package
+    except Exception:                                       # noqa: BLE001
+        pass
+    try:
+        from hub import report_cache
+        report_cache.invalidate("client-urls", "orphan-urls", "sites-match",
+                                "crosswalk")
     except Exception:                                       # noqa: BLE001
         pass
 
@@ -379,7 +485,8 @@ def _from_simvoly(found: dict) -> dict:
     project's domain is often repointed, and proposing it here would hand a
     client somebody else's website.
     """
-    from hub.sites_match import _is_platform, _site_rows, is_active
+    from hub.sites_match import (_is_platform, _site_rows, is_active,
+                                 sites_error)
     rows = [r for r in _site_rows() if is_active(r)]
     used = 0
     for row in rows:
@@ -392,7 +499,14 @@ def _from_simvoly(found: dict) -> dict:
         used += 1
         _add(found, name, domain, "simvoly",
              f"project {row.get('project_id', '')}".strip())
-    return {"rows": len(rows), "used": used, "note": "live projects only"}
+    # A Sites module that will not start returns no projects, which reads on
+    # the page as an account with none. Named rather than counted as zero, the
+    # way the other four sources here already are.
+    err = sites_error()
+    out = {"rows": len(rows), "used": used, "note": "live projects only"}
+    if err:
+        out["error"] = err
+    return out
 
 
 def _from_table(found: dict, store_name: str, source: str) -> dict:
@@ -468,17 +582,35 @@ def _rank(candidates: list[dict]) -> list[dict]:
     return sorted(candidates, key=score, reverse=True)
 
 
-def missing(limit: int = 2000, include_found: bool = False) -> dict:
+def missing(limit: int = 2000, include_found: bool = False, *,
+            cached: bool = True) -> dict:
     """Every client with no URL, and what the rest of the Hub knows about them.
 
     `include_found` returns the clients we already have a URL for as well, so
     the page can say how much of the registry this covers rather than only
     showing the gap.
+
+    Five sources are read to answer this — live product click-thrus, the Knack
+    website registry, our Simvoly projects, site scans and Google access
+    requests — so the answer is held for the day and re-read on Refresh.
+    `cached=False` is the way past it for a caller that has just written.
+    `accept()` drops the entry itself, so a URL somebody has just confirmed
+    does not come back on the next scan looking like the click did nothing —
+    which is the failure this module already carries a note about, one cache
+    layer down.
     """
+    if cached:
+        from hub import report_cache
+        return report_cache.serve(
+            "client-urls", lambda: missing(limit, include_found, cached=False),
+            params=f"found={int(bool(include_found))}")
     try:
         from hub import clients_registry
         clients = clients_registry.all_clients()
     except Exception as exc:                                # noqa: BLE001
+        # `error` is what stops report_cache storing this as the day's answer:
+        # a registry that would not answer looks exactly like a registry where
+        # every client has a URL already.
         return {"error": f"The client registry is unreadable ({type(exc).__name__}).",
                 "clients": [], "sources": []}
 
@@ -548,7 +680,7 @@ def missing(limit: int = 2000, include_found: bool = False) -> dict:
     note = ("Nothing has been written. A URL attached to the wrong client is "
             "worse than none — every report keyed on domain would then agree, "
             "confidently, about the wrong company. Accept the ones you "
-            "recognise.")
+            "recognize.")
     if unreadable:
         note += (" " + ", ".join(s["label"] for s in unreadable) +
                  " could not be read, so this is a floor, not a total.")

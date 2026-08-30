@@ -52,6 +52,115 @@ STAGE_MAP = {
 }
 
 
+# What a Suite stage change is allowed to do to a quote in the Proposal
+# Builder. Deliberately only the two decided outcomes: "open", "quoted" and
+# "viewed" tell us nothing the Hub does not already know better -- the Hub
+# knows whether the link has been opened and whether the client pressed
+# accept -- and letting them write would walk an approved quote backwards to
+# Sent because somebody dragged a card in a pipeline.
+QUOTE_STATUS_FROM_SUITE = {"won": "Approved", "lost": "Lost"}
+# A quote with an insertion order behind it is finished. Suite does not know
+# the IO exists, so a stage change must never move it.
+QUOTE_STATUS_FINAL = ("Converted",)
+
+
+def _quote_module():
+    """The Proposal Builder's module, as the app actually loaded it.
+
+    `wsgi.py` imports it under the name `salesb_app`, so a plain
+    `import modules.sales_builder.app` here would create a *second* instance
+    with its own declarative mapping of the same tables. Reuse the loaded one
+    where there is one -- the fallback is for the tests and for the module
+    running on its own.
+    """
+    import sys
+    mod = sys.modules.get("salesb_app")
+    if mod is not None:
+        return mod
+    from modules.sales_builder import app as mod   # noqa: PLC0415
+    return mod
+
+
+def sync_quote_status(opportunity_id: str, suite_stage: str) -> dict:
+    """Move the Proposal Builder's own row when Suite decides a deal.
+
+    The push into Suite has always recorded `suite_opportunity_id` on the
+    quote, and nothing ever read it back: a deal marked Won in Suite updated
+    the client's Proposals card and left the Proposal Builder's dashboard --
+    where the rep actually looks -- still saying Sent. Two systems disagreeing
+    about whether a proposal was won, with neither screen saying so.
+
+    Four rules, each a way to be confidently wrong:
+
+      * **Matched on the opportunity id and on nothing else.** Never on the
+        client name: a client with three quotes would get whichever came
+        first, which is the substring guess `hub/client_key.py` exists to
+        refuse.
+      * **Only the decided outcomes write.** See `QUOTE_STATUS_FROM_SUITE`.
+      * **Converted is never moved.** An insertion order exists; Suite has no
+        way to know that, and walking it back is the one change nobody could
+        undo from either screen.
+      * **A status that changed by itself has to say who changed it.** It goes
+        in the quote's own activity strip as well as the Hub log, or a rep
+        looking at a quote that says Lost has no way to find out why.
+    """
+    out = {"matched": False, "changed": False, "quote": "", "status": "",
+           "reason": ""}
+    opportunity_id = str(opportunity_id or "").strip()
+    if not opportunity_id:
+        out["reason"] = "no opportunity id on the payload"
+        return out
+    want = QUOTE_STATUS_FROM_SUITE.get(str(suite_stage or "").strip().lower())
+    if not want:
+        out["reason"] = f"{suite_stage or 'that stage'} is not a decided outcome"
+        return out
+    try:
+        mod = _quote_module()
+        db = mod.SessionLocal()
+    except Exception as exc:                    # noqa: BLE001
+        out["reason"] = f"the Proposal Builder could not be read ({type(exc).__name__})"
+        return out
+    try:
+        q = (db.query(mod.Quote)
+             .filter(mod.Quote.suite_opportunity_id == opportunity_id)
+             .order_by(mod.Quote.id.desc()).first())
+        if q is None:
+            out["reason"] = "no quote here was pushed as that opportunity"
+            return out
+        out.update({"matched": True, "quote": q.quote_number or "",
+                    "status": q.status or ""})
+        if (q.status or "") in QUOTE_STATUS_FINAL:
+            out["reason"] = (f"{q.quote_number} is {q.status} — an insertion "
+                             f"order exists, so Suite does not move it")
+            return out
+        if (q.status or "") == want:
+            out["reason"] = "already " + want
+            return out
+        was = q.status or ""
+        q.status = want
+        try:
+            mod.log_activity(db, q.id, "🔁",
+                             f"Smart 1 Suite marked this {suite_stage} — "
+                             f"{was or 'no status'} → {want}")
+        except Exception:                       # noqa: BLE001
+            pass        # the status is the point; its note must not cost it
+        db.commit()
+        out.update({"changed": True, "status": want, "was": was})
+        return out
+    except Exception as exc:                    # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:                       # noqa: BLE001
+            pass
+        out["reason"] = f"could not update the quote ({type(exc).__name__})"
+        return out
+    finally:
+        try:
+            db.close()
+        except Exception:                       # noqa: BLE001
+            pass
+
+
 def _token() -> str:
     return (os.environ.get("GHL_WEBHOOK_TOKEN") or "").strip()
 
@@ -102,7 +211,7 @@ def ghl_hook():
                   reason="no token" if not _token() else "bad token")
         # Same response either way: a caller shouldn't be able to tell whether
         # the endpoint is unconfigured or their token was simply wrong.
-        return jsonify({"error": "Not authorised."}), 401
+        return jsonify({"error": "Not authorized."}), 401
 
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict) or not payload:
@@ -139,11 +248,22 @@ def ghl_hook():
                   error=type(exc).__name__)
         return jsonify({"error": "Could not record that opportunity."}), 500
 
+    # And the Proposal Builder's own row, which is the screen a rep reads.
+    # Never allowed to fail the webhook: the client card is written either
+    # way, and GoHighLevel retries a non-2xx.
+    try:
+        quote = sync_quote_status(opp_id, stage)
+    except Exception as exc:            # noqa: BLE001
+        quote = {"matched": False, "changed": False,
+                 "reason": f"{type(exc).__name__}"}
+
     audit.log("hooks", "ghl_received", client=client, opportunity=opp_id,
-              status=status, value=value, event=event)
+              status=status, value=value, event=event,
+              quote=quote.get("quote") or "",
+              quote_status=(quote.get("status") if quote.get("changed") else ""))
     return jsonify({"ok": True, "matched": True, "client": client,
                     "proposal": record.get("id"), "status": status,
-                    "value": value}), 200
+                    "value": value, "quote": quote}), 200
 
 
 @bp.route("/api/hooks/ghl/health")

@@ -39,7 +39,7 @@ def _load(name: str, path: str):
 
 
 # ---------------------------------------------------------------- middleware
-from hub.sidebar import render_sidebar
+from hub.sidebar import render_sidebar, collapses_by_default
 
 
 def _session(environ) -> dict:
@@ -94,6 +94,9 @@ _MOUNT_ACTIVE = {
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
     "/tools/utm": "tools",
+    # Creative rather than Tools: it sources imagery for client work and its
+    # tile sits on /creative beside Image Creator.
+    "/tools/stock-photos": "creative",
     "/tools/site-blocks": "tools",
     # Creative, not Tools: it produces client-facing copy and pulls from the
     # image gallery, so it sits with Image Creator rather than with the
@@ -169,15 +172,34 @@ class AuthGuard:
                                          ("Content-Length", "0")])
             return [b""]
         environ["s1hub.user"] = user
+        # An hour spent in Smart 1 Ads is an hour signed in. Without this the
+        # headcount on the dashboard would only ever see hub pages, and
+        # somebody working in a mounted module all morning would drop out of
+        # it fifteen minutes in — a wrong number that looks exactly like a
+        # right one. Throttled to a dict lookup on almost every request, and
+        # it pushes the hub app's context itself because middleware has none.
+        try:
+            from hub import presence as _presence
+            _presence.touch_from_environ(environ, hub_app)
+        except Exception:  # noqa: BLE001 — never cost a module request
+            pass
         return self.app(environ, start_response)
 
 
 class HubBar:
     """Injects the shared Hub sidebar + theme into module HTML pages."""
 
-    def __init__(self, app, active="", bare_prefixes=()):
+    def __init__(self, app, active="", bare_prefixes=(), mount=""):
         self.app = app
         self.active = active
+        # The mount prefix, so the nav can be asked whether this is a
+        # creative tool. DispatcherMiddleware strips the prefix off PATH_INFO
+        # before the module ever sees it, so a module-relative path alone
+        # cannot answer that -- "/" is the front page of twenty different
+        # tools. Carried explicitly rather than read off SCRIPT_NAME because
+        # _mount() already knows it and a middleware that depends on the
+        # composition above it is one that breaks quietly when it moves.
+        self.mount = mount or ""
         # Routes that must never receive Hub chrome. Anything served outside
         # the Hub login is by definition being looked at by someone who is not
         # staff — a prospect on a client's website. Injecting the staff sidebar
@@ -229,7 +251,12 @@ class HubBar:
         # DispatcherMiddleware with its own <html>, so none of them inherit the
         # hub's base template. Injecting alongside the sidebar means all 20
         # tools get bubbles and walkthroughs without touching 20 templates.
+        # hub-detail.css beside theme.css: theme.css is typography and
+        # colour, hub-detail.css is the shape of a record page. A module
+        # that adopts the s1d- class names therefore needs no stylesheet
+        # of its own, and cannot drift from the page the look came from.
         _THEME = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                  b'<link rel="stylesheet" href="/assets/hub-detail.css">'
                   b'<link rel="stylesheet" href="/hub-help.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", _THEME + b"</head>", 1)
@@ -243,10 +270,19 @@ class HubBar:
         # edited -- and it is deliberately not the gate. The gate re-reads the
         # row (hub/access.py, hub/__init__.py), so a role changed a minute ago
         # takes effect on the click even if a stale nav is still on screen.
-        _bar = render_sidebar(self.active, is_admin=_viewer_is_admin(environ))
+        # A creative tool opens with the nav as an icon rail: it is a
+        # workbench -- a canvas, a storyboard, a gallery of squares -- and the
+        # nav is 224px of a laptop the work needs. One list, in hub/sidebar.py,
+        # read here and by the hub app's own injector, because two prefix
+        # lists is how one tool comes to behave differently from the tool
+        # beside it. A stored preference still wins in both directions.
+        _full = self.mount + (environ.get("PATH_INFO", "") or "")
+        _bar = render_sidebar(self.active, is_admin=_viewer_is_admin(environ),
+                              collapsed_default=collapses_by_default(_full))
         _scripts = (b'<script defer src="/hub-help.js"></script>'
                     b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
+                    b'<script defer src="/hub-thinking.js"></script>'
                     b'<script defer src="/hub-autofill.js"></script>'
                     b'<script defer src="/hub-accordion.js"></script>')
         # The LAST </body>, not the first. A module page that builds a printable
@@ -415,6 +451,15 @@ except Exception as _utm_exc:  # noqa: BLE001
     utm, utm_fb = None, _fallback_app("UTM Builder", str(_utm_exc))
 
 try:
+    import importlib as _il_stock
+    stockp = _il_stock.import_module("modules.stock_photos.app")
+    stockp_fb = None
+except Exception as _stock_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    stockp, stockp_fb = None, _fallback_app("Stock Photo Search", str(_stock_exc))
+
+try:
     import importlib as _il_siteblk
     siteblk = _il_siteblk.import_module("modules.site_blocks.app")
     siteblk_fb = None
@@ -511,7 +556,7 @@ def _mount(flask_app, prefix, public_prefixes=None):
         pass
     _install_error_reporter(flask_app, prefix)
     return AuthGuard(HubBar(flask_app, _MOUNT_ACTIVE.get(prefix, ""),
-                            bare_prefixes=public_prefixes),
+                            bare_prefixes=public_prefixes, mount=prefix),
                      prefix, public_prefixes=public_prefixes)
 
 
@@ -621,6 +666,37 @@ _SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
 _ADS_PUBLIC = tuple(getattr(adsb, "PUBLIC_PREFIXES", ("/estimate/",))) \
     if adsb else ("/estimate/",)
 
+# And for the Proposal Builder: /sales/builder/p/<token> is the proposal a
+# CLIENT opens and accepts, and a client has no Hub login. Read from the module
+# so the mount and the module cannot drift, and handed to both AuthGuard
+# (reachable) and HubBar (no sidebar, help layer or feedback tab on a document
+# a client reads).
+_SALESB_PUBLIC = tuple(getattr(salesb, "PUBLIC_PREFIXES", ("/p/", "/api/p/"))) \
+    if salesb else ("/p/", "/api/p/")
+
+# And for the Social Content Planner: /tools/social/c/<token>/… is the four
+# pages a CLIENT opens — send us something to post, swipe on ideas, approve a
+# post, say what to write about — and a client has no Hub login. Read from the
+# module so the mount and the module cannot drift, and handed to both
+# AuthGuard (reachable) and HubBar (no sidebar, help layer or feedback tab on
+# a page a client reads).
+_SOCIAL_PUBLIC = tuple(getattr(social, "PUBLIC_PREFIXES", ("/c/",))) \
+    if social else ("/c/",)
+
+# And for Fan Radio: /tools/fan-radio/r/<token> is the page a CLIENT opens to
+# listen to their spots and approve them, /api/public/<token> is what that
+# page fetches and posts its approval to, and /audio/<name> is the render it
+# plays when Cloudinary is not configured. A client has no Hub login, so
+# without this the approval link mails a customer a staff sign-in form for an
+# account they will never have -- and the module's own docstring has said
+# these three are the customer's since the day it was written. Read from the
+# module so the mount and the module cannot drift, and handed to both
+# AuthGuard (reachable) and HubBar (no sidebar, help layer or feedback tab on
+# a page a client reads).
+_FANRAD_PUBLIC = tuple(getattr(fanrad, "PUBLIC_PREFIXES",
+                               ("/r/", "/api/public/", "/audio/"))) \
+    if fanrad else ("/r/", "/api/public/", "/audio/")
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -630,15 +706,22 @@ application = DispatcherMiddleware(hub_app, {
     # unguessable link a converted lead opens their own report on.
     "/scans": _mount(scans.app, "/scans",
                      public_prefixes=_SCANS_PUBLIC) if scans else scans_fb,
-    "/sales/builder": _mount(salesb.app, "/sales/builder") if salesb else salesb_fb,
+    "/sales/builder": _mount(salesb.app, "/sales/builder",
+                             public_prefixes=_SALESB_PUBLIC) if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/seo-images": _mount(seoimg.app, "/tools/seo-images") if seoimg else seoimg_fb,
     "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,
     "/tools/bg-remover": _mount(bgrem.app, "/tools/bg-remover") if bgrem else bgrem_fb,
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
+    # Searches the three free stock libraries and our own Cloudinary folders in
+    # one pass. Every source degrades to "not configured" by name rather than
+    # to an empty grid, so a missing key reads as a setting rather than a fault.
+    "/tools/stock-photos": _mount(stockp.app, "/tools/stock-photos")
+                           if stockp else stockp_fb,
     "/tools/site-blocks": _mount(siteblk.app, "/tools/site-blocks")
                           if siteblk else siteblk_fb,
-    "/tools/social": _mount(social.app, "/tools/social") if social else social_fb,
+    "/tools/social": _mount(social.app, "/tools/social",
+                            public_prefixes=_SOCIAL_PUBLIC) if social else social_fb,
     "/tools/gpt-ads": _mount(gptads.app, "/tools/gpt-ads") if gptads else gptads_fb,
     # Google Ads campaign operations. With no GOOGLE_ADS_* credentials it
     # still serves its own settings page naming each variable it is
@@ -677,7 +760,8 @@ application = DispatcherMiddleware(hub_app, {
                     if legal_app else legal_fb),
     "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo") if radiop else radiop_fb,
     "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
-    "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio") if fanrad else fanrad_fb,
+    "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio",
+                               public_prefixes=_FANRAD_PUBLIC) if fanrad else fanrad_fb,
 })
 from hub import errors as _errors
 application = _errors.ErrorMirror(application)

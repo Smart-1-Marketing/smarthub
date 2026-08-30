@@ -669,3 +669,125 @@ def status() -> dict:
         _note_failure(exc)
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
+
+
+# ------------------------------------------------- who has not moved across
+#
+# Two scanners were asking "who still writes JSON without the mirror?" and
+# answering it differently on the same page. /api/integrity exempted build
+# scripts and repo tooling; /api/db/structure did not, so the Diagnostics
+# panel reported `1 file writes JSON outside hub/jsonstore.py — ad_builder`
+# directly above an audit that had found nothing. The file behind it was
+# modules/ad_builder/scripts/fix_safezones.py, a one-off script that rewrites
+# layout JSON committed to the repo: it never touches the Render disk, and
+# ad_builder is the Node renderer, which keeps no Python state there at all.
+# So the row pointed at a module where there was nothing to move, and the two
+# answers were both on screen at once.
+#
+# Which of the two was right matters less than there being one of them. The
+# rule lives here because this is the module the question is about, and both
+# callers read it rather than keeping a copy — the same reason hub/storage.py
+# and hub/images.py exist. It is stdlib-only and reads source without running
+# it, so a module that fails to import is still scanned.
+
+SCAN_SKIP_DIRS = frozenset({
+    "_attic", "__pycache__", ".git", "node_modules", ".venv", "venv", "env",
+    "site-packages", ".tox", "build", "dist",
+})
+
+# Each exemption carries the reason it is exempt, and the reason is checked
+# against the file rather than assumed: an exemption that outlives the code it
+# covered is how a real finding later gets swallowed by a list nobody re-reads.
+# This list already had that shape — it named hub/errors.py and hub/audit.py,
+# neither of which has used json.dump( since they moved to append-only JSONL,
+# so both were being excluded from a pattern they no longer match.
+UNMIRRORED_EXEMPT: dict[str, str] = {
+    "hub/jsonstore.py": "the mirror itself",
+    "hub/integrity.py": "reports this check; it writes no JSON",
+    "hub/client_context.py": "reports this check; it writes no JSON",
+    "hub/errors.py": "append-only JSONL log, not a whole-file store",
+    "hub/audit.py": "append-only JSONL log, not a whole-file store",
+}
+
+
+def _unmirrored_exempt_reason(rel: str) -> str | None:
+    """Why this file is not counted, or None if it is."""
+    if rel in UNMIRRORED_EXEMPT:
+        return UNMIRRORED_EXEMPT[rel]
+    # A build script rewrites files committed to the repo, not state on the
+    # data disk, and the repo is in git — which is a better backup than the
+    # mirror. Same for repo tooling and the test files.
+    if "/scripts/" in rel or rel.startswith("scripts/"):
+        return "build script; rewrites files kept in the repo"
+    if rel.startswith("tools/"):
+        return "repo tooling; holds no state"
+    name = rel.rsplit("/", 1)[-1]
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return "test; writes to a temporary directory"
+    if "/templates/" in rel:
+        return "template, not a module"
+    return None
+
+
+def _module_of(rel: str) -> str:
+    parts = rel.split("/")
+    if parts[0] == "modules" and len(parts) > 1:
+        return parts[1]
+    if parts[0] == "hub":
+        return rel
+    return parts[0]
+
+
+def unmirrored_json_writers(root=None) -> list[dict]:
+    """Every source file that writes JSON to the disk with no database copy.
+
+    ``json.dump(`` with the bracket is the signal. The substring without it
+    also matches ``json.dumps``, which serialises to a string and touches no
+    disk at all — it is in every module that returns JSON from a route, so
+    counting it made the number mostly noise.
+
+    A file that mentions ``jsonstore`` is already going through the mirror and
+    is not part of this risk; counting the fix as more of the problem is worse
+    than not counting. That test used to exempt both scanners by accident,
+    because each one's own explanatory text contains the word — they are named
+    in ``UNMIRRORED_EXEMPT`` now, so the exemption survives a reworded string.
+    """
+    import pathlib
+
+    base = pathlib.Path(root) if root else pathlib.Path(__file__).resolve().parent.parent
+    out: list[dict] = []
+    for p in sorted(base.rglob("*.py")):
+        if any(x in p.parts for x in SCAN_SKIP_DIRS):
+            continue
+        rel = p.relative_to(base).as_posix()
+        if _unmirrored_exempt_reason(rel):
+            continue
+        try:
+            src = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if "json.dump(" not in src or "jsonstore" in src:
+            continue
+        out.append({"file": rel, "module": _module_of(rel)})
+    return out
+
+
+def stale_exemptions(root=None) -> list[str]:
+    """Named exemptions pointing at a file that is no longer there.
+
+    An exemption list is only safe while every entry still names something. A
+    deleted file leaves an entry that silently covers whatever is written at
+    that path next — which is the one case here that is unambiguous, so it is
+    the only one reported. The two append-only logs are deliberately not
+    checked against the pattern: they have never matched ``json.dump(`` and
+    are listed to record the decision, not to suppress a finding.
+    """
+    import pathlib
+
+    base = pathlib.Path(root) if root else pathlib.Path(__file__).resolve().parent.parent
+    stale = []
+    for rel in UNMIRRORED_EXEMPT:
+        p = base / rel
+        if not p.is_file():
+            stale.append(f"{rel} (no such file)")
+    return stale

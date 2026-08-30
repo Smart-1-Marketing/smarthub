@@ -44,15 +44,56 @@ from __future__ import annotations
 VIDEO = "video"
 AUDIO = "audio"
 DISPLAY = "display"
+RETARGETING = "retargeting"
 SOCIAL = "social"
+EMAIL = "email"
+DOOH = "dooh"
 OTHER = "other"
 
-GATED = (VIDEO, AUDIO)
+# Display and retargeting joined the gate after the paragraph above turned out
+# to be half right. A standard set of six banners genuinely is a $250 line and
+# genuinely is produced routinely -- and none of that answers the question,
+# which is whether anybody has *asked*. A display plan reached the insertion
+# order with the creative box empty exactly as often as a CTV one did; it
+# simply cost $250 and a week rather than a shoot, so it was discovered at
+# trafficking instead of at launch and nobody called it a failure.
+#
+# Retargeting is separated from display rather than folded into it because it
+# is a different set of files in practice: the same six sizes carrying the
+# offer that brings somebody back, not the one that introduced the brand. A
+# plan that has both and answers once has answered for one of them.
+#
+# What keeps this from becoming noise is the confirmation threshold below,
+# which is per medium. Display creative pays for itself far lower down than a
+# video shoot does, so a comped set of banners is questioned at $500 rather
+# than at $1,500 -- a warning that fires on every plan is a warning nobody
+# reads, which is the note hub/qr_codes.py makes about QR on social.
+# Paid social joined last, and it was the largest hole of the three. A
+# Meta-only plan returned *nothing* from `gated_media()`: six real buys --
+# Awareness, Targeted, Programmatic Paid Social, Retargeting, Leads and
+# Boosted Posts -- each with three to seven units published in the spec kit,
+# and the Creative step never mentioned any of them. The tempting reading is
+# that paid social is usually a boosted post the client already has, and that
+# is exactly the assumption this module exists to stop making: the gate's job
+# is to ask, and "they probably have something" is what leaves a launch date
+# resting on nobody having checked.
+#
+# Email and digital out-of-home joined for the reason display did, one step
+# further on. Both sell creative with published specs -- the kit has an Email
+# Creative and an HTML package, and four billboard sizes -- and neither was
+# ever asked for, because `medium_of` answered OTHER for every product under
+# EMAIL MARKETING and SMART 1 SIGNAGE and an ungated medium is one the
+# Creative step never mentions. A signage buy reached the insertion order with
+# nobody having established that artwork exists, exactly as a CTV buy used to.
+GATED = (VIDEO, AUDIO, DISPLAY, RETARGETING, EMAIL, DOOH, SOCIAL)
 
 MEDIUM_LABEL = {
     VIDEO: "Video (CTV, streaming, YouTube, pre-roll)",
     AUDIO: "Audio (digital radio, podcasts, streaming audio)",
-    DISPLAY: "Display",
+    DISPLAY: "Display (banners, native, IP targeted, geo-fenced)",
+    RETARGETING: "Retargeting (the banners that bring them back)",
+    EMAIL: "Email (the creative that goes in the send)",
+    DOOH: "Signage (digital out-of-home and indoor screens)",
     SOCIAL: "Paid social",
     OTHER: "Other",
 }
@@ -62,9 +103,29 @@ MEDIUM_LABEL = {
 # one-time cost and a three-month flight amortises it three ways.
 COMP_CONFIRM_UNDER = 1500
 
+# Per medium, where the medium's own economics differ from the default above.
+# Display is $250 of design on the card, so the campaign at which comping it
+# stops being sensible is far lower than the one for a shoot.
+# Email creative is the card's own "Email Template Creation" at $150, so it is
+# questioned lower still. Signage artwork is a custom quote and is left at the
+# default rather than given a number nobody published.
+# Social is the card's "Social Media Ad Creation per platform" at $35, so the
+# campaign at which comping it stops being sensible is lower again -- low
+# enough that the confirmation is in practice never raised, which is the right
+# outcome for a $35 line rather than a threshold nobody would act on.
+COMP_CONFIRM_BY_MEDIUM = {DISPLAY: 500, RETARGETING: 500, EMAIL: 400, SOCIAL: 100}
+
 # Starting points for production when Smart 1 builds it. Overridable on the
-# quote; a custom shoot is a custom quote.
-TYPICAL_PRODUCTION = {VIDEO: 750, AUDIO: 250}
+# quote; a custom shoot is a custom quote. Display and retargeting are the
+# card's own "Standard Set of 6 Ad Creation" at $250 rather than a number
+# invented here -- the same rule the video figures follow, one step further.
+TYPICAL_PRODUCTION = {VIDEO: 750, AUDIO: 250, DISPLAY: 250, RETARGETING: 250,
+                      EMAIL: 150, DOOH: 250, SOCIAL: 35}
+
+
+def confirm_under(medium: str) -> int:
+    """The campaign size below which comping this medium is questioned."""
+    return COMP_CONFIRM_BY_MEDIUM.get(medium, COMP_CONFIRM_UNDER)
 
 HAS = "has"            # the client already has creative for this medium
 CLIENT_PAYS = "client"  # the client pays Smart 1 to produce it
@@ -90,6 +151,14 @@ EXPLICIT_MEDIUM = {
     "programmatic - targeted": VIDEO,                   # $17.00 CPM
     "premium: non-skippable": VIDEO,                    # $23.00 CPM
     "premium native video": VIDEO,                      # $26.00 CPM
+    # ...and one running the other way. The card files this under a heading
+    # called SOCIAL ADS - VIDEO, and the heading is what the keyword pass
+    # reads, so a product whose own name is "Display & Text Ads" was gated as
+    # video -- asking a client for a spot to run text ads. The other products
+    # under that heading are left alone: the heading is right about them, and
+    # reclassifying a generic "Paid Social Media Advertising" on our own
+    # reading of which platforms are video-first would be inventing.
+    "linkedin - display & text ads - budget based - no impression guarantee": SOCIAL,
 }
 
 # ...except under DIGITAL RADIO, where "Programmatic - Targeted" is the
@@ -98,13 +167,62 @@ CATEGORY_MEDIUM = {
     "digital radio": AUDIO,
     "ott": VIDEO,
     "youtube": VIDEO,
+    # Its own category on the card, and its own set of files in practice.
+    "retargeting": RETARGETING,
+    # ...and its opposite: "Select Tactics - Comes with Retargeting" is the
+    # programmatic display buy, whose name lists retargeting as one of the
+    # tactics it includes. Read off the name alone it becomes a retargeting
+    # line, and the display half of the plan then never gets asked for
+    # banners at all.
+    "data targeted display": DISPLAY,
+    "programmatic campaign": DISPLAY,
+    # These three answered OTHER, which is not a medium -- it is the gate
+    # never being asked. The spec kit has known what they are the whole time
+    # (`creative_specs.channels_for_product` returns mobile_display, email and
+    # dooh for them), so the two halves of one question were disagreeing:
+    # one decides whether we ask for creative, the other what we ask for.
+    "mobile only": DISPLAY,
+    "email marketing": EMAIL,
+    "smart 1 signage": DOOH,
+    # ...and two headings that are not media buys at all, which the keyword
+    # pass below could not tell apart from one. Adding SOCIAL to the gate made
+    # the word "social" decisive, so `Social Media Ad Creation per platform` --
+    # the card's own $35 *production* line -- was gated as a social buy and
+    # asked whether the client already had the creative it exists to produce;
+    # and `Social Media Management`, a $199/month organic posting retainer
+    # that buys no advertising, was asked the same. Both then printed "the
+    # spec kit maps no unit for this" onto the client's creative section, and
+    # both counted their spend into the social medium, which is what decides
+    # whether a comped $35 line is questioned at all.
+    #
+    # Named by category rather than product, because the other four lines
+    # under CREATIVE / DESIGN SERVICES already answered OTHER by accident --
+    # they simply contain no medium keyword -- and the next production line
+    # added there must not depend on that luck. It is the reason
+    # `SPEC_AGREE_EXEMPT` already carries ("other", "email") in writing: a
+    # creative-production line item is not a media buy that needs creative
+    # supplied for it.
+    "creative / design services": OTHER,
+    "social media management": OTHER,
 }
 
 
 def _text(item) -> str:
+    """The words that describe the product itself.
+
+    `label` is deliberately not among them. It is "<category heading> —
+    <product>", and a heading is a statement about a *section* of the card
+    rather than about the product: the card files four IP-targeting products
+    under a heading called "Display & Video", so the word "video" appeared in
+    the label of "IP Targeted Display - New Movers" -- whose own description
+    reads "deliver display ads" -- and the video test below runs first. All
+    three IP display products were gated as video, which asks a client for a
+    TV spot to run a banner buy. Category and product are both here already,
+    so the label contributed nothing else.
+    """
     if isinstance(item, dict):
         return " ".join(str(item.get(k, "")) for k in
-                        ("category", "product", "label", "description")).lower()
+                        ("category", "product", "description")).lower()
     return str(item or "").lower()
 
 
@@ -138,11 +256,96 @@ def medium_of(item) -> str:
                                "linkedin", "snapchat", "pinterest", "twitter",
                                "social")):
         return SOCIAL
-    if any(w in text for w in ("display", "banner", "retarget", "geo-fence",
+    if "retarget" in text:
+        return RETARGETING
+    if any(w in text for w in ("display", "banner", "geo-fence",
                                "geofence", "outreach", "native", "location lookback",
-                               "ip target")):
+                               "ip target", "select tactics")):
         return DISPLAY
     return OTHER
+
+
+# Which medium a spec-kit channel's creative belongs to.
+#
+# `creative_specs.channels_for_product()` answers *what* to ask a client for;
+# `medium_of()` above answers *whether* to ask at all. Two readings of one
+# question, and they were disagreeing on 25 of the 90 products on the card --
+# in both directions. Products under MOBILE ONLY, EMAIL MARKETING and SMART 1
+# SIGNAGE were OTHER here and had perfectly good channels there, so the gate
+# never mentioned them; and three IP-targeted *display* products were video
+# here and display there, so the gate asked for a spot while the kit asked
+# for banners.
+#
+# This table is what lets `spec_disagreements()` say so. It is deliberately
+# not consulted by `medium_of` itself: the wizard mirrors that function in
+# JavaScript, and reaching into the kit's twenty-entry regex list would make
+# a third mirror of the same fact -- the cost this codebase has already paid
+# twice. The tables stay separate and are held together by a check.
+SPEC_CHANNEL_MEDIUM = {
+    "desktop_display": DISPLAY, "mobile_display": DISPLAY,
+    "tablet_display": DISPLAY, "native_display": DISPLAY,
+    "standard_video": VIDEO, "youtube": VIDEO, "ctv": VIDEO,
+    "native_video": VIDEO,
+    "digital_radio": AUDIO,
+    "email": EMAIL,
+    "dooh": DOOH,
+    "facebook": SOCIAL, "instagram": SOCIAL, "facebook_video": SOCIAL,
+    "facebook_carousel": SOCIAL, "stories": SOCIAL, "x": SOCIAL,
+    "linkedin": SOCIAL, "snapchat": SOCIAL, "tiktok": SOCIAL,
+    "gpt_ads": OTHER,
+}
+
+# Products where the two readings differ and both are right, so a check that
+# reported them would be a check people learn to skim. Each says why.
+SPEC_AGREE_EXEMPT = {
+    # The buy is the retargeting line -- its own category, its own budget --
+    # while the files it runs are Instagram and Stories units. Different
+    # questions, both answered correctly.
+    ("retargeting", "social"),
+    # And its display twin: retargeting creative *is* banners. The gate keeps
+    # it apart from display because it is a different set of the same sizes --
+    # the offer that brings somebody back, not the one that introduced the
+    # brand -- which is a fact about who supplies the files, not about which
+    # units they are judged against.
+    ("retargeting", "display"),
+    # A creative-production line item is not a media buy that needs creative
+    # supplied for it. The kit still knows how to judge an email if one is
+    # uploaded; the gate is right not to ask the client for one.
+    ("other", "email"),
+    # A social buy sold as video: the gate wants a video, the kit judges it
+    # against that platform's units. Both true.
+    ("video", "social"),
+}
+
+
+def spec_disagreements() -> list[dict]:
+    """Products the creative gate and the spec kit read differently.
+
+    Empty is the only acceptable answer, and it started that way -- which is
+    the only way this was worth adding. A disagreement here is silent from
+    both ends: each screen is internally consistent and the rep is asked for
+    one thing and judged against another.
+    """
+    try:
+        from . import creative_specs, rate_card
+    except Exception:                                   # noqa: BLE001
+        return []
+    out = []
+    for product in rate_card.products():
+        channels = creative_specs.channels_for_product(
+            product.get("product", ""), product.get("category", ""))
+        if not channels:
+            continue
+        kit = {SPEC_CHANNEL_MEDIUM.get(c) for c in channels} - {None}
+        gate = medium_of(product)
+        if gate in kit or not kit:
+            continue
+        if any((gate, k) in SPEC_AGREE_EXEMPT for k in kit):
+            continue
+        out.append({"product": product.get("product", ""),
+                    "category": product.get("category", ""),
+                    "gate": gate, "kit": sorted(kit)})
+    return out
 
 
 def card_drift() -> list[str]:
@@ -170,7 +373,17 @@ def _months(state) -> int:
 
 
 def medium_spend(state, medium: str) -> float:
-    """What this campaign spends on one medium, across the whole flight."""
+    """What this campaign spends on one medium, across the whole flight.
+
+    Every line read its own basis and term, because this figure decides two
+    things and was wrong for both. It multiplied *every* line by the flight,
+    so a $1,500 one-time production read as $9,000 of campaign spend and a
+    line bought for three months of six read as double -- an inflated number
+    printed on the client's creative section, and, worse, one that quietly
+    switches the comp confirmation off: `evaluate()` asks for a confirmation
+    only where the spend is *below* the threshold, which is exactly the small
+    campaign the question exists for.
+    """
     state = state or {}
     months = _months(state)
     total = 0.0
@@ -178,10 +391,18 @@ def medium_spend(state, medium: str) -> float:
         if medium_of(item) != medium:
             continue
         try:
-            total += float(item.get("dollars") or 0)
+            dollars = float(item.get("dollars") or 0)
         except (TypeError, ValueError):
             continue
-    return round(total * months, 2)
+        if str(item.get("basis") or "monthly") == "one_time":
+            total += dollars
+            continue
+        try:
+            term = int(item.get("termMonths") or months)
+        except (TypeError, ValueError):
+            term = months
+        total += dollars * max(1, min(months, term))
+    return round(total, 2)
 
 
 def gated_media(state) -> list[str]:
@@ -220,7 +441,8 @@ def evaluate(state) -> dict:
         decision = _decision(state, medium)
         answer = decision.get("answer") if decision.get("answer") in ANSWERS else ""
         spend = medium_spend(state, medium)
-        confirm_needed = spend < COMP_CONFIRM_UNDER
+        threshold = confirm_under(medium)
+        confirm_needed = spend < threshold
         # A comp confirmed on a $1,400 buy is not a comp confirmed on the $300
         # one it just became. `confirmed_at` records the spend the rep was
         # looking at; the confirmation lapses if the budget has since fallen.
@@ -252,7 +474,7 @@ def evaluate(state) -> dict:
             warning = (f"Smart 1 is producing {MEDIUM_LABEL[medium].split(' (')[0].lower()} "
                        f"creative at no charge on a "
                        f"{'$%s' % f'{spend:,.0f}'} {MEDIUM_LABEL[medium].split(' (')[0].lower()} "
-                       f"campaign — under the ${COMP_CONFIRM_UNDER:,} where a comp "
+                       f"campaign — under the ${threshold:,} where a comp "
                        f"usually pays for itself.")
 
         rows.append({
@@ -265,6 +487,8 @@ def evaluate(state) -> dict:
             "confirmed": confirmed,
             "confirmed_at": confirmed_at,
             "fee": fee,
+            "threshold": threshold,
+            "units": required_units(state, medium),
             "question": question_for(medium, answer, spend),
             "warning": warning,
         })
@@ -278,7 +502,7 @@ def question_for(medium: str, answer: str = "", spend: float = 0.0) -> str:
     name = MEDIUM_LABEL.get(medium, medium).split(" (")[0].lower()
     if not answer:
         return f"Does the client already have {name} creative we can run?"
-    if answer == COMP and spend < COMP_CONFIRM_UNDER:
+    if answer == COMP and spend < confirm_under(medium):
         return (f"This is a ${spend:,.0f} {name} campaign. Are you sure you want to "
                 f"comp the production?")
     return ""
@@ -312,10 +536,209 @@ def gaps(state) -> list[dict]:
             continue
         name = row["label"].split(" (")[0].lower()
         if not row["answer"]:
-            label = (f"Whether the client has {name} creative — the plan plays "
-                     f"{name} and nothing has said a spot exists")
+            # "A spot" is a video and audio word. Banners are not spots, and
+            # the gate covers them now.
+            file_word = ("banners" if row["medium"] in (DISPLAY, RETARGETING)
+                         else "spot")
+            label = (f"Whether the client has {name} creative — the plan runs "
+                     f"{name} and nothing has said the {file_word} exist"
+                     f"{'' if file_word == 'banners' else 's'}")
         else:
             label = (f"Confirmation that Smart 1 comps the {name} production on a "
                      f"${row['spend']:,.0f} campaign")
         out.append({"key": f"creative_{row['medium']}", "label": label})
     return out
+
+
+# ---------------------------------------------------------------------------
+# What "creative" actually means for this line — from the IO's own spec kit
+#
+# The gate asked whether a spot exists and stopped there, which is the whole
+# question for video and audio and only half of it for display: "do you have
+# banners" has no answer until somebody says which sizes. A client who hands
+# over a 300x250 and nothing else has answered yes and blocked the buy, and
+# the discovery happens at trafficking.
+#
+# hub/creative_specs.py already holds the answer -- it is the S1M CREATIVE
+# SPEC KIT the IO's upload manager checks every delivered file against, and it
+# already maps display, retargeting, geo-fencing, IP targeting and location
+# lookback onto the desktop, mobile and tablet units. So this reads that
+# rather than restating it: two lists of banner sizes is how the proposal
+# comes to promise a set the IO then refuses.
+#
+# A product the kit maps no unit for is **not measured**, never an empty list
+# presented as "nothing needed" -- the rule creative_specs itself works to for
+# a format it has no unit for.
+# ---------------------------------------------------------------------------
+def required_units(state, medium: str) -> dict:
+    """The spec-kit units the lines of one medium need, with their sizes.
+
+    {"units": [{"id","label","sizes"}], "products": [...], "measured": bool,
+     "note": "..."} -- `measured` false where the kit maps nothing, so a
+    screen can say so instead of drawing an empty requirement.
+    """
+    state = state or {}
+    products = [item for item in (state.get("items") or [])
+                if medium_of(item) == medium]
+    if not products:
+        return {"units": [], "products": [], "measured": False,
+                "note": "No lines of this medium on the plan."}
+
+    try:
+        from . import creative_specs
+    except Exception as exc:                            # noqa: BLE001
+        return {"units": [], "products": [str(p.get("product") or "") for p in products],
+                "measured": False,
+                "note": f"The creative spec kit could not be read ({exc}). "
+                        f"Sizes not measured."}
+
+    seen, units = set(), []
+    unmapped, chan_ids = [], set()
+    for item in products:
+        rows = creative_specs.units_for_product(
+            str(item.get("product") or ""), str(item.get("category") or ""))
+        if not rows:
+            unmapped.append(str(item.get("product") or item.get("category") or ""))
+            continue
+        for unit in rows:
+            chan_ids.add(unit.get("channel", ""))
+            if unit["id"] in seen:
+                continue
+            seen.add(unit["id"])
+            try:
+                pairs = creative_specs._sizes_of(unit)
+            except Exception:                           # noqa: BLE001
+                pairs = [unit.get("size")] if unit.get("size") else []
+            duration = unit.get("duration") or ()
+            units.append({
+                "id": unit["id"],
+                "label": unit.get("name") or unit["id"],
+                "kind": unit.get("kind") or "image",
+                "channel": creative_specs.CHANNEL_LABELS.get(
+                    unit.get("channel", ""), unit.get("channel", "")),
+                "sizes": [f"{w}x{h}" for w, h in pairs if w and h],
+                "formats": [str(f).upper() for f in (unit.get("formats") or [])],
+                "seconds": list(duration) if len(duration) == 2 else [],
+            })
+
+    # Formats the kit sells for these channels that this Hub has no unit for.
+    # Not the same answer as `unmapped` above: there the kit maps nothing at
+    # all and the requirement says so, here it maps most of the buy and is
+    # silent about the rest — which reads as a complete list and is the more
+    # dangerous of the two. A Meta requirement listing Stories and never Reels
+    # is the confident wrong answer this module exists to avoid, and the
+    # published page says in as many words that the two are not
+    # interchangeable.
+    try:
+        unmodelled = creative_specs.unmodelled_for(chan_ids)
+    except Exception:                                   # noqa: BLE001
+        unmodelled = []
+
+    note = ""
+    if unmapped:
+        note = ("The spec kit maps no unit for " + ", ".join(sorted(set(unmapped)))
+                + " — sizes for those are not measured here.")
+    if unmodelled:
+        extra = ("The kit also sells " + ", ".join(unmodelled)
+                 + " on this buy, and there is no unit here to measure "
+                   "those against — ask for them separately.")
+        note = f"{note} {extra}".strip()
+    return {"units": units,
+            "products": [str(p.get("product") or "") for p in products],
+            "measured": bool(units), "note": note,
+            "not_measured_formats": unmodelled,
+            "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
+
+
+def _describe_unit(unit) -> str:
+    """One spec-kit unit in the terms it is actually specified in.
+
+    An audio spot has no pixel size -- it has a length and a bitrate -- and
+    listing the sizes alone made the audio row read "300x250", which is the
+    *optional companion banner* presented as the whole requirement. A client
+    reading that sends a banner and no spot, which is the confident wrong
+    answer this codebase keeps having to undo. So each unit is described by
+    what it is: an image by its size, a video or audio by its length and
+    format.
+    """
+    kind = unit.get("kind") or "image"
+    seconds = unit.get("seconds") or []
+    length = (f"{seconds[0]}–{seconds[1]}s" if len(seconds) == 2
+              and seconds[0] != seconds[1] else
+              (f"{seconds[0]}s" if seconds else ""))
+    fmt = "/".join(unit.get("formats") or [])
+    if kind in ("video", "audio"):
+        bits = [b for b in (", ".join(unit.get("sizes") or []), fmt, length) if b]
+        return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
+    if unit.get("sizes"):
+        return ", ".join(unit["sizes"])
+    return unit["label"]
+
+
+def units_line(state, medium: str) -> str:
+    """What one medium needs, in one line for a rep or a client document."""
+    result = required_units(state, medium)
+    if not result["measured"]:
+        return result.get("note") or "Sizes not measured."
+
+    # Banner units are listed as a run of sizes, because there are nine of
+    # them and nine labels is a wall. Anything else is described.
+    # An image unit with no size of its own has to be *named*, not folded
+    # into the run of sizes -- folded in it contributes nothing and vanishes.
+    # Every social unit is in that position (the kit publishes a ratio and a
+    # recommended resolution for those rather than a fixed size), so a paid
+    # social buy's whole requirement read "Stories Video (MP4/MOV, 0-120s)":
+    # four image units silently absent, and the one line a rep and the client
+    # document read never said an image was needed at all. That is this
+    # function's own audio rule running the other way -- there it is a unit
+    # described by the wrong terms, here it is one described by none.
+    images = [u for u in result["units"]
+              if (u.get("kind") or "image") == "image" and u.get("sizes")]
+    others = [u for u in result["units"]
+              if (u.get("kind") or "image") != "image" or not u.get("sizes")]
+    # Desktop, mobile and tablet each carry their own "HTML5 package" unit,
+    # so describing all three printed the same words three times.
+    described = list(dict.fromkeys(_describe_unit(u) for u in others))
+    sizes = list(dict.fromkeys(sz for u in images for sz in u["sizes"]))
+
+    # Lead with what the ask actually is. A display buy is a set of banner
+    # sizes, and the HTML5 package is another way to deliver the same set --
+    # named first it reads as an extra thing to produce. A radio buy is a
+    # spot, and the 300x250 beside it is the optional companion; named first
+    # it reads as the whole requirement, which is how somebody sends a banner
+    # and no audio.
+    # "plus a companion banner" is a claim about one unit -- digital radio's
+    # optional 300x250 -- and it was fired on a *count*: one sized image plus
+    # anything described. So Snapchat's Single Image Ad and TikTok's In-Feed
+    # Image, which are the primary image of those buys, were each announced to
+    # the client as an optional companion to the video. That is the sentence
+    # above running the other way: named as the whole requirement it costs the
+    # spot, named as a companion it costs the image.
+    companion = (len(images) == 1
+                 and images[0].get("id") == "radio_companion")
+    if not sizes:
+        parts = described
+    elif companion and described:
+        parts = described + [f"plus a companion banner: {sizes[0]}"]
+    elif described:
+        parts = [", ".join(sizes)] + [f"or {d}" for d in described]
+    else:
+        parts = [", ".join(sizes)]
+    if not parts:
+        return result.get("note") or "Sizes not measured."
+    # The published formats we hold no unit for ride on this line as well as
+    # in the note, because this is the line that reaches the client document.
+    # Left in the note alone, the requirement a client actually reads lists
+    # Stories and never Reels and looks complete.
+    extra = result.get("not_measured_formats") or []
+    if extra:
+        parts = parts + [f"the kit also sells {_and(extra)} — not sized here"]
+    return " · ".join(parts)
+
+
+def _and(items) -> str:
+    """"a", "a and b", "a, b and c" — a list a person reads, not a join."""
+    items = [str(i) for i in items if i]
+    if len(items) <= 1:
+        return items[0] if items else ""
+    return ", ".join(items[:-1]) + " and " + items[-1]

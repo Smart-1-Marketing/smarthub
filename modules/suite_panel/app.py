@@ -221,9 +221,27 @@ def api_snapshots():
 
 @app.route("/api/brand")
 def api_brand():
-    key = _env("BRANDFETCH_API_KEY")
-    if not key:
-        return jsonify({"error": "Brandfetch is not configured. Set BRANDFETCH_API_KEY to enable brand lookup."}), 400
+    # Through hub/brand_lookup.py, which fixes three things this route had.
+    #
+    # It asked Brandfetch on every request without ever consulting what the
+    # Hub already holds, so a client whose brand was fetched this morning cost
+    # another of the plan's hundred monthly lookups this afternoon.
+    #
+    # It read BRANDFETCH_API_KEY alone while hub/config.py accepts
+    # BRANDFETCH_API too -- the spelling the rest of this deployment's provider
+    # keys use -- so this panel could report "not configured" over a key that
+    # was drawing logos in Image Creator and Smart 1 Ads.
+    #
+    # And it saved its OWN reshaped payload rather than what Brandfetch
+    # returned. Every other caller stores the raw shape, which is what
+    # hub/client_brand.py walks -- `logos` as a list of objects each carrying
+    # `formats`. This route stored a bare `logo` URL string and no `logos` key
+    # at all, so a client whose brand was last saved here showed colours and NO
+    # LOGO on their Client 360 card, and since the save is keyed on the domain
+    # it overwrote a good raw payload with one the card cannot read. Nothing
+    # errored at either end. lookup() saves the raw payload; the reshaping
+    # below stays here, where it is this panel's own response format.
+    from hub import brand_lookup
 
     domain = (request.args.get("domain") or "").strip().lower()
     if not domain:
@@ -233,26 +251,23 @@ def api_brand():
         return jsonify({"error": "That does not look like a valid domain (e.g. acme.com)."}), 400
 
     try:
-        r = requests.get(
-            f"{BRANDFETCH_BASE}/brands/{domain}",
-            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
-            timeout=15,
-        )
-        try:  # counts against the monthly Brandfetch allowance
-            from hub import quotas as _q
-            _q.record('brandfetch', module='suite_panel', detail=domain)
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            data = r.json() if r.text else {}
-        except ValueError:
-            data = {}
-        if r.status_code == 404:
-            return jsonify({"error": f"No brand data found for {domain}."}), 404
-        if r.status_code == 429:
-            return jsonify({"error": "Brandfetch quota exceeded. Try again later."}), 429
-        if not r.ok:
-            return jsonify({"error": data.get("message") or f"Brandfetch error (HTTP {r.status_code})"}), 502
+        result = brand_lookup.lookup(
+            domain, client=(request.args.get("client") or "").strip(),
+            module="suite_panel")
+        data = result.get("payload") or {}
+        if not result.get("found"):
+            note = result.get("note") or ""
+            if result.get("unconfigured"):
+                return jsonify({"error": "Brandfetch is not configured. Set BRANDFETCH_API_KEY "
+                                         "to enable brand lookup."}), 400
+            if "Nothing is published" in note:
+                return jsonify({"error": f"No brand data found for {domain}."}), 404
+            # lookup() reports a refusal by status; 429 keeps its own wording
+            # because "try again later" is different advice from "the key was
+            # refused", and this panel has always drawn that line.
+            if "429" in note:
+                return jsonify({"error": "Brandfetch quota exceeded. Try again later."}), 429
+            return jsonify({"error": note or "Brandfetch error"}), 502
 
         def pick_image(type_):
             items = [l for l in (data.get("logos") or []) if l.get("type") == type_]
@@ -291,16 +306,18 @@ def api_brand():
             },
             "website": f"https://{data.get('domain') or domain}",
         }
-        # Persist for the whole hub: any client form can autofill from this.
-        try:
-            from hub import seo as _hub_seo
-            _hub_seo.save_brandfetch(payload["domain"], payload,
-                                     client=(request.args.get("client") or "").strip())
-        except Exception:  # noqa: BLE001 — persistence is best-effort
-            pass
+        # Deliberately no save here. lookup() has already stored what
+        # Brandfetch returned, in the raw shape hub/client_brand.py reads.
+        # Saving `payload` as well would put this panel's own response format
+        # back over it -- which is precisely the bug above.
         return jsonify(payload)
-    except requests.RequestException as exc:
-        return jsonify({"error": f"Could not reach Brandfetch: {exc}"}), 502
+    except Exception as exc:  # noqa: BLE001
+        # Was `except requests.RequestException`, which nothing in this route
+        # can raise any more: lookup() catches its own network error and hands
+        # back a note, so that handler had become a 502 that could never fire.
+        # What is left to guard is the reshaping below the lookup, so the guard
+        # says that rather than claiming Brandfetch was unreachable.
+        return jsonify({"error": f"The brand data could not be read: {exc}"}), 502
 
 
 @app.route("/api/locations")
@@ -542,6 +559,23 @@ def api_location_form_submissions(loc_id):
         return send_error(err)
 
 
+def _session_secret() -> str:
+    """The Hub's signing secret, under every name it answers to.
+
+    Two reads in this file knew SECRET_KEY and SESSION_SECRET; hub/config.py
+    also accepts FLASK_SECRET_KEY, which this deployment sets. The OAuth state
+    signature has to survive both gunicorn workers, so a secret that resolves
+    on one screen and not the next is a callback that fails about half the
+    time with nothing in the log but a bad signature.
+    """
+    try:
+        from hub.config import settings
+        return settings.secret_key
+    except Exception:                                 # noqa: BLE001
+        return (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+                or os.environ.get("SESSION_SECRET") or "")
+
+
 # ---------------- Marketplace app (OAuth) ----------------
 def _state_serializer():
     """Signed, expiring OAuth state — not a server-side session.
@@ -552,7 +586,7 @@ def _state_serializer():
     checkable by whichever worker answers.
     """
     from itsdangerous import URLSafeTimedSerializer
-    key = (_env("SECRET_KEY") or _env("PANEL_PASSWORD") or "s1hub-suite-oauth")
+    key = (_session_secret() or _env("PANEL_PASSWORD") or "s1hub-suite-oauth")
     return URLSafeTimedSerializer(key, salt="ghl-oauth-state")
 
 
@@ -591,11 +625,11 @@ def oauth_callback():
     if error:
         return (f"HighLevel returned an error: {error}", 400)
     if not _check_state(request.args.get("state")):
-        return ("That authorisation link didn't come from this Hub, or it sat "
+        return ("That authorization link didn't come from this Hub, or it sat "
                 "unused too long. Start again from Suite.", 400)
     code = request.args.get("code")
     if not code:
-        return ("HighLevel didn't send an authorisation code.", 400)
+        return ("HighLevel didn't send an authorization code.", 400)
     try:
         ghl_oauth.exchange_code(code)
     except Exception as exc:  # noqa: BLE001
@@ -659,7 +693,7 @@ def api_diagnostics():
 
     checks.append(
         {"name": "Session secret", "status": "ok", "message": "Configured — logins survive restarts."}
-        if os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET")
+        if _session_secret()
         else {"name": "Session secret", "status": "warn",
               "message": "Not set — everyone is logged out on every restart or redeploy."}
     )

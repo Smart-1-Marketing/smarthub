@@ -20,7 +20,7 @@ import time
 import requests
 
 from ..config import (OUTPUT_FORMATS, MUSIC_LEVELS, QR_CODE_RULES, LOGO_PERSISTENCE_RULES,
-                      CHROMA_KEY_COLOR)
+                      CHROMA_KEY_COLOR, logo_persistence_eligible)
 
 BASE_URL = "https://api.creatomate.com/v1"
 
@@ -127,7 +127,11 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
     # own track above the scene footage; skipped on :05s (already full-logo
     # the entire time) and whenever the CTA builder has it turned off.
     client_logo = (cta.get("client") or {}).get("logo_url")
-    if cta.get("logo_persistent") and client_logo and length_seconds != 5:
+    # `length_seconds != 5` before this, which is the reading that cannot be
+    # kept in step: it had already stopped agreeing with the table the day the
+    # :06 arrived, and nothing points at a literal.
+    if (cta.get("logo_persistent") and client_logo
+            and logo_persistence_eligible(length_seconds)):
         corner = cta.get("logo_corner", LOGO_PERSISTENCE_RULES["default_corner"])
         x, y = _CORNER_ANCHORS.get(corner, _CORNER_ANCHORS["top-left"])
         video_elements.append({
@@ -294,9 +298,22 @@ def submit_render(source):
         r.raise_for_status()
         data = r.json()
         render = data[0] if isinstance(data, list) else data
+        # Recorded at SUBMIT rather than on success: the request is what was
+        # spent, and a render that fails an hour later has still cost it.
+        _meter(detail=str(render.get("id") or "")[:60])
         return {"id": render.get("id"), "status": render.get("status"), "url": render.get("url")}
     except Exception as e:
+        _meter(ok=False, detail=str(e)[:80])
         return {"id": None, "status": "failed", "error": str(e)}
+
+
+def _meter(*, ok=True, detail=""):
+    """One render, counted. Never raises — a meter must not cost a render."""
+    try:
+        from hub import quotas as _q
+        _q.record_render(module="commercial_builder", detail=detail, ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
 
 
 def check_render(render_id):

@@ -18,6 +18,36 @@
   <!-- ---------------- warnings ---------------- -->
   <div id="diag-alerts"></div>
 
+  <!-- ---------------- housekeeping ---------------- -->
+  <section class="diag-card">
+    <h2>Housekeeping &mdash; what needs filling in</h2>
+    <p class="diag-help">
+      Warnings that show on pages the whole company reads and that only an
+      admin can act on. The roster's missing start dates sat under the
+      dashboard's birthday block, addressed to eleven people the Users panel
+      answers 403 &mdash; so the person who could fix it found out by looking
+      at somebody else's screen. Each row says which page a reader meets it on
+      and where it is fixed.
+    </p>
+    <div id="diag-housekeeping" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
+  <!-- ---------------- the help layer ---------------- -->
+  <section class="diag-card">
+    <h2>The help layer &mdash; what still explains itself</h2>
+    <p class="diag-help">
+      Every failure in this layer is silent by design. A bubble whose key is
+      not in the registry is removed rather than left as a dead
+      &ldquo;?&rdquo;, and a walkthrough step whose element is not on the page
+      hides its ring &mdash; so a screen that opted in and got nothing reads
+      exactly like one that never tried. The bubbles are a defect and are on
+      <code>/api/integrity</code>; the walkthrough steps are a backlog, listed
+      here so they can be worked down rather than met one at a time by
+      whoever pressed &ldquo;Walk me through this&rdquo;.
+    </p>
+    <div id="diag-help-audit" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- API health ---------------- -->
   <section class="diag-card">
     <h2>API health <span class="diag-note" id="diag-timing"></span></h2>
@@ -38,6 +68,38 @@
       under the line.
     </p>
     <div id="diag-quotas" class="diag-rows"><p class="diag-loading">Loading…</p></div>
+  </section>
+
+  <!-- ---------------- environment ---------------- -->
+  <section class="diag-card">
+    <h2>Environment &mdash; what actually resolved</h2>
+    <p class="diag-help">
+      Most settings here answer to more than one variable name, because this
+      Hub&rsquo;s environment is assembled from linked Render env groups that
+      each named things their own way. That is why a key set as
+      <code>PEXELS_API</code> works in code written against
+      <code>PEXELS_API_KEY</code> &mdash; and it is also why nobody can tell
+      which name did it. This says which one answered, and names any that were
+      set and ignored. Values are never shown.
+    </p>
+    <div id="diag-env" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
+  <!-- ---------------- oauth redirect URIs ---------------- -->
+  <section class="diag-card">
+    <h2>OAuth redirect URIs &mdash; what this Hub actually sends</h2>
+    <p class="diag-help">
+      Every provider matches a redirect URI as an <b>exact string, hostname
+      included</b>. Three of the six below are built from whichever hostname
+      the browser used, so a second domain answering for this service doubles
+      what has to be registered &mdash; and the other three are built from a
+      variable instead, so they do <em>not</em> follow the browser and change
+      only when that variable is edited. Registering the first three and
+      assuming the rest followed is how a client meets
+      <code>redirect_uri_mismatch</code> on a consent screen. No client id or
+      secret is shown.
+    </p>
+    <div id="diag-oauth" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
   </section>
 
   <!-- ---------------- integrity ---------------- -->
@@ -92,12 +154,16 @@
   <section class="diag-card">
     <h2>Database structure</h2>
     <p class="diag-help">
-      Where client data actually lives. There is no single client table &mdash;
-      several modules build their own database engine and identify a client in
-      their own way, so the same client can exist more than once under slightly
-      different names. That is what makes name-matching audits report false
-      alarms. Read from source, so it stays accurate even when a module fails
-      to load.
+      Where client data actually lives. There is still no single client table:
+      modules identify a client in their own way &mdash; a typed name, a
+      domain, a row id &mdash; and changing those columns needs a migration
+      that <code>create_all()</code> does not do. What closed the gap was
+      joining them on read in <code>hub/client_key.py</code> rather than
+      copying them, so a client renamed in Knack is re-joined on the next
+      request. A row below in gray is that arrangement working; amber and red
+      are findings. <a href="/api/clients/crosswalk">The crosswalk</a> lists
+      what is joined and what has no URL on file and therefore cannot be.
+      Read from source, so it stays accurate even when a module fails to load.
     </p>
     <div id="diag-structure" class="diag-rows">
       <div id="diag-structure-main"><p class="diag-loading">Loading…</p></div>
@@ -113,7 +179,7 @@
       Ads and Google Access on a typed business name, Image Picker on its own
       table. Rather than migrate four tables, the Hub derives one key on read
       (<code>hub/client_key.py</code>) and joins on that: a domain where there
-      is one, a normalised name where there is not. This is what that join
+      is one, a normalized name where there is not. This is what that join
       currently finds. A record with a name and no URL on file can only ever be
       matched to another name, so those are listed separately.
     </p>
@@ -251,7 +317,7 @@ function stateWord(state){
   return state==="not_measured" ? "not measured" : state;
 }
 
-// The provider's own counter, when it could be read. Always labelled as
+// The provider's own counter, when it could be read. Always labeled as
 // theirs: it is the number they bill on, and it is the one the ledger below
 // cannot see all of.
 function accountBlock(a, label){
@@ -321,11 +387,17 @@ function estimateDetail(e){
     var apis = e.apis||[];
     if(!apis.length) return "";
     return '<table class="diag-tbl"><tr><th>API</th><th class="num">Calls this month</th>'+
+      '<th class="num">Refused</th>'+
       '<th class="num">Today</th><th class="num">Busiest day</th>'+
       '<th class="num">Daily quota</th><th>State</th></tr>'+
       apis.map(function(a){
+        /* A refusal spends the daily quota and returns nothing, so it is its
+           own column rather than a share of the total. Zero refusals is a
+           real answer and prints as a dash, not as a worrying 0%. */
         return '<tr><td>'+esc(a.label)+'</td>'+
           '<td class="num">'+num(a.calls)+'</td>'+
+          '<td class="num">'+(a.failed?num(a.failed)+
+            ' <small>'+a.failed_percent+'%</small>':'—')+'</td>'+
           '<td class="num">'+num(a.today)+'</td>'+
           '<td class="num">'+(a.busiest_day_calls?num(a.busiest_day_calls)+
             ' <small>'+esc(a.busiest_day||"")+'</small>':"—")+'</td>'+
@@ -333,7 +405,7 @@ function estimateDetail(e){
             '<small>none published</small>')+'</td>'+
           '<td><span class="diag-pill p-'+pillFor(a.state)+'">'+
             esc(stateWord(a.state))+'</span></td></tr>'+
-          '<tr class="diag-subrow"><td colspan="6">'+esc(a.note)+'</td></tr>';
+          '<tr class="diag-subrow"><td colspan="7">'+esc(a.note)+'</td></tr>';
       }).join("")+'</table>'+
       modTable(e.by_module, [["Calls",function(v){return num(v);}]]);
   }
@@ -433,6 +505,124 @@ function renderOpenAI(o){
     '<p class="diag-caveat">'+esc(o.caveat)+'</p>';
 }
 
+// ---- environment ----------------------------------------------------------
+// One row per setting, and never a value: this panel is read on a screen and
+// screenshotted into chats. "Set, and ignored" is the row that earns the panel
+// — a variable somebody added under a name the Hub reads second looks exactly
+// like one that took effect.
+function renderEnv(d){
+  var rows = (d.settings||[]).slice().sort(function(a,b){
+    var rank = function(r){ return r.conflict ? 0 : (r.set ? 2 : 1); };
+    return rank(a)-rank(b) || a.label.localeCompare(b.label);
+  });
+  var problems = (d.problems||[]).map(function(p){
+    return '<div class="diag-row"><span class="diag-pill p-warn">check</span>'+
+      '<span class="diag-name">'+esc(p.name)+'</span>'+
+      '<span class="diag-detail">'+esc(p.detail)+'</span></div>';
+  }).join("");
+  document.getElementById("diag-env").innerHTML = problems + rows.map(function(r){
+    var state = r.conflict ? "warn" : (r.set ? "ok" : "off");
+    var pill  = r.conflict ? "clash" : (r.set ? "set" : "unset");
+    var detail = r.set
+      ? 'Read from <code>'+esc(r.resolved)+'</code>.'+
+        (r.ignored.length
+          ? ' Also set and ignored: <code>'+r.ignored.map(esc).join('</code>, <code>')+'</code>.'
+          : '')+
+        (r.conflict ? ' <b>Those hold different values, so one of them is doing nothing.</b>' : '')
+      : 'Not set under any of these names.';
+    return '<div class="diag-row">'+
+      '<span class="diag-pill p-'+state+'">'+pill+'</span>'+
+      '<span class="diag-name">'+esc(r.label)+'</span>'+
+      '<span class="diag-detail">'+detail+
+        '<em class="diag-fix">Accepted: '+r.names.map(esc).join(", ")+'</em>'+
+      '</span></div>';
+  }).join("");
+}
+
+function renderOauth(d){
+  var el = document.getElementById("diag-oauth"); if(!el) return;
+  if(!d.measured){
+    // "We could not look" is not "there are no redirect URIs".
+    el.innerHTML = '<p class="diag-loading">Not measured &mdash; the redirect '+
+      'URIs could not be read.'+(d.error?" "+esc(d.error):"")+'</p>';
+    return;
+  }
+  var hosts = (d.hosts||[]).map(function(h){
+    return '<code>'+esc(h.origin)+'</code> ('+esc(h.how)+')';
+  }).join(", ");
+  var head = '<div class="diag-row"><span class="diag-pill p-'+
+    ((d.hosts||[]).length>1?"warn":"ok")+'">'+((d.hosts||[]).length||"?")+'</span>'+
+    '<span class="diag-name">Hostnames seen</span>'+
+    '<span class="diag-detail">'+(hosts||"None could be read.")+
+    '<em class="diag-fix">Observed, not surveyed &mdash; an app cannot list its '+
+    'own custom domains. Render also keeps the onrender.com subdomain live '+
+    'unless it is switched off, so there may be more than these.</em></span></div>';
+
+  var problems = (d.problems||[]).map(function(p){
+    return '<div class="diag-row"><span class="diag-pill p-warn">act</span>'+
+      '<span class="diag-name">'+esc(p.name)+'</span>'+
+      '<span class="diag-detail">'+esc(p.detail)+'</span></div>';
+  }).join("");
+
+  var rows = (d.redirects||[]).map(function(r){
+    var uris = r.uris.length
+      ? r.uris.map(function(u){return '<code>'+esc(u)+'</code>';}).join("<br>")
+      : '<i>nothing to register</i>';
+    var origin = r.follows_browser
+      ? '<b>Follows the browser</b> &mdash; one entry per hostname.'
+      : 'Built from <code>'+esc(r.source)+'</code>, so it does not follow the browser.';
+    return '<div class="diag-row">'+
+      '<span class="diag-pill p-'+esc(r.state)+'">'+
+        (r.state==="ok"?"ok":r.state==="warn"?"check":"off")+'</span>'+
+      '<span class="diag-name">'+esc(r.label)+
+        (r.client_facing?' <b>(a client sees this one)</b>':'')+'</span>'+
+      '<span class="diag-detail">'+uris+'<br>'+origin+' '+esc(r.note)+
+        '<em class="diag-fix">Register at: '+esc(r.console)+'. OAuth client from '+
+        (r.client_var?'<code>'+esc(r.client_var)+'</code>':'none of '+esc(r.client_names.join(" / ")))+
+        '. Built in '+esc(r.where)+'.</em>'+
+      '</span></div>';
+  }).join("");
+  el.innerHTML = head + problems + rows;
+}
+
+function renderHousekeeping(d){
+  var el=document.getElementById("diag-housekeeping"); if(!el) return;
+  var rows=(d.findings||[]).map(function(f){
+    // "not measured" is its own state and never a zero: a source that could
+    // not be read must not render as a clean row with nothing outstanding.
+    var state = !f.measured ? "error" : (f.level==="low" ? "off" : "warn");
+    var pill  = f.measured ? String(f.count||1) : "?";
+    var who   = (f.names||[]).length
+      ? '<br><span class="diag-note">'+f.names.map(esc).join(", ")+
+        (f.names_truncated?" &hellip;and "+f.names_truncated+" more":"")+'</span>'
+      : "";
+    var where = f.page
+      ? '<br><span class="diag-note">Shows on: '+
+        (f.page_path?'<a href="'+esc(f.page_path)+'">'+esc(f.page)+'</a>':esc(f.page))+
+        '</span>'
+      : "";
+    var note = f.note
+      ? '<br><span class="diag-note">'+esc(f.note)+'</span>' : "";
+    var fix = f.fix
+      ? '<em class="diag-fix">'+esc(f.fix)+
+        (f.fix_path?' &mdash; <a href="'+esc(f.fix_path)+'">'+esc(f.fix_path)+'</a>':'')+
+        '</em>'
+      : "";
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+esc(pill)+'</span>'+
+      '<span class="diag-name">'+esc(f.page||f.key)+'</span>'+
+      '<span class="diag-detail">'+esc(f.issue)+who+where+note+fix+'</span></div>';
+  }).join("");
+  // What was checked and had nothing to say, so one row cannot be mistaken
+  // for one check having run.
+  var checked='<div class="diag-row"><span class="diag-pill p-'+
+    ((d.findings||[]).length?"warn":"ok")+'">'+((d.open||0)||"ok")+'</span>'+
+    '<span class="diag-name">Checked</span><span class="diag-detail">'+
+    esc((d.sources||[]).join(", ")||"nothing")+
+    ((d.clean||[]).length?' &mdash; nothing outstanding in '+esc(d.clean.join(", ")):'')+
+    '</span></div>';
+  el.innerHTML = checked + rows;
+}
+
 function renderIntegrity(d){
   document.getElementById("diag-integrity").innerHTML = d.groups.map(function(g){
     var state = g.count===0 ? "ok" : (g.severity==="high"?"error":g.severity==="medium"?"warn":"off");
@@ -450,14 +640,27 @@ function renderIntegrity(d){
 
 function renderStructure(d){
   var el=document.getElementById("diag-structure-main"); if(!el) return;
-  var head='<div class="diag-row"><span class="diag-pill p-'+(d.risks.length?"warn":"ok")+'">'+
+  // A "low" risk here is the *resolved* case: the columns still differ, and
+  // something joins them. Painting it amber put "this is handled, and here is
+  // what handles it" in the same color as a real finding directly above it,
+  // which is how a panel teaches people to skim past the rows that matter.
+  // Gray is what this page already uses for a row that is not a verdict.
+  // Not the pillFor() above: that one maps a check *state*, this maps a risk
+  // *level*, and two functions of one name reading two vocabularies is how the
+  // wrong one gets called from the wrong place later.
+  function pillForLevel(level){
+    return level==="high" ? "error" : level==="low" ? "off" : "warn";
+  }
+  var open=d.risks.filter(function(r){ return r.level!=="low"; });
+  var head='<div class="diag-row"><span class="diag-pill p-'+(open.length?"warn":"ok")+'">'+
     (d.own_engines)+'</span><span class="diag-name">Own engines</span>'+
     '<span class="diag-detail">'+d.engines.length+' engines total, '+d.shared_engine_users+
-    ' sharing hub/extensions.py. '+d.json_stores+' JSON stores. Client keys in use: <b>'+
+    ' sharing hub/extensions.py. '+d.json_stores+' JSON store'+
+    (d.json_stores===1?'':'s')+' outside hub/jsonstore.py. Client keys in use: <b>'+
     d.client_keys.map(esc).join(", ")+'</b>.</span></div>';
   el.innerHTML = head + d.risks.map(function(r){
-    return '<div class="diag-row"><span class="diag-pill p-'+
-      (r.level==="high"?"error":"warn")+'">'+esc(r.level)+'</span>'+
+    return '<div class="diag-row"><span class="diag-pill p-'+pillForLevel(r.level)+'">'+
+      esc(r.level)+'</span>'+
       '<span class="diag-name">'+esc(r.title)+'</span>'+
       '<span class="diag-detail">'+esc(r.detail)+
       '<em class="diag-fix">'+esc((r.where||[]).join(", "))+'</em></span></div>';
@@ -562,20 +765,66 @@ function renderScheduler(d){
     p[1]+'</span>'+
     '<span class="diag-name">Scheduler</span><span class="diag-detail">'+
     esc(d.note||"")+'</span></div>';
+  // On standby this process holds no timings at all — _state is per-process —
+  // so the rows below can only say what the job IS, not when it last ran. Said
+  // once here rather than drawn as eleven rows of "never", which is what made
+  // the same page alarming or reassuring depending on which worker answered.
+  if(d.timings_visible === false && d.state === "standby"){
+    head += '<div class="diag-row"><span class="diag-pill p-off">n/a</span>'+
+      '<span class="diag-name">Job timings</span><span class="diag-detail">'+
+      'Not measured on this worker — the other one holds the lock and runs '+
+      'the jobs. Reload to reach it, or read the activity log, which every '+
+      'run writes to.</span></div>';
+  } else if((d.failing||0) || (d.overdue||0)){
+    // The headline the panel could not previously give: the loop being alive
+    // is not the same as the jobs working.
+    var bits = [];
+    if(d.failing) bits.push(d.failing+" failing");
+    if(d.overdue) bits.push(d.overdue+" overdue");
+    head += '<div class="diag-row"><span class="diag-pill p-error">jobs</span>'+
+      '<span class="diag-name">'+esc(bits.join(" \u00b7 "))+'</span>'+
+      '<span class="diag-detail">The scheduler is running; these jobs are '+
+      'not. A job stuck or failing stops nothing else, but whatever it '+
+      'refreshes is now as old as its last good run.</span></div>';
+  }
   el.innerHTML = head + (d.jobs||[]).map(function(j){
-    var state = j.ok===false ? "error" : (j.last_run ? "ok" : "off");
+    // Overdue is as much a fault as a raised exception: the thing the job
+    // refreshes is stale either way, and a green pill over a job that last
+    // ran three days ago is the confident wrong answer.
+    var state = (j.ok===false || j.overdue) ? "error"
+              : (j.visible===false ? "off" : (j.last_run ? "ok" : "off"));
+    var when;
+    if(j.visible === false){
+      when = ' <em class="diag-fix">Timings are on the worker that holds the lock.</em>';
+    } else if(j.last_run){
+      when = ' <em class="diag-fix">Last run '+esc(j.last_run.replace("T"," ").slice(0,16))+
+        (j.overdue ? ' \u2014 <b>overdue by '+esc(fmtMins(j.overdue_by - j.every_minutes))+'</b>' : '')+
+        (j.result?" \u00b7 "+esc(JSON.stringify(j.result).slice(0,90)):"")+'</em>';
+    } else {
+      when = ' <em class="diag-fix">Not run yet this boot \u2014 it has not come round.</em>';
+    }
+    // "Failed once just now" and "failed fourteen times running" are different
+    // situations, and the row used to show them identically.
+    var streak = (j.fails > 1)
+      ? ' <em class="diag-fix" style="color:#b42318">Failed '+j.fails+' runs in a row'+
+        (j.last_ok ? '; last worked '+esc(j.last_ok.replace("T"," ").slice(0,16)) : '; never succeeded this boot')+
+        '.</em>'
+      : '';
     return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
       (j.every_minutes>=60 ? Math.round(j.every_minutes/60)+"h" : j.every_minutes+"m")+
       '</span><span class="diag-name">'+esc(j.name.replace(/_/g," "))+'</span>'+
-      '<span class="diag-detail">'+esc(j.description||"")+
-      (j.last_run? ' <em class="diag-fix">Last run '+esc(j.last_run.replace("T"," ").slice(0,16))+
-        (j.result?" · "+esc(JSON.stringify(j.result).slice(0,90)):"")+'</em>'
-        : ' <em class="diag-fix">Not run yet this boot.</em>')+
+      '<span class="diag-detail">'+esc(j.description||"")+ when + streak +
       (j.error? ' <em class="diag-fix" style="color:#b42318">'+esc(j.error)+'</em>':'')+
       ' <button class="um-btn" style="margin:6px 0 0;padding:3px 9px;font-size:11.5px" '+
       'onclick="runJob(\''+j.name+'\')">Run now</button>'+
       '</span></div>';
   }).join("");
+}
+function fmtMins(m){
+  m = Math.max(0, Math.round(m||0));
+  if(m < 90) return m+" min";
+  if(m < 60*36) return Math.round(m/60)+" h";
+  return Math.round(m/1440)+" days";
 }
 function runJob(name){
   fetch("/api/scheduler/run/"+encodeURIComponent(name),{method:"POST",credentials:"same-origin"})
@@ -613,6 +862,124 @@ function clearStuck(){
    .catch(function(){ alert("Could not reach the Scans module."); });
 }
 
+/* The help layer. Two questions on one panel because they are one question
+   asked of two mechanisms, and splitting them is how two screens come to
+   answer it differently — the trap jsonstore.unmirrored_json_writers() exists
+   to close, one panel over.
+
+   Nothing here is drawn red. The bubbles are already a finding on the
+   integrity panel above, and the walkthrough steps are a backlog: a page of
+   red is a page people scroll past, which is the note this file already makes
+   about a resolved finding in an open finding's color. */
+function renderHelpAudit(d){
+  var el=document.getElementById("diag-help-audit"); if(!el) return;
+  d=d||{};
+  var b=d.bubbles||{}, w=d.walkthroughs||{}, c=d.coverage||{}, out=[];
+
+  function row(state,pill,name,detail){
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+
+      esc(pill)+'</span><span class="diag-name">'+esc(name)+
+      '</span><span class="diag-detail">'+detail+'</span></div>';
+  }
+
+  // "We could not look" is never a zero.
+  if(b.measured===false){
+    out.push(row("error","?","Bubbles",
+      "Could not be read: "+esc(b.error||"no reason given")));
+  }else{
+    var miss=b.missing||[];
+    out.push(row(miss.length?"warn":"ok", miss.length?String(miss.length):"ok",
+      "Bubbles",
+      miss.length
+        ? "placed on a screen with no entry behind them, so the dot is "+
+          "removed and the screen shows nothing: "+
+          miss.map(function(r){return "<code>"+esc(r.key)+"</code>";}).join(", ")
+        : esc(String(b.placed||0))+" placed, all of them in the registry of "+
+          esc(String(b.registry||0))+"."));
+    /* Named rather than resolved: a key assembled while the page runs cannot
+       be checked from the source, and guessing at it in either direction is
+       the mistake linkcheck refuses to make about a concatenated URL. */
+    (b.runtime||[]).forEach(function(r){
+      out.push(row("unverified","built","Built at runtime",
+        "<code>"+esc(r.key)+"</code> is assembled by a script, so it is not "+
+        "verified here. Its prefix reaches "+
+        esc(String((b.runtime_covers||[]).length))+" registered key"+
+        ((b.runtime_covers||[]).length===1?"":"s")+"."));
+    });
+  }
+
+  if(w.measured===false){
+    out.push(row("error","?","Walkthroughs",
+      "Could not be read: "+esc(w.error||"no reason given")));
+  }else{
+    var rows=w.rows||[], dead=rows.filter(function(r){return r.dead;}).length;
+    out.push(row(w.unanchored?"warn":"ok",
+      w.unanchored?String(w.unanchored):"ok","Walkthroughs",
+      w.unanchored
+        ? "step"+(w.unanchored===1?"":"s")+" name an element that is in no "+
+          "template, out of "+esc(String(w.steps||0))+" that name one. "+
+          esc(String((w.clean||[]).length))+" of "+esc(String(w.scenarios||0))+
+          " walkthroughs can drive every step they name"+
+          (dead?"; "+esc(String(dead))+" can drive none of theirs.":".")+
+          '<em class="diag-fix">Each one says so on the step now, rather '+
+          'than the button doing nothing. Placing the hooks is the fix.</em>'
+        : esc(String(w.steps||0))+" steps, every one of them anchored."));
+    rows.forEach(function(r){
+      out.push(row(r.dead?"warn":"off", r.dead?"none":"some", r.key,
+        esc(r.title||"")+" &mdash; "+esc(String((r.unanchored||[]).length))+
+        " of "+esc(String(r.steps||0))+" step"+(r.steps===1?"":"s")+
+        (r.dead?", which is every one it drives":"")+
+        '<em class="diag-fix">'+
+        esc((r.unanchored||[]).map(function(u){return u.selector;}).join("  "))+
+        '</em>'));
+    });
+  }
+  /* The same question, asked of a third mechanism. Bubbles and walkthroughs
+     ask whether an explanation works; this asks whether one was ever written
+     -- and its own surface answered "nothing is missing" for as long as it
+     was measured against a list nobody had touched. That is why `measured`
+     is checked before anything is drawn from it: nothing to measure and
+     nothing missing must never render alike. */
+  if(c.measured===false){
+    out.push(row("error","?","Coverage",
+      "Could not be read: "+esc(c.reason||"no reason given")));
+  }else{
+    var miss=c.missing||[], stray=c.stray||[];
+    out.push(row(miss.length?"warn":"ok", miss.length?String(miss.length):"ok",
+      "Coverage",
+      miss.length
+        ? "of "+esc(String(c.tools||0))+" tiled tools have no help written "+
+          "at all: "+miss.map(function(t){
+              return "<code>"+esc(t.name||t.prefix)+"</code>";}).join(", ")+
+          '<em class="diag-fix">Measured against the tiles on Creative and '+
+          'Client Tools, so a tool added there is asked about without '+
+          'anybody widening a list. Writing the copy is the fix.</em>'
+        : esc(String(c.tools||0))+" tiled tools, every one of them explained."));
+    /* Reported apart, because it fails the other way and in silence: help
+       written under a prefix no tile maps to leaves the tool reading as
+       missing while its copy sits there written. */
+    if(stray.length){
+      out.push(row("warn",String(stray.length),"Written but unmapped",
+        "help is registered under "+stray.map(function(k){
+            return "<code>"+esc(k)+"</code>";}).join(", ")+
+        ", which no tile points at, so those tools read as unexplained"+
+        '<em class="diag-fix">Either map the tile in '+
+        'hub/help_coverage.PREFIXES or correct the key prefix.</em>'));
+    }
+    /* Named rather than silently excused: these are tiled for staff and
+       served to a prospect, so a bubble on one is an internal note in front
+       of somebody we are selling to. */
+    var cf=(c.client_facing||[]).length;
+    if(cf){
+      out.push(row("off",String(cf),"Client-facing",
+        "tiled for staff and read by a client, so no staff help is expected "+
+        "on them"));
+    }
+  }
+
+  el.innerHTML=out.join("");
+}
+
 function loadAll(force){
   if(force){
     document.getElementById("diag-checks").innerHTML='<p class="diag-loading">Running checks…</p>';
@@ -621,6 +988,22 @@ function loadAll(force){
     .then(r=>r.json()).then(renderChecks)
     .catch(()=>{document.getElementById("diag-checks").innerHTML=
       '<p class="diag-loading">Checks could not be run.</p>';});
+  fetch("/api/environment",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderEnv)
+    .catch(function(){document.getElementById("diag-env").innerHTML=
+      '<p class="diag-loading">Could not read the environment report.</p>';});
+  fetch("/api/oauth-redirects",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderOauth)
+    .catch(function(){document.getElementById("diag-oauth").innerHTML=
+      '<p class="diag-loading">Could not read the redirect URIs.</p>';});
+  fetch("/api/housekeeping",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderHousekeeping)
+    .catch(function(){document.getElementById("diag-housekeeping").innerHTML=
+      '<p class="diag-loading">Could not read the housekeeping list.</p>';});
+  fetch("/api/help-audit",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderHelpAudit)
+    .catch(function(){document.getElementById("diag-help-audit").innerHTML=
+      '<p class="diag-loading">Could not read the help layer.</p>';});
   fetch("/api/integrity",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderIntegrity)
     .catch(function(){document.getElementById("diag-integrity").innerHTML=

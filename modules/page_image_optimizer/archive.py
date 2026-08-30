@@ -101,25 +101,27 @@ def delete(public_id):
 # The archive record
 # --------------------------------------------------------------------------- #
 #
-# >>> INTEGRATION POINT <<<
+# This used to be an ">>> INTEGRATION POINT <<<" with three guessed candidate
+# writers — `modules.seo_images.store.add_record`,
+# `modules.seo_images.archive.add_record` and
+# `modules.seo_images.app.record_asset`. Not one of those names has ever
+# existed: the module that was being guessed at exposes `load_archive` and
+# `save_archive`. So `_resolve_hook()` returned None on every call, from the
+# day it was written, and every image this tool has ever saved went into a
+# local fallback JSON that nothing else reads — invisible to the client's
+# gallery, to Client 360 and to anybody asking what we had produced for them.
+# Nothing errored; `archive_backend()` said "local" to a screen nobody was
+# reading it on.
 #
-# The SEO Image Pipeline (modules/seo_images) keeps its own archive table — the
-# searchable one behind "See client image gallery". Images saved here should
-# land in that same table so the client's SEO gallery is complete.
-#
-# I did not have modules/seo_images checked out in the session this was built
-# in, so this resolves the writer at import time and falls back to a local JSON
-# file. Point RECORD_HOOK at the real function and this tool disappears into
-# the existing gallery. Everything else already matches (folder, context keys).
-#
-# Expected signature: record(**fields) -> record id or None
-#
+# The names are real now, and there are two of them because they answer
+# different questions. The SEO archive is what the pipeline's own table and
+# the client image gallery page read. `filing.file_asset` is what a client
+# record reads. An image belongs in both, and neither write is allowed to cost
+# the other one — hub/image_audit.py reports a producer that reaches neither.
 RECORD_HOOK = None
 
 _CANDIDATES = [
-    ("modules.seo_images.store", "add_record"),
-    ("modules.seo_images.archive", "add_record"),
-    ("modules.seo_images.app", "record_asset"),
+    ("modules.seo_images.app", "add_archive_record"),
 ]
 
 
@@ -145,9 +147,11 @@ def archive_backend():
 
 
 def record(**fields):
-    """File one saved image in the client's SEO image archive."""
+    """File one saved image in the client's SEO archive and their gallery."""
     fields.setdefault("saved_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     fields.setdefault("source", "page-image-optimizer")
+
+    _file_in_gallery(fields)
 
     hook = _resolve_hook()
     if hook:
@@ -164,6 +168,32 @@ def record(**fields):
         rows.insert(0, fields)
         jsonstore.write_json(FALLBACK_ARCHIVE, rows[:5000])
     return fields.get("public_id")
+
+
+def _file_in_gallery(fields):
+    """Into the client's own gallery, beside everything else made for them.
+
+    Best-effort and separate from the archive write above: the two answer
+    different questions and a failure in either must not cost the other.
+    Skipped without a company — an image filed to a guessed client is worse
+    than one filed to nobody, and hub/image_audit.py reports the nobody.
+    """
+    company = str(fields.get("company") or "").strip()
+    url = str(fields.get("url") or "")
+    if not company or not url:
+        return
+    try:
+        from modules.image_picker.filing import file_asset
+        file_asset(client_name=company, public_id=fields.get("public_id", ""),
+                   url=url, kind="page_image",
+                   filename=fields.get("filename", ""),
+                   alt=fields.get("alt_text", "") or fields.get("page_name", ""),
+                   provider="page_image_optimizer",
+                   saved_by=fields.get("saved_by", "") or "system",
+                   width=fields.get("width"), height=fields.get("height"),
+                   size_bytes=fields.get("bytes"))
+    except Exception:  # noqa: BLE001 - never lose the image over bookkeeping
+        pass
 
 
 def recent(limit=200, company=None):

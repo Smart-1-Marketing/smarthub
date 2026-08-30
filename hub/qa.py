@@ -174,6 +174,11 @@ def skip_dashboard(client: str, actor: str = "", reason: str = "") -> dict:
         "reason": reason,
     }
     jsonstore.write_json(_skip_path(), data)
+    # The skip list is what No Dashboards filters on, so the day's stored copy
+    # of it is now wrong. Dropped here rather than at the route: any caller
+    # that skips a client has changed that report, and a second description of
+    # when to invalidate is one that drifts.
+    forget("no-dashboards", "active-clients")
     return {"ok": True, "skipped": len(data)}
 
 
@@ -181,6 +186,7 @@ def unskip_dashboard(client: str) -> dict:
     data = _load_skips()
     data.pop(_norm_client(client), None)
     jsonstore.write_json(_skip_path(), data)
+    forget("no-dashboards", "active-clients")
     return {"ok": True, "skipped": len(data)}
 
 
@@ -641,6 +647,29 @@ def _google_coverage(name: str, g: dict) -> dict:
     }
 
 
+def prospect_queue() -> dict:
+    """Which prospect to call today, and why.
+
+    Every other report on this page is about a client. This one is about
+    somebody who is not one yet — the record `hub/prospect.py` built is worth
+    opening, and nothing said which to open.
+    """
+    from . import prospect_queue as pq
+    return pq.build()
+
+
+def sell_to_clients() -> dict:
+    """What each active client's own website says we could sell them.
+
+    Deliberately *not* merged into the two reports below it. Those read what
+    we have on file — a property attached, a container linked — and this reads
+    what is on the page. A client can have both and still be missing the tag,
+    and that gap is the finding rather than something to reconcile away.
+    """
+    from . import upsell
+    return upsell.build()
+
+
 def no_analytics() -> dict:
     groups = _client_groups()
     rows, styles = [], []
@@ -767,11 +796,24 @@ _ghl_cache: dict = {}
 
 def _ghl(path: str, params=None, method: str = "GET", body=None):
     import requests as _rq
-    # Smart 1 Marketing lookups use their own sub-account token when provided.
+    # Smart 1 Marketing lookups use their own sub-account token when provided,
+    # so the precedence here is deliberately the reverse of hub/config.py's:
+    # SMART1SUITE_PRIVATE_TOKEN first, then the agency token as the fallback.
+    # config treats the two as one setting and prefers GHL_PRIVATE_TOKEN, which
+    # is right for the Hub's one write path and wrong here — these accounting
+    # reads are scoped to the sub-account, and an agency token silently returns
+    # the agency's own empty list rather than refusing.
+    #
+    # Both names are read rather than one, which is what /api/integrity's
+    # drift check asks of anything not going through config: a reader that
+    # knows fewer spellings than config does is the defect. Order is the only
+    # difference.
+    from hub.config import settings as _cfg
     token = (os.environ.get("SMART1SUITE_PRIVATE_TOKEN", "").strip()
-             or os.environ.get("GHL_PRIVATE_TOKEN", ""))
+             or os.environ.get("GHL_PRIVATE_TOKEN", "").strip()
+             or _cfg.ghl_token)
     if not token:
-        raise RuntimeError("SMART1SUITE_PRIVATE_TOKEN / GHL_PRIVATE_TOKEN is not configured.")
+        raise RuntimeError(f"{_cfg.spellings('ghl_token')} is not configured.")
     headers = {"Authorization": f"Bearer {token}",
                "Version": os.environ.get("GHL_API_VERSION", "2021-07-28"),
                "Accept": "application/json", "Content-Type": "application/json"}
@@ -796,10 +838,22 @@ def _accounting_location() -> tuple[str, str]:
     comes back empty as though there were no pipelines. A company id is
     therefore refused here rather than used.
     """
-    company = (os.environ.get("GHL_COMPANY_ID", "").strip()
-               or os.environ.get("SUITE_COMPANY_ID", "").strip())
+    # GHL_ACCOUNTING_LOCATION_ID, GHL_LEAD_LOCATION_ID and
+    # SMART1_MARKETING_LOCATION_ID are one setting, and a reader that knows two
+    # of the three pins the location on one deployment and falls through to the
+    # search on the next for no reason anybody can see. So config supplies the
+    # names — but the *order* is this file's, and deliberately not config's:
+    # the accounting spelling wins here, because this figure is what an invoice
+    # is reconciled against and a deployment that has pinned an accounting
+    # location has said which sub-account that is. Config prefers the lead
+    # location, which is right where a lead is being written and wrong here.
+    # Every name in the group is read either way, which is what the drift check
+    # in /api/integrity asks of anything not resolved through config outright.
+    from hub.config import settings as _cfg
+    company = _cfg.ghl_company_id.strip()
     override = (os.environ.get("GHL_ACCOUNTING_LOCATION_ID", "").strip()
-                or os.environ.get("GHL_LEAD_LOCATION_ID", "").strip())
+                or os.environ.get("GHL_LEAD_LOCATION_ID", "").strip()
+                or os.environ.get("SMART1_MARKETING_LOCATION_ID", "").strip())
     if override and company and override == company:
         raise RuntimeError(
             "The configured accounting location id is the same value as the "
@@ -811,7 +865,7 @@ def _accounting_location() -> tuple[str, str]:
     if "acct_loc" in _ghl_cache:
         return _ghl_cache["acct_loc"]
     data = _ghl("/locations/search", {
-        "companyId": os.environ.get("GHL_COMPANY_ID", ""), "limit": "500"})
+        "companyId": _cfg.ghl_company_id, "limit": "500"})
     locs = data.get("locations") or []
     hit = next((l for l in locs
                 if "smart 1 marketing" in str(l.get("name", "")).lower()), None)
@@ -958,6 +1012,10 @@ def set_accounting_stage(opp_id: str, stage_id: str = "", status: str = "") -> N
         _ghl(f"/opportunities/{opp_id}/status", method="PUT", body=body)
     except RuntimeError:
         _ghl(f"/opportunities/{opp_id}", method="PUT", body=body)
+    # The row has just moved stage. Dropped here rather than at the route, for
+    # the reason `skip_dashboard()` gives: one description of what a write
+    # invalidates, beside the write.
+    forget("accounting-requests")
 
 
 # ------------------------------------------- GHL: Smart 1 Suite SaaS billing
@@ -977,9 +1035,10 @@ GHL_SAAS_VERSION = "v3"
 
 def _ghl_saas(path: str, params=None):
     import requests as _rq
-    token = os.environ.get("GHL_PRIVATE_TOKEN", "")
+    from hub.config import settings as _cfg
+    token = _cfg.ghl_token
     if not token:
-        raise RuntimeError("GHL_PRIVATE_TOKEN is not configured.")
+        raise RuntimeError(f"{_cfg.spellings('ghl_token')} is not configured.")
     headers = {"Authorization": f"Bearer {token}", "Version": GHL_SAAS_VERSION,
                "Accept": "application/json"}
     r = _rq.get(GHL_BASE + path, params=params, headers=headers, timeout=20)
@@ -995,9 +1054,10 @@ def _ghl_saas(path: str, params=None):
 def _ghl_saas_locations() -> list:
     """Every sub-account GHL has ever put into Smart 1 Suite's SaaS mode,
     each with its subscriptionInfo (status, plan, Stripe ids), paginated."""
-    company = os.environ.get("GHL_COMPANY_ID", "")
+    from hub.config import settings as _cfg
+    company = _cfg.ghl_company_id
     if not company:
-        raise RuntimeError("GHL_COMPANY_ID is not configured.")
+        raise RuntimeError(f"{_cfg.spellings('ghl_company_id')} is not configured.")
     out, page = [], 1
     while True:
         data = _ghl_saas(f"/saas/saas-locations/{company}", {"page": page})
@@ -1016,7 +1076,8 @@ def _ghl_saas_locations() -> list:
 def _ghl_agency_plans() -> dict:
     """{saasPlanId: plan dict} — turns a location's saasPlanId into a plan
     title and its active monthly price."""
-    company = os.environ.get("GHL_COMPANY_ID", "")
+    from hub.config import settings as _cfg
+    company = _cfg.ghl_company_id
     data = _ghl_saas(f"/saas/agency-plans/{company}")
     plans = data if isinstance(data, list) else (data.get("plans") or [])
     return {p.get("planId"): p for p in plans if isinstance(p, dict) and p.get("planId")}
@@ -1197,6 +1258,10 @@ def assign_invoice_partner(customer: str, partner: str):
     data = invoice_assignments()
     data[str(customer)] = str(partner)
     jsonstore.write_json(_assign_path(), data, indent=1)
+    # The assignment is what takes the row off Invoice Off — "remembered, never
+    # shown again" is what the button says. It has to be true on the next open
+    # as well as on the row the person is looking at.
+    forget("invoice-off")
 
 
 def partner_list() -> list[str]:
@@ -1682,13 +1747,405 @@ def google_accounts() -> dict:
     }
 
 
+# --------------------------------------------------- Smart 1 Sites vs hosting
+def sites_billing() -> dict:
+    """Every Smart 1 Sites project against the three hosting products.
+
+    The join lives in `hub/sites_billing.py`; this is the rendering, and the
+    only decisions it makes are about what a reader is told:
+
+    * **Findings first, in the order somebody acts on them.** Money going out
+      for a dead site, then a charge naming nothing, then a live site nobody is
+      billing for. The sites that are billed and fine are last and are still
+      printed — the question "which sites are billed?" deserves an answer, not
+      only its complement.
+    * **An unmatched charge keeps its description.** The description is the
+      only evidence there is, and a row that says "no match" without showing
+      what it failed to match is a row nobody can settle.
+    * **"We could not look" is not "all clear."** `unavailable()` covers every
+      way this report cannot answer — QuickBooks unreadable, the site list
+      unreadable or empty, the catalogue unreadable, and the three products
+      missing from it — and the page renders that as *Not measured* rather than
+      as a green tick. A registry that could not be read costs one matching
+      rule rather than the report, so it is said in the note instead.
+    """
+    from . import sites_billing as sb
+
+    columns = ["Site / charge", "Domain", "Site status", "QuickBooks customer",
+               "Product", "Last billed", "Amount", "Matched on"]
+    _, err = _qb_state()
+    if err:
+        return {"columns": columns, "rows": [], "note": err, "needs_qb": True}
+
+    rep = sb.report()
+    blocked = sb.unavailable(rep)
+    if blocked:
+        return {"columns": columns, "rows": [],
+                "unavailable": {"message": blocked,
+                                "action_href": "/status",
+                                "action_label": "Open System Status"}}
+
+    c = rep["counts"]
+    rows, styles = [], []
+
+    def group(text, tone=None):
+        rows.append([{"text": text, "group": True, "tone": tone}]
+                    + [""] * (len(columns) - 1))
+        styles.append(None)
+
+    def site_cell(site):
+        return ({"text": site["name"] or site["project_id"], "href": site["href"]}
+                if site["href"] else (site["name"] or site["project_id"]))
+
+    def domain_cell(site):
+        if site["domain"]:
+            return site["domain"]
+        # A project parked on a Simvoly platform domain has no real domain, and
+        # printing the platform one would read as an address somebody could
+        # visit. Say which of the two blanks it is.
+        return {"text": ("platform domain only" if site["raw_domain"]
+                         else "no domain recorded"), "muted": True}
+
+    def charge_row(rec, status_cell):
+        site = rec["site"]
+        cust = rec["customer"] or ""
+        cust_cell = ({"text": cust, "href": rec["link"]} if cust and rec["link"]
+                     else (cust or {"text": "—", "muted": True}))
+        return [site_cell(site), domain_cell(site), status_cell, cust_cell,
+                rec["product"] or {"text": "—", "muted": True},
+                rec["last_date"] or {"text": "never", "muted": True},
+                _money(rec["last_amount"]) if rec["last_date"] else
+                {"text": "not measured", "muted": True},
+                rec["why"] or ""]
+
+    if rep["billed_inactive"]:
+        group(f"Billed and not active ({c['billed_inactive']}) — money going "
+              f"out for a site that is not serving", "now")
+        for rec in rep["billed_inactive"]:
+            rows.append(charge_row(rec, {"text": rec["site"]["reason"], "pill": "bad"}))
+            styles.append("red")
+
+    if rep["unmatched"]:
+        group(f"Hosting charged, no site matched ({c['unmatched']}) — either we "
+              f"host it somewhere else or the description names nothing we hold",
+              "now")
+        for ln in rep["unmatched"]:
+            m = ln.get("match") or {}
+            desc = (ln.get("description") or "").strip()
+            rows.append([
+                {"text": desc or "(no description on this line)",
+                 "muted": not desc,
+                 "title": (ln.get("invoice_text") or "")[:400]},
+                m.get("domain") or {"text": "—", "muted": True},
+                {"text": "no site", "pill": "warn"},
+                ({"text": ln.get("customer") or "", "href": ln.get("link")}
+                 if ln.get("customer") and ln.get("link") else (ln.get("customer") or "")),
+                ln.get("product") or "",
+                ln.get("date") or "",
+                _money(ln.get("amount") or 0),
+                m.get("why") or "",
+            ])
+            styles.append("red")
+
+    if rep["unbilled"]:
+        group(f"Live site, nothing billed ({c['unbilled']}) — no hosting charge "
+              f"in the last {rep['months']} months", "soon")
+        for rec in rep["unbilled"]:
+            rows.append(charge_row(rec, {"text": "Active", "pill": "ok"}))
+            styles.append("yellow")
+
+    if rep["lapsed"]:
+        group(f"Live site, billing lapsed ({c['lapsed']}) — billed once and not "
+              f"in the last {rep['recent_months']} months", "soon")
+        for rec in rep["lapsed"]:
+            rows.append(charge_row(rec, {"text": "Active", "pill": "ok"}))
+            styles.append("yellow")
+
+    if rep["short"]:
+        group(f"Fewer hosting charges than live sites ({c['short']}) — matched "
+              f"on the customer name, so which site each charge covers is not "
+              f"stated anywhere", "soon")
+        for s in rep["short"]:
+            rows.append([
+                s["customer"],
+                {"text": ", ".join(x["domain"] for x in s["sites"] if x["domain"]) or "—",
+                 "muted": True},
+                {"text": f"{len(s['sites'])} live sites", "pill": "warn"},
+                s["customer"], "—", "—", _money(s["amount"]),
+                f"{s['lines']} hosting charge(s) this period against "
+                f"{len(s['sites'])} live sites: "
+                + ", ".join(x["name"] for x in s["sites"][:4]),
+            ])
+            styles.append("yellow")
+
+    if rep["ok"]:
+        group(f"Billed and active ({c['ok']})")
+        for rec in rep["ok"]:
+            rows.append(charge_row(rec, {"text": "Active", "pill": "ok"}))
+            styles.append(None)
+
+    cat = rep.get("catalogue") or {}
+    missing, similar = cat.get("missing") or [], cat.get("similar") or []
+    miss_note = ""
+    if rep.get("registry_error"):
+        # One of the five matching rules did not run. Silence here would read
+        # as "the customer name matched nothing", which is a different and
+        # worse claim than "we could not check the client registry".
+        miss_note += (" The client registry could not be read ("
+                      + rep["registry_error"] + "), so charges were not matched "
+                      "through it \u2014 some of the unmatched rows below may have "
+                      "an owner this run could not look up.")
+    if missing:
+        miss_note += (" " + ", ".join(f"\u201c{p}\u201d" for p in missing)
+                      + (" is" if len(missing) == 1 else " are")
+                      + " not in the QuickBooks catalog under that name, so "
+                        "nothing can be billed under it \u2014 that is a property of "
+                        "the filter, not of the book.")
+    if similar:
+        # Named rather than matched. A product called "Monthly Web Hosting -
+        # Annual" is probably hosting and is not one of the three, and folding
+        # it in on a substring is the rule hub/client_key.py refuses; leaving
+        # it out in silence loses a tier of revenue from a report that looks
+        # complete. So: say it exists and let somebody decide.
+        miss_note += (" QuickBooks also has "
+                      + ", ".join(f"\u201c{p}\u201d" for p in similar[:5])
+                      + (" and others" if len(similar) > 5 else "")
+                      + ", which resemble these three and are NOT counted here.")
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        "note": (f"{c['sites']} Smart 1 Sites projects ({c['active']} active) "
+                 f"against {c['lines']} hosting charges on invoices since "
+                 f"{rep['since']}. {c['billed_inactive']} billed with the site "
+                 f"not active, {c['unmatched']} charges matching no site, "
+                 f"{c['unbilled']} live sites never billed, {c['lapsed']} "
+                 f"lapsed, {c['ok']} billed and fine. Charges are joined to a "
+                 f"site by a domain in the description first, then by the "
+                 f"customer name matched exactly \u2014 a resemblance is printed as "
+                 f"\u201cpossible\u201d and still counted as unmatched. Only invoices "
+                 f"are read: sales receipts and recurring templates are not, so "
+                 f"a site billed either of those ways appears here as unbilled."
+                 + miss_note),
+    }
+
+
+
+def io_reconcile_report() -> dict:
+    """Insertion orders we sent that Knack has no campaign for.
+
+    The one seam nothing watched. Submitting an order logs it, registers the
+    client when nobody has heard of them, and POSTs it to Smart 1 Suite --
+    and then the Hub's involvement ends. A campaign that was never written
+    into Knack is indistinguishable from one that was: the log says the order
+    went, the overlay row still stands in for a record that never arrived, and
+    Client 360 goes on saying the cards are empty. Nobody is billed and
+    nothing is trafficked.
+
+    `hub/io_reconcile.py` holds every rule. What matters here is that a run
+    which could not read Knack live returns `measured: False`, so
+    `report_cache` never freezes "we could not look" into the shape of "there
+    is nothing to see".
+    """
+    from . import io_reconcile
+
+    data = io_reconcile.report()
+    note = io_reconcile.note(data)
+    if not data.get("measured"):
+        return {"columns": ["Order"], "rows": [], "row_styles": [],
+                "measured": False, "error": data.get("error", ""),
+                "note": note}
+
+    columns = ["Order", "Client", "Submitted", "Flight starts", "Monthly",
+               "Partner", "Recorded in", "Settle"]
+    rows, styles = [], []
+
+    def _when(row):
+        at = row.get("at")
+        if not at:
+            return "not recorded"
+        days = row.get("days")
+        stamp = at.strftime("%b %-d, %Y")
+        return stamp if days is None else f"{stamp} · {days}d ago"
+
+    def _start(row):
+        start = row.get("start")
+        if not start:
+            return "\u2014"
+        stamp = start.strftime("%b %-d, %Y")
+        return ("started " + stamp) if row.get("started") else stamp
+
+    for row in data["outstanding"]:
+        client = str(row.get("client") or "")
+        rows.append([
+            str(row.get("order") or ""),
+            _c360_link(client) if client else "(no client name)",
+            _when(row),
+            _start(row),
+            _money(row.get("monthly")) if row.get("monthly") else "\u2014",
+            str(row.get("partner") or "") or "\u2014",
+            ", ".join(row.get("sources") or []) or "\u2014",
+            {"io_settle": str(row.get("order") or "")},
+        ])
+        # A flight already running is red; one merely late is amber. A page of
+        # red is a page people scroll past, which is the note this codebase
+        # makes about a recommendation drawn in a finding's color.
+        styles.append("bad" if row.get("started") else "warn")
+
+    if data["unreconcilable"]:
+        rows.append([{"group": f"No order number recorded "
+                               f"({len(data['unreconcilable'])})",
+                      "tone": "later"}, "", "", "", "", "", "", ""])
+        styles.append(None)
+        for row in data["unreconcilable"]:
+            client = str(row.get("client") or "")
+            rows.append([
+                "(none)",
+                _c360_link(client) if client else "(no client name)",
+                _when(row), _start(row),
+                _money(row.get("monthly")) if row.get("monthly") else "\u2014",
+                str(row.get("partner") or "") or "\u2014",
+                ", ".join(row.get("sources") or []) or "\u2014",
+                "",
+            ])
+            styles.append(None)
+
+    if data["settled"]:
+        rows.append([{"group": f"Settled — not expected in Knack "
+                               f"({len(data['settled'])})", "tone": "later"},
+                     "", "", "", "", "", "", ""])
+        styles.append(None)
+        for row in data["settled"]:
+            mark = row.get("settled") or {}
+            client = str(row.get("client") or "")
+            who = mark.get("by") or "not recorded"
+            when = str(mark.get("at") or "")[:10]
+            # Why it was settled goes in the settle cell rather than borrowing
+            # the Partner column: a column whose heading means one thing above
+            # a group rule and another below it is a table nobody can read.
+            detail = (io_reconcile.SETTLE_REASONS.get(
+                mark.get("reason"), str(mark.get("reason") or ""))
+                + f" — {who}, {when}"
+                + (f". {mark['note']}" if mark.get("note") else ""))
+            rows.append([
+                str(row.get("order") or ""),
+                _c360_link(client) if client else "(no client name)",
+                _when(row), _start(row),
+                _money(row.get("monthly")) if row.get("monthly") else "\u2014",
+                str(row.get("partner") or "") or "\u2014",
+                ", ".join(row.get("sources") or []) or "\u2014",
+                {"io_unsettle": str(row.get("order") or ""), "detail": detail},
+            ])
+            styles.append(None)
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        "measured": True,
+        "note": note,
+        # Read by the settle control, so the reasons on screen cannot drift
+        # from the ones the write accepts.
+        "settle_reasons": [{"key": k, "label": v}
+                           for k, v in io_reconcile.SETTLE_REASONS.items()],
+    }
+
+
+# Whole tools rather than table-returning functions, and every one of them
+# answers "what is wrong / what do we owe" -- which is the question the QA page
+# exists for. They were on the Tools page under a group called "Client Work",
+# which named where the work came from rather than what the screen is for, and
+# a report nobody thinks to look for is a report nobody works. Each keeps its
+# own URL, so every existing link and every Client 360 crumb still resolves.
+#
+# Module-level rather than inline in the route that draws them, because two
+# things read this now: the QA page, and hub/search_index.py. A list only the
+# route could see is a list the search box could not, so "Domain Renewals"
+# and "Match Sites to Clients" answered nothing typed into it -- which is the
+# same invisibility the tile rule exists to stop, one screen further on.
+EXTRAS = [
+        ("Data Quality", "stale-creative", {
+            "title": "Stale Creative",
+            "desc": "How long since we last produced creative for each "
+                    "active client — and who has never had any.",
+            "ico": "&#9203;", "href": "/qa/stale-creative"}),
+        ("Data Quality", "unattached-images", {
+            "title": "Unattached Images",
+            "desc": "Every image the Hub creates, uploads or lets somebody "
+                    "choose \u2014 which tools file what they make into a "
+                    "client's gallery, and which images name nobody at all. "
+                    "Attach one to a client without leaving the row.",
+            "ico": "&#128444;", "href": "/qa/unattached-images"}),
+        ("Data Quality", "web-tickets", {
+            "title": "Web Tickets",
+            "desc": "Website change requests from Knack: what's open, "
+                    "what's gone stale, and per-client history.",
+            "ico": "&#127915;", "href": "/tools/tickets/"}),
+        ("Data Quality", "scan-all-clients", {
+            "title": "Scan All Clients",
+            "desc": "Audit every client with a website on file. Previews "
+                    "the credit cost, skips anything scanned recently, and "
+                    "caps each run before anything is spent.",
+            "ico": "&#9776;", "href": "/scans/bulk"}),
+        ("Data Quality", "match-sites", {
+            "title": "Match Sites to Clients",
+            "desc": "Every website we hold that nobody is attached to. "
+                    "Accepting a match writes the client registry, their "
+                    "Client 360 record, the Simvoly project and the Knack "
+                    "website record at once — and reports each separately.",
+            "ico": "&#128279;", "href": "/tools/sites-match"}),
+        ("Data Quality", "match-google", {
+            "title": "Match Google Accounts",
+            "desc": "Every Analytics property, Tag Manager container and "
+                    "Search Console property we can reach that maps to no "
+                    "client — searchable, with whoever it might belong to "
+                    "and why.",
+            "ico": "&#128202;", "href": "/tools/google-match"}),
+        ("Data Quality", "campaign-assets", {
+            "title": "Campaign Assets Needed",
+            "desc": "Every campaign on an insertion order still waiting on "
+                    "a clarification or on additional assets, grouped by "
+                    "media partner then internal sales — so the chase is "
+                    "one list per partner.",
+            "ico": "&#128230;", "href": "/tools/campaign-assets"}),
+        # Billing rather than Data Quality: the question this one answers
+        # is whether QuickBooks invoiced a renewal, which is the same
+        # question as the three reports it now sits beside.
+        ("Billing & Accounting", "domain-renewals", {
+            "title": "Domain Renewals",
+            "desc": "Every domain Smart 1 bought for a client, by the "
+                    "month its renewal is billed. This month says whether "
+                    "QuickBooks actually invoiced it; later months ask "
+                    "whether it should renew at all.",
+            "ico": "&#128197;", "href": "/tools/domains"}),]
+
+
 REPORTS = {
+    "prospect-queue": {
+        "title": "Prospects To Chase",
+        "desc": "Who to call, in the order the work has to happen — not in the "
+                "CRM, the same business twice, audited and unquoted, never "
+                "audited, then quoted and waiting.",
+        "ico": "&#128222;",
+        "fn": prospect_queue,
+        "group": "Sales",
+    },
     "active-clients": {
         "title": "Active Clients",
         "desc": "Every client with a live product or billing this month — partner, salesperson, live monthly and dashboard status.",
         "ico": "&#9679;",
         "fn": active_clients,
         "group": "Clients",
+    },
+    "io-not-in-knack": {
+        "title": "Orders With No Campaign",
+        "desc": "Insertion orders we sent that Knack has no campaign for \u2014 "
+                "with the ones whose flight has already started at the top, "
+                "because those are running in nobody\u2019s system.",
+        "ico": "&#128203;",
+        "fn": io_reconcile_report,
+        "group": "Data Quality",
     },
     "no-dashboards": {
         "title": "No Dashboards",
@@ -1719,6 +2176,15 @@ REPORTS = {
         "ico": "&#128506;",
         "fn": google_accounts,
         "group": "Data Quality",
+    },
+    "sell-to-clients": {
+        "title": "What We Could Sell Each Client",
+        "desc": "Findings read off each active client's own website, out of "
+                "audits already paid for — with the never-audited and the "
+                "stale named rather than left off.",
+        "ico": "&#128176;",
+        "fn": sell_to_clients,
+        "group": "Clients",
     },
     "no-analytics": {
         "title": "Clients Without Analytics",
@@ -1790,6 +2256,15 @@ REPORTS = {
         "fn": invoice_off,
         "group": "Billing & Accounting",
     },
+    "sites-billing": {
+        "title": "Sites Billing Report",
+        "desc": "Every Smart 1 Sites project against the three QuickBooks "
+                "hosting products \u2014 which live sites nobody is billing for, "
+                "and which dead ones are still being charged.",
+        "ico": "&#127760;",
+        "fn": sites_billing,
+        "group": "Billing & Accounting",
+    },
     "accounting-requests": {
         "title": "Accounting Requests",
         "desc": "Every request in the Accounting Requests pipeline (Smart 1 Marketing · GHL) — change stages right from the report.",
@@ -1800,14 +2275,71 @@ REPORTS = {
 }
 
 
+# The two reports that take a parameter. Everything else answers one
+# question, so its cache entry is one file — see `cache_key()`.
+MONTHLY = ("sales-scorecard", "partner-scorecard")
+
+
 def run(key: str, month: str = "") -> dict:
     meta = REPORTS.get(key)
     if not meta:
         raise KeyError(key)
-    if key in ("sales-scorecard", "partner-scorecard"):
+    if key in MONTHLY:
         out = meta["fn"](month)
     else:
         out = meta["fn"]()
     out["key"] = key
     out["title"] = meta["title"]
     return out
+
+
+def cache_key(key: str, month: str = "") -> tuple[str, str]:
+    """The name and parameters one report is cached under.
+
+    The month is part of the key only for the two reports that read it. Every
+    other report is handed whatever `?month=` happened to be on the URL and
+    ignores it, so keying on it would write a second identical file the first
+    time somebody arrived from a scorecard link.
+    """
+    return f"qa:{key}", (str(month or "").strip() if key in MONTHLY else "")
+
+
+def run_cached(key: str, month: str = "", *, force: bool = False) -> dict:
+    """Today's answer for one report — run once, then read.
+
+    `hub/report_cache.py` holds the rules. What matters at this call site is
+    that a report which could not measure — QuickBooks not connected, the GHL
+    pipeline unreachable, Knack refusing — is never stored as the day's
+    number, so connecting the provider an hour later does not leave the page
+    reporting "not configured" until tomorrow.
+    """
+    from . import report_cache
+    name, params = cache_key(key, month)
+    return report_cache.serve(name, lambda: run(key, month),
+                              params=params, force=force)
+
+
+def forget(*keys: str) -> int:
+    """Drop the cached copy of these reports. Call after a write.
+
+    Every action on a QA report removes a row from it — marking an accounting
+    request, assigning an invoice to a partner, skipping a client that needs
+    no dashboard, attaching a Google property to its owner. Without this the
+    row is still there on the next open and the button reads as having done
+    nothing, which is how it comes to be pressed twice.
+
+    With no arguments, every QA report is dropped. That is the right answer
+    for a write nobody can attribute to one report: running them again costs
+    one build each, and a stale row costs somebody's trust in the page.
+
+    Never raises. These are called from inside the write itself, and a cache
+    that could not be dropped must not turn a successful write into a failed
+    one — the worst case is a stale row, which the next Refresh clears.
+    """
+    try:
+        from . import report_cache
+        if not keys:
+            return report_cache.invalidate("qa:")
+        return report_cache.invalidate(*[f"qa:{k}" for k in keys])
+    except Exception:                                       # noqa: BLE001
+        return 0

@@ -37,6 +37,18 @@ bp = Blueprint(
     static_folder=None,
 )
 
+# Staff only. This is a blueprint on the hub app, so wsgi.py's AuthGuard --
+# which wraps dispatcher-mounted modules -- never sees it, and the hub app has
+# no blanket gate of its own. Without this the tool and its saved-job archive
+# answered 200 to anyone with the URL. The mount is applied at register()
+# time; it is named here because the guard takes public paths relative to it,
+# and there are none.
+try:
+    from hub.blueprint_guard import install as _install_guard
+    _install_guard(bp, mount="/tools/page-images")
+except Exception:                                       # noqa: BLE001
+    pass                                                # standalone, no Hub
+
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -282,7 +294,7 @@ def api_batch(job_id):
         if not candidate:
             return _fail("One of those images isn't on the page that was scanned.")
         if not candidate.get("optimizable"):
-            return _fail(f"{url.rsplit('/', 1)[-1]} can't be optimised.")
+            return _fail(f"{url.rsplit('/', 1)[-1]} can't be optimized.")
         chosen.append(url)
 
     batch_id = store.new_id()
@@ -385,7 +397,7 @@ def api_save(job_id, batch_id):
         data = store.get_bytes(job_id, f"{item['id']}.webp")
         if not data:
             failed.append({"source_url": item["source_url"],
-                           "error": "The optimised file expired before saving."})
+                           "error": "The optimized file expired before saving."})
             continue
 
         try:

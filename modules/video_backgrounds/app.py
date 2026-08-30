@@ -31,6 +31,18 @@ bp = Blueprint("video_backgrounds", __name__,
                url_prefix="/tools/video-backgrounds",
                template_folder="templates")
 
+# Staff only. This is a blueprint on the hub app, so wsgi.py's AuthGuard --
+# which wraps dispatcher-mounted modules -- never sees it, and the hub app has
+# no blanket gate of its own. Without this every page and API route here
+# answered 200 to anyone with the URL. One gate on the blueprint, so the next
+# route added does not have to remember; hub/blueprint_guard.py says why it is
+# shared rather than written out here for the third time.
+try:
+    from hub.blueprint_guard import install as _install_guard
+    _install_guard(bp, mount="/tools/video-backgrounds")
+except Exception:                                       # noqa: BLE001
+    pass                                                # standalone, no Hub
+
 
 def _actor() -> str:
     from flask import session

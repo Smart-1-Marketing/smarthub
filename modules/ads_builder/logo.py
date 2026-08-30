@@ -215,6 +215,17 @@ def from_brandfetch(website: str, client_name: str = "") -> dict:
             logos.append({"url": fmt["src"], "kind": logo.get("type") or "logo",
                           "format": (fmt.get("format") or "").lower(),
                           "width": fmt.get("width"), "height": fmt.get("height")})
+    # Keep what the call paid for. Without this the same client is looked up
+    # again from Client 360, from Image Creator and from here, three billed
+    # calls for one answer -- and the Client 360 brand card, which reads
+    # stored data and never fetches, stays empty through all three.
+    try:
+        from hub import seo as _hub_seo
+        _hub_seo.save_brandfetch(payload.get("domain") or domain, payload,
+                                 client=client_name or "")
+    except Exception:  # noqa: BLE001 -- the module runs outside the Hub too
+        pass
+
     logos.sort(key=lambda l: (0 if l["format"] == "svg" else 1, -(l.get("width") or 0)))
     best = _pick(logos)
     if not best:

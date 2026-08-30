@@ -1,9 +1,15 @@
 {# Cloudinary upload widget, shared by the staff gallery and the client's own
    share link.
 
-   Expects two variables:
-     upload_token   the gallery's share token (client-facing), or "" for staff
-     client_id      the gallery id, used when staff upload on a client's behalf
+   Every variable it needs comes from app._widget_ctx(), so the staff gallery
+   and the client's own share link cannot drift apart:
+     upload_token    the gallery's share token (client-facing), or "" for staff
+     client_id       the gallery id, used when staff upload on a client's behalf
+     sources         which upload tabs to draw, from upload_sources.configured()
+     source_options  per-source credentials, only where one is actually set
+     source_line     the sentence naming those sources, built from the live list
+     formats         what the widget will accept
+     max_bytes       the per-file ceiling
 
    The widget is loaded from Cloudinary's CDN because it is the widget — there
    is no self-hosted build of it — and it is the one third-party script on the
@@ -15,10 +21,14 @@
     <h2>Add your own files</h2>
     <span class="hint">Photos, logos, brochures — PDFs are fine too</span>
   </div>
+  {# Written from the sources actually switched on, never typed in here: a
+     paragraph naming Dropbox on a deployment where Dropbox is off is a promise
+     the panel cannot keep. #}
   <p class="hint" style="margin:0 0 12px">
-    Bring them from wherever they already are: your computer or phone camera,
-    Google Drive, Dropbox, Instagram, Facebook, or a web address. Nothing is
-    published anywhere — it goes straight into your gallery for our team.
+    {{ source_line }}
+    You'll be asked to sign in to whichever one you choose, and Smart 1 never
+    sees that password. Nothing is published anywhere — it goes straight into
+    your gallery for our team.
   </p>
   <button type="button" class="btn" id="openUpload">Upload files</button>
   <span class="hint" id="uploadState" style="margin-left:10px"></span>
@@ -41,11 +51,19 @@
 (function () {
   var TOKEN = {{ (upload_token or "")|tojson }};
   var CLIENT_ID = {{ (client_id or 0)|tojson }};
-  var BASE = {{ (url_for('image_picker.admin')|replace('/admin',''))|tojson }};
+  /* The module root, with no trailing slash. `image_picker.admin` is the
+     blueprint's own "/" -- there is no /admin to strip, so the old
+     replace() matched nothing and left the slash on, and every signed
+     upload was posted to "//api/upload-signature". Werkzeug answers that
+     with a 308, which a browser replays as a POST, so it worked by luck:
+     anything that downgrades the redirect to a 302 turns the upload into
+     a GET with no body, on the one page a client uses. */
+  var BASE = {{ url_for('image_picker.admin')|tojson }}.replace(/\/$/, "");
   var btn = document.getElementById('openUpload');
   var state = document.getElementById('uploadState');
   var strip = document.getElementById('uploadJustAdded');
   var widget = null;
+  var lastSource = '';
 
   function say(msg) { state.textContent = msg || ''; }
 
@@ -77,7 +95,8 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body({
         public_id: info.public_id, secure_url: info.secure_url,
-        resource_type: info.resource_type, source: info.source || 'local',
+        resource_type: info.resource_type,
+        source: info.source || lastSource || 'local',
         original_filename: info.original_filename, width: info.width,
         height: info.height, bytes: info.bytes
       }))
@@ -110,17 +129,18 @@
     }).then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d.ok) { say(d.error || 'Uploads are unavailable.'); return; }
-        widget = window.cloudinary.createUploadWidget({
+        var opts = {
           cloudName: d.cloud_name,
           apiKey: d.api_key,
           uploadSignatureTimestamp: d.timestamp,
           uploadSignature: sign,
           folder: d.folder,
           tags: (d.tags || '').split(','),
-          /* Every source the widget offers. One that isn't connected in the
-             Cloudinary console simply doesn't appear, so listing them all
-             costs nothing and means a client can use whichever they already
-             keep their photos in. */
+          /* Decided server-side, in modules/image_picker/upload_sources.py.
+             Not "everything the widget knows about": a billed add-on the
+             account has no subscription for draws a tab that consents and then
+             fails, which is exactly the failure Google Access was redesigned
+             to avoid. */
           sources: {{ sources|tojson }},
           multiple: true,
           maxFiles: 40,
@@ -139,10 +159,29 @@
               sourceBg: '#F4F6F8'
             }
           }
-        }, function (error, result) {
+        };
+
+        /* Per-source credentials, and only the ones actually set. An empty
+           dropboxAppKey is worse than none: the widget takes it at its word and
+           the tab then fails against an app key of "". Copied in rather than
+           spread, to stay in the same ES5 this file is written in. */
+        var keys = {{ source_options|tojson }};
+        for (var k in keys) { if (keys.hasOwnProperty(k)) opts[k] = keys[k]; }
+
+        widget = window.cloudinary.createUploadWidget(opts, function (error, result) {
           if (error) { say('Upload failed. Please try again.'); return; }
-          if (result && result.event === 'success') { record(result.info); }
-          if (result && result.event === 'queues-end') { say('Done.'); }
+          if (!result) { return; }
+          /* Which tab the file came from. The success payload does not
+             reliably carry it, so the last source-changed event is what we
+             have — and it is worth having: without it every Instagram and
+             Dropbox file in the gallery is filed as "local", and the one thing
+             that column exists for is to say where a client keeps their
+             photos. */
+          if (result.event === 'source-changed' && result.info && result.info.source) {
+            lastSource = String(result.info.source);
+          }
+          if (result.event === 'success') { record(result.info); }
+          if (result.event === 'queues-end') { say('Done.'); }
         });
         widget.open();
       })

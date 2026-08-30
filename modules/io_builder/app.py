@@ -29,6 +29,25 @@ from xml.sax.saxutils import escape as xml_escape
 
 load_dotenv()
 
+
+def _hub_settings():
+    """Hub settings, read at call time so a key added on Render lands on the
+    next request rather than the next deploy.
+
+    Wrapped: this module is also runnable on its own, where hub is not
+    importable, and a diagnostics route must not 500 because of that.
+    """
+    try:
+        from hub.config import settings
+        return settings
+    except Exception:                                 # noqa: BLE001
+        class _Fallback:
+            cloudinary_url = (os.getenv("CLOUDINARY_URL") or "").strip()
+            brandfetch_key = (os.getenv("BRANDFETCH_API")
+                              or os.getenv("BRANDFETCH_API_KEY") or "").strip()
+            openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        return _Fallback()
+
 from functools import wraps
 from collections import defaultdict, deque
 
@@ -97,9 +116,9 @@ def health():
         'status': 'ok',
         'template_exists': template_path.exists(),
         'template_path': str(template_path),
-        'cloudinary_configured': bool(os.getenv('CLOUDINARY_URL')),
-        'brandfetch_configured': bool(os.getenv('BRANDFETCH_API_KEY')),
-        'openai_configured': bool(os.getenv('OPENAI_API_KEY')),
+        'cloudinary_configured': bool(_hub_settings().cloudinary_url),
+        'brandfetch_configured': bool(_hub_settings().brandfetch_key),
+        'openai_configured': bool(_hub_settings().openai_key),
         'order_counter_storage': 'cloudinary' if _cloudinary_is_configured() else 'temporary',
     })
 
@@ -191,30 +210,53 @@ def _extract_brandfetch(payload, requested_domain):
 
 @app.get('/api/brandfetch')
 def brandfetch_lookup():
-    api_key = os.getenv('BRANDFETCH_API_KEY', '').strip()
-    client_id = os.getenv('BRANDFETCH_CLIENT_ID', '').strip()
-    if not api_key:
-        return jsonify({'error': 'Brandfetch is not configured'}), 503
+    # Through hub.config, which accepts BRANDFETCH_API too — the spelling the
+    # rest of this deployment's provider keys use. Read one way here, the
+    # lookup answered "not configured" over a key Smart 1 Ads was using.
+    # Through hub/brand_lookup.py rather than a request of our own.
+    #
+    # This route used to call Brandfetch directly, and the call was the least
+    # of it: the payload went to the browser and nowhere else. So the plan --
+    # a hundred lookups a month -- was being spent here without the usage page
+    # counting it, and Client 360's brand card, which reads *stored* brand
+    # data and never fetches, stayed empty for a client somebody had looked up
+    # in this very builder. That is the exact pair of failures brand_lookup.py
+    # was written to close, in a module its docstring does not name.
+    #
+    # The shared lookup records the call, saves the answer against the domain
+    # (and the client when one is known), and answers a cache hit without
+    # spending anything. What is kept here is the response shape: this route's
+    # own reading of the payload, and the status codes the IO Builder's script
+    # already branches on.
+    from hub import brand_lookup
+
     domain = (request.args.get('domain') or '').strip().lower()
     if '://' in domain:
         domain = urlparse(domain).hostname or ''
     domain = domain.removeprefix('www.').split('/')[0]
     if not domain or '.' not in domain:
         return jsonify({'error': 'A valid website domain is required'}), 400
-    headers = {'Authorization': f'Bearer {api_key}', 'Accept': 'application/json'}
-    if client_id:
-        headers['X-Client-Id'] = client_id
-    try:
-        response = requests.get(f'https://api.brandfetch.io/v2/brands/domain/{domain}', headers=headers, timeout=20)
-        if response.status_code == 404:
-            return jsonify({'error': f'No Brandfetch profile was found for {domain}'}), 404
-        response.raise_for_status()
-        return jsonify(_extract_brandfetch(response.json(), domain))
-    except requests.RequestException as exc:
-        detail = ''
-        if getattr(exc, 'response', None) is not None:
-            detail = (exc.response.text or '')[:300]
-        return jsonify({'error': 'Brandfetch request failed', 'detail': detail}), 502
+
+    # Optional, and worth taking when the page has one: a payload filed against
+    # the client is the one Client 360's card reads, and a domain-only save is
+    # only found by the domain cache.
+    client = (request.args.get('client') or '').strip()
+
+    result = brand_lookup.lookup(domain, client=client, module='io_builder')
+    if result.get('found'):
+        return jsonify(_extract_brandfetch(result.get('payload') or {}, domain))
+
+    note = result.get('note') or 'Brandfetch request failed'
+    if result.get('unconfigured'):
+        return jsonify({'error': 'Brandfetch is not configured'}), 503
+    # "Nothing is published for this domain" is a real answer about the client
+    # and not a failure of ours, which is the distinction the 404 branch here
+    # has always drawn. A refusal or an unreachable service is not that, and
+    # calling either one "no profile found" sends somebody to look for a logo
+    # that was never asked for -- brand_lookup.py's own rule.
+    if 'Nothing is published' in note:
+        return jsonify({'error': f'No Brandfetch profile was found for {domain}'}), 404
+    return jsonify({'error': 'Brandfetch request failed', 'detail': note}), 502
 
 
 
@@ -615,6 +657,39 @@ def api_client_context():
         return jsonify({"fields": {}, "error": f"{type(exc).__name__}"}), 200
 
 
+@app.post("/api/client-upload-link")
+def api_client_upload_link():
+    """The link this client uploads their own creative through.
+
+    An IO that says "creative is being supplied" is exactly the moment
+    somebody needs one, and until now the answer was to open Client Image
+    Uploads in another tab, find or add the client, and copy a link out of a
+    row — so it got made by whoever remembered the tool existed, and the
+    assets arrived by email instead.
+
+    A POST because it can create a gallery. The matching is the picker's own
+    and is deliberately strict: exactly one gallery or none, never a
+    substring, because a link that collects one client's photographs into
+    another client's gallery is worse than having no link at all.
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        from modules.image_picker import provisioning
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False,
+                        "error": f"Client Image Uploads is unavailable: {exc}"}), 200
+    out = provisioning.link_for(
+        str(body.get("client") or body.get("name") or ""),
+        str(body.get("url") or ""),
+        create=bool(body.get("create")),
+        # host_url, not url_root: this app is mounted at /tools/io, so
+        # url_root carries that mount and the picker path would be pasted
+        # onto the end of it.
+        base=request.host_url,
+    )
+    return jsonify(out)
+
+
 @app.post("/api/next-order-number")
 def next_order_number():
     try:
@@ -658,6 +733,30 @@ def _p(text, style):
     return Paragraph(xml_escape(str(text or '')).replace('\n', '<br/>'), style)
 
 
+def _upload_link_for(data):
+    """The client's creative upload link, for a document or the webhook.
+
+    Reads only — `create=False`. Building a PDF must never create a gallery:
+    a document is generated repeatedly, often twice in a row for the client
+    and internal versions, and a side effect that fires on each of those is
+    not one anybody asked for. The wizard creates the gallery explicitly and
+    puts the link in `clientUploadUrl`; this is the fallback so an IO for a
+    client who already has a gallery carries the link whether or not somebody
+    pressed the button.
+    """
+    given = str((data or {}).get('clientUploadUrl') or '').strip()
+    if given:
+        return given
+    try:
+        from modules.image_picker import provisioning
+        out = provisioning.link_for(str((data or {}).get('client') or ''),
+                                    str((data or {}).get('url') or ''),
+                                    create=False)
+        return out.get('share_url') or ''
+    except Exception:  # noqa: BLE001
+        return ''      # a missing link is a missing row, never a broken PDF
+
+
 def _build_requirements_pdf(data, doc_type):
     client = _safe_filename(data.get('client'))
     order_number = _safe_filename(data.get('orderNumber') or 'No Order')
@@ -680,6 +779,16 @@ def _build_requirements_pdf(data, doc_type):
         ['Monthly Spend', data.get('monthlySpendFormatted','')],
         ['Total Campaign Budget', data.get('totalCampaignBudgetFormatted','')],
     ]
+    # The link the client sends their own creative through. On BOTH documents:
+    # the customer version so the client can upload without anybody emailing
+    # them a link, and the internal one so whoever chases the assets has the
+    # same address rather than making a second gallery.
+    _upload_url = _upload_link_for(data)
+    if _upload_url:
+        meta.append(['Send Us Your Creative',
+                     Paragraph(f'<link href="{xml_escape(_upload_url)}">'
+                               f'{xml_escape(_upload_url)}</link>', styles['S1Body'])])
+
     # Geography was missing from this table entirely -- the IO said what was
     # being bought and never where it was running.
     from hub import target_areas as _ta
@@ -764,8 +873,15 @@ def _build_requirements_pdf(data, doc_type):
 
     # Uploaded creative section with thumbnails
     assets=data.get('creativeAssets') or []
-    if assets:
+    if assets or _upload_url:
         story.append(Paragraph('Creative Assets', styles['S1H2']))
+    if _upload_url:
+        story.append(Paragraph(
+            'Anything still to come can be uploaded here, and lands straight in '
+            f'this client&#39;s gallery: <link href="{xml_escape(_upload_url)}">'
+            f'{xml_escape(_upload_url)}</link>', styles['S1Small']))
+        story.append(Spacer(1, 6))
+    if assets:
         rows=[['Preview','Product','File / Status','Evergreen','Asset Link']]
         for a in assets:
             preview='-'
@@ -980,11 +1096,52 @@ def submit_io():
     try:
         from hub import audit
         _body = request.get_json(silent=True) or {}
-        audit.log("io_builder", "io_submitted",
-                  client=str(_body.get("client") or _body.get("client_name") or ""),
-                  order=str(_body.get("order_number") or ""))
+        # The browser posts the wizard's own state, whose key is
+        # `orderNumber`. Reading `order_number` alone wrote an empty order on
+        # every entry this route has ever logged -- while the
+        # `client_registered` entry written a few lines below, through
+        # `io_clients.register_from_io`, read the real key and got it right.
+        # Two readers of one payload, and the wrong one is the record a
+        # reconciliation depends on.
+        def _num(v):
+            try:
+                return float(v or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        audit.log(
+            "io_builder", "io_submitted",
+            actor=str(_body.get("salesContact")
+                      or _body.get("sales_contact") or "") or None,
+            client=str(_body.get("client") or _body.get("client_name") or ""),
+            order=str(_body.get("orderNumber")
+                      or _body.get("order_number") or ""),
+            # What a chase list needs beside the number: who to ask, and
+            # whether the flight has already begun. An order whose start date
+            # has passed with no campaign in Knack is running in nobody's
+            # system, which is a different urgency from one starting next
+            # month -- and neither is knowable from the number alone.
+            partner=str(_body.get("partner") or "") or None,
+            start=str(_body.get("start") or "") or None,
+            monthly=round(sum(_num(i.get("budget"))
+                              for i in (_body.get("items") or [])
+                              if isinstance(i, dict)), 2) or None)
     except Exception:  # noqa: BLE001
         pass
+
+    # An IO for a business nobody has a record of leaves them invisible on
+    # Client 360 -- the page reads Knack products and website records, and a
+    # brand-new client has neither until the campaign is set up. So the order
+    # registers them, and ONLY when they are genuinely new: an IO for a client
+    # who already resolves writes nothing, because a second row under a name
+    # that already exists is how one company becomes two on every report keyed
+    # on a client. Hub-side overlay, never a write to Knack -- the day the real
+    # record appears it wins. See hub/io_clients.py.
+    try:
+        from hub import io_clients
+        _b = request.get_json(silent=True) or {}
+        io_clients.register_from_io(_b)
+    except Exception:  # noqa: BLE001
+        pass           # an IO must never fail to submit over its own bookkeeping
 
     webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
     if not webhook_url:
@@ -1047,6 +1204,10 @@ def submit_io():
         "income_targets": data.get("incomes", data.get("income", [])),
         "dayparting": data.get("dayparting"),
         "creative_source": data.get("creativeSource"),
+        # The address the client uploads their own creative through, so a
+        # Suite automation can put it in a chase email or a task rather than
+        # somebody hunting for it in another tool.
+        "client_upload_url": _upload_link_for(data),
         "exclusions_negative_keywords": data.get("exclusions"),
         "landing_page_mode": data.get("landingPageMode"),
         "shared_landing_page": data.get("landingPage"),
@@ -1204,6 +1365,121 @@ def media_mix_recommendation():
         if getattr(exc, 'response', None) is not None:
             detail = (exc.response.text or '')[:500]
         return jsonify({'ok': False, 'error': 'Media-mix recommendation failed', 'detail': detail or str(exc)}), 502
+
+
+
+# ---------------------------------------------------------------------------
+# Unfinished insertion orders
+#
+# The browser keeps its own copy in localStorage and always did; this is the
+# half that survives the browser. Somebody interrupted on their laptop and
+# picking the IO up on a different machine had no draft at all before this,
+# and -- worse -- nothing on the start screen said an unfinished one existed,
+# so it was simply started again from the top. See hub/drafts.py.
+#
+# Nothing in here may fail the form it is insuring: every route answers 200
+# with what happened in the body, so an autosave that could not write costs
+# the server copy and never the IO somebody is in the middle of.
+# ---------------------------------------------------------------------------
+
+def _signed_in_as():
+    """Who is using the builder, from the Hub session.
+
+    `AuthGuard` puts the display name on the WSGI environ before Flask sees
+    the request -- the only place it exists for a dispatcher-mounted module,
+    which has no Hub app context and no `flask.g` of its own. Empty is a real
+    answer (the module runs standalone in the tests, and behind the shared
+    password in an emergency) and reads as "not recorded" on the list rather
+    than as somebody's name.
+    """
+    try:
+        return str(request.environ.get("s1hub.user") or "").strip()[:160]
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
+def _drafts():
+    from hub import drafts
+    return drafts
+
+
+def _draft_title(state):
+    """What the row says, from whatever the rep has filled in so far.
+
+    An IO is identified by its client and its order number, and the ordinary
+    case for a draft is that neither is there yet -- so this degrades rather
+    than refusing, and an untitled draft still appears on the list. A row
+    somebody cannot recognize is still better than a draft nobody knows about.
+    """
+    if not isinstance(state, dict):
+        return ""
+    # The browser wraps its own state -- {state, index, currentProduct} -- so
+    # the answers are one level down. Unwrapped here rather than at the route,
+    # because the fallback has to work for whatever posts the draft, and a
+    # title read off the wrapper is "Untitled" on every row.
+    if isinstance(state.get("state"), dict):
+        state = state["state"]
+    client = str(state.get("client") or state.get("client_name") or "").strip()
+    order = str(state.get("orderNumber") or state.get("order_number") or "").strip()
+    if client and order:
+        return f"{client} - IO {order}"
+    return client or (f"IO {order}" if order else "")
+
+
+@app.post("/api/draft")
+def api_draft_save():
+    body = request.get_json(silent=True) or {}
+    try:
+        out = _drafts().save(
+            "io",
+            str(body.get("id") or ""),
+            owner=_signed_in_as(),
+            title=str(body.get("title") or "") or _draft_title(body.get("state")),
+            step=body.get("step") or 0,
+            state=body.get("state") or {},
+        )
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("IO draft save failed: %s", exc)
+        return jsonify({"ok": False, "id": "", "dropped": [],
+                        "error": "not saved on the server"}), 200
+    return jsonify(out), 200
+
+
+@app.get("/api/drafts")
+def api_draft_list():
+    try:
+        rows = _drafts().listing("io", owner=_signed_in_as())
+    except Exception as exc:                            # noqa: BLE001
+        # "nobody has an unfinished IO" and "we could not look" are different
+        # answers, and only the first means there is nothing to pick up.
+        return jsonify({"drafts": [], "measured": False,
+                        "error": f"{type(exc).__name__}"}), 200
+    return jsonify({"drafts": rows, "measured": True, "error": ""}), 200
+
+
+@app.get("/api/draft/<draft_id>")
+def api_draft_get(draft_id):
+    try:
+        row = _drafts().get(draft_id)
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}"}), 200
+    if not row or row.get("kind") != "io":
+        return jsonify({"ok": False, "error": "No such draft."}), 404
+    return jsonify({"ok": True, "draft": row}), 200
+
+
+@app.delete("/api/draft/<draft_id>")
+def api_draft_delete(draft_id):
+    try:
+        row = _drafts().get(draft_id)
+        if not row or row.get("kind") != "io":
+            # Deleted, never existed and belongs to the other builder all
+            # answer the same thing: there is nothing here to discard.
+            return jsonify({"ok": True, "deleted": False}), 200
+        return jsonify({"ok": True, "deleted": _drafts().delete(draft_id)}), 200
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "deleted": False,
+                        "error": f"{type(exc).__name__}"}), 200
 
 
 if __name__ == '__main__':

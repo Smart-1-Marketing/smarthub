@@ -3,34 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{% block title %}Smart 1 Sites Admin{% endblock %}</title>
+  <title>{% block title %}Sites — Smart 1 Hub{% endblock %}</title>
   <link rel="stylesheet" href="{{url_for('static',filename='styles.css')}}">
 </head>
 <body data-module="sites_admin">
-<header>
-  <div>
-    <a class="brand" href="{{url_for('dashboard')}}">Smart 1 Sites Admin</a>
-    <span class="mode">{{'DEMO' if settings.mock_mode else 'LIVE'}}</span>
-  </div>
+{#
+  No dark branded header. This module is mounted inside the Hub, so the page
+  already carries the Hub's own sidebar — a second bar reading "Smart 1 Sites
+  Admin" in a different color is what made this read as a different product
+  standing next to Client 360 and the SEO client page.
+
+  What it genuinely needs is a second level of navigation: Accounts, Inventory
+  and Packages are pages the Hub's sidebar does not list. That is a light tab
+  strip (.s1d-subnav, in hub/static/hub-detail.css), and the section a page
+  belongs to is marked from request.endpoint rather than passed in by every
+  view — a nav that has to be told which entry to highlight is a nav that gets
+  it wrong on the next page somebody adds.
+#}
+{% set _here = request.endpoint or '' %}
+<main>
   {% if session.authenticated %}
-  <nav>
+  <nav class="s1d-subnav">
+    <a href="{{url_for('dashboard')}}" class="{{'on' if _here in ('dashboard','project_detail') else ''}}">Accounts</a>
+    <a href="{{url_for('inventory')}}" class="{{'on' if _here.startswith('inventory') else ''}}">Inventory</a>
+    <a href="{{url_for('packages')}}" class="{{'on' if _here in ('packages','costs_import') else ''}}">Packages</a>
+    <a href="{{url_for('add_site')}}" class="{{'on' if _here == 'add_site' else ''}}">Add Site</a>
+    <span class="sp"></span>
     <form class="navsearch" method="get" action="{{url_for('dashboard')}}">
       <input name="q" value="{{request.args.get('q','')}}" placeholder="Search a site…" aria-label="Search sites">
     </form>
-    <a href="{{url_for('dashboard')}}">Accounts</a>
-    <a href="{{url_for('inventory')}}">Inventory</a>
-    <a href="{{url_for('packages')}}">Packages</a>
-    <a href="{{url_for('add_site')}}">Add Site</a>
+    {#
+      The mode flag stays: DEMO and LIVE decide whether a Cancel button reaches
+      Simvoly, which is not something to discover by pressing one. It reads as
+      a state rather than as branding now.
+    #}
+    <span class="s1d-pill {{'warn' if settings.mock_mode else 'ok'}}">{{'Demo data' if settings.mock_mode else 'Live'}}</span>
     <form method="post" action="{{url_for('logout')}}">
       <input type="hidden" name="csrf_token" value="{{session.csrf}}">
-      <button class="linkbtn">Log out</button>
+      <button class="link" type="submit">Log out</button>
     </form>
   </nav>
   {% endif %}
-</header>
-<main>
+
   {% with msgs=get_flashed_messages(with_categories=true) %}
-    {% for cat,msg in msgs %}<div class="flash {{cat}}">{{msg}}</div>{% endfor %}
+    {% for cat,msg in msgs %}<div class="s1d-note {{ 'bad' if cat in ('error','danger') else ('warn' if cat=='warning' else 'ok') }}">{{msg}}</div>{% endfor %}
   {% endwith %}
   {% block content %}{% endblock %}
 </main>

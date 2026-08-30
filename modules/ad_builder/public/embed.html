@@ -189,6 +189,57 @@
   .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(0,0,0,.15);
     border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -3px; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* The mark that says a model is writing or a page is being read.
+
+     hub-thinking.js is the Hub's one implementation and it is injected into
+     every staff page and every mounted module. It is not here, and cannot
+     be: this page is framed on the customer's own marketing site, straight
+     off the renderer, so a script fetched from the Hub would be a new
+     outbound dependency on a page whose entire job is to load. That is the
+     same decision modules/scans/templates/_scan_mark.html records for the
+     three pages a prospect sees, and this is the third surface it applies
+     to.
+
+     Same two glyphs, same paths, same 1.9s -- somebody filling this form in
+     on a client's website and a rep on the build screen are waiting on the
+     identical call and it must not look like two features. Held in step by
+     test_thinking.py rather than by memory.
+
+     currentColor throughout, so the color comes from the surrounding text
+     the way it does everywhere else. */
+  .s1mark { display:inline-block; vertical-align:-.2em; flex:0 0 auto;
+    color:inherit; margin-right:6px; }
+  .s1mark-sweep { transform-origin:12px 12px; animation:s1mark-sweep 1.9s linear infinite; }
+  .s1mark-ping { transform-box:fill-box; transform-origin:center;
+    animation:s1mark-ping 1.9s ease-out infinite; }
+  .s1mark-star { transform-box:fill-box; transform-origin:center;
+    animation:s1mark-star 1.9s ease-in-out infinite; }
+  .s1mark-tw { transform-box:fill-box; transform-origin:center;
+    animation:s1mark-tw 1.9s ease-in-out infinite; }
+  .s1mark-tw2 { animation-delay:.95s; }
+  @keyframes s1mark-sweep { to { transform:rotate(360deg); } }
+  @keyframes s1mark-ping { 0% { opacity:0; transform:scale(.4); }
+    12% { opacity:1; transform:scale(1); }
+    55%, 100% { opacity:0; transform:scale(1.5); } }
+  @keyframes s1mark-star { 0%, 100% { transform:scale(.86); opacity:.75; }
+    50% { transform:scale(1.06); opacity:1; } }
+  @keyframes s1mark-tw { 0%, 100% { opacity:.15; transform:scale(.5); }
+    45% { opacity:1; transform:scale(1); } }
+  /* Reduced motion asks for less movement, not less information. Both marks
+     stay drawn and the label beside them still says what is running -- a
+     wait that went invisible for these readers would be the feature failing
+     in exactly the place it was needed. */
+  @media (prefers-reduced-motion:reduce) {
+    .s1mark-sweep, .s1mark-ping, .s1mark-star, .s1mark-tw { animation:none; }
+    .s1mark-ping, .s1mark-tw { opacity:.55; }
+  }
+  /* The elapsed line. Silent until six seconds: a stopwatch on a two-second
+     read is noise, and a screen that counts at you teaches people to expect
+     a wait. Past six it is the only thing separating a slow answer from a
+     dead one. */
+  .s1clock { font-variant-numeric:tabular-nums; color:var(--ink-2);
+    margin-left:8px; font-size:12px; }
   .aicap { text-align: center; font-size: 13px; color: var(--ink-2); margin: 4px 0 0; min-height: 18px; }
   .ai-actions { display: flex; gap: 10px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
   .ai-actions button { padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: 1px solid var(--line); background: #fff; }
@@ -456,6 +507,7 @@
         <label class="req">Advertising platforms</label>
         <div class="checks" id="platformChecks">
           <label class="check"><input type="checkbox" name="platforms" value="google" checked> Google Display</label>
+          <label class="check"><input type="checkbox" name="platforms" value="meta"> Meta (Facebook &amp; Instagram)</label>
           <label class="check"><input type="checkbox" name="platforms" value="amazon"> Amazon DSP</label>
           <label class="check"><input type="checkbox" name="platforms" value="unsure"> Not sure — recommend</label>
         </div>
@@ -482,7 +534,7 @@
       <h2 class="steptitle">Review your message</h2>
       <p class="stepsub">We drafted this from your answers. Edit anything, then approve — nothing is built until you do.</p>
 
-      <div id="copyLoading" style="padding:24px 0;color:var(--ink-2)"><span class="spinner"></span> Writing your ad copy…</div>
+      <div id="copyLoading" style="padding:24px 0;color:var(--ink-2)"><svg class="s1mark" width="15" height="15" viewBox="0 0 24 24" role="img" aria-label="Writing your ad copy"><path class="s1mark-star" d="M12 3.2 13.6 9.1 19.4 10.7 13.6 12.3 12 18.2 10.4 12.3 4.6 10.7 10.4 9.1Z" fill="currentColor"/><circle class="s1mark-tw" cx="19.4" cy="4.9" r="1.7" fill="currentColor"/><circle class="s1mark-tw s1mark-tw2" cx="5.1" cy="19.2" r="1.3" fill="currentColor"/></svg> Writing your ad copy…<span class="s1clock" id="copyClock"></span></div>
 
       <div id="copyReview" style="display:none">
         <div class="field" data-field="approvedHeadline">
@@ -778,14 +830,22 @@
     document.getElementById('approvedSupport').value = sug.support || '';
     document.getElementById('approvedCta').value = sug.cta || (form.elements.cta.value !== 'Smart 1 should recommend' ? form.elements.cta.value : 'Learn More');
     renderCopyWarnings(sug.warnings);
+    stopCopyClock();
     document.getElementById('copyLoading').style.display = 'none';
     document.getElementById('copyReview').style.display = '';
     reportHeight();
   }
+  var stopCopyClock = function () {};
   function loadCopySuggestion(force) {
     if (copyLoaded && !force) return;
     document.getElementById('copyLoading').style.display = '';
     document.getElementById('copyReview').style.display = 'none';
+    /* This panel is hidden rather than replaced, so isConnected cannot see
+       it go: a clock left running behind display:none comes back on the
+       next draft reading the time since the first one. Started and stopped
+       by hand, and stopped on every exit. */
+    stopCopyClock();
+    stopCopyClock = s1Clock(document.getElementById('copyClock'));
     reportHeight();
     fetch(API + '/api/copy/suggest', {
       method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
@@ -879,20 +939,72 @@
   }
 
   // ---- AI background: plain loading + use-or-change loop ----
-  var AI_CAPTIONS = ['Creating your image\\u2026', 'This can take a moment\\u2026'];
+  /* The two glyphs, as markup rather than as a script that builds nodes:
+     this page is framed on a customer's site and half of what draws a wait
+     here is an innerHTML assignment. Identical paths to the `ai` and `scan`
+     glyphs in hub/static/hub-thinking.js, and test_thinking.py holds the
+     two in step -- somebody filling this in on a client's website and a rep
+     on the build screen are waiting on the same call. */
+  var S1_MARKS = {
+    ai: '<path class="s1mark-star" d="M12 3.2 13.6 9.1 19.4 10.7 13.6 12.3 ' +
+        '12 18.2 10.4 12.3 4.6 10.7 10.4 9.1Z" fill="currentColor"/>' +
+        '<circle class="s1mark-tw" cx="19.4" cy="4.9" r="1.7" fill="currentColor"/>' +
+        '<circle class="s1mark-tw s1mark-tw2" cx="5.1" cy="19.2" r="1.3" ' +
+        'fill="currentColor"/>',
+    scan: '<circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" ' +
+          'stroke-width="1.6" opacity=".3"/><circle cx="12" cy="12" r="4.4" ' +
+          'fill="none" stroke="currentColor" stroke-width="1.4" opacity=".22"/>' +
+          '<path class="s1mark-sweep" d="M12 12 L12 2.8 A9.2 9.2 0 0 1 20.5 8.6 Z" ' +
+          'fill="currentColor" opacity=".55"/>' +
+          '<circle class="s1mark-ping" cx="16.3" cy="7.9" r="1.7" fill="currentColor"/>'
+  };
+  /* label is what a screen reader is told: a spinning circle on its own
+     says nothing at all. */
+  function s1Mark(kind, label) {
+    return '<svg class="s1mark" width="15" height="15" viewBox="0 0 24 24" ' +
+           'role="img" aria-label="' + esc(label || 'Working') + '">' +
+           (S1_MARKS[kind] || S1_MARKS.scan) + '</svg>';
+  }
+
+  /* Counts up in the box it was given, silent until six seconds, and stops
+     itself the moment that box leaves the page. Half of this form ends a
+     wait by assigning innerHTML over whatever was there, and requiring
+     every one of those to remember to clear a timer is how one of them
+     forgets and leaves it running for the life of the tab. Same rule, and
+     the same six seconds, as the Hub's own indicator. */
+  var S1_SLOW_AT = 6000;
+  function s1Clock(el) {
+    if (!el) return function () {};
+    var started = Date.now();
+    var t = setInterval(function () {
+      if (el.isConnected === false) { clearInterval(t); return; }
+      var ms = Date.now() - started;
+      if (ms < S1_SLOW_AT) { el.textContent = ''; return; }
+      var sec = Math.round(ms / 1000);
+      el.textContent = sec < 60 ? sec + 's'
+        : Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
+    }, 1000);
+    return function () { clearInterval(t); };
+  }
+
   function aiForgeMarkup() {
-    return '<p class="hint" style="margin:8px 0"><span class="spinner"></span> <span id="aicap">' + AI_CAPTIONS[0] + '</span></p>';
+    return '<p class="hint" style="margin:8px 0">' +
+      s1Mark('ai', 'Creating your image') +
+      ' <span id="aicap">Creating your image\u2026</span>' +
+      '<span class="s1clock" id="aiclock"></span></p>';
   }
   // reviseText === null means a fresh generation; a string means revise the
   // current image with that instruction.
   function runAiForge(results, reviseText) {
     results.innerHTML = aiForgeMarkup();
-    var capEl = document.getElementById('aicap');
-    var ci = 0;
-    var capTimer = setInterval(function () {
-      ci = (ci + 1) % AI_CAPTIONS.length;
-      if (capEl) capEl.textContent = AI_CAPTIONS[ci];
-    }, 1800);
+    /* Two captions alternating every 1.8 seconds used to stand in for
+       progress, and past about four seconds that is what a hung page
+       looks like: the words go round, nothing else changes, and there
+       is no way to tell a slow answer from a dead one. The elapsed
+       line is what actually answers that, so the caption is said once
+       and the clock carries the rest -- the arrangement the Hub's own
+       indicator settled on, for the same reason. */
+    var capTimer = s1Clock(document.getElementById('aiclock'));
 
     fetch(API + '/api/images/generate', {
       method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
@@ -912,7 +1024,7 @@
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        clearInterval(capTimer);
+        capTimer();
         if (!data.candidate) {
           results.innerHTML = '<span class="hint">' + esc(data.reason || 'The image could not be generated. Your ad will use a solid background.') + '</span>';
           bgChoice = { mode: 'solid', url: null };
@@ -922,7 +1034,7 @@
         showAiResult(results, data.candidate.url);
       })
       .catch(function () {
-        clearInterval(capTimer);
+        capTimer();
         results.innerHTML = '<span class="hint">Could not reach the image service. Your ad will use a solid background.</span>';
         bgChoice = { mode: 'solid', url: null };
       });
@@ -941,7 +1053,7 @@
       results.querySelector('.aicap') && results.querySelector('.aicap').remove();
       var note = document.createElement('p'); note.className = 'hint';
       note.style.cssText = 'margin:8px 0 0;color:var(--accent,#1F5FC0);font-weight:600';
-      note.textContent = '\\u2713 This image will be used as your background.';
+      note.textContent = '\u2713 This image will be used as your background.';
       results.appendChild(note);
       bgChoice = { mode: 'ai', url: url };
     });
@@ -1150,7 +1262,10 @@
     if (!v || v === lastPage || v.indexOf('.') < 0) return;
     lastPage = v;
     landingSection.style.display = '';
-    landingCard.innerHTML = '<div class="brandcard"><span class="spinner"></span>Reading your landing page…</div>';
+    /* Their own server, so the dish rather than the star: nothing is
+       being written here and nothing is billed per call. */
+    landingCard.innerHTML = '<div class="brandcard">' + s1Mark('scan',
+      'Reading your landing page') + 'Reading your landing page\u2026</div>';
     reportHeight();
     fetch(API + '/api/landing/analyze', {
       method: 'POST', headers: codeHeaders({ 'content-type': 'application/json' }),
@@ -1236,7 +1351,7 @@
       no.style.cssText = 'font-size:12px;padding:3px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer';
       yes.addEventListener('click', function () {
         window.__uploadedBg = { url: url, name: name };
-        q.innerHTML = '<span style="color:var(--signal);font-weight:600">\\u2713 This photo will be used as your background.</span>';
+        q.innerHTML = '<span style="color:var(--signal);font-weight:600">\u2713 This photo will be used as your background.</span>';
       });
       no.addEventListener('click', function () {
         if (window.__uploadedBg && window.__uploadedBg.url === url) window.__uploadedBg = null;

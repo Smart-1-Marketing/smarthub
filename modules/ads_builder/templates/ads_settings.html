@@ -1,5 +1,6 @@
 {% extends "ads_base.html" %}
 {% set active = 'settings' %}
+{% set screen = 'ads_builder.settings' %}
 {% block title %}Settings{% endblock %}
 {% block strap %}Connections and configuration for the Smart 1 Ads module{% endblock %}
 
@@ -9,8 +10,8 @@
 {# What works right now, per step, rather than one "connected" flag. Three of
    the four need no Google credentials at all, and a single flag reported the
    whole tool as down when only the last step was. #}
-<div class="card">
-  <h3>What works right now</h3>
+<div class="card" data-tour="ads-status">
+  <h3>What works right now {{ help_dot('ads_builder.settings.status') if help_dot is defined else '' }}</h3>
   <table>
     <thead><tr><th>Step</th><th>State</th><th>Needs</th></tr></thead>
     <tbody>
@@ -41,7 +42,7 @@
           {% if status.blocks %}
             {% for b in status.blocks %}<span class="mono">{{ b.name }}</span> — {{ b.why }}.<br>{% endfor %}
           {% elif not status.connected %}
-            Credentials are set; nobody has authorised a Google account yet.
+            Credentials are set; nobody has authorized a Google account yet.
           {% else %}
             Connected.
           {% endif %}
@@ -72,17 +73,17 @@
   </div>
 
   <div class="grid g3" style="margin-bottom:12px">
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">Credentials</div>
       <div class="v" style="font-size:17px">{{ 'Configured' if status.configured else 'Incomplete' }}</div>
       <div class="f">{{ ('Missing: ' + status.missing|join(', ')) if status.missing else 'All keys present' }}</div>
     </div>
-    <div class="stat">
-      <div class="l">Authorisation</div>
+    <div class="s1d-tile">
+      <div class="l">Authorization</div>
       <div class="v" style="font-size:17px">{{ 'Connected' if status.connected else 'Not connected' }}</div>
       <div class="f">{{ status.refresh_token_source }}</div>
     </div>
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">API version</div>
       <div class="v" style="font-size:17px">{{ status.api_version }}</div>
       <div class="f">{{ ('MCC ' + status.login_customer_id) if status.login_customer_id else 'No login-customer-id set' }}</div>
@@ -111,12 +112,12 @@
       Based on <span class="mono">PUBLIC_BASE_URL</span> it should be
       <span class="mono brk">{{ expected_redirect }}</span>.
     {% endif %}
-    This must match the Authorised redirect URI in Google Cloud Console character for character.
+    This must match the Authorized redirect URI in Google Cloud Console character for character.
   </div>
 </div>
 
 <div class="card">
-  <h3>OpenAI <span class="sub">powers the campaign generator</span></h3>
+  <h3 data-tour="ads-openai">OpenAI {{ help_dot('ads_builder.settings.openai') if help_dot is defined else '' }} <span class="sub">powers the campaign generator</span></h3>
   {% if openai_configured %}
     <span class="tag t-good">Configured</span>
     <span style="color:#64748b;margin-left:8px">{{ openai_model }}</span>
@@ -144,29 +145,36 @@
    a probe observed, and — where neither exists — "not recorded", which is not
    the same as "broken". The probe is a button because it costs an operation
    against a daily cap the deploy also has to fit inside. #}
+{# Defaulted rather than required, the same way every help_dot call in this
+   codebase is written: a template that raises UndefinedError over a missing
+   context key takes the whole page down, and this panel is worth less than
+   Settings is. With nothing passed it degrades to "not recorded", which is
+   also the honest answer. #}
+{% set tier = tier if tier is defined and tier else {'label': 'Not recorded', 'source': 'none', 'tier': '', 'measured': False, 'note': 'Nobody has recorded which access tier this token holds, and Google does not publish it over the API. Run the planning check to find out.'} %}
+{% set tiers = tiers if tiers is defined and tiers else [] %}
 <div class="card">
   <div class="row" style="margin-bottom:12px">
-    <h3 style="margin:0">Developer token access tier</h3>
+    <h3 style="margin:0">Developer token access tier {{ help_dot('ads_builder.settings.tier') if help_dot is defined else '' }}</h3>
     <div class="spacer"></div>
     <button class="btn b-sm" id="planbtn" onclick="checkPlanning()">Check keyword planning</button>
   </div>
 
   <div class="grid g3" style="margin-bottom:12px">
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">Tier</div>
       <div class="v" style="font-size:17px" id="tierlabel">{{ tier.label }}</div>
       <div class="f" id="tiersource">
         {% if tier.source == 'observed' %}observed by a planning check{% elif tier.source == 'none' %}not recorded{% else %}recorded in {{ tier.source }} &mdash; a claim, not a check{% endif %}
       </div>
     </div>
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">Measured cost per click</div>
       <div class="v" style="font-size:17px" id="planstate">
         {% if tier.measured and tier.tier in ('basic', 'standard') %}Available{% elif tier.measured %}Not at this tier{% else %}Not measured{% endif %}
       </div>
       <div class="f">Needs Basic access. Deploying does not.</div>
     </div>
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">Daily operations</div>
       <div class="v" style="font-size:17px">
         {% if tier.tier == 'explorer' %}2,880{% elif tier.tier in ('basic', 'test') %}15,000{% elif tier.tier == 'standard' %}No cap{% else %}&mdash;{% endif %}

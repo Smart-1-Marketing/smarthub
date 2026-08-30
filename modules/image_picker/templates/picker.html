@@ -37,6 +37,58 @@
   </div>
   {% endif %}
 
+  {# The two questions a General Business client is asked before they browse.
+     Rendered only for that industry, because every other entry in the dropdown
+     already carries topics somebody wrote for the trade. Staff switching the
+     industry selector show and hide it from the script below. #}
+  <section class="panel" id="profilePanel"
+           {% if client.industry_key != 'general' %}hidden{% endif %}>
+    <div class="panel-head">
+      <h2 id="profileHead">Tell us about your business</h2>
+      <span class="hint" id="profileState"></span>
+    </div>
+    <p class="hint" id="profileWhy" style="margin:0 0 12px">
+      Two questions, once. We use them to work out which photos are worth
+      showing you — without them the best we can do is a stock office and a
+      handshake.
+    </p>
+
+    <div id="profileForm">
+      {% for q in profile_questions %}
+      <div class="pfield">
+        <label for="pf_{{ q.key }}">{{ q.label }}</label>
+        {% if q.key == 'profile' %}
+        <textarea id="pf_{{ q.key }}" rows="3" maxlength="{{ q.max }}"
+                  placeholder="{{ q.placeholder }}">{{ client_profile.get(q.key, '') }}</textarea>
+        {% else %}
+        <input id="pf_{{ q.key }}" type="text" maxlength="{{ q.max }}"
+               placeholder="{{ q.placeholder }}"
+               value="{{ client_profile.get(q.key, '') }}">
+        {% endif %}
+        <span class="hint">{{ q.hint }}</span>
+      </div>
+      {% endfor %}
+      <button class="btn accent" id="profileSave" type="button">Show me my photos</button>
+      <button class="btn quiet" id="profileCancel" type="button" hidden>Cancel</button>
+    </div>
+
+    <div id="profileDone" hidden>
+      <p class="hint" style="margin:0">
+        Your topics are built from <strong id="profileCat"></strong>.
+        <button class="btn quiet small" id="profileEdit" type="button">Change this</button>
+      </p>
+    </div>
+  </section>
+
+<style>
+.pfield{margin:0 0 14px}
+.pfield label{display:block;font-weight:600;font-size:13.5px;margin:0 0 5px}
+.pfield input,.pfield textarea{width:100%;padding:11px 12px;border:1px solid var(--line);
+  border-radius:10px;font:14px inherit;background:#fff;color:inherit}
+.pfield textarea{resize:vertical;min-height:74px}
+.pfield .hint{display:block;margin-top:5px}
+</style>
+
   <section class="panel">
     <div class="panel-head">
       <h2>Browse</h2>
@@ -107,6 +159,7 @@
   var CLIENT_ID = {{ client.id|tojson }};
   var IS_STAFF  = {{ is_staff|tojson }};
   var TAXONOMY  = {{ industries|tojson }};
+  var PROFILE   = {{ client_profile|tojson }};
   var BASE      = {{ (url_for('image_picker.admin'))|tojson }};
 
   var state = {
@@ -134,6 +187,34 @@
   function industry(){
     for (var i=0;i<TAXONOMY.length;i++) if (TAXONOMY[i].key === state.industry) return TAXONOMY[i];
     return TAXONOMY[TAXONOMY.length-1];
+  }
+
+  /* This gallery's own topics replace General Business's four generic ones.
+     Written over the taxonomy entry rather than branched on at every call site,
+     so the chips, the first-topic-on-load and the industry hint all read the
+     same list without knowing where it came from. Only "general" is touched:
+     a staff member switching the selector to a real trade is asking to see
+     that trade's curated chips, and a client's description must not quietly
+     override it. */
+  function applyProfile(){
+    if (!PROFILE || !(PROFILE.topics || []).length) return;
+    for (var i=0;i<TAXONOMY.length;i++){
+      if (TAXONOMY[i].key !== "general") continue;
+      TAXONOMY[i].topics = PROFILE.topics;
+      if ((PROFILE.services || []).length) TAXONOMY[i].services = PROFILE.services;
+    }
+  }
+
+  function profileDrawn(){
+    var has = !!(PROFILE && (PROFILE.topics || []).length);
+    var isGeneral = (state.industry === "general");
+    $("profilePanel").hidden = !isGeneral;
+    $("profileForm").hidden = has;
+    $("profileDone").hidden = !has;
+    $("profileWhy").hidden = has;
+    $("profileHead").textContent = has ? "About your business"
+                                       : "Tell us about your business";
+    if (has) $("profileCat").textContent = PROFILE.category || "what you told us";
   }
 
   function api(path, opts){
@@ -395,10 +476,67 @@
     $("industrySel").addEventListener("change", function(){
       state.industry = this.value;
       state.collection = "";
+      profileDrawn();
       renderChips();
       grid.innerHTML = "";
     });
   }
+
+  // ---- business profile ---------------------------------------------------
+  $("profileEdit").addEventListener("click", function(){
+    $("profileForm").hidden = false;
+    $("profileDone").hidden = true;
+    $("profileCancel").hidden = false;
+    $("pf_category").focus();
+  });
+  $("profileCancel").addEventListener("click", function(){
+    $("profileCancel").hidden = true;
+    profileDrawn();
+  });
+
+  $("profileSave").addEventListener("click", function(){
+    var category = $("pf_category").value.trim();
+    var written  = $("pf_profile").value.trim();
+    if (!category && !written){
+      say("bad","Tell us what the business does",
+          "A few words about what you sell is enough to start.");
+      return;
+    }
+    var btn = this;
+    btn.disabled = true;
+    $("profileState").textContent = "Working out your topics…";
+    clearSay();
+
+    api("/api/profile", {method:"POST", body:{category:category, profile:written}})
+      .then(function(d){
+        btn.disabled = false;
+        $("profileState").textContent = "";
+        if (!d.ok){
+          say("bad","Couldn't save that", d.error || "Try again in a moment.");
+          return;
+        }
+        PROFILE = d.profile || PROFILE;
+        $("profileCancel").hidden = true;
+        applyProfile();
+        profileDrawn();
+        state.collection = "";
+        renderChips();
+        /* Straight into the first topic. Saving the description and leaving an
+           empty grid underneath it reads as nothing having happened. */
+        var first = industry().topics[0];
+        if (first){ state.collection = first.key; renderChips(); search(false); }
+        if (d.fell_back){
+          say("", "Saved — showing you a general set for now",
+              "We couldn't reach the part that writes your own topics. Use " +
+              "Search to describe a photo and we'll find it.");
+        }
+      })
+      .catch(function(){
+        btn.disabled = false;
+        $("profileState").textContent = "";
+        say("bad","Couldn't save that","Check your connection and try again.");
+      });
+  });
 
   grid.addEventListener("click", function(e){
     var t = e.target.closest(".tile");
@@ -432,7 +570,7 @@
       grid.innerHTML = d.images.map(function(im){
         return '<a class="tile" href="' + esc(im.url) + '" target="_blank" rel="noopener" ' +
           'aria-label="' + esc(im.alt_text || im.filename) + '">' +
-          '<img src="' + esc(im.url) + '" alt="" loading="lazy">' +
+          '<img src="' + esc(im.thumb || im.url) + '" alt="" loading="lazy">' +
           '<span class="credit">' + esc(im.filename) + '</span></a>';
       }).join("");
       $("more").hidden = true;
@@ -440,10 +578,17 @@
   }
 
   // ---- go -----------------------------------------------------------------
+  applyProfile();
+  profileDrawn();
   renderChips();
   loadSaved();
-  var first = industry().topics[0];
+  /* A General Business gallery with nothing described yet opens on the two
+     questions and no grid: searching before they are answered spends provider
+     calls on the generic set they are here to get away from. */
+  var askFirst = (state.industry === "general" && !(PROFILE && (PROFILE.topics || []).length));
+  var first = askFirst ? null : industry().topics[0];
   if (first){ state.collection = first.key; renderChips(); search(false); }
+  else if (askFirst && $("pf_category")) { $("pf_category").focus(); }
 })();
 </script>
 {% endblock %}

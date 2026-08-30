@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>UTM Builder — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --bad:#dc2626;--ok:#16a34a}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:76ch;line-height:1.55}
   .back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
   h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
@@ -49,10 +50,6 @@
   .built .tags{font-size:11.5px;color:var(--muted);margin-bottom:4px}
   .tag{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:20px;
        padding:1px 8px;font-size:10.5px;font-weight:700;margin-right:4px}
-  table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th{background:var(--soft);text-align:left;padding:8px 9px;font-size:10.5px;text-transform:uppercase;
-     letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--line);white-space:nowrap}
-  td{padding:8px 9px;border-bottom:1px solid #eef2f7;vertical-align:top}
   td .u{font:11.5px ui-monospace,Consolas,monospace;overflow-wrap:anywhere;color:#334155;
         max-width:340px;display:block}
   .lnk{color:var(--blue);text-decoration:none;cursor:pointer}
@@ -85,7 +82,7 @@
 </style>
 </head>
 <body data-module="utm_builder">
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="/tools">&larr; Tools</a>
   <h1>UTM Builder</h1>
   <p class="sub">Build tagged campaign URLs, file them against the client and the product they belong to,

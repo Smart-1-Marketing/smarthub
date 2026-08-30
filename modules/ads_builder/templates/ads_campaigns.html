@@ -1,5 +1,6 @@
 {% extends "ads_base.html" %}
 {% set active = 'campaigns' %}
+{% set screen = 'ads_builder.campaigns' %}
 {% block title %}Live campaigns{% endblock %}
 {% block strap %}Google Ads — read, pause, enable and delete live campaigns{% endblock %}
 
@@ -7,8 +8,8 @@
 <div id="toast" style="display:none"></div>
 
 {% if not status.deploy_ready %}
-  <div class="note n-warn">
-    <b>Live campaign data needs the Google Ads API</b>
+  <div class="note n-warn" data-tour="ads-live">
+    <b>Live campaign data needs the Google Ads API {{ help_dot('ads_builder.campaigns.token') if help_dot is defined else '' }}</b>
     This screen reads spend, clicks and CPA out of the client's account, so it is the one part of
     Smart 1 Ads that cannot work without API access.
     {% if status.blocks %}
@@ -18,7 +19,7 @@
       </ul>
     {% else %}
       The credentials are set — open <a href="{{ mount }}/settings">Settings</a> and click
-      <strong>Connect Google Ads</strong> to authorise the account.
+      <strong>Connect Google Ads</strong> to authorize the account.
     {% endif %}
   </div>
   <div class="note n-info">
@@ -50,7 +51,9 @@
 
   <div class="grid g4" style="margin-bottom:16px" id="stats"></div>
 
-  <div class="card">
+  <div class="card" data-tour="ads-paused">
+    <h3>Campaigns {{ help_dot('ads_builder.campaigns.paused') if help_dot is defined else '' }}
+      <span class="sub">everything this tool deploys arrives paused</span></h3>
     <div id="campaigns"><span class="spin"></span> Loading campaigns…</div>
   </div>
 {% endif %}
@@ -105,7 +108,7 @@ async function load() {
 }
 
 function statTile(l, v, f) {
-  return `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div><div class="f">${f || ''}</div></div>`;
+  return `<div class="s1d-tile"><div class="l">${l}</div><div class="v">${v}</div><div class="f">${f || ''}</div></div>`;
 }
 
 function render(list) {

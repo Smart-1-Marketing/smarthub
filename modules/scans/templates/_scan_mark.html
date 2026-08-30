@@ -1,0 +1,53 @@
+{#
+  The mark that says a scan is running, for the three pages a prospect sees.
+
+  hub-thinking.js is the Hub's one implementation of this and it is injected
+  into every staff page and every mounted module — but not here. These three
+  templates are served to a stranger on somebody else's website (the widget is
+  three lines of embed code pasted onto a client's home page), and a script
+  fetched from the Hub on a page whose entire job is to load quickly is a new
+  outbound dependency for a decoration. So the glyph is inlined, and it is
+  inlined **once**: a macro imported by all three rather than a fourth, fifth
+  and sixth copy of the 2px border spinner they each carried.
+
+  It is the same dish, drawn the same way and moving at the same speed as the
+  `scan` glyph in hub/static/hub-thinking.js, because a prospect who starts a
+  scan on a client's site and a rep who starts one from Site Scans are waiting
+  on the identical thing and it should not look like two different features.
+  The two are kept in step by test_thinking.py rather than by memory.
+
+  Everything is currentColor, so a caller sets the color by setting the text
+  color — which is what the three call sites were already doing longhand with
+  `style="border-color:#fff"`.
+#}
+
+{% macro scan_mark_css() %}
+  .s1mark { display:inline-block; vertical-align:-.2em; flex:0 0 auto; color:inherit; }
+  .s1mark-sweep { transform-origin:12px 12px; animation:s1mark-sweep 1.9s linear infinite; }
+  .s1mark-ping { transform-box:fill-box; transform-origin:center;
+    animation:s1mark-ping 1.9s ease-out infinite; }
+  @keyframes s1mark-sweep { to { transform:rotate(360deg); } }
+  @keyframes s1mark-ping { 0% { opacity:0; transform:scale(.4); }
+    12% { opacity:1; transform:scale(1); }
+    55%, 100% { opacity:0; transform:scale(1.5); } }
+  /* Reduced motion asks for less movement, not less information. The dish
+     stays drawn and the label beside it still says what is running — a wait
+     that went invisible for these readers would be the feature failing in
+     exactly the place it was needed. */
+  @media (prefers-reduced-motion:reduce) {
+    .s1mark-sweep, .s1mark-ping { animation:none; }
+    .s1mark-ping { opacity:.55; }
+  }
+{% endmacro %}
+
+{#- size is a CSS length; label is what a screen reader is told, for which a
+    spinning circle on its own says nothing at all. -#}
+{% macro scan_mark(size='15px', label='Working') -%}
+<svg class="s1mark" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24"
+     role="img" aria-label="{{ label }}"><circle cx="12" cy="12" r="9.2" fill="none"
+ stroke="currentColor" stroke-width="1.6" opacity=".3"/><circle cx="12" cy="12" r="4.4"
+ fill="none" stroke="currentColor" stroke-width="1.4" opacity=".22"/><path
+ class="s1mark-sweep" d="M12 12 L12 2.8 A9.2 9.2 0 0 1 20.5 8.6 Z" fill="currentColor"
+ opacity=".55"/><circle class="s1mark-ping" cx="16.3" cy="7.9" r="1.7"
+ fill="currentColor"/></svg>
+{%- endmacro %}

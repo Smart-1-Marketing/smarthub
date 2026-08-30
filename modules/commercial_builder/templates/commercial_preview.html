@@ -1,18 +1,19 @@
 {% extends "_layout.html" %}
 {% block title %}Preview &amp; Render — {{ project.title }}{% endblock %}
+{# No walkthrough drives this screen, so the floating "Walk me through this"
+   button is off here. hub-demo.js highlights the current step's selector on
+   the page you are standing on and its perform() opens with `if (!node)
+   return` — so a walkthrough offered where its elements are not is a ring
+   anchored to nothing and a "Do it for me" that returns in silence, which is
+   worse than no button. #}
+{% set no_demo = true %}
 {% block content %}
 
-<div class="cb-stepper">
-  <div class="cb-step done">1. Start</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step done">2. Brief</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step done">3. Concepts</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step done">4. Storyboard</div><span class="cb-step-arrow">›</span>
-  <div class="cb-step active">5. Preview &amp; Render</div>
-</div>
+{% include "_stepper.html" %}
 
 <div class="cb-page-head">
-  <div><h1>Preview &amp; Render — {{ client.name }}</h1><p>Run the automatic quality checks, then render each output format.</p></div>
-  <a class="cb-btn" href="{{ url_for('commercial_builder.cb_pages.storyboard', project_id=project.id) }}">← Back to Storyboard</a>
+  <div><h1>Preview &amp; Render — {{ client.name }}</h1><p>The checks from the Blueprint step, one last time — then render a size, watch it, and approve it.</p></div>
+  <a class="cb-btn" href="{{ url_for('commercial_builder.cb_pages.blueprint', project_id=project.id) }}">← Back to Blueprint</a>
 </div>
 
 <div class="cb-grid cb-grid-2" style="align-items:start;" id="preview-root" data-project-id="{{ project.id }}">
@@ -22,18 +23,68 @@
   </div>
 
   <div class="cb-card">
-    <h3>Render</h3>
+    <h3>Render
+      {{ help_dot('commercial_builder.preview.render') if help_dot is defined else '' }}
+    </h3>
+    {# One size at a time. Rendering all three at once means the second and
+       third are built from a storyboard nobody has watched yet — so a note on
+       the first applies to two cuts that have already been paid for. #}
+    <p class="cb-hint" style="margin-top:0;">One size at a time. Render it, watch it,
+      approve it — then the rest come off a storyboard somebody has watched, and
+      they can go together.</p>
     <div class="cb-field">
-      <label class="cb-label">Formats</label>
+      <label class="cb-label">Size</label>
       <div class="cb-choice-grid" id="render-format-choices">
         {% for f in formats %}
-          <div class="cb-choice {{ 'selected' if f.id in project.formats else '' }}" data-value="{{ f.id }}"><div class="cb-choice-title">{{ f.id }}</div></div>
+          {% if f.id in project.formats %}
+          <div class="cb-choice" data-value="{{ f.id }}">
+            <div class="cb-choice-title">{{ f.id }}</div>
+            <div class="cb-choice-sub">{{ f.label.split('—')[1] if '—' in f.label else '' }}</div>
+            <div class="cb-format-state"></div>
+          </div>
+          {% endif %}
         {% endfor %}
       </div>
     </div>
-    <button class="cb-btn cb-btn-primary" id="render-btn">Render selected formats</button>
+    <div class="cb-flex-between" style="gap:8px; justify-content:flex-start;">
+      <button class="cb-btn cb-btn-primary" id="render-btn">Render this size</button>
+      {# Drawn only once the server says a batch is open — see can_batch on
+         /render-jobs. A button offering something the route would refuse is a
+         press that teaches somebody to distrust the panel. #}
+      <button class="cb-btn" id="render-rest-btn" hidden></button>
+    </div>
     <div id="render-jobs" style="margin-top:14px;"></div>
   </div>
+</div>
+
+{# The client's side of the sign-off.
+   Sits between the render panel and Create Variation because that is the
+   order of the work: render a size, show the client, then either approve it
+   or spin a variation off what they asked for. #}
+<div class="cb-card" id="review-card">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">Send it to the client
+      {{ help_dot('commercial_builder.preview.review') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-hint" id="review-round"></span>
+  </div>
+  <div id="review-state"><div class="cb-empty">Loading…</div></div>
+
+  <div id="review-send" style="display:none;margin-top:12px;">
+    <div class="cb-field">
+      <label class="cb-label">A note to send with it <span class="cb-muted"
+        style="font-weight:400;">(optional)</span></label>
+      <input type="text" id="review-message"
+             placeholder="Here is the :30 — the music is a placeholder for now.">
+    </div>
+    <button class="cb-btn cb-btn-primary" id="review-send-btn">Create a review link</button>
+    <p class="cb-hint">There is no mail sender in the Hub, so this makes the link
+      and you send it. Anyone holding it can watch the cut, leave notes against a
+      timestamp and answer — no login, nothing to install.</p>
+  </div>
+
+  <div id="review-link" style="display:none;margin-top:12px;"></div>
+  <div id="review-answers" style="margin-top:12px;"></div>
 </div>
 
 <div class="cb-card">

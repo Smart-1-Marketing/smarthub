@@ -18,7 +18,8 @@
       ],
       "minFontPx": 11,
       "notes": "Universal rectangle. Recommended standard is roughly 18 words maximum.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "336x280": {
       "w": 336,
@@ -36,7 +37,8 @@
       ],
       "minFontPx": 11,
       "notes": "In-content and end-of-content inventory. Extra space should improve image and typography, not add copy.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "728x90": {
       "w": 728,
@@ -54,7 +56,8 @@
       ],
       "minFontPx": 11,
       "notes": "Design as one horizontal sentence, not a compressed 300x250.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "160x600": {
       "w": 160,
@@ -72,7 +75,8 @@
       ],
       "minFontPx": 11,
       "notes": "Desktop sidebar. CTA belongs in the bottom 15-20%.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "300x600": {
       "w": 300,
@@ -90,7 +94,8 @@
       ],
       "minFontPx": 12,
       "notes": "The only core size where a second supporting sentence stays readable.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "320x50": {
       "w": 320,
@@ -108,7 +113,8 @@
       ],
       "minFontPx": 11,
       "notes": "One idea in about one second. Usually omit supporting copy entirely.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "970x250": {
       "w": 970,
@@ -126,7 +132,8 @@
       ],
       "minFontPx": 14,
       "notes": "Premium desktop. Strong demand in preferred deals and private auctions.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "250x250": {
       "w": 250,
@@ -144,7 +151,62 @@
       ],
       "minFontPx": 12,
       "notes": "Square. Logo and CTA centered.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
+    },
+    "1200x628": {
+      "w": 1200,
+      "h": 628,
+      "maxFileBytes": 5242880,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        16
+      ],
+      "minFontPx": 26,
+      "notes": "Responsive display landscape image asset, 1.91:1. Recommended 1200x628 (600x314 minimum). Google composes the headline and CTA itself around this image, so keep baked-in copy short -- it may appear alongside Google's own.",
+      "source": "doc",
+      "_verifiedAgainst": "https://support.google.com/google-ads/answer/13676244 (responsive display image assets), checked 2026-08-28"
+    },
+    "1200x1200": {
+      "w": 1200,
+      "h": 1200,
+      "maxFileBytes": 5242880,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        18
+      ],
+      "minFontPx": 30,
+      "notes": "Responsive display square image asset, 1:1. Recommended 1200x1200 (300x300 minimum). Google pairs it with the landscape asset; supplying both is what lets a responsive ad serve across the whole network.",
+      "source": "doc",
+      "_verifiedAgainst": "https://support.google.com/google-ads/answer/13676244 (responsive display image assets), checked 2026-08-28"
+    },
+    "1200x1500": {
+      "w": 1200,
+      "h": 1500,
+      "maxFileBytes": 5242880,
+      "formats": [
+        "jpg",
+        "png"
+      ],
+      "deliverScale": 1,
+      "words": [
+        8,
+        18
+      ],
+      "minFontPx": 30,
+      "notes": "Responsive display portrait image asset, 4:5. Recommended 1200x1500 (320x400 minimum). Optional where the landscape and square are not: Google serves without it, and supplying it buys the taller placements the other two cannot fill.",
+      "source": "doc",
+      "_verifiedAgainst": "https://support.google.com/google-ads/answer/13676244 (responsive display image assets), checked 2026-08-30"
     }
   }
 }

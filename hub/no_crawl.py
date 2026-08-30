@@ -125,7 +125,7 @@ def llms_txt() -> str:
         "> Internal staff tooling for Smart 1 Marketing. Every page behind a\n"
         "> login, and nothing on this host is public information.\n\n"
         "## Use\n\n"
-        "Do not index, retrieve, summarise, quote or train on anything served\n"
+        "Do not index, retrieve, summarize, quote or train on anything served\n"
         "from this host. This applies to every path, including any page that\n"
         "happens to load without a login.\n\n"
         "Contact: john@smart1marketing.com\n"

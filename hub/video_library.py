@@ -20,17 +20,38 @@ So this module does three things:
    masters are 50-235 MB ProRes-ish `.mov` files, so linking one into a page is
    not an option. Every result carries a transformed URL instead.
 
-Three decisions worth keeping
------------------------------
+Four decisions worth keeping
+----------------------------
 
-**Indexing is forward-only, and the cutoff is recorded rather than assumed.**
-The existing library is deliberately out of scope: `cutoff()` is stamped the
-first time an index runs and nothing created at or before it is ever touched.
-That is a product decision, not a technical limit — which is why it is one
-stored timestamp and one comparison, so "actually, do the back catalogue too"
-is a change to `INDEX_BACKLOG`, not a rewrite. Assets skipped for this reason
-are reported as `skipped_predates_cutoff`, never as failures, because a silent
-skip and a silent error look identical in a counter.
+**The library is two folder trees, not the account.** `FOLDERS` is an
+allowlist — `Smart 1 Ads` and `Video Backgrounds`, each including everything
+beneath it — and it scopes the counts, the search and what may be indexed
+alike. Before it, "Clips in Cloudinary" meant every video in the product
+environment: client commercials, internal explainers and Cloudinary's own demo
+files, counted and offered as background footage. A folder named here and
+absent there is *reported* rather than returning a confident zero, because a
+renamed folder and an empty one are different answers.
+
+**The back catalogue is the library, and a sweep works through it.** Indexing
+was forward-only — `cutoff()` stamped on the first run, nothing older ever
+touched — which was right when the in-scope library was thirty nameless
+supplier clips and became exactly wrong the moment the scope became the two
+folders that already hold the real footage: every clip in them would have been
+permanently unsearchable while the page reported a healthy count beside a zero.
+`INDEX_BACKLOG` is on, and `index_backlog()` runs on `hub/scheduler.py` at
+twenty clips an hour under a wall-clock budget, because scheduler jobs share
+one thread and a vision call has no useful ceiling on how long it takes. The
+cutoff still exists and still records when indexing began; it no longer gates
+anything.
+
+**A clip that fails is given up on, in writing.** The sweep returns whatever
+carries no marker, so a clip that cannot be described comes back on the very
+next run — a vision call an hour, for ever, with every individual run looking
+like a normal batch that had one failure in it. Three attempts, counted in the
+state file, and then `SEEN_TAG` goes on the asset with the reason in context.
+The give-up is a write rather than a note in memory because one kept in memory
+forgets itself on the next deploy. `undescribed_count` puts the total on the
+page, since a number that should never grow quietly is the one worth showing.
 
 **The tag vocabulary is closed.** A vision model asked for free-form keywords
 returns `car`, `cars`, `automobile` and `vehicle` across four clips, and then
@@ -49,6 +70,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -84,8 +106,20 @@ VOCAB: dict[str, tuple[str, ...]] = {
     ),
     "look": (
         "bright", "dark", "warm", "cool", "moody", "sunny", "overcast",
-        "night", "golden-hour", "high-contrast", "desaturated", "colourful",
+        "night", "golden-hour", "high-contrast", "desaturated", "colorful",
     ),
+}
+
+# A vocabulary term is written onto the clip as a Cloudinary tag, so renaming
+# one takes every clip already carrying the old spelling out of the filter it
+# used to answer -- a chip that returns nothing, on a library the page still
+# reports a healthy count for. `colourful` was the spelling until Smart 1's
+# copy was settled as American English. So the term offered is the new one and
+# the old one is still *matched*, per term, rather than the whole library being
+# re-indexed to correct a label. Re-indexing would be a vision call per clip
+# and would rewrite what a person may have corrected by hand.
+TAG_ALIASES: dict[str, tuple[str, ...]] = {
+    "colorful": ("colorful",),
 }
 
 # Facts about the clip rather than descriptions of it. Kept apart from VOCAB
@@ -105,16 +139,91 @@ FLAGS: tuple[str, ...] = (
 INDEX_TAG = "s1-indexed"
 SCHEMA_TAG = "s1-index-v1"
 
+# "We have finished deciding about this clip", written whether the decision was
+# a description or a give-up. It exists because of a hard limit in Cloudinary's
+# expression language rather than for its own sake: the sweep needs to skip
+# both the clips it has described *and* the ones it has repeatedly failed on,
+# and there is no way to write that as two exclusions. Run against this
+# account:
+#
+#   ... AND -tags:s1-indexed AND -tags:s1-index-failed   -> Query Error
+#   ... AND -(tags:s1-indexed OR tags:s1-index-failed)   -> parses, returns 0
+#   ... AND (scope) NOT tags:s1-indexed                  -> parses, returns 266
+#
+# The second is the dangerous one -- it looks like a working query and quietly
+# excludes everything -- and the third is worse: `NOT` discarded the folder
+# scope with it and answered about the whole account. Exactly one trailing
+# `-tags:x` is the only negation that behaves, so the two states are folded
+# into one tag and the *search* filter stays INDEX_TAG. A given-up clip
+# therefore carries SEEN_TAG alone: skipped by the sweep, invisible to search,
+# and countable on the page.
+SEEN_TAG = "s1-seen"
+
 # Context keys. Cloudinary exposes these to the Search API as
 # `context.<key>`, which is what makes the free-text half of search work.
 CTX_DESC = "s1_desc"
 CTX_INDEXED_AT = "s1_indexed_at"
+# Why a clip carries SEEN_TAG without a description. Absent from search either
+# way; the difference is whether anyone can find out why.
+CTX_SKIPPED = "s1_skipped"
 
-# Flip to True to let the back catalogue be indexed too. Deliberately a
-# constant and not an env var: turning it on re-reads and re-tags a hundred-odd
-# assets and costs a vision call each, which is a decision someone should make
-# in a diff rather than in a dashboard field at 2am.
-INDEX_BACKLOG = False
+# On. The back catalogue *is* the library here -- the whole point of scoping to
+# Smart 1 Ads and Video Backgrounds is that those folders already hold the
+# footage worth searching, and forward-only would have left every clip in them
+# permanently unsearchable while the page reported a healthy count beside a
+# zero. Forward-only was right when the in-scope library was thirty nameless
+# supplier clips; it is the opposite of right now.
+#
+# Still a constant and not an env var: this costs a vision call per clip, and
+# widening what a tool spends is a decision that belongs in a diff somebody
+# reviewed rather than in a dashboard field at 2am.
+INDEX_BACKLOG = True
+
+# The sweep's shape. It runs on hub/scheduler.py, so it is bounded twice: by
+# clip count, and by wall clock. The second bound is the one that matters --
+# scheduler jobs run in sequence on one thread, so a batch that takes twenty
+# minutes delays every other job behind it, and a vision call has no useful
+# upper bound on how long it can take.
+BACKLOG_BATCH = 20
+BACKLOG_SECONDS = 240
+
+# How many times one clip is described before the sweep gives up on it. A clip
+# that fails is returned by the very next sweep, so without this a single
+# unreadable file costs a vision call an hour for ever -- the cost leak is
+# silent, because every individual run looks like a normal batch with one
+# failure in it. Three, because a failure is usually the provider having a bad
+# minute rather than the clip being bad.
+MAX_ATTEMPTS = 3
+
+# ---------------------------------------------------------------------------
+# Scope — the folders this tool is allowed to see
+# ---------------------------------------------------------------------------
+# There was no scope at all until now, and that is not a small omission: both
+# the counts on the status card and every search ran as bare
+# `resource_type:video`, which is *every video in the product environment*. On
+# the account this was built against that meant 33 clips of genuine stock
+# footage counted alongside a client's solar spots, a chiropractor's social
+# cuts, an internal rebate explainer and four of Cloudinary's own demo videos
+# — presented under a heading reading "Clips in Cloudinary" on a tool whose
+# entire job is backgrounds. A number that large reads as a deep library and
+# is mostly footage nobody may put behind a headline.
+#
+# So the library is an allowlist of folder trees. Everything else in the
+# account is invisible here: not ranked lower, not filtered on the way out —
+# never asked for. Each entry covers the folder itself *and* every subfolder
+# beneath it, so a new campaign folder inside one of them is in scope the day
+# it is created and needs no edit here.
+#
+# Deliberately a constant rather than an environment variable, for the reason
+# INDEX_BACKLOG is one: widening what a tool can reach is a decision that
+# belongs in a diff somebody reviewed, not in a dashboard field. A folder that
+# is renamed in Cloudinary must therefore be renamed here too — which is
+# exactly why `folder_report()` exists and why the page prints it. A rename
+# with no report would empty the library and read as "we own no footage".
+FOLDERS: tuple[str, ...] = (
+    "Smart 1 Ads",
+    "Video Backgrounds",
+)
 
 _STATE_FILE = "state.json"
 
@@ -147,6 +256,117 @@ def can_index() -> bool:
 def _configure() -> None:
     if ready():
         cloudinary.config(secure=True)      # reads CLOUDINARY_URL
+
+
+# ---------------------------------------------------------------------------
+# The folder allowlist, as a search clause
+# ---------------------------------------------------------------------------
+
+def _folder_terms(path: str) -> list[str]:
+    """The clauses that match one folder tree.
+
+    Four of them, not two, and the pair that looks redundant is the point.
+    Cloudinary publishes a folder two ways depending on which folder mode the
+    product environment is in: `asset_folder` in dynamic folder mode, `folder`
+    (derived from the public_id path) in fixed. Both were run against this
+    account and both answer identically here, so asking for either costs
+    nothing — while asking for only the wrong one would return **zero** in an
+    environment set the other way, with every screen looking healthy and the
+    library reading as empty. That is not a hypothetical: the environment this
+    tool is pointed at is not the one it was written against.
+
+    The exact form (`=`) matches the folder itself and the trailing-wildcard
+    form (`:"path/*"`) matches everything below it. Neither alone is enough:
+    `asset_folder="Video Backgrounds"` misses every subfolder, and
+    `asset_folder:"Video Backgrounds/*"` misses every clip sitting directly in
+    it. Both were verified against the live search API.
+    """
+    # A double quote would close the quoted value and turn the rest of the
+    # folder name into syntax. Nothing else in a folder name is special once
+    # quoted, and a folder here is a code constant rather than user input --
+    # this is belt and braces on a name someone will one day paste in.
+    clean = str(path or "").strip().strip("/").replace('"', "")
+    if not clean:
+        return []
+    return [f'asset_folder="{clean}"', f'asset_folder:"{clean}/*"',
+            f'folder="{clean}"', f'folder:"{clean}/*"']
+
+
+def folder_clause() -> str:
+    """The parenthesised OR that scopes every query in this module.
+
+    Returns "" when the allowlist is empty, which no caller treats as "search
+    everything" -- see `search()`. An allowlist that widens to the whole
+    account when someone deletes a line is the failure this scope exists to
+    prevent.
+    """
+    terms: list[str] = []
+    for path in FOLDERS:
+        terms.extend(_folder_terms(path))
+    return "(" + " OR ".join(terms) + ")" if terms else ""
+
+
+def in_scope(folder: str) -> bool:
+    """Is this asset's folder inside the allowlist?
+
+    Applied to a single asset before it is indexed, so a public_id typed or
+    passed in by hand cannot reach round the scope and spend a vision call
+    describing a client's commercial. Matched on whole path segments: "Smart 1
+    Ads Archive" is not inside "Smart 1 Ads", exactly as `hub/access.py`
+    refuses to read `/statuses` as `/status`.
+    """
+    got = str(folder or "").strip().strip("/")
+    for path in FOLDERS:
+        allowed = str(path or "").strip().strip("/")
+        if allowed and (got == allowed or got.startswith(allowed + "/")):
+            return True
+    return False
+
+
+def scope_note() -> str:
+    """What the tool searched, in words, for any screen that shows results."""
+    if not FOLDERS:
+        return ("No folders are allowlisted, so there is nothing to search. "
+                "This is a configuration problem, not an empty library.")
+    names = ", ".join(f"{f}/" for f in FOLDERS)
+    return (f"Searching {names} and everything beneath them. Footage "
+            f"elsewhere in the account is deliberately out of scope.")
+
+
+def folder_report() -> list[dict]:
+    """Whether each allowlisted folder actually exists, one row each.
+
+    The whole point of the scope is that a folder named here and absent there
+    returns nothing -- and "nobody has uploaded backgrounds yet", "this folder
+    was renamed in Cloudinary" and "we could not ask Cloudinary" are three
+    different answers that a bare 0 renders identically. So `exists` is
+    tri-state: True, False, or None for *not measured*, which is the rule this
+    codebase applies everywhere else and the one thing a count cannot say.
+    """
+    rows: list[dict] = []
+    if not ready():
+        return [{"path": f, "exists": None,
+                 "note": "Cloudinary is not configured, so this could not be "
+                         "checked."} for f in FOLDERS]
+    _configure()
+    for path in FOLDERS:
+        row = {"path": path, "exists": None, "note": ""}
+        try:
+            cloudinary.api.subfolders(path)
+            row["exists"] = True
+        except Exception as exc:            # noqa: BLE001
+            # NotFound is an answer; anything else is a failure to look, and
+            # calling the second one "missing" sends somebody hunting for a
+            # folder that is sitting there.
+            if type(exc).__name__ == "NotFound":
+                row["exists"] = False
+                row["note"] = ("No folder of this name in this Cloudinary "
+                               "product environment. Nothing here can match "
+                               "it.")
+            else:
+                row["note"] = f"Could not be checked: {exc}"
+        rows.append(row)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +403,72 @@ def begin(actor: str = "") -> str:
     state["began_by"] = (actor or "")[:60]
     jsonstore.write_json(_state_path(), state)
     return stamp
+
+
+def attempts() -> dict:
+    """public_id -> how many times describing it has failed.
+
+    Kept in the state file rather than on the asset, because it is *in-flight*
+    bookkeeping: the moment a clip is given up on, SEEN_TAG goes on the asset
+    and its entry here is dropped. So this dict holds only clips currently
+    failing, which is a handful, not a copy of the library.
+    """
+    got = _read_state().get("attempts")
+    return got if isinstance(got, dict) else {}
+
+
+def _bump_attempt(public_id: str, reason: str) -> int:
+    """Record a failure and return the new count. Never raises."""
+    try:
+        state = _read_state()
+        book = state.get("attempts")
+        if not isinstance(book, dict):
+            book = {}
+        row = book.get(public_id)
+        count = int((row or {}).get("count") or 0) + 1
+        book[public_id] = {"count": count, "reason": str(reason)[:200],
+                           "last": _iso_z(datetime.now(timezone.utc))}
+        state["attempts"] = book
+        jsonstore.write_json(_state_path(), state)
+        return count
+    except Exception:                       # noqa: BLE001
+        # Losing the count costs a retry, which is the cheap direction to fail.
+        return 1
+
+
+def _forget_attempts(public_id: str) -> None:
+    """Drop a clip's failure history — it succeeded, or we gave up on it."""
+    try:
+        state = _read_state()
+        book = state.get("attempts")
+        if isinstance(book, dict) and public_id in book:
+            book.pop(public_id, None)
+            state["attempts"] = book
+            jsonstore.write_json(_state_path(), state)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+def _mark_seen(public_id: str, reason: str) -> bool:
+    """Put SEEN_TAG on a clip we are not going to describe.
+
+    This is the give-up write, and it is what stops the sweep returning the
+    same broken clip every hour for ever. The reason rides along in context so
+    the clip is not merely absent from search with nothing saying why.
+    """
+    try:
+        info = cloudinary.api.resource(public_id, resource_type="video",
+                                       tags=True)
+        tags = sorted(set(info.get("tags") or []) | {SEEN_TAG})
+        cloudinary.api.update(public_id, resource_type="video",
+                              tags=",".join(tags),
+                              context={CTX_SKIPPED: str(reason)[:200]})
+        return True
+    except Exception:                       # noqa: BLE001
+        # A give-up we could not write means the clip comes back next sweep,
+        # which is the safe direction: a retry costs one call, a lost clip is
+        # invisible for ever.
+        return False
 
 
 def _iso_z(when: datetime) -> str:
@@ -316,7 +602,7 @@ def _num(value) -> str:
 # Indexing
 # ---------------------------------------------------------------------------
 
-_PROMPT = """You are cataloguing a stock video clip so it can be found later by
+_PROMPT = """You are cataloging a stock video clip so it can be found later by
 someone looking for a background to put behind headline text.
 
 You are shown {n} frames sampled evenly through one clip. Describe the clip,
@@ -339,11 +625,11 @@ flags: {flags}
 
 Flag meanings — these decide whether the clip is usable, so be strict:
   has-people  someone is on screen
-  has-faces   a face is large enough to recognise
+  has-faces   a face is large enough to recognize
   has-text    words are burned into the footage
   loopable    the last frame could cut back to the first without a jump
   bg-ready    the look holds steady and there is room for an overlay; do NOT
-              set this if has-text is set, or if the subject sits dead centre
+              set this if has-text is set, or if the subject sits dead center
               where a headline would go
 """
 
@@ -454,6 +740,20 @@ def index_asset(public_id: str, *, force: bool = False) -> dict:
         result["reason"] = f"Could not read the asset: {exc}"
         return result
 
+    # Before the cutoff test and before any vision call: the scope is about
+    # what this tool may look at at all, and a public_id arriving from a
+    # caller rather than from pending() is exactly the path that goes round a
+    # search filter. Skipped, not failed -- an asset outside the library is
+    # not an error, it is none of our business.
+    folder = info.get("asset_folder")
+    if folder is None:
+        folder = str(info.get("folder") or "")
+    if not in_scope(folder):
+        result["status"] = "skipped_out_of_scope"
+        result["reason"] = (f"Sits in {folder or 'no folder'}, which is outside "
+                            f"the library. " + scope_note())
+        return result
+
     mark = cutoff()
     if not _after_cutoff(info.get("created_at", ""), mark):
         result["status"] = "skipped_predates_cutoff"
@@ -465,6 +765,13 @@ def index_asset(public_id: str, *, force: bool = False) -> dict:
     if INDEX_TAG in (info.get("tags") or []) and not force:
         result["status"] = "skipped_already_indexed"
         result["reason"] = "Already indexed. Pass force to re-describe it."
+        # A clip indexed before SEEN_TAG existed carries INDEX_TAG alone, so
+        # the sweep would hand it back every hour for ever -- costing a
+        # Cloudinary read each time and never a vision call, which is cheap
+        # enough to be invisible and wrong enough to fix. Backfilling here
+        # settles each one permanently on its first sweep.
+        if SEEN_TAG not in (info.get("tags") or []):
+            _mark_seen(public_id, "Indexed before the seen marker existed.")
         return result
 
     try:
@@ -478,7 +785,7 @@ def index_asset(public_id: str, *, force: bool = False) -> dict:
         result["reason"] = "The vision model returned nothing usable."
         return result
 
-    all_tags = sorted(set(tags) | {INDEX_TAG, SCHEMA_TAG})
+    all_tags = sorted(set(tags) | {INDEX_TAG, SCHEMA_TAG, SEEN_TAG})
     context = {
         CTX_DESC: desc,
         CTX_INDEXED_AT: _iso_z(datetime.now(timezone.utc)),
@@ -513,9 +820,16 @@ def pending_expression(mark: str) -> str:
     "nothing to index" forever with nothing looking broken.
     """
     expr = "resource_type:video"
+    scope = folder_clause()
+    if scope:
+        expr += f" AND {scope}"
     if mark and not INDEX_BACKLOG:
         expr += f' AND created_at>"{mark}"'
-    expr += f" AND -tags:{INDEX_TAG}"
+    # SEEN_TAG rather than INDEX_TAG, so a clip we have already given up on is
+    # not handed back every sweep. See SEEN_TAG's own note: two exclusions
+    # cannot be written here, and the two forms that look like they can either
+    # return nothing or silently drop the folder scope.
+    expr += f" AND -tags:{SEEN_TAG}"
     return expr
 
 
@@ -536,24 +850,71 @@ def pending(limit: int = MAX_INDEX_BATCH) -> list[dict]:
     return [_shape(r) for r in (res.get("resources") or [])]
 
 
-def index_new(limit: int = MAX_INDEX_BATCH, actor: str = "") -> dict:
-    """Index everything waiting. Stamps the cutoff on the first ever run."""
+def index_new(limit: int = MAX_INDEX_BATCH, actor: str = "",
+              max_seconds: float | int | None = None) -> dict:
+    """Index everything waiting. Stamps the cutoff on the first ever run.
+
+    `max_seconds` is a wall-clock budget, for the scheduler. Scheduler jobs run
+    in sequence on one thread, and a vision call has no useful upper bound on
+    how long it can take -- so without it a slow provider turns a twenty-clip
+    batch into a job that holds up every other job behind it. Stopping early is
+    free here: whatever was not reached is still un-tagged and comes back on
+    the next sweep.
+    """
     started = begin(actor)
     out = {"cutoff": started, "indexed": 0, "skipped": 0, "failed": 0,
-           "results": []}
+           "gave_up": 0, "stopped": "", "results": []}
     if not can_index():
         out["error"] = ("Indexing needs both CLOUDINARY_URL and "
                         "OPENAI_API_KEY; one of them is not set.")
         return out
+
+    deadline = (time.monotonic() + float(max_seconds)) if max_seconds else None
+    book = attempts()
     for item in pending(limit):
-        res = index_asset(item["public_id"])
+        if deadline is not None and time.monotonic() >= deadline:
+            out["stopped"] = (f"Ran out of its {int(max_seconds)}s budget. The "
+                              f"rest comes back on the next sweep.")
+            break
+        pid = item["public_id"]
+        res = index_asset(pid)
         out["results"].append(res)
         if res["status"] == "indexed":
             out["indexed"] += 1
+            _forget_attempts(pid)
         elif res["status"].startswith("skipped"):
             out["skipped"] += 1
         else:
             out["failed"] += 1
+            # Count the failure, and stop paying for this clip once it has had
+            # its three goes. Giving up is a *write* -- SEEN_TAG on the asset --
+            # because a give-up recorded only in memory is a give-up that
+            # forgets itself on the next deploy.
+            count = _bump_attempt(pid, res.get("reason") or "")
+            prior = int((book.get(pid) or {}).get("count") or 0)
+            if count >= MAX_ATTEMPTS or prior >= MAX_ATTEMPTS:
+                if _mark_seen(pid, f"Gave up after {count} attempts: "
+                                   f"{res.get('reason') or 'unknown'}"):
+                    _forget_attempts(pid)
+                    out["gave_up"] += 1
+                    res["status"] = "gave_up"
+    return out
+
+
+def index_backlog(actor: str = "scheduler") -> dict:
+    """One bounded pass for the scheduler, over whatever is still unseen.
+
+    The library this points at is a back catalogue, so there is no meaningful
+    difference between "new clips" and "the backlog" -- both are simply clips
+    carrying no SEEN_TAG, oldest first. This is `index_new` with the sweep's
+    two bounds applied, kept as its own name so the job reads as what it is.
+    """
+    out = index_new(limit=BACKLOG_BATCH, actor=actor,
+                    max_seconds=BACKLOG_SECONDS)
+    # The per-clip results are the expensive half of the payload and the
+    # scheduler stores every result in its state dict, so the summary goes back
+    # and the detail does not.
+    out.pop("results", None)
     return out
 
 
@@ -583,12 +944,30 @@ def build_expression(query: str = "", *, tags: list[str] | None = None,
     rather than an empty result, which reads as the tool being broken.
     """
     clauses = ["resource_type:video"]
+    # Second, immediately after resource_type and before anything negated or
+    # compared -- see pending_expression() for why clause order is not free
+    # here. Every query in this module carries it: a search that could reach
+    # outside FOLDERS is the scope not existing.
+    scope = folder_clause()
+    if scope:
+        clauses.append(scope)
     if indexed_only:
         clauses.append(f"tags:{INDEX_TAG}")
 
     for tag in (tags or []):
         clean = _SAFE_TERM.sub("", str(tag).strip().lower())
-        if clean:
+        if not clean:
+            continue
+        # A term that was spelled differently when older clips were indexed
+        # still has to find them -- see TAG_ALIASES. Parenthesised, and every
+        # branch positive, so it stays a comparison clause the expression
+        # language accepts here.
+        also = [a for a in TAG_ALIASES.get(clean, ())
+                if _SAFE_TERM.sub("", a) == a]
+        if also:
+            branches = " OR ".join(f"tags:{t}" for t in (clean, *also))
+            clauses.append(f"({branches})")
+        else:
             clauses.append(f"tags:{clean}")
 
     words = [w for w in _SAFE_TERM.sub(" ", (query or "").lower()).split() if w]
@@ -611,18 +990,26 @@ def search(query: str = "", *, tags: list[str] | None = None,
     """
     limit = max(1, min(int(limit or DEFAULT_RESULTS), MAX_RESULTS))
     out = {"ok": False, "query": query, "results": [], "total": 0,
-           "cutoff": cutoff(), "indexed_only": indexed_only, "note": ""}
+           "cutoff": cutoff(), "indexed_only": indexed_only, "note": "",
+           "folders": list(FOLDERS), "scope": scope_note()}
 
+    if not FOLDERS:
+        # Never "search everything instead". An allowlist that falls back to
+        # the whole account the moment it is empty is the scope failing open,
+        # which is the one way this change could make things worse than they
+        # were.
+        out["note"] = scope_note()
+        return out
     if not ready():
         out["note"] = ("Cloudinary is not configured, so the owned library "
                        "cannot be searched. This is not an empty library.")
         return out
     if indexed_only and not cutoff():
         out["ok"] = True
-        out["note"] = ("Indexing has not started yet, so nothing is "
-                       "searchable. Existing footage is deliberately out of "
-                       "scope — only clips uploaded after indexing begins are "
-                       "indexed.")
+        out["note"] = ("Indexing has not run yet, so nothing is searchable. "
+                       + scope_note()
+                       + " The scheduler describes a batch an hour once it "
+                         "starts; the button on this page runs one now.")
         return out
 
     _configure()
@@ -644,8 +1031,9 @@ def search(query: str = "", *, tags: list[str] | None = None,
     items = [i for i in items if _matches(i, orientation, max_duration)]
     out.update(ok=True, results=items[:limit], total=len(items))
     if not items:
-        out["note"] = ("Nothing indexed matches that yet. Indexing covers "
-                       f"clips uploaded after {out['cutoff'] or 'it starts'}.")
+        out["note"] = ("Nothing indexed matches that yet. " + scope_note()
+                       + " Indexing covers clips uploaded after "
+                       + f"{out['cutoff'] or 'it starts'}.")
     return out
 
 
@@ -682,7 +1070,7 @@ def _shape(resource: dict) -> dict:
     if isinstance(ctx, dict) and isinstance(ctx.get("custom"), dict):
         ctx = ctx["custom"]
     tags = [t for t in (resource.get("tags") or [])
-            if t not in (INDEX_TAG, SCHEMA_TAG)]
+            if t not in (INDEX_TAG, SCHEMA_TAG, SEEN_TAG)]
     return {
         "id": f"cloudinary_{resource.get('asset_id') or pid}",
         "provider": "cloudinary",
@@ -721,6 +1109,13 @@ def status() -> dict:
         "indexing_started": bool(mark),
         "indexed_count": None,
         "library_count": None,
+        "waiting_count": None,
+        "undescribed_count": None,
+        "failing": len(attempts()),
+        "folders": list(FOLDERS),
+        "folder_rows": [],
+        "missing_folders": [],
+        "scope": scope_note(),
         "note": "",
     }
     if not ready():
@@ -730,10 +1125,36 @@ def status() -> dict:
         out["note"] = ("OPENAI_API_KEY is not set. Existing index entries are "
                        "searchable; new clips cannot be described.")
     _configure()
+    out["folder_rows"] = folder_report()
+    out["missing_folders"] = [r["path"] for r in out["folder_rows"]
+                              if r["exists"] is False]
+    if out["missing_folders"]:
+        # Said here rather than left for a reader to infer from a zero. A
+        # folder named in FOLDERS and absent from the account cannot match
+        # anything, and the count below will be honest and useless.
+        out["note"] = ((out["note"] + " ") if out["note"] else "") + (
+            "Not in this Cloudinary product environment: "
+            + ", ".join(out["missing_folders"])
+            + ". Nothing in the library can come from them — check the folder "
+              "names, or whether the Hub's CLOUDINARY_URL points at the "
+              "product environment that holds them.")
     # Counted rather than left as zero: "0 indexed" and "could not count" mean
-    # very different things and must not look the same on the page.
-    for key, expr in (("indexed_count", f"resource_type:video AND tags:{INDEX_TAG}"),
-                      ("library_count", "resource_type:video")):
+    # very different things and must not look the same on the page. Both counts
+    # are scoped to FOLDERS, so this row answers "how much of the background
+    # library is searchable" rather than "how many videos does the account
+    # hold" -- which is what it used to answer while claiming the first.
+    scope = folder_clause()
+    prefix = f"resource_type:video AND {scope}" if scope else "resource_type:video"
+    # Four numbers rather than two, because "3,900 clips, 40 indexed" on its
+    # own cannot say whether the sweep is working through the library or has
+    # stopped. waiting_count is what is left to do; undescribed_count is what
+    # was tried and given up on, which is the number that should never grow
+    # quietly. Each negation is a single trailing `-tags:` -- see SEEN_TAG.
+    for key, expr in (("indexed_count", f"{prefix} AND tags:{INDEX_TAG}"),
+                      ("library_count", prefix),
+                      ("waiting_count", f"{prefix} AND -tags:{SEEN_TAG}"),
+                      ("undescribed_count",
+                       f"{prefix} AND tags:{SEEN_TAG} AND -tags:{INDEX_TAG}")):
         try:
             out[key] = int((Search().expression(expr).max_results(0)
                             .execute()).get("total_count") or 0)

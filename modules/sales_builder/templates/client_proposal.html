@@ -1,0 +1,191 @@
+{# The document a client opens. No Hub chrome (wsgi hands PUBLIC_PREFIXES to
+   HubBar), no navigation out of it, and exactly one thing to do.
+
+   The proposal itself is the PDF, embedded. Deliberately not re-rendered as
+   HTML: the PDF, the Word export and the builder's preview are already three
+   renderers of one document, and a fourth would be the drift this codebase
+   has paid for twice. What the client reads here is byte-for-byte what was
+   signed off. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Proposal for {{ q.client or 'you' }} — Smart 1 Marketing</title>
+<style>
+ :root{--navy:#14284b;--blue:#1f63ae;--gold:#e5a323;--line:#d5dee9;
+       --muted:#53657a;--soft:#eef3f8}
+ *{box-sizing:border-box}
+ body{margin:0;background:#f4f7fb;color:#22303f;
+      font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+ .band{background:var(--navy);color:#fff;text-align:center;padding:13px 16px;
+       font-weight:700;letter-spacing:.06em;font-size:13px}
+ .wrap{max-width:920px;margin:0 auto;padding:22px 16px 60px}
+ h1{color:var(--navy);font-size:23px;margin:18px 0 4px}
+ .sub{color:var(--muted);font-size:13.5px;margin-bottom:18px}
+ .card{background:#fff;border:1px solid var(--line);border-radius:12px;
+       padding:18px;margin-bottom:16px}
+ .doc{height:78vh;min-height:420px;width:100%;border:1px solid var(--line);
+      border-radius:10px;background:var(--soft)}
+ .btn{display:inline-block;border:0;border-radius:9px;padding:12px 20px;
+      font:inherit;font-weight:700;cursor:pointer;text-decoration:none}
+ .btn-primary{background:var(--blue);color:#fff}
+ .btn-line{background:#fff;color:var(--navy);border:1.5px solid var(--line)}
+ .btn[disabled]{opacity:.55;cursor:not-allowed}
+ label{display:block;font-weight:700;font-size:12.5px;color:var(--navy);
+       margin:0 0 5px}
+ input{width:100%;padding:11px 12px;border:1.5px solid var(--line);
+       border-radius:9px;font:inherit;background:#fff}
+ .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+ @media(max-width:620px){.two{grid-template-columns:1fr}.doc{height:60vh}}
+ .note{color:var(--muted);font-size:12.5px;line-height:1.55}
+ .done{background:#eaf7ee;border-color:#bfe3ca}
+ .lapsed{background:#fff8e8;border-color:#f0d79a;color:#6b4a00}
+ .done h2{color:#1c6b32;margin:0 0 6px;font-size:18px}
+ .staff{background:#fff6e0;border:1px solid #f0d79a;border-radius:10px;
+        padding:11px 14px;margin-bottom:16px;font-size:13px;color:#8c5a00}
+ .err{color:#9b2c2c;font-size:13px;margin-top:9px}
+ footer{text-align:center;color:var(--muted);font-size:12px;padding:26px 16px}
+</style>
+</head>
+<body>
+<div class="band">SMART 1 MARKETING</div>
+<div class="wrap">
+
+ {% if staff %}
+ {# The rule this feature was asked for with: a rep must be able to read the
+    client's copy without marking it read. Said on the page, because a
+    guarantee nobody can see is one nobody trusts. #}
+ <div class="staff">You are signed in to the Hub, so this visit is
+  <b>not counted</b> as a client opening the proposal — and Accept is the
+  client's to press, not yours.</div>
+ {% endif %}
+
+ <h1>Proposal for {{ q.client or 'your business' }}</h1>
+ <div class="sub">{{ q.quote_number }}{% if revision > 1 %} · revision {{ revision }}{% endif %}
+  {% if q.months %} · {{ q.months }}-month campaign{% endif %}</div>
+
+ {% if validity_note and not accepted %}
+ {# The expiry the client can see -- above the document, not under it. One
+    they cannot see is one we cannot hold them to, and the embed is 78vh tall:
+    below it, a client reads four pages of a proposal and only then finds out
+    the price on it is stale. #}
+ <div class="{{ 'card lapsed' if expired else 'note' }}"
+      style="margin:0 0 14px{{ '' if expired else ';padding:0 2px' }}">
+  {% if expired %}<b>This pricing needs refreshing</b><br>{% endif %}
+  {{ validity_note }}
+ </div>
+ {% endif %}
+
+ <div class="card" style="padding:12px">
+  {# view=FitH opens on the page rather than at 100% of a letter sheet in a
+     phone-width box. navpanes=0 asks for the thumbnail rail to be hidden and
+     is honored by Acrobat, Edge and Firefox; Chrome ignores it and shows the
+     rail anyway, which is the viewer's business rather than ours. The toolbar
+     stays either way: it is how a client pages through, zooms and prints. #}
+  <object class="doc" data="{{ url_for('page_client_pdf', token=token) }}#view=FitH&navpanes=0"
+          type="application/pdf">
+   {# iOS Safari and most phone browsers will not embed a PDF. The link is
+      not a fallback nobody sees -- it is how the document is read there. #}
+   <div style="padding:22px;text-align:center">
+    <p>Your browser cannot show the document inline.</p>
+    <a class="btn btn-primary" href="{{ url_for('page_client_pdf', token=token) }}"
+       target="_blank" rel="noopener">Open the proposal</a>
+   </div>
+  </object>
+  <div style="margin-top:11px;display:flex;gap:10px;flex-wrap:wrap">
+   <a class="btn btn-line" href="{{ url_for('page_client_pdf', token=token) }}"
+      target="_blank" rel="noopener">Open in a new tab</a>
+   <a class="btn btn-line" href="{{ url_for('page_client_pdf', token=token) }}?download=1">
+    Download the PDF</a>
+  </div>
+ </div>
+
+ {% if accepted %}
+ <div class="card done">
+  <h2>✓ Accepted</h2>
+  <div class="note">Accepted by <b>{{ accepted.name }}</b>{% if accepted.at %}
+   on {{ accepted.at[:10] }}{% endif %}. Your Smart 1 team has been told, and
+   will be in touch about getting the campaign set up. There is nothing else
+   you need to do here.</div>
+ </div>
+ {% elif expired %}
+ {# Somebody trying to say yes is the last person to turn away with nothing,
+    so this names who to ask rather than simply removing the button. #}
+ <div class="card lapsed">
+  <h2 style="color:#8a5300;font-size:18px;margin:0 0 4px">Ask us for an updated copy</h2>
+  <div class="note">The plan above stands — only the rates are due a refresh,
+   so we would rather re-quote them than have you agree to figures we can no
+   longer hold.
+   {% if contact_email %}
+   <br><br><a class="btn btn-primary" style="margin-top:8px"
+      href="mailto:{{ contact_email }}?subject={{ ('Updated proposal for ' ~ (q.client or 'us') ~ ' (' ~ q.quote_number ~ ')')|urlencode }}">Email
+    {{ contact_name or 'our team' }} for an updated proposal</a>
+   {% elif contact_name %}
+   <br><br>Please get in touch with {{ contact_name }}.
+   {% else %}
+   <br><br>Please reply to whoever sent you this link.
+   {% endif %}
+  </div>
+ </div>
+ {% else %}
+ <div class="card" id="acceptCard">
+  <h2 style="color:var(--navy);font-size:18px;margin:0 0 4px">Happy with this?</h2>
+  <div class="note" style="margin-bottom:14px">Accepting tells your Smart 1
+   team to go ahead and build the campaign as set out above. If you would like
+   anything changed, reply to whoever sent you this — they will update the
+   proposal and this same link will show the new version.</div>
+  <div class="two">
+   <div><label for="nm">Your name</label>
+    <input id="nm" autocomplete="name" placeholder="Jane Whitfield"></div>
+   <div><label for="em">Your email</label>
+    <input id="em" type="email" autocomplete="email" placeholder="jane@business.com"></div>
+  </div>
+  <div style="margin-top:14px">
+   <button class="btn btn-primary" id="go" onclick="accept()">Accept this proposal</button>
+  </div>
+  <div class="err" id="err"></div>
+ </div>
+ {% endif %}
+</div>
+<footer>Smart 1 Marketing · This link is personal to {{ q.client or 'your business' }}.</footer>
+
+<script>
+/* The page reports its own open, once.
+   Recorded here rather than on the HTML request because a mail security
+   gateway fetches every link in a message within seconds of delivery and runs
+   no JavaScript. Counted there, every proposal would read as opened the
+   moment it was sent -- which stops a rep chasing a client who has never
+   seen it. hub/view_tracking.py carries the rest of the rules. */
+(function(){
+ try{
+  fetch({{ url_for('api_client_opened', token=token)|tojson }},
+        {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+   .catch(function(){});
+ }catch(e){}
+})();
+
+async function accept(){
+ var nm=document.getElementById('nm'),em=document.getElementById('em'),
+     go=document.getElementById('go'),err=document.getElementById('err');
+ err.textContent='';
+ if(!nm.value.trim()||em.value.indexOf('@')<0){
+  err.textContent='Please give your name and an email address so we know who accepted.';
+  return;}
+ go.disabled=true;go.textContent='Sending…';
+ try{
+  var r=await fetch({{ url_for('api_client_accept', token=token)|tojson }},
+   {method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:nm.value,email:em.value})});
+  var d=await r.json();
+  if(!r.ok||!d.ok){throw new Error((d&&d.error)||'That did not go through.');}
+  location.reload();
+ }catch(e){
+  err.textContent=e.message;
+  go.disabled=false;go.textContent='Accept this proposal';
+ }
+}
+</script>
+</body>
+</html>

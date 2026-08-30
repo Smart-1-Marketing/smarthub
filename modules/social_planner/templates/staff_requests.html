@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Content requests — Smart 1 Hub</title>
+<style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--warn:#b45309;--ok:#16a34a}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 22px 70px}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  h2{color:var(--navy);font-size:15px;margin:0 0 12px}
+  label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  input[type=text],input[type=search],input[type=email],input[type=date],select,textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+    font:13.5px 'Segoe UI',system-ui,sans-serif;background:#fff}
+  textarea{resize:vertical;line-height:1.55}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13.5px 'Segoe UI',system-ui,sans-serif;
+       padding:9px 16px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sm{padding:5px 11px;font-size:12.5px}
+  .btn.danger{background:#fff;color:var(--bad);border:1px solid #fecaca}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:900px){.grid,.grid3{grid-template-columns:1fr}}
+  .hint{color:var(--muted);font-size:12.5px;line-height:1.55;margin-top:6px}
+  .msg{font-size:13px;color:var(--muted)} .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
+  tr:last-child td{border-bottom:0}
+  .pill{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11.5px;font-weight:600}
+  .pill.amber{background:#fef3c7;color:#92400e}
+  .pill.blue{background:#dbeafe;color:#1e40af}
+  .pill.green{background:#dcfce7;color:#166534}
+  .pill.gray{background:#f1f5f9;color:#475569}
+  .pill.red{background:#fee2e2;color:#991b1b}
+  .flag{display:inline-block;font-size:11.5px;margin-right:8px}
+  .flag.over{color:var(--bad);font-weight:600}
+  .flag.dupe{color:var(--warn)}
+  .counts{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px}
+  .counts b{display:block;color:var(--navy);font-size:22px;line-height:1.2}
+  .counts span{color:var(--muted);font-size:12px}
+  .linkrow{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .linkrow code{background:var(--soft);border:1px solid var(--line);border-radius:6px;
+    padding:5px 8px;font-size:12px;flex:1 1 320px;overflow-wrap:anywhere}
+  .note{border-left:3px solid var(--line);padding:2px 0 2px 11px;margin:0 0 12px}
+  .note.warn{border-color:#f59e0b}
+  .note h3{margin:0 0 2px;font-size:13.5px;color:var(--navy)}
+  .note p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.55}
+  .rules{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.7}
+  .hidden{display:none}
+</style>
+</head>
+{# data-demo="off": the module's walkthrough scenario was written against the
+   month-planning screen, and offering "Walk me through this" here would run it
+   against selectors that exist in no template on this page — which returns in
+   silence, the failure Smart 1 Ads shipped on Settings and Live campaigns. No
+   data-screen either: a tour is offered only where one is registered, and
+   naming a tour that does not exist is the same silence one step earlier. #}
+<body data-module="social_planner" data-demo="off">
+<div class="wrap s1d-page">
+  <a class="back" href="./">&larr; Social Content Planner</a>
+  <h1>Content requests</h1>
+  <p class="sub">One link per client account. Every location's contact opens
+    the same one, says which location they are, and everything lands here
+    instead of in whichever inbox they happened to know. Overdue and
+    possible-duplicate are flagged; neither is acted on, because two shops
+    wanting the same week is as often two real asks as it is one ask twice.</p>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <label class="f" for="client">Client</label>
+        <input type="search" id="client" list="clientList" placeholder="Start typing…"
+               autocomplete="off">
+        <datalist id="clientList"></datalist>
+      </div>
+      <div>
+        <label class="f" for="clientUrl">Their website <span class="hint">(joins the record)</span></label>
+        <input type="text" id="clientUrl" placeholder="example.com">
+      </div>
+    </div>
+    <p style="margin:14px 0 0"><button class="btn" id="load">Open this client</button>
+      <span class="msg" id="loadMsg"></span></p>
+    <div id="waiting" class="hint"></div>
+  </div>
+
+  <div id="client-half" class="hidden">
+
+    <div class="card">
+      <h2>Where it stands {{ help_dot('social.requests.turnaround') if help_dot is defined else '' }}</h2>
+      <div class="counts" id="counts"></div>
+      <p class="hint" id="turnaround"></p>
+      <p class="hint"><span id="suite"></span> {{ help_dot('social.requests.suite') if help_dot is defined else '' }}</p>
+    </div>
+
+    <div class="card">
+      <h2>The queue {{ help_dot('social.requests.queue') if help_dot is defined else '' }}{{ help_dot('social.requests.overdue') if help_dot is defined else '' }}{{ help_dot('social.requests.duplicate') if help_dot is defined else '' }}</h2>
+      <div class="grid3" style="margin-bottom:14px">
+        <div><label class="f" for="fLoc">Location</label>
+          <select id="fLoc"><option value="">All locations</option></select></div>
+        <div><label class="f" for="fStatus">Status</label>
+          <select id="fStatus"></select></div>
+        <div><label class="f" for="fBatch">Promote into {{ help_dot('social.requests.promote') if help_dot is defined else '' }}</label>
+          <select id="fBatch"><option value="">Newest open plan</option></select></div>
+      </div>
+      <table><thead><tr>
+        <th>Location</th><th>What</th><th>When</th><th>Status</th><th>Do</th>
+      </tr></thead><tbody id="rows"></tbody></table>
+      <p class="hint" id="queueNote"></p>
+    </div>
+
+    <div class="card">
+      <h2>Their link {{ help_dot('social.requests.link') if help_dot is defined else '' }}</h2>
+      <div id="links"></div>
+      <p style="margin:12px 0 0">
+        <button class="btn sec sm" id="revoke">Turn this client's link off</button>
+        <span class="msg" id="linkMsg"></span></p>
+      <p class="hint">One link per client account, not per location. It is
+        derived from the client's name rather than stored, so it is the same
+        string every time and there is nothing to lose. Turning it off stops
+        all four pages at once — the link is usually on somebody's intranet
+        page, so it is worth saying before you do.</p>
+    </div>
+
+    <div class="card">
+      <h2>Locations</h2>
+      <table><thead><tr><th>Name</th><th>Who submits</th><th>Requests</th></tr></thead>
+        <tbody id="locRows"></tbody></table>
+      <div class="grid3" style="margin-top:14px">
+        <div><label class="f" for="newLoc">Add a location</label>
+          <input type="text" id="newLoc" placeholder="Westside"></div>
+        <div><label class="f" for="newLocWho">Contact name</label>
+          <input type="text" id="newLocWho"></div>
+        <div><label class="f" for="newLocMail">Contact email</label>
+          <input type="email" id="newLocMail"></div>
+      </div>
+      <p style="margin:12px 0 0"><button class="btn sec" id="addLoc">Add it</button>
+        <span class="msg" id="locMsg"></span></p>
+      <p class="hint">A location that is not set up never blocks a submission —
+        the form takes it as typed and the row says it matched nothing.</p>
+    </div>
+
+    <div class="card">
+      <h2>Ideas {{ help_dot('social.requests.ideas') if help_dot is defined else '' }}</h2>
+      <p style="margin:0 0 12px">
+        <button class="btn sec" id="genIdeas">Suggest a batch</button>
+        <span class="msg" id="ideaMsg"></span></p>
+      <table><thead><tr><th>Idea</th><th>Kind</th><th>Client</th></tr></thead>
+        <tbody id="ideaRows"></tbody></table>
+      <p class="hint" id="weightNote"></p>
+    </div>
+
+    <div class="card">
+      <h2>What the Hub noticed</h2>
+      <div id="notes"></div>
+      <p class="hint" id="worked"></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>What this will and will not do</h2>
+    <ul class="rules" id="rules"></ul>
+  </div>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+var B = JSON.parse(document.getElementById("boot").textContent);
+var S = {client:"", url:"", data:null, ideas:null};
+
+function el(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function api(path, opts){
+  return fetch(path, opts || {}).then(function(r){ return r.json(); });
+}
+function post(path, body){
+  return api(path, {method:"POST", headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify(body || {})});
+}
+
+(function rules(){
+  el("rules").innerHTML = (B.spec.guardrails || [])
+    .map(function(r){ return "<li>" + esc(r) + "</li>"; }).join("");
+  var opts = ['<option value="">Every status</option>'];
+  Object.keys(B.spec.statuses).forEach(function(k){
+    opts.push('<option value="' + k + '">' + esc(B.spec.statuses[k].label) + "</option>");
+  });
+  el("fStatus").innerHTML = opts.join("");
+  drawWaiting();
+  if (B.client) { el("client").value = B.client; el("clientUrl").value = B.url || ""; load(); }
+})();
+
+function drawWaiting(){
+  var rows = B.waiting || [];
+  if (!rows.length) { el("waiting").textContent = ""; return; }
+  el("waiting").innerHTML = "Waiting on somebody: " + rows.slice(0, 12).map(function(r){
+    return '<a href="#" data-pick="' + esc(r.client) + '">' + esc(r.client) +
+      "</a> (" + r.open + (r.overdue ? ", " + r.overdue + " overdue" : "") + ")";
+  }).join(" &middot; ");
+}
+el("waiting").addEventListener("click", function(ev){
+  var a = ev.target.closest("a[data-pick]");
+  if (!a) { return; }
+  ev.preventDefault();
+  el("client").value = a.getAttribute("data-pick");
+  load();
+});
+
+// ---- client search ------------------------------------------------------
+var timer = null;
+el("client").addEventListener("input", function(){
+  var q = this.value.trim();
+  clearTimeout(timer);
+  if (q.length < 2) { return; }
+  timer = setTimeout(function(){
+    api("api/clients?q=" + encodeURIComponent(q)).then(function(d){
+      if (!d.ok) { return; }
+      el("clientList").innerHTML = (d.clients || []).map(function(c){
+        return '<option value="' + esc(c.name) + '">' + esc(c.domain || "") + "</option>";
+      }).join("");
+    }).catch(function(){});
+  }, 220);
+});
+
+el("load").addEventListener("click", load);
+
+function load(){
+  var client = el("client").value.trim();
+  if (!client) { el("loadMsg").className = "msg err";
+                 el("loadMsg").textContent = "Pick a client first."; return; }
+  S.client = client;
+  S.url = el("clientUrl").value.trim();
+  el("loadMsg").className = "msg";
+  el("loadMsg").textContent = "Loading…";
+  api("api/requests?client=" + encodeURIComponent(client) +
+      "&url=" + encodeURIComponent(S.url)).then(function(d){
+    if (!d.ok) { el("loadMsg").className = "msg err";
+                 el("loadMsg").textContent = d.error || "Couldn't load that."; return; }
+    S.data = d;
+    el("loadMsg").textContent = "";
+    el("client-half").classList.remove("hidden");
+    drawAll();
+    loadIdeas();
+    loadAgent();
+    loadBatches();
+  }).catch(function(){
+    el("loadMsg").className = "msg err";
+    el("loadMsg").textContent = "Couldn't load that.";
+  });
+}
+
+function drawAll(){ drawCounts(); drawLinks(); drawLocations(); drawRows(); }
+
+function drawCounts(){
+  var s = S.data.summary;
+  var parts = [
+    ["Waiting", s.open], ["Overdue", s.overdue],
+    ["Possible duplicates", s.possible_duplicates], ["All time", s.total]
+  ];
+  el("counts").innerHTML = parts.map(function(p){
+    return "<div><b>" + p[1] + "</b><span>" + esc(p[0]) + "</span></div>";
+  }).join("");
+  el("turnaround").textContent = s.turnaround.line;
+  var suite = S.data.suite || {};
+  el("suite").textContent = suite.ready ? suite.detail
+    : (suite.detail + " " + (suite.fallback || ""));
+}
+
+function drawLinks(){
+  var out = (S.data.links || []).map(function(l){
+    return '<div class="linkrow"><code>' + esc(l.url) + "</code>" +
+      '<button class="btn sec sm" data-copy="' + esc(l.url) + '">Copy</button>' +
+      '<span class="hint" style="flex:1 1 220px;margin:0">' + esc(l.label) +
+      " — " + esc(l.help) + "</span></div>";
+  });
+  if (S.data.link_revoked) {
+    out.unshift('<p class="msg err">This client\'s link is currently off. ' +
+      "None of these four pages will open.</p>");
+  }
+  el("links").innerHTML = out.join("");
+  el("revoke").textContent = S.data.link_revoked ?
+    "Turn this client's link back on" : "Turn this client's link off";
+}
+
+el("links").addEventListener("click", function(ev){
+  var btn = ev.target.closest("button[data-copy]");
+  if (!btn) { return; }
+  copyLink(btn, btn.getAttribute("data-copy"));
+});
+
+function copyLink(btn, text){
+  // navigator.clipboard is not available on http and can refuse even on
+  // https. A button that reports a copy it never made is worse than one that
+  // asks, so the last resort puts the link on screen selected.
+  function fell(){
+    var box = document.createElement("input");
+    box.value = text;
+    box.style.width = "100%";
+    btn.parentNode.insertBefore(box, btn);
+    box.select();
+    btn.textContent = "Press Ctrl-C";
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){
+      btn.textContent = "Copied";
+      setTimeout(function(){ btn.textContent = "Copy"; }, 1600);
+    }).catch(fell);
+    return;
+  }
+  try {
+    var tmp = document.createElement("textarea");
+    tmp.value = text;
+    document.body.appendChild(tmp);
+    tmp.select();
+    var ok = document.execCommand("copy");
+    document.body.removeChild(tmp);
+    if (ok) { btn.textContent = "Copied"; return; }
+  } catch (e) { /* fall through to showing it */ }
+  fell();
+}
+
+el("revoke").addEventListener("click", function(){
+  var turningOff = !S.data.link_revoked;
+  if (turningOff && !confirm("Turn this client's link off? All four pages " +
+      "stop opening, including any copy already pasted on their intranet.")) { return; }
+  post("api/client-link", {client:S.client, url:S.url, revoked:turningOff})
+    .then(function(d){
+      if (!d.ok) { el("linkMsg").className = "msg err";
+                   el("linkMsg").textContent = d.error || "That didn't save."; return; }
+      S.data.link_revoked = d.revoked;
+      S.data.links = d.links;
+      drawLinks();
+      el("linkMsg").className = "msg ok";
+      el("linkMsg").textContent = d.revoked ? "Link is off." : "Link is on.";
+    });
+});
+
+function drawLocations(){
+  var counts = {};
+  (S.data.summary.by_location || []).forEach(function(r){ counts[r.location] = r; });
+  var opts = ['<option value="">All locations</option>'];
+  el("locRows").innerHTML = (S.data.locations || []).map(function(l){
+    opts.push('<option value="' + esc(l.name) + '">' + esc(l.name) + "</option>");
+    var c = counts[l.name] || {total:0, open:0};
+    return "<tr><td>" + esc(l.name) + "</td><td>" +
+      esc(l.contact_name || "&mdash;") + "<br><span class='hint'>" +
+      esc(l.contact_email || "") + "</span></td><td>" + c.total +
+      " (" + c.open + " open)</td></tr>";
+  }).join("") || '<tr><td colspan="3" class="hint">No locations set up. ' +
+    "Requests still arrive — the form takes the location as typed.</td></tr>";
+  var keep = el("fLoc").value;
+  el("fLoc").innerHTML = opts.join("");
+  el("fLoc").value = keep;
+}
+
+el("addLoc").addEventListener("click", function(){
+  post("api/locations", {client:S.client, url:S.url, name:el("newLoc").value,
+       contact_name:el("newLocWho").value, contact_email:el("newLocMail").value})
+    .then(function(d){
+      el("locMsg").className = d.ok ? "msg ok" : "msg err";
+      el("locMsg").textContent = d.ok ? "Added." : (d.error || "That didn't save.");
+      if (d.ok) { el("newLoc").value = ""; el("newLocWho").value = "";
+                  el("newLocMail").value = ""; load(); }
+    });
+});
+
+// ---- the queue ----------------------------------------------------------
+el("fLoc").addEventListener("change", drawRows);
+el("fStatus").addEventListener("change", drawRows);
+
+function drawRows(){
+  var loc = el("fLoc").value, status = el("fStatus").value;
+  var rows = (S.data.requests || []).filter(function(r){
+    if (loc && (r.location_label || "") !== loc) { return false; }
+    if (status && (r.status || "new") !== status) { return false; }
+    return true;
+  });
+  if (!rows.length) {
+    el("rows").innerHTML = '<tr><td colspan="5" class="hint">' +
+      "Nothing here yet.</td></tr>";
+    el("queueNote").textContent = "";
+    return;
+  }
+  el("rows").innerHTML = rows.map(function(r){
+    var tone = (B.spec.statuses[r.status] || {}).tone || "gray";
+    var flags = "";
+    if (r.overdue) { flags += '<span class="flag over">Overdue</span>'; }
+    if ((r.possible_duplicate_of || []).length) {
+      flags += '<span class="flag dupe">Possible duplicate of ' +
+        r.possible_duplicate_of.length + "</span>";
+    }
+    var body = esc((r.copy_suggestion || "").slice(0, 160));
+    return '<tr data-id="' + esc(r.id) + '"><td>' +
+      esc(r.location_label || "Not said") +
+      (r.location_id ? "" : '<br><span class="hint">typed, matched no location</span>') +
+      "</td><td>" + esc(r.type_label) +
+      (body ? '<br><span class="hint">' + body + "</span>" : "") +
+      (r.assets ? '<br><span class="hint">' + r.assets + " file(s)</span>" : "") +
+      "</td><td>" + esc(r.when) + "<br>" + flags + "</td><td><span class='pill " +
+      tone + "'>" + esc(r.status_label) + "</span>" +
+      (r.declined_reason ? '<br><span class="hint">' + esc(r.declined_reason) +
+        "</span>" : "") +
+      "</td><td>" + actions(r) + "</td></tr>";
+  }).join("");
+  el("queueNote").textContent = rows.length + " of " +
+    (S.data.requests || []).length + " request(s) shown.";
+}
+
+function actions(r){
+  if (r.status === "declined" || r.status === "duplicate") {
+    return '<button class="btn sec sm" data-do="undupe">Put back</button>';
+  }
+  var out = '<button class="btn sm" data-do="promote">Promote</button> ';
+  if (r.status === "new") {
+    out += '<button class="btn sec sm" data-do="triage">Triaged</button> ';
+  }
+  out += '<button class="btn danger sm" data-do="decline">Decline</button>';
+  if ((r.possible_duplicate_of || []).length) {
+    out += ' <button class="btn sec sm" data-do="dupe" data-of="' +
+      esc(r.possible_duplicate_of[0]) + '">It\'s a duplicate</button>';
+  }
+  return out;
+}
+
+el("rows").addEventListener("click", function(ev){
+  var btn = ev.target.closest("button[data-do]");
+  if (!btn) { return; }
+  var id = btn.closest("tr").getAttribute("data-id");
+  var what = btn.getAttribute("data-do");
+  if (what === "triage") { post("api/requests/" + id + "/triage").then(load); return; }
+  if (what === "undupe") { post("api/requests/" + id + "/duplicate", {of:""}).then(load); return; }
+  if (what === "dupe") {
+    post("api/requests/" + id + "/duplicate", {of:btn.getAttribute("data-of")}).then(load);
+    return;
+  }
+  if (what === "decline") {
+    var reason = prompt("Why are we not doing this one? The person who asked " +
+                        "will want a reason.");
+    if (!reason) { return; }
+    post("api/requests/" + id + "/decline", {reason:reason}).then(function(d){
+      if (!d.ok) { alert(d.error); return; }
+      load();
+    });
+    return;
+  }
+  if (what === "promote") {
+    post("api/requests/" + id + "/promote", {batch:el("fBatch").value})
+      .then(function(d){
+        if (!d.ok) { alert(d.error); return; }
+        load();
+      });
+  }
+});
+
+function loadBatches(){
+  api("api/batches").then(function(d){
+    if (!d.ok) { return; }
+    var mine = (d.batches || []).filter(function(b){
+      return (b.client || "").toLowerCase() === S.client.toLowerCase();
+    });
+    el("fBatch").innerHTML = '<option value="">Newest open plan</option>' +
+      mine.map(function(b){
+        return '<option value="' + esc(b.id) + '">' + esc(b.month || "undated") +
+          " — " + esc(b.status) + "</option>";
+      }).join("");
+  }).catch(function(){});
+}
+
+// ---- ideas --------------------------------------------------------------
+function loadIdeas(){
+  api("api/ideas?client=" + encodeURIComponent(S.client) +
+      "&url=" + encodeURIComponent(S.url)).then(function(d){
+    if (!d.ok) { return; }
+    S.ideas = d;
+    el("ideaRows").innerHTML = (d.ideas || []).slice(0, 20).map(function(i){
+      var answer = i.client_response === "liked" ? '<span class="pill green">Liked</span>'
+        : i.client_response === "passed" ? '<span class="pill gray">Passed</span>'
+        : '<span class="pill amber">Not answered</span>';
+      return "<tr><td>" + esc(i.title) +
+        (i.source === "house" ? '<br><span class="hint">our standing prompt, ' +
+          "not written for this client</span>" : "") +
+        "</td><td>" + esc(i.idea_tag) + "</td><td>" + answer + "</td></tr>";
+    }).join("") || '<tr><td colspan="3" class="hint">No ideas yet.</td></tr>';
+    var answered = (d.weights || []).filter(function(w){ return w.answered; });
+    el("weightNote").textContent = answered.length
+      ? ("Weighting from " + answered.reduce(function(a, w){ return a + w.answered; }, 0) +
+         " answer(s). Most liked: " + answered.slice(0, 3).map(function(w){
+           return w.label + " " + w.weight; }).join(", ") +
+         ". About " + Math.round(d.explore_ratio * 100) +
+         "% of each batch goes to kinds they have never answered on, which is " +
+         "a reasonable default rather than a measured one.")
+      : ("Nobody at this client has swiped yet, so every kind of post is " +
+         "equally likely. " + d.batch_size + " ideas per batch.");
+  }).catch(function(){});
+}
+
+el("genIdeas").addEventListener("click", function(){
+  el("ideaMsg").className = "msg";
+  el("ideaMsg").textContent = "Writing…";
+  post("api/ideas/generate", {client:S.client, url:S.url}).then(function(d){
+    if (!d.ok) { el("ideaMsg").className = "msg err";
+                 el("ideaMsg").textContent = d.error || "That didn't work."; return; }
+    el("ideaMsg").className = "msg ok";
+    el("ideaMsg").textContent = d.ideas.length + " added. " + (d.note || "");
+    loadIdeas();
+  });
+});
+
+// ---- the agent ----------------------------------------------------------
+function loadAgent(){
+  api("api/agent?client=" + encodeURIComponent(S.client) +
+      "&url=" + encodeURIComponent(S.url)).then(function(d){
+    if (!d.ok) { return; }
+    el("notes").innerHTML = (d.notes || []).map(function(n){
+      return '<div class="note ' + (n.level === "warn" ? "warn" : "") + '"><h3>' +
+        esc(n.title) + "</h3><p>" + esc(n.detail) +
+        (n.where ? " <em>" + esc(n.where) + "</em>" : "") + "</p></div>";
+    }).join("") || '<p class="hint">Nothing to raise.</p>';
+    var worked = d.what_worked || {};
+    el("worked").textContent = (worked.preference || {}).line + " " +
+      ((worked.performance || {}).measured ? "" : (worked.performance || {}).detail || "");
+  }).catch(function(){});
+}
+</script>
+</body>
+</html>

@@ -26,8 +26,14 @@ way a generated proposal can hurt us:
     the winery to the marina is how you lose both. Anonymised vertical
     benchmarks instead.
   * **Expected Results & ROI is mandatory.** Every proposal ends with it, and
-    it is computed from the rate card rather than written by the model, so a
-    projection can never contradict the media plan printed above it.
+    it is computed rather than written by the model, so a projection can never
+    contradict the media plan printed above it.
+  * **The rate card is never mentioned to a client.** It is our internal
+    pricing, and naming it on a proposal invites the one question the document
+    cannot answer — "can I see it?" — while making a quoted price read as a
+    list price somebody might have marked up. `client_safe()` strips the
+    phrase from generated copy, because a directive is a request and this one
+    had been in the prompt while three of our own strings said it anyway.
 
 ## What is deliberately *not* here
 
@@ -36,6 +42,8 @@ campaign's own line items, because a number in a proposal has to be the same
 number the insertion order will bill.
 """
 from __future__ import annotations
+
+import re
 
 # ---------------------------------------------------------------------------
 # The 13-part master outline
@@ -61,7 +69,7 @@ OUTLINE = [
     {
         "id": "summary", "title": "Executive Summary", "kind": "text", "enabled": True,
         "purpose": "Secure a yes from the C-suite even if they read nothing else.",
-        "guidance": "One page maximum. Summarise where the client is now, the single "
+        "guidance": "One page maximum. Summarize where the client is now, the single "
                     "largest growth opportunity, and the strategic direction. Write about "
                     "business outcomes — lead growth, cost control, conversion efficiency — "
                     "not click rates or impressions.",
@@ -126,7 +134,7 @@ OUTLINE = [
     },
     {
         "id": "technology", "title": "Smart 1 Technology", "kind": "text", "enabled": True,
-        "purpose": "The Smart 1 Suite as the client's command centre.",
+        "purpose": "The Smart 1 Suite as the client's command center.",
         "guidance": "Explain that the channels above feed the Smart 1 Suite, which captures "
                     "and nurtures every lead — Missed Call Text Back, unified inbox, "
                     "automated text and email workflows, reputation and review automation. "
@@ -137,7 +145,7 @@ OUTLINE = [
         "id": "reporting", "title": "Reporting, Optimization & Transparency", "kind": "text",
         "enabled": True,
         "purpose": "Remove the fear of where the money went.",
-        "guidance": "State the optimisation protocol — bid adjustments, negative keyword "
+        "guidance": "State the optimization protocol — bid adjustments, negative keyword "
                     "updates, creative performance checks — and the cadence. One real-time "
                     "dashboard inside the Smart 1 Suite, which they can open themselves.",
     },
@@ -162,10 +170,12 @@ OUTLINE = [
     {
         "id": "roi", "title": "Expected Results & ROI", "kind": "roi", "enabled": True,
         "purpose": "Connect the spend to the client's revenue. Mandatory.",
-        "guidance": "The delivery figures below are computed from the rate card. Above "
-                    "them, state which metrics we track and how the Smart 1 Suite is the "
-                    "single source of truth. Be conservative. Never state a conversion "
-                    "rate, a lead count or a revenue figure the intake does not support.",
+        "guidance": "The framework below sets out what this campaign is measured on "
+                    "and what a normal result looks like for each product. Above it, "
+                    "state how the Smart 1 Suite is the single source of truth for what "
+                    "the media produced. Be conservative. Never state a conversion rate, "
+                    "a lead count or a revenue figure the intake does not support, and "
+                    "never present a benchmark range as a promise.",
     },
     {
         "id": "next", "title": "Next Steps", "kind": "text", "enabled": True,
@@ -179,8 +189,8 @@ OUTLINE = [
         # was improvised on a call. It belongs on the document -- but only
         # with numbers that are already defensible, which is why neither route
         # invents one: raising a line quotes the Accelerated package printed
-        # two sections above, and adding one quotes the rate card's own
-        # minimum for that product.
+        # two sections above, and adding one quotes our own listed minimum for
+        # that product.
         "id": "growth", "title": "Recommended Budgets", "kind": "growth",
         "enabled": True,
         "purpose": "What more would look like: raise a budget, or add what "
@@ -254,9 +264,12 @@ DIRECTIVES = [
 
     "Use only the facts supplied. Do not invent statistics, client results, awards, "
     "years in business, service areas, conversion rates or capabilities. Every price, "
-    "product name and delivery figure comes from the rate card and is already in the "
-    "tables the client will read next to your copy; contradicting one is worse than "
-    "omitting it.",
+    "product name and delivery figure is already computed in the tables the client "
+    "will read next to your copy; contradicting one is worse than omitting it.",
+
+    "Never mention a rate card, a price list or any internal pricing document. The "
+    "client sees the prices quoted to them, and naming the sheet they came off "
+    "invites a question this document cannot answer.",
 
     "Write as a Smart 1 senior strategist: consultative, confident, specific. Never "
     "open with 'Based on the information provided' or 'It is important to note'. "
@@ -309,7 +322,7 @@ AUDIENCE_PARTNERS = {
         ],
         "High-Intent Purchase Predictors": [
             "In-Market for New Vehicle Lease", "Active in-market buyers from "
-            "real-time digital behaviour, app usage and transaction history",
+            "real-time digital behavior, app usage and transaction history",
         ],
     },
     "Proximic by Comscore": {
@@ -443,8 +456,8 @@ SAAS_TIERS = [
         "name": "Smart 1", "monthly": 199,
         "specs": "5 users · 250 contacts · 5 forms · 5 pipelines · 1,500 emails · "
                  "500 texts · 1 phone number · 500 calls · 1 workflow",
-        "features": "Unified message centre, media library, email centre, texting "
-                    "centre, call centre, online scheduling, reputation centre with "
+        "features": "Unified message center, media library, email center, texting "
+                    "center, call center, online scheduling, reputation center with "
                     "automated Google review requests, social planner, Smart 1 Sites.",
     },
     {
@@ -496,7 +509,7 @@ TIMELINE = [
                "workflow automations mapped in the Smart 1 Suite, tracking verified "
                "end to end before a cent is spent."},
     {"phase": "Month 2+", "title": "Execution & Scaling",
-     "detail": "Campaigns live, weekly pacing and bid optimisation, creative "
+     "detail": "Campaigns live, weekly pacing and bid optimization, creative "
                "performance checks, budget shifted toward what proves out, first "
                "full performance review delivered."},
 ]
@@ -521,7 +534,11 @@ def system_prompt(state=None) -> str:
         "",
         "Standing directives — these are rules, not preferences:",
     ]
-    lines += [f"{i}. {d}" for i, d in enumerate(DIRECTIVES, 1)]
+    # The formatting rule is a directive like the rest, and it is defined
+    # below beside the cleaner that enforces it -- a rule stated in one place
+    # and checked in another is how the two come to disagree.
+    lines += [f"{i}. {d}" for i, d in
+              enumerate(list(DIRECTIVES) + [FORMATTING_DIRECTIVE], 1)]
 
     facts = nuances_for(state)
     if facts:
@@ -534,3 +551,271 @@ def system_prompt(state=None) -> str:
                       "rather than describing 'targeted adults':"]
         lines += [f"- {s}" for s in segments]
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# What generated copy is allowed to look like
+#
+# The models write Markdown by habit. Nothing downstream renders it: the
+# preview HTML-escapes the body, the PDF escapes it into a reportlab
+# Paragraph, and python-docx writes it as literal text -- so `**Reach**`
+# reached the client as `**Reach**`, three ways, on a document quoting five
+# figures. Emoji arrived the same way, in a proposal.
+#
+# This is the Smart 1 Labs rule one step on: a prompt is a request, and "the
+# model was told to write plain prose" is not evidence that it did. So the
+# instruction goes in the prompt *and* `clean_ai_text()` runs over whatever
+# comes back, and over anything typed into the section editor by hand -- or
+# the rule holds only until somebody pastes.
+#
+# Bold survives, because bold is legitimate and three renderers can do it.
+# It is normalised to `<b>…</b>`, which is what reportlab reads natively,
+# what `rich_runs()` turns into a bold run for Word, and what the preview
+# un-escapes deliberately and alone. Everything else -- headings, italics,
+# code ticks, bullet asterisks, emoji -- is removed rather than passed
+# through, because a character the renderer will not interpret is a character
+# the client reads.
+# ---------------------------------------------------------------------------
+FORMATTING_DIRECTIVE = (
+    "Write plain professional prose. No Markdown: no asterisks, no "
+    "underscores for emphasis, no # headings, no backticks, no tables and no "
+    "emoji or decorative symbols of any kind. Bold is available and is the "
+    "only formatting there is — write it as <b>text</b> and use it sparingly, "
+    "for a term worth stressing rather than for every noun. Where the copy "
+    "needs a list, write one item per line, each line starting with the "
+    "bullet character • and nothing else — never run the items together "
+    "inside a sentence or a paragraph."
+)
+
+# Ranges that are emoji, pictographs, dingbats and the variation selectors and
+# skin-tone modifiers that ride with them. Deliberately not "anything
+# non-ASCII": the proposal legitimately carries en dashes, curly quotes and
+# the • it is told to use, and stripping those would mangle correct copy.
+_EMOJI_RE = re.compile(
+    "[" 
+    "\U0001F000-\U0001FAFF"      # pictographs, symbols, transport, faces
+    "\U00002190-\U000021FF"      # arrows
+    "\U00002300-\U000023FF"      # technical (⌚ ⏰ …)
+    "\U00002600-\U000027BF"      # misc symbols and dingbats
+    "\U0000FE00-\U0000FE0F"      # variation selectors
+    "\U0001F3FB-\U0001F3FF"      # skin tones
+    "\U00002B00-\U00002BFF"
+    "\U0000200D"                 # zero-width joiner
+    "]+")
+
+_BOLD_MD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.S)
+_BOLD_TAG_RE = re.compile(r"<\s*/?\s*(b|strong)\s*>", re.I)
+
+
+# A bullet that shares a line with other bullets is not a list.
+#
+# The directive above asks for one item per line and a model obliges most of
+# the time, which is the problem: the times it does not are indistinguishable
+# from correct copy until the document is read. What comes back is
+# "We will reach three areas: • Carmel • Fishers • Noblesville" -- one
+# paragraph, rendered by all three renderers as one paragraph, and a client
+# reads a sentence with three dots in it rather than a list of three places.
+#
+# So the shape is enforced rather than requested, the Smart 1 Labs rule one
+# step on. A bullet anywhere but the start of a line begins a new line, and
+# the text in front of the first one stays where it is -- it is the lead-in
+# ("We will reach three areas:") and deleting it would lose a clause.
+_INLINE_BULLET_RE = re.compile(r"[ \t]*(?<=\S)[ \t]+•[ \t]*")
+
+
+def _one_bullet_per_line(text: str) -> str:
+    """Every bullet at the start of its own line, its lead-in kept above it."""
+    lines = []
+    for line in str(text or "").split("\n"):
+        # Only lines that carry a bullet *after* something else are touched;
+        # a line that is already one item is left exactly as it is, because
+        # this runs on every save as well as on every generation.
+        lines.append(_INLINE_BULLET_RE.sub("\n• ", line))
+    return "\n".join(lines)
+
+
+def _line_runs(line: str) -> list[tuple[str, bool]]:
+    """One line of cleaned copy as (text, bold) runs."""
+    runs, bold = [], False
+    for piece in re.split(r"(<b>|</b>)", line):
+        if piece == "<b>":
+            bold = True
+        elif piece == "</b>":
+            bold = False
+        elif piece:
+            runs.append((piece, bold))
+    return runs or [("", False)]
+
+
+def bullets(items, lead: str = "") -> str:
+    """A list of things as bullet lines, for anywhere a document prints one.
+
+    Copy written by a model goes through `_one_bullet_per_line` above; this is
+    the other half — the lists the *code* prints. KPIs, success metrics, the
+    audience layers, the products left out of a total: each was rendered as
+    ", ".join(...) into a sentence, so a client read six KPIs as a comma
+    string and skimmed past four of them. A list of things a client is meant
+    to check off is a list.
+
+    Returns a string rather than markup, so it goes through `blocks()` like
+    every other piece of copy and the preview, the PDF and the Word export
+    each draw it as the list they already know how to draw.
+    """
+    rows = [str(i).strip() for i in (items or []) if str(i).strip()]
+    if not rows:
+        return ""
+    body = "\n".join(f"• {row}" for row in rows)
+    return f"{lead.strip()}\n{body}" if lead.strip() else body
+
+
+def blocks(text) -> list[dict]:
+    """Cleaned copy as the blocks a renderer actually has to draw.
+
+    Three renderers read this -- the preview builds a <ul>, the PDF gives
+    each item its own bullet-indented Paragraph, and Word writes a
+    List Bullet paragraph -- so that "a list is a list" is decided once
+    rather than three times, and a fourth renderer added later cannot quietly
+    go back to printing the bullet character inside a sentence.
+
+        [{"kind": "para", "text": "...", "runs": [(text, bold), ...]},
+         {"kind": "list", "items": [{"text": ..., "runs": [...]}, ...]}]
+    """
+    out: list[dict] = []
+    for line in clean_ai_text(text).split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("•"):
+            item = stripped.lstrip("•").strip()
+            if not item:
+                continue        # a bullet with nothing after it is not an item
+            entry = {"text": item, "runs": _line_runs(item)}
+            if out and out[-1]["kind"] == "list":
+                out[-1]["items"].append(entry)
+            else:
+                out.append({"kind": "list", "items": [entry]})
+            continue
+        out.append({"kind": "para", "text": stripped, "runs": _line_runs(stripped)})
+    return out
+
+
+# The internal pricing sheet, in the spellings copy actually uses.
+#
+# All four of the mentions this had to remove were *ours* — the PDF's rate
+# note, the seeded ROI copy, the preview's default and the growth note — which
+# is the point: the directive telling the model not to name the rate card had
+# been in the prompt the whole time, while the document said it anyway in
+# words nobody had generated. So the phrase is rewritten rather than
+# requested, and a price stays a quoted price rather than reading as a list
+# price somebody may have marked up.
+# Both orders, because the document said it the other way round. The rule was
+# written against "the rate card" and the media plan's own seeded copy said
+# "every rate is the Smart 1 card rate" -- which passed the check, named our
+# internal pricing on a client document, and was additionally false the day
+# sell_rate() started quoting CPM at 2x. A price a client reads is a quoted
+# price; where it sits against a sheet of ours is not their side of the
+# conversation.
+_RATE_CARD_RE = re.compile(
+    r"\b(?:the\s+|our\s+|a\s+)?(?:current\s+)?(?:Smart\s*1\s+)?"
+    r"(?:rate[-\s]card|card[-\s]rates?)\b",
+    re.I)
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def client_safe(text) -> str:
+    """Copy with anything the client should not read about our pricing removed.
+
+    The whole sentence goes, not the phrase. Swapping "the rate card" for
+    "our rates" leaves copy that is grammatical about half the time -- "Rates
+    follow our rates", "adding one starts at our rates minimum" -- and a
+    client reads the mangling, not the intent. A sentence whose subject is
+    our internal pricing sheet has nothing to say to a client in the first
+    place, so its neighbours are better off without it. The Smart 1 Labs
+    precedent: discard, rather than paraphrase into something nobody wrote.
+
+    A bullet item is a line rather than a sentence, so it is dropped whole.
+    """
+    if not _RATE_CARD_RE.search(str(text or "")):
+        return str(text or "")            # by far the common case
+    kept_lines = []
+    for line in str(text).split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("•"):
+            if not _RATE_CARD_RE.search(stripped):
+                kept_lines.append(line)
+            continue
+        sentences = [part for part in _SENTENCE_SPLIT.split(line)
+                     if not _RATE_CARD_RE.search(part)]
+        rebuilt = " ".join(part.strip() for part in sentences if part.strip())
+        # A line that was only that sentence is dropped rather than left as a
+        # blank one, and a paragraph that loses everything takes its own
+        # blank line with it.
+        if rebuilt or not stripped:
+            kept_lines.append(rebuilt if stripped else line)
+    return "\n".join(kept_lines)
+
+
+def clean_ai_text(text) -> str:
+    """Generated or pasted copy, in the only shape the renderers agree on.
+
+    Idempotent: running it over already-clean copy changes nothing, which
+    matters because it runs on every save as well as on every generation.
+    """
+    out = str(text or "")
+    if not out.strip():
+        return ""
+
+    # Bold first, before the loose asterisks below eat its markers.
+    out = _BOLD_MD_RE.sub(lambda m: f"<b>{(m.group(1) or m.group(2)).strip()}</b>", out)
+    # <strong> is the same intent written differently; normalise, then drop
+    # every other tag -- a model that decides to emit <ul> must not reach a
+    # renderer that would print the angle brackets.
+    out = _BOLD_TAG_RE.sub(lambda m: "</b>" if "/" in m.group(0) else "<b>", out)
+    out = re.sub(r"<(?!/?b>)[^>]{0,120}>", "", out)
+
+    out = _EMOJI_RE.sub("", out)
+    out = re.sub(r"^\s{0,3}#{1,6}\s*", "", out, flags=re.M)     # headings
+    out = re.sub(r"^\s{0,3}[-*+]\s+", "• ", out, flags=re.M)    # bullet markers
+    out = re.sub(r"^\s{0,3}>\s?", "", out, flags=re.M)          # block quotes
+    out = out.replace("`", "")
+    out = re.sub(r"(?<!<)\*+(?!/?b>)", "", out)                 # stray asterisks
+    out = re.sub(r"_{2,}", "", out)
+    out = re.sub(r"^\s*[-–—_]{3,}\s*$", "", out, flags=re.M)    # rules
+
+    # The rate card is ours, not the client's. Applied here because this is
+    # the one function every renderer's copy already passes through -- the AI
+    # write, the section editor and anything pasted into it -- so the rule
+    # cannot hold only until somebody pastes.
+    out = client_safe(out)
+
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = _one_bullet_per_line(out)
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
+def rich_runs(text) -> list[list[tuple[str, bool]]]:
+    """Cleaned copy as paragraphs of (text, bold) runs, for python-docx.
+
+    Word has no way to read `<b>` out of a string, so the split has to happen
+    before the paragraph is written. Returning runs rather than a marked-up
+    string is what stops the DOCX export being the one of the three renderers
+    that prints the tag.
+    """
+    cleaned = clean_ai_text(text)
+    if not cleaned:
+        return []
+    return [_line_runs(block) for block in cleaned.split("\n")]
+
+
+def plain_text(text) -> str:
+    """Cleaned copy with the bold markers removed as well.
+
+    For anywhere that cannot render bold at all — a CSV cell, a webhook
+    payload, the Suite opportunity note — so those carry prose rather than a
+    tag nobody there interprets.
+    """
+    return _BOLD_TAG_RE.sub("", clean_ai_text(text))

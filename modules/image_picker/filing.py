@@ -38,7 +38,90 @@ KIND_LABELS = {
     "blog": "Blog images",
     "seo_image": "SEO images",
     "display_ad": "Display ads",
+    # Filed by hub/client_logos.py from the client's brand record or their
+    # last site scan. Declared here so the gallery groups them under a name
+    # rather than under a bare key -- the same reason hub/audit.LOG_NAMES
+    # declares a log name the directory cannot guess.
+    "logo": "Logo",
+    "cutout": "Cut-outs",
+    "graphic": "Graphics",
+    "page_image": "Website images",
+    "stock": "Stock photos",
+    "commercial": "Commercial stills",
 }
+
+# A label declared here and written by nothing is the failure this codebase
+# has already paid for twice: `display_ads` sat in audit.LOG_NAMES while the
+# work went unrecorded, and `io_creative` sat here while every asset attached
+# to an insertion order went to Cloudinary and stopped. hub/image_audit.py
+# checks the other direction -- which producers reach this function at all --
+# and test_image_audit.py asserts every label below has a writer.
+
+# What a person reads above a group in the gallery. Every way a file can
+# arrive, in one table, because the gallery template used to keep a second
+# hand-typed copy of this -- so a new kind showed up in the client's gallery
+# as a bare key like `cutout` under a heading nobody had written, sorted in
+# with stock. The page reads this now and a kind added next month is named
+# without the template being edited.
+SOURCE_LABELS = {
+    "upload": "Client upload",
+    "local": "Uploaded from their device",
+    "url": "Added by web address",
+    "camera": "Taken with a camera",
+    "google_drive": "From Google Drive",
+    "dropbox": "From Dropbox",
+    "instagram": "From Instagram",
+    "facebook": "From Facebook",
+    "image_search": "From image search",
+    "shutterstock": "Shutterstock", "getty": "Getty", "istock": "iStock",
+    "unsplash": "Unsplash", "pexels": "Pexels", "pixabay": "Pixabay",
+    "library": "Our own library",
+    "io_creative": "Creative for their insertion orders",
+    "blog": "Blog images",
+    "seo_image": "SEO images",
+    "seo_images": "SEO images",
+    "display_ad": "Display ads",
+    "ad_builder": "Display ads",
+    "logo": "Logos",
+    "client_logos": "Logos",
+    "bg_remover": "Cut-outs",
+    "cutout": "Cut-outs",
+    "image_creator": "Graphics",
+    "graphic": "Graphics",
+    "page_image_optimizer": "Website images",
+    "page_image": "Website images",
+    "stock": "Stock photos",
+    "stock_photos": "Stock photos",
+    "commercial_builder": "Commercial stills",
+    "commercial": "Commercial stills",
+    "gpt_ads": "GPT ads",
+    "logo_brand": "Logo (from their brand record)",
+    "logo_scan": "Logo (seen on their website)",
+    "display_ads": "Display ads",
+    # Files kept against a business before they were a client. They live on
+    # the prospect record while it is one, and a conversion carries them
+    # across -- so the heading has to exist here or they arrive in the new
+    # client's gallery as a bare key under nothing.
+    "prospect": "Collected before they were a client",
+}
+
+# Which of the three questions a group answers. The first thing anybody asks
+# of a client gallery is "which of these are theirs?", so that is the tier,
+# not a column. Anything unlisted is stock, which is the safe default: it
+# sorts last and claims nothing.
+THEIRS = ("local", "camera", "google_drive", "dropbox", "instagram",
+          "facebook", "url")
+WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
+           "display_ads", "ad_builder", "logo", "logo_brand", "logo_scan",
+           "client_logos", "bg_remover", "cutout", "image_creator", "graphic",
+           "page_image_optimizer", "page_image", "commercial_builder",
+           "commercial", "gpt_ads", "prospect")
+
+
+def source_tiers() -> dict:
+    """The label table and the two tiers, for whatever renders a gallery."""
+    return {"labels": dict(SOURCE_LABELS),
+            "theirs": list(THEIRS), "we_made": list(WE_MADE)}
 
 
 def gallery_for_name(db, name: str, *, create: bool = False) -> PickerClient | None:

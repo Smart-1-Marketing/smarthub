@@ -5,7 +5,10 @@ spot written in the Hub reads the same as one written in the standalone
 studio. ``direction`` steers the script model, ``banner_mood`` steers the
 companion-banner artwork, ``line`` is the fallback banner headline.
 """
+
 from __future__ import annotations
+
+from hub import voice_casting
 
 TONES = [
     {"id": "upbeat", "label": "Upbeat & Energetic", "blurb": "Bright, fast, feel-good.",
@@ -55,25 +58,11 @@ TONES = [
      "banner_mood": "vintage print texture, faded 70s palette, grain", "line": "Like it used to be."},
 ]
 
-VOICE_CHARACTERISTICS = [
-    {"id": "gender", "label": "Voice", "help": "Perceived voice type.", "options": [
-        {"id": "female", "label": "Female"}, {"id": "male", "label": "Male"},
-        {"id": "neutral", "label": "Neutral"}, {"id": "any", "label": "No preference"}]},
-    {"id": "age", "label": "Age", "help": "How old the read should sound.", "options": [
-        {"id": "young", "label": "Young adult"}, {"id": "middle_aged", "label": "Middle aged"},
-        {"id": "old", "label": "Mature"}, {"id": "any", "label": "No preference"}]},
-    {"id": "accent", "label": "Accent", "help": "", "options": [
-        {"id": "american", "label": "American"}, {"id": "british", "label": "British"},
-        {"id": "australian", "label": "Australian"}, {"id": "transatlantic", "label": "Transatlantic"},
-        {"id": "any", "label": "No preference"}]},
-    {"id": "energy", "label": "Energy", "help": "", "options": [
-        {"id": "laid_back", "label": "Laid back"}, {"id": "conversational", "label": "Conversational"},
-        {"id": "energetic", "label": "Energetic"}, {"id": "explosive", "label": "Explosive"}]},
-    {"id": "delivery", "label": "Delivery", "help": "", "options": [
-        {"id": "announcer", "label": "Announcer"}, {"id": "narrator", "label": "Narrator"},
-        {"id": "best_friend", "label": "Best friend"}, {"id": "spokesperson", "label": "Spokesperson"},
-        {"id": "character", "label": "Character"}]},
-]
+# The voice characteristics are hub/voice_casting.CHARACTERISTICS -- the
+# Commercial Builder casts a read the same way, so the question is asked once
+# and scored once. Re-exported under the old name: this module's app.py and
+# its template read it from here.
+VOICE_CHARACTERISTICS = voice_casting.CHARACTERISTICS
 
 # Word budgets are the studio's, measured at a natural read pace.
 DURATIONS = [

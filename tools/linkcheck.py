@@ -66,8 +66,18 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 # string so the conversion-point scanner can be tested without fetching
 # anybody's live site. Its <form action="/lead"> is that page's own form --
 # the thing being counted, not a link this Hub serves.
+# test_display_ads.py, a fourth: it asserts what the Display Ad Builder's own
+# screens contain, so an assertion reads `href="/presets"` as a literal. That
+# is the string being looked FOR inside a Node page, not a link this Hub
+# serves -- and /presets is one of the ad builder's own routes, which the note
+# at the top already says Flask cannot judge. Nothing is lost by skipping it:
+# the Hub template that links to that page writes the href as
+# "{{ url_prefix }}/presets", which this file does not extract either, because
+# the pattern wants an href starting with a slash. The same is already true of
+# the "All builds" link beside it.
 SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
-                 "test_ads_module.py", "test_alt_text.py", "test_ads_estimate.py")
+                 "test_ads_module.py", "test_alt_text.py", "test_ads_estimate.py",
+                 "test_display_ads.py")
 
 # Known-good references that are not links in the running app. Empty today:
 # /tools/ads/ lived here while Smart 1 Ads shipped in the repo unmounted, and
@@ -271,10 +281,16 @@ def _rendered_templates():
 
     A url_for in a template nothing renders cannot 500 anybody today, and
     failing the build on one would have started this check red — which is how
-    a check gets switched off. Those are reported as a note instead. It is
-    still worth naming: modules/sites_admin/templates/site_detail.html is
-    exactly the shape project_detail.html was in, a form written against
-    routes that were never added.
+    a check gets switched off. Those are reported as a note instead.
+
+    What this note *cannot* say is that the template is unreachable at all:
+    it sees one only when it also finds a broken url_for inside, so an orphan
+    whose links happen to resolve is invisible here. That question belongs to
+    `integrity.check_orphan_templates()`, which asks it directly — and its
+    first three findings were deleted rather than reported, so this note now
+    has nothing standing behind it. Left as a live check because the next
+    template written against routes nobody added will land here first, the
+    way sites_admin's project_detail.html did.
     """
     # Whole-file, not line by line. sites_admin writes
     #     return render_template(

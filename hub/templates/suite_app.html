@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Smart 1</title>
+<style>
+  body{margin:0;background:#f4f6fa;color:#1e293b;
+       font:15px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif}
+  .wrap{max-width:560px;margin:0 auto;padding:48px 20px;text-align:center}
+  h1{color:#1a2e58;font-size:19px;margin:0 0 8px}
+  p{color:#64748b;margin:0 0 6px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:26px 22px}
+  code{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;
+       padding:2px 6px;font-size:13px}
+  .spin{display:inline-block;width:15px;height:15px;border:2px solid #cbd5e1;
+        border-top-color:#2563eb;border-radius:50%;animation:s .8s linear infinite;
+        vertical-align:-2px}
+  @keyframes s{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+{#
+  The page a client's own Smart 1 Suite frames.
+
+  It renders nothing of theirs. Its whole job is the handshake: ask the parent
+  window who is looking, hand the encrypted answer to the server, and go where
+  the server says. Every refusal is shown as words rather than as a blank
+  frame, because a blank frame gets reported as a broken integration and a
+  named one gets fixed by whoever configured the menu link — the argument
+  `suite_embed.refuse()` already makes.
+#}
+<div class="wrap"><div class="card">
+{% if not configured %}
+  <h1>Not set up yet</h1>
+  <p>{{ why_not }}</p>
+{% else %}
+  <h1 id="head">Signing you in <span class="spin"></span></h1>
+  <p id="note">One moment &mdash; checking with Smart 1 Suite.</p>
+{% endif %}
+</div></div>
+
+{% if configured %}
+<script>
+(function () {
+  var head = document.getElementById("head");
+  var note = document.getElementById("note");
+
+  function stop(title, detail) {
+    head.textContent = title;
+    note.textContent = detail || "";
+  }
+
+  // If the parent never answers we must say so rather than spinning for ever:
+  // a frame that spins is indistinguishable from one that is still working.
+  var answered = false;
+  setTimeout(function () {
+    if (!answered) {
+      stop("Couldn't check with Smart 1 Suite",
+           "This page has to be opened from inside Smart 1 Suite. If you are "
+           + "already there, reload the tab.");
+    }
+  }, 8000);
+
+  window.addEventListener("message", function (ev) {
+    // The payload is encrypted under our own SSO key and is decrypted on the
+    // server, so a message from the wrong sender cannot forge one — it simply
+    // fails to decrypt. That is why the origin is not the check here: the key
+    // is.
+    if (!ev.data || ev.data.message !== "REQUEST_USER_DATA_RESPONSE") { return; }
+    answered = true;
+    fetch("/suite-app/session", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({payload: ev.data.payload})
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok && d.url) {
+        window.location.replace(d.url);
+        return;
+      }
+      stop("We couldn't open this for you", (d && d.error) || "Please tell us.");
+    }).catch(function () {
+      stop("We couldn't open this for you",
+           "Something went wrong on our side. Please tell us.");
+    });
+  });
+
+  window.parent.postMessage({message: "REQUEST_USER_DATA"}, "*");
+})();
+</script>
+{% endif %}
+</body>
+</html>

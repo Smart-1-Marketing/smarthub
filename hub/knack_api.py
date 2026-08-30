@@ -263,21 +263,42 @@ def _norm(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
 
 
-def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
-    """The records a connection field may point at, as {id, label}.
+def connection_records(field_id: str, obj: str = TICKETS_OBJECT) -> dict:
+    """What a connection field may be set to, and whether that is all of it.
+
+    `{"choices": [{id, label}], "total": int|None, "truncated": bool,
+      "error": str}`
 
     A connection needs a Knack record id; writing the display name creates
     nothing and clears the link, which is why create_ticket has always
     skipped these fields entirely. Offering the real records is what lets a
     form write one at all.
 
-    Never raises: a picker that cannot be built becomes a text box asking for
-    an id, not a dead form.
+    Two things it reports rather than swallows, both of which turn a picker
+    into a confident wrong answer:
+
+    **A picker holding the first 500 of several thousand looks exactly like
+    a complete one.** Knack pages its records, so a connection pointing at
+    the insertion orders or the client book comes back alphabetically
+    truncated — and a rep who cannot find their IO in it concludes it does
+    not exist. `total` is Knack's own count and `truncated` says the list is
+    a fraction of it, so every screen and every refusal can say so instead of
+    quoting the fraction as the book.
+
+    **"We could not look" is not "there is nothing here."** An object with no
+    records and a request that failed both come back as an empty list, and
+    only the first means the field is genuinely unanswerable — the rule
+    `connected_accounts_result()` in Google Finder gives at length. `error`
+    is set for the second.
+
+    Never raises: a picker that cannot be built becomes a box asking for an
+    id, not a dead form.
     """
     key = f"conn:{obj}:{field_id}"
     if key in _schema_cache:
         return _schema_cache[key]
     out: list[dict] = []
+    total, error = None, ""
     try:
         f = object_meta(obj).get(field_id) or {}
         # The object this connection POINTS AT, which is not the object the
@@ -285,24 +306,56 @@ def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
         # confused now that the owning object is a parameter.
         target = (f.get("relationship") or {}).get("object") or ""
         ident = _object_identifier(target) if target else None
-        if target and ident:
+        if not target:
+            error = "this field publishes no connected object"
+        elif not ident:
+            error = f"{target} publishes no display field to list it by"
+        else:
             r = requests.get(f"{BASE}/objects/{target}/records", headers=_headers(),
                              params={"rows_per_page": CONNECTION_LIMIT,
                                      "sort_field": ident, "sort_order": "asc"},
                              timeout=20)
             r.raise_for_status()
-            for rec in (r.json() or {}).get("records", []):
+            body = r.json() or {}
+            try:
+                total = int(body.get("total_records"))
+            except (TypeError, ValueError):
+                total = None
+            for rec in body.get("records", []):
                 label = _plain(rec.get(f"{ident}_raw") or rec.get(ident))
                 if label and rec.get("id"):
                     out.append({"id": rec.get("id"), "label": label})
-    except Exception:            # noqa: BLE001 — see the docstring
-        out = []
-    _schema_cache[key] = out
-    return out
+    except Exception as exc:     # noqa: BLE001 — see the docstring
+        out, total, error = [], None, str(exc) or exc.__class__.__name__
+    state = {
+        "choices": out,
+        "total": total,
+        # Knack's own count where it gave one; a full page where it did not,
+        # because a page that came back exactly full is the shape of a list
+        # with more behind it and saying so is the safe way to be wrong.
+        "truncated": bool(total is not None and total > len(out))
+                     or (total is None and len(out) >= CONNECTION_LIMIT),
+        "error": error,
+    }
+    _schema_cache[key] = state
+    return state
+
+
+def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
+    """Just the records, for a caller that does not draw a picker."""
+    return connection_records(field_id, obj)["choices"]
 
 
 def _control_for(f: dict, obj: str = TICKETS_OBJECT) -> tuple[str, list]:
-    """Which control a field needs, and what it may be set to."""
+    """Which control a field needs, and what it may be set to.
+
+    Every answer a field publishes is offered: a connection becomes a picker
+    of the records it may point at, a multiple choice becomes its own choices,
+    a boolean becomes yes/no. What is deliberately never invented is a choice
+    Knack has not published — a form that guesses one writes a value Knack
+    refuses, and Knack refuses the whole record rather than the field. A field
+    with no published choices degrades to a text box, which is honest.
+    """
     t = f.get("type")
     fmt = f.get("format") or {}
     if t == "connection":
@@ -315,9 +368,51 @@ def _control_for(f: dict, obj: str = TICKETS_OBJECT) -> tuple[str, list]:
         return "boolean", []
     if t in ("date_time", "date"):
         return "date", []
+    if t in ("file", "image"):
+        # A Knack file field is written by a separate upload call, not by a
+        # value on the record — so a text box here would accept a filename and
+        # drop it. The form draws a note instead and says where files go.
+        return "file", []
     if t in ("paragraph_text", "rich_text"):
         return "textarea", []
     return "text", []
+
+
+def control_for(f: dict, obj: str) -> tuple[str, list]:
+    """(control, choices) for one field on any object.
+
+    Public because a second object's form needs the same reading of a Knack
+    field type, and two copies of it is two descriptions of what a dropdown
+    is — the reason `coerce_field` is object-agnostic rather than being
+    restated per object.
+    """
+    return _control_for(f, obj)
+
+
+def connection_note(f: dict, obj: str, control: str) -> str:
+    """The line a connection picker needs under it, or nothing.
+
+    A picker that silently holds the first 500 of several thousand is the
+    failure this codebase keeps having to undo: a complete-looking list that
+    is a fraction of the answer, with a rep concluding their record does not
+    exist. It is said on the field, and `KNACK_CONNECTION_LIMIT` — the thing
+    that fixes it — is named, because a warning nobody can act on is
+    furniture.
+    """
+    if control != "connection":
+        return ""
+    state = connection_records(f.get("key"), obj)
+    if state.get("error"):
+        return ("These records could not be read (" + state["error"] +
+                ") — that is not the same as this connection having none.")
+    if not state.get("truncated"):
+        return ""
+    total = state.get("total")
+    shown = len(state.get("choices") or [])
+    return (f"Showing {shown} of {total}" if total else
+            f"Showing the first {shown}") + (
+        " — this list is alphabetical and stops short, so a record past the "
+        "end is not on it. Raise KNACK_CONNECTION_LIMIT to reach the rest.")
 
 
 def ticket_form_fields(scope: str = "create") -> list[dict]:
@@ -349,6 +444,9 @@ def ticket_form_fields(scope: str = "create") -> list[dict]:
             "label": field_label(f) or TICKET_LABELS.get(key, key),
             "control": control,
             "choices": choices,
+            # A picker that stops short of the record somebody wants says so
+            # rather than reading as the whole book.
+            "hint": connection_note(f, TICKETS_OBJECT, control),
             "required": bool(f.get("required")),
             # False means the pinned id is not on the object any more. The
             # form still draws the field, and says so, rather than dropping it.
@@ -388,11 +486,28 @@ def coerce_field(field_id: str, value, *, obj: str = TICKETS_OBJECT,
             if len(hit) == 1:
                 ids.append(hit[0]["id"])
             elif choices:
+                # The count is what we were able to LIST, which is not the
+                # same as what the connection holds. Quoting it as the book
+                # tells somebody their record does not exist when the picker
+                # simply stopped short of it — so a truncated list says so.
+                state = connection_records(field_id, obj)
+                seen = len(choices)
+                of = (f"of the {seen} we can list; this connection holds "
+                      f"{state['total']} — raise KNACK_CONNECTION_LIMIT to "
+                      "reach the rest" if state.get("truncated") and state.get("total")
+                      else ("of the first " + str(seen) + " we can list; "
+                            "there are more — raise KNACK_CONNECTION_LIMIT"
+                            if state.get("truncated") else f"of {seen}"))
                 return None, (f"{label}: \u201c{v}\u201d matches no record on "
-                              f"this connection (of {len(choices)})")
+                              f"this connection ({of})")
             else:
                 return None, f"{label}: needs a Knack record id, not a name"
         return (ids if len(ids) > 1 else ids[0]), ""
+    if control == "file":
+        # Named rather than dropped: a file field is written by Knack's own
+        # upload call, and a filename put on the record writes nothing.
+        return None, (f"{label}: files are uploaded in Knack, not written "
+                      "with the record")
     if control == "boolean":
         s = str(value).strip().lower()
         if s in ("1", "true", "yes", "y", "on", "checked"):
@@ -544,41 +659,185 @@ def create_ticket(client: str, website: str, subject: str,
 
 
 # ---------------- Campaign Change (object_140) / Support (object_121) ----
+#
+# Two objects, two ways of finding their fields, and the difference is the
+# whole reason this section is shaped the way it is.
+#
+# Campaign Support (object_121) has its ids pinned below, from the list the
+# campaign team gave us. Campaign Change (object_140) does not, so it is still
+# matched by label — the thing that broke silently on object_107 and is why
+# TICKET_FIELDS was pinned in the first place. A change request therefore
+# still writes six fields; a support request writes twenty-two, each checked
+# against the live field before it is sent.
+#
+# Both come out of campaign_form_fields() in the same shape, so the form has
+# one code path and a field pinned for object_140 later needs no new one.
+
+
 def campaign_object(kind: str) -> str:
     return CHANGE_OBJECT if kind == "change" else SUPPORT_OBJECT
+
+
+# --- object_121 campaign support requests: confirmed field ids ----------
+#
+# Pinned, not discovered, for the reason TICKET_FIELDS gives: a renamed label
+# breaks label matching silently, and a support request that quietly wrote
+# four of its twenty-three fields is exactly the state the web ticket was in
+# before its ids were pinned. Each is overridable by environment variable
+# (KNACK_SUPPORT_<KEY>) so a Knack restructure is a variable, not a release.
+SUPPORT_FIELDS = {
+    "client":           "field_2597",   # Client
+    "campaign":         "field_2614",   # Campaign
+    "io_number":        "field_2613",   # IO#
+    "insertion_order":  "field_2593",   # Insertion Order
+    "io_product":       "field_2793",   # IO Product
+    "product":          "field_3419",   # Product
+    "support_type":     "field_1818",   # Campaign Support
+    "description":      "field_1819",   # Describe Your Campaign Support Issue
+    "pixel_url":        "field_2851",   # URL for Pixel to Add
+    "notes":            "field_2612",   # Notes
+    "uploaded_files":   "field_1820",   # Uploaded Files
+    "due_date":         "field_1859",   # Due Date
+    "timeline":         "field_2780",   # Timeline
+    "rush":             "field_2786",   # Rush
+    "rush_reason":      "field_2787",   # Reason for Rush
+    "media_partner":    "field_2596",   # Media Partner
+    "partner_contact":  "field_2608",   # Partner Contact
+    "client_contact":   "field_2609",   # Client Contact
+    "notify_client":    "field_2610",   # Notify Client?
+    "notify_partner":   "field_2611",   # Notify Partner?
+    "iop_status":       "field_3347",   # IOP Status
+    "submitted_by":     "field_2595",   # Submitted By
+    "submitted_date":   "field_1867",   # Submitted Date
+}
+
+# The label Knack shows for each, so a form can name a field before the live
+# schema has been read and a renamed label still reads as the name the team
+# knows it by. The live label wins where there is one.
+SUPPORT_LABELS = {
+    "client":           "Client",
+    "campaign":         "Campaign",
+    "io_number":        "IO#",
+    "insertion_order":  "Insertion Order",
+    "io_product":       "IO Product",
+    "product":          "Product",
+    "support_type":     "Campaign Support",
+    "description":      "Describe Your Campaign Support Issue",
+    "pixel_url":        "URL for Pixel to Add",
+    "notes":            "Notes",
+    "uploaded_files":   "Uploaded Files",
+    "due_date":         "Due Date",
+    "timeline":         "Timeline",
+    "rush":             "Rush",
+    "rush_reason":      "Reason for Rush",
+    "media_partner":    "Media Partner",
+    "partner_contact":  "Partner Contact",
+    "client_contact":   "Client Contact",
+    "notify_client":    "Notify Client?",
+    "notify_partner":   "Notify Partner?",
+    "iop_status":       "IOP Status",
+    "submitted_by":     "Submitted By",
+    "submitted_date":   "Submitted Date",
+}
+
+# The order and grouping the form is drawn in. A key in SUPPORT_CREATE_FIELDS
+# and missing here is appended under "Other" rather than dropped — the
+# TICKET_GROUPS rule, for the same reason: a field added to the write set and
+# forgotten here appears at the end of the form instead of silently not
+# existing at all.
+SUPPORT_GROUPS = (
+    ("Which campaign",  ("client", "insertion_order", "campaign", "io_number",
+                         "io_product", "product")),
+    ("What you need",   ("support_type", "description", "pixel_url", "notes",
+                         "uploaded_files")),
+    ("When",            ("due_date", "timeline", "rush", "rush_reason")),
+    ("Who to tell",     ("media_partner", "partner_contact", "client_contact",
+                         "notify_client", "notify_partner")),
+    ("Status",          ("iop_status",)),
+    ("Submitted",       ("submitted_date",)),
+)
+
+# Everything on the list except Uploaded Files, which is a Knack file field:
+# it is written by Knack's own upload call, not by a value on the record, so a
+# box for it here would take a filename and drop it. It is still drawn — as a
+# note saying where files go — because a deliverable left off the form
+# entirely is one nobody knows to supply.
+SUPPORT_CREATE_FIELDS = tuple(
+    k for k in SUPPORT_FIELDS if k != "uploaded_files")
+
+# Drawn, and not asked for. Submitted By is answered by the Requested by
+# picker at the top of the form, which is the same control the web ticket
+# uses and reads the same people objects; drawing it twice is two answers to
+# one question.
+SUPPORT_NOT_ASKED = ("submitted_by",)
+
+# The roles the label-matched change request still writes. Named here so the
+# two kinds come back in one shape.
+CHANGE_LABELS = {
+    "title": "Subject",
+    "description": "Details",
+    "client": "Client name",
+    "campaign": "Campaign / product",
+    "io": "IO number",
+    "requested_by": "Requested by",
+}
+CHANGE_GROUPS = (
+    ("The request", ("title", "client", "campaign", "io", "description")),
+)
+CHANGE_CREATE_FIELDS = ("title", "description", "client", "campaign",
+                        "io", "requested_by")
+
+
+def support_field_ids() -> dict:
+    """The pinned support ids with their environment overrides applied.
+
+    Touches nothing — the ids are ours, so a caller that only wants them does
+    not have to reach Knack, the reason field_ids() exists beside field_map().
+    """
+    return {key: (os.environ.get(f"KNACK_SUPPORT_{key.upper()}") or fid).strip()
+            for key, fid in SUPPORT_FIELDS.items()}
 
 
 def campaign_field_map(kind: str) -> dict:
     """Best-effort label→field mapping for the campaign request objects,
     with the matched labels included so the UI can show exactly what will
-    be written before anything is sent."""
+    be written before anything is sent.
+
+    Support requests resolve from the pinned ids above; a change request is
+    still matched by label, because nobody has pinned object_140 yet.
+    """
     obj = campaign_object(kind)
     cache_key = f"cmap:{obj}"
     if cache_key in _schema_cache:
         return _schema_cache[cache_key]
     labels = {f.get("key"): field_label(f) for f in object_fields(obj)}
-    text_types = ("short_text", "paragraph_text", "rich_text")
-    m = {
-        "title": _find_in(obj, "request name", "subject", "title", "request",
-                          "name", types=text_types),
-        "description": _find_in(obj, "description", "details", "change",
-                                "request", "notes", "issue",
-                                types=("paragraph_text", "rich_text", "short_text")),
-        "client": _find_in(obj, "client", "customer", "business", types=text_types),
-        "campaign": _find_in(obj, "campaign", "product", types=text_types),
-        "io": _find_in(obj, "io", "insertion", "order", types=text_types),
-        "requested_by": _find_in(obj, "requested by", "submitted by",
-                                 "created by", types=text_types),
-    }
-    # never map two purposes onto the same field
-    seen = set()
-    for k in list(m):
-        if m[k] in seen:
-            m[k] = None
-        elif m[k]:
-            seen.add(m[k])
+    if kind == "support":
+        m = support_field_ids()
+    else:
+        text_types = ("short_text", "paragraph_text", "rich_text")
+        m = {
+            "title": _find_in(obj, "request name", "subject", "title", "request",
+                              "name", types=text_types),
+            "description": _find_in(obj, "description", "details", "change",
+                                    "request", "notes", "issue",
+                                    types=("paragraph_text", "rich_text", "short_text")),
+            "client": _find_in(obj, "client", "customer", "business", types=text_types),
+            "campaign": _find_in(obj, "campaign", "product", types=text_types),
+            "io": _find_in(obj, "io", "insertion", "order", types=text_types),
+            "requested_by": _find_in(obj, "requested by", "submitted by",
+                                     "created by", types=text_types),
+        }
+        # never map two purposes onto the same field
+        seen = set()
+        for k in list(m):
+            if m[k] in seen:
+                m[k] = None
+            elif m[k]:
+                seen.add(m[k])
+    fallback = SUPPORT_LABELS if kind == "support" else CHANGE_LABELS
     out = {"object": obj,
-           "map": {k: {"field": v, "label": labels.get(v, "")} if v else None
+           "map": {k: {"field": v, "label": labels.get(v) or fallback.get(k, "")}
+                   if v else None
                    for k, v in m.items()},
            "all_fields": [{"key": f.get("key"), "label": field_label(f),
                            "type": f.get("type")} for f in object_fields(obj)]}
@@ -586,39 +845,168 @@ def campaign_field_map(kind: str) -> dict:
     return out
 
 
+def campaign_form_fields(kind: str) -> list[dict]:
+    """What a campaign request form should draw, read from the live object.
+
+    The ids are ours and the *controls* are Knack's: a dropdown's choices, the
+    records a connection may point at, whether a field is a date or a
+    paragraph. A form that guesses any of those writes a value Knack refuses,
+    and Knack refuses the whole record rather than the field — so every option
+    on this form comes off the live schema, and a field that publishes none
+    comes back as a text box rather than an empty picker.
+    """
+    obj = campaign_object(kind)
+    ids = campaign_field_map(kind)["map"]
+    allowed = SUPPORT_CREATE_FIELDS if kind == "support" else CHANGE_CREATE_FIELDS
+    groups = SUPPORT_GROUPS if kind == "support" else CHANGE_GROUPS
+    labels = SUPPORT_LABELS if kind == "support" else CHANGE_LABELS
+    not_asked = SUPPORT_NOT_ASKED if kind == "support" else ("requested_by",)
+    meta = object_meta(obj)
+    # What the form draws is the write set plus Uploaded Files, which is drawn
+    # and cannot be written: see the note on SUPPORT_CREATE_FIELDS. Carried in
+    # here rather than by widening `allowed`, which decides what a POST may
+    # contain.
+    drawn = tuple(allowed) + (("uploaded_files",) if kind == "support" else ())
+    ordered = [(g, k) for g, keys in groups for k in keys
+               if k in drawn and k not in not_asked]
+    placed = {k for _, k in ordered}
+    ordered += [("Other", k) for k in drawn
+                if k not in placed and k not in not_asked]
+    seen, out = set(), []
+    for group, key in ordered:
+        if key in seen:
+            continue
+        seen.add(key)
+        slot = ids.get(key)
+        fid = slot["field"] if isinstance(slot, dict) else slot
+        f = meta.get(fid) or {}
+        control, choices = _control_for(f, obj) if f else ("text", [])
+        writable = control != "file" and bool(fid)
+        out.append({
+            "key": key,
+            "field": fid or "",
+            "group": group,
+            "label": field_label(f) or labels.get(key, key),
+            "control": control,
+            "choices": choices,
+            "required": bool(f.get("required")),
+            # A file field is drawn and cannot be written: see the note on
+            # SUPPORT_CREATE_FIELDS. So is a role nothing on the object
+            # matched — a box whose value would be dropped is worse than a
+            # line saying why there is no box.
+            "writable": writable,
+            "hint": (connection_note(f, obj, control) if writable else
+                     ("Attached in Knack after the request is created — files "
+                      "cannot be sent with it." if control == "file" else
+                      f"No matching field on {obj} — this would be skipped.")),
+            # False means the pinned id is not on the object any more. The
+            # form still draws the field, and says so, rather than dropping it.
+            "known": bool(f),
+        })
+    return out
+
+
+def _campaign_payload(kind: str, values: dict, meta: dict | None = None) -> tuple:
+    """{role: value} → {field id: value}, plus what was refused.
+
+    Every value goes through coerce_field against the live field, so a
+    dropdown choice this object does not publish, a connection handed a name
+    that matches no record, or a file field handed a filename is refused here
+    by name — rather than costing the whole request in Knack, which rejects
+    the record over one bad value rather than the field.
+
+    One builder for both objects. The support ids are pinned and the change
+    ids are label-matched, and that difference is entirely upstream of here:
+    what reaches this function is a role, a field id and a value.
+    """
+    obj = campaign_object(kind)
+    meta = object_meta(obj) if meta is None else meta
+    info = campaign_field_map(kind)
+    ids = {k: (slot or {}).get("field") for k, slot in info["map"].items()}
+    known = SUPPORT_FIELDS if kind == "support" else CHANGE_LABELS
+    allowed = SUPPORT_CREATE_FIELDS if kind == "support" else CHANGE_CREATE_FIELDS
+    labels = SUPPORT_LABELS if kind == "support" else CHANGE_LABELS
+    payload, rejected = {}, []
+    for key, value in (values or {}).items():
+        label = labels.get(key, key)
+        if key not in known:
+            rejected.append(f"{key}: not a field on this request")
+            continue
+        if key not in allowed:
+            rejected.append(f"{label}: not writable here")
+            continue
+        fid = ids.get(key)
+        if not fid:
+            # A role nothing on the object matched. Named, because a value
+            # dropped in silence is how a form comes to look like it works.
+            rejected.append(f"{label}: no matching field on {obj}")
+            continue
+        out, why = coerce_field(fid, value, obj=obj, label=label, meta=meta)
+        if why:
+            rejected.append(why)
+            continue
+        if out is None:
+            continue
+        payload[fid] = out
+    return payload, rejected
+
+
 def create_campaign_request(kind: str, client: str, campaign: str, io: str,
                             subject: str, description: str,
-                            author: str = "", requested_by: str = "") -> dict:
-    info = campaign_field_map(kind)
-    obj = info["object"]
-    fields_by_key = {f.get("key"): f for f in object_fields(obj)}
-    payload = {}
+                            author: str = "", requested_by: str = "",
+                            values: dict | None = None) -> dict:
+    """Create a campaign change or support request in Knack.
 
-    def put(role, value):
-        slot = info["map"].get(role)
-        if not slot or not value:
-            return
-        if fields_by_key.get(slot["field"], {}).get("type") == "connection":
-            return                       # never guess connection record ids
-        payload[slot["field"]] = value
+    `values` is the rest of the request, keyed by SUPPORT_FIELDS name for a
+    support request and by role for a change request. The named arguments stay
+    the defaults they have always been: an explicit value from the form wins.
 
-    put("title", subject[:120])
+    The returned record carries `written` and `rejected` — what reached Knack
+    and what did not and why. A field quietly dropped is how a form comes to
+    look like it works while half of it goes nowhere.
+    """
+    obj = campaign_object(kind)
+    meta = object_meta(obj)
+    vals = {k: v for k, v in (values or {}).items()
+            if v not in (None, "", [], {})}
     body = description
     if author:
         body = f"{description}\n\n— submitted by {author} via Smart 1 Hub"
-    put("description", body)
-    put("client", client)
-    put("campaign", campaign)
-    put("io", io)
-    put("requested_by", requested_by or author)
+
+    if kind == "support":
+        # object_121 publishes no subject field, so the subject leads the
+        # issue rather than being written somewhere it does not belong — the
+        # label-matched map used to put it on whichever field matched "name"
+        # first, which is how a subject came to land on a field nobody reads.
+        issue = f"{subject}\n\n{body}".strip() if subject else body
+        defaults = (("client", client), ("campaign", campaign),
+                    ("io_number", io), ("description", issue),
+                    ("submitted_by", requested_by or author))
+    else:
+        defaults = (("title", subject[:120]), ("description", body),
+                    ("client", client), ("campaign", campaign), ("io", io),
+                    ("requested_by", requested_by or author))
+    for key, value in defaults:
+        if value and not vals.get(key):
+            vals[key] = value
+
+    payload, rejected = _campaign_payload(kind, vals, meta)
     if not payload:
-        raise RuntimeError(f"Could not match any writable fields on {obj} — "
-                           "check the object's field labels.")
+        raise RuntimeError(
+            f"Nothing writable resolved on {obj}."
+            + (" The support ids are pinned in SUPPORT_FIELDS, so this means "
+               "the object itself changed — check it in Knack."
+               if kind == "support"
+               else " Check the object's field labels.")
+            + (f" Refused: {'; '.join(rejected)}" if rejected else ""))
     r = requests.post(f"{BASE}/objects/{obj}/records",
                       headers=_headers(), json=payload, timeout=20)
     if not r.ok:
         raise RuntimeError(f"Knack rejected the request (HTTP {r.status_code}): {r.text[:200]}")
-    return r.json()
+    rec = r.json()
+    if not isinstance(rec, dict):
+        return rec
+    return {**rec, "written": sorted(payload), "rejected": rejected}
 
 
 # ---------------- People (Requested By dropdown: object_161 + object_109) ----

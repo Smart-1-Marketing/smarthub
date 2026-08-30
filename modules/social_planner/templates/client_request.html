@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_client_head.html" %}
+<title>Send us something to post</title>
+</head>
+<body>
+{#
+  One screen. The location picker is first because it is the only field that
+  decides anything downstream, and everything after it is optional except
+  what the request is about — a location contact should be able to fire off
+  "photo attached, post whenever" in under a minute from a phone.
+
+  "My location isn't listed" is a text box rather than a dead end. A form
+  that turns somebody away because their shop is not in our dropdown has cost
+  us the photograph, and the dropdown is our housekeeping rather than theirs.
+#}
+<div class="wrap">
+  <h1>Send us something to post</h1>
+  <p class="who">{{ client }}</p>
+
+  <div class="card" id="form">
+    <label class="f" for="loc">Which location is this for?</label>
+    <select id="loc"></select>
+    <input type="text" id="locOther" placeholder="Type the location"
+           style="display:none;margin-top:8px">
+
+    <label class="f" for="kind">What's this about?</label>
+    <select id="kind"></select>
+    <p class="hint" id="kindHelp"></p>
+
+    <label class="f" for="copy">Anything you want it to say?
+      <span class="opt">optional</span></label>
+    <textarea id="copy" placeholder="Rough words are fine — we'll tidy them."></textarea>
+    <p class="hint">If you name a price, a deadline or a phone number here,
+      that's your say-so and we'll use it exactly as written.</p>
+
+    <label class="f" for="file">Photos or video <span class="opt">optional</span></label>
+    <input type="file" id="file" multiple accept="image/*,video/*">
+    <div class="files" id="fileNote"></div>
+
+    <label class="f" for="mode">When do you need this live?</label>
+    <select id="mode"></select>
+    <div class="row" id="dates" style="display:none;margin-top:8px">
+      <div><label class="f" for="d1" style="margin-top:0">From</label>
+        <input type="date" id="d1"></div>
+      <div id="d2wrap"><label class="f" for="d2" style="margin-top:0">To</label>
+        <input type="date" id="d2"></div>
+    </div>
+
+    <label class="f" for="notes">Anything else we should know?
+      <span class="opt">optional</span></label>
+    <textarea id="notes"></textarea>
+
+    <label class="f" for="who">Your name <span class="opt">optional</span></label>
+    <input type="text" id="who">
+    <div class="row" style="margin-top:8px">
+      <div><input type="email" id="email" placeholder="Email"></div>
+      <div><input type="tel" id="phone" placeholder="Phone"></div>
+    </div>
+
+    <p style="margin:20px 0 0">
+      <button class="btn wide" id="send">Send it over</button>
+    </p>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card done" id="thanks" style="display:none">
+    <div class="tick">&#9989;</div>
+    <h1 id="thanksTitle">Got it</h1>
+    <p class="hint" id="thanksLine"></p>
+    <p style="margin-top:18px">
+      <button class="btn sec" id="again">Send another</button></p>
+  </div>
+
+  <div class="nav">
+    <a href="ideas">Ideas to swipe through</a>
+    <a href="approve">Posts waiting for you</a>
+    <a href="preferences">What to write about</a>
+  </div>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+var B = JSON.parse(document.getElementById("boot").textContent);
+var uploaded = [];
+
+function el(id){ return document.getElementById(id); }
+
+(function fill(){
+  var loc = el("loc"), opts = ['<option value="">Choose…</option>'];
+  B.locations.forEach(function(l){
+    opts.push('<option value="' + l.id + '">' + esc(l.name) + '</option>');
+  });
+  opts.push('<option value="__other">My location isn\'t listed</option>');
+  loc.innerHTML = opts.join("");
+  if (B.locations.length === 1) { loc.value = B.locations[0].id; }
+  if (!B.locations.length) { loc.value = "__other"; el("locOther").style.display = "block"; }
+
+  var kind = el("kind"), rows = [];
+  Object.keys(B.types).forEach(function(k){
+    rows.push('<option value="' + k + '">' + esc(B.types[k].label) + '</option>');
+  });
+  kind.innerHTML = rows.join("");
+  kindHelp();
+
+  var mode = el("mode"), modes = [];
+  Object.keys(B.dateModes).forEach(function(k){
+    modes.push('<option value="' + k + '">' + esc(B.dateModes[k]) + '</option>');
+  });
+  mode.innerHTML = modes.join("");
+})();
+
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function kindHelp(){
+  var meta = B.types[el("kind").value] || {};
+  el("kindHelp").textContent = meta.help || "";
+}
+el("kind").addEventListener("change", kindHelp);
+el("loc").addEventListener("change", function(){
+  el("locOther").style.display = this.value === "__other" ? "block" : "none";
+});
+el("mode").addEventListener("change", function(){
+  el("dates").style.display = this.value === "asap" ? "none" : "flex";
+  el("d2wrap").style.display = this.value === "date_range" ? "block" : "none";
+});
+
+el("file").addEventListener("change", function(){
+  var files = this.files;
+  if (!files || !files.length) { return; }
+  var body = new FormData(), i;
+  for (i = 0; i < files.length; i++) { body.append("file", files[i]); }
+  // The location travels with the file, so the client's gallery says which
+  // shop a photograph came from. A gallery of unlabelled photos from a
+  // five-location client is one nobody can pick from.
+  var picked = el("loc");
+  body.append("location_label", picked.value === "__other"
+    ? el("locOther").value
+    : ((picked.options[picked.selectedIndex] || {}).text || ""));
+  el("fileNote").textContent = "Uploading " + files.length + "…";
+  fetch("upload", {method:"POST", body:body}).then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.ok) { el("fileNote").textContent = d.error || "Those wouldn't upload."; return; }
+      uploaded = uploaded.concat((d.assets || []).map(function(a){ return a.url; }));
+      var line = uploaded.length + " file(s) attached.";
+      // Named, never counted: "four of five went up" is a different answer
+      // from "five went up", and only the sender can re-send the fifth.
+      if (d.failed && d.failed.length) {
+        line += " " + d.failed.length + " wouldn't upload (" +
+          d.failed.map(function(f){ return f.name; }).join(", ") + ") — try those again.";
+      }
+      el("fileNote").textContent = line;
+    })
+    .catch(function(){ el("fileNote").textContent = "Those wouldn't upload. Try again."; });
+});
+
+el("send").addEventListener("click", function(){
+  var msg = el("msg");
+  msg.className = "msg";
+  var loc = el("loc").value;
+  if (!loc) { msg.className = "msg err"; msg.textContent = "Which location is this for?"; return; }
+  var payload = {
+    location_id: loc === "__other" ? "" : loc,
+    location_label: loc === "__other" ? el("locOther").value :
+      (el("loc").options[el("loc").selectedIndex] || {}).text,
+    request_type: el("kind").value,
+    copy_suggestion: el("copy").value,
+    asset_refs: uploaded,
+    requested_date_mode: el("mode").value,
+    requested_date_start: el("d1").value,
+    requested_date_end: el("d2").value,
+    notes: el("notes").value,
+    submitted_by_name: el("who").value,
+    submitted_by_email: el("email").value,
+    submitted_by_phone: el("phone").value
+  };
+  if (loc === "__other" && !payload.location_label.trim()) {
+    msg.className = "msg err"; msg.textContent = "Type the location name."; return;
+  }
+  el("send").disabled = true;
+  msg.textContent = "Sending…";
+  fetch("request", {method:"POST", headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify(payload)})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      el("send").disabled = false;
+      if (!d.ok) { msg.className = "msg err"; msg.textContent = d.error || "That didn't send."; return; }
+      msg.textContent = "";
+      el("form").style.display = "none";
+      el("thanks").style.display = "block";
+      el("thanksTitle").textContent = d.location ?
+        ("Got it — " + d.location + "'s request is in the queue") : "Got it";
+      el("thanksLine").textContent = (d.turnaround || B.turnaround || {}).line || "";
+    })
+    .catch(function(){
+      el("send").disabled = false;
+      msg.className = "msg err";
+      msg.textContent = "That didn't send. Check your connection and try again.";
+    });
+});
+
+el("again").addEventListener("click", function(){ location.reload(); });
+</script>
+</body>
+</html>

@@ -3,37 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Smart 1 Google Account Command Center</title>
+  <title>Google Finder — Smart 1 Hub</title>
   <link rel="stylesheet" href="/google/static/style.css">
 </head>
 <body data-module="google_finder">
   <div id="toast-container"></div>
 
   <main class="wrap">
-    <section class="card">
-      <div class="topline">
-        <div>
-          <h1>Smart 1 Google Account Command Center</h1>
-          <p>Search all connected Analytics, Tag Manager, Search Console, & Business Profiles instantly.</p>
-        </div>
-        <div class="auth">
-          <a class="btn" href="/google/login">+ Add Google Account</a>
-        </div>
-      </div>
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb">Google</div>
+      <h1>Google Finder</h1>
+      <p>Search every connected Analytics, Tag Manager, Search Console and Business Profile account at once.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/google/login">+ Add Google account</a>
+    </div>
+  </div>
 
-      <!-- TOP NAVIGATION MENU -->
-      <nav class="nav-anchor-bar">
-        <a href="/google/" class="active-page">🔍 Quick Search</a>
-        <a href="/google/ga-tools">📊 GA Tools</a>
-        <a href="/google/gtm-tools">⚡ GTM Tools</a>
-        <a href="/google/webmaster-tools">🌐 Webmaster Tools</a>
-        <a href="/google/gmb-tools">📍 GMB Tools</a>
-        <a href="/google/history">📜 History & Logs</a>
-      </nav>
+  {% include "_nav.html" %}
 
       <!-- PRIMARY SEARCH SECTION -->
       {% if accounts %}
-      <div id="primary-search" class="primary-search-section" style="margin-top:20px;">
+      <div id="primary-search" class="primary-search-section s1d-card">
         <div class="filters">
           <button class="filter active" data-platform="all">All Platforms <span id="cnt-all" class="badge-count"></span></button>
           <button class="filter" data-platform="analytics">Analytics & GTM <span id="cnt-ga" class="badge-count"></span></button>
@@ -68,12 +60,12 @@
       <div class="connect-panel">
         <strong>Connect your Google accounts</strong>
         <p>Add adops@smart1marketing.com, smartadops@gmail.com, smart1sites@gmail.com, and gmb@smart1marketing.com to combine records across GA4, GTM, Search Console, and GMB.</p>
-        <a class="btn connect" href="/google/login">Connect Google Account</a>
+        <a class="s1d-btn" href="/google/login">Connect Google account</a>
       </div>
       {% endif %}
 
       <!-- CONNECTED ACCOUNTS FOOTER (SINGLE INSTANCE) -->
-      <div id="connected-accounts" class="accounts" style="margin-top:28px;">
+      <div id="connected-accounts" class="accounts">
         <div class="accounts-title">Connected Google Accounts</div>
         {% if accounts %}
           {% for acc in accounts %}
@@ -92,7 +84,6 @@
       <div style="margin-top: 14px; text-align: center; font-size: 12px;">
         <a href="#" id="btn-open-diagnostics" style="color: #69758a; text-decoration: underline; font-weight: 600;">⚙️ System Diagnostics Dashboard</a>
       </div>
-    </section>
   </main>
 
   <!-- DIAGNOSTICS MODAL -->

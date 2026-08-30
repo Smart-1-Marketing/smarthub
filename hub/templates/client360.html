@@ -28,6 +28,8 @@
 
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
+<script src="/knack-form.js"></script>
+<script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
 <script src="/web-ticket.js"></script>
 <script>
@@ -104,6 +106,22 @@ function render(g,q){
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
   if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
   head+='</div></div>';
+  /* A client whose only trace is an insertion order. Said out loud, because
+     every card below is going to be empty and "no products yet" and "Knack
+     has never heard of this client" are different answers — only one of them
+     is a new business somebody still has to set up. */
+  if(g.io_only){
+    var orders=(g.io_orders||[]).filter(Boolean);
+    head+='<div style="margin:0 0 14px;padding:11px 14px;border:1px solid #fcd34d;'
+      +'background:#fffbeb;border-radius:9px;font-size:12.5px">'
+      +'<b>New business — registered from an insertion order'
+      +(orders.length?' ('+esc(orders.join(', '))+')':'')+'.</b> '
+      +'Knack has no products or website record for them yet, so the cards below '
+      +'are empty because there is nothing to read, not because the search failed. '
+      +'This record is the Hub\u2019s own and is never written to Knack — when the '
+      +'real record appears it takes over.'
+      +'</div>';
+  }
   head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
 
@@ -114,15 +132,25 @@ function render(g,q){
   window.__c360prods=g.products||[];
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs {{ help_dot('hub.client360.products') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px">
+      <a class="open-link" id="c-ad-copy" style="cursor:pointer;color:#b45309">&#9997; Ad copy</a>
       <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
       <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
       <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
+  // Knack's own Product # (field_2640), beside the name rather than in a
+  // column of its own: this card is half the grid, and the number is only
+  // ever there on the live source — the committed export has never carried
+  // one — so a column would be a wall of dashes on every export-backed
+  // record. It is labeled, because the pill next to it is the IO number and
+  // two bare #s side by side say nothing about which is which.
+  const anyProdNum=(g.products||[]).some(p=>String(p.product_num||'').trim());
   const prodRow=p=>{
     const live=String(p.status||'').toLowerCase()==='live';
+    const num=String(p.product_num||'').trim();
+    const numPill=num?` <span class="pill neutral" title="Product number in Knack">Product #${esc(num)}</span>`:'';
     const ioPill=p.io?(p.dash
-      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io)}</a>`
-      :` <span class="pill neutral">#${esc(p.io)}</span>`):'';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}${memberTag(p.member)}</td>`
+      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Insertion order — open Smart 1 Dashboard">IO #${esc(p.io)}</a>`
+      :` <span class="pill neutral" title="Insertion order">IO #${esc(p.io)}</span>`):'';
+    return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${memberTag(p.member)}</td>`
       + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
       + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
       + `<td>${money(p.monthly)}</td></tr>`;
@@ -140,9 +168,15 @@ function render(g,q){
       html+='<div class="muted" style="font-size:12px;margin-bottom:8px">Live from Knack'
         + (mins===0||mins ? ' &middot; '+esc(String(mins))+' min old' : '') + '</div>';
     }
+    if(!anyProdNum){
+      html+='<div class="muted" style="font-size:12px;margin-bottom:8px">No product numbers on these rows'
+        + (g.products_source==='export'
+           ? ' &mdash; the committed export does not carry them.'
+           : '.') + '</div>';
+    }
     html+='<table><thead><tr><th>Product</th><th>Campaign</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
     html+=liveProds.slice(0,15).map(prodRow).join('');
-    if(!liveProds.length)html+='<tr><td colspan="3" class="empty">No live products right now.</td></tr>';
+    if(!liveProds.length)html+='<tr><td colspan="4" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
     if(doneProds.length){
       html+=`<div style="padding:10px 14px;border-top:1px solid var(--line-soft)"><button class="btn-ghost" onclick="const el=document.getElementById('doneProds');const on=el.style.display==='none';el.style.display=on?'block':'none';this.textContent=on?'Hide completed / other (${doneProds.length})':'Show completed / other (${doneProds.length})'">Show completed / other (${doneProds.length})</button></div>`;
@@ -187,6 +221,14 @@ function render(g,q){
   // ---------- Social Media + Client Notes (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Social content: what this client has asked us for ----------
+  // The Social Media card above is their profile URLs. This is the work:
+  // requests from their locations, the link those come in on, ideas they have
+  // swiped and posts sitting with them. All of it existed and none of it was
+  // on the record a rep opens, which is the "a link that exists and nobody
+  // can reach" failure this repo counts six of.
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social content requests</h3><a class="open-link" id="c-scq" href="/tools/social/requests">Open the queue →</a></div><div class="card-b" id="c-social-content"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
@@ -235,9 +277,15 @@ function render(g,q){
     </select></div></div>
     <div class="card-b" id="c-forms"><div class="empty">Loading…</div></div></div>`;
 
-  // ---------- Brand kit (logos, colours, fonts already cached per client) ----------
+  /* ---------- Brand: logos, colors and fonts, from every source ----------
+     One card. This was two — a brand kit above and a second block beneath it
+     for what had been read off the client's own website — which drew the same
+     company's colors twice under two headings and led with "No brand data on
+     file yet" above a logo it plainly had. The tag names no provider: which
+     service answered is not something the rep reading it can act on, and each
+     tile says where it came from, which is. See hub/client_brand._merge. */
   html+=`<div class="card"><div class="card-h">
-    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brandfetch</span><h3>Brand</h3>
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brand</span><h3>Brand &amp; logos</h3>
     <div class="right" id="c-brand-acts"></div></div>
     <div class="card-b" id="c-brand"><div class="empty">Loading brand…</div></div></div>`;
 
@@ -254,12 +302,46 @@ function render(g,q){
     <div class="card-b" id="c-health"><div class="empty">Checking for a recent scan… <span class="spin"></span></div></div>
     <div class="card-b" id="c-audits" style="padding-top:0"></div></div>`;
 
+  /* ---------- Everything else known about the business ----------
+     440 fields are read off a client's site and this record showed four of
+     them; the rest was already paid for and sat in a blob nobody opened.
+     Collapsed by default because it is a reference, not a headline — and
+     titled by what it answers rather than by which of our tools answered it,
+     the note modules/ads_builder/logo.py carries about naming a provider to a
+     rep. The Site Health card above is the audit itself and keeps its name. */
+  /* ---------- What they are already spending ----------
+     The block that decides what the next conversation is about, and the one
+     the audit tool, the prospect record, the customer placement and the
+     upsell report all lead with. Client 360 was the last screen still showing
+     it as five collapsed reference rows -- same client, same audit, two
+     answers depending on which record you opened. One reading now, from
+     /api/client/audit, which drops the thin group so the figures are on the
+     page once rather than twice. */
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e8f7ef;color:#12633f">Spend</span>
+    <h3>What they are already spending {{ help_dot('hub.client360.spend') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-spend-acts"></div></div>
+    <div class="card-b" id="c-spend"><div class="empty">Reading the last audit… <span class="spin"></span></div></div></div>`;
+
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Business</span>
+    <h3>What we know about this business {{ help_dot('hub.client360.scanfacts') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-scanfacts-acts"></div></div>
+    <div class="card-b" id="c-scanfacts"><div class="empty">Reading their website… <span class="spin"></span></div></div></div>`;
+
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
     <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
     <a class="open-link" href="${clientsLink}">Open in Websites →</a></div></div>
-    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>
-    <div style="display:flex;gap:36px;flex-wrap:wrap">`;
+    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>`;
+  // Which source these came from, exactly as the products card says it. A
+  // stale export looks identical to live data on screen, which is how a site
+  // added in Knack last week read as a client with no website at all.
+  if(g.websites&&g.websites.length&&g.websites_source==='export'){
+    html+='<div class="pill warn" style="margin-bottom:8px;display:inline-block">'
+      +'Committed export &mdash; may be out of date</div>';
+  }
+  html+=`<div style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
     g.websites.slice(0,4).forEach(w=>{
       const PLATFORMS=['Smart1Sites','WordPress','Wix','Squarespace','Shopify','Other'];
@@ -268,7 +350,7 @@ function render(g,q){
         PLATFORMS.map(p=>`<option value="${esc(p)}"${p.toLowerCase()===String(curPlat).toLowerCase()?' selected':''}>${esc(p.replace(/Smart1Sites/i,'Smart 1 Sites'))}</option>`));
       if(curPlat&&!PLATFORMS.some(p=>p.toLowerCase()===String(curPlat).toLowerCase()))
         platOpts.push(`<option value="${esc(curPlat)}" selected>${esc(curPlat)}</option>`);
-      html+=`<div style="flex:1;min-width:280px"><dl class="kv">
+      html+=`<div class="web-site"><div><dl class="kv">
         <dt>Site</dt><dd>${esc(w.name||'—')}${w.attached?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</dd>
         <dt>Domain</dt><dd>${w.domain?`<a href="https://${esc(w.domain)}" target="_blank" rel="noopener">${esc(w.domain)}</a>`:'—'}${w.domainPurchased?' <span class="pill info">we purchased</span>':''}</dd>
         <dt>Platform</dt><dd><select class="web-plat" data-domain="${esc(w.domain||'')}" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">${platOpts.join('')}</select> <span class="web-plat-msg muted" style="font-size:11px">${w.platform_overridden?'corrected':''}</span></dd>
@@ -289,12 +371,14 @@ function render(g,q){
       if(gtmId)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(gtmId)]);
       if(links.length)html+=gbtns(links);
       html+=`<div style="margin-top:6px"><a class="gbtn web-ticket" data-site="${esc(w.name||'')}" data-domain="${esc(w.domain||'')}" style="cursor:pointer;color:#b45309">&#127915; + Web ticket</a></div>`;
-      // The domain record itself, straight off Knack object_153: when the site
-      // went live, what status the client is in, whether we bought the domain
-      // and when it renews. Loaded per domain after the card is drawn, because
-      // it is one API call per site and the card must not wait on Knack.
+      html+='</div>';                      // end of the site's own column
+      // The domain record itself, straight off the Knack website registry:
+      // when the site went live, what status the client is in, whether we
+      // bought the domain and when it renews. It is the second column of this
+      // block. Loaded per domain after the card is drawn, because it is one
+      // API call per site and the card must not wait on Knack.
       html+=`<div class="web-knack" data-domain="${esc(w.domain||'')}" data-client="${esc(name||'')}"></div>`;
-      html+='</div>';
+      html+='</div>';                      // end of the two-column block
     });
   } else html+='<div class="empty" style="flex:1">No website record matched — use <b>+ Attach website record</b> above to link one.</div>';
   html+='</div></div></div>';
@@ -602,9 +686,26 @@ function render(g,q){
     + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
   const actsHost = document.getElementById('c-img-acts');
   if(actsHost) actsHost.innerHTML =
-      '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
+      '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
+    + '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
     + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
 
+  /* The link a client uploads their own photographs through.
+     Client Image Uploads has always been able to hand one out, and getting it
+     meant opening that tool, finding or adding the client and copying the link
+     out of a row — so the record that needs it offered nothing and the link
+     got made by whoever remembered the tool existed. This makes it here, for
+     the client whose record is on screen, and the matching rules are the
+     picker's own: exactly one gallery or none, never a substring, because a
+     link that collects a client's photos into another client's gallery is
+     worse than no link. */
+  var uplink = document.getElementById('c-img-uplink');
+  if(uplink) uplink.onclick = function(){ clientUploadLink(name, web0); };
+
+  /* Named, because deleting one image has to redraw this card. It used to be
+     an anonymous fetch, which is why the brand logos were spliced into
+     whatever it had already drawn rather than re-run through it. */
+  window.loadClientImages = function(){
   fetch(imgBase+'api/gallery?company='+encodeURIComponent(name)+'&limit=12')
     .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
       const rows=d.gallery||[];
@@ -613,24 +714,222 @@ function render(g,q){
           +'<a href="'+optimizeHref+'">Optimize their first batch →</a></div>';
         return;
       }
+      // d.total is the total for THIS CLIENT. It used to be the size of the
+      // whole archive, so a client with one image read "Showing 1 of 7
+      // saved images" and the gallery it linked to then showed the one.
       const total=(d.total||0)+(window.BRAND_LOGOS?BRAND_LOGOS.length:0);
       $('c-images').innerHTML=
         '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
-        + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff">
+        + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff" data-img="${esc(r.id)}">
             <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
-              <img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
+              <img src="${esc(r.thumb||r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
                    style="width:100%;height:100%;object-fit:cover;display:block"></a>
             <div style="padding:7px 9px">
               <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
               <div class="muted" style="font-size:11px;margin-top:2px">${esc(r.project||'')}${r.page?' · '+esc(r.page):''}</div>
+              <div style="margin-top:6px;display:flex;gap:9px;align-items:center">
+                <a class="open-link" style="font-size:11px" href="${esc(imgBase)}api/gallery/download?id=${encodeURIComponent(r.id)}"
+                   title="Download this file, named ${esc(r.filename)}">&#8681; Download</a>
+                <a class="open-link img-del" style="font-size:11px;color:#dc2626;cursor:pointer"
+                   data-del="${esc(r.id)}" data-name="${esc(r.filename)}"
+                   title="Delete this image from the client gallery and the archive. This cannot be undone.">&#128465; Delete</a>
+              </div>
             </div></div>`).join('')
         + '</div>'
         + '<div class="muted" style="font-size:12px;margin-top:10px">Showing '+rows.length+' of '+total
         + ' saved image'+(total===1?'':'s')+' · <a href="'+galleryHref+'">see the full gallery →</a></div>';
+      wireImageDeletes();
+      addLogosToImages();
     }).catch(()=>{
       $('c-images').innerHTML='<div class="empty">Image pipeline unavailable. '
         +'<a href="'+optimizeHref+'">Open the tool →</a></div>';
     });
+  };
+
+  /* Delete one image, from the record the work was done for.
+     The tile has always linked out to the file and to the gallery and offered
+     nothing to do about a wrong one, so a bad image was a trip through two
+     screens. Same endpoint the pipeline's own archive table uses — one
+     description of what deleting an image means, and one place that decides
+     whether the Cloudinary copy goes with it. */
+  function wireImageDeletes(){
+    const host=$('c-images'); if(!host) return;
+    host.querySelectorAll('.img-del').forEach(function(a){
+      a.onclick=function(){
+        const id=a.dataset.del, fname=a.dataset.name||'';
+        // Said out loud that it cannot be undone: for an image a client sent
+        // us, the copy in the gallery is very often the only copy.
+        if(!confirm('Delete this image?\n\n'+fname
+          +'\n\nIt is removed from the client gallery and from the SEO Image '
+          +'Pipeline archive. This cannot be undone.')) return;
+        a.textContent='Deleting…';
+        fetch(imgBase+'api/gallery/update',{method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({id:id, delete:true})})
+          .then(r=>r.json()).then(function(res){
+            if(res && res.error){ alert(res.error); a.innerHTML='&#128465; Delete'; return; }
+            window.loadClientImages();
+          }).catch(function(){
+            alert("That image couldn't be deleted.");
+            a.innerHTML='&#128465; Delete';
+          });
+      };
+    });
+  }
+
+  window.loadClientImages();
+
+  // ---------- Everything else known about the business ----------
+  /* Read-only, and deliberately a second call rather than more keys on the
+     health payload: that one is the fix list and the speed, which is what
+     somebody acts on today, and burying it under forty reference rows would
+     cost it its readability. */
+  (function(){
+    const host=$('c-scanfacts'), acts=document.getElementById('c-scanfacts-acts');
+    if(!host) return;
+    const dom=(web0&&web0.domain)?String(web0.domain):'';
+
+    /* Both cards are drawn from the one payload, so neither can be left
+       saying something the other contradicts. */
+    function drawSpend(d, domain){
+      const box=$('c-spend'), sacts=document.getElementById('c-spend-acts');
+      if(!box) return;
+      if(sacts){
+        sacts.innerHTML=(domain
+          ? '<a class="open-link" href="/tools/website-audit?domain='
+            +encodeURIComponent(domain)+'&client='+encodeURIComponent(window.CURRENT_CLIENT||'')
+            +'">Open the audit tool →</a>' : '');
+      }
+      if(!domain){
+        box.innerHTML='<div class="empty">No website record attached, so there '
+          +'is nothing to read this off. Attach one below.</div>';
+        return;
+      }
+      if(!d || d.error){
+        box.innerHTML='<div class="empty">This could not be read, so it is '
+          +'<b>not measured</b>'+(d&&d.error?': '+esc(d.error):'.')+'</div>';
+        return;
+      }
+      if(!d.found){
+        box.innerHTML='<div class="empty">'+esc(d.note||'')+'</div>';
+        return;
+      }
+      const sp=d.spend||{}, age=d.age||{};
+      let h='';
+      /* The age first and loudest when it matters: a figure with no date on
+         it is read as today's, which is how a stale reading reaches a client. */
+      if(age.stale){
+        h+='<div class="empty" style="border-left:3px solid #d18b1f;padding-left:9px;'
+          +'margin-bottom:10px"><b>This reading is '+esc(age.age_days)+' days old</b> — '
+          +'over the '+esc(age.limit_days)+'-day mark. Re-audit before quoting from it.</div>';
+      }
+      if(sp.total_display){
+        h+='<div style="font-size:26px;font-weight:700;color:var(--navy);line-height:1.15">'
+          +esc(sp.total_display)+' <span class="muted" style="font-size:13px;font-weight:400">'
+          +'a month, that we can put a number on</span></div>';
+        if(sp.total_note) h+='<div class="muted" style="font-size:12px;margin-top:4px">'
+          +esc(sp.total_note)+'</div>';
+      }
+      if((sp.observed||[]).length){
+        h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));'
+          +'gap:10px;margin-top:12px">'
+          + sp.observed.map(f=>
+              '<div style="border:1px solid var(--line);border-radius:9px;padding:9px 11px;'
+              +'background:#fbfdff"><div style="font-size:'+(f.measured?'18px':'13.5px')
+              +';font-weight:'+(f.measured?'650':'600')+';color:'+(f.measured?'var(--navy)':'#6b7d99')
+              +'">'+esc(f.value)+'</div>'
+              +'<div class="muted" style="font-size:11.5px">'+esc(f.label)+'</div>'
+              +(f.why?'<div class="muted" style="font-size:11px;margin-top:4px">Worked out as '
+                 +esc(f.why)+'.</div>':'')+'</div>').join('')
+          +'</div>';
+      }else{
+        h+='<div class="empty">'+esc(sp.note||'Nothing came back about their advertising.')+'</div>';
+      }
+      if(sp.stated&&sp.stated.finding){
+        h+='<div class="empty" style="margin-top:10px"><b>Worth asking:</b> '
+          +esc(sp.stated.finding)+'</div>';
+      }
+      /* What the audit says we could fix. Client 360 has never shown this and
+         it is the whole upsell conversation -- the finding, never a product
+         name, because the finding is the half that survives being read out. */
+      if((d.opportunities||[]).length){
+        h+='<div style="margin-top:14px"><b style="font-size:13px;color:var(--navy)">'
+          +'What the audit says we could fix</b>'
+          +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));'
+          +'gap:9px;margin-top:8px">'
+          + d.opportunities.map(o=>
+              '<div style="border:1px solid var(--line);border-left:3px solid #d18b1f;'
+              +'border-radius:9px;padding:9px 11px"><div style="font-weight:620;font-size:12.5px">'
+              +esc(o.finding)+'</div><div class="muted" style="font-size:11.5px;margin-top:2px">'
+              +esc(o.means)+'</div></div>').join('')
+          +'</div></div>';
+      }
+      box.innerHTML=h;
+    }
+
+    if(!dom){
+      drawSpend(null, '');
+      host.innerHTML='<div class="empty">No website record attached, so there is '
+        +'nothing to read this off. Attach one below.</div>';
+      return;
+    }
+    /* /api/client/audit rather than the Website Audit tool's own route: this
+       record is framed inside Smart 1 Suite, and suite_embed.EMBEDDABLE
+       allowlists /api/client/ and not /api/website-audit -- a card pointed at
+       the tool would render everywhere except inside the frame. Same function
+       behind both. */
+    fetch('/api/client/audit?domain='+encodeURIComponent(dom),{credentials:'same-origin'})
+      .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+        drawSpend(d, dom);
+        if(d.error){
+          // "We could not look" is not "there is nothing" — never a clean nothing.
+          host.innerHTML='<div class="empty">This could not be read, so '
+            +'it is <b>not measured</b>: '+esc(d.error)+'</div>';
+          return;
+        }
+        if(!d.found){
+          host.innerHTML='<div class="empty">'
+            +esc(d.note||'Nothing has been read from this website yet.')+'</div>';
+          return;
+        }
+        // The date the details were read, because a reading with no date on
+        // it is taken for today's. Which tool did the reading is not on it.
+        if(acts) acts.innerHTML=
+          '<span class="muted" style="font-size:12px">Read '
+          + esc(String(d.scanned_at||'').slice(0,10))+'</span>';
+        if(!d.groups || !d.groups.length){
+          host.innerHTML='<div class="empty">'+esc(d.note||'')+'</div>';
+          return;
+        }
+        /* Groups are <details>, closed. Ten open panels is a wall; the
+           headings say what is inside each so nobody has to open one to
+           find out. */
+        host.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">'
+          + d.groups.map(gp=>
+            '<details style="border:1px solid var(--line);border-radius:9px;background:#fff;padding:10px 12px">'
+            + '<summary style="cursor:pointer;font-weight:600;color:var(--navy);font-size:13px">'
+            + esc(gp.title)+' <span class="muted" style="font-weight:400">· '
+            + gp.rows.length+'</span></summary>'
+            + '<div class="muted" style="font-size:11.5px;margin:6px 0 8px">'+esc(gp.why)+'</div>'
+            + '<dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px">'
+            + gp.rows.map(r=>
+                '<dt class="muted" style="white-space:nowrap"'
+                + (r.hint?' title="'+esc(r.hint)+'"':'')+'>'+esc(r.label)+'</dt>'
+                + '<dd style="margin:0;overflow-wrap:anywhere">'
+                + (r.link
+                    ? '<a href="'+esc(r.link)+'" target="_blank" rel="noopener">'+esc(r.value)+' ↗</a>'
+                    : esc(r.value))
+                + '</dd>').join('')
+            + '</dl></details>').join('')
+          + '</div>';
+      }).catch(()=>{
+        /* Both cards, or the spend one spins for ever on a failure the other
+           has already reported. */
+        drawSpend(null, dom);
+        host.innerHTML='<div class="empty">These details could not be loaded — '
+          +'<b>not measured</b> rather than nothing found.</div>';
+      });
+  })();
 
   // ---------- Site health: broken links / images + speed, from the last scan ----------
   // Matched on the website record's domain, since scans are keyed by domain
@@ -946,7 +1245,7 @@ function render(g,q){
         .then(r=>r.json()).then(res=>{if(msg)msg.textContent=res.error||'corrected ✓';});
     };
   });
-  // ---------- The Knack domain record (object_153), per website ----------
+  // ---------- The domain record from the website registry, per website ----------
   document.querySelectorAll('.web-knack').forEach(host=>{
     const dom=host.dataset.domain||'', cli=host.dataset.client||'';
     if(!dom&&!cli)return;
@@ -960,7 +1259,7 @@ function render(g,q){
 
   function drawDomainRecord(host,d,cli){
     if(!d||!d.found){
-      // Nothing is invented here. A domain with no object_153 record has no
+      // Nothing is invented here. A domain with no registry record has no
       // live date and no renewal date, and drawing empty boxes that cannot
       // save would read as "not filled in yet" rather than "not on file".
       // And a registry we could not READ is not a registry with nothing in
@@ -968,10 +1267,9 @@ function render(g,q){
       const why=(d&&d.read_error)
         ? esc(d.read_error)+' The domain record could not be looked up — this '+
           'is not the same as there being none.'
-        : 'No record in the Knack website registry (object_153) carries this '+
-          'domain, so there is nothing to record the live date or the domain '+
-          'purchase against. Attach it on <a href="/tools/sites-match">Match '+
-          'clients</a>.';
+        : 'No record in the website registry carries this domain, so there is '+
+          'nothing to record the live date or the domain purchase against. '+
+          'Attach it on <a href="/tools/sites-match">Match clients</a>.';
       host.innerHTML='<div class="muted" style="font-size:11.5px;margin-top:8px">'+why+'</div>';
       return;
     }
@@ -993,31 +1291,41 @@ function render(g,q){
         ctl=`<input id="${id}" data-key="${esc(f.key)}" class="wk-in" value="${esc(f.value||'')}"${dis}
               placeholder="${f.kind==='date'?'as Knack stores it, e.g. 01/31/2026':'not recorded'}">`;
       }
-      // A registrar nobody recorded is usually in the last Insites scan of the
-      // same domain — WHOIS. Offered to be copied in, never written for you:
-      // "observed by a scan" and "recorded by us" are different claims.
+      // A registrar nobody recorded is usually already known for the same
+      // domain — WHOIS. Offered to be copied in, never written for you:
+      // "observed on the domain" and "recorded by us" are different claims.
       let extra='';
       if(f.key==='registrar'&&!f.value&&d.registrar&&d.registrar.value){
-        extra=`<div class="muted" style="font-size:11px;margin-top:3px">WHOIS on the latest scan says
+        extra=`<div class="muted" style="font-size:11px;margin-top:3px">WHOIS on this domain says
           <b>${esc(d.registrar.value)}</b>${d.registrar.expires?' · expires '+esc(d.registrar.expires):''}
           <a class="gbtn wk-use" data-for="${id}" data-val="${esc(d.registrar.value)}"
              style="cursor:pointer;font-size:11px;margin-left:4px">use it</a></div>`;
       }
       if(f.known===false){
         extra+='<div class="muted" style="font-size:11px;color:#b45309;margin-top:3px">'+
-          'This field id is not on object_153 any more — it is drawn, but it '+
-          'will not save until the pinned id is corrected.</div>';
+          'This field is no longer on the website registry — it is drawn, but '+
+          'it will not save until somebody re-points it.</div>';
       }
-      return `<dt>${esc(f.label)}</dt><dd>${ctl}${extra}</dd>`;
+      // The key rides on the pair, so the "we did not buy it" rule below can
+      // find a row from either half without walking siblings.
+      return `<dt class="wk-row" data-key="${esc(f.key)}">${esc(f.label)}</dt>`+
+             `<dd class="wk-row" data-key="${esc(f.key)}">${ctl}${extra}</dd>`;
     }).join('');
-    host.innerHTML=`<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-        <b style="font-size:12.5px">Domain record</b>
-        <span class="muted" style="font-size:11px">Knack object_153</span></div>
+    host.innerHTML=`<div>
+      <b style="font-size:12.5px">Domain record</b>
       <dl class="kv wk-kv">${fields}</dl>
+      <div class="wk-hidden-note muted" style="font-size:11px;margin:2px 0 6px"></div>
+      ${renewalBlock(d.renewal)}
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-        <a class="gbtn wk-save" style="cursor:pointer"${d.writable?'':' hidden'}>Save to Knack</a>
+        <a class="gbtn wk-save" style="cursor:pointer"${d.writable?'':' hidden'}>Save</a>
         <span class="wk-msg muted" style="font-size:11.5px">${d.writable?'':esc(d.note||'')}</span></div></div>`;
+    // "Did we buy the domain?" is the question the rest of this panel hangs
+    // off. When the answer is no, the purchase date, the renewal date and the
+    // registrar are not blanks somebody forgot — they are questions that do
+    // not apply, and asking them is how a panel looks unfinished for ever.
+    applyBoughtRule(host);
+    const bought=host.querySelector('.wk-in[data-key="domain_bought"]');
+    if(bought)bought.addEventListener('change',()=>applyBoughtRule(host));
     host.querySelectorAll('.wk-use').forEach(a=>{
       a.onclick=()=>{const t=document.getElementById(a.dataset.for);if(t)t.value=a.dataset.val;};
     });
@@ -1037,6 +1345,94 @@ function render(g,q){
             ' — refused: '+res.rejected.join('; '):'');
         }).catch(()=>{msg.textContent='could not save';});
     };
+  }
+
+  // ---------- "We did not buy this domain", and what that hides ----------
+  //
+  // Only the *empty* ones, and never in silence. A field somebody recorded
+  // stays on screen whatever the answer to the purchase question is — hiding
+  // a registrar we hold because the tickbox says no would be this panel
+  // deciding the record is wrong. And a panel that quietly gets shorter is
+  // one nobody can tell from a panel that failed to load, so what was left
+  // out is counted and one click brings it back.
+  function applyBoughtRule(host){
+    const sel=host.querySelector('.wk-in[data-key="domain_bought"]');
+    const note=host.querySelector('.wk-hidden-note');
+    if(!sel||!note)return;
+    const v=String(sel.value||'').trim().toLowerCase();
+    const notOurs=(v==='no'||v==='false');
+    let hidden=0;
+    host.querySelectorAll('.wk-in').forEach(el=>{
+      const key=el.dataset.key;
+      if(key==='domain_bought')return;
+      const hide=notOurs&&!String(el.value||'').trim()&&!host.dataset.showAll;
+      if(hide)hidden++;
+      host.querySelectorAll('.wk-row[data-key="'+key+'"]').forEach(row=>{
+        row.style.display=hide?'none':'';
+      });
+    });
+    if(!notOurs||(!hidden&&!host.dataset.showAll)){note.innerHTML='';return;}
+    note.innerHTML=host.dataset.showAll
+      ? 'We did not buy this domain. <a class="wk-toggle" style="cursor:pointer">'+
+        'Hide the empty fields</a>'
+      : 'We did not buy this domain, so '+hidden+' empty field'+(hidden===1?' is':'s are')+
+        ' hidden. <a class="wk-toggle" style="cursor:pointer">Show them</a>';
+    const t=note.querySelector('.wk-toggle');
+    if(t)t.onclick=()=>{
+      if(host.dataset.showAll)delete host.dataset.showAll;
+      else host.dataset.showAll='1';
+      applyBoughtRule(host);
+    };
+  }
+
+  // ---------- The renewal standing of the domain on this record ----------
+  //
+  // A domain attached to a client is a domain somebody on this page wants the
+  // renewal answer for, and sending them to /tools/domains to find the same
+  // row again is how a list stays unactioned. Three things are said apart
+  // rather than blurred: a domain we did not buy has no renewal for us to
+  // bill (that is not "not billed"), a renewal with no billing date recorded
+  // cannot be asked the question at all, and billed says *what* said so —
+  // an invoice in QuickBooks, or somebody's tick on the renewal calendar.
+  function renewalBlock(r){
+    if(!r) return '';
+    if(!r.applies){
+      return `<div class="muted" style="font-size:11.5px;margin-top:8px">
+        <b>Domain renewal.</b> ${esc(r.reason||'Not measured.')}</div>`;
+    }
+    let state;
+    if(!r.dated){
+      state=`<span class="muted">not measured</span>`;
+    }else if(r.billed){
+      state='<b style="color:#147d52">billed</b>'+
+        (r.billed_source==='quickbooks'?' — QuickBooks':
+         r.billed_source==='hub'?' — ticked on the renewal calendar':'');
+    }else{
+      state='<b style="color:#a06a00">not billed</b>';
+    }
+    const inv=(r.charges||[]).map(c=>
+      `<div class="muted" style="font-size:11px">${c.link
+        ?`<a href="${esc(c.link)}" target="_blank" rel="noopener">Invoice ${esc(c.doc_number||c.invoice_id)}</a>`
+        :`Invoice ${esc(c.doc_number||c.invoice_id)}`} · ${esc(c.date||'')} · $${Number(c.amount||0).toFixed(2)}${
+        c.customer?' · billed to '+esc(c.customer):''}</div>`).join('');
+    const dnr=r.do_not_renew
+      ? `<div style="font-size:11.5px;color:#a3352a;margin-top:3px"><b>${
+          r.renewed_anyway?'Marked do not renew — and it renewed anyway':'Marked do not renew'
+        }.</b> ${esc(r.dnr_note||'')}</div>` : '';
+    return `<div style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <b style="font-size:12.5px">Domain renewal</b>
+        <a class="gbtn" href="/tools/domains" style="font-size:11px">Renewal calendar</a></div>
+      <div style="font-size:11.5px;margin-top:4px">
+        ${r.renewal_billing_date?'Billing date <b>'+esc(r.renewal_billing_date)+'</b>':
+          '<span class="muted">No renewal billing date recorded</span>'}
+        ${r.fee?' · fee $'+Number(r.fee).toFixed(2):''}
+        ${r.partner?' · partner '+esc(r.partner):''} · ${state}</div>
+      ${inv}
+      ${r.note?`<div class="muted" style="font-size:11px;margin-top:3px">${esc(r.note)}</div>`:''}
+      ${r.not_measured?`<div class="muted" style="font-size:11px;margin-top:3px">${esc(r.not_measured)}</div>`:''}
+      ${r.quickbooks_error?`<div class="muted" style="font-size:11px;color:#b45309;margin-top:3px">${esc(r.quickbooks_error)}</div>`:''}
+      ${dnr}</div>`;
   }
 
   function hashStr(s){let h=0;for(let i=0;i<String(s).length;i++){h=(h*31+String(s).charCodeAt(i))|0;}return h;}
@@ -1082,23 +1478,59 @@ function render(g,q){
     document.getElementById('webq').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
   };
 
-  // ---------- Client profile: contacts, address, category + notes ----------
-  let clientProfile=null;
+  /* ---------- Client profile: contacts, address, category + notes ----------
+     The strip said "No contact info on file yet" about businesses whose
+     address and phone number were already on this record, further down, under
+     a heading about our own tooling. Nobody types a client's address in twice,
+     so it stayed unfilled. What their website publishes is offered into the
+     empty fields, drawn dotted so it reads as an offer rather than a record,
+     and one press keeps it. Nothing is written until that press: the profile
+     is what a person typed and it wins from then on. */
+  let clientProfile=null, clientSuggested=null;
   function renderProfile(p){
     clientProfile=p||{contacts:[],address:'',category:'',notes:[]};
+    // Held across redraws: saving a note re-renders from a payload that
+    // carries no suggestions, and the offer must not vanish because somebody
+    // typed a note.
+    if(p&&p.suggested)clientSuggested=p.suggested;
+    const sug=((clientSuggested||{}).values)||{};
+    const offered=[];
+    const offer=(html)=>'<span style="border-bottom:1px dashed #94a3b8" '
+      +'title="Read from their website. Press “Save these details” to keep it.">'+html+'</span>';
     const prim=(p.contacts||[]).find(c=>c.primary)||(p.contacts||[])[0]||{};
     const others=(p.contacts||[]).filter(c=>c!==prim);
     const bits=[];
     if(prim.name)bits.push('<b>'+esc(prim.name)+'</b>');
+    else if(sug.name){bits.push(offer('<b>'+esc(sug.name)+'</b>'));offered.push('name');}
     if(prim.phone)bits.push('&#128222; '+esc(prim.phone));
+    else if(sug.phone){bits.push('&#128222; '+offer(esc(sug.phone)));offered.push('phone');}
     if(prim.email)bits.push('<a href="mailto:'+esc(prim.email)+'">'+esc(prim.email)+'</a>');
+    else if(sug.email){bits.push(offer('<a href="mailto:'+esc(sug.email)+'">'+esc(sug.email)+'</a>'));offered.push('email');}
     if(p.address)bits.push('&#128205; '+esc(p.address));
+    else if(sug.address){bits.push('&#128205; '+offer(esc(sug.address)));offered.push('address');}
     if(p.category)bits.push('<span class="pill neutral">'+esc(p.category)+'</span>');
+    else if(sug.category){bits.push(offer('<span class="pill neutral">'+esc(sug.category)+'</span>'));offered.push('category');}
     others.forEach(c=>{bits.push('<span class="muted">+ '+esc(c.name||c.email||c.phone)+'</span>');});
+    const keep=offered.length
+      ? '<a class="gbtn" id="profKeep" style="cursor:pointer" title="Writes '
+        +esc(offered.join(', '))+' onto this client record">Save these details</a>' : '';
     $('c-profile').innerHTML=`<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px">
       ${bits.length?bits.join('<span class="muted" style="margin:0 2px">·</span>'):'<span class="muted">No contact info on file yet.</span>'}
-      <a class="gbtn" id="profEdit" style="cursor:pointer;margin-left:auto">&#9998; Edit info</a></div>`;
+      <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${keep}
+      <a class="gbtn" id="profEdit" style="cursor:pointer">&#9998; Edit info</a></span></div>`;
     document.getElementById('profEdit').onclick=openProfileModal;
+    const keepBtn=document.getElementById('profKeep');
+    if(keepBtn)keepBtn.onclick=()=>{
+      keepBtn.textContent='Saving…';
+      fetch('/api/client/profile',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(profileWith(sug))})
+        .then(r=>r.json()).then(d=>{
+          if(d.error){keepBtn.textContent='Save these details';alert(d.error);return;}
+          clientSuggested={values:{}};
+          renderProfile(d.profile);
+        }).catch(()=>{keepBtn.textContent='Save these details';
+          alert('Those details could not be saved.');});
+    };
     // notes card
     const notes=p.notes||[];
     $('c-notes').innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px">
@@ -1118,12 +1550,29 @@ function render(g,q){
     };
     document.getElementById('noteInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('noteAdd').click();});
   }
-  fetch('/api/client/profile?name='+encodeURIComponent(name)).then(r=>r.json())
+  /* The stored profile, plus what is offered into its empty fields. Never
+     the other way round: a value a person typed is the better source than
+     anything read off a home page, so an offer only ever fills a blank. */
+  function profileWith(sug){
+    const p=clientProfile||{contacts:[]};
+    const contacts=(p.contacts||[]).slice();
+    if(!contacts.length && (sug.name||sug.phone||sug.email))
+      contacts.push({name:sug.name||'',email:sug.email||'',phone:sug.phone||'',primary:true});
+    return {client:name, contacts:contacts,
+            address:(p.address||sug.address||''),
+            category:(p.category||sug.category||'')};
+  }
+
+  fetch('/api/client/profile?name='+encodeURIComponent(name)
+        +'&domain='+encodeURIComponent(window.__c360domain||'')).then(r=>r.json())
     .then(d=>renderProfile(d.profile||{}))
     .catch(()=>{$('c-profile').innerHTML='';$('c-notes').innerHTML='<div class="empty">Notes unavailable.</div>';});
 
   function openProfileModal(){
-    const p=clientProfile||{contacts:[]};
+    // Opened on the merged view: a modal that shows blanks beside a strip
+    // showing values is the screen contradicting itself, and saving from it
+    // would wipe the offer the rep just came to keep.
+    const p=profileWith(((clientSuggested||{}).values)||{});
     let m=document.getElementById('profModal');
     if(m)m.remove();
     m=document.createElement('div');
@@ -1239,7 +1688,7 @@ function render(g,q){
   // ---------- Campaign Change / Support requests (Knack object_140 / 121) ----------
   // The form itself now lives in /campaign-request.js, because the dashboard
   // opens the same three requests without a client on screen and a second copy
-  // is how a fix ends up landing in only one of them. Behaviour here is
+  // is how a fix ends up landing in only one of them. Behavior here is
   // unchanged: the groups this search produced are handed straight over, so a
   // name matching several clients stays switchable inside the form.
   function openCampaignModal(kind){
@@ -1257,6 +1706,23 @@ function render(g,q){
   const campSupport=document.getElementById('c-camp-support');
   if(campChange)campChange.onclick=()=>openCampaignModal('change');
   if(campSupport)campSupport.onclick=()=>openCampaignModal('support');
+
+  // ---------- Ad Copy Request (its own Knack object) ----------
+  // Opened from the card that already shows this client's products and IOs,
+  // which is the whole point: the seller, the confirmation address, the
+  // client, the campaign, the current order number and the media partner are
+  // all things this page is already displaying, and the old form asked a rep
+  // to retype four of them. The prefill is decided server-side in
+  // hub/ad_copy.py — there is no second copy of the rules here.
+  const adCopyBtn=document.getElementById('c-ad-copy');
+  if(adCopyBtn)adCopyBtn.onclick=()=>{
+    if(!window.AdCopyRequest){
+      alert('The request form failed to load. Reload the page and try again.');
+      return;
+    }
+    window.AdCopyRequest.open({client:name,user:user_name,
+                               onsaved:()=>{if(window.loadWorkLog)loadWorkLog(name);}});
+  };
 
   // Accounting issue form (GHL) in a modal
   const acctBtn=document.getElementById('c-qb-acct');
@@ -1293,8 +1759,8 @@ function render(g,q){
            explanation looks like something a person typed and forgot. */
         + (d.from_scan && d.from_scan.length
             ? '<div class="muted" style="font-size:11.5px;margin-top:8px">'
-              + d.from_scan.length + ' found by the last site scan ('
-              + d.from_scan.join(', ') + ') — Brandfetch didn\'t have '
+              + d.from_scan.length + ' found on their own website ('
+              + d.from_scan.join(', ') + ') — the brand lookup didn\'t have '
               + (d.from_scan.length>1?'them':'it') + '. Save to keep.</div>'
             : '');
       const saveBtn=document.getElementById('c-social-save');
@@ -1309,11 +1775,91 @@ function render(g,q){
           });
       };
     }).catch(()=>{$('c-social').innerHTML='<div class="empty">Social links unavailable.</div>'});
+
+  // Social content — requests, ideas, their link and what is waiting on them
+  const scq=document.getElementById('c-scq');
+  if(scq) scq.href='/tools/social/requests?client='+encodeURIComponent(name);
+  fetch('/api/client/social-content?name='+encodeURIComponent(name)
+        +(web0&&web0.url?'&url='+encodeURIComponent(web0.url):''))
+    .then(r=>r.json()).then(d=>{ $('c-social-content').innerHTML=socialContentHtml(d,name); })
+    .catch(()=>{$('c-social-content').innerHTML=
+      '<div class="empty">The social content queue could not be read.</div>'});
+}
+
+function scStat(label,value,href,warn){
+  // A figure that opens the rows behind it. A count somebody cannot act on is
+  // the thing hub/housekeeping.py exists to stop putting on screens.
+  const v=`<div style="font-size:22px;font-weight:700;line-height:1.15;color:${warn&&value?'var(--bad,#dc2626)':'var(--navy,#1a2e58)'}">${value}</div>`;
+  const l=`<div class="muted" style="font-size:11.5px">${esc(label)}</div>`;
+  return href?`<a href="${esc(href)}" style="text-decoration:none;display:block">${v}${l}</a>`
+             :`<div>${v}${l}</div>`;
+}
+
+function socialContentHtml(d,name){
+  if(!d||d.measured===false)
+    return '<div class="empty">'+esc((d&&d.error)||'Not measured.')+'</div>';
+  const r=d.requests||{}, ideas=d.ideas||{}, posts=d.posts||{}, link=d.link||{};
+  let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:14px;margin-bottom:14px">';
+  if(r.measured===false){
+    h+='<div class="muted" style="grid-column:1 / -1">'+esc(r.error||'')+'</div>';
+  }else{
+    h+=scStat('Waiting on us',r.open||0,r.url);
+    h+=scStat('Past their date',r.overdue||0,r.url,true);
+    h+=scStat('Possible duplicates',r.duplicates||0,r.url);
+  }
+  if(posts.measured!==false){
+    h+=scStat('With the client',posts.waiting_on_client||0,posts.url);
+    h+=scStat('Changes asked for',posts.changes_requested||0,posts.url,true);
+  }
+  if(ideas.measured!==false) h+=scStat('Ideas unanswered',ideas.pending||0,null);
+  h+='</div>';
+
+  // The open requests themselves, because a count with no rows under it sends
+  // somebody to another screen to find out what it is about.
+  if((d.recent||[]).length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    d.recent.forEach(x=>{
+      h+=`<tr><td style="padding:6px 8px 6px 0">${esc(x.location)}</td>`
+        +`<td style="padding:6px 8px" class="muted">${esc(x.type)}</td>`
+        +`<td style="padding:6px 8px" class="muted">${esc(x.when)}</td>`
+        +`<td style="padding:6px 0;text-align:right">${x.overdue
+            ?'<b style="color:var(--bad,#dc2626)">Overdue</b>':esc(x.status)}</td></tr>`;
+    });
+    h+='</table>';
+  }else if(r.measured!==false && !(r.total)){
+    // "Nobody has asked" and "we could not look" read identically as an empty
+    // card, and only the first one has an action under it: send them the link.
+    h+='<div class="muted" style="font-size:12.5px">Nobody at this client has '
+      +'sent a request yet. If they have not been given their link, that is '
+      +'usually why.</div>';
+  }
+
+  if(ideas.measured!==false){
+    h+='<div class="muted" style="font-size:12px;margin-top:10px">'
+      +(ideas.answered
+        ? esc(ideas.answered+' idea(s) answered'
+              +(ideas.liked&&ideas.liked.length?'. Most liked: '+ideas.liked.join(', '):'.'))
+        : 'Nobody here has swiped on an idea yet.')
+      +'</div>';
+  }
+
+  // Their link, and whether it is on. Offered here because this is the screen
+  // somebody is on when they realize the client has sent us nothing.
+  if(link.pages&&link.pages.length){
+    const req=link.pages.filter(p=>p.page==='request')[0];
+    h+='<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      +'<span class="muted" style="font-size:12px">Their link:</span>'
+      +(link.revoked
+        ? '<b style="color:var(--bad,#dc2626);font-size:12.5px">turned off — none of their four pages will open</b>'
+        : `<code style="font-size:11.5px;background:var(--bg,#f8fafc);border:1px solid var(--line);border-radius:6px;padding:4px 7px;overflow-wrap:anywhere">${esc(req?req.url:'')}</code>`)
+      +'</div>';
+  }
+  return h;
 }
 
 // ---------- Creative gallery ----------
 function galleryThumb(item){
-  if(item.kind==='image') return `<img src="${esc(item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
+  if(item.kind==='image') return `<img src="${esc(item.thumb||item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
   if(item.kind==='gdrive'){
     const m=String(item.url).match(/\/d\/([\w-]+)/);
     if(m) return `<img src="https://drive.google.com/thumbnail?id=${m[1]}&sz=w400" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('gdrive')">`;
@@ -1458,7 +2004,7 @@ function c360Traffic(propertyId,googleLogin){
      name match, or a manual attach a moment ago. */
   window.__c360GA={property:propertyId,login:googleLogin};
   c360AskReady();
-  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin"></span></div>';
+  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin" data-s1-think="scan"></span></div>';
   fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
     .then(r=>r.json()).then(d=>{
@@ -1509,6 +2055,110 @@ function c360Traffic(propertyId,googleLogin){
 
 {% if q %}run();{% endif %}
 
+// ------------------------------------------------- client upload link
+/* Hand a client the link they upload their own photographs through.
+   Two presses on purpose: the first asks whether a gallery already exists and
+   the second creates one, because creating a gallery is a thing somebody
+   chose to do, not something a page load does. */
+function clientUploadLink(name, web0){
+  var host = document.getElementById('c-images');
+  if(!host) return;
+  var box = document.getElementById('c-uplink-box');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'c-uplink-box';
+    box.style.cssText = 'margin:0 0 12px;padding:11px 13px;border:1px solid #bfdbfe;'
+      + 'background:#eff6ff;border-radius:9px;font-size:12.5px';
+    host.insertBefore(box, host.firstChild);
+  }
+  box.innerHTML = '<span class="muted">Looking for this client\u2019s upload gallery\u2026</span>';
+  var url = (web0 && web0.domain) ? String(web0.domain) : '';
+  ask(false);
+
+  function ask(create){
+    fetch('/tools/image-picker/api/clients/for-hub-client',{method:'POST',
+      credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name, url:url, create:!!create})})
+      .then(function(r){ return r.json(); }).then(draw)
+      .catch(function(){
+        box.innerHTML = '<span class="muted">Client Image Uploads could not be '
+          + 'reached, so we cannot say whether this client has a link \u2014 '
+          + '<b>not measured</b> rather than none.</span>';
+      });
+  }
+
+  function draw(d){
+    if(!d || !d.ok){
+      /* Two galleries that could both be this client refuses rather than
+         guessing: the wrong pick sends a client's photographs into another
+         client's gallery, which is the one mistake here that cannot be undone
+         by editing a row. */
+      box.innerHTML = '<div style="color:#b45309">'+esc((d&&d.error)||'The upload link could not be made.')+'</div>'
+        + '<div style="margin-top:7px"><a class="gbtn" href="/tools/image-picker/">Open Client Image Uploads →</a></div>';
+      return;
+    }
+    if(!d.share_url){
+      box.innerHTML = '<div><b>No upload gallery for this client yet.</b> '
+        + 'Creating one gives you a link they can send photos, logos and PDFs through; '
+        + 'everything they upload lands in this client\u2019s gallery.</div>'
+        + '<div style="margin-top:8px"><a class="gbtn" id="c-uplink-make" href="#">Create the upload link</a> '
+        + '<a class="open-link" id="c-uplink-close" style="cursor:pointer;margin-left:8px">Not now</a></div>';
+      document.getElementById('c-uplink-make').onclick = function(e){
+        e.preventDefault();
+        box.innerHTML = '<span class="muted">Creating\u2026</span>';
+        ask(true);
+      };
+      document.getElementById('c-uplink-close').onclick = function(){ box.remove(); };
+      return;
+    }
+    box.innerHTML =
+      '<div style="font-weight:600;color:var(--navy);margin-bottom:5px">'
+      + (d.created ? 'Upload link created' : 'Client upload link')
+      + (d.matched_on ? ' <span class="muted" style="font-weight:400">\u00b7 matched on '+esc(d.matched_on)+'</span>' : '')
+      + '</div>'
+      + '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">'
+      + '<input readonly id="c-uplink-url" value="'+esc(d.share_url)+'" '
+      + 'style="flex:1;min-width:260px;padding:7px 9px;border:1px solid var(--line);'
+      + 'border-radius:7px;font:12px ui-monospace,Consolas,monospace">'
+      + '<button class="gbtn" id="c-uplink-copy" type="button">Copy</button>'
+      + '<a class="gbtn" href="'+esc(d.share_url)+'" target="_blank" rel="noopener">Open</a>'
+      + '</div>'
+      + (d.share_enabled === false
+          ? '<div style="margin-top:6px;color:#b45309">'+esc(d.note||'')+'</div>'
+          : '<div class="muted" style="margin-top:6px">Anything they upload here lands in '
+            + esc(name)+'\u2019s gallery. Send it to them \u2014 they need no login.</div>');
+    document.getElementById('c-uplink-copy').onclick = function(){
+      copyToClipboard(d.share_url, this);
+    };
+  }
+}
+
+/* navigator.clipboard is not available on http and is allowed to refuse, and
+   a button that reports a copy it never made is worse than one that asks. */
+function copyToClipboard(text, btn){
+  function done(){ var was = btn.textContent; btn.textContent = 'Copied \u2713';
+                   setTimeout(function(){ btn.textContent = was; }, 1400); }
+  function manual(){
+    var f = document.getElementById('c-uplink-url');
+    if(f){ f.focus(); f.select(); }
+    btn.textContent = 'Press Ctrl-C';
+  }
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done, fallback);
+      return;
+    }
+  }catch(e){}
+  fallback();
+  function fallback(){
+    try{
+      var f = document.getElementById('c-uplink-url');
+      if(f){ f.focus(); f.select(); if(document.execCommand('copy')){ done(); return; } }
+    }catch(e){}
+    manual();
+  }
+}
+
 // ---------------------------------------------------------------- brand card
 function addLogosToImages(){
   if(!window.BRAND_LOGOS || !BRAND_LOGOS.length) return;
@@ -1537,46 +2187,123 @@ function addLogosToImages(){
 }
 
 function renderBrand(d){
-  // Kept so the Client Images card can show them; the two cards load
-  // independently, so whichever finishes second does the redraw.
-  /* The logo is a client image; it just lives in Brandfetch rather than the
-     gallery, so it never appeared there. The two cards load independently and
-     the gallery fetch isn't in a named function, so rather than re-running it
-     the logo is inserted into whatever the images card has already drawn. */
-  window.BRAND_LOGOS = (d.logos||[]).filter(function(l){ return l.url; }).slice(0,2);
+  /* The logo is a client image; it just lives in the brand store rather than
+     the gallery, so it never appeared there. The two cards load independently
+     and the gallery fetch isn't in a named function, so rather than re-running
+     it the logo is inserted into whatever the images card has already drawn.
+     Only the logos actually on file go across: the gallery is the client's own
+     library, and a logo lifted off a home page is a candidate for it, not a
+     member of it. */
+  window.BRAND_LOGOS = (d&&d.logos||[]).filter(function(l){ return l.url; }).slice(0,2);
   addLogosToImages();
 
   const el=document.getElementById('c-brand'); if(!el) return;
   const acts=document.getElementById('c-brand-acts');
-  if(!d || !d.found){
-    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>';
+  const lookBtn = (d&&d.can_lookup)
+    ? '<a class="gbtn" href="#" onclick="lookupBrand();return false" '
+      + 'title="Asks the brand service about '+esc(d.lookup_domain||'')
+      + '. This call is billed, which is why it is a button.">'
+      + (d&&d.found?'Refresh brand':'Look up the brand')+'</a>'
+    : '';
+  const obs = (d&&d.observed)||{};
+  /* "We could not look" is never drawn as "there is nothing" — the rule
+     hub/scan_facts.py carries at length. It says which half is missing, so a
+     card with colors and no logo does not read as a card with everything. */
+  const unread = obs.error
+    ? '<div class="muted" style="font-size:11.5px;margin-top:10px">Their website '
+      + 'could not be read, so whether it carries a logo is <b>not measured</b> '
+      + 'rather than nothing found.</div>'
+    : '';
+
+  if(!d || !d.has_brand){
+    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'+unread;
+    if(acts) acts.innerHTML = lookBtn;
     return;
   }
-  const swatches = (d.colors||[]).map(c=>
-    `<span title="${esc(c.hex)}${c.type?' — '+esc(c.type):''}" style="display:inline-flex;
-      flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
+
+  /* Every swatch and every tile says where it came from. They are one set
+     because a rep wants the client's colors, not a lesson in which of our
+     services answered — and they stay labeled because a logo the client gave
+     us and a logo seen on their home page are different claims, and only the
+     first belongs on a document a client reads. */
+  const originText = o => o==='site' ? 'Seen on their website' : 'On file';
+  const swatches = (d.palette||[]).map(c=>
+    `<span title="${esc(c.hex)}${c.type?' — '+esc(c.type):''} · ${esc(originText(c.origin))}"
+      style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
       <span style="width:38px;height:38px;border-radius:8px;background:${esc(c.hex)};
-        border:1px solid rgba(0,0,0,.12);display:block"></span>
+        border:1px solid rgba(0,0,0,.12);display:block${c.origin==='site'?';box-shadow:inset 0 0 0 2px #fff':''}"></span>
       <code style="font-size:10.5px;color:#64748b">${esc(c.hex)}</code></span>`).join('');
-  const logos = (d.logos||[]).slice(0,4).map(l=>
-    `<a href="${esc(l.url)}" target="_blank" rel="noopener"
-        style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin:0 6px 6px 0;
-        border:1px solid #e2e8f0;border-radius:8px;text-decoration:none;font-size:12px;color:#1769AA">
-        ${esc((l.format||'').toUpperCase()||'LOGO')}${l.theme?' · '+esc(l.theme):''}</a>`).join('');
+
+  const tiles = (d.logo_tiles||[]).slice(0,6).map(l=>
+    `<div style="display:inline-block;margin:0 8px 8px 0;vertical-align:top">
+      <a href="${esc(l.url)}" target="_blank" rel="noopener"
+         style="display:block;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff">
+        <img src="${esc(l.url)}" alt="${esc(l.origin==='site'?'Logo on their website':'Logo on file')}"
+             loading="lazy" style="max-width:120px;max-height:52px;display:block"></a>
+      <div class="muted" style="font-size:10.5px;margin-top:3px;text-align:center">
+        ${esc(l.label||originText(l.origin))}${l.format?' · '+esc(l.format.toUpperCase()):''}</div></div>`).join('');
+
   const fonts = (d.fonts||[]).map(f=>
     `<a href="${esc(f.google)}" target="_blank" rel="noopener"
        style="font-size:13px;color:#1769AA;text-decoration:none;margin-right:12px">${esc(f.name)}</a>`).join('');
+
+  /* A card with something on it still says when nothing has been looked up:
+     the colors may be their website's and the brand's own answer may simply
+     never have been asked for, which is a button press rather than a fact. */
+  const gap = (!d.found && d.note)
+    ? `<div class="muted" style="font-size:11.5px;margin-top:10px">${esc(d.note)}</div>` : '';
+
   el.innerHTML =
-    (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colours</div>${swatches}</div>`:'')+
-    (logos?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${logos}</div>`:'')+
+    (tiles?`<div style="margin-bottom:10px"><div class="lbl">Logos</div>${tiles}</div>`:'')+
+    (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colors</div>${swatches}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
-    (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'');
+    (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'')+
+    gap + unread;
+
   /* Once the guide is in Suite the button is a trap: pressing it again just
-     overwrites what's there. Show the state instead. */
-  if(acts) acts.innerHTML = d.suite_brand_guide
-    ? '<span class="pill ok" title="Pushed '+esc(d.suite_brand_guide)+'">Brand Guide setup in Suite</span>'
-    : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>';
+     overwrites what's there. Show the state instead. The push carries the
+     brand on file and never a sighting, so it is offered only where there is
+     one — see brand_guide_payload(). */
+  /* Filing costs nothing at any provider — it reads the brand record already
+     stored and the last site scan — so it is offered wherever there is a logo
+     on the card, including the majority of local businesses who publish no
+     brand record and whose only logo came off their own home page. Pressing
+     it twice files nothing twice; see hub/client_logos.py. */
+  const saveBtn = (d.logo_tiles||[]).length
+    ? '<a class="gbtn" href="#" onclick="saveLogosToGallery();return false"'
+      + ' title="Store these in this client&rsquo;s image gallery under Logo">'
+      + 'Save logo to gallery</a>' : '';
+
+  if(acts) acts.innerHTML = (d.found
+    ? (d.suite_brand_guide
+        ? '<span class="pill ok" title="Pushed '+esc(d.suite_brand_guide)+'">Brand Guide setup in Suite</span>'
+        : '<a class="gbtn" href="#" onclick="pushBrand();return false">Send to Suite Brand Guide</a>')
+    : '')
+    + ' ' + saveBtn + ' ' + lookBtn;
 }
+
+/* The logo the Hub already has, into the gallery a rep actually opens.
+   Announced rather than done silently: a file that lands in a gallery with
+   nothing saying so is one nobody knows to look for. The answer distinguishes
+   filed, already there, and could-not-be-fetched, because a dead logo URL and
+   a client with no logo are different things to do next. */
+function saveLogosToGallery(){
+  var acts = document.getElementById('c-brand-acts');
+  if(acts) acts.innerHTML = '<span class="muted" style="font-size:12px">Saving…</span>';
+  fetch('/api/client/logos',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||''})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d && d.error){ alert(d.error); }
+      else if(d && d.summary){ alert(d.summary); }
+      loadBrand(window.CURRENT_CLIENT||'');
+      if(window.loadClientImages) window.loadClientImages();
+    }).catch(function(){
+      alert('The logo could not be saved to the gallery.');
+      loadBrand(window.CURRENT_CLIENT||'');
+    });
+}
+
 function pushBrand(){
   var acts = document.querySelector('#card-brand .right');
 
@@ -1586,12 +2313,23 @@ function pushBrand(){
      if(d.error){alert(d.error);return;}
      if(d.delivered){
        // Replace the button rather than leaving it pressable — pressing it
-       // again would silently overwrite the guide already in Suite.
-       if(acts) acts.innerHTML='<span class="pill ok">Brand Guide setup in Suite</span>';
+       // again would silently overwrite the guide already in Suite. The
+       // server records the push now, so this survives a reload; before it
+       // did, the guard held for one page view and the button came back.
+       // The stamp is the server's own, so the pill says the same thing
+       // after F5 as it does now.
+       if(acts) acts.innerHTML='<span class="pill ok"'
+         + (d.pushed_at?' title="Pushed '+esc(d.pushed_at)+'"':'')
+         + '>Brand Guide setup in Suite</span>';
        alert('Brand guide sent to Smart 1 Suite.');
-     } else {
+     } else if(d.reason==='not_configured'){
        alert('No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. '+
              'The payload is ready in the response.');
+     } else {
+       // Suite refused it, or could not be reached. Reporting either as a
+       // missing variable sends somebody to set one that is already set.
+       alert((d.note||'The brand guide could not be delivered.')+
+             ' Nothing was recorded, so you can try again.');
      }
    }).catch(()=>alert('Could not send the brand guide.'));
 }
@@ -2010,6 +2748,42 @@ function grpRender(info){
   document.getElementById('grpQ').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
 }
 
+function loadBrand(name){
+  var dom = window.__c360domain || '';
+  fetch('/api/client/brand?name='+encodeURIComponent(name)
+        +(dom?'&domain='+encodeURIComponent(dom):''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(renderBrand).catch(()=>{});
+}
+
+function lookupBrand(){
+  var el=document.getElementById('c-brand'); if(!el) return;
+  var acts=document.getElementById('c-brand-acts');
+  /* A billed lookup against somebody else's service, so it gets the dish
+     rather than the arc: this one is a wait on Brandfetch, not on us. */
+  if(acts) acts.innerHTML='<span class="muted" style="font-size:12px">'
+    + '<span class="spin" data-s1-think="scan"></span> Looking up their brand…</span>';
+  fetch('/api/client/brand/lookup',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||''})})
+    .then(r=>r.json()).then(function(d){
+      if(d && d.error){ alert(d.error); loadBrand(window.CURRENT_CLIENT||''); return; }
+      renderBrand(d);
+      /* A lookup that found nothing is an answer, not a failure — and the
+         reason matters: a refused key and a business nobody has published
+         are different things to do next. */
+      if(d && !d.found && d.note) alert(d.note);
+      /* A lookup we paid for files the logo into the gallery on the way past
+         — hub/brand_lookup.lookup(). Said out loud for the same reason the
+         button above says it. */
+      else if(d && d.logos_filed) console.info('Logos: ' + d.logos_filed);
+      /* The logo IS a client image, so the images card redraws with it. */
+      if(window.loadClientImages) window.loadClientImages();
+    }).catch(function(){
+      alert('The brand lookup could not be run.');
+      loadBrand(window.CURRENT_CLIENT||'');
+    });
+}
+
 function loadBrandAndWork(name){
   loadForms(name);
   loadGroup(name);
@@ -2018,8 +2792,11 @@ function loadBrandAndWork(name){
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderAnalyticsIds).catch(function(){});
   if(!name) return;
-  fetch('/api/client/brand?name='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(r=>r.json()).then(renderBrand).catch(()=>{});
+  /* The domain goes with the name. Brand data is stored two ways — under the
+     client name and in a cache keyed by domain — and every lookup anybody has
+     ever run landed in the second one, so asking by name alone is why this
+     card read "no brand data yet" for clients whose logo was plainly on file. */
+  loadBrand(name);
   fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(r=>r.json()).then(renderWork).catch(()=>{});
 }
@@ -2050,5 +2827,23 @@ else runFromUrl();
 .health-cols{display:grid;grid-template-columns:1fr;gap:0 28px}
 @media(min-width:640px){.health-cols{grid-template-columns:1fr 1fr}}
 .health-cols dl{margin:0}
+
+/* One website is two columns: what we hold about the site on the left, the
+   domain record on the right. They were stacked, which put the domain record
+   — the live date, the purchase, the renewal — below the fold of a card that
+   already had ten rows in it, so nobody scrolled to it. Beside the site it is
+   read at the same glance.
+
+   `flex:1 1 520px` rather than a fixed width: a client with two websites gets
+   a row each rather than four half-width columns squeezed together, and the
+   pair stacks under 900px where two columns of definition lists stop being
+   readable. The divider follows the layout — a rule down the middle when they
+   are side by side, across the top when they are stacked. */
+.web-site{flex:1 1 520px;min-width:280px;display:grid;grid-template-columns:1fr;gap:14px}
+.web-knack{border-top:1px solid var(--line);padding-top:12px}
+@media(min-width:900px){
+  .web-site{grid-template-columns:minmax(230px,1fr) minmax(230px,1fr);gap:26px}
+  .web-knack{border-top:0;border-left:1px solid var(--line);padding-top:0;padding-left:24px}
+}
 </style>
 {% endblock %}

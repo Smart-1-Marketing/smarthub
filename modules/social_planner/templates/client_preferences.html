@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_client_head.html" %}
+<title>What to write about</title>
+</head>
+<body>
+{#
+  Short, optional, and revisitable from the same link. The "never mention"
+  box is the one field here with teeth: it is checked against the finished
+  copy as well as handed to the writer, because a prompt is a request and
+  "the model was told not to" is not evidence that it did not.
+#}
+<div class="wrap">
+  <h1>What to write about</h1>
+  <p class="who">{{ client }}</p>
+
+  <div class="card">
+    <label class="f">Kinds of post you'd like more of</label>
+    <div class="chips" id="tags"></div>
+    <p class="hint">Optional. Swiping on the ideas page does the same thing,
+      a bit at a time.</p>
+
+    <label class="f" for="avoid">Anything we should never mention</label>
+    <textarea id="avoid" placeholder="Separate with commas."></textarea>
+    <p class="hint">We check the finished copy against this as well as telling
+      the writer, so nothing slips through.</p>
+
+    <label class="f" for="tone">How you like to sound
+      <span class="opt">optional</span></label>
+    <input type="text" id="tone" placeholder="e.g. plain and friendly, never salesy">
+
+    <label class="f" for="notes">Anything coming up?
+      <span class="opt">optional</span></label>
+    <textarea id="notes"></textarea>
+    <p class="hint">If it has a date on it, the request form is better — it
+      gets a deadline and lands in the queue rather than waiting for the next
+      batch of ideas.</p>
+
+    <p style="margin:20px 0 0">
+      <button class="btn wide" id="save">Save</button></p>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="nav">
+    <a href="request">Send us something to post</a>
+    <a href="ideas">Ideas to swipe through</a>
+    <a href="approve">Posts waiting for you</a>
+  </div>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+var B = JSON.parse(document.getElementById("boot").textContent);
+var wanted = ((B.preferences || {}).topics_wanted || []).slice();
+
+function el(id){ return document.getElementById(id); }
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+(function draw(){
+  var out = [];
+  Object.keys(B.tags).forEach(function(k){
+    var on = wanted.indexOf(k) >= 0;
+    out.push('<button type="button" class="chip" data-tag="' + k +
+             '" aria-pressed="' + (on ? "true" : "false") + '">' +
+             esc(B.tags[k]) + "</button>");
+  });
+  el("tags").innerHTML = out.join("");
+  el("avoid").value = (B.preferences || {}).topics_avoid || "";
+  el("tone").value = (B.preferences || {}).tone || "";
+  el("notes").value = (B.preferences || {}).standing_notes || "";
+})();
+
+el("tags").addEventListener("click", function(ev){
+  var btn = ev.target.closest("button[data-tag]");
+  if (!btn) { return; }
+  var tag = btn.getAttribute("data-tag"), i = wanted.indexOf(tag);
+  if (i >= 0) { wanted.splice(i, 1); } else { wanted.push(tag); }
+  btn.setAttribute("aria-pressed", i >= 0 ? "false" : "true");
+});
+
+el("save").addEventListener("click", function(){
+  var msg = el("msg");
+  msg.className = "msg";
+  msg.textContent = "Saving…";
+  el("save").disabled = true;
+  fetch("preferences", {method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({topics_wanted:wanted, topics_avoid:el("avoid").value,
+                             tone:el("tone").value, standing_notes:el("notes").value})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      el("save").disabled = false;
+      msg.className = d.ok ? "msg ok" : "msg err";
+      msg.textContent = d.ok ? "Saved." : (d.error || "That didn't save.");
+    })
+    .catch(function(){
+      el("save").disabled = false;
+      msg.className = "msg err";
+      msg.textContent = "That didn't save. Try again.";
+    });
+});
+</script>
+</body>
+</html>

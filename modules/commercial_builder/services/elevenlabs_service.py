@@ -52,18 +52,86 @@ def _headers():
     return {"xi-api-key": _api_key(), "Content-Type": "application/json"}
 
 
+# Mock labels, so casting can be exercised without a key. Each mock voice
+# carries the labels ElevenLabs would put on a voice of that kind — otherwise
+# the casting step in mock mode ranks eight identical rows and reads as
+# broken, when what is wrong is only that there is no key.
+MOCK_LABELS = {
+    "Adam": {"gender": "male", "age": "middle_aged", "accent": "american",
+             "description": "confident commercial announcer", "use_case": "advertisement"},
+    "Rachel": {"gender": "female", "age": "young", "accent": "american",
+               "description": "warm conversational narrator", "use_case": "narration"},
+    "Jessie": {"gender": "female", "age": "young", "accent": "american",
+               "description": "energetic upbeat social media", "use_case": "social media"},
+    "Marcus": {"gender": "male", "age": "old", "accent": "american",
+               "description": "authoritative powerful broadcast", "use_case": "advertisement"},
+    "Dana": {"gender": "female", "age": "middle_aged", "accent": "american",
+             "description": "casual friendly conversational", "use_case": "conversational"},
+    "Kai": {"gender": "male", "age": "young", "accent": "american",
+            "description": "excited energetic expressive", "use_case": "advertisement"},
+    "Vivienne": {"gender": "female", "age": "middle_aged", "accent": "british",
+                 "description": "calm soothing premium", "use_case": "narration"},
+    "Grant": {"gender": "male", "age": "middle_aged", "accent": "transatlantic",
+              "description": "dramatic promo announcer", "use_case": "advertisement"},
+}
+
+
 def list_voices():
+    """Every voice on the account, carrying the labels casting matches on.
+
+    `labels` and `preview_url` used to be thrown away here -- the shape kept
+    was `{voice_id, name, style}`, where `style` was the label values joined
+    with commas. That is enough to fill a dropdown and not enough to rank
+    anything or to play a sample, which is why this tool's Voice Studio was a
+    flat list of names while the Radio Promo builder, against the same account,
+    offered three ranked voices with a preview on each. `style` is still
+    returned so nothing that reads it breaks.
+    """
     if not is_live():
-        return [{"voice_id": f"mock_{name.lower()}", "name": name, "style": style, "_mock": True}
+        return [{"voice_id": f"mock_{name.lower()}", "name": name, "style": style,
+                  "labels": MOCK_LABELS.get(name, {}),
+                  "description": MOCK_LABELS.get(name, {}).get("description", ""),
+                  "preview_url": "", "_mock": True}
                 for style, name in STYLE_TO_MOCK_VOICE.items()]
     try:
         r = requests.get(f"{BASE_URL}/voices", headers=_headers(), timeout=8)
         r.raise_for_status()
         voices = r.json().get("voices", [])
-        return [{"voice_id": v.get("voice_id"), "name": v.get("name"),
-                  "style": ", ".join(v.get("labels", {}).values())} for v in voices]
+        out = []
+        for v in voices:
+            labels = v.get("labels") or {}
+            out.append({"voice_id": v.get("voice_id"), "name": v.get("name"),
+                        "style": ", ".join(str(x) for x in labels.values()),
+                        "labels": labels,
+                        "description": v.get("description") or labels.get("description") or "",
+                        "preview_url": v.get("preview_url") or ""})
+        return out
     except Exception:
         return []
+
+
+def cast_voices(want, count=3):
+    """The voices that best fit what the read should sound like.
+
+    The ranking is `hub/voice_casting`'s, shared with the Radio Promo builder
+    so one provider account is not scored two different ways depending on
+    which tool is open. What stays here is the account: that module ranks the
+    list it is handed and never reaches the network, so whether there is a key
+    and whether the account answered are this module's questions.
+
+    Returns `(matched, note)`. The note is never empty when the ranking is not
+    a ranking -- an account of cloned voices carries no labels at all, and a
+    list of eight names in the account's own order, presented as a match,
+    is the confident wrong answer this codebase keeps having to undo.
+    """
+    voices = list_voices()
+    try:
+        from hub import voice_casting
+    except Exception:                                    # noqa: BLE001 — standalone
+        return (voices[:count],
+                "Not ranked — voice casting is unavailable outside the Hub.")
+    matched = voice_casting.match(voices, want, count)
+    return matched, voice_casting.match_quality(matched, len(voices))
 
 
 def apply_pronunciation_dict(text, pronunciation_dict):

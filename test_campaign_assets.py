@@ -236,7 +236,7 @@ def main():
     print("the pinned ids are checkable, not merely pinned")
     fc = campaign_assets.field_check()
     check("all three are reported", len(fc["fields"]), 3)
-    ok("with no Knack credentials they are labelled as ours",
+    ok("with no Knack credentials they are labeled as ours",
        all(f["label_source"] == "house" for f in fc["fields"])
        if not fc["configured"] else True)
     check("the ids are the ones asked for",

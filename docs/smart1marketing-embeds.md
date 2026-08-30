@@ -31,18 +31,34 @@ Every one of these was checked against the Hub's route table rather than typed
 from memory: each answers **200**, needs **no login**, and is framable from
 smart1marketing.com.
 
+**The host is `smart1.agency`, and the old one has to stay up.** This service
+answers on three hostnames — `smart1.agency`, `www.smart1.agency` and
+`smart1-hub.onrender.com` — and every URL in this table used to name the last
+of them. All three still serve these pages, so nothing breaks the day you
+paste. What breaks is switching the `onrender.com` subdomain off: every page
+still carrying the old URL goes blank at once, and it fails **silently on both
+sides** — a frame whose source 404s renders as an empty box, and nothing on the
+Hub is asked for anything, so no log here records the page that stopped
+working. Repaste the pages first and retire the hostname afterwards, never the
+other way round.
+
+That hostname is also load-bearing for something other than these embeds:
+three of the Hub's six OAuth callbacks are built from whichever hostname the
+browser used, and each is registered with its provider **per hostname**. Read
+the OAuth panel on `/diagnostics` before retiring anything.
+
 | Page | Frame this URL | Leads tagged |
 |---|---|---|
-| `/football-audio-video-playbook` | `https://smart1-hub.onrender.com/land/stadium/embed` | `stadium` |
-| `/boat-dealer-marketing-gameplan` | `https://smart1-hub.onrender.com/land/boat/embed?embed=1` | `boat` |
-| `/rv-dealer-marketing-gameplan` | `https://smart1-hub.onrender.com/land/rv/embed` | `rv` |
-| `/legal-industry-marketing-gameplan` | `https://smart1-hub.onrender.com/land/legal/embed` | `legal` |
-| `/restaurant-weather-marketing-gameplan` | `https://smart1-hub.onrender.com/land/restaurant/embed?embed=1` | `restaurant` |
-| `/smart-tourism-ads` | `https://smart1-hub.onrender.com/land/tourism/embed` | `tourism` |
-| `/ski-resort-markeitng-gameplan` | `https://smart1-hub.onrender.com/land/ski/embed` | `ski` |
-| `/recruitment-digital-marketing-gameplan` | `https://smart1-hub.onrender.com/land/recruit/embed` | `recruit` |
-| *(no page yet)* | `https://smart1-hub.onrender.com/land/hvac/embed` | `hvac` |
-| `/ims` — **check this one**, see §5 | `https://smart1-hub.onrender.com/tools/calculators/embed/trade` | `calculators` |
+| `/football-audio-video-playbook` | `https://smart1.agency/land/stadium/embed` | `stadium` |
+| `/boat-dealer-marketing-gameplan` | `https://smart1.agency/land/boat/embed?embed=1` | `boat` |
+| `/rv-dealer-marketing-gameplan` | `https://smart1.agency/land/rv/embed` | `rv` |
+| `/legal-industry-marketing-gameplan` | `https://smart1.agency/land/legal/embed` | `legal` |
+| `/restaurant-weather-marketing-gameplan` | `https://smart1.agency/land/restaurant/embed?embed=1` | `restaurant` |
+| `/smart-tourism-ads` | `https://smart1.agency/land/tourism/embed` | `tourism` |
+| `/ski-resort-markeitng-gameplan` | `https://smart1.agency/land/ski/embed` | `ski` |
+| `/recruitment-digital-marketing-gameplan` | `https://smart1.agency/land/recruit/embed` | `recruit` |
+| *(no page yet)* | `https://smart1.agency/land/hvac/embed` | `hvac` |
+| `/ims` and the four calculator pages — see §5 | *(in `docs/smart1marketing-calculator-embeds.md`)* | `calculators` |
 
 **Why boat and restaurant carry `?embed=1` and the others do not.** Those two
 tools have their own switch that hides their hero, so the host page does not
@@ -57,7 +73,7 @@ so give them a page section that is otherwise bare, or link to them instead.
 A plain iframe. **No `<script>` — Simvoly code blocks are not a safe place for
 one**, and nothing here needs it:
 
-    <iframe src="https://smart1-hub.onrender.com/land/ski/embed"
+    <iframe src="https://smart1.agency/land/ski/embed"
             title="Ski Resort Marketing Gameplan"
             style="display:block;width:100%;height:1400px;border:0"
             loading="lazy"></iframe>
@@ -108,25 +124,27 @@ Its header comment also lists three fixes that belong in Simvoly's page
 settings: the empty meta description, the broken `og:image`, and a ~200-line
 audio-calculator script in the page header that does nothing on that page.
 
-## 5. `/ims` — not yet verified
+## 5. `/ims` and the four calculator pages — see the companion file
 
-The Hub has an **IMS Advertising Trade Calculator** (`hub` slug `trade`), live
-and public at `/tools/calculators/c/trade` and framable at
-`/tools/calculators/embed/trade`. Its leads go through `hub/leads.py` like
-every other tool here.
+`/ims` frames the **IMS Advertising Trade Calculator**, and four more
+marketing-site pages frame the other Hub calculators. They are a different
+module from the gameplan tools above — a blueprint on the hub app rather than a
+dispatcher-mounted app — and **none of the rules in this file applied to
+them**, which is exactly how they came to answer a prospect's browser with a
+403 that said "This Hub page is not available inside Smart 1 Suite."
 
-Whether `smart1marketing.com/ims` is currently pointed at it has **not been
-checked** — this repository's sandbox cannot reach smart1marketing.com. Paste
-that page's code block and it can be answered properly.
+That is fixed, and the URLs, the paste-ready blocks and the `/paid-search-calculator`
+problem are in **`docs/smart1marketing-calculator-embeds.md`**.
 
-One thing is already known, because it appears on the *boat* page: a
-**Smart 1 Digital Audio Calculator** script sits in that page's header code.
-It is not the IMS trade calculator — it estimates digital audio impressions and
-reach from a budget and a CPM — and wherever it runs it delivers no lead
-anywhere, because its own webhook POST is commented out and the only other
-thing it does with the captured contact is fire a browser event nothing
-listens for. If a copy of it is running on `/ims`, that page's leads are being
-collected and dropped.
+One thing that belongs here rather than there, because it appears on the *boat*
+page: a **Smart 1 Digital Audio Calculator** script sits in that page's header
+code. It is not the IMS trade calculator and it is not the Hub's digital-audio
+calculator either — it estimates impressions and reach from a budget and a CPM,
+and wherever it runs it delivers no lead anywhere, because its own webhook POST
+is commented out and the only other thing it does with the captured contact is
+fire a browser event nothing listens for. If a copy of it is running on `/ims`
+or on `/digital-audio-calculator`, that page's leads are being collected and
+dropped. Delete it when you paste the iframe.
 
 ## 6. Two settings, one of which you will not need
 

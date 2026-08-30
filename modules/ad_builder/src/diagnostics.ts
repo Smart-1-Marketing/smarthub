@@ -21,6 +21,7 @@ import { listFamilies, resolveFont } from './fonts';
 import { getPlatform, loadPlatforms, loadTemplates } from './registry';
 import { CloudinaryService } from './cloudinary';
 import { configuredToken, tokenIsWeak, bucketCount } from './auth';
+import { notificationsState, outboxState } from './notify';
 import { renderPreview } from './render';
 import type { Brand, CreativeConcept, SizeKey, Box, SizeLayout } from './types';
 
@@ -187,6 +188,87 @@ function checkTemplates(): Check[] {
   return out;
 }
 
+/**
+ * Is this size rule's file-weight limit actually sourced?
+ *
+ * `source` is the rule's own claim, and for a long time it was the whole of
+ * the answer -- so the panel below reported "all limits sourced from
+ * documentation" while thirteen of the twenty-three rules recorded no source
+ * at all. Nothing had ever been marked `verify`, so the check could not have
+ * said otherwise however many unsourced ceilings were added: it answered
+ * about what somebody had remembered to flag rather than about what was
+ * actually confirmed, which is a clean bill of health a single edit
+ * elsewhere silences.
+ *
+ * So it is derived. A ceiling is confirmed when a `_verifiedAgainst` line
+ * says what confirmed it; declaring `doc` with nothing behind it is not a
+ * confirmation, it is the claim being made twice. `verify` still stands on
+ * its own, because a rule somebody has looked at and could not confirm is
+ * exactly what that value is for -- and the two are reported with different
+ * reasons, since "nobody recorded where this came from" and "somebody looked
+ * and it did not check out" send you to different places.
+ */
+export function ceilingDoubt(rule: { source?: string; _verifiedAgainst?: string })
+    : string | null {
+  if (rule?.source === 'verify') return 'marked for confirmation';
+  if (!(rule?._verifiedAgainst || '').trim()) return 'no source recorded';
+  return null;
+}
+
+/**
+ * Can an alert actually leave this process?
+ *
+ * notify.ts has said in its own header since the day it was written that a
+ * missing transport is "appended to out/notifications/outbox.jsonl instead of
+ * being lost, and diagnostics flags the missing configuration". It did not.
+ * `notificationsConfigured()` was written for exactly this and had no caller,
+ * and this group held one check, for Cloudinary.
+ *
+ * What that costs is the whole point. Nine call sites in server.ts raise an
+ * alert -- a render finished, a client approved a proof, a client asked for a
+ * change, a watchdog killed a job -- and every one of them discards the
+ * NotifyResult, so the route reports success either way. The self-health timer
+ * is the one that matters most: it runs these same checks every three hours so
+ * "a font failure at 2am pages someone instead of waiting for a customer to
+ * find it", and with no transport that page goes to a JSONL file on the
+ * container's output directory, which a deploy wipes. The thing built to say
+ * the tool is broken was itself unrouted, and the only mechanism that could
+ * have reported that is this check.
+ *
+ * Three states, not two. Blocked is a `fail` rather than a warning: somebody
+ * set a key and believes alerts are on, which is worse than knowing they are
+ * off.
+ */
+function checkNotifications(outDir: string): Check {
+  const { ready, blocked } = notificationsState();
+  const box = outboxState(outDir);
+  const went = box.count
+    ? `${box.count} alert${box.count === 1 ? '' : 's'} in the outbox${box.latest ? `, last ${box.latest}` : ''}`
+    : 'nothing in the outbox yet';
+
+  if (blocked.length) {
+    return {
+      id: 'notify.transport', group: 'Integrations', label: 'Alerts',
+      level: 'fail',
+      detail: `${blocked.map((b) => b.why).join('; ')}${ready.length ? ` (${ready.join(', ')} still works)` : ''} — ${went}`,
+      fix: 'Set EMAIL_TO, or unset RESEND_API_KEY. A transport that is configured and throws on every send reads as working from every screen in this tool.',
+    };
+  }
+  if (!ready.length) {
+    return {
+      id: 'notify.transport', group: 'Integrations', label: 'Alerts',
+      level: 'warn',
+      detail: `No transport configured, so every alert is written to ${path.join(outDir, 'notifications', 'outbox.jsonl')} and read by nobody — ${went}`,
+      fix: 'Set RESEND_API_KEY and EMAIL_TO, or NOTIFY_WEBHOOK_URL. Until one of them is set the three-hourly self-health page, the render watchdog and every client proof decision go to a file on a disk a deploy wipes, while each route still reports success.',
+    };
+  }
+  return {
+    id: 'notify.transport', group: 'Integrations', label: 'Alerts',
+    level: 'ok',
+    detail: `${ready.join(' and ')} — ${went}`,
+  };
+}
+
 function checkPlatforms(): Check[] {
   const platforms = loadPlatforms();
   const out: Check[] = [];
@@ -194,7 +276,8 @@ function checkPlatforms(): Check[] {
 
   for (const cfg of platforms.values()) {
     for (const [size, rule] of Object.entries(cfg.sizes)) {
-      if (rule?.source === 'verify') unverified.push(`${cfg.platform}/${size}`);
+      const why = ceilingDoubt(rule as never);
+      if (why) unverified.push(`${cfg.platform}/${size} (${why})`);
     }
   }
 
@@ -207,8 +290,8 @@ function checkPlatforms(): Check[] {
   out.push({
     id: 'platforms.verify', group: 'Platform rules', label: 'Unconfirmed limits',
     level: unverified.length ? 'warn' : 'ok',
-    detail: unverified.length ? unverified.join(', ') : 'all limits sourced from documentation',
-    fix: unverified.length ? 'These file-weight limits were inferred, not documented. Confirm against the platform spec sheet before first live delivery.' : undefined,
+    detail: unverified.length ? unverified.join(', ') : 'every limit records where it came from',
+    fix: unverified.length ? 'These file-weight limits carry nothing saying where they came from. Confirm each against the platform spec sheet and record it in the rule\'s _verifiedAgainst, or a ceiling nobody checked goes on reading exactly like one that was: too high ships a file the platform refuses, too low steps the quality ladder down to satisfy a limit that does not exist.' : undefined,
   });
 
   return out;
@@ -492,6 +575,7 @@ export async function runDiagnostics(opts: { outDir: string; assetRoot: string }
   checks.push(...checkPlatforms());
   checks.push(...checkSecurity());
   checks.push(...checkDisk(opts.outDir));
+  checks.push(checkNotifications(opts.outDir));
 
   checks.push(envCheck('env.cloudinary', 'Integrations', 'Cloudinary credentials',
     ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'],

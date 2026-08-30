@@ -74,7 +74,7 @@ SCENARIOS: list[Scenario] = [
     # ------------------------------------------------------------------
     Scenario(
         key="seo_images.first_batch", module="seo_images",
-        title="Name and optimise a batch of client photos",
+        title="Name and optimize a batch of client photos",
         goal="Three photos renamed for SEO, resized, converted to WebP, and "
              "saved to a client's gallery with alt text — plus the <img> tags "
              "ready to paste.",
@@ -97,7 +97,7 @@ SCENARIOS: list[Scenario] = [
                  action="fill", selector="[name='page_url']",
                  value="https://riverside-hvac.example/furnace-repair"),
             Step("Name the project",
-                 "Anything you'll recognise later. This becomes the Cloudinary "
+                 "Anything you'll recognize later. This becomes the Cloudinary "
                  "folder and the archive filter.",
                  "Use the same shape every time — 'furnace-repair-2026' beats "
                  "'photos'. You'll be searching these in six months.",
@@ -117,12 +117,12 @@ SCENARIOS: list[Scenario] = [
                  "images, 1600 for in-page, 1200 for thumbnails.",
                  action="choose", selector="[name='max_edge']", value="2400"),
             Step("Let the AI name them",
-                 "Click Analyse. Each photo comes back with a proposed filename "
+                 "Click Analyze. Each photo comes back with a proposed filename "
                  "and alt text.",
                  "In this demo the names are pre-supplied so we don't spend "
                  "tokens — but they're exactly what the live call returns for "
                  "these inputs.",
-                 action="click", selector="[data-demo='analyse']", simulated=True),
+                 action="click", selector="[data-demo='analyze']", simulated=True),
             Step("Read the alt text, then fix it",
                  "Edit anything that's wrong. The counter turns amber past 125 "
                  "characters.",
@@ -163,7 +163,7 @@ SCENARIOS: list[Scenario] = [
         key="image_creator.promo_post", module="image_creator",
         title="Build a 1080×1080 promo post for a client",
         goal="A finished square social post with a stock background, the "
-             "client's logo, brand colours and headline text — saved as a "
+             "client's logo, brand colors and headline text — saved as a "
              "reopenable project and exported as PNG.",
         minutes=8, path="/tools/image-creator",
         spends=["openai.text"],
@@ -196,14 +196,14 @@ SCENARIOS: list[Scenario] = [
                  action="click", selector="[data-demo='fill-canvas']"),
             Step("Pull in the client's logo",
                  "Open Logos and type the company name — not just the domain.",
-                 "Brandfetch returns the logo variants *and* the brand colours, "
-                 "and the colours drop straight into your picker. That's how you "
+                 "Brandfetch returns the logo variants *and* the brand colors, "
+                 "and the colors drop straight into your picker. That's how you "
                  "stay on-brand without asking anyone for hex codes.",
                  action="fill", selector="[data-demo='logo-search']", value="Riverside HVAC"),
             Step("Add a headline",
                  "Text → Add Heading, then type the offer.",
-                 "Use the brand colour that just appeared in your recent "
-                 "colours. Keep headlines under about six words at this size — "
+                 "Use the brand color that just appeared in your recent "
+                 "colors. Keep headlines under about six words at this size — "
                  "it's being read at thumbnail scale in a feed.",
                  action="fill", selector="[data-demo='text-input']",
                  value="Beat the Heat — $89 Tune-Up"),
@@ -255,7 +255,7 @@ SCENARIOS: list[Scenario] = [
                  "Google Analytics groups traffic by this field and it is "
                  "case-sensitive. 'Paid Social' and 'paid-social' become two "
                  "separate rows in every report you ever run. Watch the field "
-                 "normalise what you type — that's the whole reason this tool "
+                 "normalize what you type — that's the whole reason this tool "
                  "exists rather than building links by hand.",
                  action="fill", selector="[name='utm_medium']", value="Paid Social"),
             Step("See what it did to that",
@@ -412,7 +412,7 @@ SCENARIOS: list[Scenario] = [
                  action="click", selector="[data-demo='faq-save']"),
             Step("Download the accordion",
                  "The `</>` button on the saved row.",
-                 "The HTML reads the fonts and colours off the page it came "
+                 "The HTML reads the fonts and colors off the page it came "
                  "from, so it looks native when it's pasted in. Native "
                  "<details> tags — no JavaScript to break on their site.",
                  action="click", selector="[data-demo='faq-export']"),
@@ -491,93 +491,175 @@ SCENARIOS: list[Scenario] = [
     # ------------------------------------------------------------------
     Scenario(
         key="ads_builder.first_campaign", module="ads_builder",
-        title="Generate a Google Ads campaign and get it approved",
-        goal="An AI-drafted campaign checked against budget, sent for approval, "
-             "then handed to the client account — through the API, or as a "
-             "Google Ads Editor import when the API is not available. Paused "
-             "either way, with nothing spending until a human un-pauses it.",
-        minutes=9, path="/tools/ads",
+        title="Generate a Google Ads campaign from a landing page",
+        goal="A drafted campaign — ad groups, keywords, negatives and copy — "
+             "filed onto the client's record with an estimate ready to read, "
+             "edit and approve. Nothing has touched Google at the end of this.",
+        minutes=8, path="/tools/ads",
         spends=["openai.text"],
         steps=[
             Step("Find the client first",
                  "Search the client list, or say this is a new business.",
-                 "Look them up rather than typing the name: a campaign filed "
-                 "under a name nobody recognises never reaches the client's "
-                 "record, and a name typed slightly differently reaches the "
-                 "wrong one. A new business goes into Smart 1 Suite as a lead.",
+                 "Look them up rather than typing the name: picking the client "
+                 "is what files the finished proposal onto their 360 record. A "
+                 "free-typed name builds the same campaign and leaves the "
+                 "client's record showing nothing was ever quoted — and a name "
+                 "typed slightly differently reaches the wrong client, which is "
+                 "worse. A genuinely new business goes to Smart 1 Suite as a "
+                 "lead instead.",
                  action="fill", selector="#clientQuery", value="Riverside HVAC"),
-            Step("Describe the business, not the campaign",
-                 "Business name, sector and the geography you want to reach.",
-                 "The generator writes better ad copy from what the business "
-                 "*is* than from adjectives about the campaign. 'HVAC "
-                 "contractor, Columbus metro' beats 'high-converting summer "
-                 "promo'.",
+            Step("Name the business",
+                 "What the campaign and the estimate are headed with.",
+                 "This is what the client sees at the top of the document, so "
+                 "use the name they trade under rather than the legal entity.",
                  action="fill", selector="#businessName", value="Riverside HVAC"),
+            Step("Point it at the page the click lands on",
+                 "The landing page URL — a service page, not the home page if "
+                 "there is a better one.",
+                 "This page is fetched and read: phone links, forms and their "
+                 "field counts, booking tools and chat widgets by their own "
+                 "script signatures. Every finding carries the evidence, so the "
+                 "estimate quotes the number that is actually on the page. Get "
+                 "this wrong and the campaign is planned against a page nobody "
+                 "will land on.",
+                 action="fill", selector="#websiteUrl",
+                 value="https://riversidehvac.com/ac-repair"),
             Step("Set the sector",
-                 "This drives the keyword themes and the negative list.",
-                 "The negative keyword list matters more than the positive one "
-                 "for local service businesses — it's what stops you paying for "
-                 "'hvac jobs' and 'hvac school'.",
-                 action="choose", selector="#sector", value="Home Services"),
-            Step("Geography",
-                 "Where the ads should show. Be specific.",
-                 "A radius the business can't actually service is the fastest "
-                 "way to burn budget. Match it to their real van coverage, not "
-                 "their ambition.",
-                 action="fill", selector="#geography", value="Columbus, OH + 25 miles"),
-            Step("Set the budget",
-                 "Daily budget for the campaign.",
-                 "Watch the label update. This is the number the budget check "
-                 "runs against in two steps' time.",
-                 action="fill", selector="#budget", value="60"),
-            Step("Add anything the AI can't infer",
-                 "Notes: seasonality, the offer, what they don't want to sell.",
-                 "This is where you say 'they hate emergency callout work' or "
-                 "'the $89 tune-up is the hook'. It changes the copy "
-                 "meaningfully.",
-                 action="fill", selector="#notes",
-                 value="Push the $89 spring tune-up. No emergency callout work."),
+                 "It picks the CPC benchmark and seeds the negative themes.",
+                 "Every click estimate on the estimate is computed from this "
+                 "band — an industry benchmark for the sector, never a measured "
+                 "cost for this account, and labeled as such wherever it "
+                 "appears. For a local service business the negative list "
+                 "matters more than the positive one: it is what stops you "
+                 "paying for 'hvac jobs' and 'hvac school'.",
+                 action="choose", selector="#sector", value="homeservices"),
+            Step("Where the ads run",
+                 "One row per area. Add as many as the campaign covers.",
+                 "A dealer group with four rooftops is one campaign in four "
+                 "places, and typed into a single box the reach estimate sizes "
+                 "them as one. The sizing is done on the server with the same "
+                 "helper the Proposal Builder uses, so a campaign and its "
+                 "proposal cannot disagree about how big the audience is.",
+                 action="look", selector="[data-tour='ads-areas']"),
+            Step("Say what counts as a conversion",
+                 "Tick everything the client actually wants from this.",
+                 "These are structural, not a wish list. Calls bring call "
+                 "assets and hours matched to when somebody answers; "
+                 "appointment bookings need a live booking tool on the page. "
+                 "What you tick is checked against what the landing page can "
+                 "do — bidding for bookings against a page with no booking tool "
+                 "spends the budget and books nobody.",
+                 action="look", selector="[data-tour='ads-goals']"),
+            Step("Say what not to target",
+                 "Anything the client has ruled out.",
+                 "This is treated as a client instruction rather than a "
+                 "preference: it is written into the negative keywords and kept "
+                 "out of the positive ones. Taking one of those negatives back "
+                 "out later counts as a material change, because it reopens "
+                 "spend this list existed to stop.",
+                 action="fill", selector="#doNotTarget",
+                 value="No commercial or new-construction work. Not covering Delaware County."),
+            Step("The budget is optional",
+                 "Drag it, or tick 'they don't know a budget yet'.",
+                 "Most first conversations have no number in them, and "
+                 "refusing to build anything until a client picks one is how "
+                 "the conversation stops before it starts. Either way you get "
+                 "Good / Better / Best on the estimate — with a number, that is "
+                 "how you show what the next step up buys; without one, the "
+                 "estimate says in as many words that no budget was given.",
+                 action="fill", selector="#budget", value="3000"),
             Step("Generate",
-                 "The AI drafts campaigns, ad groups, keywords and copy.",
-                 "Simulated here so we don't spend tokens. Read what comes back "
-                 "as a first draft by a competent junior — good structure, "
-                 "always worth editing.",
-                 action="click", selector="#gen", simulated=True),
-            Step("Run the budget check",
-                 "Before anything is deployed.",
-                 "This is the guard between a typo and a real overspend. A "
-                 "daily budget entered as 600 instead of 60 is caught here or "
-                 "it isn't caught at all.",
-                 action="click", selector="[data-demo='budget-check']"),
-            Step("Try a dry run",
-                 "The dry toggle validates the whole deploy without sending it.",
-                 "Use this every time on a new account. It surfaces "
-                 "permission and structure problems while they're still free to "
-                 "fix.",
-                 action="click", selector="#dry"),
-            Step("Send it for approval",
-                 "It goes to the approvals page as a proposal.",
-                 "Only proposals marked APPROVED can deploy. That's enforced in "
-                 "code, not policy — you cannot skip it by clicking harder.",
-                 action="click", selector="[data-demo='send-approval']"),
-            Step("Hand it over without the API",
-                 "Ads Editor CSV and build sheet, on the proposal.",
-                 "The Google Ads API needs a developer token Google approves "
-                 "on its own timetable. Ads Editor imports the CSV under the "
-                 "account owner's own sign-in, so an approved campaign reaches "
-                 "the client account today and the same proposal still deploys "
-                 "through the API later, unchanged.",
-                 action="click", selector="[data-demo='export-csv']", simulated=True),
-            Step("Deploy, and note what deploy means",
-                 "One atomic mutate. Every campaign is created PAUSED.",
-                 "If any single operation fails, Google rolls the entire batch "
-                 "back — there is no such thing as a half-built campaign here. "
-                 "And nothing spends a cent until a human un-pauses it in Google "
-                 "Ads.",
-                 action="click", selector="[data-demo='deploy']", simulated=True),
+                 "Read the page, plan the campaign, write the keywords, size "
+                 "the budget — 30 to 60 seconds, and the stages tick off as "
+                 "they happen.",
+                 "Simulated here so it doesn't spend tokens. Nothing is sent to "
+                 "Google by this button: what comes back is a draft proposal "
+                 "and an estimate, and it is a first draft by a competent "
+                 "junior — good structure, always worth editing.",
+                 action="click", selector="[data-demo='ads-generate']", simulated=True),
         ]),
 
     # ------------------------------------------------------------------
+    # The second half, on the proposal screen. Split from the walkthrough above
+    # because a walkthrough drives one page: the steps below live behind
+    # /tools/ads/proposal/<id> and pointed at nothing while they sat in the
+    # generator's scenario.
+    Scenario(
+        key="ads_builder.review_and_launch", module="ads_builder",
+        title="Review an estimate, approve it, and get it to the client",
+        goal="An estimate you have read and approved, a client link that only "
+             "exists because it was approved, and the campaign in the client's "
+             "Google Ads account — paused — by whichever of the two routes is "
+             "open to you today.",
+        minutes=7, path="/tools/ads/proposal",
+        steps=[
+            Step("Read it as a draft, and edit in place",
+                 "Every panel on this page is editable.",
+                 "Approving is a statement about one specific document, so any "
+                 "edit marks the approval superseded — and a material one (the "
+                 "budget, the audience, the do-not-target list, a removed "
+                 "keyword, a removed negative) sends it back through the AI "
+                 "review first. That is two presses on purpose: a budget "
+                 "quartered by a typo shows you what it did to the plan before "
+                 "the document a client reads is signed off.",
+                 action="look", selector="[data-tour='ads-details']"),
+            Step("What was measured, and what was judged",
+                 "The landing page panel keeps the two apart.",
+                 "The facts were read off the page with the evidence beside "
+                 "them; the model was given those facts and asked only for "
+                 "judgment. A page that could not be fetched says not measured "
+                 "— never zero, which would read as a page with nothing on it.",
+                 action="look", selector="[data-tour='ads-page']"),
+            Step("Tick the competitors you will stand behind",
+                 "Researched names arrive unaccepted.",
+                 "Only ticked names reach the client's document. Printing all "
+                 "of them is us telling a client who their competitors are on "
+                 "the model's say-so, and it is the paragraph a client checks "
+                 "hardest.",
+                 action="look", selector="[data-tour='ads-competitors']"),
+            Step("Cut what does not belong",
+                 "Click keywords to mark them, then Remove selected.",
+                 "Nothing is removed until you apply it. Read the match types "
+                 "while you are in here — exact, phrase and broad are three "
+                 "different spend profiles on the same words — and remember "
+                 "that taking a term out of the negative vault is always "
+                 "material, however small it looks.",
+                 action="look", selector="[data-tour='ads-keywords']"),
+            Step("Approve it",
+                 "This is the gate on everything client-facing.",
+                 "The share route refuses an unapproved estimate outright, so "
+                 "no client link can exist until this press has happened. It "
+                 "records who approved what and when, and the version approved "
+                 "is the version the link shows.",
+                 action="click", selector="#approveBtn", autofill=False),
+            Step("Create the client link",
+                 "One URL, per send, and you can see whether it was opened.",
+                 "The client gets three answers, not two: yes, yes with my "
+                 "changes, and let's talk. The middle one is the most common "
+                 "real answer, and an approve/reject pair forces it into "
+                 "whichever end is nearest. No answer yet stays gray rather "
+                 "than reading as a no.",
+                 action="click", selector="[data-demo='ads-share']", autofill=False),
+            Step("Hand it over without the API",
+                 "Ads Editor CSV, plus a build sheet.",
+                 "Editor imports the CSV under the account owner's own "
+                 "sign-in, so this needs no developer token and no API access "
+                 "at all: an approved campaign can reach the client account "
+                 "this afternoon. The build sheet lists what Editor's columns "
+                 "cannot carry — sitelinks, callouts, snippets — and anything "
+                 "the proposal is still missing, named rather than guessed at.",
+                 action="look", selector="[data-demo='ads-export-csv']"),
+            Step("Or deploy, and note what deploy means",
+                 "One atomic mutate, and everything is created PAUSED.",
+                 "If any single operation fails Google rolls the entire batch "
+                 "back — there is no such thing as a half-built campaign here. "
+                 "And nothing spends a cent until a human un-pauses it. The API "
+                 "route needs a developer token Google approves on its own "
+                 "timetable; the same proposal deploys through it unchanged the "
+                 "day that lands.",
+                 action="look", selector="[data-tour='ads-launch']"),
+        ]),
+
     Scenario(
         key="sales_builder.first_quote", module="sales_builder",
         title="Build a client quote and send it as a PDF",
@@ -686,7 +768,7 @@ SCENARIOS: list[Scenario] = [
                  action="fill", selector="[data-demo='prospect-first']", value="Dana"),
             Step("Brand it from their domain",
                  "Enter their domain and preview the branding.",
-                 "Pulls their logo and colours automatically. Do it now — an "
+                 "Pulls their logo and colors automatically. Do it now — an "
                  "account that looks like Smart 1 instead of like the client "
                  "undercuts the whole white-label.",
                  action="fill", selector="#brandDomain", value="riverside-hvac.example"),
@@ -911,7 +993,7 @@ SCENARIOS: list[Scenario] = [
             Step("Optimize and download",
                  "Check the before/after in the details panel.",
                  "If the saving is small, the image was probably already "
-                 "optimised — don't re-process it repeatedly. Each pass through "
+                 "optimized — don't re-process it repeatedly. Each pass through "
                  "a lossy format loses a little more.",
                  action="click", selector="#submit"),
         ]),
@@ -1045,7 +1127,7 @@ SCENARIOS: list[Scenario] = [
                  "Resized to the max edge, uploaded to their folder.",
                  "Simulated here. In live use these land in the client's own "
                  "Cloudinary folder and show up in Client 360 alongside "
-                 "anything the SEO pipeline optimised.",
+                 "anything the SEO pipeline optimized.",
                  action="click", selector="#addBtn", simulated=True),
         ]),
 
@@ -1053,7 +1135,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         key="page_image_optimizer.fix_page", module="page_image_optimizer",
         title="Fix the heavy images on a client's live page",
-        goal="The heaviest images on one real page found, optimised five at a "
+        goal="The heaviest images on one real page found, optimized five at a "
              "time, and the replacement tags ready to paste.",
         minutes=6, path="/tools/page-images",
         spends=["openai.text"],
@@ -1074,14 +1156,14 @@ SCENARIOS: list[Scenario] = [
                  "How many images found, and their combined weight.",
                  "The weight number is the one to quote back to the client. "
                  "'Your service page ships 14 MB of images' lands; 'your "
-                 "images aren't optimised' doesn't.",
+                 "images aren't optimized' doesn't.",
                  action="look", selector="#nWeight"),
             Step("Pick the heavy ones",
                  "You don't have to do all of them.",
                  "Sort by size and take the worst offenders. The top three "
                  "images are usually most of the page weight.",
                  action="look", selector="#choose"),
-            Step("Optimise in batches of five",
+            Step("Optimize in batches of five",
                  "Deliberately small.",
                  "Five at a time keeps the review honest — you actually look "
                  "at each filename and alt text instead of rubber-stamping "
@@ -1241,71 +1323,128 @@ SCENARIOS: list[Scenario] = [
         ]),
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Two scenarios, not one, and the split is the whole repair.
+    #
+    # There was one nine-step `commercial_builder.first_spot` walking the
+    # entire wizard — and hub-demo.js does not navigate. It highlights the
+    # current step's selector on the page you are standing on, and `perform()`
+    # opens with `if (!node) return`, so a step whose element is elsewhere
+    # draws no ring and "Do it for me" returns in silence. Every one of its
+    # nine `data-demo` hooks existed in no template at all, on a module whose
+    # every screen offers the button, so the walkthrough was nine silent steps
+    # from whichever screen it was started on. That is the failure
+    # `ads_builder.review_and_launch` was split out of one screen earlier.
+    #
+    # It was also describing a tool that no longer exists: a Storyboard step
+    # the wizard replaced with Blueprint / Voice / CTA, lengths with no :06 in
+    # them, "eleven checks" against the 24 run_qc returns, and a QR code it
+    # called required with QC hard-failing without it — which is the exact
+    # rule QR_CODE_RULES reversed, and the most expensive kind of wrong,
+    # because a rep believes it.
     Scenario(
-        key="commercial_builder.first_spot", module="commercial_builder",
-        title="Produce a :30 CTV commercial end to end",
-        goal="A finished :30 spot — concept, timed script, storyboard, voice, "
-             "QC-passed and rendered — for one client.",
-        minutes=10, path="/tools/commercial-builder/",
+        key="commercial_builder.start_a_spot", module="commercial_builder",
+        title="Start a commercial: the four answers that shape everything else",
+        goal="A project opened against a real client, with the platform, the "
+             "length and the publishers set — the four things every later "
+             "step reads and none of them easy to change afterwards.",
+        minutes=3, path="/tools/commercial-builder/new",
+        # Nothing here reaches a provider. Four form controls.
+        spends=[],
+        steps=[
+            Step("Find the client, don't retype them",
+                 "Search the Hub's own client book.",
+                 "Retyping a client of eleven years' standing files the "
+                 "finished commercial under a name that joins to nothing — no "
+                 "products, no scans, no 360 card, no logo or phone number "
+                 "that were on file all along.",
+                 action="look", selector="[data-demo='cb-client']"),
+            Step("Platform is not a crop",
+                 "CTV, YouTube, both, or social.",
+                 "Social is its own platform rather than a 9:16 render of a "
+                 "CTV spot: it gets a different beat structure with the hook "
+                 "at zero, and it is checked for playing muted. A CTV spot "
+                 "reframed for a feed is still a CTV spot.",
+                 action="look", selector="[data-demo='cb-platform']"),
+            Step("Pick the length — or several",
+                 "The :06 is its own unit, not a rounded :05.",
+                 "Google caps a bumper at six seconds, so a :06 is the "
+                 "longest cut that still buys bumper inventory and a :05 "
+                 "leaves a second of it unbought. Several lengths build :30 "
+                 "first, because the others are cut down from its storyboard.",
+                 action="click", selector="[data-demo='cb-length']"),
+            Step("Say which streaming platforms, on a CTV buy",
+                 "Amazon takes no QR code at all.",
+                 "Its own creative guidance says an ad should not carry "
+                 "call-to-action elements that encourage clicking, because "
+                 "there is nothing there to click. Ticking Amazon is what "
+                 "raises that warning; ticking nothing says nothing, which is "
+                 "not the same as saying it is fine.",
+                 action="look", selector="[data-demo='cb-publishers']"),
+        ]),
+
+    # ------------------------------------------------------------------
+    # The second half, on the screen where the work is. Split from the above
+    # for the reason hub-demo.js forces: a walkthrough drives one page.
+    Scenario(
+        key="commercial_builder.blueprint", module="commercial_builder",
+        title="Work the Blueprint: beats, shots, and the checks that sit there",
+        goal="A storyboard whose shots are paced against published thresholds, "
+             "whose copy has been read for the rules it engages, and which has "
+             "been through QC before anybody spends a render on it.",
+        minutes=6, path="/tools/commercial-builder/",
+        # The narration expansion and QC's spelling pass are both model calls,
+        # so both are simulated below and neither button is offered.
         spends=["openai.text"],
         steps=[
-            Step("Set the brand profile before the brief",
-                 "Logo, colours, fonts, phone, CTA, tagline.",
-                 "Everything downstream reads from here — the end card, the "
-                 "persistent logo, the QC check for brand logo. Filling it "
-                 "once saves re-doing the CTA on every spot.",
-                 action="look", selector="[data-demo='cb-brand']"),
-            Step("Choose length and platform together",
-                 ":05 / :15 / :30 / :60, and CTV / YouTube / Both.",
-                 "These change the rules, not just the runtime. CTV requires a "
-                 "QR code and gets bigger end-card text for living-room "
-                 "viewing; YouTube gets checked for a hook inside the first "
-                 "five seconds because that's when it becomes skippable.",
-                 action="choose", selector="[data-demo='cb-length']", value="30"),
-            Step("Write the brief, get three concepts",
-                 "Materially different angles, not three phrasings of one.",
-                 "Pick the one you'd defend to the client, not the safest. You "
-                 "can regenerate — it costs a call, not a re-shoot.",
-                 action="click", selector="[data-demo='cb-concepts']", simulated=True),
-            Step("Generate the timed script",
-                 "Word count is enforced against the length.",
-                 "65–75 words for a :30. It follows a Hook/Value/Close beat "
-                 "structure rather than splitting time evenly, and flags "
-                 "itself in QC if it lands outside the range. Read it aloud "
-                 "anyway.",
-                 action="click", selector="[data-demo='cb-script']", simulated=True),
-            Step("Build the storyboard",
-                 "Per scene: find stock, generate, use a spokesperson, upload, "
-                 "or pull a client asset.",
-                 "This is the centrepiece. Scene durations must sum exactly to "
-                 "your length — the tool enforces it, so shortening one scene "
-                 "means lengthening another.",
-                 action="look", selector="[data-demo='cb-storyboard']"),
-            Step("Set the voice and the music level",
-                 "Music level maps to real dB ducking.",
-                 "Voice always dominates. A music bed that competes with the "
-                 "read is the most common reason a spot gets rejected.",
-                 action="look", selector="[data-demo='cb-voice']"),
-            Step("Build the CTA — and enable the QR on CTV",
-                 "QR code plus a persistent logo.",
-                 "On CTV there's nothing to click, so the QR is how the spot "
-                 "converts at all. It must hold at least 8 seconds on the end "
-                 "card; QC hard-fails without it on a CTV spot.",
-                 action="click", selector="[data-demo='cb-qr']"),
-            Step("Run QC before you render",
-                 "Eleven checks: timing, voice fit, CTA, logo, resolution, "
-                 "aspect, safe area, spelling, QR, persistent logo, hook.",
-                 "The render is blocked by default if QC fails. That's a hard "
-                 "gate on purpose — catching an incomplete commercial here is "
-                 "the entire point of automatic QC.",
-                 action="click", selector="[data-demo='cb-qc']"),
-            Step("Render, then reuse it",
-                 "Create Variation clones the storyboard and re-runs only "
-                 "what changed.",
-                 "Offer, location, weather, CTA, voice, duration. Locked "
-                 "scenes and footage choices survive — so the second spot for "
-                 "a client costs a fraction of the first.",
-                 action="look", selector="[data-demo='cb-variations']"),
+            Step("The beats are the length's, not an even split",
+                 "A :30 is Hook / Value / Close; a :06 is two beats.",
+                 "There is no room for a middle in six seconds, so the :06 "
+                 "gets Hook and Brand and nothing between them.",
+                 action="look", selector="[data-demo='cb-beats']"),
+            Step("Shots sit inside beats, and each row is a shot",
+                 "Size, angle and move come from closed vocabularies.",
+                 "Not decoration: the two things downstream of a shot are a "
+                 "stock search and a Runway prompt, and both are the "
+                 "difference between \u201ctechnician working\u201d and "
+                 "\u201cclose-up, low angle, slow push\u201d.",
+                 action="look", selector="[data-demo='cb-scenes']"),
+            Step("Scored against somebody else's numbers",
+                 "Google's own ABCDs Detector, Amazon and Roku.",
+                 "Every row says whose threshold it is, because \u201cyour "
+                 "average shot is ten seconds and Google's own detector wants "
+                 "two\u201d is an argument a client cannot talk us out of, "
+                 "where \u201cour tool thinks this is slow\u201d is not. A "
+                 "bumper is scored on none of the pacing rules \u2014 cutting "
+                 "a :06 to a two-second average is a strobe.",
+                 action="look", selector="[data-demo='cb-abcd']"),
+            Step("Which published rules this copy puts in play",
+                 "Reg Z, the FTC endorsement guides, FINRA, attorney "
+                 "advertising, TTB.",
+                 "It never says a spot is compliant, and that is the design: "
+                 "every finding reads \u201cthis engages X\u201d and never "
+                 "\u201cthis violates X\u201d. Nothing here blocks a render "
+                 "\u2014 what a finding does is require one explicit "
+                 "acknowledgment before a rendered cut can be filed.",
+                 action="look", selector="[data-demo='cb-compliance']"),
+            Step("A longer spot needs more script, not longer pauses",
+                 "The expansion is told how much room is left.",
+                 "A model asked to \u201cwrite a bit more\u201d writes a bit "
+                 "more whether there were four words of room or forty. With "
+                 "no room it refuses in words rather than appearing to work "
+                 "and changing nothing. Simulated here so it spends nothing.",
+                 action="click", selector="[data-demo='cb-narration']",
+                 simulated=True),
+            Step("Run the checks here, not two steps later",
+                 "Every check is about something on this screen.",
+                 "They used to live on Preview, so pressing Render re-ran a "
+                 "set somebody had just read. A recommendation is drawn amber "
+                 "rather than red, because a page of red is a page people "
+                 "scroll past \u2014 and the severity is the server's, so "
+                 "this panel and Preview cannot disagree about one finding. "
+                 "Simulated here: the spelling pass is a model call.",
+                 action="click", selector="[data-demo='cb-checks']",
+                 simulated=True),
         ]),
 
     # ------------------------------------------------------------------

@@ -37,13 +37,21 @@ the renewal billing date would stay green for a charge nobody has raised.
 
 **A registrar we recorded and a registrar WHOIS observed are different
 claims.** Both are useful; presenting the second as the first is not.
+
+**A page does not pull an object to render it.** /tools/domains used to pull
+object_153 in full on every visit for an answer that changes a few times a
+month. The pull is nightly now, so what is worth asserting is the three ways
+a cache lies: that a failed pull never empties a good snapshot, that the age
+travels with the rows and is printed, and that the half which is *not* cached
+— the billed tick and the month window — still answers per request.
 """
 import os
 import shutil
 import sys
 import tempfile
+import time
 import types
-from datetime import date
+from datetime import date, datetime, timezone
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -51,6 +59,12 @@ sys.path.insert(0, ROOT)
 _TMP = tempfile.mkdtemp(prefix="s1-domainlinks-")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ["HUB_DATA_DIR"] = _TMP
+# These tests swap a source out from under the report between assertions —
+# a Knack that answers, then one that times out — which is the one thing a
+# report held for the day cannot see. The cache is off here so each call
+# measures what this file has just set up; `test_report_cache.py` is where the
+# holding itself is asserted.
+os.environ["REPORT_CACHE"] = "off"
 os.environ.setdefault("SECRET_KEY", "domain-links-test")
 os.environ.setdefault("PANEL_PASSWORD", "test")
 
@@ -113,7 +127,8 @@ WEB_ROWS = [
      "client": "Buckeye Lake Marina", "has_client": True,
      "production_url": "https://buckeyelakemarina.example",
      "domain": "buckeyelakemarina.example", "ga_account": "", "gtm_account": "",
-     "platform": "WordPress", "go_live": "", "hm_fee": 0, "media_partner": "",
+     "platform": "WordPress", "go_live": "", "hm_fee": 0,
+     "media_partner": "The Montana Radio Group",
      "registrar": "GoDaddy", "live_date": "01/04/2024",
      "client_status": "Active", "domain_bought": "Yes",
      "domain_bought_raw": True, "domain_bought_on": "01/02/2024",
@@ -152,7 +167,18 @@ WEB_ROWS = [
      "domain_bought_on": "", "domain_renews": "", "domain_fee": 0,
      "renewal_billing_date": ""},
 ]
-knack_websites.rows = lambda limit=2000, refresh=False: list(WEB_ROWS)
+PULLS = {"n": 0}
+
+
+def _stub_rows(limit=2000, refresh=False):
+    """Counted, so a test can assert that opening the page pulls nothing."""
+    PULLS["n"] += 1
+    return list(WEB_ROWS)
+
+
+REGISTRY_ERROR = {"why": ""}
+knack_websites.rows = _stub_rows
+knack_websites.last_error = lambda: REGISTRY_ERROR["why"]
 
 hit = knack_websites.client_for_domain("https://WWW.BuckeyeLakeMarina.example/about")
 check("a domain resolves to the client the registry files it under",
@@ -189,7 +215,7 @@ try:
     reg = knack_websites.registrar_for("riverstoneheating.example")
     check("with none on the record, WHOIS from the site scan answers instead",
           reg["value"] == "Tucows Domains Inc.", reg)
-    check("...labelled as observed rather than as something we recorded",
+    check("...labeled as observed rather than as something we recorded",
           reg["source"] == "scan" and "observed" in reg["label"], reg)
     check("...and it brings the expiry date with it",
           reg.get("expires") == "2027-05-02", reg)
@@ -484,6 +510,7 @@ check("...saying who ticked it", "Todd" in row.get("note", ""), row)
 
 # The renewal rolls to next year. The tick was for last year's charge.
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2027"
+domain_purchase.refresh()
 rep = domain_purchase.report(today=date(2027, 8, 1))
 row = next(r for g in rep["groups"] for r in g["rows"]
            if r["domain"] == "buckeyelakemarina.example")
@@ -492,10 +519,548 @@ check("when the renewal date rolls the tick does not come with it",
 check("...and it says what it was billed for rather than losing the history",
       "08/14/2026" in row.get("note", ""), row)
 WEB_ROWS[0]["renewal_billing_date"] = "08/14/2026"
+domain_purchase.refresh()
 check("unticking works too",
       domain_purchase.set_billed("rec1", False)["ok"]
       and not domain_purchase.billed_store().get("rec1"),
       domain_purchase.billed_store())
+
+
+# ---------------------------------------------------------------------------
+section("The registry is pulled nightly, not on every visit")
+# ---------------------------------------------------------------------------
+# Every open of /tools/domains used to pull object_153 in full — every website
+# record, paged, over the wire — to answer a question whose answer changes
+# when somebody buys a domain. The page reads a stored snapshot now, and the
+# only two things that reach Knack are the nightly job and the Refresh button.
+from hub import jsonstore, scheduler                                # noqa: E402
+
+domain_purchase.refresh()
+before = PULLS["n"]
+domain_purchase.report(today=date(2026, 8, 1))
+domain_purchase.report(today=date(2026, 8, 1))
+check("opening the page twice pulls the registry no times",
+      PULLS["n"] == before, PULLS["n"] - before)
+domain_purchase.refresh()
+check("...and Refresh is the one thing on the page that does",
+      PULLS["n"] == before + 1, PULLS["n"] - before)
+
+# Only the Knack half is cached. A tick is the Hub's own and the month window
+# comes off the clock, so neither may wait for tomorrow's pull.
+domain_purchase.set_billed("rec1", True, for_date="08/14/2026", actor="Todd")
+at = PULLS["n"]
+snap_rep = domain_purchase.report(today=date(2026, 8, 1))
+snap_row = next(r for g in snap_rep["groups"] for r in g["rows"]
+                if r["domain"] == "buckeyelakemarina.example")
+check("a tick reads back straight away, and still without a pull",
+      snap_row["billed"] is True and PULLS["n"] == at, snap_row)
+domain_purchase.set_billed("rec1", False)
+check("...and the calendar rolls with the clock, not with the pull",
+      domain_purchase.report(today=date(2026, 11, 1))["groups"][0]["label"]
+      == "November 2026")
+
+check("the report says how old the snapshot is",
+      domain_purchase.report(today=date(2026, 8, 1))["cache"]["measured"] is True)
+check("...in words, on the page, so a cached figure is not read as today's",
+      "pulled" in domain_purchase.cache_state()["line"].lower(),
+      domain_purchase.cache_state()["line"])
+
+# A failed pull must never empty a good snapshot: "we could not look" and "we
+# have bought no domains" are different answers and only one is actionable.
+REGISTRY_ERROR["why"] = "Knack returned HTTP 502."
+_live_rows = knack_websites.rows
+knack_websites.rows = lambda limit=2000, refresh=False: []
+out = domain_purchase.refresh()
+check("a failed pull says it failed", out["ok"] is False and "502" in out["error"],
+      out)
+check("...and keeps the rows it could not replace", out["kept"] >= 1, out)
+stale_rep = domain_purchase.report(today=date(2026, 8, 1))
+check("so the page still lists them rather than reading as an empty registry",
+      stale_rep["total"] >= 2, stale_rep["total"])
+check("...and the note says the last refresh failed",
+      "502" in stale_rep["note"], stale_rep["note"])
+knack_websites.rows = _live_rows
+REGISTRY_ERROR["why"] = ""
+domain_purchase.refresh()
+check("a good pull afterwards clears the failure",
+      domain_purchase.cache_state()["attempt_error"] == "")
+
+# Nightly means a window on the clock, not an interval since boot.
+noon = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+check("the window is an hour of the night",
+      domain_purchase._last_window(noon).hour == domain_purchase.refresh_hour(),
+      domain_purchase._last_window(noon))
+check("a snapshot taken since that window is not due again",
+      not domain_purchase.due_for_refresh())
+aged = domain_purchase.snapshot()
+aged["fetched"] = time.time() - 86400 * 2
+jsonstore.write_json(domain_purchase._snapshot_path(), aged, indent=1)
+check("one two days old is", domain_purchase.due_for_refresh())
+check("...and is presented as stale rather than as current",
+      domain_purchase.cache_state()["stale"] is True,
+      domain_purchase.cache_state())
+check("...saying how old it is and what to press",
+      "days ago" in domain_purchase.cache_state()["line"]
+      and "Refresh" in domain_purchase.cache_state()["line"],
+      domain_purchase.cache_state()["line"])
+
+check("the scheduler owns the nightly pull",
+      "purchased_domains" in scheduler.JOBS, list(scheduler.JOBS))
+check("...ticking hourly, so a leader that restarted through the window "
+      "picks it up rather than skipping a day",
+      scheduler.JOBS["purchased_domains"][0] == 60)
+before = PULLS["n"]
+check("a due tick pulls",
+      scheduler.job_refresh_purchased_domains(None).get("ok") is True
+      and PULLS["n"] == before + 1)
+before = PULLS["n"]
+skipped = scheduler.job_refresh_purchased_domains(None)
+check("...and the next tick that night does not",
+      PULLS["n"] == before and bool(skipped.get("skipped")), skipped)
+
+# With no snapshot at all the report builds one — once. Without a cooldown a
+# Knack that is up and slow costs every visitor the full timeout in turn,
+# which is the per-visit pull back in its worst form.
+domain_purchase.invalidate()
+REGISTRY_ERROR["why"] = "Knack timed out."
+knack_websites.rows = lambda limit=2000, refresh=False: []
+domain_purchase.report(today=date(2026, 8, 1))
+before = PULLS["n"]
+empty = domain_purchase.report(today=date(2026, 8, 1))
+check("a failed build is not retried on the next page load",
+      PULLS["n"] == before)
+check("...and the page still says why it is empty rather than showing zero",
+      "timed out" in empty["note"] and empty["total"] == 0, empty["note"])
+knack_websites.rows = _stub_rows
+REGISTRY_ERROR["why"] = ""
+check("Refresh works straight away rather than waiting out the cooldown",
+      domain_purchase.refresh()["ok"] is True)
+check("...and the page has its rows back",
+      domain_purchase.report(today=date(2026, 8, 1))["total"] >= 2)
+
+# A write to object_153 has to drop it, or ticking "did we buy the domain?"
+# on Client 360 leaves this calendar showing yesterday's answer until
+# tomorrow, which reads as a save that did not happen.
+knack_websites.forget()
+check("a write to the registry drops the snapshot",
+      domain_purchase.snapshot() == {}, domain_purchase.snapshot())
+rebuilt = domain_purchase.report(today=date(2026, 8, 1))
+check("...and the next read rebuilds it rather than showing nothing",
+      rebuilt["total"] >= 2 and domain_purchase.snapshot() != {}, rebuilt["total"])
+
+
+# -------------------------------------------------------------------------
+section("The snapshot carries what the new columns read")
+# ---------------------------------------------------------------------------
+# A snapshot written before the partner and the `others` index existed answers
+# "no partner" on every row and "no record here" for every domain we did not
+# buy — and age cannot see either. That is what SNAPSHOT_VERSION is for, and
+# this change is the first thing to need it.
+check("the snapshot carries the partner and the rest of the registry",
+      domain_purchase.snapshot()["rows"][0].get("partner")
+      == "The Montana Radio Group"
+      and any(r["domain"] == "orphaned.example"
+              for r in domain_purchase.snapshot().get("others") or []),
+      domain_purchase.snapshot().get("others"))
+_snap = jsonstore.read_json(domain_purchase._snapshot_path(), default={})
+_snap["version"] = 1
+jsonstore.write_json(domain_purchase._snapshot_path(), _snap, indent=1)
+check("one written before they existed is rebuilt rather than served",
+      domain_purchase.snapshot() == {}, domain_purchase.snapshot())
+domain_purchase.refresh()
+check("...and the rebuild has them",
+      domain_purchase.snapshot()["rows"][0].get("partner")
+      == "The Montana Radio Group")
+
+
+# ---------------------------------------------------------------------------
+section("A QuickBooks line description is read, never guessed at")
+# ---------------------------------------------------------------------------
+# These are the real shapes on this company's invoices. The client is not the
+# QuickBooks customer — one invoice to a media partner carries five renewals
+# for five businesses — so the description is the only place the client
+# appears, and it is typed by a person in whatever shape that day suggested.
+from hub import domain_renewals                                     # noqa: E402
+
+for text, want_domain, want_name in (
+        (" syrons-market.com/\tSyrons", "syrons-market.com", "Syrons"),
+        ("Foreman Mechanical Services, LLC - foremanmechanical.com",
+         "foremanmechanical.com", "Foreman Mechanical Services, LLC"),
+        ("www.topsdigitalmarketing.com\tTOPS Marketing",
+         "topsdigitalmarketing.com", "TOPS Marketing"),
+        ("morningskyestates.com/ Morning Sky Estates",
+         "morningskyestates.com", "Morning Sky Estates"),
+        ("The Exchange Club of Helena -   helenaexchangeclub.org/ ",
+         "helenaexchangeclub.org", "The Exchange Club of Helena")):
+    got = domain_renewals.parse_description(text)
+    check(f"“{text.strip()[:34]}…” reads as {want_domain}",
+          got["domain"] == want_domain and got["name"] == want_name, got)
+
+check("a scheme and a trailing slash are noise, not part of the domain",
+      domain_renewals.parse_description("http://friendsofbridges.org/ - Annual "
+                                        "renewal")["domain"]
+      == "friendsofbridges.org")
+check("...and “Annual renewal” is a label, so it is not offered as a name",
+      domain_renewals.parse_description("http://friendsofbridges.org/ - Annual "
+                                        "renewal")["name"] == "")
+check("a label with a year on it identifies nobody either",
+      domain_renewals.parse_description("Annual renewal for 2026")["name"] == "")
+check("a file host is not a website, so it is not read as one",
+      domain_renewals.parse_description(
+          "Renewal - see drive.google.com/file/x")["domain"] == "")
+# Inherited from hub/client_urls.domains_in(), the reader the Sites Billing
+# report uses — neither of these was refused by the copy this replaced.
+check("an email address is not a website, however much it looks like one",
+      domain_renewals.parse_description(
+          "billing@acme.com - annual renewal")["domain"] == "",
+      domain_renewals.parse_description("billing@acme.com - annual renewal"))
+check("...and a file name is not a second domain",
+      domain_renewals.parse_description(
+          "acme.com/index.html renewal")["domain"] == "acme.com",
+      domain_renewals.parse_description("acme.com/index.html renewal"))
+check("a description naming only a business still yields the business",
+      domain_renewals.parse_description("Acme Plumbing")["name"] == "Acme Plumbing")
+
+from hub import quickbooks as _qb                                   # noqa: E402
+check("the item is matched past its QuickBooks category prefix",
+      _qb.line_item_matches("Website Hosting:Website Domain Renewal", "143",
+                            item_name="Website Domain Renewal"))
+check("...and an item id, where there is one, is exact and wins",
+      _qb.line_item_matches("Something Else", "143",
+                            item_name="Website Domain Renewal",
+                            item_id="143"))
+check("a different product on the same invoice is not a domain renewal",
+      not _qb.line_item_matches(
+          "Video Advertising:Video Ads YouTube TrueView", "98",
+          item_name="Website Domain Renewal"))
+# The shared rule, so the substring refusal comes with it: a product whose
+# name merely *contains* the one asked for is a different product at a
+# different price, and matching it bills the wrong tier.
+check("a product that only contains the name is refused, not matched",
+      not _qb.line_item_matches("Website Domain Renewal - Annual", "144",
+                                item_name="Website Domain Renewal"))
+check("...and the Sites Billing report reads the same normalizer",
+      __import__("hub.sites_billing", fromlist=["x"])._norm_item(
+          "Website Hosting:Website Domain Renewal")
+      == _qb.normalise_item_name("website domain renewal"))
+# Read at call time, not captured at import: a constant assigned from
+# os.environ when the module loads is set on Render and changes nothing, with
+# every screen still looking healthy on the default it kept.
+check("the product name defaults to what QuickBooks files it as",
+      domain_renewals.item_name() == "Website Domain Renewal")
+os.environ["QB_DOMAIN_RENEWAL_ITEM"] = "Domain Renewal (2027)"
+check("...and an override is picked up without reloading the module",
+      domain_renewals.item_name() == "Domain Renewal (2027)",
+      domain_renewals.item_name())
+del os.environ["QB_DOMAIN_RENEWAL_ITEM"]
+
+
+# ---------------------------------------------------------------------------
+section("A charge matches a domain exactly, or it is a suggestion")
+# ---------------------------------------------------------------------------
+def _line(iid, lid, date_, desc, amount=24.99, customer="The Montana Radio Group"):
+    return {"invoice_id": iid, "line_id": lid, "doc_number": "TSN-" + iid,
+            "date": date_, "customer": customer, "customer_id": "7",
+            "description": desc, "amount": amount, "item_id": "143",
+            "item_name": "Website Hosting:Website Domain Renewal",
+            "link": "https://app.qbo.intuit.com/app/invoice?txnId=" + iid}
+
+
+QB_LINES = [
+    _line("1001", "2", "2026-08-20",
+          "Buckeye Lake Marina -  buckeyelakemarina.example"),
+    _line("1002", "2", "2026-03-11", "Riverstone Heat Co - annual renewal"),
+    _line("1003", "2", "2026-05-02",
+          "Wholly Unknown Business LLC - nobodyhasthis.example"),
+    _line("1004", "2", "2026-06-02", "Annual renewal"),
+]
+matched = domain_renewals.match_charges(QB_LINES, WEB_ROWS)
+by_key = {c["key"]: c for c in matched}
+
+hit = by_key["1001:2"]
+check("the domain in the description is the join key",
+      hit["record_id"] == "rec1" and hit["matched_on"] == "domain", hit)
+check("...and that is exact, not a suggestion", hit["confidence"] == "exact")
+check("the record's media partner comes back with it",
+      hit["partner"] == "The Montana Radio Group", hit)
+
+near = by_key["1002:2"]
+check("a near name is offered, and only as probable",
+      near["record_id"] == "rec3" and near["confidence"] == "probable", near)
+check("...saying so in words a person can act on",
+      "confirm" in near["why"].lower(), near["why"])
+
+miss = by_key["1003:2"]
+check("a domain nothing here carries matches nobody",
+      miss["record_id"] == "" and miss["confidence"] == "unmatched", miss)
+check("...and it says what it read rather than only that it failed",
+      miss["parsed"]["domain"] == "nobodyhasthis.example", miss["parsed"])
+
+blank = by_key["1004:2"]
+check("a description naming neither a domain nor a business says exactly that",
+      blank["record_id"] == "" and "neither" in blank["why"], blank)
+
+# A person's confirmation is the only fact in the matcher, and it outranks
+# every rule below it — including the near-name suggestion.
+check("a charge can be attached to a record by hand",
+      domain_renewals.link_charge("1003:2", "rec1", actor="Todd",
+                                  domain="buckeyelakemarina.example")["ok"])
+relinked = {c["key"]: c for c in domain_renewals.match_charges(QB_LINES, WEB_ROWS)}
+check("...and the confirmation wins over the parser",
+      relinked["1003:2"]["record_id"] == "rec1"
+      and relinked["1003:2"]["confidence"] == "confirmed", relinked["1003:2"])
+check("...naming who confirmed it", "Todd" in relinked["1003:2"]["why"])
+check("clearing it stores no blank match",
+      domain_renewals.link_charge("1003:2", "")["ok"]
+      and "1003:2" not in domain_renewals.links_store(),
+      domain_renewals.links_store())
+
+
+# ---------------------------------------------------------------------------
+section("Billed is read from QuickBooks, and says so")
+# ---------------------------------------------------------------------------
+_real_charges = domain_renewals.charges
+
+
+def _stub_charges(lines, error=""):
+    def _c(year=None, *, refresh=False, ttl=0):
+        return {"lines": list(lines), "error": error, "fetched_at":
+                "" if error else "2026-08-26T09:00:00+00:00",
+                "age_hours": None, "cached": False,
+                "item": "Website Domain Renewal"}
+    return _c
+
+
+domain_renewals.charges = _stub_charges(QB_LINES)
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("an invoice line marks the renewal billed",
+      row["billed"] is True and row["billed_source"] == "quickbooks", row)
+check("...and the row carries the invoice rather than only a tick",
+      row["charges"] and row["charges"][0]["doc_number"] == "TSN-1001",
+      row["charges"])
+check("...saying which invoice, when and for how much",
+      "TSN-1001" in row["note"] and "24.99" in row["note"], row["note"])
+check("the media partner is beside the domain, with a value in it",
+      row.get("partner") == "The Montana Radio Group", row)
+
+# A domain renews every year and is invoiced once. Without the window, last
+# year's charge marks this year's renewal billed.
+domain_renewals.charges = _stub_charges([
+    _line("900", "2", "2026-01-06",
+          "Buckeye Lake Marina -  buckeyelakemarina.example")])
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("a charge seven months from the renewal does not bill it",
+      row["billed"] is False, row)
+check("...though it is still counted against the record for the year",
+      row["charges_year"] == 1, row)
+
+# A near name is a suggestion. A suggestion that ticks a box is a fact nobody
+# agreed to.
+WEB_ROWS[2]["renewal_billing_date"] = "03/03/2026"
+domain_purchase.refresh()
+domain_renewals.charges = _stub_charges([
+    _line("1002", "2", "2026-03-11", "Riverstone Heat Co - annual renewal")])
+rep = domain_purchase.report(today=date(2026, 3, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "riverstoneheating.example")
+check("a probable match does not mark a renewal billed",
+      row["billed"] is False, row)
+check("...but it is shown, named as needing confirming",
+      row["maybe_charges"] and "not counted as billed" in row["note"], row)
+WEB_ROWS[2]["renewal_billing_date"] = ""
+domain_purchase.refresh()
+
+# A QuickBooks that could not be read must never produce a finding.
+domain_renewals.charges = _stub_charges([], error="QuickBooks is not connected.")
+domain_purchase.set_billed("rec1", True, for_date="08/14/2026", actor="Todd")
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("a failed read is not reported as “no charge matches”",
+      "could not be read" in row["note"] and "No Website Domain Renewal charge"
+      not in row["note"], row["note"])
+check("...and the page says the same thing at the top",
+      "not connected" in rep["quickbooks_note"], rep["quickbooks_note"])
+domain_purchase.set_billed("rec1", False)
+
+
+# ---------------------------------------------------------------------------
+section("This month asks whether it was billed; later months ask whether to renew")
+# ---------------------------------------------------------------------------
+domain_renewals.charges = _stub_charges(QB_LINES)
+rep = domain_purchase.report(today=date(2026, 8, 1))
+check("the current month carries the billed column",
+      rep["groups"][0]["current"] and rep["groups"][0]["column"] == "billed",
+      rep["groups"][0]["column"])
+check("...and every later month carries do-not-renew instead",
+      all(g["column"] == "do_not_renew" for g in rep["groups"][1:]),
+      [g["column"] for g in rep["groups"]])
+
+out = domain_purchase.set_do_not_renew("rec1", True, for_date="08/14/2026",
+                                       reason="Client closed the shop",
+                                       actor="Todd")
+check("marking one is stored", out["ok"])
+rep = domain_purchase.report(today=date(2026, 8, 1))
+row = next(r for g in rep["groups"] for r in g["rows"]
+           if r["domain"] == "buckeyelakemarina.example")
+check("and it reads back on the row", row["do_not_renew"] is True, row)
+check("...with the reason, so nobody has to ask again",
+      "closed the shop" in row["dnr_note"], row["dnr_note"])
+
+dnr = domain_purchase.do_not_renew_report(today=date(2026, 8, 1))
+check("the do-not-renew report lists it as still to cancel",
+      [r["domain"] for r in dnr["standing"]] == ["buckeyelakemarina.example"],
+      dnr["standing"])
+check("...and nothing has renewed against a mark yet", dnr["renewed_count"] == 0)
+
+# Unlike the billed tick, this one is never retired when the date rolls: the
+# domain renewed after somebody said it should not, and clearing the mark
+# would delete the only evidence of that.
+WEB_ROWS[0]["renewal_billing_date"] = "08/14/2027"
+domain_purchase.refresh()
+dnr = domain_purchase.do_not_renew_report(today=date(2027, 1, 1))
+check("a renewal date that moved on means it renewed anyway",
+      [r["domain"] for r in dnr["renewed_anyway"]]
+      == ["buckeyelakemarina.example"], dnr)
+check("...and that is a separate list, not a quiet unticking",
+      dnr["standing_count"] == 0 and dnr["renewed_count"] == 1, dnr)
+check("...saying both dates rather than only the new one",
+      "08/14/2026" in dnr["renewed_anyway"][0]["dnr_note"]
+      and "08/14/2027" in dnr["renewed_anyway"][0]["dnr_note"],
+      dnr["renewed_anyway"][0]["dnr_note"])
+WEB_ROWS[0]["renewal_billing_date"] = "08/14/2026"
+domain_purchase.refresh()
+domain_purchase.set_do_not_renew("rec1", False)
+check("clearing the mark works too",
+      not domain_purchase.dnr_store().get("rec1"),
+      domain_purchase.dnr_store())
+
+
+# ---------------------------------------------------------------------------
+section("Year to date, in both directions")
+# ---------------------------------------------------------------------------
+domain_renewals.charges = _stub_charges(QB_LINES)
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a renewal with an invoice behind it is reconciled",
+      ytd["reconciled_count"] == 1, ytd["reconciled_count"])
+check("...and it is not also counted as unbilled",
+      not any(r["domain"] == "buckeyelakemarina.example"
+              for r in ytd["not_billed"]), ytd["not_billed"])
+check("a charge nothing here carries is reported as billed with no record",
+      any(c["parsed_domain"] == "nobodyhasthis.example"
+          for c in ytd["unrecorded"]), ytd["unrecorded"])
+check("...with the line description, so a person can see what it says",
+      all("description" in c for c in ytd["unrecorded"]))
+check("a suggested owner is counted apart from a blank one",
+      ytd["suggested_count"] >= 1, ytd)
+check("every purchased domain travels with it, so a charge can be attached",
+      any(r["record_id"] == "rec1" for r in ytd["records"]), ytd["records"])
+check("the value of the unrecorded charges is totalled",
+      ytd["unrecorded_total"] > 0, ytd["unrecorded_total"])
+
+# A renewal that came due with no charge behind it is the money question.
+WEB_ROWS[2]["renewal_billing_date"] = "03/03/2026"
+domain_purchase.refresh()
+domain_renewals.charges = _stub_charges([QB_LINES[0]])
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a renewal due this year with no invoice is named",
+      [r["domain"] for r in ytd["not_billed"]] == ["riverstoneheating.example"],
+      ytd["not_billed"])
+check("...and the fees at risk are added up",
+      ytd["not_billed_fees"] == 18.0, ytd["not_billed_fees"])
+
+# Not billing a domain nobody is renewing is correct, not a finding.
+domain_purchase.set_do_not_renew("rec3", True, for_date="03/03/2026",
+                                 actor="Todd")
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a domain marked do-not-renew is not counted as an unbilled renewal",
+      ytd["not_billed_count"] == 0 and ytd["not_renewing_count"] == 1, ytd)
+domain_purchase.set_do_not_renew("rec3", False)
+WEB_ROWS[2]["renewal_billing_date"] = ""
+domain_purchase.refresh()
+
+# Neither side is presented as a total when either failed to read.
+domain_renewals.charges = _stub_charges([], error="QuickBooks is not connected.")
+ytd = domain_purchase.year_to_date(year=2026, today=date(2026, 8, 26))
+check("a QuickBooks that would not answer is not a year of unbilled renewals",
+      ytd["measured"] is False and any("not connected" in p
+                                       for p in ytd["problems"]), ytd["problems"])
+
+
+# ---------------------------------------------------------------------------
+section("The renewal standing rides on the Client 360 domain record")
+# ---------------------------------------------------------------------------
+domain_renewals.charges = _stub_charges(QB_LINES)
+st = domain_purchase.status_for_record("rec1", today=date(2026, 8, 26))
+check("a domain we bought carries its renewal standing",
+      st["applies"] is True and st["billed"] is True, st)
+check("...with the invoice that says so",
+      st["charges"] and st["charges"][0]["doc_number"] == "TSN-1001", st)
+check("...and the media partner beside it",
+      st.get("partner") == "The Montana Radio Group", st)
+check("a domain we did not buy is not “not billed” — it does not apply",
+      domain_purchase.status_for_record("rec2")["applies"] is False,
+      domain_purchase.status_for_record("rec2"))
+check("...and says why rather than showing an empty panel",
+      "did not buy" in domain_purchase.status_for_record("rec2")["reason"],
+      domain_purchase.status_for_record("rec2"))
+check("a record with no renewal billing date is not measured, never unbilled",
+      domain_purchase.status_for_record("rec3")["dated"] is False
+      and "not_measured" in domain_purchase.status_for_record("rec3"),
+      domain_purchase.status_for_record("rec3"))
+
+domain_renewals.charges = _real_charges
+
+
+# ---------------------------------------------------------------------------
+section("The domain record is a column, and does not ask what cannot apply")
+# ---------------------------------------------------------------------------
+# It used to hang underneath the website's own ten rows, below the fold of a
+# card nobody scrolled, so the live date and the renewal were invisible on the
+# page that exists to show them. It is the second column of the same block now.
+C360 = open(os.path.join(ROOT, "hub", "templates", "client360.html"),
+            encoding="utf-8").read()
+check("one website is drawn as a two-column block",
+      'class="web-site"' in C360 and ".web-site{" in C360)
+check("...with the domain record as the second column, not a footer",
+      "grid-template-columns:minmax(230px,1fr) minmax(230px,1fr)" in C360
+      and ".web-knack{border-top" in C360)
+check("...and it stacks rather than squeezing two definition lists together",
+      "@media(min-width:900px)" in C360)
+
+# "Did we buy the domain?" is the question the rest of the panel hangs off.
+# When the answer is no, the purchase date, the renewal date and the registrar
+# are not blanks somebody forgot — they are questions that do not apply.
+check("a No hides the fields that do not apply",
+      "function applyBoughtRule(" in C360)
+check("...only the empty ones, so a registrar we recorded survives the rule",
+      "!String(el.value||'').trim()" in C360)
+check("...never the purchase question itself",
+      "if(key==='domain_bought')return;" in C360)
+check("...and never in silence: what was left out is counted and offered back",
+      "empty field" in C360 and "Show them" in C360)
+check("the rule re-runs when somebody changes the answer",
+      "bought.addEventListener('change',()=>applyBoughtRule(host))" in C360)
+
+check("the save button does not name the system it writes to",
+      "Save to Knack" not in C360 and ">Save</a>" in C360)
+check("and no object number is put in front of a person",
+      "object_153" not in C360)
+# The ids stay pinned in the code — that is what stops a renamed label
+# breaking a read in silence. What changed is that none of them is put in
+# front of a person: an object number tells a rep nothing they can act on.
+_prose = [knack_websites.domain_record("", "")["note"],
+          knack_websites.registrar_for("buckeyelakemarina.example")["label"],
+          knack_websites.client_for_domain("buckeyelakemarina.example")["why"],
+          knack_websites.enrich("Buckeye Lake Marina")["note"],
+          domain_purchase.report(today=date(2026, 8, 1))["note"]]
+for text in _prose:
+    check("no object or field number reaches a page: " + text[:44] + "…",
+          "object_" not in text and "field_" not in text, text)
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +1076,7 @@ try:
     composed.post("/login", data={"password": os.environ["PANEL_PASSWORD"],
                                   "name": "T"})
     for path in ("/tools/domains", "/api/domains/purchased", "/api/orphan-urls",
+                 "/api/domains/ytd", "/api/domains/do-not-renew",
                  "/api/client/website-record?domain=example.com"):
         check(f"{path} answers", composed.get(path).status_code == 200)
     check("attach refuses a bad URL through the route too",
@@ -521,8 +1087,24 @@ try:
           composed.post("/api/client/website-record/save",
                         json={"record_id": "", "values": {"live_date": "x"}}
                         ).get_json()["ok"] is False)
+    ref = composed.post("/api/domains/refresh").get_json()
+    check("Refresh pulls now and hands back the rebuilt table in one trip",
+          ref["refresh"]["ok"] is True and "groups" in ref,
+          ref.get("refresh"))
+    check("...and it is a POST, so no reload or prefetch can pull for you",
+          composed.get("/api/domains/refresh").status_code == 405)
 except Exception as exc:                                        # noqa: BLE001
     check("the composed app boots with these routes", False, exc)
+
+TPL = open(os.path.join(ROOT, "hub", "templates", "domain_purchase.html"),
+           encoding="utf-8").read()
+check("the page loads itself now that the read is a dictionary scan",
+      "\nload();" in TPL and "Load renewals" not in TPL)
+check("...with Refresh as the one control on it that reaches Knack",
+      TPL.count("fetch('/api/domains/refresh'") == 1
+      and TPL.count("fetch('/api/domains/purchased'") == 1)
+check("and the age of the snapshot printed beside the table",
+      "dpAge" in TPL and "paintAge(" in TPL)
 
 
 # ---------------------------------------------------------------------------
@@ -569,10 +1151,21 @@ check("...and it calls the client method that had no caller at all",
       "client.check_limits(" in APPPY)
 check("an answer that is neither pass nor fail is not shown as a pass",
       "not in a shape this page can read" in APPPY)
-CSS = open(os.path.join(ROOT, "modules", "sites_admin", "static", "styles.css"),
-           encoding="utf-8").read()
-check("...and that flash category has a colour of its own, not red by default",
-      ".flash.warning{" in CSS)
+# The color that answer is drawn in. Sites Admin now draws its flashes with
+# the Hub's shared notice (hub/static/hub-detail.css) rather than a .flash rule
+# of its own, so this asserts the two halves that make it work: the template
+# maps the `warning` category to the shared amber rather than letting it fall
+# through to the red every other failure gets, and the shared sheet actually
+# gives amber and red different values. Checked in both places because either
+# one alone passes while the answer still renders red.
+SITES_BASE = open(os.path.join(ROOT, "modules", "sites_admin", "templates",
+                               "base.html"), encoding="utf-8").read()
+check("...and that flash category is mapped to its own level, not to the red one",
+      "'warn' if cat=='warning'" in SITES_BASE)
+DETAIL_CSS = open(os.path.join(ROOT, "hub", "static", "hub-detail.css"),
+                  encoding="utf-8").read()
+check("...and that level has a color of its own",
+      ".s1d-note.warn" in DETAIL_CSS and ".s1d-note.bad" in DETAIL_CSS)
 
 
 # ---------------------------------------------------------------------------

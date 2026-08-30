@@ -166,7 +166,7 @@ check("so the total is not doubled",
       sum(r["monthly"] for r in out) == 850)
 check("a genuinely merged row says which record it came from",
       out[2].get("member") == MEMBER)
-check("a row that was already there is not relabelled as somebody else's",
+check("a row that was already there is not relabeled as somebody else's",
       out[1].get("member") is None)
 
 

@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page Image Optimizer · Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{
     --navy:#0a2240; --navy-2:#143a63; --cyan:#17b6c9; --cyan-dk:#0e8fa1;
     --ink:#16202c; --muted:#64748b; --line:#e3e9f0; --bg:#f4f7fa;
@@ -33,10 +37,6 @@
         border:1px solid var(--line);color:var(--muted)}
   .step.on{background:var(--navy);border-color:var(--navy);color:#fff}
   .step.done{background:var(--good-bg);border-color:#bfe4d4;color:var(--good)}
-
-  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);
-        padding:20px;margin-bottom:18px}
-  .card > h2{font-size:16px;margin-bottom:4px}
   .card > .hint{color:var(--muted);font-size:13px;margin:0 0 16px}
 
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
@@ -140,7 +140,7 @@
 <header class="bar">
   <div>
     <h1>Page Image Optimizer</h1>
-    <div class="sub">Read a page, pick the images, optimise {{ batch_size }} at a time.</div>
+    <div class="sub">Read a page, pick the images, optimize {{ batch_size }} at a time.</div>
   </div>
   <div class="pills">
     <span class="pill {{ '' if ai_on else 'off' }}">{{ 'AI naming on' if ai_on else 'AI naming off — names are editable' }}</span>
@@ -149,7 +149,7 @@
   </div>
 </header>
 
-<div class="wrap">
+<div class="wrap s1d-page">
   <nav class="steps" aria-label="Progress">
     <span class="step on" id="s1">1 · Page</span>
     <span class="step" id="s2">2 · Choose images</span>
@@ -163,7 +163,7 @@
   <section class="card" id="setup">
     <h2>Which page?</h2>
     <p class="hint">The page is read live. Nothing on the client's site is changed —
-      optimised copies are saved into their SEO images.</p>
+      optimized copies are saved into their SEO images.</p>
     <div class="grid">
       <div>
         <label for="company">Client or company {{ help_dot('seo_images.upload.details') if help_dot is defined else '' }}</label>
@@ -194,7 +194,7 @@
     <p class="hint" id="pageUrl"></p>
     <div class="stats">
       <div class="stat"><b id="nFound">0</b><span>images found</span></div>
-      <div class="stat"><b id="nOpt">0</b><span>worth optimising</span></div>
+      <div class="stat"><b id="nOpt">0</b><span>worth optimizing</span></div>
       <div class="stat"><b id="nWeight">0</b><span>current weight</span></div>
       <div class="stat"><b id="nSaving">0</b><span>estimated saving</span></div>
       <div class="stat"><b id="nDone">0</b><span>saved so far</span></div>
@@ -208,7 +208,7 @@
       <span class="count" id="pickCount">Nothing selected</span>
       <span style="color:var(--muted);font-size:13px" id="pickHint"></span>
       <span class="spacer"></span>
-      <button class="primary" id="optimizeBtn" disabled>Optimise selected</button>
+      <button class="primary" id="optimizeBtn" disabled>Optimize selected</button>
     </div>
   </section>
 
@@ -234,7 +234,7 @@
     <div class="actionbar">
       <button class="ghost" id="copyAll">Copy all image tags</button>
       <span class="spacer"></span>
-      <button class="primary" id="nextBtn">Optimise the next {{ batch_size }}</button>
+      <button class="primary" id="nextBtn">Optimize the next {{ batch_size }}</button>
       <button class="ghost" id="newPageBtn">Start another page</button>
     </div>
   </section>
@@ -390,7 +390,7 @@
       (i) => i.optimizable && !state.savedUrls.has(i.url)).length - n;
     $("pickHint").textContent = left > 0 ? left + " more waiting" : "";
     $("optimizeBtn").disabled = n === 0;
-    $("optimizeBtn").textContent = n ? "Optimise these " + n : "Optimise selected";
+    $("optimizeBtn").textContent = n ? "Optimize these " + n : "Optimize selected";
     $("nDone").textContent = state.totalSaved;
   }
 
@@ -405,7 +405,7 @@
   $("optimizeBtn").addEventListener("click", async () => {
     say("");
     const btn = $("optimizeBtn");
-    busy(btn, "Optimising and naming…");
+    busy(btn, "Optimizing and naming…");
     try {
       const data = await api("/api/job/" + state.jobId + "/batch",
                              { urls: Array.from(state.picked) });
@@ -579,7 +579,7 @@
 
     const left = data.totals.remaining;
     $("nextBtn").classList.toggle("hidden", left === 0);
-    $("nextBtn").textContent = "Optimise the next " + Math.min(BATCH, left) +
+    $("nextBtn").textContent = "Optimize the next " + Math.min(BATCH, left) +
       (left > BATCH ? " of " + left : "");
   }
 

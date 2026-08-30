@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stock Photo Search — Smart 1 Hub</title>
+<style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
+        --bad:#dc2626;--ok:#16a34a;--warn:#b45309;--gold:#a16207}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1240px;margin:0 auto;padding:28px 22px 70px}
+  .back{color:var(--blue);text-decoration:none;font-size:13px}
+  label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  input[type=search],select{width:100%;padding:10px 12px;border:1px solid var(--line);
+    border-radius:8px;font:14px inherit;background:#fff}
+  input:focus,select:focus{outline:2px solid #bfdbfe;outline-offset:-1px;border-color:var(--blue)}
+  .searchrow{display:grid;grid-template-columns:1fr 170px 130px;gap:12px;align-items:end}
+  @media(max-width:840px){.searchrow{grid-template-columns:1fr}}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 14px inherit;padding:10px 20px;
+       border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block;text-align:center}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .btn.sm{padding:5px 11px;font-size:12px;font-weight:600}
+  .picks{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+  .pick{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 13px;
+        font-size:12.5px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
+  .pick.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .pick.off{opacity:.5;cursor:not-allowed}
+  .pick.ours.on{background:var(--gold);border-color:var(--gold)}
+  .hint{color:var(--muted);font-size:12px;margin-top:8px;line-height:1.55}
+  .note{border-radius:9px;padding:10px 13px;font-size:12.5px;line-height:1.55;margin-top:11px}
+  .note.warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+  .note.err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+  .note.info{background:var(--soft);border:1px solid var(--line);color:#475569}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:15px;margin-top:6px}
+  .tile{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff;
+        display:flex;flex-direction:column}
+  .tile .shot{position:relative;background:var(--soft);aspect-ratio:4/3;overflow:hidden}
+  .tile img{width:100%;height:100%;object-fit:cover;display:block}
+  .badge{position:absolute;top:8px;left:8px;background:rgba(15,23,42,.82);color:#fff;
+         font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+         padding:3px 8px;border-radius:20px}
+  .badge.ours{background:var(--gold)}
+  .meta{padding:10px 12px;font-size:12px;color:var(--muted);flex:1;
+        display:flex;flex-direction:column;gap:6px}
+  .meta .alt{color:#334155;line-height:1.45;
+             display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .meta .who a{color:var(--blue);text-decoration:none}
+  .acts{display:flex;gap:6px;padding:0 12px 11px;flex-wrap:wrap}
+  .count{font-size:12.5px;color:var(--muted);margin:16px 0 4px}
+  .srcline{font-size:12px;color:var(--muted);margin-top:7px}
+  .srcline b{color:#334155;font-weight:600}
+  .empty{text-align:center;color:var(--muted);padding:34px 12px;font-size:13.5px;line-height:1.6}
+  .spin{display:none;font-size:13px;color:var(--muted);margin-left:12px}
+  .spin.on{display:inline}
+</style>
+</head>
+{# `data-screen` is what offers a tour, and this screen registers no steps.
+   hub-help.js already declines to offer an empty one, so naming it costs
+   nothing today -- but `tour()` falls back to the MODULE prefix, so the day
+   somebody registers a sibling screen's steps this would serve them over
+   elements that are not on this page. `has_tour` exists for exactly that,
+   and guarded `is defined` like every other helper, so a Jinja env that
+   never got install_template_helpers() loses the attribute rather than the
+   page. #}
+<body data-module="stock_photos"{% if has_tour is defined and has_tour("stock.search") %} data-screen="stock.search"{% endif %}>
+<div class="wrap s1d-page">
+  <a class="back" href="/creative">&larr; Creative</a>
+  <h1>Stock Photo Search</h1>
+  <p class="sub">One search across <b>Pexels</b>, <b>Pixabay</b>, <b>Unsplash</b> and
+    <b>our own library</b> &mdash; the Cloudinary folders we have already filled, including
+    everything beneath them. Photos we own are listed first and badged, because they cost
+    nothing, need no attribution and are often already the client's own brand.</p>
+
+  <div class="card">
+    <div class="searchrow">
+      <div>
+        <label class="f" for="q">Search</label>
+        <input type="search" id="q" placeholder="roofing crew, dental office, summer patio&hellip;"
+               autocomplete="off">
+      </div>
+      <div>
+        <label class="f" for="orientation">Shape</label>
+        <select id="orientation">
+          <option value="">Any shape</option>
+          <option value="landscape">Landscape</option>
+          <option value="portrait">Portrait</option>
+          <option value="square">Square</option>
+        </select>
+      </div>
+      <div>
+        <button class="btn" id="go" type="button">Search</button>
+      </div>
+    </div>
+
+    <div class="picks" id="sources"></div>
+    <p class="hint" id="sourcehint"></p>
+    <div id="folders"></div>
+  </div>
+
+  <div id="status"></div>
+  <div class="count" id="count"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty"></div>
+</div>
+
+<script type="application/json" id="boot">{{ boot|tojson }}</script>
+<script>
+(function(){
+"use strict";
+var BOOT = JSON.parse(document.getElementById("boot").textContent);
+function $(id){ return document.getElementById(id); }
+
+// Which sources are ticked. A source with no key is shown, disabled, and
+// explained -- hiding it makes "why is there no Unsplash" unanswerable.
+var picked = {};
+BOOT.sources.forEach(function(s){ picked[s.key] = !!s.on; });
+
+function drawSources(){
+  $("sources").innerHTML = BOOT.sources.map(function(s){
+    var cls = "pick" + (s.ours ? " ours" : "") +
+              (!s.on ? " off" : (picked[s.key] ? " on" : ""));
+    return '<span class="' + cls + '" data-src="' + s.key + '">' +
+           (s.ours ? "★ " : "") + s.label + "</span>";
+  }).join("");
+  var off = BOOT.sources.filter(function(s){ return !s.on; });
+  $("sourcehint").innerHTML = off.length
+    ? "Not configured on this deployment: <b>" +
+      off.map(function(s){ return s.label; }).join(", ") +
+      "</b>. A missing key is a setting, not a fault — Diagnostics names the variable."
+    : "All four sources are configured.";
+}
+
+$("sources").addEventListener("click", function(ev){
+  var el = ev.target.closest("[data-src]");
+  if (!el) return;
+  var key = el.getAttribute("data-src");
+  var src = BOOT.sources.filter(function(s){ return s.key === key; })[0];
+  if (!src || !src.on) return;       // no key: ticking it would promise nothing
+  picked[key] = !picked[key];
+  drawSources();
+});
+
+// The library folders. "Missing" and "empty" are different answers and this is
+// the only place that can tell them apart -- a Cloudinary search returns zero
+// for both, so a folder nobody has created yet would otherwise read for ever
+// as a search that found nothing.
+function drawFolders(folders){
+  if (!folders || !folders.length) { $("folders").innerHTML = ""; return; }
+  var bad = folders.filter(function(f){ return f.state !== "ok"; });
+  if (!bad.length) {
+    $("folders").innerHTML = '<p class="hint">Our library: <b>' +
+      folders.map(function(f){ return esc(f.name); }).join("</b>, <b>") +
+      "</b>, including every subfolder.</p>";
+    return;
+  }
+  $("folders").innerHTML = bad.map(function(f){
+    var cls = f.state === "missing" ? "warn" : "err";
+    return '<div class="note ' + cls + '"><b>' + esc(f.name) + "</b> — " +
+           esc(f.detail) + "</div>";
+  }).join("");
+}
+
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+function sourceLine(statuses){
+  var parts = [];
+  Object.keys(statuses || {}).forEach(function(k){
+    var v = statuses[k];
+    if (v === "ok") return;                       // the ordinary case is silent
+    var label = (BOOT.sources.filter(function(s){ return s.key === k; })[0] || {}).label || k;
+    if (v === "error") parts.push("<b>" + esc(label) + "</b> did not answer");
+  });
+  return parts.length
+    ? '<div class="note err">' + parts.join(", ") +
+      " — these results are missing whatever it holds, which is not the same " +
+      "as it holding nothing.</div>"
+    : "";
+}
+
+var busy = false;
+
+function run(){
+  if (busy) return;
+  var q = $("q").value.trim();
+  var chosen = Object.keys(picked).filter(function(k){ return picked[k]; });
+  if (!chosen.length) {
+    $("status").innerHTML = '<div class="note warn">Pick at least one source.</div>';
+    return;
+  }
+  busy = true;
+  $("go").disabled = true;
+  $("empty").textContent = "";
+  $("status").innerHTML = '<div class="note info">Searching…</div>';
+
+  var url = "api/search?q=" + encodeURIComponent(q) +
+            "&sources=" + encodeURIComponent(chosen.join(",")) +
+            "&orientation=" + encodeURIComponent($("orientation").value);
+
+  fetch(url).then(function(r){ return r.json(); }).then(function(d){
+    busy = false; $("go").disabled = false;
+    if (!d || !d.ok) {
+      $("status").innerHTML = '<div class="note err">The search did not run.</div>';
+      return;
+    }
+    drawFolders(d.folders);
+    $("status").innerHTML = (d.message ? '<div class="note info">' + esc(d.message) + "</div>" : "")
+                          + sourceLine(d.sources);
+    draw(d.results || [], q);
+  }).catch(function(){
+    busy = false; $("go").disabled = false;
+    $("status").innerHTML = '<div class="note err">The search could not be reached.</div>';
+  });
+}
+
+function draw(items, q){
+  $("count").textContent = items.length
+    ? items.length + " photo" + (items.length === 1 ? "" : "s")
+    : "";
+  if (!items.length) {
+    $("grid").innerHTML = "";
+    $("empty").innerHTML = q
+      ? "Nothing matched <b>" + esc(q) + "</b> in the sources that answered."
+      : "Type something to search, or tick our library to browse what we already have.";
+    return;
+  }
+  $("empty").textContent = "";
+  $("grid").innerHTML = items.map(function(it, i){
+    var who = it.ours
+      ? (it.folder ? esc(it.folder) : "Our library")
+      : (it.author_url
+          ? '<a href="' + esc(it.author_url) + '" target="_blank" rel="noopener">' + esc(it.author) + "</a>"
+          : esc(it.author));
+    var dims = (it.width && it.height) ? it.width + " × " + it.height : "size not measured";
+    return '<div class="tile" data-i="' + i + '">' +
+      '<div class="shot">' +
+        '<img loading="lazy" alt="' + esc(it.alt) + '" src="' + esc(it.thumbnail) + '">' +
+        '<span class="badge' + (it.ours ? " ours" : "") + '">' +
+          (it.ours ? "Ours" : esc(it.provider)) + "</span>" +
+      "</div>" +
+      '<div class="meta">' +
+        '<span class="alt">' + (esc(it.alt) || "<i>no description</i>") + "</span>" +
+        '<span class="who">' + who + " · " + dims + "</span>" +
+      "</div>" +
+      '<div class="acts">' +
+        '<button class="btn sec sm" data-act="copy">Copy URL</button>' +
+        '<button class="btn sec sm" data-act="open">Download</button>' +
+      "</div>" +
+    "</div>";
+  }).join("");
+  window.__items = items;
+}
+
+// Both buttons go through /api/use rather than linking straight out: Unsplash's
+// API terms require a download ping at the moment a photo is actually used,
+// and the pick is what puts the work on the client's activity record.
+$("grid").addEventListener("click", function(ev){
+  var btn = ev.target.closest("[data-act]");
+  if (!btn) return;
+  var tile = btn.closest(".tile");
+  var it = (window.__items || [])[parseInt(tile.getAttribute("data-i"), 10)];
+  if (!it) return;
+  var act = btn.getAttribute("data-act");
+
+  // Opened in the handler, before the fetch: window.open() inside a promise
+  // callback is a popup the browser blocks, and a blocked popup looks exactly
+  // like a button that does nothing.
+  var win = (act === "open") ? window.open("", "_blank") : null;
+  var was = btn.textContent;
+
+  fetch("api/use", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: it.id, provider: it.provider, url: it.full,
+                          download_location: it.download_location || ""})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    var href = (d && d.download) || it.full;
+    if (act === "open") {
+      if (win) { win.location = href; } else { window.location = href; }
+      return;
+    }
+    copy(href, btn, was);
+  }).catch(function(){
+    if (act === "open") { if (win) win.location = it.full; }
+    else copy(it.full, btn, was);
+  });
+});
+
+// navigator.clipboard is unavailable on http and is allowed to refuse. A button
+// that reports a copy it never made is worse than one that asks.
+function copy(text, btn, was){
+  function done(ok){
+    btn.textContent = ok ? "Copied" : "Press Ctrl-C";
+    if (!ok) prompt("Copy this URL:", text);
+    setTimeout(function(){ btn.textContent = was; }, 1600);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){ done(true); },
+                                            function(){ fallback(text, done); });
+  } else { fallback(text, done); }
+}
+
+function fallback(text, done){
+  try {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    var ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    done(!!ok);
+  } catch (e) { done(false); }
+}
+
+$("go").addEventListener("click", run);
+$("q").addEventListener("keydown", function(ev){ if (ev.key === "Enter") run(); });
+$("orientation").addEventListener("change", function(){ if ($("q").value.trim()) run(); });
+
+drawSources();
+drawFolders(BOOT.folders);
+$("empty").innerHTML = "Type something to search, or tick our library to browse what we already have.";
+})();
+</script>
+</body>
+</html>

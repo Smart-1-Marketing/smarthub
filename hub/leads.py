@@ -29,6 +29,20 @@ mean something.
 still sitting there and should be cleared. Setting it does not give the Hub a
 delivery route back.
 
+**And no page falls back to one either.** Retiring the route here was only
+half of it: six landing modules kept a webhook POST one call level up, reached
+when `capture_and_deliver` raised, and four of them sent their abandoned-form
+partial lead straight there and nowhere else. Both are invisible from either
+end. The fallback fires exactly in the case a fallback must not — we cannot
+know whether the API write landed, which is the timeout `delivery_mode()`
+below is written about — so it writes the second contact rather than saving a
+lead. And the partial went out on `pagehide` by `navigator.sendBeacon`, which
+returns a boolean nobody reads: the panel never saw those leads at all while
+the trigger was live, and would have gone on not seeing them, with a 200 in
+front of the visitor, once it was off. Every one of them goes through this
+module now, and `test_lead_delivery.py` reads the sources to keep it that way,
+because neither failure shows on any screen.
+
 ## The order matters
 
     store the lead  ->  return success to the visitor  ->  push to GHL
@@ -227,6 +241,32 @@ def _read_all() -> list[dict]:
     return out
 
 
+def get(lead_id: str) -> dict | None:
+    """One lead by id, or None. Follows a merge rather than dead-ending.
+
+    A row that was merged into another is not a second lead, so asking for it
+    hands back the survivor: a link somebody bookmarked before the merge must
+    not 404, and it must not show a record that has been folded into another
+    one either. The chain is walked with a ceiling, because a cycle written by
+    a bug would otherwise hang the request rather than showing a record.
+    """
+    lead_id = str(lead_id or "").strip()
+    if not lead_id:
+        return None
+    rows = {r.get("id"): r for r in _read_all()}
+    seen: set[str] = set()
+    while lead_id and lead_id not in seen and len(seen) < 20:
+        seen.add(lead_id)
+        row = rows.get(lead_id)
+        if row is None:
+            return None
+        nxt = str(row.get("merged_into") or "").strip()
+        if not nxt:
+            return row
+        lead_id = nxt
+    return None
+
+
 def _rewrite(rows: list[dict]) -> None:
     tmp = _path() + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -378,6 +418,322 @@ def mark_converted(lead_id: str, client_name: str, actor: str = "") -> dict | No
     return row
 
 
+# ==========================================================================
+# Two rows, one prospect
+# ==========================================================================
+#
+# The same business reaches this panel more than once and always will. They
+# run the AI-visibility widget on a client's site in March, a rep runs a
+# website audit for them in May, and they fill in a landing page in between:
+# three rows, three sources, one company. Before this the panel showed three
+# prospects, the follow-up went out twice, and the one row carrying the
+# report link was not the one anybody opened.
+#
+# Every rule here is a way to be confidently wrong:
+#
+# * **Nothing merges by itself.** `merge_candidates()` proposes and a person
+#   presses. An automatic merge on a name is how one company's enquiry is
+#   filed under another, which is the worst outcome available to this panel.
+# * **Exact or not at all.** Email and canonical domain are joins; a company
+#   name is a comparison, and a name on its own is offered as *possible* and
+#   grouped with nothing. The `hub/client_key.py` rule, wearing a lead.
+# * **The survivor's own values win.** A rep chose which row to merge into.
+#   Empty fields are filled from the others, newest first; a value already
+#   there is never written over — the overlay rule `hub/client_urls.py`
+#   works to.
+# * **Nothing is deleted.** The absorbed row keeps its place in the file with
+#   `merged_into` on it, so the history of who came in from where survives a
+#   merge somebody regrets. `listing()` filters them out.
+# * **A merge does not undo a delivery.** Two delivered rows mean the Suite
+#   holds two contacts, and merging here changes nothing about that. Every
+#   contact id is kept, the panel is told there are two, and the survivor is
+#   never re-delivered -- re-sending a delivered row is the duplicate this
+#   whole module is built to avoid.
+
+def _digits(v: str) -> str:
+    return re.sub(r"\D", "", str(v or ""))
+
+
+def _norm_name(v: str) -> str:
+    """The shared normaliser, so a lead and a client agree on one spelling."""
+    try:
+        from hub.client_key import normalise_name
+        return normalise_name(v or "")
+    except Exception:                                   # noqa: BLE001
+        return re.sub(r"[^a-z0-9]+", "", str(v or "").lower())
+
+
+def _lead_domain(row: dict) -> str:
+    """The canonical domain this lead is about, from wherever it was written.
+
+    Six landing pages and two widgets each name the website differently, so
+    the field is looked for in all of them rather than in whichever one was
+    checked first. `canonical_domain` is the single place a domain is decided,
+    for the reason `hub/client_context.py` gives at length.
+    """
+    for value in (row.get("website"),
+                  (row.get("fields") or {}).get("website"),
+                  (row.get("fields") or {}).get("url"),
+                  (row.get("meta") or {}).get("domain")):
+        if value:
+            try:
+                from hub.client_context import canonical_domain
+                key = canonical_domain(str(value))
+            except Exception:                           # noqa: BLE001
+                key = ""
+            if key:
+                return key
+    return ""
+
+
+def merge_candidates(days: int = 365, limit: int = 100) -> dict:
+    """Groups of rows that look like one prospect. Suggestions, never merges.
+
+    `certain` is grouped on evidence that identifies a business exactly -- the
+    same email address, or the same website. `possible` is grouped on an exact
+    normalised company name and nothing else, which is worth an eyeball and is
+    never enough on its own: two franchises of one brand carry one name and
+    are two businesses with two owners.
+
+    `(groups, error)` in spirit: `error` rides in the payload rather than
+    raising, because "nothing looks duplicated" and "we could not read the
+    store" are different answers and only the first means there is nothing
+    to do.
+    """
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, min(730, days)))
+        rows = [r for r in _read_all() if not r.get("merged_into")]
+    except Exception as exc:                            # noqa: BLE001
+        return {"certain": [], "possible": [], "count": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+                "note": "The lead store could not be read, so whether "
+                        "anything is duplicated is not measured."}
+    recent = []
+    for r in rows:
+        try:
+            when = datetime.fromisoformat(r.get("created", ""))
+        except ValueError:
+            when = None
+        if when is None or when >= cutoff:
+            recent.append(r)
+
+    by_email: dict[str, list] = {}
+    by_domain: dict[str, list] = {}
+    by_name: dict[str, list] = {}
+    for r in recent:
+        email = str(r.get("email") or "").strip().lower()
+        if email and _valid_email(email):
+            by_email.setdefault(email, []).append(r)
+        dom = _lead_domain(r)
+        if dom:
+            by_domain.setdefault(dom, []).append(r)
+        name = _norm_name(r.get("company") or "")
+        if len(name) >= 4:
+            by_name.setdefault(name, []).append(r)
+
+    def _row(r: dict) -> dict:
+        return {"id": r.get("id"), "created": r.get("created"),
+                "name": r.get("name"), "email": r.get("email"),
+                "phone": r.get("phone"), "company": r.get("company"),
+                "source": r.get("source"), "page": r.get("page"),
+                "client": r.get("client") or "",
+                "delivered": bool(r.get("delivered")),
+                "contact_id": r.get("contact_id") or "",
+                "domain": _lead_domain(r)}
+
+    seen: set[frozenset] = set()
+    certain, possible = [], []
+
+    def _add(bucket, why, evidence, group):
+        ids = frozenset(g.get("id") for g in group)
+        if len(ids) < 2 or ids in seen:
+            return
+        seen.add(ids)
+        bucket.append({
+            "why": why, "evidence": evidence,
+            # Oldest first: the first row is the one they came in on, and it
+            # is the sensible thing to merge into rather than the newest.
+            "leads": sorted((_row(g) for g in group),
+                            key=lambda x: x.get("created") or ""),
+        })
+
+    for email, group in by_email.items():
+        _add(certain, "email", f"All of these gave {email}.", group)
+    for dom, group in by_domain.items():
+        _add(certain, "website", f"All of these are about {dom}.", group)
+    for name, group in by_name.items():
+        _add(possible, "company name",
+             f"“{(group[0].get('company') or '').strip()}” — an exact name "
+             f"match and nothing else, so check before merging: two "
+             f"franchises of one brand carry one name.", group)
+
+    certain.sort(key=lambda gp: gp["leads"][0].get("created") or "", reverse=True)
+    possible.sort(key=lambda gp: gp["leads"][0].get("created") or "", reverse=True)
+    return {
+        "certain": certain[:limit], "possible": possible[:limit],
+        "count": len(certain) + len(possible), "error": "",
+        "days": days,
+        "note": ("Nothing in the last "
+                 f"{days} days looks duplicated." if not (certain or possible)
+                 else "Merging is one press and it is not automatic — the "
+                      "survivor keeps its own details and fills its blanks "
+                      "from the rest."),
+    }
+
+
+def merge(into_id: str, from_ids: list[str], actor: str = "") -> dict:
+    """Fold one or more leads into another. Returns `{ok, ...}`, never raises.
+
+    Refused rather than guessed at in three cases, each of which would lose
+    something a person cannot get back: merging a row into itself, merging a
+    row that has already been merged away (its values are already inside
+    somebody else and would be counted twice), and merging two rows converted
+    to *different* clients — that is one company's enquiry attributed to
+    another, and it is not a thing this panel is allowed to decide.
+    """
+    into_id = str(into_id or "").strip()
+    wanted = [str(i or "").strip() for i in (from_ids or []) if str(i or "").strip()]
+    wanted = [i for i in wanted if i != into_id]
+    if not into_id or not wanted:
+        return {"ok": False, "error": "Pick a lead to keep and at least one "
+                                      "other to merge into it."}
+    rows = _read_all()
+    index = {r.get("id"): r for r in rows}
+    survivor = index.get(into_id)
+    if survivor is None:
+        return {"ok": False, "error": "The lead being merged into could not "
+                                      "be found."}
+    if survivor.get("merged_into"):
+        return {"ok": False, "error": "That lead has already been merged into "
+                                      "another one. Open that one instead."}
+    absorbed = []
+    for lid in wanted:
+        row = index.get(lid)
+        if row is None:
+            return {"ok": False, "error": f"Lead {lid} could not be found."}
+        if row.get("merged_into"):
+            return {"ok": False,
+                    "error": f"Lead {lid} has already been merged into "
+                             f"{row['merged_into']}, so merging it again "
+                             f"would count it twice."}
+        absorbed.append(row)
+
+    clients = {str(r.get("client") or "").strip()
+               for r in [survivor] + absorbed if str(r.get("client") or "").strip()}
+    if len(clients) > 1:
+        return {"ok": False,
+                "error": "These are converted to different clients ("
+                         + ", ".join(sorted(clients)) + "), so merging them "
+                         "would attribute one company's inquiry to another. "
+                         "Fix the conversion first."}
+
+    # Newest first: where the survivor has a blank, the most recent thing we
+    # were told is the better answer to fill it with.
+    donors = sorted(absorbed, key=lambda r: r.get("created") or "", reverse=True)
+
+    for key in ("name", "email", "phone", "company", "pdf_url", "client"):
+        if not str(survivor.get(key) or "").strip():
+            for d in donors:
+                if str(d.get(key) or "").strip():
+                    survivor[key] = d[key]
+                    break
+
+    merged_fields = dict(survivor.get("fields") or {})
+    for d in reversed(donors):                  # oldest first, survivor last
+        for k, v in (d.get("fields") or {}).items():
+            if v and not merged_fields.get(k):
+                merged_fields[k] = v
+    survivor["fields"] = merged_fields
+
+    merged_meta = dict(survivor.get("meta") or {})
+    for d in reversed(donors):
+        for k, v in (d.get("meta") or {}).items():
+            if v and not merged_meta.get(k):
+                merged_meta[k] = v
+    survivor["meta"] = merged_meta
+
+    # The earliest arrival is when this prospect actually came in. Keeping the
+    # survivor's own date would report a lead from March as a lead from May,
+    # which is the one field a follow-up queue is sorted on.
+    earliest = min([survivor.get("created") or ""]
+                   + [d.get("created") or "" for d in donors if d.get("created")])
+    if earliest:
+        survivor["first_seen"] = earliest
+        survivor["created"] = earliest
+
+    # Where it came from is now more than one place, and both answers matter:
+    # "which page produced this" is the question the panel exists to answer.
+    # Paired before they are filtered: a row with a source and no page and a
+    # row with a page and no source are not one origin, and zipping two lists
+    # that were filtered apart silently invents one.
+    origins = {f"{r.get('source') or '?'} / {r.get('page') or '?'}"
+               for r in [survivor] + donors}
+    survivor["also_from"] = sorted(
+        origins - {f"{survivor.get('source') or '?'} / "
+                   f"{survivor.get('page') or '?'}"})
+
+    # Every Suite contact this prospect already has. Never flattened to one:
+    # two delivered rows means the Suite really does hold two contacts, and a
+    # merge here does not undo that. Saying so is the only honest answer.
+    contact_ids = [c for c in [survivor.get("contact_id")]
+                   + [d.get("contact_id") for d in donors] if c]
+    survivor["contact_ids"] = sorted(set(contact_ids))
+    if not survivor.get("contact_id") and contact_ids:
+        survivor["contact_id"] = contact_ids[0]
+        survivor["delivered"] = True
+        survivor.setdefault("delivered_at", _now())
+
+    if not survivor.get("converted_at"):
+        for d in donors:
+            if d.get("converted_at"):
+                survivor["converted_at"] = d["converted_at"]
+                survivor["converted_by"] = d.get("converted_by") or ""
+                break
+
+    history = list(survivor.get("merged_ids") or [])
+    stamp = _now()
+    for d in donors:
+        history.append({"id": d.get("id"), "created": d.get("created"),
+                        "source": d.get("source") or "",
+                        "page": d.get("page") or "",
+                        "contact_id": d.get("contact_id") or ""})
+        d["merged_into"] = into_id
+        d["merged_at"] = stamp
+        d["merged_by"] = _clean(actor, 120)
+    survivor["merged_ids"] = history
+    survivor["merged_at"] = stamp
+    survivor["merged_by"] = _clean(actor, 120)
+
+    try:
+        with _LOCK:
+            _rewrite(rows)
+    except OSError as exc:
+        return {"ok": False,
+                "error": f"The lead store could not be written: "
+                         f"{type(exc).__name__}. Nothing was merged."}
+
+    try:
+        from hub import audit
+        audit.log("leads", "merged", actor=actor,
+                  client=survivor.get("client") or None,
+                  lead=into_id, absorbed=",".join(d.get("id") or "" for d in donors))
+    except Exception:                                   # noqa: BLE001
+        pass
+
+    suite_note = ""
+    if len(set(contact_ids)) > 1:
+        suite_note = (
+            f"{len(set(contact_ids))} Smart 1 Suite contacts were already "
+            "created for this prospect. Merging here does not merge those — "
+            "they are listed on the lead so they can be merged in Suite, "
+            "where the conversation history lives.")
+    return {"ok": True, "lead": survivor, "absorbed": len(donors),
+            "suite_note": suite_note,
+            "note": f"{len(donors)} lead" + ("" if len(donors) == 1 else "s")
+                    + " merged in. Nothing was deleted — the merged rows are "
+                      "kept against this one so where they came from survives."}
+
+
 def retry_undelivered(limit: int = 50) -> dict:
     """Re-push anything that hasn't landed. Called by hand or the scheduler.
 
@@ -425,7 +781,11 @@ def listing(days: int = 30, source: str = "", page: str = "",
             undelivered_only: bool = False) -> dict:
     """The lead panel."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, min(365, days)))
-    stored = _read_all()
+    # A row that has been merged into another is not a second lead. It is kept
+    # in the file rather than deleted -- see merge() -- so it is filtered here
+    # instead, and counted, because a panel that quietly gets shorter cannot be
+    # told from one that failed to load.
+    stored = [r for r in _read_all() if not r.get("merged_into")]
     rows = []
     for r in stored:
         try:
@@ -465,6 +825,9 @@ def listing(days: int = 30, source: str = "", page: str = "",
                            if r.get("delivered") and not r.get("contact_id")),
         "needs_attention": sum(1 for r in rows
                                if not r.get("delivered") and not r.get("retryable", True)),
+        # Rows that absorbed a duplicate. The number is on the panel so a
+        # count that went down has a reason on screen beside it.
+        "merged": sum(1 for r in rows if r.get("merged_ids")),
         **route_status(stored),
     }
 
@@ -511,11 +874,19 @@ def route_status(rows: list[dict] | None = None) -> dict:
             note += (f" {WEBHOOK_ENV} is set, but that route is retired and the "
                      f"Hub no longer posts to it — it is not a fallback.")
     elif leftover:
-        # The Hub itself can no longer double-write: there is one route and
-        # nothing left that fires the webhook. What remains is outside this
-        # codebase — a Suite workflow still triggered by that URL, or a page
-        # posting straight at it — so name those two and stop describing this
-        # as "two routes configured", which it no longer is.
+        # The Hub itself can no longer double-write: there is one route, no
+        # page falls back to a webhook, and no partial lead goes out down one.
+        # What remains is outside this codebase — a Suite workflow still
+        # triggered by that URL, or a page posting straight at it — so name
+        # those two and stop describing this as "two routes configured", which
+        # it no longer is.
+        #
+        # The check before the switch is named too, because it is the one way
+        # this step causes an outage: GHL_WEBHOOK_URL is a separate variable
+        # that the IO Builder posts insertion orders to. If somebody set both
+        # to the same URL, the workflow being turned off here is the one that
+        # files insertion orders, and nothing would say so until an IO went
+        # missing.
         title = "Finish retiring the lead webhook"
         warning = (
             f"{WEBHOOK_ENV} is still set on this deployment. The Hub no longer "
@@ -523,7 +894,10 @@ def route_status(rows: list[dict] | None = None) -> dict:
             f"create a second contact. What still can is outside the Hub: a "
             f"Suite workflow triggered by that URL, or a page posting directly "
             f"to it. Turn the trigger off in Suite, then clear {WEBHOOK_ENV} on "
-            f"Render. ")
+            f"Render. Check first whether GHL_WEBHOOK_URL holds the same URL: "
+            f"that one is the IO Builder's, it submits insertion orders, and "
+            f"if the two share a workflow then switching it off stops those "
+            f"too. ")
         warning += (
             f"The API route has written {api_contacts} Suite "
             f"{'contact' if api_contacts == 1 else 'contacts'}, most recently "

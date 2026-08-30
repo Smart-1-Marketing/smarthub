@@ -33,7 +33,7 @@ Rules:
 - Output JSON only: {"faqs": [{"question": str, "answer": str}]}.
 - Produce EXACTLY the number of questions requested.
 - Questions must be specific to THIS page's subject and this business — never generic
-  filler like "What are your hours?" unless the page is about hours. Favour the
+  filler like "What are your hours?" unless the page is about hours. Favor the
   questions that carry search intent: cost, process, timeline, what's included,
   who it's for, service area, what makes them different, what to do first.
 - Answers: 40-90 words, plain English, second person, no marketing fluff, and they

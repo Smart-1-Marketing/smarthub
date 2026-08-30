@@ -74,7 +74,7 @@ except Exception:                                      # noqa: BLE001 — standa
 AGENCY = ("You write advertising for Smart 1 Marketing, a digital agency in "
           "Columbus, Ohio. You never invent an offer, price, guarantee, "
           "statistic or claim that is not in the source material — the ad has to "
-          "be honoured by the page it clicks through to.")
+          "be honored by the page it clicks through to.")
 
 
 # --------------------------------------------------------------------- brief
@@ -101,7 +101,7 @@ Return JSON:
   "audience": "who should see the ad, one sentence",
   "promise": "the single strongest promise the page makes",
   "proof": ["3-5 short proof points taken from the page"],
-  "objections": ["2-4 things a sceptical reader would push back on"],
+  "objections": ["2-4 things a skeptical reader would push back on"],
   "cta": "the exact action the page asks for",
   "keywords": ["8-12 search terms this audience would actually type"],
   "avoid": ["2-4 claims the ads must not make"]
@@ -215,7 +215,7 @@ Return JSON:
   "concepts": [{{"name":"", "headline":"6 words maximum", "subhead":"8 words maximum or empty",
                  "cta":"2-3 words", "art_direction":"one sentence describing the background image",
                  "sizes":["300x250","1080x1080"]}}],
-  "palette_note": "one line on colour, tied to the brand where the page shows one"
+  "palette_note": "one line on color, tied to the brand where the page shows one"
 }}
 Give 3 concepts and cover every size listed at least once.""",
         max_tokens=1600)

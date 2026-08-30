@@ -481,7 +481,7 @@ def readiness(ad: dict) -> dict:
                       "message": "No logo on file for this pack."})
     if not (brand.get("colors") or []):
         flags.append({"level": "warn", "code": "brand_colors",
-                      "message": "No brand colours recorded."})
+                      "message": "No brand colors recorded."})
     if not str(brand.get("tone") or "").strip():
         flags.append({"level": "warn", "code": "brand_tone",
                       "message": "No tone guidance for whoever adapts the copy."})
@@ -636,14 +636,14 @@ def image_prompt(ad: dict, context: dict | None = None) -> str:
     elif context.get("description"):
         bits.append(f"whose business is: {context['description'][:300]}")
     if brand.get("colors"):
-        bits.append("using the brand colours " + ", ".join(list(brand["colors"])[:4]))
+        bits.append("using the brand colors " + ", ".join(list(brand["colors"])[:4]))
     if brand.get("tone"):
         bits.append(f"tone: {brand['tone']}")
     if ad.get("image_brief"):
         bits.append(str(ad["image_brief"])[:400])
     bits.append(
         "Photographic and realistic, clean composition with the subject "
-        "centred and clear space around it so it survives being downsized to "
+        "centered and clear space around it so it survives being downsized to "
         "256x256. Absolutely no text, letters, numbers, logos, watermarks or "
         "signage anywhere in the image."
     )
@@ -829,7 +829,7 @@ def handoff_brief(ad: dict, *, image_filename: str = "") -> str:
     L.append("-" * 60)
     L.append(f"Logo:        {_v(brand.get('logo_url'))}")
     L.append(f"Logo usage:  {_v(brand.get('logo_usage'))}")
-    L.append(f"Colours:     {', '.join(brand.get('colors') or []) or NOT_SUPPLIED}")
+    L.append(f"Colors:     {', '.join(brand.get('colors') or []) or NOT_SUPPLIED}")
     L.append(f"Tone:        {_v(brand.get('tone'))}")
     L.append(f"Claims:      {_v(brand.get('claims'))}")
     L.append(f"Disclaimer:  {_v(brand.get('disclaimer'))}")

@@ -1,7 +1,7 @@
 {
  "products": [
   {
-   "label": "PROGRAMMATIC CAMPAIGN \u2014 Select Tactics - Comes with Retargeting",
+   "label": "PROGRAMMATIC CAMPAIGN — Select Tactics - Comes with Retargeting",
    "category": "PROGRAMMATIC CAMPAIGN",
    "product": "Select Tactics - Comes with Retargeting",
    "listedRate": "5.50 /CPM",
@@ -13,7 +13,7 @@
    "rateValue": 5.5
   },
   {
-   "label": "OUTREACH \u2014 RON (Run of Network)",
+   "label": "OUTREACH — RON (Run of Network)",
    "category": "OUTREACH",
    "product": "RON (Run of Network)",
    "listedRate": "$3.50 / CPM",
@@ -25,7 +25,7 @@
    "rateValue": 3.5
   },
   {
-   "label": "OUTREACH \u2014 Category",
+   "label": "OUTREACH — Category",
    "category": "OUTREACH",
    "product": "Category",
    "listedRate": "$4.25 / CPM",
@@ -37,7 +37,7 @@
    "rateValue": 4.25
   },
   {
-   "label": "OUTREACH \u2014 Demographic",
+   "label": "OUTREACH — Demographic",
    "category": "OUTREACH",
    "product": "Demographic",
    "listedRate": "$4.25 / CPM",
@@ -49,7 +49,7 @@
    "rateValue": 4.25
   },
   {
-   "label": "OUTREACH \u2014 Behavioral",
+   "label": "OUTREACH — Behavioral",
    "category": "OUTREACH",
    "product": "Behavioral",
    "listedRate": "$4.25 / CPM",
@@ -61,7 +61,7 @@
    "rateValue": 4.25
   },
   {
-   "label": "OUTREACH \u2014 Contextual",
+   "label": "OUTREACH — Contextual",
    "category": "OUTREACH",
    "product": "Contextual",
    "listedRate": "$4.25 / CPM",
@@ -73,7 +73,7 @@
    "rateValue": 4.25
   },
   {
-   "label": "OUTREACH \u2014 Advanced Audience",
+   "label": "OUTREACH — Advanced Audience",
    "category": "OUTREACH",
    "product": "Advanced Audience",
    "listedRate": "$5.50 / CPM",
@@ -85,7 +85,7 @@
    "rateValue": 5.5
   },
   {
-   "label": "OUTREACH \u2014 Native Display",
+   "label": "OUTREACH — Native Display",
    "category": "OUTREACH",
    "product": "Native Display",
    "listedRate": "$13.20 / CPM",
@@ -97,7 +97,7 @@
    "rateValue": 13.2
   },
   {
-   "label": "OUTREACH \u2014 Job Title",
+   "label": "OUTREACH — Job Title",
    "category": "OUTREACH",
    "product": "Job Title",
    "listedRate": "$7.00 / CPM",
@@ -109,7 +109,7 @@
    "rateValue": 7.0
   },
   {
-   "label": "OUTREACH \u2014 Temperature",
+   "label": "OUTREACH — Temperature",
    "category": "OUTREACH",
    "product": "Temperature",
    "listedRate": "$8.00 / CPM",
@@ -121,7 +121,7 @@
    "rateValue": 8.0
   },
   {
-   "label": "RETARGETING \u2014 Website Retargeting",
+   "label": "RETARGETING — Website Retargeting",
    "category": "RETARGETING",
    "product": "Website Retargeting",
    "listedRate": "$4.75 / CPM",
@@ -133,7 +133,7 @@
    "rateValue": 4.75
   },
   {
-   "label": "RETARGETING \u2014 Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed",
+   "label": "RETARGETING — Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed",
    "category": "RETARGETING",
    "product": "Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed",
    "listedRate": "25% Mgmt Fee",
@@ -145,7 +145,7 @@
    "rateValue": null
   },
   {
-   "label": "MOBILE ONLY \u2014 RON (Run of Network)",
+   "label": "MOBILE ONLY — RON (Run of Network)",
    "category": "MOBILE ONLY",
    "product": "RON (Run of Network)",
    "listedRate": "$3.50 / CPM",
@@ -157,7 +157,7 @@
    "rateValue": 3.5
   },
   {
-   "label": "MOBILE ONLY \u2014 Category",
+   "label": "MOBILE ONLY — Category",
    "category": "MOBILE ONLY",
    "product": "Category",
    "listedRate": "$4.00 / CPM",
@@ -169,7 +169,7 @@
    "rateValue": 4.0
   },
   {
-   "label": "MOBILE ONLY \u2014 Behavioral",
+   "label": "MOBILE ONLY — Behavioral",
    "category": "MOBILE ONLY",
    "product": "Behavioral",
    "listedRate": "$4.00 / CPM",
@@ -181,7 +181,7 @@
    "rateValue": 4.0
   },
   {
-   "label": "MOBILE ONLY \u2014 In-Store Visits",
+   "label": "MOBILE ONLY — In-Store Visits",
    "category": "MOBILE ONLY",
    "product": "In-Store Visits",
    "listedRate": "$9.00 / CPM",
@@ -193,7 +193,7 @@
    "rateValue": 9.0
   },
   {
-   "label": "MOBILE ONLY \u2014 Geo-Fence",
+   "label": "MOBILE ONLY — Geo-Fence",
    "category": "MOBILE ONLY",
    "product": "Geo-Fence",
    "listedRate": "$5.00 / CPM",
@@ -205,7 +205,7 @@
    "rateValue": 5.0
   },
   {
-   "label": "MOBILE ONLY \u2014 Geo-Fence :: Targeted",
+   "label": "MOBILE ONLY — Geo-Fence :: Targeted",
    "category": "MOBILE ONLY",
    "product": "Geo-Fence :: Targeted",
    "listedRate": "$5.75 / CPM",
@@ -217,7 +217,7 @@
    "rateValue": 5.75
   },
   {
-   "label": "LOCATION LOOKBACK \u2014 Demographic",
+   "label": "LOCATION LOOKBACK — Demographic",
    "category": "LOCATION LOOKBACK",
    "product": "Demographic",
    "listedRate": "$7.50 / CPM",
@@ -229,7 +229,7 @@
    "rateValue": 7.5
   },
   {
-   "label": "LOCATION LOOKBACK \u2014 Behavioral",
+   "label": "LOCATION LOOKBACK — Behavioral",
    "category": "LOCATION LOOKBACK",
    "product": "Behavioral",
    "listedRate": "$7.50 / CPM",
@@ -241,7 +241,7 @@
    "rateValue": 7.5
   },
   {
-   "label": "LOCATION LOOKBACK \u2014 Brand Affinity",
+   "label": "LOCATION LOOKBACK — Brand Affinity",
    "category": "LOCATION LOOKBACK",
    "product": "Brand Affinity",
    "listedRate": "$7.50 / CPM",
@@ -253,7 +253,7 @@
    "rateValue": 7.5
   },
   {
-   "label": "LOCATION LOOKBACK \u2014 List Provided Locations",
+   "label": "LOCATION LOOKBACK — List Provided Locations",
    "category": "LOCATION LOOKBACK",
    "product": "List Provided Locations",
    "listedRate": "$7.50 / CPM",
@@ -265,7 +265,7 @@
    "rateValue": 7.5
   },
   {
-   "label": "OUTREACH \u2014 Programmatic - RON (Run of Network)",
+   "label": "OUTREACH — Programmatic - RON (Run of Network)",
    "category": "OUTREACH",
    "product": "Programmatic - RON (Run of Network)",
    "listedRate": "$14.00 / CPM",
@@ -277,7 +277,7 @@
    "rateValue": 14.0
   },
   {
-   "label": "OUTREACH \u2014 Programmatic - Targeted",
+   "label": "OUTREACH — Programmatic - Targeted",
    "category": "OUTREACH",
    "product": "Programmatic - Targeted",
    "listedRate": "$17.00 / CPM",
@@ -289,7 +289,7 @@
    "rateValue": 17.0
   },
   {
-   "label": "OUTREACH \u2014 Premium: Non-Skippable",
+   "label": "OUTREACH — Premium: Non-Skippable",
    "category": "OUTREACH",
    "product": "Premium: Non-Skippable",
    "listedRate": "$23.00/ CPM",
@@ -301,7 +301,7 @@
    "rateValue": 23.0
   },
   {
-   "label": "OUTREACH \u2014 Premium Native Video",
+   "label": "OUTREACH — Premium Native Video",
    "category": "OUTREACH",
    "product": "Premium Native Video",
    "listedRate": "$26.00 / CPM",
@@ -313,7 +313,7 @@
    "rateValue": 26.0
   },
   {
-   "label": "YOUTUBE \u2014 TrueView",
+   "label": "YOUTUBE — TrueView",
    "category": "YOUTUBE",
    "product": "TrueView",
    "listedRate": "$0.20 / CPV",
@@ -325,7 +325,7 @@
    "rateValue": 0.2
   },
   {
-   "label": "YOUTUBE \u2014 TrueView - Targeted",
+   "label": "YOUTUBE — TrueView - Targeted",
    "category": "YOUTUBE",
    "product": "TrueView - Targeted",
    "listedRate": "$0.25 / CPV",
@@ -337,7 +337,7 @@
    "rateValue": 0.25
   },
   {
-   "label": "YOUTUBE \u2014 Bumpers",
+   "label": "YOUTUBE — Bumpers",
    "category": "YOUTUBE",
    "product": "Bumpers",
    "listedRate": "$15.00 / CPM",
@@ -349,7 +349,7 @@
    "rateValue": 15.0
   },
   {
-   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK \u2014 Pay Per Click",
+   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK — Pay Per Click",
    "category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
    "product": "Pay Per Click",
    "listedRate": "15% Mgmt from Retail Cost",
@@ -361,9 +361,9 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK \u2014 Google Grant",
+   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK — Google Grant (Setup)",
    "category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
-   "product": "Google Grant",
+   "product": "Google Grant (Setup)",
    "listedRate": "$125 One time set up fee",
    "retail": "",
    "description": "",
@@ -373,9 +373,9 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK \u2014 Google Grant",
+   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK — Google Grant (Management)",
    "category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
-   "product": "Google Grant",
+   "product": "Google Grant (Management)",
    "listedRate": "15% Mgmt fee monthly",
    "retail": "",
    "description": "",
@@ -385,9 +385,9 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK \u2014 Local Service Ads (LSA)",
+   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK — Local Service Ads — LSA (Setup)",
    "category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
-   "product": "Local Service Ads (LSA)",
+   "product": "Local Service Ads — LSA (Setup)",
    "listedRate": "$125 One time set up fee",
    "retail": "",
    "description": "We claim and file the necessary documents for Google.  Have background checks put through and complete the final documents necessary to launch.",
@@ -397,9 +397,9 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK \u2014 Local Service Ads (LSA)",
+   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK — Local Service Ads — LSA (Management)",
    "category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
-   "product": "Local Service Ads (LSA)",
+   "product": "Local Service Ads — LSA (Management)",
    "listedRate": "15% Mgmt fee monthly",
    "retail": "",
    "description": "",
@@ -409,7 +409,7 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK \u2014 Pay Per Click - Shopping",
+   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK — Pay Per Click - Shopping",
    "category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
    "product": "Pay Per Click - Shopping",
    "listedRate": "15% Mgmt from Retail Cost",
@@ -421,7 +421,7 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK \u2014 Shopping Campaign Merchant Center Set Up",
+   "label": "SEARCH ENGINE MARKETING / PAY PER CLICK — Shopping Campaign Merchant Center Set Up",
    "category": "SEARCH ENGINE MARKETING / PAY PER CLICK",
    "product": "Shopping Campaign Merchant Center Set Up",
    "listedRate": "Custom Quote Required",
@@ -433,19 +433,19 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE OPTIMIZATION \u2014 Search Engine Optimization",
+   "label": "SEARCH ENGINE OPTIMIZATION — Search Engine Optimization",
    "category": "SEARCH ENGINE OPTIMIZATION",
    "product": "Search Engine Optimization",
    "listedRate": "50% of Retail Cost / Custom Quote Required",
    "retail": "",
-   "description": "On and Off Site optimizations to increase the volume and quality of traffic to a website from search engines.",
+   "description": "On and Off Site optimizations to increase the volume and quality of traffic to a website from search engines. Includes optimization for AI answer engines — AI Overviews, ChatGPT, Perplexity and Siri — through schema markup, entity and citation building, page speed and clean local listings.",
    "requirements": "6 Month Minimum Contract",
    "timeline": "5 Business Days",
    "rateType": null,
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE OPTIMIZATION \u2014 Local Business Boost",
+   "label": "SEARCH ENGINE OPTIMIZATION — Local Business Boost",
    "category": "SEARCH ENGINE OPTIMIZATION",
    "product": "Local Business Boost",
    "listedRate": "$75 Per Location / Per Month",
@@ -457,7 +457,7 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE OPTIMIZATION \u2014 Additional Location for LBB (Local Business Boost), inclusive of Google Review Generation",
+   "label": "SEARCH ENGINE OPTIMIZATION — Additional Location for LBB (Local Business Boost), inclusive of Google Review Generation",
    "category": "SEARCH ENGINE OPTIMIZATION",
    "product": "Additional Location for LBB (Local Business Boost), inclusive of Google Review Generation",
    "listedRate": "$65 Per Location / Per Month",
@@ -469,7 +469,7 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE OPTIMIZATION \u2014 A La Carte :: Local Business Listing Management",
+   "label": "SEARCH ENGINE OPTIMIZATION — A La Carte :: Local Business Listing Management",
    "category": "SEARCH ENGINE OPTIMIZATION",
    "product": "A La Carte :: Local Business Listing Management",
    "listedRate": "$35.00 Per Location / Per Month",
@@ -481,7 +481,7 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE OPTIMIZATION \u2014 Google Analytics Consultation",
+   "label": "SEARCH ENGINE OPTIMIZATION — Google Analytics Consultation",
    "category": "SEARCH ENGINE OPTIMIZATION",
    "product": "Google Analytics Consultation",
    "listedRate": "Custom Quote Required",
@@ -493,7 +493,7 @@
    "rateValue": null
   },
   {
-   "label": "DISPLAY \u2014 Facebook | Instagram - Awareness Paid Social Media Advertising",
+   "label": "DISPLAY — Facebook | Instagram - Awareness Paid Social Media Advertising",
    "category": "DISPLAY",
    "product": "Facebook | Instagram - Awareness Paid Social Media Advertising",
    "listedRate": "25% Mgmt Fee",
@@ -505,7 +505,7 @@
    "rateValue": null
   },
   {
-   "label": "DISPLAY \u2014 Facebook | Instagram - Targeted Paid Social Media Advertising",
+   "label": "DISPLAY — Facebook | Instagram - Targeted Paid Social Media Advertising",
    "category": "DISPLAY",
    "product": "Facebook | Instagram - Targeted Paid Social Media Advertising",
    "listedRate": "25% Mgmt Fee",
@@ -517,7 +517,7 @@
    "rateValue": null
   },
   {
-   "label": "DISPLAY \u2014 Programmatic Paid Social Media Advertising - Budget Based - No Impression Guarantee",
+   "label": "DISPLAY — Programmatic Paid Social Media Advertising - Budget Based - No Impression Guarantee",
    "category": "DISPLAY",
    "product": "Programmatic Paid Social Media Advertising - Budget Based - No Impression Guarantee",
    "listedRate": "25% Mgmt Fee",
@@ -529,7 +529,7 @@
    "rateValue": null
   },
   {
-   "label": "DISPLAY \u2014 Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed",
+   "label": "DISPLAY — Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed",
    "category": "DISPLAY",
    "product": "Facebook / Instagram Retargeting - No Impression Guarantee - Frequency Cap Allowed",
    "listedRate": "25% Mgmt Fee",
@@ -541,7 +541,7 @@
    "rateValue": null
   },
   {
-   "label": "DISPLAY \u2014 Facebook - Leads",
+   "label": "DISPLAY — Facebook - Leads",
    "category": "DISPLAY",
    "product": "Facebook - Leads",
    "listedRate": "25% Mgmt Fee",
@@ -553,7 +553,7 @@
    "rateValue": null
   },
   {
-   "label": "DISPLAY \u2014 Facebook - Boosted Posts",
+   "label": "DISPLAY — Facebook - Boosted Posts",
    "category": "DISPLAY",
    "product": "Facebook - Boosted Posts",
    "listedRate": "$20.00 / Per Post",
@@ -565,7 +565,7 @@
    "rateValue": null
   },
   {
-   "label": "VIDEO \u2014 Facebook | Instagram - Paid Social Media Video Advertising",
+   "label": "VIDEO — Facebook | Instagram - Paid Social Media Video Advertising",
    "category": "VIDEO",
    "product": "Facebook | Instagram - Paid Social Media Video Advertising",
    "listedRate": "25% Mgmt Fee",
@@ -577,7 +577,7 @@
    "rateValue": null
   },
   {
-   "label": "VIDEO \u2014 LinkedIn - Display & Text Ads - Budget Based - No Impression Guarantee",
+   "label": "VIDEO — LinkedIn - Display & Text Ads - Budget Based - No Impression Guarantee",
    "category": "VIDEO",
    "product": "LinkedIn - Display & Text Ads - Budget Based - No Impression Guarantee",
    "listedRate": "25% Mgmt Fee",
@@ -589,7 +589,7 @@
    "rateValue": null
   },
   {
-   "label": "VIDEO \u2014 Pinterest - Paid Social Media Advertising",
+   "label": "VIDEO — Pinterest - Paid Social Media Advertising",
    "category": "VIDEO",
    "product": "Pinterest - Paid Social Media Advertising",
    "listedRate": "25% Management Fee",
@@ -601,7 +601,7 @@
    "rateValue": null
   },
   {
-   "label": "VIDEO \u2014 Snapchat - Paid Social Media Advertising",
+   "label": "VIDEO — Snapchat - Paid Social Media Advertising",
    "category": "VIDEO",
    "product": "Snapchat - Paid Social Media Advertising",
    "listedRate": "25% Management Fee",
@@ -613,7 +613,7 @@
    "rateValue": null
   },
   {
-   "label": "VIDEO \u2014 Twitter - Paid Social Media Advertising",
+   "label": "VIDEO — Twitter - Paid Social Media Advertising",
    "category": "VIDEO",
    "product": "Twitter - Paid Social Media Advertising",
    "listedRate": "25% Management Fee",
@@ -625,7 +625,7 @@
    "rateValue": null
   },
   {
-   "label": "VIDEO \u2014 Tik Tok - Paid Social Media Advertising",
+   "label": "VIDEO — Tik Tok - Paid Social Media Advertising",
    "category": "VIDEO",
    "product": "Tik Tok - Paid Social Media Advertising",
    "listedRate": "25% Management Fee (minimum daily budget of $35 or $1,068 monthly)",
@@ -637,10 +637,10 @@
    "rateValue": null
   },
   {
-   "label": "SOCIAL MEDIA MANAGEMENT \u2014 Social Media Management",
+   "label": "SOCIAL MEDIA MANAGEMENT — Social Media Management",
    "category": "SOCIAL MEDIA MANAGEMENT",
    "product": "Social Media Management",
-   "listedRate": "199.0",
+   "listedRate": "$199.00",
    "retail": "",
    "description": "Cultivate awareness, connections, and engagement on social media channels. Up to 15 posts per month.",
    "requirements": "All Social Media Channels Administrative Access Required.",
@@ -649,55 +649,55 @@
    "rateValue": 199.0
   },
   {
-   "label": "DISPLAY & VIDEO \u2014 IP Targeted Display - List is supplied or purchased seperately",
+   "label": "DISPLAY & VIDEO — IP Targeted Display - List is supplied or purchased seperately",
    "category": "DISPLAY & VIDEO",
    "product": "IP Targeted Display - List is supplied or purchased seperately",
-   "listedRate": "18.0",
+   "listedRate": "$18.00 / CPM",
    "retail": "",
    "description": "Target a users IP address to deliver display ads.",
    "requirements": "30,000 Impression Minimum monthly                                              ( 3 month minimum )",
    "timeline": "3 Business Days",
-   "rateType": null,
+   "rateType": "CPM",
    "rateValue": 18.0
   },
   {
-   "label": "DISPLAY & VIDEO \u2014 IP Targeted Display - New Movers",
+   "label": "DISPLAY & VIDEO — IP Targeted Display - New Movers",
    "category": "DISPLAY & VIDEO",
    "product": "IP Targeted Display - New Movers",
-   "listedRate": "25.0",
+   "listedRate": "$25.00 / CPM",
    "retail": "",
    "description": "Target new movers to deliver display ads.",
    "requirements": "30,000 Impression Minimum monthly                                              ( 3 month minimum )",
    "timeline": "3 Business Days",
-   "rateType": null,
+   "rateType": "CPM",
    "rateValue": 25.0
   },
   {
-   "label": "DISPLAY & VIDEO \u2014 IP Targeted Display - Venue Replay",
+   "label": "DISPLAY & VIDEO — IP Targeted Display - Venue Replay",
    "category": "DISPLAY & VIDEO",
    "product": "IP Targeted Display - Venue Replay",
-   "listedRate": "19.5",
+   "listedRate": "$19.50 / CPM",
    "retail": "",
    "description": "Uses locations to target IP in a unique location/s",
    "requirements": "30,000 Impression Minimum monthly                                              ( 3 month minimum )",
    "timeline": "3 Business Days",
-   "rateType": null,
+   "rateType": "CPM",
    "rateValue": 19.5
   },
   {
-   "label": "DISPLAY & VIDEO \u2014 IP Targeted Video - List is supplied or purchased seperately",
+   "label": "DISPLAY & VIDEO — IP Targeted Video - List is supplied or purchased seperately",
    "category": "DISPLAY & VIDEO",
    "product": "IP Targeted Video - List is supplied or purchased seperately",
-   "listedRate": "31.0",
+   "listedRate": "$31.00 / CPM",
    "retail": "",
    "description": "Target a users IP address to deliver video ads.",
    "requirements": "30,000 Impression Minimum monthly                                              ( 3 month minimum )",
    "timeline": "3 Business Days",
-   "rateType": null,
+   "rateType": "CPM",
    "rateValue": 31.0
   },
   {
-   "label": "ADD-ON PRODUCT \u2014 Purchase/Rented IP Targeting List",
+   "label": "ADD-ON PRODUCT — Purchase/Rented IP Targeting List",
    "category": "ADD-ON PRODUCT",
    "product": "Purchase/Rented IP Targeting List",
    "listedRate": "Custom Quote Required",
@@ -709,9 +709,9 @@
    "rateValue": null
   },
   {
-   "label": "DIGITAL RADIO \u2014 Programmatic - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc\u2026  *If you require specifc channel(s) a custom quote is required.",
+   "label": "DIGITAL RADIO — Programmatic - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.",
    "category": "DIGITAL RADIO",
-   "product": "Programmatic - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc\u2026  *If you require specifc channel(s) a custom quote is required.",
+   "product": "Programmatic - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.",
    "listedRate": "$18 CPM / add $3 for speciality targeting (niche, dayparting, etc.)",
    "retail": "",
    "description": "Layer a behavioral target on your digital radio spot to find the right audience.",
@@ -721,7 +721,7 @@
    "rateValue": 18.0
   },
   {
-   "label": "DIGITAL RADIO \u2014 Programmatic - Run of Site (ROS)",
+   "label": "DIGITAL RADIO — Programmatic - Run of Site (ROS)",
    "category": "DIGITAL RADIO",
    "product": "Programmatic - Run of Site (ROS)",
    "listedRate": "$13.50 CPM",
@@ -733,9 +733,9 @@
    "rateValue": 13.5
   },
   {
-   "label": "DIGITAL RADIO \u2014 Podcasts - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc\u2026  *If you require specifc channel(s) a custom quote is required.",
+   "label": "DIGITAL RADIO — Podcasts - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.",
    "category": "DIGITAL RADIO",
-   "product": "Podcasts - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc\u2026  *If you require specifc channel(s) a custom quote is required.",
+   "product": "Podcasts - Targeted - channels may include some or all of the following: iHeart, Pandora, Spotify, Soundcloud etc…  *If you require specifc channel(s) a custom quote is required.",
    "listedRate": "$18 CPM /  add $3 for speciality targeting (niche, dayparting, etc.)",
    "retail": "",
    "description": "Layer a behavioral target on your digital radio spot to find the right audience.",
@@ -745,7 +745,7 @@
    "rateValue": 18.0
   },
   {
-   "label": "DIGITAL RADIO \u2014 Podcasts - Run of Site (ROS)",
+   "label": "DIGITAL RADIO — Podcasts - Run of Site (ROS)",
    "category": "DIGITAL RADIO",
    "product": "Podcasts - Run of Site (ROS)",
    "listedRate": "$13.50 CPM",
@@ -757,7 +757,7 @@
    "rateValue": 13.5
   },
   {
-   "label": "DIGITAL RADIO \u2014 Optional Companion Banner",
+   "label": "DIGITAL RADIO — Optional Companion Banner",
    "category": "DIGITAL RADIO",
    "product": "Optional Companion Banner",
    "listedRate": "Free with other Tactic selected",
@@ -769,7 +769,7 @@
    "rateValue": null
   },
   {
-   "label": "OTT \u2014 Connected TV - Targeted  - This is played on televisions only  *If you require specifc channel(s) a custom quote is required.",
+   "label": "OTT — Connected TV - Targeted  - This is played on televisions only  *If you require specifc channel(s) a custom quote is required.",
    "category": "OTT",
    "product": "Connected TV - Targeted  - This is played on televisions only  *If you require specifc channel(s) a custom quote is required.",
    "listedRate": "$35.00 / CPM",
@@ -781,7 +781,7 @@
    "rateValue": 35.0
   },
   {
-   "label": "OTT \u2014 Advanced TV - Targeted - This is played on all streaming services, all devices and connected apps  *If you require specifc channel(s) a custom quote is required.",
+   "label": "OTT — Advanced TV - Targeted - This is played on all streaming services, all devices and connected apps  *If you require specifc channel(s) a custom quote is required.",
    "category": "OTT",
    "product": "Advanced TV - Targeted - This is played on all streaming services, all devices and connected apps  *If you require specifc channel(s) a custom quote is required.",
    "listedRate": "$25.00 / CPM",
@@ -793,7 +793,7 @@
    "rateValue": 25.0
   },
   {
-   "label": "EMAIL MARKETING \u2014 List Provided Email",
+   "label": "EMAIL MARKETING — List Provided Email",
    "category": "EMAIL MARKETING",
    "product": "List Provided Email",
    "listedRate": "$100.00 Per Send",
@@ -805,7 +805,7 @@
    "rateValue": null
   },
   {
-   "label": "EMAIL MARKETING \u2014 Behavioral Targeted Email - Purchasing Data",
+   "label": "EMAIL MARKETING — Behavioral Targeted Email - Purchasing Data",
    "category": "EMAIL MARKETING",
    "product": "Behavioral Targeted Email - Purchasing Data",
    "listedRate": "$20.00 / CPM",
@@ -817,7 +817,7 @@
    "rateValue": 20.0
   },
   {
-   "label": "ADD-ON PRODUCT \u2014 Email Targeting List - Purchasing Data",
+   "label": "ADD-ON PRODUCT — Email Targeting List - Purchasing Data",
    "category": "ADD-ON PRODUCT",
    "product": "Email Targeting List - Purchasing Data",
    "listedRate": "Custom Quote Required",
@@ -829,10 +829,10 @@
    "rateValue": null
   },
   {
-   "label": "ADD-ON PRODUCT \u2014 Email Template Creative Production",
+   "label": "ADD-ON PRODUCT — Email Template Creative Production",
    "category": "ADD-ON PRODUCT",
    "product": "Email Template Creative Production",
-   "listedRate": "100.0",
+   "listedRate": "$100.00",
    "retail": "",
    "description": "Includes 1 round of revisions. Edits for supplemental campaigns at $25/each with one round of revisions.",
    "requirements": "",
@@ -841,7 +841,7 @@
    "rateValue": 100.0
   },
   {
-   "label": "ADD-ON PRODUCT \u2014 1st Phone Number - with area code",
+   "label": "ADD-ON PRODUCT — 1st Phone Number - with area code",
    "category": "ADD-ON PRODUCT",
    "product": "1st Phone Number - with area code",
    "listedRate": "$15.00 / Month",
@@ -853,7 +853,7 @@
    "rateValue": null
   },
   {
-   "label": "ADD-ON PRODUCT \u2014 Additional Phone Numbers - with area code",
+   "label": "ADD-ON PRODUCT — Additional Phone Numbers - with area code",
    "category": "ADD-ON PRODUCT",
    "product": "Additional Phone Numbers - with area code",
    "listedRate": "$10.00 / Month",
@@ -865,7 +865,7 @@
    "rateValue": null
   },
   {
-   "label": "ADD-ON PRODUCT \u2014 1st Toll Free Number",
+   "label": "ADD-ON PRODUCT — 1st Toll Free Number",
    "category": "ADD-ON PRODUCT",
    "product": "1st Toll Free Number",
    "listedRate": "$20.00 / Month",
@@ -877,7 +877,7 @@
    "rateValue": null
   },
   {
-   "label": "ADD-ON PRODUCT \u2014 Additional Toll Free Numbers",
+   "label": "ADD-ON PRODUCT — Additional Toll Free Numbers",
    "category": "ADD-ON PRODUCT",
    "product": "Additional Toll Free Numbers",
    "listedRate": "$10.00 / Month",
@@ -889,7 +889,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 WordPress Website",
+   "label": "WEB DEVELOPMENT — WordPress Website",
    "category": "WEB DEVELOPMENT",
    "product": "WordPress Website",
    "listedRate": "Custom Quote Required",
@@ -901,7 +901,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 E-Commerce Website",
+   "label": "WEB DEVELOPMENT — E-Commerce Website",
    "category": "WEB DEVELOPMENT",
    "product": "E-Commerce Website",
    "listedRate": "Custom Quote Required",
@@ -913,7 +913,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Landing Page",
+   "label": "WEB DEVELOPMENT — Landing Page",
    "category": "WEB DEVELOPMENT",
    "product": "Landing Page",
    "listedRate": "$100 One Time Fee or $19 per month",
@@ -925,7 +925,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Smart 1 Snap",
+   "label": "WEB DEVELOPMENT — Smart 1 Snap",
    "category": "WEB DEVELOPMENT",
    "product": "Smart 1 Snap",
    "listedRate": "$499 / One time set up fee",
@@ -937,7 +937,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Snap Management Fee & Texting for Snap",
+   "label": "WEB DEVELOPMENT — Snap Management Fee & Texting for Snap",
    "category": "WEB DEVELOPMENT",
    "product": "Snap Management Fee & Texting for Snap",
    "listedRate": "$75 / Month",
@@ -949,7 +949,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Monthly Website Hosting & Maintenance (standard Wordpress site)",
+   "label": "WEB DEVELOPMENT — Monthly Website Hosting & Maintenance (standard Wordpress site)",
    "category": "WEB DEVELOPMENT",
    "product": "Monthly Website Hosting & Maintenance (standard Wordpress site)",
    "listedRate": "$75.00 / Month",
@@ -961,7 +961,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Smart 1 Site / 2-5 pages",
+   "label": "WEB DEVELOPMENT — Smart 1 Site / 2-5 pages",
    "category": "WEB DEVELOPMENT",
    "product": "Smart 1 Site / 2-5 pages",
    "listedRate": "$349.50 / One time / $24.50 per month hosting",
@@ -973,7 +973,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Smart 1 Site / 6-25 pages",
+   "label": "WEB DEVELOPMENT — Smart 1 Site / 6-25 pages",
    "category": "WEB DEVELOPMENT",
    "product": "Smart 1 Site / 6-25 pages",
    "listedRate": "Starting $599.50 / One time / $39.50 per month hosting",
@@ -985,7 +985,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Smart 1 Site / 26+ pages",
+   "label": "WEB DEVELOPMENT — Smart 1 Site / 26+ pages",
    "category": "WEB DEVELOPMENT",
    "product": "Smart 1 Site / 26+ pages",
    "listedRate": "Starting at $779.50 / One time / $49.50 per month hosting",
@@ -997,7 +997,7 @@
    "rateValue": null
   },
   {
-   "label": "WEB DEVELOPMENT \u2014 Smart 1 Site / ecommerce",
+   "label": "WEB DEVELOPMENT — Smart 1 Site / ecommerce",
    "category": "WEB DEVELOPMENT",
    "product": "Smart 1 Site / ecommerce",
    "listedRate": "Custom Quote Required",
@@ -1009,10 +1009,10 @@
    "rateValue": null
   },
   {
-   "label": "CREATIVE / DESIGN SERVICES \u2014 Standard Set of 6 Ad Creation",
+   "label": "CREATIVE / DESIGN SERVICES — Standard Set of 6 Ad Creation",
    "category": "CREATIVE / DESIGN SERVICES",
    "product": "Standard Set of 6 Ad Creation",
-   "listedRate": "250.0",
+   "listedRate": "$250",
    "retail": "",
    "description": "",
    "requirements": "Includes 1 round of revisions",
@@ -1021,10 +1021,10 @@
    "rateValue": 250.0
   },
   {
-   "label": "CREATIVE / DESIGN SERVICES \u2014 Social Media Ad Creation per platform",
+   "label": "CREATIVE / DESIGN SERVICES — Social Media Ad Creation per platform",
    "category": "CREATIVE / DESIGN SERVICES",
    "product": "Social Media Ad Creation per platform",
-   "listedRate": "35.0",
+   "listedRate": "$35.00",
    "retail": "",
    "description": "",
    "requirements": "Includes 1 round of revisions",
@@ -1033,10 +1033,10 @@
    "rateValue": 35.0
   },
   {
-   "label": "CREATIVE / DESIGN SERVICES \u2014 Email Template Creation",
+   "label": "CREATIVE / DESIGN SERVICES — Email Template Creation",
    "category": "CREATIVE / DESIGN SERVICES",
    "product": "Email Template Creation",
-   "listedRate": "100.0",
+   "listedRate": "$100.00",
    "retail": "",
    "description": "",
    "requirements": "Includes 1 round of revisions",
@@ -1045,7 +1045,7 @@
    "rateValue": 100.0
   },
   {
-   "label": "CREATIVE / DESIGN SERVICES \u2014 Expandable / Rich Media Ad Creation",
+   "label": "CREATIVE / DESIGN SERVICES — Expandable / Rich Media Ad Creation",
    "category": "CREATIVE / DESIGN SERVICES",
    "product": "Expandable / Rich Media Ad Creation",
    "listedRate": "$20.00 / Hour",
@@ -1057,7 +1057,7 @@
    "rateValue": null
   },
   {
-   "label": "CREATIVE / DESIGN SERVICES \u2014 Custom Creative / Design Project",
+   "label": "CREATIVE / DESIGN SERVICES — Custom Creative / Design Project",
    "category": "CREATIVE / DESIGN SERVICES",
    "product": "Custom Creative / Design Project",
    "listedRate": "Custom Quote Required",
@@ -1069,7 +1069,7 @@
    "rateValue": null
   },
   {
-   "label": "SMART 1 SIGNAGE \u2014 Digital Outdoor & Indoor Signage",
+   "label": "SMART 1 SIGNAGE — Digital Outdoor & Indoor Signage",
    "category": "SMART 1 SIGNAGE",
    "product": "Digital Outdoor & Indoor Signage",
    "listedRate": "Custom Quote Required",
@@ -1085,7 +1085,7 @@
   "PROGRAMMATIC CAMPAIGN": "DATA TARGETED DISPLAY",
   "OUTREACH": "DISPLAY",
   "DISPLAY": "META",
-  "VIDEO": "SOCIAL ADS",
+  "VIDEO": "SOCIAL ADS - VIDEO",
   "DISPLAY & VIDEO": "IP TARGETS"
  }
 }

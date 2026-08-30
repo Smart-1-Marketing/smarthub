@@ -3,6 +3,11 @@
 {% block content %}
 <div class="page-head"><h2 data-tour="status-checks">System Status {{ help_dot('hub.status.checks') if help_dot is defined else '' }}</h2><p>Live checks of every key, token &amp; connection the Hub depends on</p></div>
 <div class="card">
+  <div class="card-h"><h3 data-tour="status-presence">Signed in now {{ help_dot('hub.status.presence') if help_dot is defined else '' }}</h3>
+    <div class="right"><button class="btn-ghost" onclick="loadPresence()">&#8635; Refresh</button></div></div>
+  <div class="card-b flush"><table id="presence"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
+</div>
+<div class="card">
   <div class="card-h"><h3>Diagnostics</h3><div class="right"><button class="btn-ghost" onclick="load()">&#8635; Run checks</button></div></div>
   <div class="card-b flush"><table id="checks"><tbody><tr><td class="empty">Running live checks… <span class="spin"></span></td></tr></tbody></table></div>
 </div>
@@ -39,6 +44,39 @@ async function load(){
   document.getElementById('checks').innerHTML='<thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody>';
 }
 load();
+
+/* Who is on the Hub. There is no session table — signing in issues a signed
+   cookie and the server is never told when somebody leaves — so this is
+   everybody seen inside the window, and the caption says so rather than
+   letting a reader take the number for "at their desk". The dashboard shows
+   the same count; this is the list behind it. */
+async function loadPresence(){
+  const el=document.getElementById('presence');
+  el.innerHTML='<tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody>';
+  const d=await fetch('/api/presence').then(r=>r.json()).catch(()=>({error:'the Hub could not be reached'}));
+  if(d.error){
+    el.innerHTML='<tbody><tr><td class="empty">Not measured — '+esc(d.error)+'</td></tr></tbody>';
+    return;
+  }
+  const people=d.people||[];
+  if(!people.length){
+    el.innerHTML='<tbody><tr><td class="empty">Nobody has been seen in the last '
+      +esc(d.window_minutes)+' minutes.</td></tr></tbody>';
+    return;
+  }
+  const rows=people.map(p=>{
+    const when=p.minutes_ago<1?'just now':(p.minutes_ago+' min ago');
+    const who=p.shared
+      ? '<span class="pill warn">shared password</span>'
+      : (p.email?'<span class="muted">'+esc(p.email)+'</span>':'<span class="muted">no account matched this name</span>');
+    return `<tr><td style="width:230px"><b>${esc(p.name)}</b></td>
+      <td style="width:120px" class="muted">${esc(when)}</td><td>${who}</td></tr>`;
+  }).join('');
+  el.innerHTML='<thead><tr><th>Person</th><th>Last seen</th><th>Account</th></tr></thead><tbody>'
+    +rows+`<tr><td colspan="3" class="muted" style="font-size:12px">${esc(d.line||'')}. `
+    +`The Hub is never told when somebody signs out, so this is who has been seen, not who is at their desk.</td></tr></tbody>`;
+}
+loadPresence();
 
 async function loadErrors(){
   const el=document.getElementById('errlog');

@@ -56,7 +56,13 @@ _results: dict[str, tuple[float, bytes]] = {}
 _lock = threading.Lock()
 _TTL = 45 * 60
 
-_CLOUD_URL = (os.environ.get("CLOUDINARY_URL") or "").strip()
+# Through hub.config, which also composes the URL from CLOUDINARY_CLOUD_NAME /
+# CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET when only those are set.
+try:
+    from hub.config import settings as _hub_cfg
+    _CLOUD_URL = _hub_cfg.cloudinary_url
+except Exception:                                     # noqa: BLE001
+    _CLOUD_URL = (os.environ.get("CLOUDINARY_URL") or "").strip()
 try:
     import cloudinary
     import cloudinary.uploader
@@ -73,7 +79,21 @@ FOLDER = os.environ.get("BG_REMOVER_FOLDER", "smart1-cutouts")
 
 
 def api_key() -> str:
-    return (os.environ.get("REMOVE_BG_API_KEY") or "").strip()
+    """The remove.bg key, under whichever name it is set.
+
+    Read through hub.config at call time, not os.environ at import: this
+    deployment names provider keys three different ways (REMOVE_BG_API,
+    REMOVE_BG_API_KEY, REMOVEBG_API_KEY) and a module that knows one of them
+    reports "not configured" over a key that is plainly there, with the
+    Background Remover disabled and nothing saying why.
+    """
+    try:
+        from hub.config import settings
+        return (settings.remove_bg_key or "").strip()
+    except Exception:                                 # noqa: BLE001
+        return (os.environ.get("REMOVE_BG_API")
+                or os.environ.get("REMOVE_BG_API_KEY")
+                or os.environ.get("REMOVEBG_API_KEY") or "").strip()
 
 
 def configured() -> bool:
@@ -346,7 +366,29 @@ def api_save():
     except Exception as exc:                          # noqa: BLE001
         return jsonify({"error": f"Upload failed: {exc}"}), 502
     _log("cutout_saved", detail=client, name=name)
+    # Into the client's gallery, not only into a Cloudinary folder. The folder
+    # was the only record that a cut-out belonged to anybody, and no screen
+    # reads Cloudinary folders -- so every cut-out this tool has ever made was
+    # absent from the one page somebody opens to see what we have produced for
+    # a client. A cut-out with no client named lands under `unfiled/` and is
+    # filed nowhere, which is what hub/image_audit.py now reports.
+    gallery = {}
+    if client:
+        try:
+            from modules.image_picker.filing import file_asset
+            gallery = file_asset(
+                client_name=client, public_id=res.get("public_id", ""),
+                url=res.get("secure_url", ""), kind="cutout",
+                filename=f"{name}.png",
+                alt=f"{name.replace('-', ' ')} cut-out for {client}",
+                provider="bg_remover", saved_by=actor_name(),
+                width=res.get("width"), height=res.get("height"),
+                size_bytes=res.get("bytes"))
+        except Exception as exc:                      # noqa: BLE001
+            gallery = {"ok": False, "error": str(exc)}
     return jsonify({"ok": True, "url": res.get("secure_url", ""),
+                    "filed": bool(gallery.get("ok")),
+                    "gallery_url": gallery.get("gallery_url", ""),
                     "public_id": res.get("public_id", ""),
                     "width": res.get("width"), "height": res.get("height"),
                     "bytes": res.get("bytes")})

@@ -131,11 +131,20 @@ def money(value):
 
 
 def status_class(status):
+    """The pill modifier for a project status, in the Hub's own vocabulary.
+
+    `ok` / `warn` / `bad`, and "" for a status we do not recognise -- which is
+    a bare `.s1d-pill`, and grey. That last one matters: a status this app has
+    never seen is not a *bad* status, and colouring it red is the confident
+    wrong answer this codebase keeps having to undo. These are the modifiers
+    hub/static/hub-detail.css defines, so this module's pills are the same
+    pills as Client 360's rather than a second set that looks nearly like them.
+    """
     return {
-        "ACTIVE": "good",
+        "ACTIVE": "ok",
         "TRIAL": "warn",
         "EXPIRED": "bad",
-    }.get((status or "").upper(), "muted")
+    }.get((status or "").upper(), "")
 
 
 @app.context_processor

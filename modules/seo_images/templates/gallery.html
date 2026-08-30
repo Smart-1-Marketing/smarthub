@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Client image gallery — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1120px;margin:0 auto;padding:26px 22px 60px}
-  h1{color:var(--navy);font-size:22px;margin:0 0 3px}
-  .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
   .back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
   .bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
   .bar input{flex:1;min-width:220px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
   .btn{border:0;background:var(--blue);color:#fff;font:600 13px inherit;padding:8px 14px;border-radius:8px;
@@ -29,6 +30,13 @@
   .tile .acts{display:flex;gap:6px;padding:0 11px 10px}
   .lnk{color:var(--blue);text-decoration:none;cursor:pointer;font-size:12px}
   .lnk:hover{text-decoration:underline}
+  .lnk.danger{color:var(--bad)}
+  .tile .acts{flex-wrap:wrap;row-gap:4px}
+  .tile textarea{width:100%;font:12px inherit;border:1px solid var(--line);border-radius:6px;padding:6px}
+  .tile .save{border:0;background:var(--blue);color:#fff;font:600 11.5px inherit;
+    padding:5px 10px;border-radius:6px;cursor:pointer;margin-top:5px}
+  .backs{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+  .back.client{font-weight:600}
   .empty{text-align:center;color:var(--muted);padding:34px}
   .grp{font:700 12px inherit;color:var(--navy);text-transform:uppercase;letter-spacing:.6px;
     margin:20px 0 9px;padding-bottom:5px;border-bottom:1px solid var(--line)}
@@ -38,8 +46,16 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <a class="back" href="./">&larr; SEO Image Pipeline</a>
+<div class="wrap s1d-page">
+  <div class="backs">
+    <!-- Two different "back"s, and only one of them is what somebody opening
+         this from a client record wants. The tool's own parent stays, because
+         it is right for anyone who arrived from the tool; the client link is
+         drawn first and only when the URL says which record we came from, so
+         the page never guesses at a client. -->
+    <a class="back client" id="backClient" style="display:none"></a>
+    <a class="back" href="./">&larr; SEO Image Pipeline</a>
+  </div>
   <h1 id="title">Client image gallery</h1>
   <p class="sub" id="sub">Every image saved for this client, newest first.</p>
 
@@ -47,7 +63,7 @@
     <div class="bar">
       <input type="search" id="search" placeholder="Search filename, alt text, project or page…">
       <a class="btn sec" id="btnCsv" href="api/gallery/export">&#8681; CSV</a>
-      <a class="btn" id="btnAdd" href="./">+ Optimise more images</a>
+      <a class="btn" id="btnAdd" href="./">+ Optimize more images</a>
     </div>
     <div id="body"><div class="empty">Loading…</div></div>
   </div>
@@ -65,6 +81,35 @@ const kb = n => n ? Math.round(n/1024).toLocaleString()+' KB' : '';
 if(COMPANY){
   $('title').textContent = COMPANY + ' — image gallery';
   $('btnAdd').href = './?company=' + encodeURIComponent(COMPANY);
+}
+
+/* Where to go back to. `c360` is written onto every link that leaves the
+   Client 360 record, so it names the client whose page this was opened from
+   — which is not always COMPANY, and is the only thing that can say the
+   difference between "opened from Icon Solar's record" and "opened the
+   gallery and searched for Icon Solar". */
+(function(){
+  var back = new URLSearchParams(location.search).get('c360') || '';
+  if(!back) return;
+  var a = $('backClient');
+  a.href = '/client360?q=' + encodeURIComponent(back);
+  a.textContent = '\u2190 Back to ' + back;
+  a.style.display = '';
+})();
+
+/* Anything that leaves this page keeps the client it was opened from, so the
+   back link survives a hop rather than stranding somebody one click deeper. */
+function keepC360(){
+  var back = new URLSearchParams(location.search).get('c360') || '';
+  if(!back) return;
+  document.querySelectorAll('a[href]').forEach(function(a){
+    var href = a.getAttribute('href') || '';
+    if(!href || href[0] === '#' || /^[a-z]+:/i.test(href)) return;
+    if(a.target === '_blank' || href.indexOf('c360=') >= 0) return;
+    if(href.indexOf('api/') === 0 || href.indexOf('/api/') >= 0) return;
+    a.setAttribute('href', href + (href.indexOf('?') >= 0 ? '&' : '?')
+                   + 'c360=' + encodeURIComponent(back));
+  });
 }
 
 function scopeQS(extra){
@@ -104,10 +149,10 @@ function render(rows){
       COMPANY ? '' : ' · ' + esc(list[0].company || '')}</span></div>
     <div class="tiles">${list.map(r => `
       <div class="tile">
-        <a class="ph" href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"></a>
+        <a class="ph" href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.thumb||r.url)}" alt="${esc(r.alt_text)}" loading="lazy"></a>
         <div class="b">
           <div class="fn">${esc(r.filename)}</div>
-          <div class="alt">${esc(r.alt_text)}</div>
+          <div class="alt" data-alt="${esc(r.id)}">${esc(r.alt_text)}</div>
           <div class="m">${r.page ? esc(r.page) + ' · ' : ''}${r.width?r.width+'×'+r.height+' · ':''}${kb(r.bytes)}<br>${esc(r.saved_at||'')} · ${esc(r.saved_by||'')}</div>
         </div>
         <div class="acts">
@@ -115,6 +160,10 @@ function render(rows){
              title="Download this file, named ${esc(r.filename)}">&#8681; Download</a>
           <a class="lnk" data-copy="${esc(r.id)}">Copy URL</a>
           <a class="lnk" data-tag="${esc(r.id)}">Copy &lt;img&gt;</a>
+          <a class="lnk" data-edit="${esc(r.id)}"
+             title="Rewrite the alt text — the stored copy is updated too">&#9998; Alt</a>
+          <a class="lnk danger" data-del="${esc(r.id)}"
+             title="Delete this image from the client gallery and the archive. This cannot be undone.">&#128465; Delete</a>
         </div>
       </div>`).join('')}</div>`).join('');
 
@@ -129,6 +178,66 @@ function render(rows){
         + (r.width?' width="'+r.width+'" height="'+r.height+'"':'') + ' loading="lazy">', a);
     };
   });
+
+  /* Edit alt and delete were on the archive table inside the tool and on no
+     client-facing gallery at all, so the one screen somebody opens from a
+     client record could show a wrong image and offer nothing to do about it.
+     Same endpoint the archive table uses — one description of what deleting
+     an image means. */
+  $('body').querySelectorAll('[data-edit]').forEach(a => {
+    a.onclick = () => {
+      const r = find(a.dataset.edit); if(!r) return;
+      const box = $('body').querySelector('[data-alt="' + cssEsc(r.id) + '"]');
+      if(!box || box.querySelector('textarea')) return;
+      box.innerHTML = '';
+      const ta = document.createElement('textarea');
+      ta.rows = 3; ta.value = r.alt_text || '';
+      const btn = document.createElement('button');
+      btn.className = 'save'; btn.type = 'button'; btn.textContent = 'Save alt text';
+      box.appendChild(ta); box.appendChild(btn);
+      ta.focus();
+      btn.onclick = async () => {
+        btn.disabled = true; btn.textContent = 'Saving…';
+        try{
+          const res = await fetch('api/gallery/update', {method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({id:r.id, alt_text: ta.value})}).then(x=>x.json());
+          if(res.error){ alert(res.error); btn.disabled=false; btn.textContent='Save alt text'; return; }
+          load();
+        }catch(e){
+          alert("The alt text couldn't be saved."); btn.disabled=false; btn.textContent='Save alt text';
+        }
+      };
+    };
+  });
+  $('body').querySelectorAll('[data-del]').forEach(a => {
+    a.onclick = async () => {
+      const r = find(a.dataset.del); if(!r) return;
+      // Named, and said out loud that it cannot be undone: for an image a
+      // client uploaded, our copy is very often the only copy.
+      if(!confirm('Delete this image?\n\n' + (r.filename || '')
+        + '\n\nIt is removed from the client gallery and from the archive. '
+        + 'This cannot be undone.')) return;
+      a.textContent = 'Deleting…';
+      try{
+        const res = await fetch('api/gallery/update', {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({id:r.id, delete:true})}).then(x=>x.json());
+        if(res.error){ alert(res.error); a.textContent = '\u{1F5D1} Delete'; return; }
+        load();
+      }catch(e){
+        alert("That image couldn't be deleted."); a.textContent = '\u{1F5D1} Delete';
+      }
+    };
+  });
+}
+
+/* The id goes into an attribute selector, and the ids are hex tokens — but a
+   backfilled row could hold anything, and an unescaped one silently matches
+   nothing rather than erroring. */
+function cssEsc(v){
+  return (window.CSS && CSS.escape) ? CSS.escape(String(v))
+    : String(v).replace(/["\\]/g, '\\$&');
 }
 function copy(text, el){
   navigator.clipboard.writeText(text).then(() => {
@@ -137,6 +246,7 @@ function copy(text, el){
   });
 }
 let t; $('search').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); };
+keepC360();
 load();
 </script>
 </body>

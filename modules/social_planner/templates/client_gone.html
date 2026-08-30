@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_client_head.html" %}
+<title>Link not available</title>
+</head>
+<body>
+{# Revoked, deleted and never-existed all land here, deliberately saying the
+   same thing. A client-facing URL that distinguishes "this one expired" from
+   "this was never real" tells whoever is probing which tokens are worth
+   trying — modules/ads_builder settled this for the client estimate. #}
+<div class="wrap">
+  <div class="card done">
+    <div class="tick">&#128274;</div>
+    <h1>This link isn't available</h1>
+    <p class="hint">It may have been replaced. Your account manager at
+      Smart 1 Marketing can send you a current one.</p>
+  </div>
+</div>
+</body>
+</html>

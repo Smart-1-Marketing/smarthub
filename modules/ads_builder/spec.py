@@ -34,7 +34,7 @@ AUDIENCE_GUIDANCE = {
          "traffic, job-title and industry language, and 'for business' / 'commercial' "
          "qualifiers. Exclude consumer and DIY intent.",
     B2C: "Consumers. Expect evenings and weekends, price and speed language, "
-         "near-me intent and mobile-first behaviour. Exclude wholesale, bulk and "
+         "near-me intent and mobile-first behavior. Exclude wholesale, bulk and "
          "trade-account intent.",
     BOTH: "Both, so keep them in SEPARATE ad groups with their own copy. One "
           "blended ad group serves consumer copy to a purchasing manager and "
@@ -76,7 +76,7 @@ CONVERSION_GUIDANCE = {k: note for k, _, note in CONVERSION_ACTIONS}
 TIERS = ("good", "better", "best")
 TIER_LABELS = {"good": "Good", "better": "Better", "best": "Best"}
 TIER_BLURB = {
-    "good": "The smallest budget that can still be optimised — one tight ad group, "
+    "good": "The smallest budget that can still be optimized — one tight ad group, "
             "the highest-intent terms only.",
     "better": "Enough room for the full keyword set and a real testing cadence.",
     "best": "Full coverage with headroom to bid competitively on the terms that convert.",
@@ -188,7 +188,7 @@ OUTCOME_COLOURS = {k: colour for k, _, colour, _ in OUTCOMES}
 OUTCOME_NOTES = {k: note for k, _, _, note in OUTCOMES}
 
 # The colour a proposal shows in the approval hub before a client has answered.
-NO_RESPONSE_COLOUR = "grey"
+NO_RESPONSE_COLOUR = "gray"
 
 
 def outcome_colour(outcome: str) -> str:

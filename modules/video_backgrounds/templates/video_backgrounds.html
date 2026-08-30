@@ -1,8 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Video Backgrounds — Smart 1 Hub{% endblock %}
+{% block title %}Video Search — Smart 1 Hub{% endblock %}
 {% block content %}
+{# "Video Search", not "Video Backgrounds": the tool searches the footage
+   library by what is on screen, and "backgrounds" named one thing the clips
+   get used for. The mount, the help key and the Cloudinary folder called
+   "Video Backgrounds" in hub/video_library.py are all deliberately unchanged
+   -- renaming the mount would break every existing link, renaming the help
+   key would orphan the bubble, and the folder is a folder on the account. #}
 <div class="page-head">
-  <h2>Video Backgrounds {{ help_dot('video_backgrounds.overview') if help_dot is defined else '' }}</h2>
+  <h2>Video Search {{ help_dot('video_backgrounds.overview') if help_dot is defined else '' }}</h2>
   <p>Search the footage we own by what is actually on screen, and copy a URL
      that is already sized, muted and trimmed for use behind a headline.</p>
 </div>
@@ -19,8 +25,30 @@
          library cannot be read. This is not an empty library.</p>
     {% else %}
       <table class="vb-kv">
+        {# Named before the counts, because the counts mean nothing without
+           it. This row used to be absent and the one below read "Clips in
+           Cloudinary", which was every video in the account -- client spots,
+           internal explainers and Cloudinary's own demo files, presented as
+           background footage. #}
         <tr>
-          <th>Clips in Cloudinary</th>
+          <th>Folders searched</th>
+          <td>
+            {% if not status.folders %}<span class="vb-unknown">none — nothing can be found</span>
+            {% else %}
+              {% for row in status.folder_rows or [] %}
+                <code>{{ row.path }}/</code>
+                {%- if row.exists is false %} <span class="vb-bad">not in this account</span>
+                {%- elif row.exists is none %} <span class="vb-unknown">not checked</span>{% endif -%}
+                {% if not loop.last %}<br>{% endif %}
+              {% else %}
+                {% for f in status.folders %}<code>{{ f }}/</code>{% if not loop.last %}<br>{% endif %}{% endfor %}
+              {% endfor %}
+              <div class="vb-note" style="margin:4px 0 0">and everything beneath them</div>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th>Clips in these folders</th>
           <td>{% if status.library_count is none %}<span class="vb-unknown">could not be counted</span>
               {% else %}{{ status.library_count }}{% endif %}</td>
         </tr>
@@ -29,6 +57,26 @@
           <td>{% if status.indexed_count is none %}<span class="vb-unknown">could not be counted</span>
               {% else %}{{ status.indexed_count }}{% endif %}</td>
         </tr>
+        {# "3,900 clips, 40 indexed" cannot say whether the sweep is working
+           through the library or has stopped, so the two numbers that answer
+           that sit beside it. #}
+        <tr>
+          <th>Still to describe</th>
+          <td>{% if status.waiting_count is none %}<span class="vb-unknown">could not be counted</span>
+              {% elif status.waiting_count == 0 %}none — the library is fully described
+              {% else %}{{ status.waiting_count }}
+                <span class="vb-note" style="margin:0">at roughly 20 an hour on the
+                  scheduler</span>{% endif %}</td>
+        </tr>
+        {% if status.undescribed_count %}
+          <tr>
+            <th>Could not be described</th>
+            <td><span class="vb-bad">{{ status.undescribed_count }}</span>
+              <span class="vb-note" style="margin:0">tried three times and given
+                up on, so they are not searchable and are no longer being paid
+                for. The reason is on each clip in Cloudinary.</span></td>
+          </tr>
+        {% endif %}
         <tr>
           <th>Indexing started</th>
           <td>{% if status.cutoff %}{{ status.cutoff }}
@@ -36,9 +84,11 @@
         </tr>
       </table>
       <p class="vb-note">
-        Indexing is <strong>forward-only by design</strong>. Footage already in
-        the account is deliberately left alone; only clips uploaded after
-        indexing starts get described and tagged. Nothing here modifies an
+        Indexing covers <strong>everything in the folders above</strong>, back
+        catalog included, and the scheduler works through it about twenty
+        clips an hour rather than in one go — each one costs a vision call.
+        Footage elsewhere in the account is never touched. The button below
+        runs a batch now if you would rather not wait. Nothing here modifies an
         original — the URLs below are Cloudinary transformations of it.
       </p>
       {# Asked out loud because the page cannot otherwise answer it: a search
@@ -52,6 +102,15 @@
         it to Cloudinary after the cutoff above.
         Library health is also on <a href="/status">System Status</a>.
       </p>
+      {% if status.missing_folders %}
+        <p class="vb-bad"><strong>Named here, absent in Cloudinary:</strong>
+           {% for f in status.missing_folders %}<code>{{ f }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+           Nothing in the library can come from them, so the counts above are
+           honest and useless. Either the folder was renamed, or
+           <code>CLOUDINARY_URL</code> points at a different product
+           environment from the one holding it. This is <em>not</em> an empty
+           library.</p>
+      {% endif %}
       {% if not status.openai %}
         <p class="vb-bad"><strong>OPENAI_API_KEY is not set.</strong> Anything
            already indexed stays searchable, but new clips cannot be described.</p>
@@ -114,11 +173,11 @@
 <style>
 /* The Hub is a light theme -- hub.css sets --bg #f4f6fa, --panel #fff and ink
    #1e293b, and .card is white. This page was first written against a dark
-   surface, so every control here was a near-black chip carrying grey text: on
+   surface, so every control here was a near-black chip carrying gray text: on
    a white card those buttons read as disabled, and the chip vocabulary was
    the worst of them because there are sixty of them.
 
-   So the colours come from hub.css's own variables rather than a second
+   So the colors come from hub.css's own variables rather than a second
    palette local to this page. Where a control already exists in the shell --
    the two status buttons -- the shell's class is used instead of restyling
    one here, which is the same rule as using hub.storage rather than a local

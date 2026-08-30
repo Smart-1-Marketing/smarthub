@@ -112,9 +112,35 @@
       </div>
 
       <div class="field">
-        <label for="website">Website <span style="text-transform:none;font-weight:400">(optional — filled from the client record when we have one)</span></label>
-        <input id="website" name="website" value="{{ form.get('website', '') }}"
+        <label for="website">Website or landing page</label>
+        <input id="website" name="website" type="text" required
+               value="{{ form.get('website', '') }}"
                placeholder="https://example.com">
+        <p style="font-size:12.5px;color:var(--muted);margin-top:5px">
+          Required, because it is what the tool reads. The page is fetched and
+          its own words become the first draft of the headline, the supporting
+          line, the offer, the call to action and the proof point — and the
+          picture is drawn against it too. Without it the AI is writing about
+          a business it has never seen. Filled in from the client record where
+          we have one; point it at the campaign's own landing page when that
+          is different from the main site.</p>
+      </div>
+
+      <div class="field">
+        <label>Where these will run</label>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
+          {% for value, label in platform_choices %}
+            <label style="display:flex;gap:6px;align-items:center;font-weight:400;text-transform:none;font-size:14px">
+              <input type="checkbox" name="platforms" value="{{ value }}"
+                     {% if value in selected_platforms %}checked{% endif %}>
+              {{ label }}
+            </label>
+          {% endfor %}
+        </div>
+        <p style="font-size:12.5px;color:var(--muted);margin-top:5px">
+          This decides which sizes get built. Meta adds the square, portrait
+          and story shapes; the display networks add the banners and
+          skyscrapers. It can be changed later, but only by rebuilding.</p>
       </div>
 
       {% if proposals %}
@@ -137,6 +163,13 @@
 
       <button class="btn-primary" type="submit">Open the builder</button>
       <a class="btn-ghost" href="{{ url_prefix }}/projects" style="margin-left:8px">All builds</a>
+      <!-- The other half of this tool, linked rather than tiled: presets are
+           the Display Ad Builder, not a second tool, and a second tile is two
+           things to keep in step with only one of them ever updated -- the
+           note hub/social_planner makes about its own queue. This is also the
+           screen where it matters: somebody starting the SECOND ad for a
+           client should not be filling this form in at all. -->
+      <a class="btn-ghost" href="{{ url_prefix }}/presets" style="margin-left:8px">Saved presets</a>
     </form>
   </div>
 </div>

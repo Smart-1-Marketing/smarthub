@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SEO Image Pipeline — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--ok:#16a34a;--bad:#dc2626}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1080px;margin:0 auto;padding:28px 22px 70px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
   h2{color:var(--navy);font-size:15px;margin:0 0 10px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px;
-    box-shadow:0 1px 2px rgba(15,23,42,.04)}
   .step{display:flex;align-items:center;gap:9px;margin-bottom:12px}
   .step .n{background:var(--navy);color:#fff;width:23px;height:23px;border-radius:50%;display:flex;
     align-items:center;justify-content:center;font-size:12.5px;font-weight:700;flex:none}
@@ -62,10 +62,6 @@
   /* table */
   .bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:11px}
   .bar input[type=search]{flex:1;min-width:200px}
-  table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th{background:var(--soft);text-align:left;padding:8px 9px;font-size:10.5px;text-transform:uppercase;
-    letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--line);white-space:nowrap}
-  td{padding:8px 9px;border-bottom:1px solid #eef2f7;vertical-align:top}
   td img{width:52px;height:52px;object-fit:cover;border-radius:6px;background:#f1f5f9}
   td .fn{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;overflow-wrap:anywhere}
   .lnk{color:var(--blue);text-decoration:none;cursor:pointer}
@@ -121,16 +117,16 @@
 </style>
 </head>
 <body data-module="seo_images">
-<div class="wrap">
+<div class="wrap s1d-page">
   <h1>SEO Image Pipeline</h1>
   <p class="sub">Name images the way search engines want them named, review every one, then save the
-    approved set to the client gallery as optimised WebP — filed under the client and kept in a searchable archive.</p>
+    approved set to the client gallery as optimized WebP — filed under the client and kept in a searchable archive.</p>
 
   {% if not cloud_ready %}
   <div class="alert"><b>client gallery isn't configured.</b>
     <div class="hint">Set <code>CLOUDINARY_URL</code> (or <code>CLOUDINARY_CLOUD_NAME</code> +
       <code>CLOUDINARY_API_KEY</code> + <code>CLOUDINARY_API_SECRET</code>) and redeploy.
-      You can still analyse images, but saving is disabled.</div></div>
+      You can still analyze images, but saving is disabled.</div></div>
   {% endif %}
   {% if not ai_ready %}
   <div class="alert" style="border-color:#f5d9a8;background:#fdf9f0"><b style="color:#8a5a12">No OpenAI key.</b>
@@ -160,7 +156,7 @@
         <input type="text" id="page" placeholder="AC Repair"></div>
     </div>
     <div style="margin-top:13px">
-      <label>Resize before optimising{{ help_dot('seo_images.upload.max_edge') if help_dot is defined else '' }}
+      <label>Resize before optimizing{{ help_dot('seo_images.upload.max_edge') if help_dot is defined else '' }}
         <span class="hint" style="display:inline">— the longest edge is capped, then everything is converted to WebP</span></label>
       <select id="maxEdge" style="padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit;background:#fff">
         {% for key, (label, px) in presets.items() %}
@@ -178,7 +174,7 @@
       <input type="file" id="files" accept="image/*" multiple hidden>
     </div>
     <div style="margin-top:14px">
-      <button class="btn" id="btnAnalyze">Analyse &amp; review</button>
+      <button class="btn" id="btnAnalyze">Analyze &amp; review</button>
       <span class="msg" id="msg1"></span>
     </div>
   </div>
@@ -415,7 +411,7 @@ $('btnAnalyze').onclick = async () => {
 
   $('btnAnalyze').disabled = true;
   $('msg1').className='msg';
-  $('msg1').textContent = 'Optimising and reading ' + picked.length + ' image'
+  $('msg1').textContent = 'Optimizing and reading ' + picked.length + ' image'
     + (picked.length>1?'s':'') + ' with AI…';
   try{
     const r = await fetch('api/analyze', {method:'POST', body:fd});
@@ -528,7 +524,7 @@ $('btnSave').onclick = async () => {
     $('msg2').textContent='Every saved image needs a filename and alt text.'; return; }
 
   $('btnSave').disabled = true;
-  $('msg2').className='msg'; $('msg2').textContent='Optimising and uploading…';
+  $('msg2').className='msg'; $('msg2').textContent='Optimizing and uploading…';
   try{
     const r = await fetch('api/finalize', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({batch, meta, files: keep.map(f => ({
@@ -561,7 +557,7 @@ function renderSaved(saved, errors){
       <div class="saved">
         <input type="checkbox" class="savedSel" data-id="${esc(s.id)}" checked
                title="Include this image in a download">
-        <img src="${esc(s.url)}" alt="">
+        <img src="${esc(s.thumb||s.url)}" alt="">
         <div style="flex:1;min-width:0">
           <b class="fn">${esc(s.filename)}</b>
           <div style="font-size:12.5px;margin:2px 0 3px">${esc(s.alt_text)}</div>
@@ -623,7 +619,7 @@ function downloadZip(ids, msgId){
   }
   box.className = 'msg';
   box.textContent = 'Building the zip…';
-  /* Same-origin, so the download attribute is honoured and the page stays
+  /* Same-origin, so the download attribute is honored and the page stays
      put. A location change would lose the step-3 list on the way back. */
   const a = document.createElement('a');
   a.href = 'api/gallery/download.zip?ids=' + encodeURIComponent(ids.join(','));
@@ -665,8 +661,12 @@ async function loadArchive(){
     const r = await fetch('api/gallery' + (q ? '?q='+encodeURIComponent(q) : ''));
     const d = await r.json();
     archRows = d.gallery || [];
+    // d.total is the total OF THE SEARCH now; the whole archive is
+    // archive_total. Reading the archive-wide figure while showing a
+    // filtered list is what made Client 360 say "1 of 7" about a client
+    // with one image.
     $('archCount').textContent = q
-      ? archRows.length + ' of ' + d.total + ' images'
+      ? archRows.length + ' of ' + (d.archive_total||d.total) + ' images match'
       : d.total + ' image' + (d.total===1?'':'s') + ' saved';
     renderArchive(archRows);
   }catch(e){
@@ -684,7 +684,7 @@ function renderArchive(rows){
     + '<th>Alt text</th><th>Saved</th><th>Actions</th></tr></thead><tbody>'
     + rows.map(r => `<tr data-id="${esc(r.id)}">
         <td class="selcell"><input type="checkbox" class="archSel" data-id="${esc(r.id)}"></td>
-        <td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.url)}" alt=""></a></td>
+        <td><a href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.thumb||r.url)}" alt=""></a></td>
         <td><b>${esc(r.company)}</b>${r.web_url?'<div><a class="lnk" href="'+esc(r.web_url)+'" target="_blank" rel="noopener">'+esc(r.web_url.replace(/^https?:\/\//,''))+'</a></div>':''}</td>
         <td>${esc(r.project)}${r.page?'<div class="count">'+esc(r.page)+'</div>':''}</td>
         <td class="fn">${esc(r.filename)}<div class="count">${r.width?r.width+'×'+r.height+' · ':''}${kb(r.bytes)}</div></td>
@@ -694,7 +694,7 @@ function renderArchive(rows){
           <div class="acts">
             <a class="icon" href="api/gallery/download?id=${encodeURIComponent(r.id)}"
                aria-label="Download this file" title="Download the file">&#8681;
-              <span class="tip"><b>Download</b>Saves the optimised WebP with its SEO filename.</span></a>
+              <span class="tip"><b>Download</b>Saves the optimized WebP with its SEO filename.</span></a>
             <button class="icon" data-copy="${esc(r.id)}" aria-label="Copy the image address"
                title="Copy the image address">&#128279;
               <span class="tip"><b>Copy URL</b>The live address to paste into the page or the CMS.</span></button>

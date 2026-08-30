@@ -84,6 +84,10 @@ SERVICE_CHOICES = ["Design", "Copywriting", "SEO", "Hosting"]
 
 PARTNERS = [{"id": "a" * 24, "field_9": "Cumulus Media"},
             {"id": "b" * 24, "field_9": "iHeart"}]
+# What Knack says object_50 holds, against the two rows a page of it returns
+# here — the shape of a truncated connection picker.
+CLIENT_TOTAL = 3412
+
 CLIENTS = [{"id": "c" * 24, "field_8": "Riverside HVAC"},
            {"id": "d" * 24, "field_8": "Riverside HVAC LLC"}]
 
@@ -182,9 +186,12 @@ class FakeRequests:
         if url.endswith("/objects/object_50"):
             return Resp(200, {"object": {"identifier": "field_8"}})
         if url.endswith("/objects/object_55/records"):
-            return Resp(200, {"records": PARTNERS})
+            return Resp(200, {"records": PARTNERS, "total_records": len(PARTNERS)})
         if url.endswith("/objects/object_50/records"):
-            return Resp(200, {"records": CLIENTS})
+            # Knack's own count, deliberately larger than the page it returns:
+            # a picker holding the first N of several thousand is the failure
+            # this fixture exists to catch.
+            return Resp(200, {"records": CLIENTS, "total_records": CLIENT_TOTAL})
         if url.endswith("/objects/object_107/records"):
             return Resp(200, {"records": [{
                 "id": "e" * 24,
@@ -432,6 +439,44 @@ def main():
     why = tickets_service.auto_reason("object_107")
     ok("the reason names the object and the error",
        "object_107" in why and "403" in why, why)
+
+    print("\n=== A picker that stops short of the answer says so ===")
+    knack_api._schema_cache.clear()
+    state = knack_api.connection_records("field_1784")        # Client Organization
+    check("it reports Knack's own count, not the page's",
+          state["total"], CLIENT_TOTAL)
+    ok("and says the list is a fraction of it", state["truncated"],
+       "a picker holding the first 500 of several thousand looks exactly "
+       "like a complete one, and a rep who cannot find their record "
+       "concludes it does not exist")
+    ok("no error, because the read worked", not state["error"])
+
+    note = knack_api.connection_note({"key": "field_1784"},
+                                     knack_api.TICKETS_OBJECT, "connection")
+    ok("the field carries the warning", "Showing 2 of 3412" in note, note)
+    ok("and names what fixes it", "KNACK_CONNECTION_LIMIT" in note, note)
+
+    drawn = {f["key"]: f for f in knack_api.ticket_form_fields("create")}
+    ok("the ticket form draws it on the client picker",
+       "Showing 2 of" in (drawn["client"].get("hint") or ""),
+       str(drawn["client"].get("hint")))
+    ok("and not on a picker that is complete",
+       not (drawn["media_partner"].get("hint") or ""),
+       "a warning on every field is a warning nobody reads: "
+       + str(drawn["media_partner"].get("hint")))
+
+    _, why_conn = knack_api.coerce_field("field_1784", "Some Client Ltd")
+    ok("a refusal stops quoting the fraction as the whole book",
+       str(CLIENT_TOTAL) in why_conn and "KNACK_CONNECTION_LIMIT" in why_conn,
+       why_conn)
+
+    ok("the drawer paints a truncated picker apart from a quiet hint",
+       "Showing " in open("hub/static/knack-form.js", encoding="utf-8").read())
+    ok("campaign-request offers the client's media partner",
+       "byKey.media_partner.push" in
+       open("hub/static/campaign-request.js", encoding="utf-8").read(),
+       "the partner is on the same rows as the campaign and the IO, and the "
+       "ad copy form offered it from the identical data")
 
     print()
     if FAILURES:

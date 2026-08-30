@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>House URLs — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:960px;margin:0 auto;padding:26px 22px 60px}
-  h1{color:var(--navy);font-size:23px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:70ch;line-height:1.55}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px}
   label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
   input,textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
@@ -21,10 +22,6 @@
     cursor:pointer;text-decoration:none;display:inline-block}
   .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
   .btn.small{padding:5px 11px;font-size:12.5px}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{background:var(--soft);text-align:left;padding:8px 10px;font-size:10.5px;text-transform:uppercase;
-    letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--line)}
-  td{padding:9px 10px;border-bottom:1px solid #eef2f7;vertical-align:top}
   .lnk{color:var(--blue);text-decoration:none;cursor:pointer}
   .lnk:hover{text-decoration:underline}
   .empty{text-align:center;color:var(--muted);padding:26px}
@@ -38,7 +35,7 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="/tools">&larr; Tools</a>
   <h1>House URLs</h1>
   <p class="sub">Sites we run in house. They have no products on the books today &mdash; that may change &mdash;
@@ -91,7 +88,7 @@ function render(rows){
         <td style="color:#475569">${esc(r.notes||'')}</td>
         <td style="color:var(--muted);font-size:12px">${esc(r.added_at||'')}<div>${esc(r.added_by||'')}</div></td>
         <td style="white-space:nowrap;text-align:right">
-          <a class="lnk" href="./?company=${encodeURIComponent(r.name)}&url=${encodeURIComponent(r.url||'')}">Optimise images</a><br>
+          <a class="lnk" href="./?company=${encodeURIComponent(r.name)}&url=${encodeURIComponent(r.url||'')}">Optimize images</a><br>
           <a class="lnk" href="gallery?company=${encodeURIComponent(r.name)}">Gallery</a><br>
           <a class="lnk" style="color:#b91c1c" data-del="${esc(r.slug)}">Remove</a>
         </td></tr>`).join('')

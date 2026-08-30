@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Website audit — {{ a.domain }}</title>
+<meta name="robots" content="noindex" />
+<style>
+  :root { --accent:#0A2240; --navy:#0A2240; --ink:#25364B; --muted:#68798C;
+    --line:#DBE5ED; --bg:#F3F7FA; --ok:#2DBB72; --warn:#F0B429; --bad:#DC2626; }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--ink); background:var(--bg);
+    font:16px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif; }
+  .wrap { max-width:820px; margin:0 auto; padding:32px 18px 56px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px;
+    padding:24px; box-shadow:0 1px 3px rgba(10,34,64,.06); margin-bottom:16px; }
+  .card.spend { border-left:5px solid var(--ok); }
+  /* The opening reads as prose rather than as another panel: it is the one
+     thing on this page written to be read straight through. */
+  .card.lede { border-left:5px solid var(--accent); font-size:16.5px; line-height:1.65; }
+  .card.lede p { margin:0 0 .8em; }
+  .card.lede p:last-child { margin-bottom:0; }
+  h1 { color:var(--navy); font-size:26px; line-height:1.25; margin:0 0 4px; }
+  h2 { color:var(--navy); font-size:18px; margin:0 0 4px; }
+  h3 { color:var(--navy); font-size:14px; margin:20px 0 8px; }
+  p.sub { color:var(--muted); margin:0 0 18px; font-size:15px; }
+  .small { font-size:12.5px; color:var(--muted); }
+  .total { font-size:34px; font-weight:750; color:var(--navy); line-height:1.1; }
+  .figs { display:grid; gap:10px; margin-top:12px;
+    grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); }
+  .fig { border:1px solid var(--line); border-radius:10px; padding:11px 13px;
+    background:#FAFCFE; }
+  .fig .v { font-size:20px; font-weight:700; color:var(--navy); line-height:1.2; }
+  .fig .l { font-size:12.5px; color:var(--muted); }
+  .fig .n { font-size:11.5px; color:var(--muted); margin-top:5px; line-height:1.45; }
+  .fig.un .v { font-size:15px; font-weight:600; color:var(--muted); }
+  .opp { border:1px solid var(--line); border-left:3px solid var(--warn);
+    border-radius:10px; padding:11px 13px; background:#fff; }
+  .opps { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); }
+  .opp .f { font-weight:650; font-size:14px; color:var(--navy); }
+  .opp .m { font-size:13px; color:var(--muted); margin-top:3px; }
+  details { border:1px solid var(--line); border-radius:10px; background:#fff;
+    padding:11px 13px; }
+  details summary { cursor:pointer; font-weight:600; font-size:14px; color:var(--navy); }
+  dl.kv { margin:8px 0 0; display:grid; grid-template-columns:auto 1fr; gap:4px 12px;
+    font-size:13px; }
+  dl.kv dt { color:var(--muted); white-space:nowrap; }
+  dl.kv dd { margin:0; overflow-wrap:anywhere; }
+  .grid { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); }
+  .cta { background:var(--navy); color:#fff; border-radius:16px; padding:24px; }
+  .cta h2 { color:#fff; }
+  .cta a { display:inline-block; margin-top:12px; background:#fff; color:var(--navy);
+    border-radius:10px; padding:12px 20px; font-weight:700; text-decoration:none; }
+  .empty { color:var(--muted); font-size:14px; }
+  .brand { text-align:center; margin-top:18px; font-size:12px; color:var(--muted); }
+  .brand a { color:var(--muted); }
+  @media print { body { background:#fff; } .card { box-shadow:none; } .noprint { display:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Website audit</h1>
+  <p class="sub">{{ a.domain }}{% if a.age and a.age.read_on %} · read on {{ a.age.read_on }}{% endif %}
+    {% if lead.company %}· prepared for {{ lead.company }}{% endif %}</p>
+
+  {#- What the tables below mean, in two paragraphs, built only from what was
+      actually measured. Absent where it could not be grounded — and absent
+      *silently*, because the honest empty here is the report as it was, and a
+      line saying "we could not summarize this" is a sentence about our
+      tooling on a document about their business. -#}
+  {% if a.summary and a.summary.text %}
+  <div class="card lede">
+    {% for para in a.summary.text.split('\n\n') %}
+      {% if para.strip() %}<p>{{ para.strip() }}</p>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ---- What they are already spending. First, deliberately: it is the block
+        that decides what the conversation afterwards is about, and the same
+        one the Hub's own record shows. ---- #}
+  {% set sp = a.spend %}
+  <div class="card spend">
+    <h2>{{ sp.title }}</h2>
+    <p class="small">{{ sp.why }}</p>
+    {% if sp.total_display %}
+      <div style="margin:14px 0 4px">
+        <div class="total">{{ sp.total_display }}
+          <span class="small" style="font-weight:400">a month, that we can put a number on</span></div>
+        {% if sp.total_note %}<div class="small" style="margin-top:5px">{{ sp.total_note }}</div>{% endif %}
+      </div>
+    {% endif %}
+    {% if sp.observed %}
+      <div class="figs">
+        {% for f in sp.observed %}
+        <div class="fig{{ '' if f.measured else ' un' }}">
+          <div class="v">{% if f.link %}<a href="{{ f.link }}" target="_blank" rel="noopener">{{ f.value }} &#8599;</a>{% else %}{{ f.value }}{% endif %}</div>
+          <div class="l">{{ f.label }}</div>
+          {% if f.why %}<div class="n">Worked out as {{ f.why }}.</div>{% endif %}
+          {% if f.note %}<div class="n">{{ f.note }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty">{{ sp.note }}</div>
+    {% endif %}
+    {% if sp.stated and sp.stated.band %}
+      <h3>What you told us</h3>
+      <p class="small">You put your marketing at {{ sp.stated.band }} a month.
+        {{ sp.stated.note }}
+        {% if sp.stated.finding %}<br><b>{{ sp.stated.finding }}</b>{% endif %}</p>
+    {% endif %}
+    {% if sp.earned %}
+      <h3>What you earn without paying for it</h3>
+      <div class="figs">
+        {% for f in sp.earned %}
+        <div class="fig{{ '' if f.measured else ' un' }}">
+          <div class="v">{{ f.value }}</div><div class="l">{{ f.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% if sp.earned_note %}<div class="small" style="margin-top:9px">{{ sp.earned_note }}</div>{% endif %}
+    {% endif %}
+  </div>
+
+  {% if a.headline and a.headline.rows %}
+  <div class="card">
+    <h2>At a glance</h2>
+    <div class="figs">
+      {% for f in a.headline.rows %}
+      <div class="fig{{ '' if f.measured else ' un' }}">
+        <div class="v">{% if f.link %}<a href="{{ f.link }}" target="_blank" rel="noopener">{{ f.value }} &#8599;</a>{% else %}{{ f.value }}{% endif %}</div>
+        <div class="l">{{ f.label }}</div>
+        {% if f.note %}<div class="n">{{ f.note }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>What we would fix first</h2>
+    <p class="small">Each of these is something we measured on your website,
+      and what it is costing you. Nothing here is a guess about your business.</p>
+    {% if a.opportunities %}
+    <div class="opps" style="margin-top:12px">
+      {% for o in a.opportunities %}
+      <div class="opp"><div class="f">{{ o.finding }}</div><div class="m">{{ o.means }}</div></div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">Nothing on your site came back as one of the gaps we
+      usually find. That is a good sign rather than a clean bill of health —
+      some checks are not part of every audit, and what was not measured is
+      not the same as nothing wrong.</div>
+    {% endif %}
+  </div>
+
+  {% if a.groups %}
+  <div class="card">
+    <h2>Everything else we read off your website</h2>
+    <p class="small">Grouped by the question each section answers. Open any of
+      them for the detail.</p>
+    <div class="grid" style="margin-top:12px">
+      {% for gp in a.groups %}
+      <details>
+        <summary>{{ gp.title }} <span class="small" style="font-weight:400">· {{ gp.rows|length }}</span></summary>
+        <div class="small" style="margin:6px 0 2px">{{ gp.why }}</div>
+        <dl class="kv">
+          {% for r in gp.rows %}
+          <dt{% if r.hint %} title="{{ r.hint }}"{% endif %}>{{ r.label }}</dt>
+          <dd>{% if r.link %}<a href="{{ r.link }}" target="_blank" rel="noopener">{{ r.value }} &#8599;</a>{% else %}{{ r.value }}{% endif %}</dd>
+          {% endfor %}
+        </dl>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="cta noprint">
+    <h2>Want us to walk you through it?</h2>
+    <p style="margin:6px 0 0;color:#C9D6E4">Everything above came off your own
+      website. What it is worth doing about it depends on what you sell and who
+      you are trying to reach — which is a conversation rather than a report.</p>
+    <a href="https://smart1marketing.com/contact" target="_blank" rel="noopener">Talk to Smart 1 Marketing</a>
+  </div>
+
+  <div class="brand">Prepared by <a href="https://smart1marketing.com" target="_blank"
+     rel="noopener">Smart 1 Marketing</a> · this page is yours to keep</div>
+</div>
+</body>
+</html>

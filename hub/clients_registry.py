@@ -263,6 +263,32 @@ def all_clients(refresh: bool = False) -> list[dict]:
         pass                                          # a client with no URL is
                                                       # the state we started in
 
+    # 6. Clients whose only trace is an insertion order.
+    #
+    # Registered by hub/io_clients.py at submit, and only when they resolved
+    # to nobody, so this adds a row rather than shadowing one. It never
+    # touches an entry that already exists -- if Knack has since gained the
+    # client, Knack's record is the real one and this is simply not consulted.
+    try:
+        from hub import io_clients as _ioc
+        for row in _ioc.overlay().values():
+            nm = str(row.get("name") or "").strip()
+            if not nm or nm.lower() in by_key:
+                continue
+            by_key[nm.lower()] = {
+                "name": nm, "slug": slugify(nm), "source": "io",
+                "url": row.get("url", ""), "domain": row.get("domain", ""),
+                "products": set(), "running": set(),
+                "is_seo": False, "is_house": False, "live": True,
+                # Named, so nothing downstream reads a client we have only
+                # quoted as one Knack has confirmed.
+                "is_io_only": True,
+                "io_orders": list(row.get("orders") or []),
+            }
+    except Exception:                                 # noqa: BLE001
+        pass                                          # the book without them
+                                                      # is where we started
+
     rows = []
     for entry in by_key.values():
         products = sorted(entry.pop("products", set()))

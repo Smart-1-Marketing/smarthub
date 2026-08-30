@@ -10,10 +10,28 @@
 </style>
 <style>
 .src-head td{background:var(--paper);border-top:1px solid var(--line);padding:9px 10px}
+/* An observation, drawn as one. Dotted and set apart from the alt text
+   above it, because "a model read this off the picture" and "somebody wrote
+   this" are different claims and a reader has to be able to tell which. */
+.seen{margin-top:5px;padding:5px 0 0;border-top:1px dotted var(--line);
+  color:var(--ink-3);font-size:.76rem;line-height:1.45;max-width:34ch}
+.seen-eye{color:var(--brand,#1769AA)}
+.seen-tags{margin-top:3px;display:flex;flex-wrap:wrap;gap:3px}
+.seen-tag{background:var(--paper,#f2f6fa);border:1px solid var(--line);
+  border-radius:999px;padding:1px 7px;font-size:.68rem}
+.seen-done{font-size:.7rem;font-style:italic}
 .src-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
   font-weight:700;text-transform:uppercase;letter-spacing:.5px;
   background:#e8eef4;color:#46586E}
 .src-pill.theirs{background:#E8F3EE;color:#1B6E52}
+.galbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:4px 2px 8px}
+.galbar input[type=search]{flex:1;min-width:230px;padding:9px 11px;
+  border:1px solid var(--line);border-radius:8px;font:14px inherit}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 2px 10px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;
+  padding:4px 12px;font-size:12px;cursor:pointer;color:#46586E}
+.chip[aria-pressed="true"]{background:#0a2240;border-color:#0a2240;color:#fff}
+.chip .n{opacity:.65;margin-left:5px}
 </style>
 <header class="top">
   <div class="wrap">
@@ -41,6 +59,25 @@
 
   <section class="panel">
     <div class="panel-head"><h2>Library</h2><span class="hint" id="count"></span></div>
+    {#- A search box, because until now this gallery had none: a client who
+        sends forty photographs leaves forty thumbnails, and finding the one
+        of the storefront meant scrolling. It searches the alt text, the
+        filename, the folder AND what a vision model saw in the picture, which
+        is the half that makes it work on files nobody has captioned.
+
+        Server-side on purpose. A filter over the rows this page happens to
+        have loaded is a filter that quietly answers about part of the
+        library, and it could never see the vision descriptions at all. The
+        group chips below filter what comes back. -#}
+    <div class="selbar">
+      <input id="gSearch" type="search" placeholder="Search these files — a word in the picture, the alt text or the filename"
+             style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--line);border-radius:8px;font:inherit">
+      <button class="btn quiet small" id="gSearchGo" type="button">Search</button>
+      <button class="btn quiet small" id="gSearchClear" type="button" style="display:none">Clear</button>
+      <span class="hint" id="filterMsg"></span>
+    </div>
+    <div class="note" id="visionNote" style="display:none;margin-bottom:10px"></div>
+    <div class="chips" id="chips"></div>
     <div class="selbar">
       <label><input type="checkbox" id="selAll"> Select all</label>
       <span class="hint" id="selCount">None selected</span>
@@ -68,6 +105,12 @@
   "use strict";
   var BASE = {{ url_for('image_picker.admin')|tojson }}.replace(/\/$/,"");
   var CLIENT_ID = {{ client.id|tojson }};
+  /* The label table comes from modules/image_picker/filing.py. A second copy
+     here is how a kind added last month showed up in a client's gallery as a
+     bare key under no heading at all. */
+  var SOURCES = {{ (gallery_sources or {"labels": {}, "theirs": [], "we_made": []})|tojson }};
+  var ALL = [];                 /* everything loaded, before search or chips */
+  var GROUP = "";               /* "" = every group */
 
   function esc(s){
     return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
@@ -91,33 +134,75 @@
     error:   ['err',  'Failed']
   };
 
+  /* What is on screen right now. The words are matched by the SERVER -- it
+     is the only half that can see the vision descriptions, and the only one
+     that searches the whole library rather than the rows this page loaded --
+     so all that is left here is the group chip. One reading, because two
+     drift and a count that disagrees with the rows under it is how somebody
+     stops believing the count. */
+  function visible(){
+    if (!GROUP) return ALL;
+    return ALL.filter(function(im){ return (im.provider || "other") === GROUP; });
+  }
+  function LABELS_OF(k){ return (SOURCES.labels || {})[k] || k; }
+
+  function drawChips(){
+    var counts = {}, order = [];
+    ALL.forEach(function(im){
+      var k = im.provider || "other";
+      if (counts[k] === undefined) { counts[k] = 0; order.push(k); }
+      counts[k]++;
+    });
+    order.sort(function(a,b){ return tierOf(a) - tierOf(b) || a.localeCompare(b); });
+    var html = '<button type="button" class="chip" data-g="" aria-pressed="'
+      + (GROUP === "" ) + '">All<span class="n">' + ALL.length + '</span></button>';
+    html += order.map(function(k){
+      return '<button type="button" class="chip" data-g="' + esc(k) + '" aria-pressed="'
+        + (GROUP === k) + '">' + esc(LABELS_OF(k)) + '<span class="n">'
+        + counts[k] + '</span></button>';
+    }).join("");
+    var box = document.getElementById("chips");
+    box.innerHTML = ALL.length ? html : "";
+    Array.prototype.forEach.call(box.querySelectorAll(".chip"), function(b){
+      b.onclick = function(){ GROUP = b.dataset.g; redraw(); };
+    });
+  }
+
+  function tierOf(k){
+    if ((SOURCES.theirs || []).indexOf(k) !== -1) return 0;
+    if ((SOURCES.we_made || []).indexOf(k) !== -1) return 1;
+    return 2;
+  }
+
+  function redraw(){
+    var rows = visible();
+    drawChips();
+    render(rows);
+    var msg = document.getElementById("filterMsg");
+    /* A filtered list that reports an unfiltered total is a wrong answer with
+       two right ones either side of it -- the trap CLAUDE.md names. */
+    msg.textContent = (rows.length === ALL.length)
+      ? "" : rows.length + " of " + ALL.length + " shown";
+  }
+
   function render(images){
-    document.getElementById("count").textContent = images.length + " saved";
+    document.getElementById("count").textContent =
+      ALL.length + " saved" + (images.length === ALL.length ? "" : " · " + images.length + " shown");
     if (!images.length){
-      document.getElementById("rows").innerHTML =
-        '<tr><td colspan="7"><div class="empty"><strong>Nothing saved yet</strong>' +
-        'Send this client their picker link and their choices land here.</div></td></tr>';
+      document.getElementById("rows").innerHTML = ALL.length
+        ? '<tr><td colspan="8"><div class="empty"><strong>Nothing matches</strong>' +
+          'Clear the search or pick a different group.</div></td></tr>'
+        : '<tr><td colspan="8"><div class="empty"><strong>Nothing saved yet</strong>' +
+          'Send this client their picker link and their choices land here.</div></td></tr>';
       return;
     }
     /* Grouped by where each file came from. A gallery that mixes a client's
        own phone photos with stock we found reads as one undifferentiated pile,
        and the first question anyone asks of it is "which of these are theirs?"
        Source answers that, so it is the grouping rather than a column. */
-    var LABELS = {
-      local: "Uploaded from their device", url: "Added by web address",
-      camera: "Taken with a camera", google_drive: "From Google Drive",
-      dropbox: "From Dropbox", instagram: "From Instagram",
-      facebook: "From Facebook", image_search: "From image search",
-      shutterstock: "Shutterstock", getty: "Getty", istock: "iStock",
-      unsplash: "Unsplash", pexels: "Pexels", pixabay: "Pixabay",
-      /* Work Smart 1 produced for this client, filed here automatically by the
-         pipeline that made it rather than left in a Cloudinary folder. */
-      io_creative: "Creative for their insertion orders",
-      blog: "Blog images", seo_image: "SEO images"
-    };
-    var CLIENT_SENT = ["local","camera","google_drive","dropbox","instagram",
-                       "facebook","url"];
-    var WE_MADE = ["io_creative","blog","seo_image"];
+    var LABELS = SOURCES.labels || {};
+    var CLIENT_SENT = SOURCES.theirs || [];
+    var WE_MADE = SOURCES.we_made || [];
     var order = [], buckets = {};
     images.forEach(function(im){
       var k = im.provider || "other";
@@ -160,6 +245,38 @@
   /* mm-dd-yy, the Hub's format everywhere. */
   function mdy(iso){ return S1Date.fmt(iso, ""); }
 
+  /* What a vision model saw in this photograph.
+
+     Drawn dotted and labeled as an observation, never merged into the alt
+     text on the row: a value somebody typed is the better source, so the
+     suggestion is *offered* into an empty field and kept on a press — the
+     overlay rule hub/client_urls.py works to. An image that already has alt
+     text shows the description as context and no button, because there is
+     nothing to press: accepting would overwrite what somebody wrote, and the
+     server refuses that anyway. */
+  function seenHtml(im){
+    var d = im.seen;
+    if (!d) return '';
+    if (d.state === 'given_up'){
+      return '<div class="seen">Could not be described' +
+        (d.last_error ? ' — ' + esc(d.last_error.slice(0,80)) : '') + '</div>';
+    }
+    if (!d.description) return '';
+    var tags = (d.tags || []).map(function(t){
+      return '<span class="seen-tag">' + esc(t) + '</span>'; }).join('');
+    var offer = '';
+    if (d.alt_suggestion && !im.alt_text){
+      offer = '<button class="btn quiet small useAlt" type="button">' +
+        'Use as alt text</button>';
+    } else if (d.accepted){
+      offer = '<span class="seen-done">alt text taken from this</span>';
+    }
+    return '<div class="seen"><span class="seen-eye" title="Read by a model, ' +
+      'not typed by anybody">&#10022;</span> ' + esc(d.description) +
+      (tags ? '<div class="seen-tags">' + tags + '</div>' : '') +
+      (offer ? '<div style="margin-top:4px">' + offer + '</div>' : '') + '</div>';
+  }
+
   function rowHtml(im){
     {
       var s = STATUS[im.ghl_status] || STATUS.pending;
@@ -172,10 +289,11 @@
             ? '<span style="display:flex;width:64px;height:48px;align-items:center;' +
               'justify-content:center;border:1px solid var(--line);border-radius:7px;' +
               'font-size:20px;background:var(--paper)">&#128196;</span>'
-            : '<img src="' + esc(im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
+            : '<img src="' + esc(im.thumb || im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
           '</a></td>' +
         '<td><strong>' + esc(im.filename) + '</strong><br>' +
-          '<span style="color:var(--ink-3);font-size:.8rem">' + esc(im.alt_text || "—") + '</span></td>' +
+          '<span style="color:var(--ink-3);font-size:.8rem">' + esc(im.alt_text || "—") + '</span>' +
+          seenHtml(im) + '</td>' +
         '<td>' + esc(im.collection_label || im.collection_kind || "—") +
           (im.spec_result
             ? '<br><span class="pill ' + SPEC[im.spec_result][0] + '" title="' +
@@ -256,17 +374,81 @@
       .catch(function(){ btn.disabled = false; note("bad", "Couldn't delete", ""); });
   });
 
+  var QUERY = "";
+
   function load(){
-    api("/api/saved?limit=200").then(function(d){
-      if (!d.ok){ note("bad", "Couldn't load the gallery", d.error || ""); return; }
-      render(d.images || []);
-    });
+    api("/api/saved?limit=500" + (QUERY ? "&q=" + encodeURIComponent(QUERY) : ""))
+      .then(function(d){
+        if (!d.ok){ note("bad", "Couldn't load the gallery", d.error || ""); return; }
+        ALL = d.images || [];
+        drawVision(d);
+        /* Through redraw, not straight to render: the chips are counted off
+           whatever the search returned, so they describe the list on screen
+           rather than a library the page is no longer showing. */
+        redraw();
+      });
   }
+
+  /* Which kind of empty this gallery is. "Nothing has been described yet",
+     "everything has been", and "we could not read the store" are three
+     situations and only the first is somebody waiting on the sweep — the
+     tri-state answer this Hub gives everywhere it prints a count. */
+  function drawVision(d){
+    var box = document.getElementById("visionNote");
+    if (!box) return;
+    var v = d.vision;
+    if (!v){ box.style.display = "none"; return; }
+    box.style.display = "block";
+    if (!v.measured){
+      box.innerHTML = 'What is in these photographs is <b>not measured</b> — ' +
+        'the descriptions could not be read. ' + esc(v.error || "");
+      return;
+    }
+    if (!v.configured){
+      box.innerHTML = 'Describing uploads needs <code>OPENAI_API_KEY</code> on ' +
+        'the server. ' + v.described + ' of ' + v.images + ' already described.';
+      return;
+    }
+    box.innerHTML = '<b>' + v.described + '</b> of ' + v.images +
+      ' saved file(s) have been described, so you can search what is in them. ' +
+      (v.pending ? v.pending + ' still to go — the sweep does a batch an hour. '
+                 : 'Nothing left to describe. ') +
+      (v.given_up ? v.given_up + ' could not be read and were given up on.' : '');
+  }
+
+  function runSearch(){
+    QUERY = (document.getElementById("gSearch").value || "").trim();
+    document.getElementById("gSearchClear").style.display = QUERY ? "" : "none";
+    /* A new search is a new list, so the group chip from the old one is not
+       necessarily in it -- keeping it would show an empty gallery with no
+       sign of why. */
+    GROUP = "";
+    load();
+  }
+  document.getElementById("gSearchGo").addEventListener("click", runSearch);
+  document.getElementById("gSearch").addEventListener("keydown", function(e){
+    if (e.key === "Enter"){ e.preventDefault(); runSearch(); }
+  });
+  document.getElementById("gSearchClear").addEventListener("click", function(){
+    document.getElementById("gSearch").value = ""; runSearch();
+  });
 
   document.addEventListener("click", function(e){
     var row = e.target.closest("tr[data-id]");
     if (!row) return;
     var id = row.dataset.id;
+
+    if (e.target.classList.contains("useAlt")){
+      e.target.disabled = true;
+      api("/api/saved/" + id + "/alt-from-description", "POST").then(function(d){
+        if (d.ok) { note("ok", "Alt text saved", ""); load(); }
+        /* The refusal is shown rather than swallowed: "that image already has
+           alt text and it is not written over" is the rule working, and a
+           button that appears to do nothing is how somebody stops trusting it. */
+        else { note("bad", "Not written", d.error || ""); e.target.disabled = false; }
+      }).catch(function(){ e.target.disabled = false; });
+      return;
+    }
 
     if (e.target.classList.contains("retry")){
       e.target.disabled = true; e.target.textContent = "Sending…";

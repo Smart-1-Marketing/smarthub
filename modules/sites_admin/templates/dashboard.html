@@ -1,36 +1,37 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="titlebar">
+<div class="s1d-head">
   <div>
+    <div class="s1d-crumb">Sites</div>
     <h1>Account Management</h1>
     <p>{{total}} projects in the local registry · {{template_count}} templates cached.</p>
   </div>
-  <div class="actions">
+  <div class="s1d-actions">
     <form method="post" action="{{url_for('sync')}}">
       <input type="hidden" name="csrf_token" value="{{session.csrf}}">
-      <button class="primary">Sync Platform Catalog</button>
+      <button class="s1d-btn">Sync Platform Catalog</button>
     </form>
-    <a class="button" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Export CSV</a>
-    <a class="button" href="{{url_for('inventory')}}">Import / Discover Projects</a>
+    <a class="s1d-btn sec" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Export CSV</a>
+    <a class="s1d-btn sec" href="{{url_for('inventory')}}">Import / Discover Projects</a>
   </div>
 </div>
 
 {% if not settings.mock_mode %}
-<div class="info">The official Platform API exposes plans, project details, websites, templates and lifecycle actions, but its documented project list is customer-scoped. Existing reseller-wide inventory is seeded through <b>Inventory Import</b> or <b>Discover Customer</b>, then refreshed with official API calls.</div>
+<div class="s1d-note">The official Platform API exposes plans, project details, websites, templates and lifecycle actions, but its documented project list is customer-scoped. Existing reseller-wide inventory is seeded through <b>Inventory Import</b> or <b>Discover Customer</b>, then refreshed with official API calls.</div>
 {% endif %}
 
-<div class="metrics">
-  <div class="metric"><b>{{total}}</b><span>Total projects</span></div>
-  <div class="metric"><b>{{statuses.get('ACTIVE',0)}}</b><span>Active</span></div>
-  <div class="metric"><b>{{statuses.get('TRIAL',0)}}</b><span>Trial</span></div>
-  <div class="metric"><b>{{statuses.get('EXPIRED',0)}}</b><span>Expired</span></div>
-  <div class="metric"><b>{{money(revenue)}}</b><span>Active client MRR</span></div>
-  <div class="metric"><b>{{money(cost)}}</b><span>Platform cost</span></div>
-  <div class="metric"><b>{{money(margin)}}</b><span>Gross margin</span></div>
+<div class="s1d-tiles">
+  <div class="s1d-tile"><div class="v">{{total}}</div><div class="l">Total projects</div></div>
+  <div class="s1d-tile"><div class="v">{{statuses.get('ACTIVE',0)}}</div><div class="l">Active</div></div>
+  <div class="s1d-tile"><div class="v">{{statuses.get('TRIAL',0)}}</div><div class="l">Trial</div></div>
+  <div class="s1d-tile"><div class="v">{{statuses.get('EXPIRED',0)}}</div><div class="l">Expired</div></div>
+  <div class="s1d-tile"><div class="v">{{money(revenue)}}</div><div class="l">Active client MRR</div></div>
+  <div class="s1d-tile"><div class="v">{{money(cost)}}</div><div class="l">Platform cost</div></div>
+  <div class="s1d-tile"><div class="v">{{money(margin)}}</div><div class="l">Gross margin</div></div>
 </div>
 
-<div class="grid2">
-  <section class="card">
+<div class="s1d-grid">
+  <section class="s1d-card">
     <h2>Needs Attention</h2>
     {% for a in alerts %}
       <a class="alertrow" href="{{url_for('project_detail',pid=a.project_id)}}">
@@ -39,9 +40,9 @@
       </a>
     {% else %}<p>No current alerts.</p>{% endfor %}
   </section>
-  <section class="card">
+  <section class="s1d-card">
     <h2>Partner Portfolio</h2>
-    <p class="hint">Sorted by active clients. Click a partner to view their accounts, or download a CSV.</p>
+    <p class="s1d-hint">Sorted by active clients. Click a partner to view their accounts, or download a CSV.</p>
     {% for p in partners_main %}
       <div class="pair">
         <a href="{{url_for('dashboard', partner=p.name)}}">{{p.name}}</a>
@@ -77,21 +78,21 @@
     {% for p in plans %}<option value="{{p.plan_id}}" {{'selected' if plan==p.plan_id}}>{{p.name}}</option>{% endfor %}
   </select>
   <input name="partner" value="{{partner}}" placeholder="Partner">
-  <button>Filter</button>
+  <button class="s1d-btn">Filter</button>
   <a href="{{url_for('dashboard')}}">Clear</a>
-  <a class="button" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Download CSV of results</a>
+  <a class="s1d-btn sec" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Download CSV of results</a>
 </form>
 
-{% if preview %}<div class="info">Showing the 10 most recent active sites. Search or use the filters above to see the full portfolio ({{total}} projects).</div>{% endif %}
+{% if preview %}<div class="s1d-note">Showing the 10 most recent active sites. Search or use the filters above to see the full portfolio ({{total}} projects).</div>{% endif %}
 
 <div class="tablewrap">
-<table>
+<table class="s1d-t">
   <thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Domain</th><th>Next Billing</th><th>Client Price</th><th>Partner</th></tr></thead>
   <tbody>
   {% for r in rows %}
     <tr>
       <td><a href="{{url_for('project_detail',pid=r.project_id)}}"><b>{{r.internal_client_name or r.name}}</b><small>Project #{{r.project_id}}</small></a></td>
-      <td><span class="pill {{status_class(r.status)}}">{{r.lifecycle_state or r.status or 'UNKNOWN'}}</span></td>
+      <td><span class="s1d-pill {{status_class(r.status)}}">{{r.lifecycle_state or r.status or 'UNKNOWN'}}</span></td>
       <td>{{r.plan_name or '—'}}<small>{{money(r.monthly_price)}} catalog</small></td>
       {#
         The domain cell closes the pair, in whichever direction it is open.

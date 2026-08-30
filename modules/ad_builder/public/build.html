@@ -13,7 +13,7 @@
    * Different job, so a deliberately different room: the proof screen is a
    * light neutral gallery, this is a dark studio. Dark because the operator
    * spends an hour here judging brand color against a backdrop, and a bright
-   * white surround skews that judgement all day.
+   * white surround skews that judgment all day.
    *
    * Layout is a fixed three-column bench: controls left, live canvas center,
    * every size and its QA state right. Nothing moves as you type — the preview
@@ -30,7 +30,7 @@
     --pass: #35C089;
     --warn: #E0A72B;
     --fail: #EF6B62;
-    /* The canvas surround is a neutral mid-grey, not the panel color: brand
+    /* The canvas surround is a neutral mid-gray, not the panel color: brand
        colors must be judged against something that does not tint them. */
     --stage: #8A8F98;
   }
@@ -97,6 +97,19 @@
   .pill.revision { background: rgba(224,167,43,.16); color: var(--warn); }
   .pill.approved { background: rgba(53,192,137,.16); color: var(--pass); }
   .saved.on { opacity: 1; }
+  /* Why the render button is not there yet. It goes away the moment it stops
+     being true rather than standing as permanent instructions. */
+  #saveHint { color: var(--ink-2); font-size: 12px; max-width: 30rem; }
+
+  /* The link a client is sent. A field rather than a line of text, because
+     what somebody does with it is select it and copy it. */
+  .proofurl { display: flex; gap: 6px; align-items: center; margin: 8px 0 2px; }
+  .proofurl input {
+    flex: 1; min-width: 12rem; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px;
+  }
+  .proofurl button { white-space: nowrap; }
 
   /* ---------- bench ---------- */
   .bench { flex: 1; display: grid; grid-template-columns: 320px 1fr 300px; min-height: 0; }
@@ -115,6 +128,9 @@
   textarea { min-height: 58px; resize: vertical; }
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .palette-note { margin-top: 9px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
+  .palette-note.warn { color: #8a5b00; background: #fff6e5; border: 1px solid #f0d9a8;
+                       border-radius: 6px; padding: 7px 9px; }
   .swatch { text-align: center; }
   .swatch input[type=color] {
     width: 44px; height: 32px; padding: 0; border: 1px solid var(--line);
@@ -183,7 +199,7 @@
 
   /* What an approved size looks like from the controls: everything is
      readable, nothing is editable, and the reason is at the top rather than
-     left for someone to work out from a greyed-out box. */
+     left for someone to work out from a grayed-out box. */
   .locked { padding: 11px 12px; margin-bottom: 12px; border-radius: 7px;
     background: rgba(53,192,137,.12); border: 1px solid rgba(53,192,137,.4);
     font-size: 12.5px; line-height: 1.45; }
@@ -218,6 +234,96 @@
 
   /* A copy field this size's layout will not draw. */
   .nodraw { font-size: 11.5px; color: var(--warn); margin: -2px 0 6px; line-height: 1.4; }
+
+  /* One block open at a time.
+     
+     Five text blocks, each with eight controls, is forty controls in a column
+     you scroll — so the block you are working on is off screen by the time
+     you reach its color row. They are an accordion now: opening one closes
+     the rest, which is the behavior people expect from a stack of headers
+     and the only one that keeps the thing you are editing in view. */
+  .blockstyle > summary {
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink); font-weight: 700;
+  }
+  .blockstyle > summary::-webkit-details-marker { display: none; }
+  .blockstyle > summary::before {
+    content: '\25B8'; font-size: 10px; color: var(--ink-2);
+    transition: transform .15s ease; flex: none;
+  }
+  .blockstyle[open] > summary::before { transform: rotate(90deg); }
+  .blockstyle > summary:hover { color: var(--signal); }
+  .blockstyle[open] > summary { margin-bottom: 9px; }
+  /* A dot on a header whose block has been changed, so a collapsed panel
+     still says it is carrying an override. */
+  .bsdot { width: 6px; height: 6px; border-radius: 50%; background: var(--signal);
+    flex: none; margin-left: auto; }
+
+  /* Nudge pads. Four arrows and a center, which is what "move it a bit left"
+     needs and what a nine-way grid of absolute positions cannot express. */
+  .pad { display: grid; grid-template-columns: repeat(3, 30px); gap: 4px;
+    justify-content: start; margin-bottom: 7px; }
+  .pad button {
+    aspect-ratio: 1; border: 1px solid var(--line); border-radius: 5px;
+    background: var(--bg); color: var(--ink); cursor: pointer; padding: 0;
+    font-size: 13px; line-height: 1; display: flex; align-items: center;
+    justify-content: center;
+  }
+  .pad button:hover { border-color: var(--signal); color: var(--signal); }
+  .pad button.mid { font-size: 10px; color: var(--ink-2); }
+  .pad span { display: block; }
+
+  /* Sliders. One control for "bigger", rather than two number fields that
+     have to be kept in step. */
+  .slider { margin-bottom: 8px; }
+  .slider label { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; color: var(--ink-2); margin-bottom: 3px; }
+  .slider label b { color: var(--ink); font-weight: 600; font-family: "IBM Plex Mono", monospace; }
+  .slider input[type=range] { width: 100%; accent-color: var(--signal); }
+
+  /* The numbers, for the once-in-twenty case that needs them. */
+  .advanced > summary {
+    cursor: pointer; list-style: none; font-size: 11px; color: var(--ink-2);
+    padding: 4px 0; text-decoration: underline; text-underline-offset: 2px;
+  }
+  .advanced > summary::-webkit-details-marker { display: none; }
+  .advanced > summary:hover { color: var(--ink); }
+
+  /* Help bubbles. The left column was carrying five paragraphs of explanation
+     between the controls they explain — read once, then in the way for ever.
+     The text is the same text; it is behind a dot now. */
+  .hb {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--ink-2); font-size: 10px;
+    font-weight: 700; cursor: help; vertical-align: middle; margin-left: 5px;
+    font-family: -apple-system, sans-serif; flex: none; position: relative;
+  }
+  .hb:hover, .hb:focus { border-color: var(--signal); color: var(--signal); outline: none; }
+  .hb .hbtext {
+    display: none; position: absolute; left: 50%; bottom: calc(100% + 7px);
+    transform: translateX(-50%); width: 232px; padding: 9px 11px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5); color: var(--ink);
+    font-size: 11.5px; font-weight: 400; line-height: 1.45; text-transform: none;
+    letter-spacing: 0; text-align: left; z-index: 30; cursor: auto;
+  }
+  .hb:hover .hbtext, .hb:focus .hbtext { display: block; }
+  /* Near the left edge of a 320px column a centered bubble is cut off. */
+  .hb.left .hbtext { left: 0; transform: none; }
+
+  /* A palette the tool is proposing, with the contrast it achieves. */
+  .variant { display: flex; gap: 9px; align-items: center; width: 100%;
+    text-align: left; font: inherit; padding: 8px 9px; margin-bottom: 6px;
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; cursor: pointer; }
+  .variant:hover { border-color: var(--signal); }
+  .variant .vsw { width: 30px; height: 30px; border-radius: 5px; flex: none;
+    border: 1px solid rgba(255,255,255,.2); }
+  .variant b { display: block; font-size: 12px; }
+  .variant span { display: block; font-size: 11px; color: var(--ink-2); line-height: 1.35; }
+  .variant em { font-style: normal; color: var(--pass); font-family: "IBM Plex Mono", monospace; }
 
   .qa { padding: 14px 16px; }
   .qa h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-2); }
@@ -269,7 +375,7 @@
   /* Per-block text styling.
      
      These panels were authored white -- #fff cards with #98A1B0 labels and
-     #fff inputs -- inside a room whose body colour is near-white. So a label
+     #fff inputs -- inside a room whose body color is near-white. So a label
      sat at about 2:1 against its own card and a typed value was white on
      white: the control was legible only while it was empty and showing its
      placeholder. Everything in the left column is the studio's own palette
@@ -293,7 +399,7 @@
     color: var(--ink-2); white-space: nowrap; }
   .bsclear:hover { border-color: var(--ink-2); color: var(--ink); }
 
-  /* A row of the client's own five colours under every colour control.
+  /* A row of the client's own five colors under every color control.
      Choosing "the brand's accent" and choosing "#F2B705" are different acts:
      the first follows the palette when somebody corrects a swatch, and it is
      what a person means nine times out of ten. The picker stays beside it for
@@ -317,7 +423,7 @@
   .bgresults:not(:empty) { margin-bottom: 8px; }
   .bgmsg { font-size: 11.5px; color: var(--ink-2); display: block; margin-bottom: 6px; }
   /* Two columns, not four. A 76px-wide thumbnail of a photograph is a smear
-     of colour: you cannot tell a house from a hedge in one, which is most of
+     of color: you cannot tell a house from a hedge in one, which is most of
      why the suggestions "did not look close at all". Bigger tiles, and a
      click on the magnifier opens the picture full size before anything is
      applied to the ad. */
@@ -385,6 +491,7 @@
   <nav class="appnav">
     <a href="/build" class="here">Build</a>
     <a href="/projects">Projects</a>
+    <a href="/presets">Presets</a>
     <a href="/diagnostics">Diagnostics</a>
   </nav>
   <a class="health" id="health" href="/diagnostics" title="Checking…"><span class="dot"></span><span class="lbl">…</span></a>
@@ -405,19 +512,41 @@
   <span class="pill" id="statusPill" style="display:none"></span>
   <span class="grow"></span>
   <span class="saved" id="saved">Saved</span>
-  <button class="btn" id="save">Save</button>
+  <!--
+    The order of this toolbar is the order of the work, and until now it was
+    not: filing ads onto a client and rendering a set both stood next to Save
+    from the moment the page opened, on a build that had never been written
+    down. Both then acted on what was on the SERVER, which on an unsaved build
+    is the previous version -- so "attach to client" filed the ads somebody had
+    just finished replacing, and reported success for doing it.
+
+    So Save is the only thing offered on arrival. Render appears once there is
+    a saved build to render, and Attach once there are rendered files to
+    attach. Each control appears at the point where it can do the thing its
+    label says.
+  -->
+  <button class="btn primary" id="save">Save</button>
+  <span class="hint" id="saveHint">Save first — everything after this works from the saved build, not from what is on screen.</span>
   <a class="btn" id="proofLink" href="#" target="_blank" style="display:none">Open proof</a>
   <button class="btn" id="deliver" style="display:none;border-color:var(--pass);color:var(--pass)">Deliver final files</button>
-  <!-- Only when this is running inside the Smart 1 Hub. Standalone there is no
-       client registry to attach anything to, so the button would lead nowhere. -->
-  <a class="btn" id="attachClient" href="#" style="display:none">Attach to client</a>
+  <!-- Only when this is running inside the Smart 1 Hub, and only once there
+       are finished files. Standalone there is no client registry to attach
+       anything to; before a render there is nothing to put in it. -->
+  <a class="btn" id="attachClient" href="#" style="display:none">Attach to client…</a>
   <div id="deliveries" style="display:none;margin-top:10px;font-size:13px"></div>
   <!-- "Render all sizes" said what it did and not what it was for, so nobody
        knew whether they needed it. The title says the rest: the preview is one
        size and lives in the browser, and this is what writes the actual files
-       every other step reads. -->
-  <button class="btn primary" id="renderAll"
-    title="Build the finished file for every size in this layout, not just the one on screen. The preview is a live sketch; this is what the proof, the delivery ZIP and the client gallery all read.">Render all sizes</button>
+       every other step reads. It now asks what to do rather than assuming, so
+       the label is the question rather than one of its answers. -->
+  <button class="btn primary" id="renderAll" style="display:none"
+    title="Build the finished files for this set. The preview is a live sketch; these are what the proof, the delivery ZIP and the client gallery all read.">Render…</button>
+  <!-- Saved, so it acts on the build that is written down. A preset cut from
+       an unsaved build would capture the previous version and every ad made
+       from it afterwards would carry it -- the same reason Render and Attach
+       wait for a save. -->
+  <button class="btn" id="savePreset" style="display:none"
+    title="Keep this client's brand, layout and design as a starting point, so the next ad for them is a form fill rather than a rebuild.">Save as preset…</button>
 </div>
 
 <div class="nextstep" id="nextStep" hidden>
@@ -459,6 +588,22 @@
     /** platform id -> the sizes it buys, from /api/build/options. */
     platformSizes: null,
     dirty: false,
+    /* Has this build been written down since the page opened?
+       Deliberately per-session rather than "are there unsaved edits": an
+       operator who has just arrived has not confirmed that what is on the
+       server is what they mean to render, and every step after this acts on
+       the server's copy. One press settles it. */
+    saved: false,
+    /** The campaign's landing page, and what was read off it. */
+    landingPage: '',
+    landing: null,
+    /* Are there finished files? Set from the project's own record at load --
+       a build rendered last week is still rendered -- and again whenever a
+       render completes. Nothing that reads a rendered file is offered until
+       this is true, because "there are no files yet" and "the files are the
+       wrong ones" are the two ways this tool has silently handed over the
+       wrong creative. */
+    rendered: false,
     sizeStatus: {},   // size -> { status }
     /** field -> 'size' | 'all'. Asked once per field per campaign; see
      *  setCopy for why an unasked edit is not just defaulted. */
@@ -532,7 +677,7 @@
     var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
     var b = t && t.blocks && t.blocks[state.size];
     // An older server does not send `blocks`. Say nothing rather than
-    // labelling every field as missing.
+    // labeling every field as missing.
     return b || null;
   }
 
@@ -560,6 +705,44 @@
      question it stood in for -- does the copy fit -- is answered per block by
      the overflow check in the rail, from real glyph measurements. */
 
+  /* Where the palette came from.
+   *
+   * A row of swatches says nothing about whether anybody chose them. With no
+   * discovered brand and no override, finalizeColors() spreads the
+   * placeholder navy and gold underneath, and the ad looks plausibly branded
+   * on every size -- absent data reading as a confident value, on the thing
+   * the client receives.
+   *
+   * Three rules. The all-default case is said plainly and drawn as a warning,
+   * because that is the one that ships a stock ad. Roles that were merely
+   * DISCOVERED are not listed: five rows of "from Brandfetch" is noise, and a
+   * line that appears on every campaign is one people stop reading. And a
+   * campaign built before colorSources existed says NOTHING at all rather
+   * than reading as default -- absent is not the same answer as placeholder,
+   * which is the whole point of the line.
+   */
+  function paletteProvenance() {
+    var src = state.doc && state.doc.colorSources;
+    if (!src) return '';
+    var roles = ['primary', 'secondary', 'accent', 'light', 'dark'];
+    var known = roles.filter(function (r) { return src[r]; });
+    if (!known.length) return '';
+
+    var defaulted = known.filter(function (r) { return src[r] === 'default'; });
+    var adjusted = known.filter(function (r) { return src[r] === 'adjusted'; });
+
+    if (defaulted.length === known.length) {
+      return '<div class="palette-note warn">No brand colors were discovered or supplied &mdash; '
+        + 'every size is built in the placeholder palette, not the client\'s own. '
+        + 'Set these before sending a proof.</div>';
+    }
+    var parts = [];
+    if (defaulted.length) parts.push(esc(defaulted.join(', ')) + ' still placeholder');
+    if (adjusted.length) parts.push(esc(adjusted.join(', ')) + ' adjusted for readability');
+    if (!parts.length) return '';
+    return '<div class="palette-note">' + parts.join(' \u00b7 ') + '</div>';
+  }
+
   function drawControls() {
     var c = concept();
     if (!c) { $('controls').innerHTML = ''; return; }
@@ -579,10 +762,10 @@
       var input = f[2] === 'textarea'
         ? '<textarea data-copy="' + key + '">' + esc(v) + '</textarea>'
         : '<input type="text" data-copy="' + key + '" value="' + esc(v) + '">';
-      // A field label nobody can act on is a field nobody fills in well.
-      var hint = f[3]
-        ? '<div style="font-size:11.5px;color:var(--ink-2);margin:-2px 0 6px">' + esc(f[3]) + '</div>'
-        : '';
+      // A field label nobody can act on is a field nobody fills in well —
+      // but four lines of example copy between every field is the column you
+      // then have to scroll past for ever. Same words, behind a dot.
+      var hint = f[3] ? help(f[3], 'left') : '';
       // Say it before the box, not after the ad comes back without it.
       var absent = '';
       if (!willDraw(key)) {
@@ -595,16 +778,37 @@
             : 'No size in this layout family draws it \u2014 try another layout.') +
           '</div>';
       }
-      return '<div class="field"><label>' + f[1] + '</label>' + hint + absent + input +
+      return '<div class="field"><label>' + f[1] + hint + '</label>' + absent + input +
         scopeControl(key) + '</div>';
     }).join('');
 
     $('controls').innerHTML =
       lockedBanner() +
-      '<div class="group"><h3>Copy for ' + esc(state.size) + '</h3>' + fields +
-        '<div style="font-size:11.5px;color:var(--ink-2);margin-top:4px">' +
-        'Each field asks, the first time you change it, whether the edit is for ' +
-        'this size or for every size in the set.</div></div>' +
+      '<div class="group"><h3>Copy for ' + esc(state.size) +
+        help('Each field asks, the first time you change it, whether the edit ' +
+             'is for this size or for every size in the set. The answer stays ' +
+             'under the field as a toggle, so it can be changed after.') +
+        '</h3>' +
+        /* The five fields, drafted from the client's own page.
+
+           The tool has read that page since the day intake was built -- the
+           analysis sits on the project record -- and nothing on this screen
+           had ever asked for it, so an operator opened a set of empty boxes
+           and wrote the ad from what they could remember about the business.
+           One press fills all five from what the page actually says.
+
+           It fills, it does not overwrite: a line somebody has typed is the
+           better source and is left alone. Emptying a field is how you ask
+           for it to be redrafted. */
+        '<div class="field" style="margin-bottom:12px">' +
+          '<button type="button" class="bsclear" id="draftCopy" style="width:100%">' +
+            'Draft the copy from their website</button>' +
+          help('Fetches ' + esc(state.landingPage || 'the campaign\u2019s landing page') +
+               ' and writes the headline, supporting line, offer, call to ' +
+               'action and proof point from what is on it. Fields you have ' +
+               'already filled in are left exactly as they are.', 'left') +
+          '<div id="draftNote" style="font-size:11.5px;color:var(--ink-2);margin-top:5px"></div>' +
+        '</div>' + fields + '</div>' +
       '<div class="group"><h3>Background</h3>' +
         '<div class="bgmodes">' +
           '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand color</button>' +
@@ -625,29 +829,35 @@
       '<div class="group"><h3>Layout</h3>' +
         '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
-      '<div class="group"><h3>Brand colors</h3><div class="swatches">' +
+      '<div class="group"><h3>Brand colors' +
+        help('The five roles every layout resolves against. Changing one here ' +
+             'changes it on every size in the set.') + '</h3>' +
+        '<div id="siteBrand"></div><div class="swatches">' +
         ['primary','secondary','accent','light','dark'].map(function (k) {
           return '<div class="swatch"><input type="color" data-color="' + k + '" value="' + esc(b.colors[k]) + '"><span>' + k + '</span></div>';
         }).join('') +
-      '</div></div>' +
-      '<div class="group"><h3>Type</h3>' +
+        '</div>' + paletteProvenance() +
+      '</div>' +
+      '<div class="group"><h3>Type' +
+        help('Only families the renderer has installed will render. An unknown ' +
+             'name falls back to the default face and is flagged in the checks ' +
+             'on the right, rather than failing.') + '</h3>' +
         '<div class="field"><label>Headline face</label><input type="text" data-font="headline" value="' + esc(b.fonts.headline) + '"></div>' +
         '<div class="field"><label>Body face</label><input type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
-        '<div style="font-size:11.5px;color:var(--ink-2)">Only installed families render. An unknown name falls back and is flagged in checks.</div>' +
+        '<div id="siteType"></div>' +
       '</div>' +
       // This heading used to read "Text boxes for 300x250" and it was not
       // true: these overrides live on the concept and every size renders
       // from them. Saying which size they belonged to made a person set a
       // type size to suit the leaderboard and shrink the skyscraper with it,
       // with the panel insisting it had only touched one.
-      '<div class="group"><h3>Text boxes \u2014 every size</h3>' +
-        '<div style="font-size:11.5px;color:var(--ink-2);margin:-6px 0 10px">' +
-        'Unlike the copy above, these apply to the whole set.</div>' +
-        blockStyleControls() + logoStyleControls() +
-        '<div style="font-size:11.5px;color:var(--ink-2);margin-top:2px">' +
-        '"Layout" means use the layout\u2019s own setting. Sizes are a ceiling \u2014 ' +
-        'long copy still shrinks to fit. Width is where the line wraps, and is ' +
-        'capped at the edge of the ad.</div></div>';
+      '<div class="group"><h3>Text boxes \u2014 every size' +
+        help('Unlike the copy above, these apply to the whole set. "Layout" ' +
+             'means use the layout\u2019s own setting. Sizes are a ceiling \u2014 long ' +
+             'copy still shrinks to fit. Width is where the line wraps, and is ' +
+             'capped at the edge of the ad.') + '</h3>' +
+        blockStyleControls() + panelControls() + logoStyleControls() +
+        '</div>';
 
     describeFamily();
     applyLock();
@@ -656,6 +866,8 @@
       headline: 'Headline', support: 'Supporting line', offer: 'Offer',
       cta: 'Call to action', trust: 'Proof point',
     };
+
+    wireDraftCopy();
 
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-copy]'), function (el) {
       el.addEventListener('input', function () {
@@ -709,6 +921,9 @@
       replaceLogo(this.files && this.files[0]);
     });
     wireBackgroundAdjust();
+    wireAccordion();
+    wireNudgePads();
+    drawSiteBrand(); drawSiteType();
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'), function (el) {
       el.addEventListener('click', function () { chooseBackground(el.dataset.bgmode, el); });
     });
@@ -741,7 +956,7 @@
     });
   }
 
-  /* Repaint one colour row in place rather than redrawing the whole column:
+  /* Repaint one color row in place rather than redrawing the whole column:
      a full redraw on every swatch click loses the scroll position, and the
      type panel is at the bottom of a long column. */
   function markInk(block, prop) {
@@ -803,7 +1018,7 @@
   }
 
   /* An approved size is read-only. The banner is the whole explanation --
-     a panel of greyed-out boxes with no reason attached is a bug report
+     a panel of grayed-out boxes with no reason attached is a bug report
      waiting to be filed. */
   function lockedBanner() {
     if (!isApproved()) return '';
@@ -936,31 +1151,167 @@
     ['offer', 'Offer'], ['cta', 'Button'], ['trust', 'Proof point']
   ];
 
-  /* The logo is the one thing a person may move. "Nudge the logo" is the most
-     common note on a proof, and where it belongs depends on the picture behind
-     it, which is why this sits next to the background chooser rather than in a
-     layout menu. The box is a bounding box: the renderer contains the logo
-     inside it, so a wider box makes a wide logo bigger and a tall one no
-     taller. Everything is clamped to the canvas server-side. */
+  /* ------------------------------------------------- moving and sizing
+     
+     Two controls replace six number fields, because "nudge it left" and "make
+     it bigger" are what people actually ask for and neither was expressible.
+     A pad of arrows moves a thing by a step; a slider resizes it
+     proportionally. The numbers are still there, behind Advanced, for the
+     case that genuinely needs a coordinate.
+     
+     Everything is clamped server-side in block-style.ts — a pad invites being
+     held down, and the one thing it must not do is walk the logo off the
+     canvas. */
+  var NUDGE = 4;               // px per press: fine enough to aim, coarse
+                               // enough that ten presses is a real move.
+
+  /* Which style panel is open. One at a time, remembered across the redraws
+     that every edit triggers -- a panel that closed itself on each keystroke
+     would be unusable. Not persisted beyond the session: which block you were
+     working on last Tuesday is not a preference. */
+  var openBlock = null;
+  function openPanel(key) { return openBlock === key; }
+
+  function wireAccordion() {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-acc]'), function (el) {
+      el.addEventListener('toggle', function () {
+        if (!el.open) {
+          if (openBlock === el.dataset.acc) openBlock = null;
+          return;
+        }
+        openBlock = el.dataset.acc;
+        // Close the others. `open` is set directly rather than by clicking,
+        // so this does not recurse into another toggle that reopens this one.
+        Array.prototype.forEach.call($('controls').querySelectorAll('[data-acc]'),
+          function (other) { if (other !== el) other.open = false; });
+      });
+    });
+  }
+
+  /* The arrow pads. A pad edits whichever thing it is bound to, and each of
+     the three keeps its position somewhere different: the background in a
+     fraction of its own overflow, the logo and the button in canvas pixels.
+     One handler, three readers, so a fourth pad is a table entry. */
+  var PADS = {
+    logo: {
+      get: function () { var lg = styleOf('logo'); return { x: lg.x, y: lg.y }; },
+      step: function (dx, dy) {
+        var lg = styleOf('logo');
+        var base = layoutLogoBox() || { x: 0, y: 0 };
+        setBlockStyle('logo', 'x', (lg.x === undefined ? base.x : lg.x) + dx * NUDGE);
+        setBlockStyle('logo', 'y', (lg.y === undefined ? base.y : lg.y) + dy * NUDGE);
+      },
+      reset: function () {
+        setBlockStyle('logo', 'x', '');
+        setBlockStyle('logo', 'y', '');
+      },
+    },
+    cta: {
+      get: function () { var st = styleOf('cta'); return { x: st.x, y: st.y }; },
+      step: function (dx, dy) {
+        var st = styleOf('cta');
+        var base = layoutBox('cta') || { x: 0, y: 0 };
+        setBlockStyle('cta', 'x', (st.x === undefined ? base.x : st.x) + dx * NUDGE);
+        setBlockStyle('cta', 'y', (st.y === undefined ? base.y : st.y) + dy * NUDGE);
+      },
+      reset: function () {
+        setBlockStyle('cta', 'x', '');
+        setBlockStyle('cta', 'y', '');
+      },
+    },
+    background: {
+      get: function () { return concept().backgroundOffset || { x: 0, y: 0 }; },
+      // The offset names the part of the PICTURE that shows, so an arrow that
+      // moves the picture up is asking to see more of its bottom -- the sign
+      // is inverted here on purpose, and the arrows are labeled by what they
+      // do to the picture rather than by the number underneath.
+      step: function (dx, dy) {
+        var c = concept();
+        var off = c.backgroundOffset || { x: 0, y: 0 };
+        c.backgroundOffset = {
+          x: Math.max(-1, Math.min(1, (off.x || 0) + dx * 0.12)),
+          y: Math.max(-1, Math.min(1, (off.y || 0) + dy * 0.12)),
+        };
+        state.dirty = true;
+        schedule();
+      },
+      reset: function () {
+        var c = concept();
+        delete c.backgroundOffset;
+        delete c.backgroundPosition;
+        state.dirty = true;
+        schedule();
+      },
+    },
+  };
+
+  function wireNudgePads() {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-pad]'), function (pad) {
+      var spec = PADS[pad.dataset.pad];
+      if (!spec) return;
+      Array.prototype.forEach.call(pad.querySelectorAll('[data-nudge]'), function (btn) {
+        btn.addEventListener('click', function () {
+          var d = btn.dataset.nudge;
+          if (d === 'reset') return spec.reset();
+          // An up arrow moves the thing up, which is a smaller y.
+          spec.step(d === 'left' ? -1 : d === 'right' ? 1 : 0,
+                    d === 'up' ? -1 : d === 'down' ? 1 : 0);
+        });
+      });
+    });
+  }
+
+  /* The template's own box for a block at this size, so a nudge starts from
+     where the layout put it rather than from zero. */
+  function layoutBox(role) {
+    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    var boxes = t && t.boxes && t.boxes[state.size];
+    return (boxes && boxes[role]) || null;
+  }
+
+  function nudgePad(id, title) {
+    return '<div class="pad" data-pad="' + id + '" title="' + esc(title) + '">' +
+      '<span></span>' +
+      '<button type="button" data-nudge="up" aria-label="Move up">\u2191</button>' +
+      '<span></span>' +
+      '<button type="button" data-nudge="left" aria-label="Move left">\u2190</button>' +
+      '<button type="button" class="mid" data-nudge="reset" aria-label="Put it back">\u25CB</button>' +
+      '<button type="button" data-nudge="right" aria-label="Move right">\u2192</button>' +
+      '<span></span>' +
+      '<button type="button" data-nudge="down" aria-label="Move down">\u2193</button>' +
+      '<span></span></div>';
+  }
+
+  /* A dot on a collapsed header, so a panel that is carrying an override says
+     so without being opened. */
+  function dotIf(on) { return on ? '<span class="bsdot" title="Changed"></span>' : ''; }
+
+  function help(text, side) {
+    return '<span class="hb' + (side === 'left' ? ' left' : '') + '" tabindex="0"' +
+      ' role="note" aria-label="' + esc(text) + '">?' +
+      '<span class="hbtext">' + esc(text) + '</span></span>';
+  }
+
+  /* The logo is one of the two things a person may move. "Nudge the logo" is
+     the most common note on a proof, and where it belongs depends on the
+     picture behind it, which is why this sits next to the background chooser
+     rather than in a layout menu. */
   function logoStyleControls() {
     var lg = (concept().styleOverrides || {}).logo || {};
-    return '<div class="blockstyle">' +
-      '<div class="bsname">Logo</div>' +
-      '<div class="bsrow">' +
-        '<label>Left' +
-          '<input type="number" step="1" placeholder="auto" data-style="logo" data-prop="x"' +
-          ' value="' + (lg.x === undefined ? '' : lg.x) + '"></label>' +
-        '<label>Top' +
-          '<input type="number" step="1" placeholder="auto" data-style="logo" data-prop="y"' +
-          ' value="' + (lg.y === undefined ? '' : lg.y) + '"></label>' +
-      '</div>' +
-      '<div class="bsrow">' +
-        '<label>Box width' +
-          '<input type="number" min="8" step="1" placeholder="auto" data-style="logo" data-prop="w"' +
-          ' value="' + (lg.w === undefined ? '' : lg.w) + '"></label>' +
-        '<label>Box height' +
-          '<input type="number" min="8" step="1" placeholder="auto" data-style="logo" data-prop="h"' +
-          ' value="' + (lg.h === undefined ? '' : lg.h) + '"></label>' +
+    var touched = Object.keys(lg).length > 0;
+    var scale = typeof lg.scale === 'number' ? lg.scale : 1;
+    var box = layoutLogoBox();
+    return '<details class="blockstyle" data-acc="logo"' + (openPanel('logo') ? ' open' : '') + '>' +
+      '<summary>Logo' + dotIf(touched) + '</summary>' +
+      '<label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:4px">' +
+        'Move it' + help('Each press shifts the logo ' + NUDGE + ' pixels. The circle ' +
+          'puts it back where the layout had it. It cannot be pushed off the ad.') +
+      '</label>' +
+      nudgePad('logo', 'Move the logo') +
+      '<div class="slider">' +
+        '<label>Size <b id="logoScaleLabel">' + Math.round(scale * 100) + '%</b></label>' +
+        '<input type="range" id="logoScale" min="30" max="300" step="5" value="' +
+          Math.round(scale * 100) + '">' +
       '</div>' +
       '<div class="bsrow">' +
         '<label>Anchor across<select data-style="logo" data-prop="align">' +
@@ -972,19 +1323,47 @@
           opt('middle', 'Middle', lg.valign) + opt('bottom', 'Bottom', lg.valign) +
         '</select></label>' +
       '</div>' +
+      '<details class="advanced"><summary>Advanced \u2014 type the numbers</summary>' +
+        '<div class="bsrow">' +
+          '<label>Left<input type="number" step="1" placeholder="' + (box ? box.x : 'auto') +
+            '" data-style="logo" data-prop="x" value="' + (lg.x === undefined ? '' : lg.x) + '"></label>' +
+          '<label>Top<input type="number" step="1" placeholder="' + (box ? box.y : 'auto') +
+            '" data-style="logo" data-prop="y" value="' + (lg.y === undefined ? '' : lg.y) + '"></label>' +
+        '</div>' +
+        '<div class="bsrow">' +
+          '<label>Box width<input type="number" min="8" step="1" placeholder="' + (box ? box.w : 'auto') +
+            '" data-style="logo" data-prop="w" value="' + (lg.w === undefined ? '' : lg.w) + '"></label>' +
+          '<label>Box height<input type="number" min="8" step="1" placeholder="' + (box ? box.h : 'auto') +
+            '" data-style="logo" data-prop="h" value="' + (lg.h === undefined ? '' : lg.h) + '"></label>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--ink-2);line-height:1.35">' +
+          'A box, not the drawn size: the mark is fitted inside it keeping its ' +
+          'proportions, so a wide logo gets bigger from a wider box and a tall ' +
+          'one does not. A number typed here wins over the slider.' +
+        '</div>' +
+      '</details>' +
       '<div class="bsrow" style="grid-template-columns:1fr">' +
         '<label>Replace the logo' +
+          help('A new logo applies to every size, and is remembered for this ' +
+               'client\u2019s future builds.') +
           '<input type="file" id="logoFile"' +
           ' accept="image/png,image/svg+xml,image/jpeg,image/webp"></label>' +
       '</div>' +
-      '<div id="logoNote" style="font-size:11.5px;color:var(--ink-2);margin:2px 0 6px">' +
-        'A new logo applies to every size, and is remembered for this ' +
-        'client\u2019s future builds.' +
-      '</div>' +
-      '<button type="button" class="bsclear" data-style="logo" data-prop="*">' +
-        'Put the logo back' +
-      '</button></div>';
+      '<div id="logoNote" style="font-size:11.5px;color:var(--ink-2);margin:2px 0 6px"></div>' +
+      '<div id="logoFix"></div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button type="button" class="bsclear" id="logoLegibility">' +
+          'Logo hard to see?' +
+        '</button>' +
+        '<button type="button" class="bsclear" data-style="logo" data-prop="*">' +
+          'Put the logo back' +
+        '</button>' +
+      '</div></details>';
   }
+
+  /* The template's own logo box for this size, so Advanced shows what it is
+     overriding rather than an empty field labeled "auto". */
+  function layoutLogoBox() { return layoutBox('logo'); }
 
   function styleOf(block) {
     var all = concept().styleOverrides || {};
@@ -994,8 +1373,26 @@
   function blockStyleControls() {
     return STYLE_BLOCKS.map(function (b) {
       var key = b[0], label = b[1], st = styleOf(key);
-      return '<div class="blockstyle">' +
-        '<div class="bsname">' + esc(label) + '</div>' +
+      var isButton = key === 'cta';
+      var touched = Object.keys(st).length > 0;
+      // A block this size's layout does not draw gets a header saying so
+      // rather than eight controls that change nothing.
+      if (!willDraw(key)) {
+        return '<details class="blockstyle" data-acc="' + key + '">' +
+          '<summary style="color:var(--ink-2)">' + esc(label) + '</summary>' +
+          '<div style="font-size:11.5px;color:var(--warn);line-height:1.4">' +
+          'Not drawn at ' + esc(state.size) + ' in this layout, so nothing here ' +
+          'would change the ad.</div></details>';
+      }
+      return '<details class="blockstyle" data-acc="' + key + '"' +
+          (openPanel(key) ? ' open' : '') + '>' +
+        '<summary>' + esc(label) + dotIf(touched) + '</summary>' +
+        (isButton
+          ? '<label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:4px">' +
+              'Move it' + help('Each press shifts the button ' + NUDGE + ' pixels. The ' +
+                'circle puts it back where the layout had it.') +
+            '</label>' + nudgePad('cta', 'Move the button')
+          : '') +
         '<div class="bsrow">' +
           '<label>Size' +
             '<input type="number" min="8" max="96" step="1" placeholder="auto"' +
@@ -1019,35 +1416,48 @@
             opt('', 'Layout', st.weight) + opt('regular', 'Regular', st.weight) +
             opt('medium', 'Medium', st.weight) + opt('bold', 'Bold', st.weight) +
           '</select></label>' +
-          '<label>Align<select data-style="' + key + '" data-prop="align">' +
+          // Align means two things and used to mean the wrong one on the
+          // button: it set the label's alignment inside a button the template
+          // already centers, so every setting looked identical. On the button
+          // it now moves the button.
+          '<label>' + (isButton ? 'Place' : 'Align') +
+            (isButton ? help('Where the button sits on the ad, within the safe ' +
+                             'margin. The words inside it stay centered.') : '') +
+            '<select data-style="' + key + '" data-prop="align">' +
             opt('', 'Layout', st.align) + opt('left', 'Left', st.align) +
             opt('center', 'Center', st.align) + opt('right', 'Right', st.align) +
           '</select></label>' +
         '</div>' +
-        // Text colour. There was no control for this at all: the layout's ink
-        // was the only ink, and a client whose brand is a dark green on cream
-        // got near-black.
-        (key === 'cta' ? '' : colorControl(key, 'color', 'Text color', st.color)) +
-        (key === 'cta'
+        (isButton ? '' : colorControl(key, 'color', 'Text color', st.color)) +
+        (isButton
           ? colorControl('cta', 'bg', 'Button color', st.bg) +
-            colorControl('cta', 'color', 'Button text color', st.color)
+            colorControl('cta', 'color', 'Button text color', st.color) +
+            '<details class="advanced"><summary>Advanced \u2014 type the numbers</summary>' +
+              '<div class="bsrow">' +
+                '<label>Left<input type="number" step="1" placeholder="auto"' +
+                  ' data-style="cta" data-prop="x" value="' + (st.x === undefined ? '' : st.x) + '"></label>' +
+                '<label>Top<input type="number" step="1" placeholder="auto"' +
+                  ' data-style="cta" data-prop="y" value="' + (st.y === undefined ? '' : st.y) + '"></label>' +
+              '</div></details>'
           : '') +
-        (concept().backgroundImage && key !== 'cta' && key !== 'offer'
+        (concept().backgroundImage && !isButton && key !== 'offer'
           ? '<div style="font-size:11px;color:var(--ink-2);line-height:1.35">' +
             'Over a photo background the renderer picks the ink that survives ' +
             'the overlay, so a color set here is ignored on this concept.' +
             '</div>'
           : '') +
-        '</div>';
+        '<button type="button" class="bsclear" style="margin-top:6px"' +
+          ' data-style="' + key + '" data-prop="*">Put this block back</button>' +
+        '</details>';
     }).join('');
   }
 
-  /* A colour control is a row of the client's five, then a picker.
+  /* A color control is a row of the client's five, then a picker.
      
      The brand names are first and are what a person almost always means:
      "the accent" follows the palette when a swatch is corrected upstream,
      where #F2B705 is a snapshot of it that silently goes stale. The picker
-     stays for the colour that is genuinely one-off, and "Layout" is how you
+     stays for the color that is genuinely one-off, and "Layout" is how you
      put it back. */
   var BRAND_ROLES = ['primary', 'secondary', 'accent', 'light', 'dark'];
 
@@ -1060,8 +1470,8 @@
         ' data-ink="' + block + '" data-inkprop="' + prop + '" data-inkvalue="' + role + '"' +
         ' aria-pressed="' + (current === role ? 'true' : 'false') + '"></button>';
     }).join('');
-    // A hex the picker produced, or the resolved brand colour so the well is
-    // never showing a colour the block is not using.
+    // A hex the picker produced, or the resolved brand color so the well is
+    // never showing a color the block is not using.
     var swatch = (current && current.charAt(0) === '#')
       ? current
       : (colors[current] || colors[block === 'cta' && prop === 'bg' ? 'accent' : 'dark'] || '#111111');
@@ -1103,6 +1513,12 @@
     if (value === '') {
       // Blank is "use the layout's own setting", not zero.
       delete st[prop];
+    } else if (prop === 'scale' || prop === 'opacity') {
+      // Fractions, not pixels. Rounding these to integers is how a 55%
+      // overlay became 1 and a 0.9 logo scale became a whole-number 1 — the
+      // slider moved and the ad did not.
+      var f = Number(value);
+      if (!isFinite(f)) { delete st[prop]; } else { st[prop] = f; }
     } else if (prop === 'size' || prop === 'w' || prop === 'h' ||
                prop === 'x' || prop === 'y') {
       var n = Number(value);
@@ -1134,10 +1550,10 @@
      
      **The overlay.** There has always been one, painted so text stays
      readable, and it was a fixed dark scrim nobody could see or set. It is a
-     colour and a strength now. Leaving the colour alone keeps the graded dark
+     color and a strength now. Leaving the color alone keeps the graded dark
      scrim exactly as it was, so no existing ad changes; choosing one paints a
-     flat wash of that colour, because a graded version of a chosen colour is
-     that colour nowhere on the canvas. */
+     flat wash of that color, because a graded version of a chosen color is
+     that color nowhere on the canvas. */
   var BG_POS = [
     ['xMinYMin', 'Top left'], ['xMidYMin', 'Top'], ['xMaxYMin', 'Top right'],
     ['xMinYMid', 'Left'], ['xMidYMid', 'Center'], ['xMaxYMid', 'Right'],
@@ -1148,23 +1564,44 @@
   function backgroundAdjust() {
     var c = concept();
     if (!c.backgroundImage) return '';
-    var pos = c.backgroundPosition || 'xMidYMid';
     var strength = typeof c.backgroundOverlay === 'number' ? c.backgroundOverlay : DEFAULT_OVERLAY;
     var wash = c.backgroundOverlayColor || '';
-    return '<div class="blockstyle" style="margin-top:10px">' +
-      '<div class="bsname">Where the picture sits</div>' +
-      '<div class="bgpos" id="bgPos">' +
-        BG_POS.map(function (p) {
-          return '<button type="button" data-bgpos="' + p[0] + '" title="' + esc(p[1]) +
-            '" aria-label="' + esc(p[1]) + '" aria-pressed="' +
-            (p[0] === pos ? 'true' : 'false') + '"></button>';
-        }).join('') +
+    var zoom = typeof c.backgroundZoom === 'number' ? c.backgroundZoom : 1;
+    var off = c.backgroundOffset || legacyOffset(c.backgroundPosition);
+    return '<details class="blockstyle" data-acc="bg" style="margin-top:10px"' +
+        (openPanel('bg') ? ' open' : '') + '>' +
+      '<summary>Where the picture sits' +
+        dotIf(!!c.backgroundOffset || !!c.backgroundPosition || zoom !== 1) + '</summary>' +
+      '<label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:4px">' +
+        'Move the picture' +
+        help('The picture always fills the ad; these move it inside the frame, ' +
+             'so a different part of it survives the crop. The circle re-centers it.') +
+      '</label>' +
+      nudgePad('background', 'Move the picture') +
+      '<div class="slider">' +
+        '<label>Zoom <b id="bgZoomLabel">' + Math.round(zoom * 100) + '%</b></label>' +
+        '<input type="range" id="bgZoom" min="100" max="300" step="5" value="' +
+          Math.round(zoom * 100) + '">' +
       '</div>' +
-      '<div style="font-size:11px;color:var(--ink-2);line-height:1.35;margin-bottom:4px">' +
-        'The picture always fills the ad; this is the part that survives the ' +
-        'crop. Top keeps the sky, bottom keeps the ground.' +
+      '<details class="advanced"><summary>Advanced \u2014 type the numbers</summary>' +
+        '<div class="bsrow">' +
+          '<label>Across (-1 left \u2026 1 right)' +
+            '<input type="number" min="-1" max="1" step="0.05" id="bgOffX"' +
+            ' value="' + (Math.round((off.x || 0) * 100) / 100) + '"></label>' +
+          '<label>Down (-1 top \u2026 1 bottom)' +
+            '<input type="number" min="-1" max="1" step="0.05" id="bgOffY"' +
+            ' value="' + (Math.round((off.y || 0) * 100) / 100) + '"></label>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--ink-2);line-height:1.35">' +
+          'A fraction of the picture\u2019s own overflow, not pixels \u2014 so one ' +
+          'setting shows the same part of the photograph on every size.' +
+        '</div>' +
+      '</details>' +
+      '<div class="bsname" style="margin-top:12px">Overlay' +
+        help('Painted over the picture so the words stay readable. Leave the ' +
+             'color on Auto for the built-in dark scrim, which is heavier where ' +
+             'the copy sits; pick one and it becomes a flat wash of that color.') +
       '</div>' +
-      '<div class="bsname" style="margin-top:12px">Overlay</div>' +
       '<div class="inkrow"><span class="inklabel">Color</span>' +
         BRAND_ROLES.map(function (role) {
           var hex = (state.doc.campaign.brand.colors || {})[role] || '#888888';
@@ -1178,29 +1615,94 @@
         '<button type="button" class="bsclear" id="bgWashClear"' +
           ' style="padding:3px 8px;font-size:10.5px">Auto</button>' +
       '</div>' +
-      '<label style="font-size:11px;color:var(--ink-2);display:block;margin-top:6px">' +
-        'Transparency <b id="bgOpacityLabel" style="color:var(--ink)">' +
-        Math.round((1 - strength) * 100) + '% see-through</b>' +
-        '<input type="range" id="bgOpacity" min="0" max="100" step="5" style="width:100%"' +
-        ' value="' + Math.round(strength * 100) + '">' +
-      '</label>' +
+      '<div class="slider">' +
+        '<label>Transparency <b id="bgOpacityLabel">' +
+          Math.round((1 - strength) * 100) + '% see-through</b></label>' +
+        '<input type="range" id="bgOpacity" min="0" max="100" step="5"' +
+          ' value="' + Math.round(strength * 100) + '">' +
+      '</div>' +
       '<div style="font-size:11px;color:var(--ink-2);line-height:1.35">' +
-        (wash
-          ? 'A flat wash of the color above.'
-          : 'No color chosen, so this is the built-in dark scrim \u2014 heavier ' +
-            'where the copy sits, lighter on the other side. Pick a color to ' +
-            'replace it with a flat wash.') +
-      '</div></div>';
+        (wash ? 'A flat wash of the color above.'
+              : 'No color chosen, so this is the built-in dark scrim.') +
+      '</div></details>';
+  }
+
+  /* The nine old alignments, as the offsets they always meant, so a concept
+     saved before the arrows existed shows the right numbers in Advanced. */
+  function legacyOffset(pos) {
+    var map = {
+      xMinYMin: [-1,-1], xMidYMin: [0,-1], xMaxYMin: [1,-1],
+      xMinYMid: [-1,0],  xMidYMid: [0,0],  xMaxYMid: [1,0],
+      xMinYMax: [-1,1],  xMidYMax: [0,1],  xMaxYMax: [1,1]
+    }[pos || ''];
+    return map ? { x: map[0], y: map[1] } : { x: 0, y: 0 };
+  }
+
+  /* The card the copy sits on.
+     
+     "Full background with copy panel" puts the headline on a filled panel over
+     the photograph, and that fill is the single thing deciding whether the
+     copy can be read. It was a template constant -- brand primary at 88% --
+     so a client whose primary is a mid-gray got copy nobody could read and
+     there was no control anywhere that could change it. */
+  function panelControls() {
+    if (!willDraw('panel')) return '';
+    var ps = (concept().styleOverrides || {}).panel || {};
+    var op = typeof ps.opacity === 'number' ? ps.opacity : null;
+    return '<details class="blockstyle" data-acc="panel"' +
+        (openPanel('panel') ? ' open' : '') + '>' +
+      '<summary>Panel behind the copy' + dotIf(Object.keys(ps).length > 0) + '</summary>' +
+      '<div style="font-size:11px;color:var(--ink-2);line-height:1.35;margin-bottom:7px">' +
+        'This layout puts the words on a card over the picture. Its color is ' +
+        'what decides whether they can be read.' +
+      '</div>' +
+      colorControl('panel', 'fill', 'Card color', ps.fill) +
+      '<div class="slider">' +
+        '<label>Solidity <b id="panelOpacityLabel">' +
+          (op === null ? 'layout\u2019s own' : Math.round(op * 100) + '%') + '</b></label>' +
+        '<input type="range" id="panelOpacity" min="0" max="100" step="5"' +
+          ' value="' + Math.round((op === null ? 0.88 : op) * 100) + '">' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--ink-2);line-height:1.35;margin-bottom:6px">' +
+        'The copy on this card has a color of its own. Changing the card to ' +
+        'something near it makes the words vanish \u2014 the checks on the right ' +
+        'will say so, and Text color on each block above is where to fix it.' +
+      '</div>' +
+      '<button type="button" class="bsclear" data-style="panel" data-prop="*">' +
+        'Put the card back</button>' +
+      '</details>';
   }
 
   function wireBackgroundAdjust() {
-    Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgpos]'), function (el) {
-      el.addEventListener('click', function () {
-        concept().backgroundPosition = el.dataset.bgpos;
+    var slider = $('bgOpacity');
+    if (slider) slider.addEventListener('input', function () {
+      var pct = Number(this.value);
+      concept().backgroundOverlay = pct / 100;
+      state.dirty = true;
+      var lbl = $('bgOpacityLabel');
+      if (lbl) lbl.textContent = (100 - pct) + '% see-through';
+      schedule();
+    });
+    var zoom = $('bgZoom');
+    if (zoom) zoom.addEventListener('input', function () {
+      var pct = Number(this.value);
+      concept().backgroundZoom = pct / 100;
+      state.dirty = true;
+      var lbl = $('bgZoomLabel');
+      if (lbl) lbl.textContent = pct + '%';
+      schedule();
+    });
+    // Advanced: the offset as two numbers. Same value the arrows move.
+    ['bgOffX', 'bgOffY'].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.addEventListener('change', function () {
+        var c = concept();
+        var off = c.backgroundOffset || legacyOffset(c.backgroundPosition);
+        var v = Math.max(-1, Math.min(1, Number(this.value) || 0));
+        c.backgroundOffset = id === 'bgOffX' ? { x: v, y: off.y || 0 }
+                                             : { x: off.x || 0, y: v };
         state.dirty = true;
-        Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgpos]'), function (b) {
-          b.setAttribute('aria-pressed', b === el ? 'true' : 'false');
-        });
         preview();
       });
     });
@@ -1211,22 +1713,273 @@
     if (picker) picker.addEventListener('change', function () { setOverlayColor(this.value); });
     var clear = $('bgWashClear');
     if (clear) clear.addEventListener('click', function () { setOverlayColor(''); });
-    var slider = $('bgOpacity');
-    if (slider) slider.addEventListener('input', function () {
+
+    // The card behind the copy.
+    var panelOp = $('panelOpacity');
+    if (panelOp) panelOp.addEventListener('input', function () {
       var pct = Number(this.value);
-      concept().backgroundOverlay = pct / 100;
-      state.dirty = true;
-      var lbl = $('bgOpacityLabel');
-      if (lbl) lbl.textContent = (100 - pct) + '% see-through';
-      schedule();
+      setBlockStyle('panel', 'opacity', pct / 100);
+      var lbl = $('panelOpacityLabel');
+      if (lbl) lbl.textContent = pct + '%';
     });
+
+    // The logo, sized by one slider rather than two number fields.
+    var logoScale = $('logoScale');
+    if (logoScale) logoScale.addEventListener('input', function () {
+      var pct = Number(this.value);
+      setBlockStyle('logo', 'scale', pct / 100);
+      var lbl = $('logoScaleLabel');
+      if (lbl) lbl.textContent = pct + '%';
+    });
+
+    var legibility = $('logoLegibility');
+    if (legibility) legibility.addEventListener('click', askAboutTheLogo);
+  }
+
+  /* A logo nobody can see, fixed by moving the palette.
+     
+     The client's mark is the one asset in a campaign nobody may edit, so when
+     it is dark on their dark brand color the palette is what has to move. QA
+     has always said the logo is invisible and could do nothing about it.
+     
+     The proposals are arithmetic, not a model: every one is generated by
+     walking a channel until the WCAG ratio clears, and every one comes back
+     with the ratio it achieves, so the panel shows its work. Where the client
+     has an Insites scan, the colors their real website uses are offered
+     first and labeled as observed -- those are their colors rather than a
+     tint of one entry in them. */
+  function askAboutTheLogo() {
+    var box = $('logoFix');
+    if (!box) return;
+    box.innerHTML = '<div class="bgmsg">Measuring the logo against what is behind it\u2026</div>';
+    siteBrand().then(function (site) {
+      return post('/api/palette/variants', {
+        campaign: state.doc.campaign, conceptId: state.conceptId, size: state.size,
+        observed: site && site.colors ? site.colors : undefined,
+      });
+    }).then(function (d) {
+      if (!d || d.ratio === null || d.ratio === undefined) {
+        box.innerHTML = '<div class="bgmsg">' +
+          esc((d && d.reason) || 'The logo could not be measured.') + '</div>';
+        return;
+      }
+      var verdictText = d.verdict === 'fine'
+        ? 'The logo reads at ' + d.ratio.toFixed(1) + ':1 against the ' + esc(d.behind) +
+          ' color, which is fine. Nothing needs changing.'
+        : (d.verdict === 'invisible' ? 'The logo is close to invisible' : 'The logo is weak') +
+          ' at ' + d.ratio.toFixed(1) + ':1 against the ' + esc(d.behind) + ' color.';
+      if (!d.variants || !d.variants.length) {
+        box.innerHTML = '<div class="bgmsg">' + esc(verdictText) +
+          (d.verdict === 'fine' ? '' :
+            ' Nothing in their palette, and no lighter or darker version of it, ' +
+            'clears the threshold \u2014 this one needs a reverse logo rather than ' +
+            'a color change.') + '</div>';
+        return;
+      }
+      box.innerHTML = '<div class="bgmsg">' + esc(verdictText) +
+        ' These keep the logo exactly as it is and move the palette instead.</div>' +
+        d.variants.map(function (v, i) {
+          return '<button type="button" class="variant" data-variant="' + i + '">' +
+            '<span class="vsw" style="background:' + esc(v.colors[d.behind] || '#888') + '"></span>' +
+            '<span><b>' + esc(v.name) + ' <em>' + v.ratio.toFixed(1) + ':1</em></b>' +
+            '<span>' + esc(v.why) + '</span></span></button>';
+        }).join('') +
+        '<button type="button" class="bsclear" id="logoFixClose">Leave it as it is</button>';
+
+      Array.prototype.forEach.call(box.querySelectorAll('[data-variant]'), function (el) {
+        el.addEventListener('click', function () {
+          var v = d.variants[Number(el.dataset.variant)];
+          // The whole palette, not one role: applying part of it is how a set
+          // ends up half in one scheme and half in another.
+          state.doc.campaign.brand.colors = v.colors;
+          state.dirty = true;
+          drawControls();
+          preview();
+          showNextSteps('Palette changed to "' + v.name + '". The logo is untouched. ' +
+                        'Save to keep it.');
+        });
+      });
+      var close = $('logoFixClose');
+      if (close) close.addEventListener('click', function () { box.innerHTML = ''; });
+    }).catch(function () {
+      box.innerHTML = '<div class="bgmsg">That could not be measured just now.</div>';
+    });
+  }
+
+  /* The client's real website colors, offered beside the palette.
+     
+     Brandfetch returns a list and frequently does not label which entry is
+     the brand color -- that is the note the intake has to print, and the
+     reason a build opens on a palette somebody has to check. An Insites scan
+     of their live site reports what the pages actually paint: the background
+     behind their content, their text color, their accent. That is observed
+     rather than declared, and it is the better evidence.
+     
+     Shown only when a scan exists, which for a prospect it usually does not.
+     A row of swatches with nothing behind them would be a promise the tool
+     cannot keep. */
+  function drawSiteBrand() {
+    var host = $('siteBrand');
+    if (!host) return;
+    siteBrand().then(function (d) {
+      host = $('siteBrand');                    // the column may have redrawn
+      if (!host || !d) return;
+      var entries = Object.keys(d.colors || {});
+      // A scan with no readable palette can still carry the screenshot, and
+      // that is the half worth looking at. Returning early on an empty color
+      // list hid the picture on every one of those.
+      if (!entries.length && !d.screenshot) return;
+      host.innerHTML =
+        '<div style="font-size:11px;color:var(--ink-2);margin-bottom:5px">' +
+          'From their website' +
+          help('Read off ' + d.domain + ' by their latest site scan \u2014 what the ' +
+               'live pages actually paint, rather than a palette somebody ' +
+               'labeled. Click a swatch to copy its hex.') +
+        '</div>' +
+        (entries.length
+          ? '<div class="inkrow" style="margin-bottom:9px">' +
+              entries.map(function (k) {
+                return '<button type="button" class="inkchip" data-sitecolor="' +
+                  esc(d.colors[k]) + '" style="background:' + esc(d.colors[k]) + '"' +
+                  ' title="' + esc(k + ' \u2014 ' + d.colors[k] + ' (click to copy)') + '"></button>';
+              }).join('') +
+            '</div>'
+          : '<div class="bgmsg" style="margin-bottom:9px">Their scan could not read ' +
+            'a palette off the page.</div>') +
+        siteShotMarkup(d);
+      wireSiteShot(host, d);
+      Array.prototype.forEach.call(host.querySelectorAll('[data-sitecolor]'), function (el) {
+        el.addEventListener('click', function () {
+          var hex = el.dataset.sitecolor;
+          // Copied, not applied. Which of the five roles a site color should
+          // become is a judgment -- their page background is not always the
+          // ad's primary -- and guessing it would move four other things.
+          if (navigator.clipboard) navigator.clipboard.writeText(hex).catch(function () {});
+          el.title = hex + ' copied \u2014 paste it into a swatch below';
+        });
+      });
+    });
+  }
+
+  /* What the scan can say about their type, which is less than people want.
+
+     `gdpr.has_google_font_api` is a boolean: the site loads Google Fonts, or
+     it does not. It never says WHICH face, and a note implying otherwise
+     would be worse than no note -- somebody would read it as a
+     recommendation and type a family the renderer does not have.
+
+     So it is stated as what it is, and the useful direction is the one people
+     do not expect: a **false** is the actionable answer. It means their type
+     is self-hosted or licensed, so nothing here will match it by accident and
+     the face is a decision somebody has to make rather than assume. A true is
+     mild encouragement. And an absent value is *not measured* -- the check
+     lives in the scan's GDPR section and a plan that did not run it leaves
+     the field out entirely, which must not read as "no". */
+  function drawSiteType() {
+    var host = $('siteType');
+    if (!host) return;
+    siteBrand().then(function (d) {
+      host = $('siteType');                     // the column may have redrawn
+      if (!host || !d) return;
+      var uses = d.usesGoogleFonts;
+      if (uses === null || uses === undefined) return;   // not measured: say nothing
+      host.innerHTML = '<div class="bgmsg" style="margin-top:2px">' +
+        (uses
+          ? esc(d.domain) + ' loads Google Fonts, so a Google family here has a ' +
+            'fair chance of matching their site. The scan does not say which one.'
+          : esc(d.domain) + ' does not load Google Fonts \u2014 their face is ' +
+            'self-hosted or licensed, so nothing here will match it by accident. ' +
+            'Worth picking deliberately.') +
+        '</div>';
+    });
+  }
+
+  /* Their site, as it looks.
+
+     The palette above says what the page paints; this says what it looks
+     like, which is the thing an ad actually gets compared against. An
+     operator judging brand color on a dark canvas has, until now, had to
+     open the client's website in another tab to remember what they are
+     matching -- and mostly did not, which is how an ad comes back "not really
+     them" with nobody able to say why.
+
+     Desktop and mobile, because half a display package runs on a phone and
+     the two are often laid out nothing alike. Desktop leads because it is the
+     one that carries the full brand furniture; mobile is a toggle rather than
+     a second thumbnail, since two small pictures side by side are two
+     pictures nobody can read.
+
+     It is reference and never a source: nothing here can be applied to the
+     ad. A screenshot of a website is not a background, and the logo in it is
+     a logo photographed off a page -- the rule `hub/scan_facts.py` states,
+     that a sighting is a candidate and never merged into what we hold. */
+  function siteShotMarkup(d) {
+    if (!d.screenshot) return '';
+    var when = d.scannedAt ? new Date(d.scannedAt) : null;
+    var dated = (when && !isNaN(when)) ? when.toLocaleDateString() : '';
+    return '<div id="siteShot">' +
+      '<div style="font-size:11px;color:var(--ink-2);margin-bottom:4px;display:flex;' +
+        'align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<span>Their site' + (dated ? ', ' + esc(dated) : '') + '</span>' +
+        (d.screenshotMobile
+          ? '<button type="button" class="bsclear" data-shot="desktop" ' +
+            'aria-pressed="true" style="padding:1px 7px;font-size:10.5px">Desktop</button>' +
+            '<button type="button" class="bsclear" data-shot="mobile" ' +
+            'aria-pressed="false" style="padding:1px 7px;font-size:10.5px">Mobile</button>'
+          : '') +
+      '</div>' +
+      '<img id="siteShotImg" src="' + esc(d.screenshot) + '" alt="' +
+        esc(d.domain + ' as it looks today') + '" ' +
+        'style="width:100%;border-radius:6px;border:1px solid var(--line);' +
+        'display:block;cursor:zoom-in;background:var(--panel-2)">' +
+      '<div class="bgmsg" style="margin-top:4px">Reference only \u2014 click to enlarge.</div>' +
+      '</div>';
+  }
+
+  function wireSiteShot(host, d) {
+    var img = host.querySelector('#siteShotImg');
+    if (!img) return;
+    img.addEventListener('click', function () {
+      // No "use this picture": see lightbox().
+      lightbox(img.src, null, d.domain + ' \u2014 Esc closes');
+    });
+    Array.prototype.forEach.call(host.querySelectorAll('[data-shot]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var want = btn.dataset.shot;
+        img.src = want === 'mobile' ? d.screenshotMobile : d.screenshot;
+        Array.prototype.forEach.call(host.querySelectorAll('[data-shot]'), function (b) {
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+        });
+      });
+    });
+  }
+
+  /* What the client's own website says its brand is, from their latest
+     Insites scan. Cached for the session: it is one scan, it does not change
+     while somebody is laying out an ad, and it is a database read on the Hub
+     side. Absence is normal -- most prospects have never been scanned -- so
+     every caller treats a null as "no extra evidence" rather than an error. */
+  var siteBrandCache;
+  function siteBrand() {
+    if (siteBrandCache !== undefined) return Promise.resolve(siteBrandCache);
+    var who = clientName();
+    var domain = (state.doc && state.doc.campaign.brand.domain) || '';
+    if (!who && !domain) { siteBrandCache = null; return Promise.resolve(null); }
+    return fetch('/_hub/site-brand?client=' + encodeURIComponent(who) +
+                 '&domain=' + encodeURIComponent(domain))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        siteBrandCache = (d && d.found) ? d : null;
+        return siteBrandCache;
+      })
+      .catch(function () { siteBrandCache = null; return null; });
   }
 
   function setOverlayColor(hex) {
     var c = concept();
     if (hex) c.backgroundOverlayColor = hex.toUpperCase();
     else delete c.backgroundOverlayColor;
-    // A strength has to exist before a colour means anything, or the first
+    // A strength has to exist before a color means anything, or the first
     // pick paints the composer's default 0.42 with no slider position behind
     // it and the panel and the ad disagree.
     if (typeof c.backgroundOverlay !== 'number') c.backgroundOverlay = DEFAULT_OVERLAY;
@@ -1248,8 +2001,35 @@
 
   function bgSay(html) { bgResults().innerHTML = html; }
 
-  function bgBusy(what) {
+  /* Six waits hang off this panel and they are not alike: two are a model
+     drawing (billed, tens of seconds), two are somebody else's server (the
+     client's own landing page, the stock library) and two are our own
+     storage. The Hub's one indicator draws a different glyph for each, so
+     the kind travels with the message rather than every call site being
+     edited again the next time the mark changes.
+
+     Before this the panel said a sentence and nothing else -- which is the
+     note CLAUDE.md already makes about the QA reports saying "Running
+     report..." in two words with no mark and no sign it was still going,
+     on the screen where the wait is longest and the call is billed.
+
+     Guarded on window.S1Think, so a page that failed to load the script
+     loses the mark and never the message. The handle is returned for a
+     caller that has a real transition to report; the rest end the wait by
+     writing over the panel, which the indicator's own isConnected check
+     already handles. */
+  function bgBusy(what, kind) {
+    if (window.S1Think) {
+      return window.S1Think.attach(bgResults(),
+        { kind: kind || 'wait', label: what });
+    }
     bgSay('<span class="bgmsg">' + esc(what) + '</span>');
+    return {
+      stage: function (text) {
+        if (text) bgSay('<span class="bgmsg">' + esc(text) + '</span>');
+      },
+      done: function () {}
+    };
   }
 
   function chooseBackground(mode, btn) {
@@ -1271,7 +2051,7 @@
     }
 
     if (mode === 'landing') {
-      bgBusy('Reading their landing page\u2026');
+      bgBusy('Reading their landing page\u2026', 'scan');
       post('/api/landing/images', { projectId: state.projectId || undefined,
                                     url: state.doc.landingPage || undefined })
         .then(function (d) {
@@ -1296,7 +2076,7 @@
               'there is no gallery to read.</span>');
         return;
       }
-      bgBusy('Reading ' + who + '\u2019s gallery\u2026');
+      bgBusy('Reading ' + who + '\u2019s gallery\u2026', 'wait');
       /* The Hub owns this one. The renderer does not know who our clients are
          and must not learn -- the basepath shim puts the mount prefix on the
          front, so standalone this correctly 404s rather than half-working. */
@@ -1310,7 +2090,11 @@
             return;
           }
           bgGrid(d.images.map(function (i) {
-            return { url: i.url, label: i.label || '' };
+            // `thumb` is what the tile draws; `url` is what gets applied and
+            // what the magnifier opens. Only the Hub-fed gallery carries one
+            // -- stock, AI and a fresh upload pass none and fall back to the
+            // asset, exactly as they did before.
+            return { url: i.url, thumb: i.thumb || '', label: i.label || '' };
           }), 'gallery');
         })
         .catch(function () {
@@ -1337,12 +2121,37 @@
     }
 
     if (mode === 'ai') {
-      bgBusy('Drawing something \u2014 this takes a few seconds\u2026');
+      /* Two waits back to back, and only the second one is the model. The
+         page is fetched first (their server, the dish) and then the picture
+         is drawn (billed, the star), so the mark changes hands at the real
+         transition rather than on a timer -- the browser knows exactly when
+         the fetch came back, which is the one case where reporting a step
+         beats guessing at one.
+
+         The reading step is claimed only when there is a page still to
+         fetch: ensureLanding() caches on state.landing, so the second
+         generation has no such step and announcing one would be the
+         indicator claiming what it does not know. */
+      var hasPage = !!state.landingPage;
+      var reading = hasPage && !state.landing;
+      var think = bgBusy(
+        reading ? 'Reading ' + state.landingPage + '\u2026'
+                : 'Drawing something \u2014 this takes a few seconds\u2026',
+        reading ? 'scan' : 'ai');
+      /* The client's own page is part of the brief. Without it the model is
+         drawing from a headline and a business name, which is how a roofing
+         company gets a stock-looking house it has never worked on -- the
+         analysis was sitting on the project record the whole time and this
+         call never asked for it. */
+      ensureLanding().then(function (landing) {
+      think.stage('Drawing something \u2014 this takes a few seconds\u2026',
+                  'ai');
       post('/api/images/generate', {
         business: state.doc.campaign.client || '',
         promoting: effective('headline') || '',
         benefit: effective('support') || '',
         offer: effective('offer') || '',
+        landingAnalysis: landing || undefined,
         palette: state.doc.campaign.brand.colors || undefined
       })
         .then(function (d) {
@@ -1359,10 +2168,124 @@
               'Nothing came back from the image generator.') + '</span>');
             return;
           }
-          bgGrid(cands.map(function (x) { return { url: x.url, label: 'AI' }; }), 'ai');
+          aiGrid(cands, null);
         })
         .catch(function () { bgSay('<span class="bgmsg">Image generation is unavailable.</span>'); });
+      });
     }
+  }
+
+  /* A generated picture is a first draft, and the first thing anybody wants
+     is one change to it -- "make the sky darker", "move the house left". The
+     server has taken a revise instruction and the previous image as a
+     reference since the intake screen was built; the build screen simply
+     never offered the box. It is the difference between a generator you can
+     work with and a slot machine you keep pulling. */
+  function aiGrid(cands, note) {
+    bgGrid(cands.map(function (x) { return { url: x.url, label: 'AI' }; }), 'ai',
+      (note ? '<p class="bgmsg">' + esc(note) + '</p>' : '') +
+      '<p class="bgmsg">Click it to put it behind this concept, or ask for a ' +
+      'change and it will redraw from this one rather than starting again.</p>');
+    var last = cands[cands.length - 1];
+    bgResults().insertAdjacentHTML('beforeend',
+      '<div class="bsrow" style="margin-top:8px">' +
+        '<label style="flex:1">Ask for a change' +
+          '<input type="text" id="aiRevise" placeholder="e.g. make the sky darker">' +
+        '</label>' +
+        '<button type="button" class="bsclear" id="aiReviseGo">Redraw</button>' +
+      '</div>');
+    /* Keeping the one you liked.
+
+       A generated picture is a file on the render disk that the retention
+       sweep will remove, so a picture worth reusing has to be moved somewhere
+       permanent before it is filed -- otherwise the client's gallery gains a
+       row that opens today and 404s next month. The renderer moves it to
+       Cloudinary; the Hub files it. Offered only inside the Hub, because
+       standalone there is no client record to file into. */
+    if (window.S1_BASE && last && last.url) {
+      bgResults().insertAdjacentHTML('beforeend',
+        '<div class="bsrow" style="margin-top:6px">' +
+          '<button type="button" class="bsclear" id="aiKeep">' +
+            'Save this picture to ' + esc(clientLabel()) + '\u2019s gallery</button>' +
+          '<span id="aiKeepNote" style="font-size:11.5px;color:var(--ink-2)"></span>' +
+        '</div>');
+      var keep = $('aiKeep'), keepNote = $('aiKeepNote');
+      if (keep) keep.addEventListener('click', function () {
+        keep.disabled = true;
+        keepNote.textContent = 'Storing it\u2026';
+        post('/api/imagery/keep', {
+          url: last.url,
+          client: clientName() || 'Smart 1 Marketing',
+          campaign: state.doc.campaign.campaignName || 'display ads',
+          label: (effective('headline') || 'ai background')
+        })
+          .then(function (kept) {
+            if (!kept || !kept.url) {
+              throw new Error((kept && kept.error) || 'That picture could not be stored.');
+            }
+            return fetch(window.S1_BASE + '/_hub/gallery', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                client: clientName(), url: kept.url, public_id: kept.public_id,
+                filename: kept.filename, width: kept.width, height: kept.height
+              })
+            }).then(function (r) { return r.json(); });
+          })
+          .then(function (g) {
+            keep.disabled = false;
+            if (g && g.ok) {
+              keepNote.textContent = g.duplicate
+                ? 'Already in their gallery.'
+                : 'Saved to their gallery.';
+            } else {
+              keepNote.textContent = (g && g.error) || 'The Hub did not file it.';
+            }
+          })
+          .catch(function (e) {
+            keep.disabled = false;
+            keepNote.textContent = (e && e.message) || 'That could not be saved.';
+          });
+      });
+    }
+
+    var go = $('aiReviseGo'), box = $('aiRevise');
+    if (!go || !box) return;
+    var run = function () {
+      var instruction = box.value.trim();
+      if (!instruction) return;
+      bgBusy('Redrawing \u2014 "' + instruction + '"\u2026', 'ai');
+      post('/api/images/generate', {
+        business: state.doc.campaign.client || '',
+        promoting: effective('headline') || '',
+        benefit: effective('support') || '',
+        offer: effective('offer') || '',
+        palette: state.doc.campaign.brand.colors || undefined,
+        // Carried into the redraw as well. Dropping it here would make every
+        // change after the first one drift away from the client's own page.
+        landingAnalysis: state.landing || undefined,
+        // Both, or the model starts from nothing and the "change" is a
+        // different picture that happens to share a description.
+        reviseInstruction: instruction,
+        previousUrl: last && last.url,
+      })
+        .then(function (d) {
+          var next = d.candidates || (d.candidate ? [d.candidate] : []);
+          next = next.filter(function (x) { return x && x.url; });
+          if (!next.length) {
+            bgSay('<span class="bgmsg">' + esc(d.reason || d.error ||
+              'That change did not come back with a picture.') + '</span>');
+            return;
+          }
+          aiGrid(next, 'Redrawn: "' + instruction + '".');
+        })
+        .catch(function () {
+          bgSay('<span class="bgmsg">That change could not be made.</span>');
+        });
+    };
+    go.addEventListener('click', run);
+    box.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); run(); }
+    });
   }
 
   /* Stock, with the search phrase on screen and editable.
@@ -1373,8 +2296,11 @@
      says which phrase produced these -- including when it had to drop terms
      to find anything -- and the box above the results is the fix. */
   function stockSearch(phrase) {
+    /* The stock libraries are somebody else's server, so this is the dish
+       rather than the star -- nothing is being written and nothing is
+       billed per call here. */
     bgBusy(phrase ? 'Looking for "' + phrase + '"\u2026'
-                  : 'Finding photos that fit this campaign\u2026');
+                  : 'Finding photos that fit this campaign\u2026', 'scan');
     post('/api/images/search', {
       business: state.doc.campaign.client || '',
       promoting: effective('headline') || '',
@@ -1429,6 +2355,171 @@
     return (c.client || (c.brand && c.brand.name) || '').trim();
   }
 
+  /* The same name, for a sentence rather than for a filing key. Never blank,
+     because "file them onto \u2019s record" is how a missing value looks when
+     it reaches prose -- and never used as an identifier, because "the client"
+     is not one. */
+  function clientLabel() { return clientName() || 'the client'; }
+
+  /* ------------------------------------------- the copy, from their page */
+  /* Writes the five fields from the client's own landing page.
+
+     Three rules, and each is a way this goes quietly wrong.
+
+     **It fills empty fields only.** A draft that overwrites is a draft
+     nobody dares press twice, and the one thing an operator has certainly
+     done by the time they press it is fix a headline by hand.
+
+     **It writes to every size, not to the one on screen.** A drafted line is
+     the set's copy; landing it as a per-size override would leave the other
+     seven sizes empty and the panel insisting the field was filled.
+
+     **An empty offer or proof point is kept empty.** The server is
+     instructed twice not to invent either, because a made-up discount or a
+     made-up review count is the sentence that costs an account -- so an
+     empty answer here is an answer, and it is reported rather than hidden. */
+  function wireDraftCopy() {
+    var btn = $('draftCopy');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var note = $('draftNote');
+      btn.disabled = true;
+      /* The longest wait on this screen, and it was a sentence with no mark
+         on it -- press the button and the only sign anything is happening is
+         eleven words that do not change for half a minute. Past six seconds
+         the elapsed line is the only thing separating a slow answer from a
+         dead one, which is why it exists.
+
+         Two waits, two kinds: their page is fetched first (the dish) and
+         then the copy is written (billed, the star). The reading step is
+         claimed only when there is a page still to fetch, because
+         ensureLanding() caches -- a second draft goes straight to the model
+         and saying otherwise is the indicator claiming a step that is not
+         happening. */
+      /* Three states, not two. A campaign with no landing page on it never
+         reads one, so "writing from what their page says" is a claim about
+         a page that does not exist -- and it is the sentence a rep would
+         then quote back when the copy is wrong. The page is only named
+         where there is one. */
+      var hasPage = !!state.landingPage;
+      var reading = hasPage && !state.landing;
+      var writing = hasPage
+        ? 'Writing from what their page says\u2026'
+        : 'Writing your ad copy\u2026';
+      var opening = reading
+        ? 'Reading ' + state.landingPage + '\u2026'
+        : writing;
+      var think = window.S1Think
+        ? window.S1Think.attach(note,
+            { kind: reading ? 'scan' : 'ai', label: opening })
+        : (function () {
+            note.textContent = opening;
+            return {
+              stage: function (text) { if (text) note.textContent = text; },
+              done: function () {}
+            };
+          })();
+
+      ensureLanding()
+        .then(function (landing) {
+          think.stage(writing, 'ai');
+          return post('/api/copy/suggest', {
+            business: clientName() || state.doc.campaign.brand.name,
+            // The route requires something to promote. The campaign name is
+            // what a rep typed for exactly that, and the page summary backs
+            // it up when there is one.
+            promoting: state.doc.campaign.promoting ||
+                       state.doc.campaign.campaignName ||
+                       (landing && landing.summary) || 'their services',
+            objective: state.doc.campaign.objective,
+            cta: effective('cta') || undefined,
+            landingAnalysis: landing || undefined,
+          }).then(function (r) { return { r: r, landing: landing }; });
+        })
+        .then(function (out) {
+          btn.disabled = false;
+          var r = out.r || {};
+          if (r.error) { note.textContent = r.error; return; }
+          var map = { headline: r.headline, support: r.support, offer: r.offer,
+                      cta: r.cta, trust: r.trust };
+          var filled = [], kept = [], blank = [];
+          Object.keys(map).forEach(function (k) {
+            var value = String(map[k] || '').trim();
+            if (effective(k)) { kept.push(k); return; }
+            if (!value) { blank.push(k); return; }
+            // Every drafted line belongs to the whole set.
+            state.copyScope[k] = 'all';
+            setCopy(k, value);
+            filled.push(k);
+          });
+          drawControls(); preview();
+          /* drawControls() replaces the whole left column, so the element
+             this function captured before the fetch is now detached: writing
+             to it succeeds, changes nothing on screen, and reads as a button
+             that did nothing. Re-read it after the redraw. */
+          note = $('draftNote');
+          if (!note) return;
+
+          var LABEL = { headline: 'headline', support: 'supporting line',
+                        offer: 'offer', cta: 'call to action', trust: 'proof point' };
+          var bits = [];
+          /* "Nothing was filled in" has two causes and they need different
+             answers from the reader: every field was already written, or the
+             page had nothing to say. Collapsing them into one sentence made
+             the note contradict itself two clauses later. */
+          if (filled.length) {
+            bits.push('Wrote the ' + filled.map(function (k) { return LABEL[k]; }).join(', ') + '.');
+          } else if (!blank.length) {
+            bits.push('Nothing to fill in \u2014 every field already had something in it.');
+          } else {
+            bits.push('Nothing was written.');
+          }
+          if (kept.length) {
+            bits.push('Left your ' + kept.map(function (k) { return LABEL[k]; }).join(', ') +
+                      ' alone. Empty a field and draft again to have it rewritten.');
+          }
+          if (blank.length) {
+            bits.push('Their page says nothing about the ' +
+                      blank.map(function (k) { return LABEL[k]; }).join(' or the ') +
+                      ', so ' + (blank.length === 1 ? 'that was' : 'those were') +
+                      ' left blank rather than invented.');
+          }
+          if (out.landing && out.landing.url) bits.push('Read from ' + out.landing.url + '.');
+          if (r.source === 'fallback') {
+            bits.push('Assembled from the campaign\u2019s own answers \u2014 ' +
+                      'the writing model is not configured, so this is not a draft ' +
+                      'from the page.');
+          }
+          note.textContent = bits.join(' ');
+        })
+        .catch(function (e) {
+          btn.disabled = false;
+          note.textContent = (e && e.message) || 'That draft could not be written.';
+        });
+    });
+  }
+
+  /* The page analysis, fetched once and kept.
+
+     A campaign started before the Hub sent a landing page has none stored, and
+     one whose page was unreachable at intake has none either -- so this asks
+     for it rather than treating "no analysis" as "no page". A page that still
+     cannot be read comes back null, and every caller is written to work
+     without it rather than to fail: an ad drafted from the campaign's own
+     answers is worse than one drafted from the page and much better than a
+     button that does nothing. */
+  function ensureLanding() {
+    if (state.landing) return Promise.resolve(state.landing);
+    var url = state.landingPage;
+    if (!url) return Promise.resolve(null);
+    return post('/api/landing/analyze', { url: url })
+      .then(function (a) {
+        if (a && !a.error) { state.landing = a; return a; }
+        return null;
+      })
+      .catch(function () { return null; });
+  }
+
   /* A file the browser holds is not something the renderer can fetch, so it
      goes to Cloudinary first -- signed by the server, uploaded straight from
      here, and only then applied as a URL like every other source. The signature
@@ -1443,7 +2534,7 @@
         Math.round(file.size / 1048576) + 'MB. Pick one under 12MB.</span>');
       return;
     }
-    bgBusy('Uploading ' + file.name + '\u2026');
+    bgBusy('Uploading ' + file.name + '\u2026', 'wait');
     post('/api/assets/upload-signature', {
       client: clientName() || 'Smart 1 Marketing',
       campaign: (state.doc.campaign.campaignName || 'display ads'),
@@ -1590,7 +2681,7 @@
         return '<div class="bgtile">' +
           '<button type="button" class="bgthumb" data-pick="' + i + '"' +
           ' title="Use this picture">' +
-          '<img src="' + esc(it.url) + '" alt="" loading="lazy">' +
+          '<img src="' + esc(it.thumb || it.url) + '" alt="" loading="lazy">' +
           (it.label ? '<span>' + esc(it.label) + '</span>' : '') + '</button>' +
           // Judging a photograph at 126px wide is guessing. This opens it at
           // the size it will actually be looked at, without applying it.
@@ -1617,14 +2708,20 @@
   /* One picture, big, with the same action available from in there -- looking
      at it and then having to find it again in the grid is how you end up
      picking the one next to it. */
-  function lightbox(url, onUse) {
+  /* `onUse` is optional, and its absence is the whole difference between the
+     two things this opens. A stock or generated photo is a candidate, so it
+     gets "Use this picture". A screenshot of the client's own website is
+     reference -- you look at it and go back to work -- and offering to put it
+     behind the ad would be offering something nobody wants and a few people
+     would press. */
+  function lightbox(url, onUse, caption) {
     var wrap = document.createElement('div');
     wrap.className = 'lightbox';
     wrap.innerHTML = '<img src="' + esc(url) + '" alt="">' +
       '<div class="lbbar">' +
-        '<button type="button" class="btn primary" data-lb="use">Use this picture</button>' +
+        (onUse ? '<button type="button" class="btn primary" data-lb="use">Use this picture</button>' : '') +
         '<button type="button" class="btn" data-lb="close">Close</button>' +
-        '<span class="lbnote">Esc closes</span>' +
+        '<span class="lbnote">' + esc(caption || 'Esc closes') + '</span>' +
       '</div>';
     function close() {
       document.removeEventListener('keydown', onKey);
@@ -1633,9 +2730,9 @@
     function onKey(e) { if (e.key === 'Escape') close(); }
     wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
     wrap.querySelector('[data-lb="close"]').addEventListener('click', close);
-    wrap.querySelector('[data-lb="use"]').addEventListener('click', function () {
+    if (onUse) wrap.querySelector('[data-lb="use"]').addEventListener('click', function () {
       close();
-      if (onUse) onUse();
+      onUse();
     });
     document.addEventListener('keydown', onKey);
     document.body.appendChild(wrap);
@@ -1944,8 +3041,27 @@
         } else {
           pill.style.display = 'none';
         }
+        /* A batch on the project record is the only durable evidence that
+           anything has ever been built for this request. Opening a campaign
+           is not saving it, so `saved` starts false however finished the
+           build is. */
+        state.rendered = !!doc.reportUrl;
+        state.saved = false;
+        /* The page this campaign points at, and the analysis of it if one has
+           been taken. Both live on the project record and neither used to
+           reach this screen, so every "write this for me" and "draw me a
+           picture" on it was working from a business name alone. */
+        state.landingPage = doc.landingPage || '';
+        state.landing = doc.landing || null;
         var proofBtn = $('proofLink');
-        if (doc.reportUrl) { proofBtn.href = doc.reportUrl; proofBtn.style.display = ''; }
+        /* The live proof route, never the static proof_<id>.html the batch
+           records. That file is a snapshot rendered with no action endpoint
+           behind it, so its Approve button rewrites the page to say
+           "Approved" and posts nowhere -- a client could sign a set off on it
+           and no screen here would ever know. It also sits under /files/,
+           which is staff-only. This route is the page with the buttons wired
+           up, and it is the one a client can open. */
+        if (state.rendered) { proofBtn.href = proofUrl(); proofBtn.style.display = ''; }
         else proofBtn.style.display = 'none';
         $('conceptPick').innerHTML = doc.campaign.concepts.map(function (c) {
           return '<option value="' + esc(c.conceptId) + '">Concept ' + esc(c.conceptId) + ' — ' + esc(c.name) + '</option>';
@@ -1956,7 +3072,7 @@
         var rail = railSizes();
         if (rail.length && rail.indexOf(state.size) < 0) state.size = rail[0];
         drawControls(); drawRail(); preview();
-        refreshDeliver(); refreshOverrideNote(); refreshAttachLink();
+        refreshDeliver(); refreshOverrideNote(); refreshStage();
         loadApprovals();
       });
   }
@@ -2035,6 +3151,13 @@
     }).then(function (r) {
       if (!r.ok) throw new Error('save failed');
       state.dirty = false;
+      /* Here rather than in the Save button's handler, because every other
+         path that saves -- switching size with unsaved edits, duplicating a
+         set, starting a render -- leaves the server holding exactly what is
+         on screen too, and a gate that only one of five doors opens is a gate
+         people learn to resent. */
+      state.saved = true;
+      refreshStage();
       return r;
     });
   }
@@ -2053,8 +3176,9 @@
 
     var acts = [];
     if (!isError) {
-      acts.push(['Render all sizes', 'render',
-                 'Build every size in this family, not just the one on screen.']);
+      acts.push(['Render\u2026', 'render',
+                 'Build the finished files, file them onto the client, or ' +
+                 'package what is already built.']);
       if (projectIdForCurrent()) {
         acts.push(['Duplicate as the next concept', 'clone',
                    'A fresh copy on its own number, named Concept B \u2014 then ' +
@@ -2119,39 +3243,364 @@
      follows the job, and reports the count -- and it names the sizes that
      were not approved, since this is the step that writes the files a proof
      and a delivery ZIP are built from. */
+  /* What the render button is actually for.
+
+     It used to do one thing -- build every file -- and everything a person
+     wanted to do WITH those files was somewhere else: filing them onto the
+     client was a link in the toolbar that had been sitting there since before
+     anything was rendered, and the delivery ZIP only appeared once a status
+     had changed. So the ordinary job, "build these and put them on the
+     client's record", was two controls in two places with a page in between.
+
+     Four answers, because there are four real jobs and they are not the same
+     job. Rendering writes files. Filing copies finished files onto a client
+     record. The ZIP puts them on your own disk. Each is offered on its own,
+     and the first is the two people do together.  */
+  function askRenderAction() {
+    var count = railSizes().length;
+    var opts = [
+      ['render-file', 'Render and save to the client', true,
+       'Build the files, then file them onto ' + clientLabel() + '\u2019s record. ' +
+       'The usual answer.'],
+      ['render', 'Render only', true,
+       'Build the files and leave them here. Nothing reaches the client record.'],
+      ['file', 'Save to the client', state.rendered,
+       state.rendered
+         ? 'File the files already rendered onto ' + clientLabel() + '\u2019s record. No rebuild.'
+         : 'Nothing has been rendered yet, so there is nothing to file.'],
+      ['zip', 'Download the full ZIP', state.rendered,
+       state.rendered
+         ? 'Every finished file in one zip, in platform folders and named for ' +
+           'upload. Packaging ' + count + ' files can take a minute.'
+         : 'Nothing has been rendered yet, so the zip would be empty.'],
+    ];
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>What would you like to do?</h4>' +
+        '<p>The preview on screen is a live sketch. These act on real files.</p>' +
+        '<div class="nsacts" style="flex-direction:column">' +
+          opts.map(function (o) {
+            return '<button type="button" class="nsbtn" style="max-width:none" data-act="' +
+              o[0] + '"' + (o[2] ? '' : ' disabled') + '><b>' + esc(o[1]) +
+              '</b><span>' + esc(o[3]) + '</span></button>';
+          }).join('') +
+        '</div><div class="askacts"><button type="button" class="btn" data-cancel>Cancel</button></div></div>';
+      function done(v) { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') done(null); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) done(null); });
+      wrap.querySelector('[data-cancel]').addEventListener('click', function () { done(null); });
+      Array.prototype.forEach.call(wrap.querySelectorAll('[data-act]'), function (b) {
+        b.addEventListener('click', function () { done(b.dataset.act); });
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      var first = wrap.querySelector('[data-act]:not([disabled])');
+      if (first) first.focus();
+    });
+  }
+
+  /* -------------------------------------------------- save this as a preset
+     The second ad for a client is this ad with a different offer on it. What
+     took the time -- the brand, the layout family, where the picture sits --
+     is settled here, and a preset keeps it so the next one is a form fill.
+
+     The dialog asks which copy blocks are the SLOTS rather than assuming all
+     of them: a standing tagline or a disclaimer is copy that should travel
+     unchanged, and a preset that made everything editable would put it on the
+     form to be retyped every time. It offers only the blocks this layout
+     family actually draws for the size on screen -- offering one it does not
+     is a field that renders nowhere, and the server refuses it anyway, so
+     asking would be a question with a wrong answer in it. */
+  function askPreset() {
+    var c = concept();
+    // Which blocks this family draws on ANY of its sizes, not just the one on
+    // screen: a slot is a property of the family, and the offer flash the
+    // 300x250 carries does not exist on the leaderboard. Reading the size on
+    // screen would drop a real slot depending on which size happened to be
+    // selected when somebody pressed the button.
+    var t = state.templates.filter(function (x) {
+      return c && x.id === c.layoutFamily;
+    })[0];
+    var all = {};
+    Object.keys((t && t.blocks) || {}).forEach(function (sz) {
+      ((t.blocks[sz]) || []).forEach(function (b) { all[b] = true; });
+    });
+    var roles = ['headline', 'support', 'offer', 'trust', 'cta']
+      .filter(function (r) { return all[r]; });
+    // An older server sends no block map. Offering the full set is better than
+    // offering one line: the server refuses a slot this family cannot draw and
+    // says which, so the worst case is a named refusal rather than a preset
+    // missing the slot somebody wanted.
+    if (!roles.length) roles = ['headline', 'support', 'offer', 'trust', 'cta'];
+
+    var LABEL = {
+      headline: 'Headline', support: 'Supporting line', offer: 'Offer',
+      trust: 'Proof point', cta: 'Call to action'
+    };
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>Save this as a preset</h4>' +
+        '<p>The brand, the layout and the design are kept as they are. Tick the ' +
+        'lines the next ad fills in — anything left unticked travels unchanged, ' +
+        'which is what you want for a standing tagline or a disclaimer.</p>' +
+        '<label style="display:block;margin-bottom:12px;font-size:13px">Name this preset' +
+        '<input id="pName" type="text" style="width:100%;margin-top:4px;padding:7px 9px;' +
+        'border:1px solid var(--line);border-radius:6px;font:inherit" ' +
+        'value="' + esc((state.doc && state.doc.campaign && state.doc.campaign.campaignName) || 'Preset') + '"></label>' +
+        '<div style="margin-bottom:14px">' + roles.map(function (r) {
+          return '<label style="display:block;font-size:13px;margin-bottom:4px">' +
+            '<input type="checkbox" data-role="' + r + '" checked> ' + esc(LABEL[r] || r) +
+            '</label>';
+        }).join('') + '</div>' +
+        '<div class="askacts">' +
+        '<button type="button" class="btn primary" data-pick="ok">Save preset</button>' +
+        '<button type="button" class="btn" data-pick="cancel">Cancel</button>' +
+        '</div></div>';
+      function done(v) {
+        document.removeEventListener('keydown', onKey);
+        wrap.remove();
+        resolve(v);
+      }
+      function onKey(e) { if (e.key === 'Escape') done(null); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) done(null); });
+      wrap.querySelector('[data-pick="cancel"]').addEventListener('click', function () { done(null); });
+      wrap.querySelector('[data-pick="ok"]').addEventListener('click', function () {
+        var name = (wrap.querySelector('#pName').value || '').trim();
+        // A preset with no name is one nobody can pick out of a list later.
+        if (!name) { wrap.querySelector('#pName').focus(); return; }
+        var fields = [];
+        Array.prototype.forEach.call(wrap.querySelectorAll('[data-role]'), function (b) {
+          if (b.checked) fields.push({ role: b.getAttribute('data-role') });
+        });
+        done({ name: name, fields: fields });
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      wrap.querySelector('#pName').select();
+    });
+  }
+
+  $('savePreset').addEventListener('click', function () {
+    askPreset().then(function (answer) {
+      if (!answer) return;
+      return post('/api/presets', {
+        name: answer.name,
+        requestId: state.requestId,
+        conceptId: state.conceptId,
+        fields: answer.fields
+      }).then(function (d) {
+        if (!d || !d.preset) {
+          showNextSteps((d && d.error) || 'That preset did not save.', true);
+          return;
+        }
+        // What the server refused is said out loud. A slot dropped in silence
+        // is a form field that renders nowhere, which is the whole reason the
+        // server returns the list rather than swallowing it.
+        var msg = 'Preset "' + d.preset.name + '" saved for ' + d.preset.client + '. ' +
+          d.preset.fields.length + ' line(s) will be asked for on the next ad.';
+        if (d.refused && d.refused.length) {
+          msg += ' Left out: ' + d.refused.map(function (r) {
+            return r.role + ' (' + r.reason + ')';
+          }).join('; ') + '.';
+        }
+        showNextSteps(msg, false);
+      }).catch(function () {
+        showNextSteps('That preset did not save. Nothing has changed.', true);
+      });
+    });
+  });
+
   $('renderAll').addEventListener('click', function () {
-    var btn = this; btn.disabled = true; btn.textContent = 'Rendering…';
-    var sizes = railSizes().length;
+    askRenderAction().then(function (act) {
+      if (!act) return;
+      if (act === 'zip') return packageZip();
+      if (act === 'file') return fileOnlyStep();
+      chooseSizes().then(function (sizes) {
+        if (sizes === false) return;
+        startRender(sizes, act === 'render-file');
+      });
+    });
+  });
+
+  /* Which sizes, when there is more than one.
+
+     A package of eight takes a couple of minutes, and an operator who fixed
+     one headline on the 300x600 was waiting on seven renders they did not ask
+     for. Resolves null for "all of them", an array for a selection, and false
+     for a cancel -- which is not the same as null and must not start a render
+     of everything. */
+  function chooseSizes() {
+    var sizes = railSizes();
+    if (sizes.length < 2) return Promise.resolve(null);
+    return ask(
+      'Render which sizes?',
+      'Building all ' + sizes.length + ' takes a couple of minutes. If you have ' +
+      'only changed one, you do not have to wait for the rest.',
+      [['All ' + sizes.length + ' sizes', 'all'],
+       ['Just ' + state.size, 'one'],
+       ['Choose\u2026', 'pick']],
+    ).then(function (choice) {
+      if (!choice) return false;
+      if (choice === 'all') return null;
+      if (choice === 'one') return [state.size];
+      return pickSizes(sizes);
+    });
+  }
+
+  /* The chooser, when "just this one" is not the answer either. */
+  function pickSizes(sizes) {
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>Which sizes?</h4>' +
+        '<div style="display:grid;gap:6px;margin-bottom:14px">' +
+          sizes.map(function (sz) {
+            return '<label style="display:flex;gap:8px;align-items:center;font-size:13px">' +
+              '<input type="checkbox" value="' + esc(sz) + '"' +
+              (sz === state.size ? ' checked' : '') + '>' + esc(sz) +
+              (isApproved(sz) ? ' <span style="color:var(--pass);font-size:11px">approved</span>' : '') +
+              '</label>';
+          }).join('') +
+        '</div><div class="askacts">' +
+          '<button type="button" class="btn primary" data-go>Render these</button>' +
+          '<button type="button" class="btn" data-cancel>Cancel</button>' +
+        '</div></div>';
+      function close(v) { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') close(false); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) close(false); });
+      wrap.querySelector('[data-cancel]').addEventListener('click', function () { close(false); });
+      wrap.querySelector('[data-go]').addEventListener('click', function () {
+        var picked = Array.prototype.map.call(
+          wrap.querySelectorAll('input:checked'), function (i) { return i.value; });
+        close(picked.length ? picked : false);
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+    });
+  }
+
+  /* Filing on its own, with no render in front of it. */
+  function fileOnlyStep() {
+    showNextSteps('Filing the finished files onto ' + clientLabel() + '\u2019s record\u2026');
+    fileToClient().then(function (res) { reportFiling(res); });
+  }
+
+  /* What came of a filing, in the words the Hub answered with.
+
+     "Filed" and "already there" are different outcomes and both are
+     successes; a filing that reached the gallery for six of eight ads is not
+     a tick. */
+  function reportFiling(res) {
+    if (!res || !res.ok) {
+      $('nsMsg').className = 'nsmsg bad';
+      $('nsMsg').textContent = (res && res.error) ||
+        'Those files could not be filed onto the client record.';
+      return;
+    }
+    var bits = [];
+    if (res.filed) bits.push(res.filed + ' filed onto ' + esc(res.client || clientLabel()) + '\u2019s record');
+    if (res.duplicates) bits.push(res.duplicates + ' already there');
+    $('nsMsg').className = 'nsmsg';
+    $('nsMsg').textContent = bits.length ? bits.join(', ') + '.'
+                                         : 'Nothing new to file \u2014 the record already has these.';
+    if (res.gallery_url) {
+      $('nsActs').insertAdjacentHTML('afterbegin',
+        '<a class="nsbtn" href="' + esc(res.gallery_url) + '" target="_blank" rel="noopener">' +
+        '<b>Open the client gallery</b><span>Where these ads now sit on the ' +
+        'client record.</span></a>');
+    }
+  }
+
+  /* The zip, on demand.
+
+     Same package delivery produces -- one description of what a package is --
+     but deliberately not recorded as a delivery: this is somebody wanting the
+     files, and marking the project handed over because a file was downloaded
+     is a status nobody set. A QA-failing size is left out, as it is in a real
+     delivery, and named here rather than silently missing from the folder. */
+  function packageZip() {
+    var pid = projectIdOf();
+    if (!pid) {
+      showNextSteps('This build has no project record, so there is nothing to package.', true);
+      return;
+    }
+    showNextSteps('Packaging every finished file. This can take a minute \u2014 ' +
+                  'the zip is built from the rendered files, not from the preview.');
+    fetch('/api/project/' + encodeURIComponent(pid) + '/deliver', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ concept: state.conceptId, record: false })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          $('nsMsg').className = 'nsmsg bad';
+          $('nsMsg').textContent = res.b.error || 'That could not be packaged.';
+          return;
+        }
+        var skipped = res.b.skipped || [];
+        $('nsMsg').className = 'nsmsg';
+        $('nsMsg').textContent = res.b.fileCount + ' file' +
+          (res.b.fileCount === 1 ? '' : 's') + ' packaged.' +
+          (skipped.length
+            ? ' Left out: ' + skipped.map(function (sk) {
+                return sk.size + ' (' + sk.reason + ')'; }).join(', ') +
+              ' \u2014 a size that fails QA is never packaged.'
+            : '');
+        $('nsActs').insertAdjacentHTML('afterbegin',
+          '<a class="nsbtn" href="' + esc(res.b.zipUrl) + '" download><b>Download the ZIP</b>' +
+          '<span>' + res.b.fileCount + ' files, in platform folders, named for upload.' +
+          '</span></a>');
+      })
+      .catch(function () {
+        $('nsMsg').className = 'nsmsg bad';
+        $('nsMsg').textContent = 'That could not be packaged.';
+      });
+  }
+
+  function startRender(sizes, alsoFile) {
+    var btn = $('renderAll');
+    btn.disabled = true; btn.textContent = 'Rendering…';
+    var count = sizes ? sizes.length : railSizes().length;
     saveCampaign()
       .then(function () {
         return post('/api/render', {
-          campaign: state.doc.campaign, platforms: state.platforms || ['google'],
+          campaign: state.doc.campaign,
+          platforms: state.platforms || ['google'],
+          sizes: sizes || undefined,
         });
       })
       .then(function (b) {
         if (b && b.error) throw new Error(b.error);
-        btn.disabled = false; btn.textContent = 'Render all sizes';
+        btn.disabled = false; btn.textContent = 'Render…';
         var left = unapprovedSizes();
         showNextSteps(
-          'Building ' + sizes + ' finished files' +
+          'Building ' + count + ' finished file' + (count === 1 ? '' : 's') +
+          (sizes ? ' (' + sizes.join(', ') + ')' : '') +
           ((state.platforms || []).length > 1
-            ? ' for ' + state.platforms.join(' and ')
-            : '') +
+            ? ' for ' + state.platforms.join(' and ') : '') +
           '. These are what the client proof and the delivery ZIP read \u2014 ' +
           'the preview on screen is a live sketch and is not filed anywhere.' +
-          (left.length
-            ? ' Still unapproved: ' + left.join(', ') + '.'
-            : ' Every size is approved.'));
-        if (b && b.jobId) followRender(b.jobId, sizes);
+          (alsoFile ? ' They will be filed onto ' + clientLabel() +
+                      '\u2019s record as soon as they are built.' : '') +
+          (left.length ? ' Still unapproved: ' + left.join(', ') + '.'
+                       : ' Every size is approved.'));
+        if (b && b.jobId) followRender(b.jobId, count, alsoFile);
       })
       .catch(function (e) {
-        btn.disabled = false; btn.textContent = 'Render all sizes';
+        btn.disabled = false; btn.textContent = 'Render…';
         showNextSteps((e && e.message) || 'That render could not be started.', true);
       });
-  });
+  }
 
-  /* A queued job that nobody watches is a job nobody knows failed. */
-  function followRender(jobId, sizes) {
+  /* A queued job that nobody watches is a job nobody knows failed — and a
+     finished one used to say "open the proof to see them" with nothing to
+     click, because the proof URL lives on the job and nothing read it. */
+  function followRender(jobId, sizes, alsoFile) {
     var tries = 0;
     (function poll() {
       if (++tries > 60) return;                 // ~3 minutes, then stop asking
@@ -2161,9 +3610,22 @@
           if (!j || !j.status) return;
           var prog = j.progress || {};
           if (j.status === 'complete') {
+            state.rendered = true;
+            refreshStage();
             $('nsMsg').textContent = 'Built ' + (prog.done != null ? prog.done : sizes) +
-              ' of ' + (prog.total != null ? prog.total : sizes) +
-              ' files. Open the proof to see them.';
+              ' of ' + (prog.total != null ? prog.total : sizes) + ' files.';
+            showHandover();
+            /* Filing waits for the files to exist. Started with the render it
+               would copy the PREVIOUS build onto the client record and report
+               a clean success for doing it -- the failure this whole sequence
+               is arranged to stop. */
+            if (alsoFile) {
+              fileToClient().then(function (res) {
+                var was = $('nsMsg').textContent;
+                reportFiling(res);
+                if (res && res.ok) $('nsMsg').textContent = was + ' ' + $('nsMsg').textContent;
+              });
+            }
             refreshDeliver();
             return;
           }
@@ -2177,6 +3639,140 @@
         })
         .catch(function () { /* stop quietly; the proof link still works */ });
     })();
+  }
+
+  /* What to do with a set that has just been built.
+
+     Two things, and they are different questions. The link is what you send
+     the client, so it is a field you can select rather than a button that
+     opens it here. The decision underneath is the same decision recorded
+     against the same project -- an account manager who has looked at eight
+     sizes should not have to open the client\u2019s own page and press the
+     client\u2019s button to write down what they decided. What it records
+     says which of the two happened. */
+  function showHandover() {
+    var url = proofUrlAbsolute();
+    $('nsActs').insertAdjacentHTML('afterbegin',
+      '<div style="flex:1 0 100%">' +
+        '<div style="font-size:12px;color:var(--ink-2);margin-bottom:2px">' +
+          'Send this to ' + esc(clientLabel()) + ' to approve or send back. ' +
+          'It opens without a Smart 1 login and shows every size that just rendered.' +
+        '</div>' +
+        '<div class="proofurl">' +
+          '<input type="text" id="proofUrlBox" readonly value="' + esc(url) + '">' +
+          '<button type="button" class="btn" id="proofCopy">Copy link</button>' +
+          '<a class="btn" href="' + esc(proofUrl()) + '" target="_blank" rel="noopener">Open it</a>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--ink-2);margin:8px 0 2px">' +
+          'Or record the decision yourself:' +
+        '</div>' +
+        '<div class="proofurl">' +
+          '<button type="button" class="btn" id="decApprove" ' +
+            'style="border-color:var(--pass);color:var(--pass)">Approve</button>' +
+          '<button type="button" class="btn" id="decRevise">Send back for changes</button>' +
+        '</div>' +
+      '</div>');
+
+    /* navigator.clipboard is not available on http and is allowed to refuse
+       on https. A button that reports a copy it never made is worse than one
+       that asks, so the last resort selects the text and says so. */
+    $('proofCopy').addEventListener('click', function () {
+      var box = $('proofUrlBox'), btn = this;
+      function ok() { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy link'; }, 1600); }
+      function manual() { box.focus(); box.select(); btn.textContent = 'Press Ctrl-C'; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(box.value).then(ok, function () {
+          box.select();
+          try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
+        });
+        return;
+      }
+      box.select();
+      try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
+    });
+
+    $('decApprove').addEventListener('click', function () { recordDecision('approve'); });
+    $('decRevise').addEventListener('click', function () { recordDecision('revision'); });
+  }
+
+  /* Approving here is the same event as approving on the client\u2019s page,
+     including its consequence: approval is what packages the files. Said out
+     loud before the press, because a button that quietly hands a campaign
+     over is one nobody presses twice. */
+  function recordDecision(kind) {
+    var pid = projectIdOf();
+    if (!pid) { showNextSteps('This build has no project record to sign off.', true); return; }
+
+    var go = kind === 'approve'
+      ? ask('Approve this set?',
+            'Recorded against ' + clientLabel() + '\u2019s project as approved by you rather ' +
+            'than by them, and approval is what packages the finished files.',
+            [['Approve', true], ['Not yet', null]])
+      : askNotes();
+
+    go.then(function (answer) {
+      if (!answer) return;
+      $('nsMsg').className = 'nsmsg';
+      $('nsMsg').textContent = kind === 'approve' ? 'Recording the approval\u2026'
+                                                  : 'Sending it back\u2026';
+      return fetch('/api/project/' + encodeURIComponent(pid) + '/decision', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind: kind, concept: state.conceptId,
+          notes: (kind === 'revision' ? answer : undefined)
+        })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          if (!res.ok) {
+            $('nsMsg').className = 'nsmsg bad';
+            $('nsMsg').textContent = res.b.error || 'That decision was not recorded.';
+            return;
+          }
+          $('nsMsg').textContent = kind === 'approve'
+            ? 'Approved' + (res.b.fileCount ? ' \u2014 ' + res.b.fileCount +
+                ' file(s) packaged and ready to hand over.' : '.') +
+              (res.b.deliveryError ? ' Packaging did not finish: ' + res.b.deliveryError +
+                ' Use Deliver final files once that is sorted.' : '')
+            : 'Recorded as needing changes. Your note is on the project.';
+          /* The status pill and the Deliver button both read the campaign
+             list, which is fetched once at boot -- so without this the screen
+             goes on saying "draft" about a set it has just approved. */
+          reloadCampaignList();
+        });
+    });
+  }
+
+  /* A change request with no detail is not actionable, and one recorded
+     without it reads on the queue exactly like one that was explained. The
+     server refuses an empty note; this is why. */
+  function askNotes() {
+    return new Promise(function (resolve) {
+      var wrap = document.createElement('div');
+      wrap.className = 'ask';
+      wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
+        '<h4>What needs to change?</h4>' +
+        '<p>This goes on the project and into the team notification. ' +
+        '\u201CThe client wants it different\u201D is not something anybody can act on.</p>' +
+        '<textarea id="revNotes" rows="4" style="width:100%;background:var(--bg);color:var(--ink);' +
+          'border:1px solid var(--line);border-radius:7px;padding:9px;font:inherit;font-size:13px"></textarea>' +
+        '<div class="askacts" style="margin-top:12px">' +
+          '<button type="button" class="btn primary" data-go>Send it back</button>' +
+          '<button type="button" class="btn" data-cancel>Cancel</button>' +
+        '</div></div>';
+      function close(v) { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(v); }
+      function onKey(e) { if (e.key === 'Escape') close(null); }
+      wrap.addEventListener('click', function (e) { if (e.target === wrap) close(null); });
+      wrap.querySelector('[data-cancel]').addEventListener('click', function () { close(null); });
+      wrap.querySelector('[data-go]').addEventListener('click', function () {
+        var v = wrap.querySelector('#revNotes').value.trim();
+        if (!v) { wrap.querySelector('#revNotes').focus(); return; }
+        close(v);
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(wrap);
+      wrap.querySelector('#revNotes').focus();
+    });
   }
 
   /* ------------------------------------------------------- delivery */
@@ -2203,16 +3799,73 @@
       box.style.display = 'none';
     }
   }
-  /* --------------------------------------------- attach to a Hub client */
-  // window.S1_BASE is set by the server only when the page is served under a
-  // mount prefix, which is exactly the case where the Hub is in front of us.
-  function refreshAttachLink() {
-    var link = $('attachClient');
-    if (!link) return;
+  /* ------------------------------------------------- what exists yet
+     One function decides which controls are on the toolbar, because the rule
+     is one sentence -- save, then render, then file -- and three handlers
+     each deciding a piece of it is how a button comes back after the step
+     that should have retired it. */
+  function refreshStage() {
     var pid = projectIdOf();
-    if (!window.S1_BASE || !pid) { link.style.display = 'none'; return; }
-    link.href = window.S1_BASE + '/_hub/attach?project=' + encodeURIComponent(pid);
-    link.style.display = '';
+
+    $('renderAll').style.display = state.saved ? '' : 'none';
+    // Same gate as Render: it reads the saved build, not what is on screen.
+    var presetBtn = $('savePreset');
+    if (presetBtn) presetBtn.style.display = state.saved ? '' : 'none';
+    $('save').classList.toggle('primary', !state.saved);
+    $('renderAll').classList.toggle('primary', state.saved);
+    $('saveHint').style.display = state.saved ? 'none' : '';
+
+    // window.S1_BASE is set by the server only when the page is served under
+    // a mount prefix, which is exactly the case where the Hub is in front of
+    // us. Standalone there is no client registry to file anything into.
+    var link = $('attachClient');
+    if (link) {
+      if (!window.S1_BASE || !pid || !state.rendered) link.style.display = 'none';
+      else {
+        link.href = window.S1_BASE + '/_hub/attach?project=' + encodeURIComponent(pid);
+        link.style.display = '';
+      }
+    }
+
+    var proofBtn = $('proofLink');
+    if (proofBtn && state.rendered) { proofBtn.href = proofUrl(); proofBtn.style.display = ''; }
+  }
+
+  /* The page a client is shown. Same address every time for a given request,
+     so a link sent last week still opens the current set rather than the one
+     that happened to be built the day it was sent. */
+  function proofUrl() { return '/proof/' + encodeURIComponent(state.requestId); }
+
+  /* The same thing, spelled out, for pasting into an email. S1_BASE is the
+     Hub's mount prefix; the origin is whichever hostname this browser used,
+     which is the honest answer -- this app cannot enumerate the hostnames it
+     answers on, and the one in the address bar is the one that works. */
+  function proofUrlAbsolute() {
+    return location.origin + (window.S1_BASE || '') + proofUrl();
+  }
+
+  /* ------------------------------------------- file the ads onto a client */
+  /* The one-press version of the Attach page, for the ordinary case where
+     the answer to "which client, which sizes" is "this one, all of them". */
+  function fileToClient() {
+    var pid = projectIdOf();
+    if (!window.S1_BASE) {
+      return Promise.resolve({ ok: false,
+        error: 'Filing to a client needs the Smart 1 Hub in front of this tool. ' +
+               'There is no client record to file into standalone.' });
+    }
+    if (!pid) {
+      return Promise.resolve({ ok: false,
+        error: 'This build has no project record, so there is nothing to file.' });
+    }
+    return fetch(window.S1_BASE + '/_hub/attach', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: pid })
+    })
+      .then(function (r) { return r.json().then(function (b) { return b; }); })
+      .catch(function () {
+        return { ok: false, error: 'The Hub did not answer, so nothing was filed.' };
+      });
   }
 
   $('deliver').addEventListener('click', function () {
@@ -2307,6 +3960,29 @@
   window.addEventListener('beforeunload', function (e) {
     if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
   });
+
+  /* Refetch the campaign list and re-apply everything read off it. */
+  function reloadCampaignList() {
+    return fetch('/api/campaigns')
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        window.__campaignList = b.campaigns || window.__campaignList || [];
+        var le = (window.__campaignList).filter(function (c) {
+          return c.requestId === state.requestId; })[0];
+        var pill = $('statusPill');
+        if (le && le.status === 'proof-sent') {
+          pill.textContent = 'Needs revision'; pill.className = 'pill revision'; pill.style.display = '';
+        } else if (le && le.status === 'approved') {
+          pill.textContent = 'Approved'; pill.className = 'pill approved'; pill.style.display = '';
+        } else if (le && le.status === 'complete') {
+          pill.textContent = 'Delivered'; pill.className = 'pill approved'; pill.style.display = '';
+        } else {
+          pill.style.display = 'none';
+        }
+        refreshDeliver(); refreshStage();
+      })
+      .catch(function () { /* the decision is recorded either way */ });
+  }
 
   /* --------------------------------------------------------------- start */
   Promise.all([

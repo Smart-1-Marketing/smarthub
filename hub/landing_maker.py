@@ -53,14 +53,14 @@ STORE_NAME = "landing_pages.json"
 DIRECTIONS = {
     "bold": {
         "label": "Bold and promotional",
-        "note": "Large type, high-contrast hero, offer front and centre. "
+        "note": "Large type, high-contrast hero, offer front and center. "
                 "Suits a dated deadline or a discount.",
         "hero": "solid", "radius": "10px", "weight": "800",
         "hero_pad": "72px 0 64px", "accent_use": "heavy",
     },
     "trust": {
         "label": "Clean and trustworthy",
-        "note": "Calm layout, proof close to the top, restrained colour. "
+        "note": "Calm layout, proof close to the top, restrained color. "
                 "Suits legal, medical, financial and home services.",
         "hero": "light", "radius": "12px", "weight": "700",
         "hero_pad": "60px 0 52px", "accent_use": "light",
@@ -450,7 +450,7 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         note += (" No proposal was attached, so the page has no products on "
                  "it — build it from a proposal to get those.")
     if not pics.get("available"):
-        note += (" No image provider is configured, so the page uses a colour "
+        note += (" No image provider is configured, so the page uses a color "
                  "hero rather than photography — set PEXELS_API or "
                  "PIXABAY_API and rebuild for a richer page.")
     if not base:

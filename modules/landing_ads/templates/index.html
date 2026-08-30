@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Landing Page Ads — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --bad:#dc2626;--ok:#16a34a}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 80px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px;max-width:78ch;line-height:1.55}
   a.back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
   .card.off{opacity:.45;pointer-events:none}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
   h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
@@ -45,9 +46,6 @@
   .pick.dim{opacity:.55}
   .pick b{display:block;font-size:13px;color:var(--navy)}
   .pick span{font-size:11.5px;color:var(--muted)}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
   td.n{text-align:right;white-space:nowrap;color:var(--muted)}
   td.n.over{color:var(--bad);font-weight:700}
   .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
@@ -69,7 +67,7 @@
 </style>
 </head>
 <body data-module="landing_ads">
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="/tools">&larr; Tools</a>
   <h1>Landing Page Ads</h1>
   <p class="sub">Pick one of our landing pages and it gets read, then the whole campaign is
@@ -176,7 +174,24 @@ let S = null, mode = 'spec', pageSlug = '', formats = new Set(['google_rsa']), t
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function say(id, t, cls){ const e=$(id); e.textContent=t||''; e.className='msg'+(cls?' '+cls:''); }
+// A message that is a *wait* is drawn with the running mark; one that is a
+  // result is not. A bare "Writing…" is indistinguishable from a label
+  // somebody left on the screen, so a model that is thinking and a model that
+  // has died read identically — and only the second is worth knowing about.
+  // hub-thinking.js is injected into every mounted module by HubBar, so
+  // nothing is loaded here; it is still guarded, because a mark that takes
+  // the message down with it is worse than no mark.
+function say(id, t, cls){
+  const e=$(id); if(!e) return;
+  if(e._s1think){ e._s1think.done(); e._s1think=null; }
+  e.className='msg'+(cls?' '+cls:'');
+  if(["ai","scan","wait"].indexOf(cls)>=0 && window.S1Think){
+    e.className='msg';
+    e._s1think = window.S1Think.attach(e, {kind: cls, label: t});
+    return;
+  }
+  e.textContent=t||'';
+}
 function open(id, on){ $(id).classList.toggle('off', !on); }
 
 async function api(path, opts){
@@ -239,7 +254,7 @@ drawPages();
 /* ---------- start ---------- */
 async function start(){
   $('briefBtn').disabled = true;
-  say('setupMsg','Reading the page…');
+  say('setupMsg','Reading the page…','scan');
   try{
     const d = await api('/api/sets', {method:'POST', body:JSON.stringify({
       page_slug: pageSlug, url: $('url').value.trim(),
@@ -281,7 +296,7 @@ function toggleFormat(el){
 
 async function generate(){
   if(!formats.size){ say('genMsg','Pick at least one format.','err'); return; }
-  say('genMsg','Writing…');
+  say('genMsg','Writing…','ai');
   try{
     const d = await api('/api/sets/'+S.id+'/generate', {method:'POST',
       body:JSON.stringify({formats:[...formats]})});
@@ -358,7 +373,7 @@ function displayHtml(f){
 
 async function makeArt(i){
   const c = (S.formats.display.concepts||[])[i];
-  say('outMsg','Generating background…');
+  say('outMsg','Drawing the background…','ai');
   try{
     const d = await api('/api/sets/'+S.id+'/art', {method:'POST', body:JSON.stringify({concept:c})});
     S = d.set; say('outMsg','Done.','ok'); drawOut();

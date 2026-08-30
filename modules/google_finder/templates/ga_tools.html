@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>GA Tools - Command Center</title>
+  <title>GA4 Tools — Smart 1 Hub</title>
   <link rel="stylesheet" href="/google/static/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -11,26 +11,18 @@
   <div id="toast-container"></div>
 
   <main class="wrap">
-    <section class="card">
-      <div class="topline">
-        <div>
-          <h1>📊 Google Analytics Tools</h1>
-          <p>Run performance comparisons, generate AI insights, and query GA4 data in natural language.</p>
-        </div>
-        <div class="auth">
-          <a class="btn" href="/google/login">+ Add Google Account</a>
-        </div>
-      </div>
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb">Google</div>
+      <h1>GA4 Tools</h1>
+      <p>Traffic, channels and period-over-period comparison for a client's Analytics property, with the anomaly check and the written monthly summary.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/google/login">+ Add Google account</a>
+    </div>
+  </div>
 
-      <!-- TOP NAVIGATION MENU -->
-      <nav class="nav-anchor-bar">
-        <a href="/google/">🔍 Quick Search</a>
-        <a href="/google/ga-tools" class="active-page">📊 GA Tools</a>
-        <a href="/google/gtm-tools">⚡ GTM Tools</a>
-        <a href="/google/webmaster-tools">🌐 Webmaster Tools</a>
-        <a href="/google/gmb-tools">📍 GMB Tools</a>
-        <a href="/google/history">📜 History & Logs</a>
-      </nav>
+  {% include "_nav.html" %}
 
       {% set lookup_platform = 'ga4' %}
       {% set lookup_label = 'Analytics property' %}
@@ -136,7 +128,6 @@
         <button id="run-ga4-comp" class="btn" style="margin-top:14px;">Run GA4 Comparison & AI Analysis</button>
         <div id="ai-comp-results"></div>
       </div>
-    </section>
   </main>
 
   <script src="/ask-analytics.js"></script>

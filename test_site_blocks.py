@@ -337,7 +337,7 @@ check(r.status_code == 200 and "ai" in r.get_json(),
 # guard in the template is still there.
 r = client.get("/")
 check(r.status_code == 200, "GET / renders the builder")
-check(b"catalogue" in r.data, "…with the catalogue inlined for the JS")
+check(b"catalogue" in r.data, "…with the catalog inlined for the JS")
 
 
 # ---------------------------------------------------------------- 7. the tile

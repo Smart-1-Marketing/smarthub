@@ -67,6 +67,18 @@ export interface BlockStyle {
   lineHeight?: number;
   /** CTA only: the button fill. */
   bg?: string;
+  /**
+   * CTA only: where the button sits.
+   *
+   * Type is not movable — moving a block of copy is a layout decision, and
+   * layouts are chosen by picking a family — but the button is the same
+   * exception the logo is. "Nudge the button" and "centre the button" are
+   * both notes people write, and neither had anywhere to go: `align` set the
+   * label's alignment inside the button, which the templates already centre,
+   * so choosing Center appeared to do nothing at all.
+   */
+  x?: number;
+  y?: number;
 }
 
 /** The brand's five roles, plus any literal hex. */
@@ -111,16 +123,70 @@ export interface LogoStyle {
   h?: number;
   align?: HAlign;
   valign?: VAlign;
+  /**
+   * Bigger or smaller, proportionally, as a multiple of the template's box.
+   *
+   * Two numbers for width and height is the wrong control for "make the logo
+   * bigger": it is two fields to keep in step, and getting them out of step
+   * does nothing visible (the renderer contains the mark inside the box
+   * preserving aspect) right up until it crops. One slider scales both, and
+   * the numbers stay available behind Advanced for the rare case where the
+   * box itself is the thing that needs reshaping.
+   *
+   * An explicit w or h wins over this, so Advanced is genuinely advanced
+   * rather than a second control fighting the first.
+   */
+  scale?: number;
+}
+
+/** A logo below a third of the template's box is a smudge; above three times
+ *  it is the ad. */
+export const MIN_LOGO_SCALE = 0.3;
+export const MAX_LOGO_SCALE = 3;
+
+/**
+ * The card the copy sits on.
+ *
+ * "Full background with copy panel" puts the headline on a filled panel over
+ * the photograph, and the fill is the single thing that decides whether that
+ * copy can be read. It was a template constant — brand primary at 88% — so a
+ * client whose primary is a mid-grey got copy nobody could read and there was
+ * no control anywhere that could change it.
+ *
+ * Applies to every panel the layout draws. Each family that has one has
+ * exactly one, and it is always the card behind the copy; a family that grows
+ * a second decorative panel should name them rather than making this pick.
+ */
+export interface PanelStyle {
+  /** Brand colour name or hex. */
+  fill?: string;
+  /** 0..1. Below about 0.5 the photograph behind starts to win. */
+  opacity?: number;
 }
 
 export type StyleOverrides = Partial<Record<StyleableBlock, BlockStyle>> & {
   logo?: LogoStyle;
+  panel?: PanelStyle;
 };
 
 /** A logo smaller than this is not a logo, it is a smudge. */
 export const MIN_LOGO = 8;
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+/** The region content is meant to stay inside — the same one QA measures. */
+function safeRegion(layout: SizeLayout): { x: number; y: number; w: number; h: number } {
+  if (layout.safeBox) return { ...layout.safeBox };
+  const m = layout.safe ?? 0;
+  return { x: m, y: m, w: layout.canvas.w - m * 2, h: layout.canvas.h - m * 2 };
+}
+
+/** Where a box of width `w` sits when aligned within `region`. */
+function alignedX(w: number, region: { x: number; w: number }, align: HAlign): number {
+  if (align === 'center') return Math.round(region.x + (region.w - w) / 2);
+  if (align === 'right') return Math.round(region.x + region.w - w);
+  return Math.round(region.x);
+}
 
 /**
  * A copy of `layout` with the overrides applied, clamped to the canvas.
@@ -164,7 +230,20 @@ export function applyBlockStyles(
     }
 
     if (style.weight) { patched.weight = style.weight; changed = true; }
-    if (style.align) { patched.align = style.align; changed = true; }
+    // Align means two different things, and conflating them is why choosing
+    // Center on the button did nothing. For type it is where the line sits in
+    // its box. For the button it is where the BUTTON sits — the label inside
+    // it is centred by the template already, so aligning that was a control
+    // whose every setting looked identical.
+    if (style.align) {
+      if (key === 'cta') {
+        const region = safeRegion(layout);
+        patched.x = alignedX(box.w, region, style.align);
+      } else {
+        patched.align = style.align;
+      }
+      changed = true;
+    }
 
     const ink = resolveStyleColor(style.color);
     if (ink) { patched.color = ink; changed = true; }
@@ -188,10 +267,37 @@ export function applyBlockStyles(
     if (key === 'cta') {
       const fill = resolveStyleColor(style.bg);
       if (fill) { patched.bg = fill; changed = true; }
+      // ...and only the CTA may be moved. Clamped so a nudge cannot walk the
+      // button off the canvas, which is the one thing an arrow pad invites.
+      if (typeof style.x === 'number' && Number.isFinite(style.x)) {
+        patched.x = clamp(Math.round(style.x), 0, Math.max(0, canvas.w - box.w));
+        changed = true;
+      }
+      if (typeof style.y === 'number' && Number.isFinite(style.y)) {
+        patched.y = clamp(Math.round(style.y), 0, Math.max(0, canvas.h - box.h));
+        changed = true;
+      }
     }
 
     if (changed) {
       (next as any)[key] = patched;
+      touched = true;
+    }
+  }
+
+  // The card the copy sits on. Every panel the layout draws, because each
+  // family that has one has exactly one and it is always that card.
+  const panel = overrides.panel;
+  if (panel && layout.panels?.length) {
+    const fill = resolveStyleColor(panel.fill);
+    const hasOpacity = typeof panel.opacity === 'number' && Number.isFinite(panel.opacity);
+    if (fill || hasOpacity) {
+      next.panels = layout.panels.map((p) => {
+        const q: any = { ...p };
+        if (fill) q.fill = fill;
+        if (hasOpacity) q.opacity = clamp(panel.opacity as number, 0, 1);
+        return q;
+      });
       touched = true;
     }
   }
@@ -201,7 +307,15 @@ export function applyBlockStyles(
     const lb: any = { ...layout.logo };
     let changed = false;
 
-    // Position first, because the size clamps depend on where it ends up.
+    // Proportional resize first, so an explicit w/h below still wins over it.
+    if (typeof logo.scale === 'number' && Number.isFinite(logo.scale) && logo.scale !== 1) {
+      const k = clamp(logo.scale, MIN_LOGO_SCALE, MAX_LOGO_SCALE);
+      lb.w = Math.max(MIN_LOGO, Math.round(layout.logo.w * k));
+      lb.h = Math.max(MIN_LOGO, Math.round(layout.logo.h * k));
+      changed = true;
+    }
+
+    // Position next, because the size clamps depend on where it ends up.
     if (typeof logo.x === 'number' && Number.isFinite(logo.x)) {
       lb.x = clamp(Math.round(logo.x), 0, Math.max(0, canvas.w - MIN_LOGO));
       changed = true;

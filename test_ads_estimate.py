@@ -207,7 +207,7 @@ truthy("each conversion action carries its consequence, not just its name",
 
 
 # ===========================================================================
-section("Every average CPC is labelled an industry estimate")
+section("Every average CPC is labeled an industry estimate")
 
 check("the caveat is one shared string", spec.CPC_NOTE, "industry estimate")
 for path in (f"{MOUNT}/proposal/{PID}", f"{MOUNT}/proposal/{PID}/client"):
@@ -288,7 +288,7 @@ check("...and the internal preview hides them too, being the same document",
 
 truthy("several target areas are each named rather than merged into one line",
        "Carmel showroom" in body and "Fishers" in body)
-truthy("reach is labelled an estimate", "without deducting overlap" in body)
+truthy("reach is labeled an estimate", "without deducting overlap" in body)
 truthy("the budget tiers are offered", "Good" in body and "Better" in body and "Best" in body)
 truthy("the recommended tier is marked", "Recommended" in body)
 truthy("the person who built it is named on the document",
@@ -326,14 +326,14 @@ check("...and each keeps its own author",
 
 
 # ===========================================================================
-section("The three answers, and the colour each comes back as")
+section("The three answers, and the color each comes back as")
 
 check("there are exactly three", len(spec.OUTCOMES), 3)
 check("approve is green", spec.outcome_colour("approved"), "green")
 check("approve-with-changes is yellow", spec.outcome_colour("approved_with_changes"), "yellow")
 check("discuss is red", spec.outcome_colour("discuss"), "red")
-check("no answer yet is its own colour, not a fourth kind of bad",
-      spec.outcome_colour(""), "grey")
+check("no answer yet is its own color, not a fourth kind of bad",
+      spec.outcome_colour(""), "gray")
 
 r = anon.post(f"{MOUNT}/estimate/{TOKEN}/respond",
               json={"outcome": "sounds-good", "name": "Dana", "email": "d@x.com"})
@@ -344,11 +344,11 @@ r = anon.post(f"{MOUNT}/estimate/{TOKEN}/respond",
                     "email": "dana@northsideroofing.example.com",
                     "note": "Happy, with the budget change above."})
 check("a valid answer is accepted", r.status_code, 200)
-check("...and comes back with its colour", r.get_json()["colour"], "yellow")
+check("...and comes back with its color", r.get_json()["color"], "yellow")
 
 state = store.review_state(PID)
 check("the approval hub sees the answer", state["outcome"], "approved_with_changes")
-check("...as yellow", state["colour"], "yellow")
+check("...as yellow", state["color"], "yellow")
 check("...and counts the change requests", state["changes"], 2)
 check("...and knows the client opened it", state["opened"], True)
 
@@ -544,7 +544,7 @@ r = staff.post(f"{MOUNT}/api/areas/preview", json={"areas": CAMPAIGN["targetArea
 data = r.get_json()
 check("the preview answers", r.status_code, 200)
 check("both areas come back", len(data["areas"]), 2)
-check("...labelled the way hub/target_areas labels them",
+check("...labeled the way hub/target_areas labels them",
       data["areas"][0]["label"], target_areas.label(CAMPAIGN["targetAreas"][0]))
 check("...and sized the way it sizes them",
       data["areas"][0]["population"],
@@ -601,7 +601,7 @@ truthy("the build has a drawn progress panel", 'id="genStage"' in gen_js)
 truthy("...with a stage per thing the server actually does",
        gen_js.count('class="gstage"') == 4)
 truthy("...that is cancelled when generation fails", "stopBuild()" in gen_js)
-truthy("...and the SVG is labelled for a screen reader", "genSvgTitle" in gen_js)
+truthy("...and the SVG is labeled for a screen reader", "genSvgTitle" in gen_js)
 
 
 # ===========================================================================
@@ -628,7 +628,7 @@ check("nor does a link whose class merely contains 'btn' as a fragment",
 check("nor a styled button with no words in it — it tells a reader nothing",
       any(not p["evidence"].split("  →")[0].strip() for p in ctas), False)
 truthy("a CTA link carries where it goes", any("→" in p["evidence"] for p in ctas))
-truthy("...and is labelled a link rather than a button",
+truthy("...and is labeled a link rather than a button",
        any(p["label"].endswith("link") for p in ctas))
 
 

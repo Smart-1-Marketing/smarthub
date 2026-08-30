@@ -301,7 +301,7 @@
 <div class="card seoc-card" id="cardImages">
   <div class="seoc-cardhead"><h3>Client Images</h3>
     <div class="seoc-muted" id="imgCount"></div></div>
-  <p class="seoc-muted" style="margin:0 0 12px">Images optimised and named for this client &mdash; saved to
+  <p class="seoc-muted" style="margin:0 0 12px">Images optimized and named for this client &mdash; saved to
     client gallery as WebP with SEO filenames and alt text.</p>
   <div id="imgStrip"></div>
   <div class="seoc-imgacts">
@@ -378,12 +378,12 @@
       </div>
       <div class="seoc-biz-head">What should the engine know about this company?</div>
       <textarea id="ba_guidance" rows="4"
-        placeholder="How they operate, who they serve, licences and certifications they really hold, warranty and financing terms, legal or compliance wording their industry requires, anything they have asked us to say a particular way."></textarea>
+        placeholder="How they operate, who they serve, licenses and certifications they really hold, warranty and financing terms, legal or compliance wording their industry requires, anything they have asked us to say a particular way."></textarea>
       <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 12px">
         Goes to the topic planner and the writer with every post.</p>
       <div class="seoc-biz-head">Never mention <span class="seoc-muted" style="font-weight:400">(one per line)</span></div>
       <textarea id="ba_avoid" rows="3"
-        placeholder="Competitor names, a discontinued service, “guaranteed”, a claim their licence does not cover…"></textarea>
+        placeholder="Competitor names, a discontinued service, “guaranteed”, a claim their license does not cover…"></textarea>
       <p class="seoc-muted" style="font-size:11.5px;margin:5px 0 12px">
         These are <b>checked in the finished copy</b>, not just asked of the AI.
         A post whose text contains one is flagged in the table and in the client
@@ -591,27 +591,16 @@
 </div>
 
 <style>
-.seoc-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
-.seoc-crumb{font-size:12.5px;color:#64748b;margin-bottom:4px}
-.seoc-crumb a{color:#2563eb;text-decoration:none}
-.seoc-actions{display:flex;gap:8px}
-.seoc-btn{border:0;background:#2563eb;color:#fff;font:600 13px 'Segoe UI',system-ui,sans-serif;
-  padding:9px 16px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
-.seoc-btn.seoc-sec{background:#fff;color:#1e293b;border:1px solid #e2e8f0}
-.seoc-btn.seoc-small{padding:6px 12px;font-size:12.5px}
-.seoc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:900px){.seoc-grid{grid-template-columns:1fr}}
-.seoc-card{margin-bottom:16px}
-.seoc-card h3{margin:0 0 10px;font-size:15px;color:#1a2e58}
-.seoc-cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
-.seoc-cardhead h3{margin:0}
-.seoc-muted{color:#64748b;font-size:12.5px}
-.seoc-kv{display:grid;grid-template-columns:150px 1fr;gap:6px 14px;align-items:start;
-  padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13.5px}
-.seoc-kv:last-child{border-bottom:0}
-.seoc-kv b{color:#475569;font-weight:600;padding-top:1px}
-.seoc-kv span{min-width:0;overflow-wrap:anywhere}
-.seoc-kv a{color:#2563eb;text-decoration:none;font-weight:600;white-space:nowrap}
+/* The page head, buttons, cards, key/value rows, tiles, tables and pills this
+   page is built from now live in hub/static/hub-detail.css, which base.html
+   links and which wsgi.py injects into every mounted module. They are declared
+   there under both the s1d- names and these seoc- ones, in the same rule, so
+   Sites Admin and the Suite panel adopting this look cannot drift from it.
+   What stays below is what is genuinely this tool: the schema builder, the
+   traffic cards, the blog and FAQ editors, the image strip. */
+/* One exception kept here: a key/value link on this page must not wrap, which
+   is a judgment about this page's 60/40 columns rather than about the row. */
+.seoc-kv a{white-space:nowrap}
 .seoc-attbadge{display:inline-block;background:#dcfce7;color:#166534;border-radius:20px;
   padding:1px 8px;font-size:10.5px;font-weight:700;margin-left:6px;vertical-align:1px}
 .seoc-attach{margin-top:6px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:10px}
@@ -621,9 +610,6 @@
 .seoc-attres{display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;
   border:1px solid #e2e8f0;border-radius:8px;padding:7px 10px;margin-top:6px;font-size:12.5px}
 .seoc-attres .who{color:#64748b;font-size:11px}
-.seoc-ok{color:#16a34a;font-weight:700}
-.seoc-warn{color:#b45309;font-weight:700}
-.seoc-bad{color:#dc2626;font-weight:700}
 .seoc-biz{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px}
 .seoc-biz-head{font-weight:700;font-size:13px;color:#1a2e58;margin-bottom:8px}
 .seoc-biz-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
@@ -775,10 +761,6 @@ table.seoc-blogt input[type=checkbox]{width:auto}
 .seoc-nochg{color:#64748b}
 table.seoc-ait td.up{background:#f0fdf4}
 table.seoc-ait td.down{background:#fef2f2}
-.seoc-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
-.seoc-tile{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
-.seoc-tile .v{font-size:22px;font-weight:800;color:#1a2e58}
-.seoc-tile .l{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#64748b;margin-top:2px}
 table.seoc-ait{width:100%;border-collapse:collapse;font-size:13px}
 table.seoc-ait th{background:#f8fafc;text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;
   letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0}
@@ -786,24 +768,12 @@ table.seoc-ait td{padding:8px 12px;border-bottom:1px solid #eef2f7}
 table.seoc-ait tr.tot td{font-weight:800;background:#f8fafc;color:#1a2e58}
 
 /* ---------------- saved-page tables (schema + FAQ) ---------------- */
-.seoc-tablehead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;
-  padding-top:14px;border-top:1px solid #eef2f7}
-.seoc-tablehead b{color:#1a2e58;font-size:13.5px}
-.seoc-tableacts{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
-table.seoc-t{width:100%;border-collapse:collapse;font-size:13px}
-table.seoc-t th{background:#f8fafc;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;
-  letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap}
-table.seoc-t td{padding:8px 10px;border-bottom:1px solid #eef2f7;vertical-align:middle}
-table.seoc-t tr:hover td{background:#fbfdff}
-table.seoc-t td a.u{color:#2563eb;text-decoration:none;overflow-wrap:anywhere}
 table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-radius:6px;
   font:12px 'Segoe UI',system-ui,sans-serif}
 .seoc-icon{background:none;border:0;cursor:pointer;font-size:15px;padding:3px 5px;border-radius:6px;
   text-decoration:none;color:#475569;line-height:1}
 .seoc-icon:hover{background:#eef2ff;color:#1a2e58}
 .seoc-icon.danger:hover{background:#fee2e2;color:#b91c1c}
-.seoc-pill{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:20px;
-  padding:1px 9px;font-size:11.5px;font-weight:700}
 
 /* ---------------- FAQ builder ---------------- */
 .seoc-faqbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -861,11 +831,6 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   margin-right:7px; background:#cbd5e1; vertical-align:middle; }
 .seoc-sev.bad { background:#DC2626; } .seoc-sev.warn { background:#F0B429; }
 .seoc-sev.ok { background:#2DBB72; }
-.seoc-pill { display:inline-block; border-radius:999px; padding:3px 10px;
-  font-size:11.5px; font-weight:700; background:#EEF3F8; color:#68798C; }
-.seoc-pill.ok { background:#ECFDF3; color:#12794B; }
-.seoc-pill.warn { background:#FEF7E7; color:#94620A; }
-.seoc-pill.bad { background:#FDECEC; color:#B01919; }
 </style>
 
 <!-- Schema questions, llms.txt and the image modal. These were inside
@@ -928,7 +893,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 
 
 
-<!-- The centring used to be inline, next to `hidden`. An inline display beats
+<!-- The centering used to be inline, next to `hidden`. An inline display beats
      the browser's [hidden]{display:none}, so the moment this markup started
      rendering the modal covered the page on load — the JS only ever toggles
      `.hidden`. It stayed invisible for as long as it did because the whole
@@ -959,7 +924,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
            are separate decisions: rejecting a pending image means "not this
            one, try again", and it clears the box so the next generate starts
            from the notes you just typed. Deleting an approved image is
-           removing something already in use. Showing one button labelled
+           removing something already in use. Showing one button labeled
            "Delete" next to a pending image asks the wrong question. -->
       <button class="seoc-btn" data-act="reject" onclick="imgAction('reject')"
         style="border-color:#f3d4a8;color:#8a5a12">Reject &amp; try again</button>
@@ -1223,8 +1188,33 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('btnScan').textContent='Check again';
     $('cardBuilder').style.display='block';
   }
+
+  /* One reading of "this is running" for the whole SEO client page.
+     Five things on this screen wait on a model — blog copy, alt text, an
+     extra FAQ question, a schema answer — and every one of them said so as a
+     bare line of text, which is indistinguishable from a label somebody left
+     behind. hub-thinking.js is loaded by base.html; this is guarded, because
+     a mark that takes the message down with it is worse than no mark. */
+  function seoBusy(id, label, kind){
+    var el = (typeof id === 'string') ? document.getElementById(id) : id;
+    if (!el) return { done: function(){}, stage: function(){} };
+    if (el._s1think) { el._s1think.done(); el._s1think = null; }
+    if (window.S1Think) {
+      el._s1think = window.S1Think.attach(el, {kind: kind || 'ai', label: label});
+      return el._s1think;
+    }
+    el.textContent = label;
+    return { done: function(){ el.textContent = ''; }, stage: function(){} };
+  }
+  function seoSay(id, text){
+    var el = (typeof id === 'string') ? document.getElementById(id) : id;
+    if (!el) return;
+    if (el._s1think) { el._s1think.done(); el._s1think = null; }
+    el.textContent = text;
+  }
+
   $('btnScan').onclick=function(){
-    $('scanBody').innerHTML='Scanning '+esc(siteUrl)+' &hellip;';
+    seoBusy('scanBody', 'Scanning '+siteUrl+'…', 'scan');
     post('/api/seo/scan',{url:siteUrl,client:CLIENT}).then(function(d){
       if(d.error){$('scanBody').innerHTML='<span class="seoc-bad">'+esc(d.error)+'</span>';return;}
       renderScan(d,false);
@@ -2020,11 +2010,11 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   };
   function writeNext(ids,doneSoFar,total){
     if(!ids.length){
-      $('blogWriteMsg').textContent='Done — '+total+' post(s) written.';
+      seoSay('blogWriteMsg', 'Done — '+total+' post(s) written.');
       loadBlogs();
       return;
     }
-    $('blogWriteMsg').textContent='Writing… '+doneSoFar+' of '+total+' done';
+    seoBusy('blogWriteMsg', 'Writing — '+doneSoFar+' of '+total+' done', 'ai');
     post('/api/seo/blogs/write',{client:CLIENT,ids:ids}).then(function(d){
       if(d.error){$('blogWriteMsg').textContent=d.error;return;}
       (d.written||[]).forEach(function(w){
@@ -2251,11 +2241,11 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   }
   $('btnAltScan').onclick=function(){
     $('btnAltScan').disabled=true;
-    $('altMsg').textContent='Reading the sitemap and the pages…';
+    seoBusy('altMsg', 'Reading the sitemap and the pages…', 'scan');
     post('/api/seo/alt/scan',{client:CLIENT,pages:parseInt($('altPages').value,10)||5})
       .then(function(d){
         $('btnAltScan').disabled=false;
-        if(d.error){ $('altMsg').textContent=d.error; return; }
+        if(d.error){ seoSay('altMsg', d.error); return; }
         altPages=d.pages||[];
         $('altMsg').textContent=d.total_images+' image(s) found across '+altPages.length
           +' page(s) — '+d.missing_alt+' with no alt text.';
@@ -2274,12 +2264,12 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     var urls=selectedUrls('altRows');
     if(!urls.length){ alert('Tick the pages you want rewritten first.'); return; }
     $('btnAltWrite').disabled=true;
-    $('altMsg').textContent='Writing alt text for '+urls.length+' page(s)…';
+    seoBusy('altMsg', 'Writing alt text for '+urls.length+' page(s)…', 'ai');
     post('/api/seo/alt/write',{client:CLIENT,urls:urls}).then(function(d){
       $('btnAltWrite').disabled=false;
       if(d.error){ $('altMsg').textContent=d.error; return; }
-      $('altMsg').textContent=d.written+' image(s) rewritten'
-        +(d.ai?'.':' (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').');
+      seoSay('altMsg', d.written+' image(s) rewritten'
+        +(d.ai?'.':' (template mode'+(d.ai_error?' — AI error: '+d.ai_error:'')+').'));
       urls.forEach(function(u){ altOpen[u]=true; });
       loadAlt();
     });
@@ -2755,16 +2745,21 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       renderDraft(); return;
     }
     if(act==='another'){
-      btn.disabled=true; btn.textContent='Thinking…';
+      var faqBusy = window.S1Think
+        ? window.S1Think.busy(btn, {kind:'ai', label:'Thinking…'})
+        : (function(){ btn.disabled=true; btn.textContent='Thinking…';
+                       return {done:function(){}}; })();
       post('/api/seo/faq/generate',{client:CLIENT,url:draft.url,count:1,
         avoid:draft.items.map(function(x){return x.question;})}).then(function(d){
-        if(d.error){ btn.disabled=false; btn.textContent='↻ Another question'; $('faqMsg').textContent=d.error; return; }
+        if(d.error){ faqBusy.done(); $('faqMsg').textContent=d.error; return; }
         var fresh=(d.faqs||[])[0];
-        if(!fresh){ btn.disabled=false; btn.textContent='↻ Another question';
+        if(!fresh){ faqBusy.done();
           $('faqMsg').textContent='No new question came back — try again.'; return; }
+        faqBusy.done();
         draft.items[i]={question:fresh.question,answer:fresh.answer,state:'pending',editing:false};
         renderDraft();
-      });
+      }).catch(function(){ faqBusy.done();
+        $('faqMsg').textContent='That did not come back — try again.'; });
     }
   }
 
@@ -2909,7 +2904,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         $('imgCount').textContent=total+' image'+(total===1?'':'s')+' saved';
         $('imgStrip').innerHTML='<div class="seoc-imgstrip">'+rows.map(function(r){
           return '<div class="it"><a href="'+esc(r.url)+'" target="_blank" rel="noopener">'
-            +'<img src="'+esc(r.url)+'" alt="'+esc(r.alt_text)+'" loading="lazy"></a>'
+            +'<img src="'+esc(r.thumb||r.url)+'" alt="'+esc(r.alt_text)+'" loading="lazy"></a>'
             +'<div class="n">'+esc(r.filename)+'</div>'
             +'<div class="p">'+esc(r.project||'')+(r.page?' · '+esc(r.page):'')+'</div></div>';
         }).join('')+'</div>'
@@ -3427,18 +3422,21 @@ function sqRemove(btn){
 }
 function sqRegen(btn){
   var r=sqRow(btn), note=r.querySelector('.sq-note');
-  note.textContent='Asking again…';
+  var sqBusy = window.S1Think
+    ? window.S1Think.attach(note, {kind:'ai', label:'Asking again…'})
+    : (function(){ note.textContent='Asking again…'; return {done:function(){}}; })();
   fetch('/api/seo/schema-questions/regenerate',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({client:schemaClient(), key:r.dataset.key})})
    .then(function(x){return x.json();}).then(function(d){
+     sqBusy.done();
      if(d.error){ note.textContent=d.error; return; }
      var t=r.querySelector('.sq-ans');
      t.value=d.answer; t.readOnly=false;
      var need = d.confidence==='needed';
      t.style.background=need?'#fff7f6':''; t.style.borderColor=need?'#fca5a5':'#cfd7df';
      note.textContent=d.source||'';
-   }).catch(function(){ note.textContent='Could not regenerate.'; });
+   }).catch(function(){ sqBusy.done(); note.textContent='Could not regenerate.'; });
 }
 function saveSchemaQ(){
   var answers={};
@@ -3473,7 +3471,7 @@ function blogThumb(p){
     return '<span class="seoc-muted" style="font-size:11px">—</span>';
   }
   var ring = im.status === 'pending' ? '#f59e0b' : '#86efac';
-  return '<img src="'+esc(im.url)+'" alt="" loading="lazy" '+
+  return '<img src="'+esc(im.thumb||im.url)+'" alt="" loading="lazy" '+
     'onclick="openImageModal('+p.id+')" '+
     'title="'+(im.status==='pending'?'Awaiting approval':'Approved')+'" '+
     'style="width:64px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;'+
@@ -3581,7 +3579,7 @@ function imgAction(act){
 }
 </script>
 <script>
-/* The FAQ export already matches the source page's fonts and colours. The
+/* The FAQ export already matches the source page's fonts and colors. The
    Hub preview didn't, so what you approved looked nothing like what shipped —
    and a preview that misrepresents the output is worse than no preview. This
    applies the same palette here, scoped to the list so it can't leak into the
@@ -3601,7 +3599,7 @@ function applyFaqPalette(style){
     '#faqList a{color:'+f(style.accent,'#1769AA')+'}';
   var note = document.getElementById('faqPaletteNote');
   if(note){
-    note.textContent = 'Preview is using this page\'s own fonts and colours — '+
+    note.textContent = 'Preview is using this page\'s own fonts and colors — '+
       'the same ones the export applies.';
   }
 }

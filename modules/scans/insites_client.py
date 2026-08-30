@@ -39,8 +39,25 @@ class InsitesError(Exception):
         self.status = status
 
 
+def _key() -> str:
+    """The Insites key, read through hub.config so every spelling resolves.
+
+    This deployment has a history of naming a provider ``PEXELS_API`` where the
+    code read ``PEXELS_API_KEY``, and the failure is silent: the module reports
+    "no key set" while the key is plainly there on Render. hub/config.py
+    already accepts both ``INSITES_API`` and ``INSITES_API_KEY``; read at call
+    time, not at import, so a key added without a redeploy still lands.
+    """
+    try:
+        from hub.config import settings
+        return (settings.insites_key or "").strip()
+    except Exception:                      # noqa: BLE001 - standalone/dev
+        return (os.environ.get("INSITES_API_KEY")
+                or os.environ.get("INSITES_API") or "").strip()
+
+
 def _api_key() -> str:
-    key = (os.environ.get("INSITES_API_KEY") or "").strip()
+    key = _key()
     if not key:
         raise InsitesError(
             "INSITES_API_KEY is not set. Add your Insites API key to the "
@@ -55,7 +72,7 @@ def _headers() -> dict:
 
 def is_configured() -> bool:
     """True if an API key is present — lets the UI degrade gracefully."""
-    return bool((os.environ.get("INSITES_API_KEY") or "").strip())
+    return bool(_key())
 
 
 def start_audit(url: str, *, on_completion: Optional[str] = None,

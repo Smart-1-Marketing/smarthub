@@ -86,7 +86,7 @@ ADVISORY: dict[str, str] = {
     "the championship": "Safe generically. Don't pair it with a city or a "
                         "date that identifies one specific event.",
     "the playoffs": "Generic and fine. Don't attach a league name to it.",
-    "official": "'Official sponsor/partner of' implies a licence. Only use "
+    "official": "'Official sponsor/partner of' implies a license. Only use "
                 "it if the client actually holds one.",
     "sponsor of": "Same — an unlicensed sponsorship claim is the one line "
                   "that reliably draws a letter.",

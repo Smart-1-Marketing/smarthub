@@ -3,33 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>GTM Tools - Command Center</title>
+  <title>GTM Tools — Smart 1 Hub</title>
   <link rel="stylesheet" href="/google/static/style.css">
 </head>
 <body>
   <div id="toast-container"></div>
 
   <main class="wrap">
-    <section class="card">
-      <div class="topline">
-        <div>
-          <h1>⚡ Google Tag Manager Tools</h1>
-          <p>Analyze web pages, auto-generate GA4 event tags, and deploy tracking pixels into GTM workspaces.</p>
-        </div>
-        <div class="auth">
-          <a class="btn" href="/google/login">+ Add Google Account</a>
-        </div>
-      </div>
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb">Google</div>
+      <h1>GTM Tools</h1>
+      <p>Inspect a container's tags, triggers and variables, generate the events a site is missing, and deploy without leaving the Hub.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/google/login">+ Add Google account</a>
+    </div>
+  </div>
 
-      <!-- CLEAN NAVIGATION MENU -->
-      <nav class="nav-anchor-bar">
-        <a href="/google/">🔍 Quick Search</a>
-        <a href="/google/ga-tools">📊 GA Tools</a>
-        <a href="/google/gtm-tools" class="active-page">⚡ GTM Tools</a>
-        <a href="/google/webmaster-tools">🌐 Webmaster Tools</a>
-        <a href="/google/gmb-tools">📍 GMB Tools</a>
-        <a href="/google/history">📜 History & Logs</a>
-      </nav>
+  {% include "_nav.html" %}
 
       {% set lookup_platform = 'gtm' %}
       {% set lookup_label = 'container' %}
@@ -97,7 +89,6 @@
         <button id="btn-deploy-pixel" class="btn" style="margin-top:12px; background:#24519c!important;">Deploy Custom Pixel to GTM Workspace</button>
         <div id="pixel-deploy-results" style="margin-top:10px;"></div>
       </div>
-    </section>
   </main>
 
   <script src="/google/static/app.js"></script>

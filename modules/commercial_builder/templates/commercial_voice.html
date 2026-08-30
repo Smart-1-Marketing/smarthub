@@ -1,0 +1,123 @@
+{% extends "_layout.html" %}
+{% block title %}Voice &amp; music — {{ project.title }}{% endblock %}
+{% set screen = "commercial_builder.voice" %}
+{# No walkthrough drives this screen, so the floating "Walk me through this"
+   button is off here. hub-demo.js highlights the current step's selector on
+   the page you are standing on and its perform() opens with `if (!node)
+   return` — so a walkthrough offered where its elements are not is a ring
+   anchored to nothing and a "Do it for me" that returns in silence, which is
+   worse than no button. #}
+{% set no_demo = true %}
+{% block content %}
+
+{% include "_stepper.html" %}
+
+<div class="cb-page-head">
+  <div><h1>Voice &amp; music — {{ client.name }}</h1>
+    <p>Cast the read, then set the bed under it.</p></div>
+  <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.cta', project_id=project.id) }}">Continue to CTA →</a>
+</div>
+
+<div class="cb-card" id="voice-root" data-project-id="{{ project.id }}" data-client-id="{{ client.id }}">
+  <h3>Cast the voice
+    {{ help_dot('commercial_builder.voice.cast') if help_dot is defined else '' }}
+  </h3>
+  {# Asked the way the Radio Promo builder asks it, against the same
+     ElevenLabs account, through the same hub/voice_casting.py. This screen
+     used to be a flat <select> of every voice on the account in whatever
+     order the API returned it, with nothing to listen to — so the answer was
+     always whichever name came first. #}
+  <p style="margin-top:0;">Say what the read should sound like and we'll rank the account's
+    voices against it. Every one has a sample — play them before you cast.</p>
+
+  {# The five questions, drawn as tiles rather than dropdowns: every option
+     visible at once, and each one carrying what it will actually match on.
+     "Announcer" is not a mood here -- it is a search for announcer /
+     commercial / broadcast / promo in the words ElevenLabs publishes against
+     each voice, and a screen that says so lets somebody pick differently when
+     none of those words fit their client. #}
+  <div id="voice-wants"></div>
+
+  <div class="cb-flex-between" style="margin:6px 0 12px;">
+    <button type="button" class="cb-btn cb-btn-primary" id="cast-btn">Find voices</button>
+    <span class="cb-hint" id="cast-note"></span>
+  </div>
+
+  <div id="cast-results"></div>
+
+  <details style="margin-top:14px;border-top:1px solid var(--cb-border);padding-top:12px;">
+    <summary style="cursor:pointer;font-weight:640;font-size:13px;">Every voice on the account</summary>
+    <div class="cb-field" style="margin-top:10px;">
+      <select id="voice-select"><option value="">Loading voices…</option></select>
+      <p class="cb-hint">The whole list, for when you already know the voice you want.</p>
+    </div>
+  </details>
+</div>
+
+<div class="cb-card">
+  <h3>How it's read
+    {{ help_dot('commercial_builder.voice.settings') if help_dot is defined else '' }}
+  </h3>
+  <div class="cb-grid cb-grid-3">
+    <div class="cb-field"><label class="cb-label">Speed <span id="speed-val">1.0×</span></label><input type="range" id="voice-speed" min="0.7" max="1.3" step="0.05" value="1.0"></div>
+    <div class="cb-field"><label class="cb-label">Stability <span id="stability-val">50%</span></label><input type="range" id="voice-stability" min="0" max="1" step="0.05" value="0.5"></div>
+    <div class="cb-field"><label class="cb-label">Style <span id="style-val">50%</span></label><input type="range" id="voice-style" min="0" max="1" step="0.05" value="0.5"></div>
+  </div>
+  <div class="cb-field">
+    <label class="cb-label">Pronunciation dictionary <span class="cb-muted" style="font-weight:400;">(word → how ElevenLabs should say it)</span>
+      {{ help_dot('commercial_builder.voice.pronunciation') if help_dot is defined else '' }}
+    </label>
+    <div id="pron-rows"></div>
+    <button type="button" class="cb-btn cb-btn-sm" id="pron-add">+ Add word</button>
+  </div>
+  <button type="button" class="cb-btn" id="voice-preview-btn">Generate full voiceover preview</button>
+  <span id="voice-status" class="cb-hint"></span>
+</div>
+
+<div class="cb-card" id="music-root">
+  <h3>Music
+    {{ help_dot('commercial_builder.voice.music') if help_dot is defined else '' }}
+  </h3>
+
+  <div class="cb-field">
+    <label class="cb-label">Mood</label>
+    {# The waveforms are an illustration of the mood, not a preview of a track:
+       nothing has been chosen at this point, so a picture that looked like a
+       waveform reading would be claiming something. The note below says so. #}
+    <div class="cb-mood-grid" id="music-mood-choices">
+      {% for m in music_moods %}
+        <button type="button" class="cb-mood {{ 'selected' if project.music and project.music.mood == m else '' }}" data-value="{{ m }}">
+          <span class="mood-art"></span>
+          <div class="cb-mood-name">{{ m }}</div>
+        </button>
+      {% endfor %}
+    </div>
+    <p class="cb-hint" id="music-mood-note"></p>
+  </div>
+
+  <div class="cb-field">
+    <label class="cb-label">Level under the voiceover</label>
+    {# Drawn rather than named, because "Medium" tells nobody anything. Each
+       tile shows the bed level and the ducked level from config.MUSIC_LEVELS —
+       the same two numbers creatomate_service turns into the automation
+       keyframes, so what is on screen is what gets rendered. #}
+    <div class="cb-level-grid" id="music-level-choices">
+      {% for label, pair in music_levels.items() %}
+        <button type="button" class="cb-level {{ 'selected' if (project.music and project.music.level == label) or (not project.music and label == 'Medium') else '' }}"
+                data-value="{{ label }}" data-bed="{{ pair[0] }}" data-ducked="{{ pair[1] }}">
+          <div class="cb-level-name">{{ label }}</div>
+          <div class="cb-level-db">{{ pair[0] }} dB, ducking to {{ pair[1] }} dB</div>
+          <span class="level-art"></span>
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="cb-flex-between">
+    <button type="button" class="cb-btn" id="save-music-btn">Save music selection</button>
+    <span class="cb-hint" id="music-status"></span>
+  </div>
+</div>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/voice.js') }}"></script>{% endblock %}

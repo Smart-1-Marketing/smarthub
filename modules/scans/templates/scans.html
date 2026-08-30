@@ -5,35 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Scans · Smart 1 Hub</title>
 <style>
-  :root {
-    --navy: #1a2e58; --blue: #5b8bff; --ink: #1e293b; --muted: #64748b;
-    --line: #e2e8f0; --bg: #f4f6fa; --ok: #16a34a; --warn: #d97706; --bad: #dc2626;
-  }
+  /* The page head, cards, buttons, tables, pills and form controls come from
+     hub/static/hub-detail.css via the `s1d-page` class on the wrapper below.
+     They are not restated here: the five staff templates in this module each
+     carried its own copy, in three different palettes -- --blue was #5b8bff on
+     this screen and the scan detail, #2563eb on the bulk page, and the cyan
+     #009ED2 on Scan Widgets and the report. One module, three dialects.
+
+     What is left is what is genuinely this screen. */
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
     font: 14px 'Segoe UI', system-ui, sans-serif; }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 22px 80px; }
-  h1 { color: var(--navy); font-size: 24px; margin: 0 0 2px; }
-  .sub { color: var(--muted); margin: 0 0 22px; }
-
-  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px;
-    padding: 20px 22px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
-  .card h2 { font-size: 15px; color: var(--navy); margin: 0 0 14px; text-transform: uppercase;
-    letter-spacing: .04em; }
 
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
   .field { display: flex; flex-direction: column; gap: 4px; }
   .field label { font-size: 12px; color: var(--muted); font-weight: 600; }
-  input[type=text], input[type=email] { padding: 10px 12px; border: 1.5px solid var(--line);
-    border-radius: 8px; font-size: 14px; min-width: 220px; }
-  input:focus { outline: none; border-color: var(--blue); }
   .grow { flex: 1; }
-  button { background: var(--navy); color: #fff; border: none; padding: 10px 18px;
-    border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; }
-  button:hover { background: #24407a; }
-  button.ghost { background: #fff; color: var(--navy); border: 1.5px solid var(--line); }
-  button.ghost:hover { border-color: var(--blue); }
-  button:disabled { opacity: .55; cursor: default; }
 
   .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .notice { margin-top: 12px; padding: 11px 14px; border-radius: 8px; font-size: 13px; display: none; }
@@ -46,15 +34,7 @@
   .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
   .toolbar input { flex: 1; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
-  tbody tr:hover { background: #f8fafc; }
   .score { font-weight: 700; }
-  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-  .badge.complete { background: #ecfdf3; color: var(--ok); }
-  .badge.running { background: #fef9ec; color: var(--warn); }
-  .badge.error { background: #fdecec; color: var(--bad); }
   .tier { font-size: 11px; color: var(--muted); }
   .acts a { text-decoration: none; margin-right: 12px; color: var(--blue); font-weight: 600; }
   .acts a:hover { text-decoration: underline; }
@@ -71,9 +51,18 @@ td.actions-cell a:last-child{margin-right:0}
 </style>
 </head>
 <body data-module="scans">
-<div class="wrap">
-  <h1>Scans</h1>
-  <p class="sub">Run an Insites audit on any website and build reports from the results.</p>
+<div class="wrap s1d-page">
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb">Site Scans</div>
+      <h1>Scans</h1>
+      <p>Run an Insites audit on any website and build reports from the results.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/scans/bulk">Scan all clients</a>
+      <a class="s1d-btn sec" href="/scans/widgets">Scan widgets</a>
+    </div>
+  </div>
 
   {% if not configured %}
   <div class="card" style="border-color:#f3c1c1;background:#fdf4f4">
@@ -145,7 +134,7 @@ td.actions-cell a:last-child{margin-right:0}
       <button class="ghost" onclick="loadScans()">Refresh</button>
       <button class="ghost" id="recoverBtn" onclick="recoverErrored()">Recover errored scans</button>
     </div>
-    <div id="tableWrap"><div class="empty">Loading…</div></div>
+    <div id="tableWrap"><div class="empty"><span class="spin"></span> Loading…</div></div>
   </div>
 </div>
 
@@ -164,8 +153,14 @@ async function startScan(force){
   const url = $("url").value.trim();
   if(!url){ showNotice("err","Please enter a website URL."); return; }
   hideNotice();
-  $("runBtn").disabled = true;
-  $("runBtn").textContent = "Starting…";
+  const runBusy = window.S1Think
+    ? window.S1Think.busy($("runBtn"), {kind: "scan", label: "Starting…"})
+    : {done: function(){ $("runBtn").disabled = false;
+                         $("runBtn").textContent = "Run Scan"; }};
+  if (!window.S1Think) {
+    $("runBtn").disabled = true;
+    $("runBtn").textContent = "Starting…";
+  }
   const payload = {
     url,
     business_name: $("biz").value.trim(),
@@ -204,8 +199,9 @@ async function startScan(force){
   } catch(e){
     showNotice("err", "Network error starting the scan.");
   } finally {
-    $("runBtn").disabled = false;
-    $("runBtn").textContent = "Run Scan";
+    // done() puts back the button's own caption, so the restore cannot
+    // disagree with what was on it.
+    runBusy.done();
   }
 }
 
@@ -293,7 +289,12 @@ async function recheckAll(){
   if(!running.length){ alert("Nothing is running."); return; }
   if(!confirm(`Re-check ${running.length} running scan(s) against Insites?\n\n`+
               `This re-reads existing audits — it does not start new ones, so no credits are spent.`)) return;
-  btn.disabled=true;
+  const reBusy = window.S1Think
+    ? window.S1Think.busy(btn, {kind: "scan", label: "Checking…"})
+    : {stage: function(t){ btn.textContent = t; },
+       done: function(){ btn.disabled = false;
+                         btn.textContent = "Re-check all running"; }};
+  if (!window.S1Think) btn.disabled = true;
   let done=0, resolved=0;
   for(const r of running){
     try{
@@ -302,9 +303,9 @@ async function recheckAll(){
       if(j && j.status && j.status!=="running") resolved++;
     }catch(e){}
     done++;
-    btn.textContent=`Checking ${done}/${running.length}…`;
+    reBusy.stage(`Checking ${done}/${running.length}…`);
   }
-  btn.disabled=false; btn.textContent="Re-check all running";
+  reBusy.done();
   alert(`${done} checked · ${resolved} resolved.` +
         (resolved===0 ? "\n\nNone resolved. That usually means the callback token or PUBLIC_BASE_URL is wrong — check /login/health." : ""));
   load();

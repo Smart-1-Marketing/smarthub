@@ -91,6 +91,41 @@ HUB_PAGES = [
     # Same shape again, and it hands the browser its field ids in a JSON
     # script block — the thing this checker learned to tell apart from code.
     "/tools/campaign-assets",
+    # A page *inside* a mount rather than its root, so enumerating the mounts
+    # never reaches it. It is its own tool -- it has a tile on /tools under
+    # Landing Pages -- and it hands the browser its placements in a JSON
+    # script block beside a real one, which is the pair this checker exists to
+    # tell apart.
+    "/scans/widgets",
+    # A blueprint on the hub app under /tools, so no mount enumeration reaches
+    # it, and it hands the browser its boot values in a JSON script block
+    # beside a real one -- the pair this checker exists to tell apart.
+    "/tools/website-audit",
+    # The prospect record: a blueprint on the hub app whose whole body is
+    # drawn from a fetch, and which hands the browser its lead id in a JSON
+    # script block beside a real one. It needs a path parameter, so no mount
+    # enumeration would reach it even if it had a mount.
+    "/prospect/none",
+    # A blueprint on the hub app, so no mount enumeration reaches it, and its
+    # three pages each build a table from JavaScript. Its staff pick page went
+    # on 500ing for want of one template variable, which is the failure this
+    # checker's whole existence is about — that one needs a gallery id, so
+    # test_image_picker.py holds it and this holds the root.
+    "/tools/image-picker/",
+    # Another hub blueprint under /tools, and its status card renders a
+    # tri-state per allowlisted folder -- exists, missing, not measured -- in
+    # Jinja rather than from JavaScript. A `is false` test that the installed
+    # Jinja does not have would raise while *rendering*, which is the whole
+    # page rather than one row, exactly like url_for('website_check_limits')
+    # in Sites Admin.
+    "/tools/video-backgrounds/",
+    # The internal calculator: a hub blueprint again, and a standalone HTML
+    # document rather than one extending base.html, so the sidebar arrives only
+    # if the hub app's after_request injector puts it there. It also renders the
+    # whole field set from the catalogue, which is where a page 500s while
+    # *rendering* if a field type gains an attribute the template does not
+    # guard -- the failure /tools/image-picker/c/<id> already had.
+    "/tools/calculators/internal/digital-audio",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:
