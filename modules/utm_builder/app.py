@@ -300,7 +300,17 @@ def api_save_links():
 
     if saved:
         save_links(saved + rows)
-        _log("links_saved", detail=client or "unfiled", count=len(saved),
+        # `client=`, not `detail=`. work_log() reads the client from one of
+        # five keys -- client, client_name, company, business_name,
+        # tool_client -- and `detail` is not one of them, so every batch of
+        # tracked links this tool has ever saved was written to the activity
+        # log with the client's name in a key the client record does not read,
+        # and dropped on the way there. The row existed, the table named the
+        # tool, and the record stayed empty: the display_ads failure wearing a
+        # different key. Unfiled links carry no client rather than the word
+        # "unfiled", or the record for a client actually called that would
+        # collect everybody's.
+        _log("links_saved", client=client or None, count=len(saved),
              campaign=saved[0].get("utm_campaign", ""))
     return jsonify({"ok": True, "saved": len(saved), "skipped": skipped,
                     "links": load_links()[:300]})

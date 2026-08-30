@@ -140,7 +140,17 @@ def for_module(name: str, actor_fn=None):
 #
 # hub/integrity.py's silent-module check reads this, so a module listed here is
 # looked for by the name it actually logs under, anywhere in the tree.
-LOG_NAMES: dict[str, str] = {"ad_builder": "display_ads"}
+LOG_NAMES: dict[str, str] = {
+    "ad_builder": "display_ads",
+    # modules/utm_builder logs under `utm`. Unlike the entry above this is not
+    # a module written in another language -- it is simply a shorter name
+    # somebody chose -- and it went undeclared, so `client_brand.WORK_KINDS`
+    # was keyed on the directory name instead and `work_log()` dropped every
+    # row the tool wrote. Declared rather than renamed for the same reason as
+    # display_ads: the rows already on disk carry `utm`, and renaming the call
+    # site to match a table would orphan all of them to make a string tidy.
+    "utm_builder": "utm",
+}
 
 # A module that deliberately writes no activity row, and why.
 #

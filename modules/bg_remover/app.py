@@ -365,7 +365,13 @@ def api_save():
                "bytes": _asset.bytes}
     except Exception as exc:                          # noqa: BLE001
         return jsonify({"error": f"Upload failed: {exc}"}), 502
-    _log("cutout_saved", detail=client, name=name)
+    # `client=`, not `detail=`. The comment below explains at length that a
+    # cut-out has to reach the client's gallery or it is absent from the one
+    # page somebody opens to see what we have made for them -- and the
+    # activity-log half was landing in `detail`, which work_log() does not
+    # read, so the row was written and then dropped before the record. Half
+    # the fix was done and the other half was one keyword away.
+    _log("cutout_saved", client=client or None, name=name)
     # Into the client's gallery, not only into a Cloudinary folder. The folder
     # was the only record that a cut-out belonged to anybody, and no screen
     # reads Cloudinary folders -- so every cut-out this tool has ever made was

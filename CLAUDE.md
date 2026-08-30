@@ -428,6 +428,39 @@ module ever saw them. What is **reported rather than fixed** is that a PNG
 target the 160px floor cannot reach comes back several times the size asked
 for, `200 OK`, with nothing saying so.
 
+**And a third way, which is the row arriving and being dropped at the door.**
+`work_log()` reads the client from exactly five keys — `client`,
+`client_name`, `company`, `business_name`, `tool_client` — and from nowhere
+else. **UTM Builder** wrote `_log("links_saved", detail=client, …)` and
+**Background Remover** wrote `_log("cutout_saved", detail=client, …)`, so
+every tracked-link batch and every cut-out saved against a client was written
+to the activity log, kept, indexed, and then dropped on the way to the record
+it was written for. The bg_remover case is the one worth reading: the comment
+directly beneath that call explains at length that a cut-out has to reach the
+client's *gallery* or it is absent from the one page somebody opens to see
+what we have produced — that half was done, and the activity-log half was one
+keyword away. UTM Builder was dropped **twice over**, because it also logs
+under the name `utm` while `WORK_KINDS` was keyed on `utm_builder`, so the
+tool read on every client record as one nobody had ever used. `CLIENT_KEYS`
+is the list, written beside the walk that checks it, and `check_client_attribution()`
+runs at **high** on `/api/integrity`. It asks the question
+`check_work_kinds()` asks from the other end: not *which names log a client
+the table cannot name*, but *which names the table knows can never carry a
+client at all*. Keyed on `utm` and declared in `audit.LOG_NAMES` rather than
+renamed — the `display_ads` rule — because renaming the call site orphans
+every row already on disk.
+
+**A check with a false positive is a check somebody switches off, and it
+takes the real findings with it.** The first draft reported `ads_builder`,
+which names its client perfectly well: it mirrors through
+`store.log_event(**details)` and the client arrives from `app.py` through
+that forward, which the AST cannot follow. A call site forwarding `**kwargs`
+is counted apart now — **not determinable is not the same answer as never
+does**, the rule this file gives about a source that could not be read.
+`test_work_attribution.py` drives the real `work_log()` rather than asserting
+about source, checks all five keys land, and points the check at a fixture
+that plainly has each bug.
+
 **A module's own `log()` wrapper hid the same failure one step on.**
 `check_work_kinds()` counted only a direct `audit.log("mod", …, client=…)`,
 reasoning that a bare `log()` is a wrapper whose first argument is the event
@@ -9534,6 +9567,10 @@ python3 test_google_index.py       # the Google sweep: no request, and none vs c
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
+python3 test_work_attribution.py   # work filed against a client reaches that
+                                   #   client's record: the five keys work_log
+                                   #   reads, and a table keyed on the name a
+                                   #   module actually logs under
 python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
