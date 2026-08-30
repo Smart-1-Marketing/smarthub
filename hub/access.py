@@ -56,6 +56,26 @@ UTILITY_PREFIXES = (
     "/api/activity",
     "/api/users",
     "/api/status",
+    # The rest of what the Diagnostics page fetches. These were the page's
+    # own APIs and were not on this list, so the page answered 403 to a
+    # General account while its data answered 200 -- "gating the page while
+    # its data stays readable is a gate in name only", one paragraph up, and
+    # nothing on either side said so. Nothing outside diagnostics.html
+    # fetches any of them.
+    "/api/db",              # /db/structure and /db/urls, the sibling of
+                            # /api/integrity: the same panel, the same
+                            # question, and only one of the two was gated
+    "/api/environment",     # which name answered for each setting, and the
+                            # ones set and ignored. It carries no values, and
+                            # it is still a description of the machinery
+    # And this one is not a read. /api/scheduler/run/<name> fires a job on
+    # demand: the Google sweep is 180 rate-limited Tag Manager accounts
+    # against a per-day project quota, the Cloudinary reconcile is billed
+    # Admin API calls, and the Knack pulls are a full paged object each. A
+    # POST any of the eleven General accounts can fire is the same cost as
+    # the GET that rewrites a cache, which `hub/domain_purchase.py` already
+    # refuses to be.
+    "/api/scheduler",
     # What the day cache is holding, and the button that empties it. Names of
     # reports and when each last ran — no rows, so no client names — but
     # emptying it makes every report on the Hub run again, which is not
