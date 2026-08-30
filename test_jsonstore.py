@@ -421,15 +421,14 @@ for _f in sorted(_ROOT.glob("test_*.py")):
 # A file in the shape and not on this list fails. Own DATABASE_URL as well
 # (the test_blog_publish.py pattern), or run the suite twice against one
 # database, confirm it is identical, and add it here.
+#
+# The list was twenty-three files and is now one. That is not the check
+# finding less: this PR gave the other twenty-two their own database, which
+# takes them out of the shape entirely and so retires their entries -- the
+# staleness check below is what requires that pruning rather than leaving an
+# exemption standing over a file it no longer describes.
 _RERUNS_CLEAN = (
-    "test_ad_copy.py", "test_api_usage.py", "test_calculator_embed.py",
-    "test_campaign_assets.py", "test_campaign_cost.py", "test_client_logos.py",
-    "test_client_prefill.py", "test_detail_ui.py", "test_drafts.py",
-    "test_env_config.py", "test_ghl_scopes.py", "test_io_reconcile.py",
-    "test_menu_layout.py", "test_proposal_share.py", "test_proposal_spec.py",
-    "test_proposal_targeting.py", "test_prospect_explainer.py",
-    "test_quote_validity.py", "test_search.py", "test_site_blocks.py",
-    "test_social_plan.py", "test_suite_embed.py", "test_target_areas.py",
+    "test_prospect_explainer.py",
 )
 
 check("no test file is in the shape without having been re-run to prove it is safe",
