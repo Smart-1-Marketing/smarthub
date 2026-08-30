@@ -281,13 +281,41 @@ check("a refused call still spent its quota", g["measured"]["calls"], 12_101)
 # ------------------------------------------------------------ 11. blind spots
 section("A call site that spends without recording is named, not missed")
 blind = quotas.untracked_provider_calls(force=True)
-check("every provider is scanned", sorted(blind), ["cloudinary", "elevenlabs", "google"])
+check("every provider is scanned", sorted(blind),
+      ["brandfetch", "cloudinary", "elevenlabs", "google"])
 # This is the point of the check: the repository is expected to be clean, and
 # the moment a new module calls one of these without recording it, this fails
 # here and on /api/integrity rather than quietly understating the bill.
 for provider, found in blind.items():
     check(f"no unrecorded {provider} call sites",
           [f["file"] for f in found], [])
+
+# Brandfetch joined the table late, and the two things that make it worth
+# having are the two it could most easily get wrong.
+section("The Brandfetch scan bites, and does not cry wolf on a key check")
+_bf = quotas._PROVIDER_MARKERS["brandfetch"]
+
+# A module that looks a client up and records nothing is the whole point.
+check("a direct lookup with no recording is caught",
+      _bf["calls"]("r = requests.get('https://api.brandfetch.io/v2/brands/' + d)")
+      and not any(m in "r = requests.get('https://api.brandfetch.io/v2/brands/' + d)"
+                  for m in _bf["recorded"]),
+      True)
+# Both of Brandfetch's published type routes are real. Matching one path would
+# give a module a clean bill for using the other spelling.
+check("and so is the explicit domain route",
+      _bf["calls"]("requests.get(f'https://api.brandfetch.io/v2/brands/domain/{d}')"), True)
+# Going through the shared lookup is what clears it.
+check("a module on hub/brand_lookup.py is clear",
+      any(m in "from hub import brand_lookup\nbrand_lookup.lookup(d)"
+          for m in _bf["recorded"]), True)
+# The sign-in health panel and diagnostics fetch Brandfetch's OWN domain to
+# prove the key still works. Flagging that would put a finding nobody can act
+# on in front of somebody from the day this landed, and a check that starts
+# life red is one people switch off.
+check("a key-validity probe is not a client lookup",
+      _bf["calls"]("requests.get('https://api.brandfetch.io/v2/brands/brandfetch.com')"),
+      False)
 
 section("The integrity page reports the same scan, from the same code")
 from hub import integrity                                # noqa: E402

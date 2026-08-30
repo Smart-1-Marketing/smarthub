@@ -213,30 +213,50 @@ def brandfetch_lookup():
     # Through hub.config, which accepts BRANDFETCH_API too — the spelling the
     # rest of this deployment's provider keys use. Read one way here, the
     # lookup answered "not configured" over a key Smart 1 Ads was using.
-    api_key = _hub_settings().brandfetch_key
-    client_id = os.getenv('BRANDFETCH_CLIENT_ID', '').strip()
-    if not api_key:
-        return jsonify({'error': 'Brandfetch is not configured'}), 503
+    # Through hub/brand_lookup.py rather than a request of our own.
+    #
+    # This route used to call Brandfetch directly, and the call was the least
+    # of it: the payload went to the browser and nowhere else. So the plan --
+    # a hundred lookups a month -- was being spent here without the usage page
+    # counting it, and Client 360's brand card, which reads *stored* brand
+    # data and never fetches, stayed empty for a client somebody had looked up
+    # in this very builder. That is the exact pair of failures brand_lookup.py
+    # was written to close, in a module its docstring does not name.
+    #
+    # The shared lookup records the call, saves the answer against the domain
+    # (and the client when one is known), and answers a cache hit without
+    # spending anything. What is kept here is the response shape: this route's
+    # own reading of the payload, and the status codes the IO Builder's script
+    # already branches on.
+    from hub import brand_lookup
+
     domain = (request.args.get('domain') or '').strip().lower()
     if '://' in domain:
         domain = urlparse(domain).hostname or ''
     domain = domain.removeprefix('www.').split('/')[0]
     if not domain or '.' not in domain:
         return jsonify({'error': 'A valid website domain is required'}), 400
-    headers = {'Authorization': f'Bearer {api_key}', 'Accept': 'application/json'}
-    if client_id:
-        headers['X-Client-Id'] = client_id
-    try:
-        response = requests.get(f'https://api.brandfetch.io/v2/brands/domain/{domain}', headers=headers, timeout=20)
-        if response.status_code == 404:
-            return jsonify({'error': f'No Brandfetch profile was found for {domain}'}), 404
-        response.raise_for_status()
-        return jsonify(_extract_brandfetch(response.json(), domain))
-    except requests.RequestException as exc:
-        detail = ''
-        if getattr(exc, 'response', None) is not None:
-            detail = (exc.response.text or '')[:300]
-        return jsonify({'error': 'Brandfetch request failed', 'detail': detail}), 502
+
+    # Optional, and worth taking when the page has one: a payload filed against
+    # the client is the one Client 360's card reads, and a domain-only save is
+    # only found by the domain cache.
+    client = (request.args.get('client') or '').strip()
+
+    result = brand_lookup.lookup(domain, client=client, module='io_builder')
+    if result.get('found'):
+        return jsonify(_extract_brandfetch(result.get('payload') or {}, domain))
+
+    note = result.get('note') or 'Brandfetch request failed'
+    if result.get('unconfigured'):
+        return jsonify({'error': 'Brandfetch is not configured'}), 503
+    # "Nothing is published for this domain" is a real answer about the client
+    # and not a failure of ours, which is the distinction the 404 branch here
+    # has always drawn. A refusal or an unreachable service is not that, and
+    # calling either one "no profile found" sends somebody to look for a logo
+    # that was never asked for -- brand_lookup.py's own rule.
+    if 'Nothing is published' in note:
+        return jsonify({'error': f'No Brandfetch profile was found for {domain}'}), 404
+    return jsonify({'error': 'Brandfetch request failed', 'detail': note}), 502
 
 
 
