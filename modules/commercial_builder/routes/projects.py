@@ -7,6 +7,7 @@ from .. import client_link, compliance_spec, cost_spec, library_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
+                      logo_persistence_eligible,
                       length_warning, in_build_order, DEFAULT_SHOT_GRAMMAR,
                       SHOT_NUMBER_STEP, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
                       CTV_PUBLISHERS, publisher_qr_note, shot_label)
@@ -419,12 +420,19 @@ def set_cta(project_id):
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
 
-    # :05 bumpers never carry a QR code or a persistent logo bug — per the
-    # CTV/YouTube best-practices brief, a 5-second spot is pure brand recall
-    # (logo + URL), not a response mechanism.
-    eligible = qr_eligible(project.length_seconds)
-    qr_enabled = bool(data.get("qr_enabled")) and eligible
-    logo_persistent = bool(data.get("logo_persistent", eligible)) and eligible
+    # A bumper carries neither a QR code nor a persistent logo bug: it is pure
+    # brand recall (logo + URL), not a response mechanism, and it already runs
+    # the logo full-treatment throughout.
+    #
+    # Two questions, asked of their own tables. They hold the same lengths
+    # today and that is a fact about the tables rather than a rule — a QR code
+    # is a response mechanism and needs seconds on screen to be scannable, a
+    # logo bug is brand recall and needs none, so one moving must not move the
+    # other in silence.
+    qr_ok = qr_eligible(project.length_seconds)
+    logo_ok = logo_persistence_eligible(project.length_seconds)
+    qr_enabled = bool(data.get("qr_enabled")) and qr_ok
+    logo_persistent = bool(data.get("logo_persistent", logo_ok)) and logo_ok
 
     website = data.get("website") or client.website or ""
 
@@ -438,10 +446,15 @@ def set_cta(project_id):
     prior_cta = project.cta or {}
     qr_image_url = prior_cta.get("qr_image_url")
     qr_data_url = prior_cta.get("qr_data_url")
+    # Why there is no code, when there is no code. A blank here used to be
+    # indistinguishable from a button nobody pressed, and the service used to
+    # fill it with a placeholder rather than admit it — see qrcode_service.
+    qr_error = ""
     if qr_enabled and qr_target and (qr_target != prior_cta.get("qr_target_url") or not qr_data_url):
         qr_result = qrcode_service.generate_qr(qr_target)
         qr_data_url = qr_result.get("data_url")
-        if cloudinary_service.is_live():
+        qr_error = qr_result.get("error") or ""
+        if qr_result.get("bytes_io") and cloudinary_service.is_live():
             upload = cloudinary_service.upload_asset(qr_result["bytes_io"], client.slug, "logo",
                                                        public_id=f"project-{project_id}-qr", resource_type="image",
                                                        client_name=client.name)
@@ -460,6 +473,10 @@ def set_cta(project_id):
         # so the moment one is chosen rather than at the render.
         "qr_publisher_note": publisher_qr_note((project.brief or {}).get("publishers")),
         "qr_corner": data.get("qr_corner") or "bottom-right",
+        # Named rather than left as a blank the panel reads as "not generated
+        # yet". QC still blocks a code that is enabled and absent; this is the
+        # half that says which of the two it is.
+        "qr_error": qr_error,
         "qr_target_url": qr_target,
         # What the code actually points at before the tracking was added, and
         # which field it came from. Both are printed on the CTA step: a rep

@@ -420,7 +420,11 @@ def client_decide(token):
 
     name = str(body.get("name") or "").strip()[:200]
     email = str(body.get("email") or "").strip()[:200]
-    if not name or not email:
+    # Asked of the spec rather than assumed here. `decision_requires_name()`
+    # was written for exactly this and had no caller, so the rule lived in
+    # this route's own words — two descriptions of one rule, and the spec's
+    # was the one nothing consulted.
+    if review_spec.decision_requires_name(outcome) and (not name or not email):
         return jsonify({"ok": False, "error": (
             "Please add your name and email. We record who signed a spot off, "
             "and an answer nobody can be named for is one we cannot act on.")}), 400

@@ -21,6 +21,12 @@ except ImportError:
 
 
 def is_available():
+    """Whether a real code can be generated at all.
+
+    Asked by the CTA route, so a deployment missing the dependency says so on
+    the panel rather than storing nothing and reading as a code somebody
+    forgot to press the button for.
+    """
     return _AVAILABLE
 
 
@@ -35,10 +41,22 @@ def generate_qr(url, box_size=12, border=2):
         return {"data_url": None, "bytes_io": None}
 
     if not _AVAILABLE:
-        # Extremely small dependency (pure Python + Pillow); if it's somehow
-        # missing, fail soft with a placeholder so the CTA builder doesn't break.
-        return {"data_url": "https://placehold.co/400x400/000000/ffffff?text=QR", "bytes_io": None,
-                "_mock": True}
+        # This used to fail soft with a placehold.co image of the letters
+        # "QR" so the CTA builder would not break. That is the one failure
+        # this must not have: a picture that reads as a QR code and scans to
+        # nothing goes onto the end card of a CTV spot, where the code is the
+        # only response mechanism there is, and nobody proof-reads the thing
+        # that scans — the rule `hub/qr_codes.py` refuses to invent a
+        # destination for. It also defeated the QC check that exists for
+        # exactly this: `_check_qr_code` blocks a code that is enabled and
+        # not generated, and a truthy placeholder walked straight past it.
+        #
+        # So: no image, and the reason named. `hub/qr_codes.py`'s own rule —
+        # nothing is invented — and "not measured, never a zero".
+        return {"data_url": None, "bytes_io": None,
+                "error": ("The qrcode package is not installed on this "
+                          "deployment, so no code could be generated. "
+                          "`qrcode[pil]` is in requirements.txt.")}
 
     target = url if url.startswith(("http://", "https://")) else f"https://{url}"
     qr = qrcode.QRCode(box_size=box_size, border=border,

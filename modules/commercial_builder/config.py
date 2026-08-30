@@ -551,7 +551,46 @@ def qr_default_on(length_seconds, platform):
 
 
 def logo_persistence_eligible(length_seconds):
+    """Whether this length carries a persistent logo bug.
+
+    Its **own** table, and asked through this function rather than by reading
+    the neighbouring one — even though both hold the same three lengths today.
+
+    Three call sites used to ask `qr_eligible()` for this, which was right by
+    coincidence rather than by design: a change to where a QR code makes sense
+    would have silently moved where a logo bug is drawn, and neither table
+    would have said so. `creatomate_service` asked a fourth way,
+    `length_seconds != 5`, which had already stopped agreeing with the other
+    three the day the :06 arrived — a bare literal is the reading that cannot
+    be kept in step, because nothing points at it.
+
+    They are separate questions with separate reasons. A QR code is a response
+    mechanism and needs seconds on screen to be scannable; a logo bug is brand
+    recall and needs none. That they currently agree is a fact about these two
+    tables, not a rule.
+    """
     return length_seconds in LOGO_PERSISTENCE_RULES["eligible_lengths"]
+
+
+def short_form_lengths():
+    """The lengths too short to carry a logo bug — a bumper runs the logo
+    full-treatment throughout, so there is nothing for a corner bug to add.
+
+    Derived from the table rather than written into the copy. The panels used
+    to say ":05 bumpers" and went on saying only that after the :06 was added,
+    so they described two lengths while naming one.
+    """
+    return [n for n in COMMERCIAL_LENGTHS if not logo_persistence_eligible(n)]
+
+
+def short_form_phrase():
+    """Those lengths as a screen says them: ":05 and :06"."""
+    names = [f":{n:02d}" for n in short_form_lengths()]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + " and " + names[-1]
 
 # ---------------------------------------------------------------------------
 # Output formats
