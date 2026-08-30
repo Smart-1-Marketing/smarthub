@@ -84,6 +84,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # The PDF Optimizer is a wrapper around these two, and they were in the
+      # Dockerfile and nowhere else -- so the compression the tool exists for
+      # ran in production and in no check anywhere. Same two packages the
+      # Dockerfile installs, not a secret and not a service, so the "runs from
+      # a clean checkout" rule above is intact. Without them
+      # test_image_pdf_optimizers.py still passes: it says out loud that the
+      # path was not covered rather than reporting an unrun path as a clean
+      # run, which is the thing it is guarding against.
+      - name: Install Ghostscript and qPDF (the PDF optimizer's binaries)
+        run: sudo apt-get update -qq
+             && sudo apt-get install -y -qq --no-install-recommends ghostscript qpdf
+
       - name: Python syntax
         run: |
           python -c "import ast, pathlib, sys; \
@@ -1299,6 +1311,20 @@ jobs:
       - name: The search box finds clients first, and finds the Hub
         run: python3 test_search.py
 
+      # A client's llms.txt is hosted here and reached by a redirect on the
+      # client's own website, so every part of it can be broken by somebody
+      # who never heard of the feature -- and every one of those failures is
+      # silent, because the Hub goes on reporting a clean publish while a
+      # crawler reads a 404, a login page or a refusal. Two of the three
+      # layers that had to be opened were not in the written brief at all:
+      # `hub/no_crawl.NoIndex` stamps `noai` onto every response in the
+      # composed app, and a saved draft used to overwrite the published copy.
+      # This holds the robots groups per user-agent (never by substring), the
+      # header the route sets for itself, the 301-versus-302 verdict, and that
+      # a robots.txt we could not reach is not read as permission.
+      - name: The client llms.txt is readable, redirected and verified
+        run: python3 test_llms_hosting.py
+
       # The help layer, both halves. A bubble whose key the registry does not
       # hold is removed client-side, so the template reads as helped and the
       # screen shows nothing -- no console error, no failed request. And the
@@ -1479,3 +1505,14 @@ jobs:
       # the browser claimed rather than the one GHL held. This holds all three.
       - name: Suite Panel — the guard on creating, the record of deleting
         run: python3 test_suite_panel.py
+
+      # The last two modules named by no test at all. Both take a file a
+      # client sent us and hand it back, and both handed the user a raw
+      # internal exception instead of a message: Pillow's "cannot identify
+      # image file <_io.BytesIO object at 0x7f...>", and -- worse -- the last
+      # 2000 characters of Ghostscript's stderr, absolute temp paths and the
+      # uploader's filename included, interpolated straight into a 500. The
+      # PDF tool's /health also answered "ok" while Ghostscript was missing
+      # and every optimize was failing, contradicting the Hub's own /status.
+      - name: The image and PDF optimizers
+        run: python3 test_image_pdf_optimizers.py
