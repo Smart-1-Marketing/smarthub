@@ -2928,6 +2928,29 @@ that the overrides still beat it, and that neither file goes back to deciding
 for itself — beside the section already there about a fresh data directory not
 being isolation on its own, which is the same trap one layer up.
 
+**And it was seven copies, not two.** The logs were the pair that was
+provably biting; the same expression sat in `hub/leads.py` (the lead book),
+`hub/extensions.py` (the SQLite fallback), `hub/scheduler.py` (the leader
+lock), `modules/landing_ads/store.py` and `modules/google_finder/app.py` (the
+OAuth refresh tokens — one of the files this page counts as having no second
+copy). All five skipped `HUB_DATA_DIR` too, so naming a root moved the
+jsonstore files and left those five on the shared disk.
+
+The scheduler had a spelling of its own: its fallback was **`"."`**, the
+current working directory — the one answer that depends on where somebody
+happened to start the process, and it drops a lock file into a developer's
+checkout. And the token database had no fallback at all: a machine with no
+`/var/data` got a path nothing could create.
+
+All seven defer to `data_root()` now, each keeping the override that names
+one *file* — `AUDIT_LOG_PATH`, `ERROR_LOG_PATH`, `HUB_LEADS_FILE`,
+`TOKEN_DB_PATH`, `DATABASE_URL` — because naming a file is more specific than
+naming a root, and several test files already rely on exactly that. None may
+raise: each falls back to the expression it replaced, since a store that
+cannot resolve a path is worse than one in the wrong place. Nothing moves on
+Render. `test_jsonstore.py` asserts a named root moves all seven, that the
+overrides still beat it, and that no file goes back to deciding for itself.
+
 **Deleting a mirrored file needs `jsonstore.delete_json`, not `os.remove`.**
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one

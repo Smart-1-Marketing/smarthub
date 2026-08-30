@@ -51,9 +51,19 @@ def database_url() -> str:
     url = (os.environ.get("DATABASE_URL") or "").strip()
     if url:
         return normalise_url(url)
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-    os.makedirs(base, exist_ok=True)
+    # Only reached with DATABASE_URL unset. data_root() rather than a copy of
+    # its expression -- jsonstore imports this module lazily and data_root()
+    # touches nothing but the environment, so there is no cycle.
+    try:
+        from . import jsonstore
+        base = jsonstore.data_root()
+    except Exception:  # noqa: BLE001 — a database URL must always resolve
+        base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        pass
     return "sqlite:///" + os.path.join(base, "hub.sqlite3")
 
 
