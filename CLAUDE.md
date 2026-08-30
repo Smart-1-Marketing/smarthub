@@ -1902,6 +1902,14 @@ presses.** None of them writes anything by arriving. `test_ai_proposals.py`
 asserts that for all three at once, including that the source of each carries
 no path to a write.
 
+**One reader, three configurations.** `hub/name_reading.py` holds the
+batching, the grounding check, the store and the give-up; `site_names_ai`,
+`invoice_names` and `google_names_ai` are a prompt, a store and a rule about
+what is not worth sending. Three copies of that machinery is the drift
+`hub/storage.py` exists to stop, and the safety argument is a property of the
+shared reader rather than of each caller remembering: **it takes a prompt and
+never a client book**, so no configuration of it can name a client.
+
 **The model reading a project name is never shown the client list.**
 `hub/site_names_ai.py`. The hand-written shapes in `hub/site_names.py` turned
 42 raw matches into 305 exact and 60 candidates out of 1,021 projects; 229 more
@@ -1974,6 +1982,69 @@ sent. Nothing is applied by arriving: `KnackForm.triageButton()` draws each
 suggestion dashed with the reason beside it, Keep takes it and Dismiss puts the
 field back. One control, drawn once, so both objects get it and a third form
 added later gets it without being edited.
+
+**A charge is joined to a record through a sentence somebody typed.**
+`hub/invoice_names.py`. A domain renewal is invoiced to the media partner —
+one invoice to a radio group carries five renewals for five businesses — so
+the only place the client appears is the free-text line description.
+`parse_description()` and Sites Billing's five rules answer most of them; what
+both keep is an explicit bucket for what they could not join, and **that
+bucket is the only place this is used**. A line the rules answered is never
+sent: it costs a call to be told what is known, and it invites a second
+opinion on a domain, which is an identifier rather than a guess.
+
+What comes back resolves through the matcher's *own* name passes and can never
+be better than **`probable`** — and `domain_purchase.year_to_date()` already
+counts a probable charge as having no record here, in both directions, until
+somebody presses Link. So a reading can move a charge from *nothing to look
+at* to *here is a candidate*, and it cannot mark a renewal billed. That matters
+more here than anywhere else, because a charge attributed to the wrong
+client's domain marks a renewal billed that was not **and** hides a real one
+from the reconciliation.
+
+**A Google resource label is as improvised as a project title.**
+`hub/google_names_ai.py`. `google_links.suggest_for()`'s loosest rule is a
+shared word, and what it cannot do is read "FabLocal – SERVPRO Fresno GTM" the
+way a person does. The reading goes through the *same* `client_key.resolve()`
+the raw label already goes through, so the rules that decide are unchanged and
+a reading only changes which string is asked about. `_add()` keeps the best
+confidence anything gave a client, so it can never displace a recorded id or a
+domain — those are identifiers and a reading is a guess about what somebody
+meant. A label made only of platform words is never sent.
+
+**The audit a prospect reads had 26 findings and no reason to call.**
+`hub/audit_summary.py`. `widget_audit_report.html` is tables; underneath it
+`OPPORTUNITIES` carries a measured finding and what it costs them, and
+`spend()` leads with what the business is already putting into Google and Meta.
+The rep-facing half already feeds a model; the client-facing half stopped at
+the tables. Two paragraphs now open it, and every rule on them is a way that
+document becomes a confident wrong claim about somebody's business:
+
+**Only what fired reaches the prompt** — a finding that did not match is absent
+entirely, so there is nothing to soften into "you may also want to consider".
+**A total that excluded something says so**: Meta publishes the ads and never
+the spend, so a paragraph quoting the total without `total_excludes` is a
+five-figure understatement printed confidently, and it is required in the
+prompt *and* checked on the way back. **A promise is discarded rather than
+patched** — the Smart 1 Labs precedent, which throws copy away rather than
+paraphrasing it into something nobody wrote.
+
+**And the money rule is grounded rather than banned.** The summary is supposed
+to lead with what they are already spending, and that figure carries a dollar
+sign — so a flat refusal of every `$` refuses the correct answer, which is how
+a check comes to be switched off (`hub/qr_codes.py`'s note about a QR warning
+that fires on every social spot). A figure is allowed when it is one we
+measured and refused when it is not: the grounding rule applied to a number
+instead of a name.
+
+**One call per audit, ever.** `for_scan()` writes on the first open and reads
+thereafter — a prospect refreshing, a rep checking the link and the mailed copy
+opened on a phone are three views of a paragraph that cannot have changed.
+Keyed on the scan's `public_id`, so a re-scan gets its own rather than
+inheriting last month's. A summary that could not be grounded is **absent
+silently**: the report renders as it did before, because a line saying "we
+could not summarize this" is a sentence about our tooling on a document about
+their business.
 
 ### A client with no URL is invisible, and the URL is usually not missing
 

@@ -143,16 +143,16 @@ def _name_reader(messages, **kw):
     for line in messages[-1]["content"].split("\n"):
         title = line.split(". ", 1)[-1]
         if "SERVPRO" in title:
-            out.append({"title": title, "business": "SERVPRO of Southwest San Antonio",
+            out.append({"source": title, "business": "SERVPRO of Southwest San Antonio",
                         "confidence": "high", "note": "media partner in front"})
         elif "Buckeye" in title:
-            out.append({"title": title, "business": "Buckeye Lake Marina",
+            out.append({"source": title, "business": "Buckeye Lake Marina",
                         "confidence": "high", "note": "copy and version markers"})
         elif "Hern" in title:
             # Deliberately ungrounded: "Services" is not in the title. This is
             # the answer that must be refused — a tidied name is a different
             # string that matches a different client, or none.
-            out.append({"title": title, "business": "Hern Marine Services",
+            out.append({"source": title, "business": "Hern Marine Services",
                         "confidence": "high", "note": "expanded"})
     return {"readings": out}
 
@@ -175,7 +175,8 @@ check("three titles read, one placeholder skipped", report["read"], 3)
 # Counted, not swallowed: a prompt that has started inventing names is
 # something to look at.
 check("the invented name is counted", report["ungrounded"], 1)
-ok("and named in the note", "not in the title" in report["note"], report["note"])
+ok("and named in the note",
+   "not in the original" in report["note"], report["note"])
 
 ok("the client list never reaches the prompt",
    all("Buckeye Lake Marina" not in p or "readings" in p
@@ -448,10 +449,17 @@ section("None of the three writes anything by arriving")
 _src = (ROOT / "hub" / "site_names_ai.py").read_text(encoding="utf-8")
 ok("reading a project name writes no client anywhere",
    "clients_registry" not in _src and "domain_links" not in _src)
+_machinery = (ROOT / "hub" / "name_reading.py").read_text(encoding="utf-8")
 ok("and it is stored through jsonstore, not a bare file write",
-   "jsonstore.write_json" in _src and not _calls_in(_src, "os.remove"))
+   "jsonstore.write_json" in _machinery and not _calls_in(_machinery, "os.remove"))
 ok("under the data directory, not the working directory",
-   "jsonstore.data_dir(" in _src)
+   "jsonstore.data_dir(" in _machinery)
+# The reader takes a prompt and a store; it does not take a client book, and
+# that is a property of the machinery rather than of each caller remembering.
+ok("the shared reader cannot be handed a client book",
+   "book" not in _machinery.split("class NameReader")[1].split("def read_missing")[0])
+ok("the caller carries no second copy of the batching",
+   "chat_json" not in _src)
 
 _vsrc = (ROOT / "modules" / "image_picker" / "vision.py").read_text(encoding="utf-8")
 ok("the sweep only writes alt text from accept()",
@@ -502,6 +510,286 @@ for _f in ("hub/static/web-ticket.js", "hub/static/campaign-request.js"):
     _s = (ROOT / _f).read_text(encoding="utf-8")
     ok(f"{_f} uses the shared control", "triageButton(" in _s)
     ok(f"{_f} carries no second copy of it", "function triageButton" not in _s)
+
+
+
+
+# ===========================================================================
+section("Invoice descriptions: only the lines every rule gave up on")
+# ===========================================================================
+
+from hub import domain_renewals, invoice_names                    # noqa: E402
+
+DESCS = [
+    "syrons-market.com\tSyrons",                        # the domain rule wins
+    "Annual renewal",                                    # a label — never sent
+    "renewal for the Buckeye acct (Buckeye Lake Marina) thx",
+    "2026 dom ren // BLUE RIDGE DENTAL ARTS pls bill",
+]
+
+# A label names nobody, and `_is_label()` has already said so. Paying a model
+# to find a business in "Annual renewal" invites it to find one.
+ok("a label is never sent",
+   "label" in invoice_names.worth_reading("Annual renewal"))
+ok("nor is a description too short to name anybody",
+   bool(invoice_names.worth_reading("QB")))
+ok("a real description is worth reading",
+   not invoice_names.worth_reading(DESCS[2]))
+check("so only the readable ones are pending",
+      len(invoice_names.pending(DESCS)), 3)
+
+
+def _desc_reader(messages, **kw):
+    out = []
+    for line in messages[-1]["content"].split("\n"):
+        text = line.split(". ", 1)[-1]
+        if "Buckeye" in text:
+            out.append({"source": text, "business": "Buckeye Lake Marina",
+                        "confidence": "high", "note": "named in brackets"})
+        elif "BLUE RIDGE" in text:
+            # Ungrounded: "Studio" is not in the description.
+            out.append({"source": text, "business": "BLUE RIDGE DENTAL Studio",
+                        "confidence": "high", "note": "tidied"})
+        elif "Syrons" in text:
+            out.append({"source": text, "business": "Syrons",
+                        "confidence": "high", "note": ""})
+    return {"readings": out}
+
+
+stub(_desc_reader)
+_rep = invoice_names.read_missing(DESCS)
+check("the invented business is refused", _rep["ungrounded"], 1)
+check("and it reads as nothing rather than as a name",
+      invoice_names.business_in(DESCS[3]), "")
+check("the messy one is read", invoice_names.business_in(DESCS[2]),
+      "Buckeye Lake Marina")
+
+ROWS = [{"id": "r1", "domain": "buckeyelakemarina.com",
+         "client": "Buckeye Lake Marina", "media_partner": "WXYZ Radio",
+         "field_2964": "Yes"},
+        {"id": "r2", "domain": "syrons-market.com", "client": "Syrons",
+         "media_partner": "", "field_2964": "Yes"}]
+LINES = [{"description": d, "invoice_id": f"i{i}", "doc_number": str(i),
+          "date": "2026-03-01", "amount": 24.0, "customer": "WXYZ Radio"}
+         for i, d in enumerate(DESCS)]
+_by_desc = {m["description"]: m for m in
+            domain_renewals.match_charges(LINES, ROWS,
+                                          readings=invoice_names.readings())}
+
+# The domain is an identifier and stays the strongest rule. A reading must not
+# get a second opinion on a line the rules already answered.
+check("the domain rule still wins where it fires",
+      (_by_desc[DESCS[0]]["matched_on"], _by_desc[DESCS[0]]["confidence"]),
+      ("domain", "exact"))
+# And this is the whole point: a line whose parsed "name" was the entire
+# sentence now resolves to a client.
+check("a description no rule could join is read",
+      _by_desc[DESCS[2]]["client"], "Buckeye Lake Marina")
+check("and it can never be better than a suggestion",
+      _by_desc[DESCS[2]]["confidence"], "probable")
+ok("the row says the name came from a reading",
+   _by_desc[DESCS[2]]["read_name"] == "Buckeye Lake Marina")
+ok("and says so in words a person can judge",
+   "suggestion" in _by_desc[DESCS[2]]["why"], _by_desc[DESCS[2]]["why"])
+# The refused reading leaves the charge exactly where it was.
+check("an ungrounded reading joins nothing",
+      _by_desc[DESCS[3]]["confidence"], "unmatched")
+
+# `probable` is what makes this safe on a report about money: a suggestion
+# counts as having no record here, in BOTH directions, until somebody links
+# it. Asserted against the report rather than trusted from the matcher.
+_src_dp = (ROOT / "hub" / "domain_purchase.py").read_text(encoding="utf-8")
+ok("a probable charge still counts as unrecorded",
+   'if c.get("confidence") == "probable":' in _src_dp
+   and "unrecorded.append(_orphan_charge(c))" in _src_dp)
+ok("and only confirmed or exact charges mark a renewal billed",
+   'c.get("confidence") in ("confirmed", "exact")' in _src_dp)
+
+
+# ===========================================================================
+section("Google resource labels: the reading never outranks an identifier")
+# ===========================================================================
+
+from hub import google_names_ai                                   # noqa: E402
+
+ok("a label of only platform words is never sent",
+   bool(google_names_ai.worth_reading("GA4 Property (new) - test")))
+ok("a label carrying a business is worth reading",
+   not google_names_ai.worth_reading("FabLocal - SERVPRO Fresno GTM"))
+check("labels are deduped for the pass",
+      google_names_ai.labels_of([{"name": "A"}, {"name": "A"}, {"name": ""}]),
+      ["A"])
+
+_gsrc = (ROOT / "hub" / "google_links.py").read_text(encoding="utf-8")
+# Through the same resolve() the raw label already goes through, so the rules
+# that decide are unchanged and a reading only changes which string is asked
+# about.
+ok("a reading is resolved by the same client lookup as a typed name",
+   _gsrc.count("client_key.resolve(name=") == 2)
+ok("and it is never better than what client_key called it",
+   'rhit.get("confidence") == "exact"' in _gsrc)
+# _add() keeps the best confidence anything gave a client, so a reading can
+# never displace a recorded id or a domain — those are identifiers.
+ok("a stronger row still wins the merge",
+   "CONFIDENCE_RANK[confidence] > CONFIDENCE_RANK[row[\"confidence\"]]" in _gsrc)
+
+
+# ===========================================================================
+section("The audit a prospect reads: grounded, or absent")
+# ===========================================================================
+
+from hub import audit_summary                                     # noqa: E402
+
+AUDIT = {
+    "measured": True, "domain": "iconsolar.example", "public_id": "sc_1",
+    "spend": {"measured": True, "counted": 1, "total_display": "$2,400",
+              "total_note": "Google search only",
+              "total_excludes": ["Meta, which publishes the ads and not the spend"],
+              "observed": [
+                  {"label": "Google Ads, monthly", "value": "$2,400", "measured": True},
+                  {"label": "Display spend", "value": "not measured", "measured": False}],
+              "earned": [{"label": "Search terms they rank for", "value": "312"}]},
+    "opportunities": [
+        {"finding": "No retargeting pixel of any kind is on the site.",
+         "means": "Every visitor who leaves without acting is gone for good.",
+         "sells": "Retargeting"}],
+}
+
+_prompt_seen = {}
+GOOD = ("You are already putting about $2,400 a month into Google search, and "
+        "312 terms bring people to you without paying for them. That total "
+        "leaves out Meta, which publishes the ads and not the spend.\n\n"
+        "Nothing on the site remembers a visitor who leaves.")
+
+
+def _summariser(messages, **kw):
+    _prompt_seen["body"] = messages[-1]["content"]
+    return {"summary": GOOD}
+
+
+stub(_summariser)
+_sum = audit_summary.summary(AUDIT)
+ok("a grounded summary is kept", _sum["measured"], _sum["why"])
+
+# Only what fired. A finding that did not match is absent from the prompt
+# entirely, so there is nothing to soften into "you may also want to consider".
+ok("a measured figure reaches the prompt", "$2,400" in _prompt_seen["body"])
+ok("an unmeasured one does not", "Display spend" not in _prompt_seen["body"])
+ok("a finding that fired reaches it",
+   "retargeting pixel" in _prompt_seen["body"].lower())
+ok("and what the total leaves out is required in it",
+   "you must say this" in _prompt_seen["body"])
+
+# Their own measured figure carries a dollar sign, and the summary is supposed
+# to lead with it — so a flat ban on "$" refuses the correct answer, which is
+# how a check comes to be switched off. It is grounded instead.
+stub(lambda m, **k: {"summary": "That total leaves out Meta, which publishes "
+                                "the ads and not the spend. A campaign like "
+                                "this usually runs $1,500 a month.\n\n"
+                                "Nothing remembers a visitor."})
+_bad = audit_summary.summary(AUDIT)
+ok("a figure nothing measured is refused", not _bad["measured"])
+ok("and named", "$1,500" in _bad["why"], _bad["why"])
+
+stub(lambda m, **k: {"summary": "You spend $2,400 a month on Google.\n\n"
+                                "Nothing remembers a visitor."})
+ok("a total quoted without what it leaves out is refused",
+   "leaves out" in audit_summary.summary(AUDIT)["why"])
+
+stub(lambda m, **k: {"summary": "That total leaves out Meta, which publishes "
+                                "the ads and not the spend.\n\nWe can fix "
+                                "this within 30 days, guaranteed."})
+_promise = audit_summary.summary(AUDIT)
+ok("a promise is discarded rather than patched", not _promise["measured"])
+for _what in ("promise", "guarantee", "timeline"):
+    ok(f"and {_what} is named in the reason", _what in _promise["why"])
+
+check("nothing measured means no summary, said plainly",
+      audit_summary.summary({"measured": False})["measured"], False)
+
+# One call per audit, ever. A prospect refreshing, a rep checking the link and
+# the mailed copy opened on a phone are three views of a paragraph that cannot
+# have changed.
+_calls = {"n": 0}
+
+
+def _counted(messages, **kw):
+    _calls["n"] += 1
+    return {"summary": GOOD}
+
+
+stub(_counted)
+_first = audit_summary.for_scan("sc_1", AUDIT)
+_again = audit_summary.for_scan("sc_1", AUDIT)
+audit_summary.for_scan("sc_1", AUDIT)
+check("three views cost one call", _calls["n"], 1)
+ok("the first is written", not _first["cached"])
+ok("the rest are read", _again["cached"])
+# Keyed on the scan, not the domain: a re-scan is a new audit and deserves its
+# own paragraph rather than inheriting last month's.
+audit_summary.for_scan("sc_2", AUDIT)
+check("a re-scan gets its own", _calls["n"], 2)
+check("and a screen can read without ever spending",
+      audit_summary.for_scan("sc_never", AUDIT, write=False)["cached"], False)
+check("without a call", _calls["n"], 2)
+
+_view = (ROOT / "modules" / "scans" / "app.py").read_text(encoding="utf-8")
+ok("the client report asks for it by scan id",
+   "audit_summary.for_scan(" in _view)
+_tpl = (ROOT / "modules" / "scans" / "templates"
+        / "widget_audit_report.html").read_text(encoding="utf-8")
+# Absent silently where it could not be grounded: a line saying "we could not
+# summarize this" is a sentence about our tooling on a document about their
+# business.
+ok("the report draws it only when there is one",
+   "a.summary and a.summary.text" in _tpl)
+
+# Asserted on what the browser receives, not on the template source: the
+# comment above that block explains the rule by quoting the sentence it
+# refuses to print, and a check that reads the explanation as the defect is
+# the trap tools/spellcheck.py had to learn about by reading the AST.
+try:
+    from jinja2 import DictLoader, Environment                    # noqa: E402
+    _env = Environment(loader=DictLoader({"r": _tpl}))
+    _ctx = {"a": {"domain": "x.example", "summary": {"text": "", "why":
+                  "The summary was discarded."}, "spend": {}, "groups": [],
+                  "opportunities": [], "age": {}, "headline": {}},
+            "lead": {"company": ""}, "w": {}, "brand": {}}
+    _out = _env.get_template("r").render(**_ctx)
+except Exception as _exc:                                         # noqa: BLE001
+    _out = None
+if _out is None:
+    ok("the report renders without a summary", False, "template did not render")
+else:
+    ok("the report renders without a summary", True)
+    # The honest empty is the report as it was. A line saying "we could not
+    # summarize this" is a sentence about our tooling on a document about
+    # their business.
+    # Not a bare "summar" search: <summary> is the HTML disclosure element
+    # this report uses for its collapsible sections, and a check that reads
+    # those as the defect is one somebody switches off.
+    for _phrase in ("could not", "discarded", "no summary", "summarize"):
+        ok(f"and says nothing about {_phrase!r}", _phrase not in _out.lower())
+
+
+# ===========================================================================
+section("One reader, three configurations")
+# ===========================================================================
+
+# Three modules read a business name out of a messy string. The batching, the
+# grounding, the store and the give-up live in hub/name_reading.py, because
+# writing them three times is the drift hub/storage.py exists to stop.
+_shared = (ROOT / "hub" / "name_reading.py").read_text(encoding="utf-8")
+for _rel in ("hub/site_names_ai.py", "hub/invoice_names.py",
+             "hub/google_names_ai.py"):
+    _s = (ROOT / _rel).read_text(encoding="utf-8")
+    ok(f"{_rel} configures the shared reader", "NameReader(" in _s)
+    ok(f"{_rel} carries no second copy of the batching",
+       not _calls_in(_s, "chat_json"))
+    ok(f"{_rel} carries no second copy of the grounding check",
+       "def is_grounded" not in _s and "def _is_grounded" not in _s)
+    ok(f"{_rel} says what is not worth sending", "skip=" in _s)
+ok("and the rules are stated once", _shared.count("def is_grounded") == 1)
 
 
 print()

@@ -23,7 +23,14 @@
     <input id="gmQ" class="gm-search" placeholder="Search name, id, account, login, domain or suggested client"
            oninput="queueSearch()" disabled>
     <button class="gm-btn" onclick="rebuild()" id="gmRebuild">Rebuild the index</button>
+    {#- Its own control, and a button rather than something the list does on
+        its own, because the call is billed — the rule the brand card on
+        Client 360 works to. It says the number it would read, so pressing it
+        is not how you find out what it does. -#}
+    <button class="gm-btn" id="gmReadLabels" onclick="readLabels()"
+            style="display:none"></button>
   </div>
+  <div class="gm-note" id="gmReadNote" style="display:none"></div>
   <div class="gm-bar" id="gmFilters" hidden>
     <span class="gm-only">Show:</span>
     <label class="gm-only"><input type="checkbox" class="gmPlat" value="ga4" checked onchange="reload()"> Analytics</label>
@@ -159,8 +166,78 @@ function query(offset){
    up holding rows that match neither. */
 function reload(){
   S.rows=[]; S.offset=0; S.sel={};
-  document.getElementById('gmOut').innerHTML='<p class="gm-muted">Reading the account index&hellip;</p>';
+  var host=document.getElementById('gmOut');
+  host.innerHTML='<p class="gm-muted" id="gmBusy"></p>';
+  if(window.S1Think) window.S1Think.attach('gmBusy',
+    {kind:'wait',label:'Reading the account index…'});
+  else host.innerHTML='<p class="gm-muted">Reading the account index\u2026</p>';
   fetchPage(true);
+}
+
+/* What the button says, drawn from the reply rather than from a guess. Four
+   answers, not two: no key set, nothing left to read, some left, and "we
+   could not look" — which is not the same as nothing being read and would
+   otherwise be a press somebody makes for no reason. */
+function drawReadLabels(){
+  var b=document.getElementById('gmReadLabels');
+  var note=document.getElementById('gmReadNote');
+  var a=(S.meta&&S.meta.ai_names)||null;
+  if(!b||!note) return;
+  if(!a||!a.measured){
+    b.style.display='none';
+    note.style.display=a?'block':'none';
+    if(a) note.innerHTML='The stored readings could not be opened, so this is '
+      +'<b>not measured</b> rather than none. '+esc(a.error||'');
+    return;
+  }
+  if(!a.configured){
+    b.style.display='none';
+    note.style.display=a.read?'block':'none';
+    if(a.read) note.innerHTML=a.read+' label(s) already read. Reading more '
+      +'needs <code>OPENAI_API_KEY</code> on the server.';
+    return;
+  }
+  note.style.display=a.read?'block':'none';
+  if(a.read) note.innerHTML='<b>'+a.read+'</b> resource label(s) have been read '
+    +'for the business inside them. A reading goes through the same client '
+    +'lookup a typed name does, it never outranks a recorded id or a domain, '
+    +'and every row still ends at you pressing Attach.';
+  b.style.display='inline-block';
+  b.disabled=!a.pending;
+  b.textContent=a.pending
+    ? ('Read '+a.pending+' label'+(a.pending===1?'':'s')+' with AI')
+    : 'Every label has been read';
+}
+
+function readLabels(){
+  var a=(S.meta&&S.meta.ai_names)||{};
+  if(!a.pending) return;
+  if(!confirm('Read '+a.pending+' resource label(s) with AI?\n\n'
+      +'This is a billed call. The model is shown the label only — never the '
+      +'client list — and answers with the words in it that name the '
+      +'business. Nothing is attached by this.')) return;
+  var b=document.getElementById('gmReadLabels');
+  var busy=window.S1Think
+    ? window.S1Think.busy(b,{kind:'ai',label:'Reading the labels…'})
+    : (function(){b.disabled=true;return {done:function(){b.disabled=false;}};})();
+  fetch('/api/google/read-labels',{method:'POST',credentials:'same-origin'})
+   .then(function(r){return r.json();})
+   .then(function(d){
+     busy.done();
+     var note=document.getElementById('gmReadNote');
+     note.style.display='block';
+     note.textContent=d.note||d.error||'Nothing came back.';
+     /* Re-run the list so the readings are applied — a button that stores an
+        answer and leaves the page showing the one from before it reads as a
+        button that did nothing. */
+     reload();
+   })
+   .catch(function(e){
+     busy.done();
+     var note=document.getElementById('gmReadNote');
+     note.style.display='block';
+     note.textContent='The labels could not be read: '+e;
+   });
 }
 
 function queueSearch(){ clearTimeout(TIMER); TIMER=setTimeout(reload, 250); }
@@ -178,6 +255,7 @@ function fetchPage(first){
       document.getElementById('gmQ').disabled=false;
       document.getElementById('gmFilters').hidden=false;
       if(first) renderAll(); else appendRows(d.rows||[]);
+      drawReadLabels();
       paintMore();
     })
     .catch(function(){
