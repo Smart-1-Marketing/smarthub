@@ -1,0 +1,198 @@
+"""The help layer: a bubble that resolves, and one that explains nothing.
+
+`hub/help.py` is the registry, `hub-help.js` draws it, and a key the registry
+does not hold is **removed client-side** rather than left as a dead "?". That
+is right for the page and is exactly what makes the mistake invisible: the
+template reads as helped, the screen shows nothing, no console error, no
+failed request. `hub/help.py`'s own note says so, and `test_ads_explainer.py`
+asserted it for Smart 1 Ads alone.
+
+Three other tools had placed a bubble on their own title with no entry behind
+any of them -- Website Blocks, the Social Content Planner and Video Search.
+Video Search's template even carries a comment saying its key must not be
+renamed *because renaming would orphan the bubble*, protecting a key that
+pointed at nothing.
+
+Run directly: ``python3 test_help_layer.py``. No pytest, no network.
+"""
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+os.environ.setdefault("KNACK_APP_ID", "test-app")
+os.environ.setdefault("KNACK_API_KEY", "test-key")
+
+from hub import help as help_registry, help_audit
+
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                      "hub", "help_routes.py"), encoding="utf-8") as _fh:
+    _help_routes_src = _fh.read()
+
+FAILURES = []
+
+
+def ok(label, condition, detail=""):
+    print(f"  {'ok  ' if condition else 'FAIL'}  {label}"
+          f"{(' — ' + detail) if detail and not condition else ''}")
+    if not condition:
+        FAILURES.append(f"{label}{(': ' + detail) if detail else ''}")
+
+
+def check(label, got, want):
+    ok_ = got == want
+    print(f"  {'ok  ' if ok_ else 'FAIL'}  {label}: {got!r}")
+    if not ok_:
+        FAILURES.append(f"{label}: expected {want!r}, got {got!r}")
+
+
+print("Every bubble this Hub places has help behind it")
+print("-" * 62)
+
+DATA = help_audit.audit()
+
+ok("the registry was read", DATA["registry"] > 100, str(DATA["registry"]))
+ok("and bubbles were found to check", DATA["placed"] > 100, str(DATA["placed"]))
+check("no bubble explains nothing", [r["key"] for r in DATA["missing"]], [])
+check("and /api/integrity agrees", help_audit.check_dead_bubbles(), [])
+
+# The three that were dead. Named rather than merely counted: the point is
+# that these screens now say something, not that a number went to zero.
+for key in ("site_blocks.intro", "social.planner", "video_backgrounds.overview"):
+    entry = help_registry._BY_KEY.get(key)
+    ok(f"{key} resolves", entry is not None)
+    if entry:
+        ok(f"  ...and says something worth reading", len(entry.body) > 120,
+           f"{len(entry.body)} chars")
+        ok(f"  ...with a title that is not the tool's name again",
+           bool(entry.title) and entry.title.lower() != key.split(".")[0])
+
+
+print("\nBoth ways a bubble is placed, and the one that cannot be resolved")
+print("-" * 62)
+
+# The reach panel on the Proposal Builder's areas step writes
+# data-help="sales_builder.areas.${key}" from a loop. A scan for help_dot()
+# alone calls its four entries dead; a scan that resolved the interpolation
+# would be guessing. Named, the way tools/linkcheck.py names a URL built by
+# concatenation.
+ok("a key built at runtime is named rather than resolved",
+   any("${" in r["key"] for r in DATA["runtime"]),
+   str([r["key"] for r in DATA["runtime"]]))
+ok("and the entries its prefix reaches are not called dead",
+   all(k.startswith("sales_builder.areas.") for k in DATA["runtime_covers"])
+   and len(DATA["runtime_covers"]) == 4,
+   str(DATA["runtime_covers"]))
+check("nothing registered is left unaccounted for", DATA["unplaced"], [])
+
+# data-help is a real placement, not decoration: scanning only Jinja misses it.
+_lit, _rt = help_audit.placements()
+ok("data-help placements are counted too", bool(_rt) or bool(_lit))
+
+
+print("\nThe check bites")
+print("-" * 62)
+
+# Handed a tree that plainly drifts, it must say so. A check that can be
+# silenced by an edit somewhere else is worse than no check — the rule
+# test_env_config.py and test_spelling.py both work to.
+with tempfile.TemporaryDirectory() as tmp:
+    os.makedirs(os.path.join(tmp, "modules", "invented", "templates"))
+    os.makedirs(os.path.join(tmp, "hub"))
+    with open(os.path.join(tmp, "modules", "invented", "templates", "x.html"),
+              "w", encoding="utf-8") as fh:
+        fh.write("<h1>Tool {{ help_dot('invented.key.nobody.wrote') "
+                 "if help_dot is defined else '' }}</h1>\n")
+    drifted = help_audit.audit(tmp)
+    check("a placed key with no entry is reported",
+          [r["key"] for r in drifted["missing"]], ["invented.key.nobody.wrote"])
+    rows = help_audit.check_dead_bubbles(tmp)
+    ok("and the finding names the file it is in",
+       len(rows) == 1 and rows[0]["file"].endswith("x.html"),
+       str(rows))
+    ok("and says what to do about it",
+       bool(rows) and "hub/help.REGISTRY" in rows[0]["fix"])
+
+    # The same tree with the entry present must come back clean, or the check
+    # is reporting the scan rather than the defect.
+    with open(os.path.join(tmp, "modules", "invented", "templates", "x.html"),
+              "w", encoding="utf-8") as fh:
+        fh.write("<h1>Tool {{ help_dot('social.planner') "
+                 "if help_dot is defined else '' }}</h1>\n")
+    check("a placed key that resolves is not reported",
+          [r["key"] for r in help_audit.audit(tmp)["missing"]], [])
+
+
+print("\nThe rule the templates keep")
+print("-" * 62)
+
+# Every call guarded, so a module whose Jinja env never got
+# install_template_helpers() loses the icon rather than the page.
+ROOT = os.path.dirname(os.path.abspath(__file__))
+unguarded = []
+for folder in ("hub", "modules"):
+    for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, folder)):
+        dirnames[:] = [d for d in dirnames
+                       if d not in ("_attic", "node_modules", ".git")]
+        for name in filenames:
+            if not name.endswith(".html"):
+                continue
+            path = os.path.join(dirpath, name)
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                for i, line in enumerate(fh, 1):
+                    if "help_dot(" in line and "is defined" not in line:
+                        unguarded.append(f"{os.path.relpath(path, ROOT)}:{i}")
+check("every help_dot call is guarded", unguarded, [])
+
+# `data-screen` is what offers a tour. hub-help.js already declines to offer
+# an empty one, so naming a screen with no steps is not a broken page today —
+# but `tour()` falls back to the MODULE prefix, so the day a sibling screen
+# registers steps this would serve them over elements that are not on the
+# page. That is the Smart 1 Ads failure, and `has_tour()` exists so a layout
+# does not have to rely on the client declining.
+#
+# So the rule is not "never name a screen with no tour" — it is "an
+# UNCONDITIONAL data-screen must name one". A declaration wrapped in a
+# has_tour() test is correct whether or not the tour exists yet, which is
+# what the three hub and module pages that named an empty tour now do.
+unguarded_screens = []
+for folder in ("hub", "modules"):
+    for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, folder)):
+        dirnames[:] = [d for d in dirnames
+                       if d not in ("_attic", "node_modules", ".git")]
+        for name in filenames:
+            if not name.endswith(".html"):
+                continue
+            path = os.path.join(dirpath, name)
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                src = fh.read()
+            for m in re.finditer(r'data-screen=["\']([^"\'{}]+)["\']', src):
+                screen = m.group(1)
+                if help_registry.has_tour(screen):
+                    continue
+                # Guarded on the same tag? Look back to the start of the
+                # element for a has_tour( test.
+                start = src.rfind("<", 0, m.start())
+                if "has_tour(" in src[start:m.start()]:
+                    continue
+                rel = os.path.relpath(path, ROOT)
+                unguarded_screens.append(f"{rel}: {screen}")
+check("an unconditional data-screen names a tour that exists",
+      unguarded_screens, [])
+
+# And the guard has to be the real one: `has_tour` is registered by both
+# register_help() and install_template_helpers(), so a hub page and a mounted
+# module both get it.
+ok("has_tour is a template global on both halves of the app",
+   "has_tour" in _help_routes_src and _help_routes_src.count("has_tour") >= 3)
+
+
+print()
+if FAILURES:
+    print(f"{len(FAILURES)} failure(s):")
+    for f in FAILURES:
+        print("  -", f)
+    sys.exit(1)
+print("the help layer holds: every bubble placed has help behind it, and a "
+      "key built at runtime is named rather than guessed at")

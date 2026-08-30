@@ -2208,6 +2208,43 @@ selector is anchored **on its own screen's template**, and that none of it
 reaches `/tools/ads/estimate/<token>` — that document is chrome-free for a
 prospect, and a staff note in it is an internal note in front of a client.
 
+**That assertion was true of one module, and three other tools had a bubble
+with nothing behind it.** Website Blocks, the Social Content Planner and
+Video Search each placed `help_dot()` on their own title and no entry was ever
+written, so the dot was removed client-side on every visit: the template read
+as helped, the screen showed nothing, and nothing errored at either end.
+Video Search's template even carries a comment saying its key must not be
+renamed *because renaming would orphan the bubble* — protecting a key that
+pointed at nothing. All three say something now, and `hub/help_audit.py` is
+the check, at **medium** on `/api/integrity`: the page still works and nobody
+is waiting on output, but a screen that opted into the help layer and got
+nothing is indistinguishable from one that never tried.
+
+Three things it has to get right. **A bubble is placed two ways** —
+`help_dot('key')` in Jinja and `data-help="key"` on an element a script
+writes — and the Proposal Builder's reach panel uses the second, so a scan for
+the first alone reports four live entries as dead. **A key built at runtime is
+named, never resolved**: that panel writes ``data-help="sales_builder.areas.
+${key}"`` from a loop, and guessing at the interpolation in either direction is
+the mistake `tools/linkcheck.py` already refuses to make about a URL built by
+concatenation — the audit lists it as built at runtime and says which
+registered keys its prefix reaches. And **a registered key nothing places is
+not a finding**: a tour step is anchored by a selector rather than a dot, and
+calling those dead would make the check report its own blind spot.
+
+**An unconditional `data-screen` must name a tour that exists.** Three pages —
+Prospect 360, the Website Audit and Stock Photos — named a screen the registry
+has no steps for. `hub-help.js` already declines to offer an empty tour, so it
+cost nothing on the day; what makes it worth fixing is that `tour()` falls
+back to the **module prefix**, so the day somebody registers a sibling
+screen's steps those three would serve them over elements that are not on the
+page — which is the Smart 1 Ads failure, and precisely why `has_tour()` exists
+for a layout to ask. They are guarded on it now, `if has_tour is defined` like
+every other helper, so a Jinja environment that never got
+`install_template_helpers()` loses the attribute rather than the page. The
+rule the check enforces is not *never name an empty screen* — a guarded
+declaration is correct whether or not the tour exists yet.
+
 **A tour that opens itself is a dialog in front of somebody doing a job.**
 `data-screen` used to *start* the tour on a screen's first visit — modal, over
 the form, before anyone had asked for anything. It **offers** it now, in a
@@ -7095,6 +7132,9 @@ python3 test_report_cache.py       # one run per report per day; a failed run is
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
+python3 test_help_layer.py         # every bubble placed has help behind it, both
+                                   #   ways one is placed, and a key built at
+                                   #   runtime is named rather than guessed at
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete

@@ -46,6 +46,41 @@ def _h(*a, **kw) -> Help:
 
 REGISTRY: list[Help] = [
 
+    # ---------------- Three bubbles that explained nothing ----------------
+    # Each of these keys was placed on a tool's own title and had no entry
+    # here, so hub-help.js removed the dot client-side: the template read as
+    # helped, the screen showed nothing, and nothing anywhere reported it.
+    # Video Search's template even carries a comment saying its key must not
+    # be renamed *because renaming would orphan the bubble* -- protecting a
+    # key that pointed at nothing. hub/help_audit.py is the check now, and
+    # /api/integrity runs it.
+    _h("site_blocks.intro", "What this builds, and where it goes",
+       "A landing-page section for smart1marketing.com, in the same visual "
+       "language as the industry pages \u2014 Montserrat, navy, the accent "
+       "pair, the 1140px column. Fill in the copy, pick a theme, and paste "
+       "the HTML into a Custom HTML element on the site. Every block carries "
+       "its own scoped stylesheet, so nothing it defines can reach the rest "
+       "of the page \u2014 which is what makes it safe to paste into a page "
+       "somebody else built."),
+    _h("social.planner", "A month of posts in one pass",
+       "Builds a client's organic month from what the Hub already knows about "
+       "them, so the calendar starts full rather than empty. It stops at a "
+       "CSV for Smart 1 Suite's bulk upload on purpose: posting straight to "
+       "Suite needs a scope HighLevel has not granted yet, and ending at the "
+       "export means the drafting earns its keep either way. The copy checks "
+       "are code rather than a note in the prompt \u2014 a price, a "
+       "percentage, a phone number or a deadline that nobody typed blocks "
+       "the plan, because a month of posts is bulk work that gets skimmed."),
+    _h("video_backgrounds.overview", "Searching footage by what is on screen",
+       "Every clip in the two folders we own is described by a vision pass, "
+       "so you can search for what is actually in the shot rather than for "
+       "whatever the file was called. What comes back is a URL already sized, "
+       "muted and trimmed to sit behind a headline. Read the library status "
+       "above the results first: an empty list means Cloudinary is unset, or "
+       "the sweep has not reached those clips yet, or there is genuinely no "
+       "match \u2014 three different answers that would otherwise look "
+       "identical."),
+
     # ---------------- Social content requests ----------------
     # This screen shipped with no explanation on it at all, which is exactly
     # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
