@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presets — Smart 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Same dark studio as the build screen and the project list — this is
+     staff tooling opened in the same session, and switching palette between
+     them would read as leaving the app rather than moving within it. */
+  :root {
+    --bg:#16181D; --panel:#1E2128; --panel-2:#262A33; --line:#333844; --ink:#EEF0F4; --ink-2:#98A1B0;
+    --signal:#5B8DEF; --pass:#35C089; --warn:#E0A72B; --fail:#EF6B62;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  h1,.lockup{font-family:Poppins,"Avenir Next","Segoe UI",system-ui,sans-serif}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+
+  .bar{display:flex;align-items:center;gap:14px;padding:0 20px;height:56px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .lockup{font-weight:600;font-size:15px}
+  .lockup a{color:var(--ink);text-decoration:none}
+
+  .appnav { display: flex; align-items: center; gap: 2px; margin-right: 8px; }
+  .appnav a {
+    color: var(--ink-2); text-decoration: none; font-size: 13px; font-weight: 600;
+    padding: 6px 11px; border-radius: 6px;
+  }
+  .appnav a:hover { color: var(--ink); background: var(--panel-2); }
+  .appnav a.here { color: var(--ink); background: var(--panel-2); }
+  .health { display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    font-size: 12px; color: var(--ink-2); padding: 5px 10px; border-radius: 6px; }
+  .health:hover { background: var(--panel-2); }
+  .health .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .health.healthy .dot { background: var(--pass); }
+  .health.degraded .dot { background: var(--warn); }
+  .health.broken .dot { background: var(--fail); animation: pulse 1.2s ease infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+
+  .wrap{max-width:1100px;margin:0 auto;padding:26px 20px 80px}
+  .lede{color:var(--ink-2);font-size:13px;margin:0 0 18px;max-width:70ch}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+  .search{flex:1 1 260px;position:relative}
+  .search input{
+    width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:11px 14px 11px 38px;font:inherit;font-size:14px;
+  }
+  .search::before{content:"";position:absolute;left:13px;top:50%;width:14px;height:14px;
+    transform:translateY(-50%);border:2px solid var(--ink-2);border-radius:50%;
+    box-shadow:6px 6px 0 -3px var(--ink-2)}
+  input,select,textarea{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;font-size:13.5px}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--signal);outline-offset:1px}
+
+  .count{color:var(--ink-2);font-size:12.5px;margin:0 0 12px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;overflow:hidden}
+  .cardhead{display:flex;align-items:flex-start;gap:14px;padding:14px 16px}
+  .cardhead .grow{flex:1}
+  .name{font-weight:600;font-size:14px}
+  .meta{color:var(--ink-2);font-size:12.5px;margin-top:3px}
+  .slots{margin-top:7px;display:flex;gap:5px;flex-wrap:wrap}
+  .slot{font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;background:rgba(91,141,239,.15);color:var(--signal)}
+  .btn{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:7px;
+    padding:8px 13px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:var(--ink-2)}
+  .btn.primary{background:var(--signal);border-color:var(--signal);color:#0B1220}
+  .btn.quiet{background:transparent}
+  .panel{border-top:1px solid var(--line);padding:16px;background:var(--panel-2);display:none}
+  .panel.open{display:block}
+  .panel h3{margin:0 0 4px;font-size:13px;font-family:Poppins,sans-serif}
+  .panel p.hint{margin:0 0 13px;color:var(--ink-2);font-size:12.5px;max-width:70ch}
+  .field{margin-bottom:11px}
+  .field label{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:4px}
+  .field input,.field textarea{width:100%}
+  .field textarea{min-height:150px;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+
+  .note{margin-top:13px;font-size:12.5px;border-radius:8px;padding:11px 13px;line-height:1.55}
+  .note.ok{background:rgba(53,192,137,.12);color:var(--pass)}
+  .note.bad{background:rgba(239,107,98,.13);color:var(--fail)}
+  .note.warn{background:rgba(224,167,43,.13);color:var(--warn)}
+  .note ul{margin:7px 0 0;padding-left:18px}
+  .note a{color:inherit}
+
+  .empty{padding:60px 20px;text-align:center;color:var(--ink-2)}
+  .empty h2{color:var(--ink);font-size:16px;margin:0 0 6px}
+  .empty code{background:var(--panel-2);padding:2px 6px;border-radius:4px}
+  .skel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:40px;text-align:center;color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="lockup"><a href="/build">Ad Builder</a></div>
+  <nav class="appnav">
+    <a href="/build">Build</a>
+    <a href="/projects">Projects</a>
+    <a href="/presets" class="here">Presets</a>
+    <a href="/diagnostics">Diagnostics</a>
+  </nav>
+  <a class="health" id="health" href="/diagnostics" title="Checking…"><span class="dot"></span><span class="lbl">…</span></a>
+</div>
+
+<div class="wrap">
+  <p class="lede">
+    A preset is a client's settled setup — their brand, the layout family and the
+    design — kept from a build somebody already approved. The next ad for them is
+    filling in the lines that change. Save one from the
+    <a href="/build" style="color:var(--signal)">build screen</a> once a set is finished.
+  </p>
+
+  <div class="toolbar">
+    <div class="search"><input type="text" id="q" placeholder="Filter by client…"></div>
+  </div>
+
+  <div class="count" id="count"></div>
+  <div id="results"><div class="skel">Loading…</div></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function fmtDate(iso) {
+    var d = new Date(iso);
+    return isNaN(d) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  var state = { presets: [], maxRows: null, open: null, mode: null };
+
+  /* The whole list is fetched once and filtered here. It is a per-client
+     shelf rather than a book -- a few dozen rows at most -- so a round trip
+     per keystroke would cost more than it saves, and filtering what is
+     already loaded cannot disagree with what is on screen. */
+  function load() {
+    fetch('/api/presets')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        state.presets = d.presets || [];
+        state.maxRows = d.maxBatchRows;
+        render();
+      })
+      .catch(function () {
+        $('results').innerHTML =
+          '<div class="empty"><h2>Could not load presets</h2>' +
+          '<p>The renderer did not answer. Check the admin token and try again.</p></div>';
+      });
+  }
+
+  function visible() {
+    var q = $('q').value.trim().toLowerCase();
+    if (!q) return state.presets;
+    return state.presets.filter(function (p) {
+      return (p.client || '').toLowerCase().indexOf(q) >= 0 ||
+             (p.name || '').toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function render() {
+    var list = visible();
+    if (!state.presets.length) {
+      $('count').textContent = '';
+      $('results').innerHTML =
+        '<div class="empty"><h2>No presets yet</h2>' +
+        '<p>Finish a set on the build screen, press <b>Save as preset…</b>, and it appears here.</p></div>';
+      return;
+    }
+    if (!list.length) {
+      $('count').textContent = '';
+      $('results').innerHTML =
+        '<div class="empty"><h2>Nothing matches that</h2><p>Try a different client.</p></div>';
+      return;
+    }
+    $('count').textContent = list.length === state.presets.length
+      ? list.length + ' preset' + (list.length === 1 ? '' : 's')
+      : list.length + ' of ' + state.presets.length + ' presets';
+
+    $('results').innerHTML = list.map(card).join('');
+    wire();
+  }
+
+  function card(p) {
+    var slots = (p.fields || []).map(function (f) {
+      return '<span class="slot">' + esc(f.label || f.role) + '</span>';
+    }).join('');
+    return '' +
+      '<div class="card" data-id="' + esc(p.id) + '">' +
+        '<div class="cardhead">' +
+          '<div class="grow">' +
+            '<div class="name">' + esc(p.name) + '</div>' +
+            '<div class="meta">' + esc(p.client) +
+              (p.domain ? ' · ' + esc(p.domain) : '') +
+              ' · layout ' + esc(p.layoutFamily) +
+              ' · ' + esc((p.platforms || []).join(', ') || 'google') +
+              (p.createdAt ? ' · saved ' + esc(fmtDate(p.createdAt)) : '') +
+            '</div>' +
+            (slots ? '<div class="slots">' + slots + '</div>' : '') +
+          '</div>' +
+          '<button class="btn primary" data-act="one">New ad</button>' +
+          '<button class="btn" data-act="batch">From a CSV…</button>' +
+        '</div>' +
+        '<div class="panel" data-panel></div>' +
+      '</div>';
+  }
+
+  function presetById(id) {
+    return state.presets.filter(function (p) { return p.id === id; })[0];
+  }
+
+  function wire() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-act]'), function (b) {
+      b.addEventListener('click', function () {
+        var card = b.closest('.card');
+        var id = card.getAttribute('data-id');
+        var act = b.getAttribute('data-act');
+        // Pressing the open one again closes it, so the panel is a toggle
+        // rather than a thing that can only be got rid of by reloading.
+        if (state.open === id && state.mode === act) {
+          state.open = null; state.mode = null;
+          card.querySelector('[data-panel]').classList.remove('open');
+          return;
+        }
+        state.open = id; state.mode = act;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-panel]'), function (p) {
+          p.classList.remove('open');
+        });
+        var panel = card.querySelector('[data-panel]');
+        panel.innerHTML = act === 'one' ? oneForm(presetById(id)) : batchForm(presetById(id));
+        panel.classList.add('open');
+        wirePanel(panel, presetById(id), act);
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------- one ad */
+
+  function oneForm(p) {
+    return '<h3>New ad from “' + esc(p.name) + '”</h3>' +
+      '<p class="hint">The brand, the layout and the design come across as they were ' +
+      'saved. A line left blank keeps whatever the preset holds for it rather than ' +
+      'rendering an empty box — nothing here is invented.</p>' +
+      '<div class="field"><label>Campaign name</label>' +
+      '<input type="text" data-f="__name" placeholder="' + esc(p.name) + ' — new ad"></div>' +
+      (p.fields || []).map(function (f) {
+        return '<div class="field"><label>' + esc(f.label || f.role) + '</label>' +
+          '<input type="text" data-f="' + esc(f.role) + '"></div>';
+      }).join('') +
+      '<div class="acts"><button class="btn primary" data-go>Create the build</button>' +
+      '<span class="hint" style="margin:0">It opens on the build screen so you can look at it ' +
+      'before anything is rendered.</span></div>' +
+      '<div data-out></div>';
+  }
+
+  /* --------------------------------------------------------------- batch */
+
+  function batchForm(p) {
+    var headers = ['name'].concat((p.fields || []).map(function (f) { return f.label || f.role; }));
+    return '<h3>A CSV of ads from “' + esc(p.name) + '”</h3>' +
+      '<p class="hint">One row per ad. The first line is the header, and a column ' +
+      'that is not one of this preset’s lines — a city, a note — is ignored rather ' +
+      'than refused. A row that cannot be read is reported by its line number and ' +
+      'the rest are still built' +
+      (state.maxRows ? ', up to ' + state.maxRows + ' rows' : '') + '.</p>' +
+      '<div class="field"><label>Campaign name</label>' +
+      '<input type="text" data-f="__name" placeholder="' + esc(p.name) + ' — batch"></div>' +
+      '<div class="field"><label>Paste the CSV, or choose a file</label>' +
+      '<textarea data-f="__csv" spellcheck="false" placeholder="' + esc(headers.join(',')) + '"></textarea></div>' +
+      '<div class="acts">' +
+      '<input type="file" data-file accept=".csv,text/csv" style="padding:7px">' +
+      '<button class="btn primary" data-go>Build the rows</button>' +
+      '</div>' +
+      '<div data-out></div>';
+  }
+
+  function wirePanel(panel, preset, act) {
+    var file = panel.querySelector('[data-file]');
+    if (file) {
+      file.addEventListener('change', function () {
+        var f = file.files && file.files[0];
+        if (!f) return;
+        var reader = new FileReader();
+        // Read into the box rather than posting straight off: a CSV nobody
+        // has looked at is how a column that means something else gets built
+        // into thirty ads.
+        reader.onload = function () { panel.querySelector('[data-f="__csv"]').value = String(reader.result || ''); };
+        reader.onerror = function () { out(panel, 'bad', 'That file could not be read.'); };
+        reader.readAsText(f);
+      });
+    }
+    panel.querySelector('[data-go]').addEventListener('click', function () {
+      var btn = panel.querySelector('[data-go]');
+      var name = (panel.querySelector('[data-f="__name"]').value || '').trim();
+      btn.disabled = true;
+      btn.textContent = act === 'one' ? 'Creating…' : 'Building…';
+      var done = function () { btn.disabled = false; btn.textContent = act === 'one' ? 'Create the build' : 'Build the rows'; };
+
+      if (act === 'one') {
+        var values = {};
+        Array.prototype.forEach.call(panel.querySelectorAll('[data-f]'), function (i) {
+          var k = i.getAttribute('data-f');
+          if (k.indexOf('__') === 0) return;
+          if (i.value.trim()) values[k] = i.value.trim();
+        });
+        post('/api/presets/' + encodeURIComponent(preset.id) + '/generate',
+             { values: values, campaignName: name })
+          .then(function (d) {
+            done();
+            if (!d || !d.requestId) return out(panel, 'bad', (d && d.error) || 'That did not create a build.');
+            out(panel, 'ok', 'Created. Opening the build screen…');
+            location.href = '/build?request=' + encodeURIComponent(d.requestId);
+          })
+          .catch(function () { done(); out(panel, 'bad', 'That did not create a build. Nothing has changed.'); });
+        return;
+      }
+
+      var csv = panel.querySelector('[data-f="__csv"]').value;
+      if (!csv.trim()) { done(); return out(panel, 'bad', 'There is no CSV to read.'); }
+      post('/api/presets/' + encodeURIComponent(preset.id) + '/batch',
+           { csv: csv, campaignName: name })
+        .then(function (d) { done(); batchResult(panel, d); })
+        .catch(function () { done(); out(panel, 'bad', 'That batch did not run. Nothing has changed.'); });
+    });
+  }
+
+  /* What came back, in full.
+     
+     A batch that built nine of twelve rows and said only "9 built" is a folder
+     nobody counts, so the rejected rows are listed with the line number the
+     spreadsheet shows and the reason each was refused. The ignored columns are
+     named too: a header nobody meant to be ignored is exactly the mistake that
+     otherwise reaches thirty finished ads. */
+  function batchResult(panel, d) {
+    if (!d || d.error) {
+      var html = esc((d && d.error) || 'That batch did not run.');
+      if (d && d.rejected && d.rejected.length) {
+        html += '<ul>' + d.rejected.map(function (r) {
+          return '<li>Row ' + esc(r.line) + ' — ' + esc(r.reason) + '</li>';
+        }).join('') + '</ul>';
+      }
+      return out(panel, 'bad', html);
+    }
+    var parts = ['<b>' + esc(d.built) + ' ad' + (d.built === 1 ? '' : 's') + ' built</b> for ' +
+      esc((d.platforms || []).join(' and ')) + '.'];
+    if (d.jobId) {
+      parts.push(' Rendering now — ' +
+        '<a href="/build?request=' + encodeURIComponent(d.requestId) + '">open the set</a>.');
+    }
+    var level = 'ok';
+    var extra = '';
+    if (d.rejected && d.rejected.length) {
+      level = 'warn';
+      extra += '<ul>' + d.rejected.map(function (r) {
+        return '<li><b>Row ' + esc(r.line) + '</b> was not built — ' + esc(r.reason) + '</li>';
+      }).join('') + '</ul>';
+    }
+    if (d.ignoredColumns && d.ignoredColumns.length) {
+      extra += '<ul><li>Ignored column' + (d.ignoredColumns.length === 1 ? '' : 's') + ': ' +
+        esc(d.ignoredColumns.join(', ')) + ' — not a line on this preset.</li></ul>';
+    }
+    if (d.refusedPlatforms && d.refusedPlatforms.length) {
+      extra += '<ul><li>Not a platform this renderer builds: ' +
+        esc(d.refusedPlatforms.join(', ')) + '.</li></ul>';
+    }
+    out(panel, level, parts.join('') + extra);
+  }
+
+  function out(panel, level, html) {
+    panel.querySelector('[data-out]').innerHTML =
+      '<div class="note ' + level + '">' + html + '</div>';
+  }
+
+  function post(url, body) {
+    return fetch(url, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) { return r.json(); });
+  }
+
+  var timer = null;
+  $('q').addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(render, 160);
+  });
+
+  /* Same health pill as the other two screens. */
+  fetch('/api/diagnostics').then(function (r) { return r.json(); }).then(function (d) {
+    var el = $('health');
+    var v = (d && d.verdict) || 'degraded';
+    el.className = 'health ' + v;
+    el.querySelector('.lbl').textContent = v === 'healthy' ? 'Healthy' : v === 'broken' ? 'Broken' : 'Degraded';
+    el.title = 'Renderer ' + v;
+  }).catch(function () {
+    var el = $('health');
+    el.className = 'health broken';
+    el.querySelector('.lbl').textContent = 'Unreachable';
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

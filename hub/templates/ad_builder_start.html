@@ -163,6 +163,13 @@
 
       <button class="btn-primary" type="submit">Open the builder</button>
       <a class="btn-ghost" href="{{ url_prefix }}/projects" style="margin-left:8px">All builds</a>
+      <!-- The other half of this tool, linked rather than tiled: presets are
+           the Display Ad Builder, not a second tool, and a second tile is two
+           things to keep in step with only one of them ever updated -- the
+           note hub/social_planner makes about its own queue. This is also the
+           screen where it matters: somebody starting the SECOND ad for a
+           client should not be filling this form in at all. -->
+      <a class="btn-ghost" href="{{ url_prefix }}/presets" style="margin-left:8px">Saved presets</a>
     </form>
   </div>
 </div>
