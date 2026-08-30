@@ -1684,6 +1684,88 @@ Two rules it enforces, both learned the hard way:
 `/api/clients/crosswalk` shows what is joined, what shares a domain, and what
 carries a name with no URL and therefore cannot be joined to anything.
 
+### Where a model proposes, and what stops it deciding
+
+Three places where the Hub already held everything a model needed and asked it
+nothing. All three are the same shape, and it is the shape that makes them
+safe: **the model proposes a candidate, existing code decides, and a person
+presses.** None of them writes anything by arriving. `test_ai_proposals.py`
+asserts that for all three at once, including that the source of each carries
+no path to a write.
+
+**The model reading a project name is never shown the client list.**
+`hub/site_names_ai.py`. The hand-written shapes in `hub/site_names.py` turned
+42 raw matches into 305 exact and 60 candidates out of 1,021 projects; 229 more
+are placeholders and are correctly unmatchable. The rest carry a real business
+name in a shape no rule anticipated, and each is a client whose website cannot
+be joined to anything. So a model is handed project *titles* and asked one
+question — which run of words is the business — and what it returns goes into
+`site_names.exact_matches()` against the real book like any other candidate.
+The client book is not in the prompt, so it cannot name a client; a bad answer
+costs a candidate nobody accepts.
+
+Four rules. **A reading must be *in* the title it came from** —
+`_is_grounded()` requires every word of the answer to appear in the original,
+because a model asked to extract a name will occasionally tidy it, and "SERVPRO
+of Fresno NW" coming back as "…Northwest" is a different string that matches a
+different client or none. Ungrounded readings are dropped and **counted**.
+**A placeholder is never sent**, since `is_placeholder()` has answered already
+and paying a model to find a business in "S1M Test" invites it to. **Nothing is
+read twice**, keyed on the normalised title, which is what makes the whole
+portfolio one pass of about forty calls and every later run free. And it is
+**a button, never a page load** — `suggest()` is opened several times a day and
+the call is billed, the rule `hub/brand_lookup.py` arrived at. The readings
+live under `jsonstore.data_dir("site_names")`; a bare relative path lands in
+the repo checkout and is wiped on every deploy.
+
+**A client sends forty photographs and nothing looked at any of them.**
+`modules/image_picker/vision.py`. `alt_text` on an upload comes from
+`body.get("alt")` — typed, or blank — and the gallery had no search, so what a
+client sent was forty thumbnails nobody could find anything in. Meanwhile
+`modules/seo_images` runs vision on images a rep picked and
+`hub/video_library.index_backlog()` describes every clip in two folder trees.
+This is that sweep aimed at the missing bucket, inheriting its rules rather
+than restating them: a **closed tag vocabulary** (terms outside it dropped and
+counted, or the search vocabulary grows in silence), **three attempts and then
+given up on in writing** (a give-up held in memory forgets itself on the next
+deploy, and one unreadable file otherwise costs a vision call an hour for
+ever), and a **wall-clock budget** beside the count, because scheduler jobs
+share one thread.
+
+Its own rule is the important one: **a description is an observation, never the
+alt text.** The reason `alt_text` is sometimes blank is that nobody typed it,
+and the reason it is sometimes filled is that somebody did — a sweep that wrote
+into it would overwrite the second to fix the first, silently, on wording a
+client may have chosen. So it is stored beside the image, drawn dotted, and
+offered into an **empty** field only; `accept()` is the press and refuses a
+field that is not empty **by name** rather than reporting a clean success. The
+row is its own table (`image_picker_descriptions`) because `create_all()` never
+adds a column to an existing one. A file that is not an image is given up on at
+once rather than retried twice more to learn the same thing.
+
+**A ticket arrives with a paragraph describing the work and every dropdown
+above it untouched.** `hub/request_triage.py`. object_107 writes a type and a
+billable flag; object_121 writes a Campaign Support type, a Timeline and a
+rush. The classification is sitting in prose the person has already written,
+and the dropdown gets skipped — which is `hub/knack_api.py`'s own finding one
+step on, that twenty questions became eight answers and twelve blanks.
+
+It proposes **into the empty fields only** — the `contact_suggestions()`
+overlay rule — and the gate is on the endpoint as well as the form, because a
+rule the form keeps while the write breaks it is not a rule. **Every suggestion
+is one of Knack's own published choices, verbatim**, matched exactly or on
+punctuation and case alone and never on the nearest: Knack refuses the *whole
+record* over one bad choice, so an invented option would cost the request
+rather than the field, and anything else is dropped and counted. A **connection
+is never offered** (it is a record id, not a name), nor is a field publishing
+fewer than two options, nor a free-text box. A field it cannot answer is **left
+out** rather than filled with something plausible — thirteen rows of a guess is
+a form somebody stops reading, and one wrong row in it is the one that gets
+sent. Nothing is applied by arriving: `KnackForm.triageButton()` draws each
+suggestion dashed with the reason beside it, Keep takes it and Dismiss puts the
+field back. One control, drawn once, so both objects get it and a third form
+added later gets it without being edited.
+
 ### A client with no URL is invisible, and the URL is usually not missing
 
 `/tools/sites-match` had one half of this: it proposes a client for every
@@ -5205,6 +5287,8 @@ python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   model is told about the client
 python3 test_client_logos.py       # a logo we found reaches the client's gallery,
                                    #   once, labeled with where it came from
+python3 test_ai_proposals.py       # the model proposes, the code decides, a person
+                                   #   presses: project names, client photos, ticket type
 python3 test_thinking.py           # the mark that says a scan or a model is running:
                                    #   one implementation, three kinds, both halves
                                    #   of the app, and nothing claiming a result
