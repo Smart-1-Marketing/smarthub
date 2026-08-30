@@ -7039,6 +7039,52 @@ requires **every** entry in `SOURCES` to produce a record with a client, a date
 and a title — a sweep, because a test naming the three that were wrong proves
 nothing about the fourth.
 
+**Four smaller ones, each the same shape: a rule computed and then dropped
+on the way to the reader.** `campaign_assets.report()` put `labels()` on the
+payload and `labels()` copied out the label and its source, throwing away the
+`warning` `field_check()` had just computed — so the page's own
+`(d.warnings||[])` loop read a key the report never wrote and was always
+empty. Renumber `field_2346` and the report says *"No campaign in scope is
+waiting on a clarification or an asset"* about the whole book, because
+`measurable()` still passes on `clarification` alone; the one warning that
+exists to make that visible stopped at the function that produced it.
+
+`file_orphan()` ran **two vocabularies through one door**: the folder key from
+`RECONCILE_KINDS` went through as the *provider*, and the kind was looked up in
+`_KIND_FOR`, which is keyed on `STORES` names. Only `seo_images` is in both, so
+eight of the nine fell through to `"upload"` — which `filing.SOURCE_LABELS`
+calls **"Client upload"**. Attaching an orphaned commercial filed it in the
+client's gallery as a file *the client sent us*, under a bare `commercials`
+chip the gallery has no heading for, in the tier that claims nothing.
+`_FOLDER_FILING` maps each folder to the `(kind, provider)` pair its own tool
+files with, so a row this audit writes is indistinguishable from one the tool
+wrote — which is the only way the gallery's grouping stays true. It also
+surfaced a live one: `modules/social_planner` has filed under
+`provider="social_request"` since it was written and the table never named it,
+so a photograph a location manager sent in arrived as a bare key under no
+heading and, unlisted, in the tier that claims nothing.
+
+`io_records._summary()` stores the **shared** campaign start, and the wizard
+clears it the moment one product is given its own term — *"Because at least
+one product runs its own dates, I'll ask for dates product by product"*. So
+`start` is `""` on every multi-product IO, and `io_reconcile`'s `started`
+could never be true for one: the report's own headline urgency, *"it should be
+running now and nothing is trafficked"*, silently blind to a whole class of
+orders. `flight_start()` is the shared reading — the campaign start where
+there is one, otherwise the earliest line's — and the record still stores the
+agreement rather than the derivation.
+
+And `check_orphan_templates()` **could not see the orphan in its own
+templates folder**. Its include pass had no *"not its own name"* guard, the
+one the bare-`.html` pass beside it has always had, so a template whose header
+comment reads `drop {% include "me.html" %} into the dashboard` registered
+itself as rendered. `_scorecard_stale_creative.html` did exactly that: written
+for the dashboard, fetching a live and tested `/api/qa/stale-creative/scorecard`,
+included by nothing, with the check reporting no orphans at all. The guard is
+there now and the tile is wired where the partial's own first line asks for
+it — above System status, the reason `hub/celebrations.py` gives, because a
+key that is set is housekeeping and a client we have made nothing for is work.
+
 ## A report that has been opened has already been run
 
 `hub/report_cache.py`. Every QA report and every report-shaped tool page
