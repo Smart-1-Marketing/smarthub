@@ -162,6 +162,19 @@
        eleven KPIs about live business and not one about what is quoted. Same
        answer as the social scoreboard below it, and the same rules: every
        figure opens the rows behind it, and each zero says which kind it is. #}
+    {# Prospects, above Proposals: a quote is the middle of the funnel and a
+       prospect nobody has called is the top of it. The queue that decides the
+       order lives on /qa, and a queue nobody is told has anything in it is
+       the failure it was built to undo, one step later -- the note
+       hub/social_status.py makes about there being no mailer here, so the
+       honest route is putting the number where people already look. #}
+    <div class="card">
+      <div class="card-h"><h3>Prospects to chase</h3><div class="right"><a class="open-link" href="/qa/prospect-queue">Open the queue →</a></div></div>
+      <div class="card-b">
+        <div id="prospectboard"><span class="muted">Counting who is waiting… <span class="spin"></span></span></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-h"><h3>Proposals</h3><div class="right"><a class="open-link" href="/sales/builder/">Open the builder →</a></div></div>
       <div class="card-b">
@@ -375,6 +388,52 @@ fetch('/api/presence').then(r=>r.json()).then(d=>{
 }).catch(()=>{
   const host=$('presence');
   if(host) host.innerHTML='<span class="muted">Signed in now: not measured.</span>';
+});
+
+/* Prospects. The same three rules as every other count on this page: each
+   figure opens the rows behind it, each zero says which kind of zero it is,
+   and "we could not look" is never drawn as "there is nobody". The bands are
+   kept apart rather than folded into one "needs attention" number, because a
+   prospect the CRM cannot see, one nobody has audited and one waiting on a
+   quote are three different jobs. */
+fetch('/api/sales/prospects').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('prospectboard');
+  if(!box) return;
+  if(!d || d.measured===false){
+    box.innerHTML='<span class="muted">'+esc((d&&d.error)||'Not measured.')+'</span>';
+    return;
+  }
+  const c=d.counts||{}, url=d.url||'/qa/prospect-queue';
+  const stat=(label,value,warn)=>{
+    const color=warn&&value?'#dc2626':'var(--navy,#1a2e58)';
+    return '<a href="'+esc(url)+'" style="text-decoration:none;display:block">'
+      +'<div style="font-size:24px;font-weight:700;line-height:1.15;color:'+color+'">'
+      +(value||0)+'</div><div class="muted" style="font-size:11.5px">'+esc(label)
+      +'</div></a>';
+  };
+  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+    + stat('Audited, not quoted',c.ready)
+    + stat('Never audited',c.unaudited)
+    + stat('Quoted, waiting',c.waiting)
+    + '</div>';
+  /* Only when there is one: a permanently empty stat is furniture, and these
+     two are the exceptions rather than the everyday state. */
+  if(c.undelivered||c.merge_first){
+    h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px">'
+      + (c.undelivered?stat('Not in Smart 1 Suite',c.undelivered,true):'')
+      + (c.merge_first?stat('Same business twice',c.merge_first,true):'')
+      + '</div>';
+  }
+  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
+  /* The age of the reading, because a cached figure with no date on it is
+     read as today's. */
+  if(d.cache&&d.cache.line) h+='<div class="muted" style="font-size:11.5px;margin-top:4px">'
+    +esc(d.cache.line)+'</div>';
+  box.innerHTML=h;
+}).catch(()=>{
+  const box=document.getElementById('prospectboard');
+  if(box) box.innerHTML='<span class="muted">The prospect queue could not be '
+    +'read — not measured rather than nobody waiting.</span>';
 });
 
 /* The pipeline. Same three rules as the scoreboard below, and one of its own:

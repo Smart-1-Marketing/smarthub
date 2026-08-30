@@ -3189,6 +3189,31 @@ def create_hub_app() -> Flask:
         from . import social_status
         return jsonify(social_status.scoreboard())
 
+    @app.route("/api/sales/prospects")
+    def api_sales_prospects():
+        """Who is waiting to be called, for the dashboard.
+
+        The prospect queue lives on `/qa/prospect-queue`, and a queue nobody
+        is told has anything in it is the failure it was built to undo one
+        step later — the note `hub/social_status.py` makes about there being
+        no mailer here, so the honest route is putting the number where people
+        already look.
+
+        Read from the queue's own day cache rather than rebuilt, so this tile
+        and that report cannot answer the same question differently, and so a
+        page that loads on every visit does not walk the lead store to do it.
+
+        Not behind `access.UTILITY_PREFIXES`, for the same reason the two
+        scoreboards below give: this is the work of the people reading the
+        dashboard, and a figure everybody sees served by a path most accounts
+        are refused renders a confident nothing for eleven of the fourteen.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import prospect_queue
+        return jsonify(prospect_queue.scoreboard())
+
     @app.route("/api/sales/scoreboard")
     def api_sales_scoreboard():
         """What the pipeline is worth and what needs chasing, for the dashboard.
