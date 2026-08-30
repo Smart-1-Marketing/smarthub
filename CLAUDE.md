@@ -4693,6 +4693,31 @@ line `hub/ad_builder_link.py` draws. Without that move, the gallery gains a row
 that opens today, 404s after the sweep, and was never openable by the client
 whose gallery it is in.
 
+**The scan photographed their website and nobody was shown the photograph.**
+`website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
+so an operator judging brand colour on a dark canvas had to open the client's
+site in another tab to remember what they were matching — and mostly did not,
+which is how an ad comes back "not really them" with nobody able to say why.
+It is beside the swatches now, desktop and mobile, because half the sizes in a
+display package run on a phone and the two are often laid out nothing alike.
+**Reference and never a source**: `lightbox()` takes its "Use this picture"
+button only when a caller passes one, so a screenshot opens without it — a
+picture of somebody's website is not a background, and the logo in it is a
+logo photographed off a page, which `hub/scan_facts.py` already refuses to
+merge into what we hold. The panel also stopped giving up when the palette was
+empty: keyed on the colours alone, it hid the picture on every site whose
+colours the scan could not read.
+
+**`has_google_font_api` says a site loads Google Fonts and never says which
+face.** So it is passed on as the weak signal it is rather than dressed up as
+a font recommendation, or somebody reads it as one and types a family the
+renderer does not have. The useful direction is the one people do not expect:
+a **false** is the actionable answer, because their type is self-hosted or
+licensed and nothing offered here will match it by accident. It is tri-state —
+the check lives in the scan's GDPR section, and a plan that did not run it
+leaves the field out entirely, which must not read as "no". Not measured says
+nothing at all rather than filling the space.
+
 **And a panel redrawn under a callback is a callback writing to nothing.**
 `drawControls()` replaces the whole left column, so an element captured before
 a fetch is detached by the time the answer arrives: the write succeeds, the

@@ -802,6 +802,7 @@
              'on the right, rather than failing.') + '</h3>' +
         '<div class="field"><label>Headline face</label><input type="text" data-font="headline" value="' + esc(b.fonts.headline) + '"></div>' +
         '<div class="field"><label>Body face</label><input type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
+        '<div id="siteType"></div>' +
       '</div>' +
       // This heading used to read "Text boxes for 300x250" and it was not
       // true: these overrides live on the concept and every size renders
@@ -880,7 +881,7 @@
     wireBackgroundAdjust();
     wireAccordion();
     wireNudgePads();
-    drawSiteBrand();
+    drawSiteBrand(); drawSiteType();
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'), function (el) {
       el.addEventListener('click', function () { chooseBackground(el.dataset.bgmode, el); });
     });
@@ -1780,23 +1781,31 @@
     if (!host) return;
     siteBrand().then(function (d) {
       host = $('siteBrand');                    // the column may have redrawn
-      if (!host || !d || !d.colors) return;
-      var entries = Object.keys(d.colors);
-      if (!entries.length) return;
+      if (!host || !d) return;
+      var entries = Object.keys(d.colors || {});
+      // A scan with no readable palette can still carry the screenshot, and
+      // that is the half worth looking at. Returning early on an empty colour
+      // list hid the picture on every one of those.
+      if (!entries.length && !d.screenshot) return;
       host.innerHTML =
         '<div style="font-size:11px;color:var(--ink-2);margin-bottom:5px">' +
           'From their website' +
           help('Read off ' + d.domain + ' by their latest site scan \u2014 what the ' +
                'live pages actually paint, rather than a palette somebody ' +
-               'labeled. Click one to copy its hex.') +
+               'labeled. Click a swatch to copy its hex.') +
         '</div>' +
-        '<div class="inkrow" style="margin-bottom:9px">' +
-          entries.map(function (k) {
-            return '<button type="button" class="inkchip" data-sitecolor="' +
-              esc(d.colors[k]) + '" style="background:' + esc(d.colors[k]) + '"' +
-              ' title="' + esc(k + ' \u2014 ' + d.colors[k] + ' (click to copy)') + '"></button>';
-          }).join('') +
-        '</div>';
+        (entries.length
+          ? '<div class="inkrow" style="margin-bottom:9px">' +
+              entries.map(function (k) {
+                return '<button type="button" class="inkchip" data-sitecolor="' +
+                  esc(d.colors[k]) + '" style="background:' + esc(d.colors[k]) + '"' +
+                  ' title="' + esc(k + ' \u2014 ' + d.colors[k] + ' (click to copy)') + '"></button>';
+              }).join('') +
+            '</div>'
+          : '<div class="bgmsg" style="margin-bottom:9px">Their scan could not read ' +
+            'a palette off the page.</div>') +
+        siteShotMarkup(d);
+      wireSiteShot(host, d);
       Array.prototype.forEach.call(host.querySelectorAll('[data-sitecolor]'), function (el) {
         el.addEventListener('click', function () {
           var hex = el.dataset.sitecolor;
@@ -1805,6 +1814,99 @@
           // ad's primary -- and guessing it would move four other things.
           if (navigator.clipboard) navigator.clipboard.writeText(hex).catch(function () {});
           el.title = hex + ' copied \u2014 paste it into a swatch below';
+        });
+      });
+    });
+  }
+
+  /* What the scan can say about their type, which is less than people want.
+
+     `gdpr.has_google_font_api` is a boolean: the site loads Google Fonts, or
+     it does not. It never says WHICH face, and a note implying otherwise
+     would be worse than no note -- somebody would read it as a
+     recommendation and type a family the renderer does not have.
+
+     So it is stated as what it is, and the useful direction is the one people
+     do not expect: a **false** is the actionable answer. It means their type
+     is self-hosted or licensed, so nothing here will match it by accident and
+     the face is a decision somebody has to make rather than assume. A true is
+     mild encouragement. And an absent value is *not measured* -- the check
+     lives in the scan's GDPR section and a plan that did not run it leaves
+     the field out entirely, which must not read as "no". */
+  function drawSiteType() {
+    var host = $('siteType');
+    if (!host) return;
+    siteBrand().then(function (d) {
+      host = $('siteType');                     // the column may have redrawn
+      if (!host || !d) return;
+      var uses = d.usesGoogleFonts;
+      if (uses === null || uses === undefined) return;   // not measured: say nothing
+      host.innerHTML = '<div class="bgmsg" style="margin-top:2px">' +
+        (uses
+          ? esc(d.domain) + ' loads Google Fonts, so a Google family here has a ' +
+            'fair chance of matching their site. The scan does not say which one.'
+          : esc(d.domain) + ' does not load Google Fonts \u2014 their face is ' +
+            'self-hosted or licensed, so nothing here will match it by accident. ' +
+            'Worth picking deliberately.') +
+        '</div>';
+    });
+  }
+
+  /* Their site, as it looks.
+
+     The palette above says what the page paints; this says what it looks
+     like, which is the thing an ad actually gets compared against. An
+     operator judging brand colour on a dark canvas has, until now, had to
+     open the client's website in another tab to remember what they are
+     matching -- and mostly did not, which is how an ad comes back "not really
+     them" with nobody able to say why.
+
+     Desktop and mobile, because half a display package runs on a phone and
+     the two are often laid out nothing alike. Desktop leads because it is the
+     one that carries the full brand furniture; mobile is a toggle rather than
+     a second thumbnail, since two small pictures side by side are two
+     pictures nobody can read.
+
+     It is reference and never a source: nothing here can be applied to the
+     ad. A screenshot of a website is not a background, and the logo in it is
+     a logo photographed off a page -- the rule `hub/scan_facts.py` states,
+     that a sighting is a candidate and never merged into what we hold. */
+  function siteShotMarkup(d) {
+    if (!d.screenshot) return '';
+    var when = d.scannedAt ? new Date(d.scannedAt) : null;
+    var dated = (when && !isNaN(when)) ? when.toLocaleDateString() : '';
+    return '<div id="siteShot">' +
+      '<div style="font-size:11px;color:var(--ink-2);margin-bottom:4px;display:flex;' +
+        'align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<span>Their site' + (dated ? ', ' + esc(dated) : '') + '</span>' +
+        (d.screenshotMobile
+          ? '<button type="button" class="bsclear" data-shot="desktop" ' +
+            'aria-pressed="true" style="padding:1px 7px;font-size:10.5px">Desktop</button>' +
+            '<button type="button" class="bsclear" data-shot="mobile" ' +
+            'aria-pressed="false" style="padding:1px 7px;font-size:10.5px">Mobile</button>'
+          : '') +
+      '</div>' +
+      '<img id="siteShotImg" src="' + esc(d.screenshot) + '" alt="' +
+        esc(d.domain + ' as it looks today') + '" ' +
+        'style="width:100%;border-radius:6px;border:1px solid var(--line);' +
+        'display:block;cursor:zoom-in;background:var(--panel-2)">' +
+      '<div class="bgmsg" style="margin-top:4px">Reference only \u2014 click to enlarge.</div>' +
+      '</div>';
+  }
+
+  function wireSiteShot(host, d) {
+    var img = host.querySelector('#siteShotImg');
+    if (!img) return;
+    img.addEventListener('click', function () {
+      // No "use this picture": see lightbox().
+      lightbox(img.src, null, d.domain + ' \u2014 Esc closes');
+    });
+    Array.prototype.forEach.call(host.querySelectorAll('[data-shot]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var want = btn.dataset.shot;
+        img.src = want === 'mobile' ? d.screenshotMobile : d.screenshot;
+        Array.prototype.forEach.call(host.querySelectorAll('[data-shot]'), function (b) {
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
         });
       });
     });
@@ -2479,14 +2581,20 @@
   /* One picture, big, with the same action available from in there -- looking
      at it and then having to find it again in the grid is how you end up
      picking the one next to it. */
-  function lightbox(url, onUse) {
+  /* `onUse` is optional, and its absence is the whole difference between the
+     two things this opens. A stock or generated photo is a candidate, so it
+     gets "Use this picture". A screenshot of the client's own website is
+     reference -- you look at it and go back to work -- and offering to put it
+     behind the ad would be offering something nobody wants and a few people
+     would press. */
+  function lightbox(url, onUse, caption) {
     var wrap = document.createElement('div');
     wrap.className = 'lightbox';
     wrap.innerHTML = '<img src="' + esc(url) + '" alt="">' +
       '<div class="lbbar">' +
-        '<button type="button" class="btn primary" data-lb="use">Use this picture</button>' +
+        (onUse ? '<button type="button" class="btn primary" data-lb="use">Use this picture</button>' : '') +
         '<button type="button" class="btn" data-lb="close">Close</button>' +
-        '<span class="lbnote">Esc closes</span>' +
+        '<span class="lbnote">' + esc(caption || 'Esc closes') + '</span>' +
       '</div>';
     function close() {
       document.removeEventListener('keydown', onKey);
@@ -2495,9 +2603,9 @@
     function onKey(e) { if (e.key === 'Escape') close(); }
     wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
     wrap.querySelector('[data-lb="close"]').addEventListener('click', close);
-    wrap.querySelector('[data-lb="use"]').addEventListener('click', function () {
+    if (onUse) wrap.querySelector('[data-lb="use"]').addEventListener('click', function () {
       close();
-      if (onUse) onUse();
+      onUse();
     });
     document.addEventListener('keydown', onKey);
     document.body.appendChild(wrap);
