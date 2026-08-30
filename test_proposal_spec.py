@@ -586,6 +586,47 @@ for _plat, _chan in (("Snapchat", "snapchat"), ("Tik Tok", "tiktok"),
           cs.channels_for_product(_row["product"], _row["category"]))
 
 # ---------------------------------------------------------------------------
+section("LinkedIn is judged at the weights the kit publishes")
+# ---------------------------------------------------------------------------
+# The 2025 model named five formats to the kit's eleven, and three of its
+# numbers refused files the kit allows -- the Half Page failure this file
+# already records, one channel over.
+_li = {u["id"]: u for u in cs.UNITS if u["channel"] == "linkedin"}
+check("LinkedIn carries the eleven formats the kit publishes", len(_li) == 11,
+      sorted(u["name"] for u in _li.values()))
+check("and 'Sponsored InMail' is called what LinkedIn calls it",
+      _li["li_inmail"]["name"] == "Message Ads", _li["li_inmail"]["name"])
+check("...keeping its id, because tags_for() has written it onto creative",
+      "li_inmail" in cs.BY_ID)
+
+_MB = 1024 * 1024
+check("a 1.5 MB Message Ads banner is accepted, against a published 2 MB",
+      cs.check(unit_id="li_inmail", width=300, height=250,
+               size_bytes=int(1.5 * _MB), fmt="jpg")["result"] == "pass",
+      cs.check(unit_id="li_inmail", width=300, height=250,
+               size_bytes=int(1.5 * _MB), fmt="jpg")["result"])
+check("a 300 MB video is accepted, against a published 500 MB",
+      cs.check(unit_id="li_video", width=1920, height=1080,
+               size_bytes=300 * _MB, fmt="mp4")["result"] == "pass")
+check("and 1200x628 — the kit's own size — is accepted",
+      cs.check(unit_id="li_single_image", width=1200, height=628,
+               size_bytes=2 * _MB, fmt="jpg")["result"] == "pass")
+
+# A real file still lands on a sensible unit; the two formats that carry no
+# file of their own must never be what one is judged against.
+for _w, _h, _fmt, _want in ((1200, 628, "jpg", "Sponsored Content — Single Image"),
+                            (1080, 1080, "jpg", "Sponsored Content — Carousel"),
+                            (1920, 1080, "mp4", "Sponsored Content — Video"),
+                            (100, 100, "png", "Text Ad")):
+    _v = cs.check(product="LinkedIn - Display & Text Ads - Budget Based - "
+                          "No Impression Guarantee",
+                  category="SOCIAL ADS - VIDEO", width=_w, height=_h,
+                  size_bytes=2 * _MB, fmt=_fmt)
+    check(f"a {_w}x{_h} {_fmt} is judged as {_want}",
+          (_v.get("unit") or {}).get("name") == _want, _v.get("unit"))
+
+
+# ---------------------------------------------------------------------------
 section("the gate and the spec kit read the same product the same way")
 # ---------------------------------------------------------------------------
 # Two readings of one question -- whether to ask for creative, and what to ask
@@ -1873,15 +1914,31 @@ for _w, _h, _fmt, _want in ((1080, 1080, "jpg", "Image Ads"),
           (_v.get("unit") or {}).get("name") == _want, _v.get("unit"))
 
 # What is still on the 2025 transcription is a named backlog, not an absence.
+# Asserted as an invariant rather than as a restated list: a copy of the two
+# rosters here would be a third thing to keep in step, and it would have to be
+# edited on every platform transcribed — which is how a test stops meaning
+# anything and starts being updated to match whatever the code says.
 _cov = cs.kit_coverage()
-check("the channels held to the 2026 names say which they are",
-      _cov["names_checked"] == ["x"], _cov["names_checked"])
-check("and the ones still on 2025 are named with what moved",
-      set(_cov["names_pending"]) == {"linkedin", "tiktok", "snapchat",
-                                     "youtube", "native_display"},
-      sorted(_cov["names_pending"]))
-check("each with a reason somebody can act on",
-      all(str(v).strip() for v in _cov["names_pending"].values()))
+check("the channels held to the 2026 names are the ones with no drift",
+      _cov["names_checked"] and cs.kit_name_drift() == [],
+      (_cov["names_checked"], cs.kit_name_drift()[:2]))
+check("a channel is on one roster or the other, never both",
+      not (set(_cov["names_checked"]) & set(_cov["names_pending"])),
+      sorted(set(_cov["names_checked"]) & set(_cov["names_pending"])))
+check("every channel named as checked is one this module has units for",
+      set(_cov["names_checked"]) <= {u["channel"] for u in cs.UNITS},
+      sorted(set(_cov["names_checked"]) - {u["channel"] for u in cs.UNITS}))
+check("...and so is every channel named as pending",
+      set(_cov["names_pending"]) <= {u["channel"] for u in cs.UNITS},
+      sorted(set(_cov["names_pending"]) - {u["channel"] for u in cs.UNITS}))
+check("each pending channel says what moved, so it can be acted on",
+      all(str(v).strip() for v in _cov["names_pending"].values()),
+      [k for k, v in _cov["names_pending"].items() if not str(v).strip()])
+# The two done so far, by name — the backlog shrinks, and this is what says
+# the shrinking is real rather than a roster edited to match.
+for _done in ("x", "linkedin"):
+    check(f"{_done!r} is held to the 2026 names", _done in _cov["names_checked"],
+          _cov["names_checked"])
 
 
 # ---------------------------------------------------------------------------
