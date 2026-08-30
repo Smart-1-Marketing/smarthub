@@ -4236,6 +4236,17 @@ the fact and the judgment apart. A page that could not be fetched is **refused
 rather than reviewed anyway**, and a model that fails costs the judgment and
 not the reading.
 
+**And the IO Builder was asking the same model to visit the same kind of
+page**, into a worse document. Its review is printed on the internal PDF under
+*Landing Page Review — Internal Needs*, which is what whoever traffics the
+campaign reads, so a review of a page nobody looked at is a fix list somebody
+works. It reads `landing_page.observe()` too now, keeps `observed` and
+`summary` beside the review, refuses a page it could not fetch rather than
+reviewing it anyway, and refuses an empty review rather than filing one. The
+headings line the prompt needs moved to `landing_page.headings_line()` — it
+describes that function's own output, and two readings of one shape drift the
+day either end of it changes.
+
 ### The hosted tool that was meant to help is what stopped the button
 
 `_openai_response` attached `{"type": "web_search"}` to **every** call in the
@@ -4256,6 +4267,30 @@ invented diagnosis of one shared failure — "the AI returned no description",
 the reason now. And an **incomplete** response is said to be that: reasoning and
 tool tokens count against `max_output_tokens`, so a truncated answer arrives
 with an empty text body, which every caller read as its own kind of nothing.
+
+**And the fix landed in one of the two copies.** The IO Builder had a
+`_openai_response` of its own — same function, same unconditional
+`{"type": "web_search"}`, same `gpt-5-mini` default — and was never touched, so
+the identical diagnosis stayed live one module over for as long as it took
+somebody to press a button there. All four of that tool's AI buttons were dead:
+the ZIP-radius lookup, the business description, the landing-page review and
+the media-mix recommendation, each returning a different invented account of one
+shared cause. That is the drift `hub/storage.py` and `hub/images.py` exist to
+stop, wearing a model call, and it is the whole argument for the opportunistic
+migration rule: the next fix should land once. `hub/openai_responses.py` is the
+one reader now and both builders read it — with the transport left as each
+module's own name, so a test already standing in front of it goes on biting.
+
+**Two of those four reported a truncated answer as a success**, which is worse
+than the two that got it wrong loudly. The landing-page review answered **200
+with an empty review**, and the wizard stored it and the internal PDF printed it
+under a heading — a page nobody had anything to say about, rather than a review
+that never happened. The media mix answered **200** with every field blank,
+under a warning blaming the model for having replied in prose. Neither errored
+at either end. An empty answer is refused by name at both call sites now, and
+`purpose` travels with each call: every model call in that module was filed
+under the string `"business_description"`, so the usage page could not tell a
+billed ZIP lookup from a billed landing-page review.
 
 ### Generated copy is cleaned, not trusted
 
@@ -4718,6 +4753,29 @@ nothing errored at either end. The entry now also carries the media partner,
 the flight start and the monthly, because a chase list needs to know who to
 ask and whether the campaign should already be running, and neither is
 knowable from an order number.
+
+**And both of those writes ran before the order had gone anywhere.** They sat
+at the *top* of `submit_io`, above the line that even looks for
+`GHL_WEBHOOK_URL` — so an IO the route then **refused** was filed as submitted
+work regardless. A rep who pressed Submit before generating both PDFs got a
+400 and, invisibly, a `io_submitted` entry, an insertion order on that client's
+360 record, and a brand-new row in `hub/io_clients.py`'s overlay standing in for
+a client nobody had ordered anything for. A Suite that was down did the same
+thing with a 502. This report reads exactly those entries, so an order nobody
+ever sent became a permanent row on somebody's chase list — and pressing Submit
+twice, which is what a rep does when the first press fails, filed it twice.
+`_record_submission()` runs after the webhook has answered 2xx now: the same
+shape `approve_render` uses in the Commercial Builder, where the audit line
+moved after the commit so a spot refused by QC is no longer logged as submitted
+work.
+
+**A refusal is recorded as a refusal, and never as work.** Silence is not the
+alternative — a submission that failed and a submission nobody attempted read
+identically, and the rep who closed the tab is the only person who knew.
+`io_submit_failed` carries the order, who pressed it and what refused, and
+deliberately carries **no `client=`**: `client_brand.work_log()` reads a
+module's entries by client, and an order Suite never took is not work anybody
+did for them.
 
 **A source that could not be read is not measured, and this is the strongest
 case of that rule in the Hub.** `knack_products.rows()` never raises: it falls
@@ -7928,6 +7986,11 @@ python3 test_commercial_wizard.py  # the seven steps, the batch an approval open
 python3 test_commercial_explainer.py # the bubbles, the per-screen tours, and a
                                    #   walkthrough that drives the page it is on
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
+python3 test_io_builder.py         # the IO Builder's own model calls: one reader,
+                                   #   the hosted tool opt-in, an answer cut short
+                                   #   named as that, the landing page read rather
+                                   #   than imagined, and a refused order that is
+                                   #   not filed as an order
 python3 test_drafts.py             # interrupted work: the IO's server draft and
                                    #   its list, the proposal reopening where it
                                    #   was left, and a cap that names what it drops

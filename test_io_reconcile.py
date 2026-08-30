@@ -104,13 +104,23 @@ section("The defect underneath: which key the submit route logs")
 
 src = open(os.path.join(ROOT, "modules", "io_builder", "app.py"),
            encoding="utf-8").read()
-submit = src[src.index('@app.post("/api/submit-io")'):]
-submit = submit[:submit.index("webhook_url = os.environ")]
+# The entry is written by `_record_submission`, not inline in the route: it
+# used to run at the top of the route, before the webhook was even looked
+# for, so an IO the route then refused was filed as submitted work and
+# became a permanent row on this report. Asked of the function that writes
+# it rather than of a slice of the route, which is a reading that stops
+# asking the question the day the code moves.
+submit = src[src.index("def _record_submission"):src.index("def _record_refusal")]
 check("submit_io logs the payload's own key, `orderNumber` — reading "
       "`order_number` alone wrote a blank on every entry ever logged",
       'get("orderNumber")' in submit)
 check("and still accepts the snake_case spelling, so an older caller is not "
       "silently dropped", 'get("order_number")' in submit)
+route = src[src.index('@app.post("/api/submit-io")'):]
+route = route[:route.index("def _payload_areas")]
+check("and the entry is written only once Suite has taken the order, so an "
+      "order nobody sent is never on this list",
+      route.index("_record_submission(data)") > route.index("response.status_code >= 400"))
 
 state = open(os.path.join(ROOT, "modules", "io_builder", "templates",
                           "index.html"), encoding="utf-8").read()

@@ -1231,3 +1231,16 @@ jobs:
       # their own copy of it.
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
+
+      # The IO Builder had no test of its own, and booting it and pressing its
+      # buttons found every AI button in the tool dead: this module carried a
+      # second copy of the OpenAI Responses call, and the copy attached the
+      # hosted web_search tool to every request — the failure CLAUDE.md
+      # records against the Proposal Builder, whose copy was fixed while this
+      # one was never touched. There is one reader now and both read it. It
+      # also holds the two things that were reported as successes: a truncated
+      # answer that reached the internal PDF as an empty landing-page review,
+      # and an order the route refused being filed as submitted work, which
+      # put an IO nobody ever sent on the reconciliation chase list for good.
+      - name: IO Builder — the model calls, and what a refused order files
+        run: python3 test_io_builder.py
