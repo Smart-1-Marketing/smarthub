@@ -302,6 +302,43 @@ def create_hub_app() -> Flask:
         return render_template("google_match.html", user=current_user(),
                                active="google")
 
+    @app.route("/api/google/read-labels", methods=["POST"])
+    def api_google_read_labels():
+        """Read the orphan resource labels for the business inside them.
+
+        A POST, and a button, because the call is billed. The model is shown
+        the label only — never the client book — and answers with a run of
+        words out of it; that name then goes through the same
+        `client_key.resolve()` `suggest_for()` already runs on the raw label,
+        so the rules that decide are unchanged and a reading can only change
+        which string gets asked about. It never outranks a recorded id or a
+        domain, and every row still ends at a human pressing Attach.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import google_links, google_names_ai
+        book = google_links._orphan_book()          # noqa: SLF001
+        labels = google_names_ai.labels_of(book.get("rows") or [])
+        out = google_names_ai.read_missing(labels)
+        # The orphan list is held for the day and a reading changes what it
+        # would say, so it is dropped here rather than leaving the page
+        # showing the answer from before the button was pressed — which reads
+        # as a button that did nothing. The drop lives beside the write, per
+        # hub/report_cache.py.
+        try:
+            from . import report_cache
+            report_cache.invalidate("google-orphans")
+        except Exception:                           # noqa: BLE001
+            pass
+        try:
+            audit.log("google_links", "read_labels", actor=current_user() or "",
+                      read=out.get("read", 0), stored=out.get("stored", 0),
+                      ungrounded=out.get("ungrounded", 0))
+        except Exception:                           # noqa: BLE001
+            pass
+        return jsonify(out)
+
     @app.route("/api/google/orphans")
     def api_google_orphans():
         """Google resources no client is attached to, with who they might be.
@@ -968,6 +1005,47 @@ def create_hub_app() -> Flask:
         # No refresh here either: this reads the same two caches the calendar
         # does, and POST /api/domains/refresh is the one control that pulls.
         return jsonify(year_to_date(year=year))
+
+    @app.route("/api/domains/read-descriptions", methods=["POST"])
+    def api_domains_read_descriptions():
+        """Read the line descriptions every matching rule failed on.
+
+        A POST, and a button, because the call is billed: a GET that spends
+        money is one a reload or a link preview fires without anybody asking —
+        the rule this same page settled for its Refresh.
+
+        Only the unmatched lines are sent. What comes back is a business name
+        grounded in the description it came from, which then goes through the
+        matcher's own name passes against the real registry — so it can move a
+        charge from "nothing to look at" to "here is a candidate", and it
+        resolves to `probable`, which `year_to_date()` counts as having no
+        record here until somebody presses Link. Nothing here marks a renewal
+        billed.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import invoice_names
+        from .domain_purchase import year_to_date
+        body = request.get_json(silent=True) or {}
+        try:
+            year = int(body.get("year") or 0) or None
+        except (TypeError, ValueError):
+            year = None
+        data = year_to_date(year=year)
+        # The same set `ai_names` counted: unmatched, or matched only on a
+        # resemblance. A line the rules answered is never sent.
+        wanted = [c.get("description") or ""
+                  for c in (data.get("unrecorded") or [])]
+        out = invoice_names.read_missing(wanted)
+        try:
+            audit.log("domain_renewals", "read_descriptions",
+                      actor=current_user() or "",
+                      read=out.get("read", 0), stored=out.get("stored", 0),
+                      ungrounded=out.get("ungrounded", 0))
+        except Exception:                               # noqa: BLE001
+            pass
+        return jsonify(out)
 
     @app.route("/api/domains/charges/link", methods=["POST"])
     def api_domains_charge_link():

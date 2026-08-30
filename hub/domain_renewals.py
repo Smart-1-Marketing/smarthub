@@ -342,16 +342,24 @@ def _pick(rows: list[dict]) -> tuple[dict, str]:
 
 
 def match_charges(lines: list[dict], rows: list[dict],
-                  links: dict | None = None) -> list[dict]:
+                  links: dict | None = None,
+                  readings: dict | None = None) -> list[dict]:
     """Join each QuickBooks charge to the website record it is for.
 
     `matched_on` is the evidence — "linked" (a person said so), "domain",
-    "name", "name~" (a near name, a suggestion) or "" — and `confidence` is
-    "confirmed", "exact", "probable" or "unmatched". A caller showing one of
-    these to a person shows the confidence with it.
+    "name", "name~" (a near name, a suggestion), "read" / "read~" (a business
+    a model read out of the description, once every rule above had failed) or
+    "" — and `confidence` is "confirmed", "exact", "probable" or "unmatched".
+    A caller showing one of these to a person shows the confidence with it.
+
+    `readings` is `hub/invoice_names.readings()`, read once by the caller: this
+    walks every charge in the year, and a lookup per row is a file read per row
+    with a database restore behind each miss. Absent, nothing is read and the
+    behaviour is exactly what it was.
     """
     idx = _index(rows)
     links = links_store() if links is None else links
+    readings = {} if readings is None else readings
     by_id = {str(r.get("id") or ""): r for r in rows or []}
     out = []
     for line in lines or []:
@@ -360,7 +368,11 @@ def match_charges(lines: list[dict], rows: list[dict],
                "domain": parsed["domain"], "described_name": parsed["name"],
                "record_id": "", "client": "", "partner": "",
                "record_domain": "", "matched_on": "", "confidence": "unmatched",
-               "candidates": [], "why": "", "is_ours": None}
+               "candidates": [], "why": "", "is_ours": None,
+               # What a model read out of the description, where one of the
+               # rules above did not answer. Empty on every row the rules
+               # settled, which is most of them.
+               "read_name": ""}
 
         hit = None
         pinned = links.get(row["key"]) or {}
@@ -406,6 +418,57 @@ def match_charges(lines: list[dict], rows: list[dict],
                               f"“{parsed['name']}”. Reporting no match rather "
                               f"than guessing — a wrong match marks somebody "
                               f"else's renewal billed.")
+
+        # Last, and only where every rule above has failed: the business a
+        # model read out of the description. It resolves through the same two
+        # passes the parsed name does — exact on the normalized form, then a
+        # single near match — so `client_key`'s rules still decide and the
+        # model has never seen the registry.
+        #
+        # It can never be better than `probable`, whatever it matched on. A
+        # parsed name is what the description says; a read name is what a model
+        # thought the description meant, and `domain_purchase.year_to_date()`
+        # counts a probable charge as having no record here, in both
+        # directions, until somebody presses link_charge(). That is the whole
+        # reason this is safe to add to a report about money.
+        if hit is None and readings:
+            read_name = ""
+            try:
+                from hub import invoice_names
+                read_name = invoice_names.business_in(
+                    line.get("description") or "", readings)
+            except Exception:                           # noqa: BLE001
+                read_name = ""
+            if read_name and _norm(read_name) != _norm(parsed["name"] or ""):
+                same = idx["by_name"].get(_norm(read_name)) or []
+                if same:
+                    hit, note = _pick(same)
+                    row.update(matched_on="read", confidence="probable",
+                               read_name=read_name,
+                               why=(f"Nothing in the description matched. Read "
+                                    f"as “{read_name}”, which is this record's "
+                                    f"client exactly — a suggestion, not a "
+                                    f"match. Confirm it before it counts as "
+                                    f"billed. " + note).strip())
+                else:
+                    near = _near(read_name, idx["by_name"])
+                    if len(near) == 1:
+                        hit = near[0]["row"]
+                        row.update(matched_on="read~", confidence="probable",
+                                   read_name=read_name,
+                                   why=(f"Nothing in the description matched. "
+                                        f"Read as “{read_name}”, which looks "
+                                        f"like “{near[0]['name']}” "
+                                        f"({near[0]['pct']}%). A suggestion — "
+                                        f"confirm it before it counts as "
+                                        f"billed."))
+                    elif len(near) > 1:
+                        row["candidates"] = [n["name"] for n in near][:6]
+                        row["read_name"] = read_name
+                        row["why"] = (f"Read as “{read_name}”, and "
+                                      f"{len(near)} clients could be that. "
+                                      f"Reporting no match rather than "
+                                      f"guessing.")
 
         if hit is not None:
             from hub.domain_purchase import is_ours
