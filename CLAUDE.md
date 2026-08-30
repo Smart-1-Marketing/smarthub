@@ -7048,6 +7048,41 @@ mounted module the nav reads the role from the **signed cookie** rather than
 the database, because `HubBar` runs with no app context in front of every
 module page; a stale nav is cosmetic and the gate re-reads the row.
 
+**And the page was gated while its own data was not.** The list above says
+the APIs are on it because "gating the page while its data stays readable is
+a gate in name only" — and four of the Diagnostics page's own APIs were not
+on it. `/api/db/structure` is the sibling of `/api/integrity`, the same panel
+answering the same question, and only one of the two was covered;
+`/api/environment` describes every setting and which name answered;
+`/api/scheduler` reports the jobs. All four answered **200 to a General
+account** while `/diagnostics` answered 403 at the same person, and nothing
+on either side said so.
+
+**One of them is not a read.** `POST /api/scheduler/run/<name>` fires a job
+on demand — the Google sweep is 180 rate-limited Tag Manager accounts against
+a per-day project quota, the Cloudinary reconcile is billed Admin API calls,
+and the Knack pulls are a full paged object each. A POST any of the eleven
+General accounts can fire is the cost `hub/domain_purchase.py` already
+refuses to carry on a GET.
+
+**Nothing outside the Diagnostics page fetches any of them**, which is what
+made this safe to close: gating an API a General-visible page reads is how
+`/api/status` came to render "✓ 0 checks OK · no issues" at somebody who had
+just been refused it. `test_user_accounts.py` asserts that too, per path,
+rather than leaving it to the reasoning that made the change look safe.
+
+**The check is a sweep, not a list of the five that were open.**
+`test_blueprint_guards.py` probes every route with **no session at all**, so
+a route open to every signed-in member of staff is invisible to it — which is
+why these five stood. The new sweep walks every admin-shaped route on the hub
+app and requires each one to be gated or named in an exemption list **with
+its reason**, held to `check_stale_json_exemptions()`'s rule that an entry
+outliving its route goes on covering whatever is served there next. Three are
+named: `/api/version` (the sign-in page and every footer), `/login/health`
+(being locked out of it is how a locked-out person reports the problem) and
+`/api/presence` (the headcount is everybody's; the account-by-account list on
+`/status` stays in Utilities).
+
 **The shared password counts as Admin, and that is a decision rather than an
 oversight.** `PANEL_PASSWORD` grants a session with no account behind it, so
 there is no role to read — and it is the emergency door, which is how somebody
