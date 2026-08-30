@@ -430,6 +430,32 @@ RECONCILE_KINDS = [
     ("ads_logos", "Smart 1 Ads logos"),
 ]
 
+# Each folder key against the (kind, provider) pair the tool that fills it
+# files with. `file_orphan()` was handing the *folder key* straight through as
+# the provider and running the *store* table over it for the kind, which is two
+# vocabularies through one door: `_KIND_FOR` is keyed on `STORES` names, and
+# only `seo_images` appears in both — so eight of the nine fell through to
+# `"upload"`, which `filing.SOURCE_LABELS` calls **"Client upload"**. Attaching
+# an orphaned commercial still put it in the client's gallery labelled as a
+# file the client sent us, under a bare `commercials` chip the gallery has no
+# heading for, in the tier that claims nothing.
+#
+# The pairs are the producers' own, so a row this audit files is
+# indistinguishable from one its tool filed — which is the only way the
+# gallery's grouping can stay true.
+_FOLDER_FILING = {
+    "seo_images":      ("seo_image", "seo_image"),
+    "image_projects":  ("graphic", "image_creator"),
+    "cutouts":         ("cutout", "bg_remover"),
+    "client_logos":    ("logo", "client_logos"),
+    "stock_photos":    ("stock", "stock"),
+    "social_requests": ("client_upload", "social_request"),
+    "prospects":       ("upload", "prospect"),
+    "commercials":     ("commercial", "commercial_builder"),
+    "ads_logos":       ("logo", "display_ads"),
+}
+
+
 # Deliberately NOT reconciled, each for its own reason. Named rather than
 # omitted: a folder silently left out of a completeness report is the same
 # failure the report is about.
@@ -665,9 +691,13 @@ def attach(store: str, row_id: str, client: str, *, actor: str = "") -> dict:
     if out.get("url", "").startswith("https://") and out.get("public_id"):
         try:
             from modules.image_picker.filing import file_asset
+            # `store` is a STORES key -- "seo_images", never "seo_image" --
+            # so the conditional that used to sit here could not be true. It
+            # read as a rule and was not one; _KIND_FOR already gives the same
+            # answer for that store.
             filed = file_asset(client_name=client, public_id=out["public_id"],
-                               url=out["url"], kind=store if store in
-                               ("seo_image",) else _KIND_FOR.get(store, "upload"),
+                               url=out["url"],
+                               kind=_KIND_FOR.get(store, "upload"),
                                filename=out.get("filename", ""),
                                provider=store, saved_by=actor or "system")
         except Exception as exc:                          # noqa: BLE001
@@ -750,10 +780,12 @@ def file_orphan(public_id: str, url: str, client: str, kind: str = "",
         return {"ok": False, "error": "That asset has no stored URL to file."}
     try:
         from modules.image_picker.filing import file_asset
+        filed_kind, filed_provider = _FOLDER_FILING.get(
+            kind, ("upload", "cloudinary"))
         out = file_asset(client_name=client, public_id=public_id, url=url,
-                         kind=_KIND_FOR.get(kind, "upload"),
+                         kind=filed_kind,
                          filename=public_id.split("/")[-1],
-                         provider=kind or "cloudinary",
+                         provider=filed_provider,
                          saved_by=actor or "system")
     except Exception as exc:                              # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

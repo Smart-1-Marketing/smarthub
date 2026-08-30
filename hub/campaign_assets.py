@@ -279,6 +279,7 @@ def report(q: str = "", scope: str = "open", today: _dt.date | None = None) -> d
         g["asset_asks"] = sum(x["asset_asks"] for x in g["campaigns"])
         g["sales"] = sorted({x["sales"] or NOT_RECORDED for x in g["campaigns"]})
 
+    _field_check = field_check()
     return {
         "campaigns": out,
         "groups": groups,
@@ -298,7 +299,18 @@ def report(q: str = "", scope: str = "open", today: _dt.date | None = None) -> d
         "q": q,
         "today": today.isoformat(),
         "note": _note(data, measured, rows),
-        "fields": labels(),
+        "fields": labels(_field_check),
+        # The whole point of pinning three field ids is that a renumbered one
+        # reads back empty on every record, which looks exactly like a client
+        # base with nothing outstanding. `field_check()` computes exactly that
+        # warning and `labels()` copied out only the label and its source, so
+        # the page's own `(d.warnings||[])` loop read a key `report()` never
+        # wrote and was always empty. Rename `field_2346` in Knack and the
+        # report says "No campaign in scope is waiting on a clarification or
+        # an asset" about the whole book -- `measurable()` still passes,
+        # because `clarification` is present -- with nothing anywhere saying
+        # the tick it is gated on has stopped answering.
+        "warnings": _field_check.get("warnings") or [],
     }
 
 
@@ -330,9 +342,15 @@ def _note(data: dict, measured: bool, rows: list) -> str:
 # What Knack calls these fields
 # ---------------------------------------------------------------------------
 
-def labels() -> dict:
-    """Field id -> the label to print, and where that label came from."""
-    check = field_check()
+def labels(check: dict | None = None) -> dict:
+    """Field id -> the label to print, and where that label came from.
+
+    Takes the `field_check()` answer when the caller already has one. It read
+    the live schema itself before, so `report()` asking for the labels and for
+    the warnings off the same run would otherwise have made two Knack calls --
+    and two answers that can disagree about the field they describe.
+    """
+    check = field_check() if check is None else check
     out = {}
     for f in check["fields"]:
         out[f["id"]] = {"label": f["label"], "source": f["label_source"]}

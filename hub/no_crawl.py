@@ -35,6 +35,17 @@ The list is data rather than a paragraph in a template, so adding next year's
 crawler is one line here and appears in robots.txt, the diagnostics page and
 the test at once.
 
+## The one thing on this host that IS meant to be read
+
+`hub/llms_hosting.py` serves each client's approved llms.txt under
+`/llms/<slug>/llms.txt`, reached by a redirect from the client's own domain.
+That prefix is the single exception to everything above, and it had to be
+opened in **two** layers, not one: `LLMS_READERS` below carries the robots.txt
+half, and the route sets its own `X-Robots-Tag` because the middleware here
+would otherwise stamp `noai` onto a file whose whole purpose is to be read by
+AI — the flattest contradiction available, and one nothing on any screen
+would have reported.
+
 ## What this does NOT do
 
 It does not stop a crawler that ignores robots.txt and the header, and it
@@ -90,13 +101,56 @@ ROBOTS_TAG = ("noindex, nofollow, noarchive, nosnippet, noimageindex, "
 META_TAG = '<meta name="robots" content="' + ROBOTS_TAG + '">'
 
 
+# The one prefix on this host that is meant to be read, and the agents it is
+# meant to be read BY. `hub/llms_hosting.py` serves each client's approved
+# llms.txt at /llms/<slug>/llms.txt, on our hostname, reached by a redirect
+# from the client's own domain -- so a crawler that honours this file and is
+# refused here reads nothing, and the whole arrangement is a redirect into a
+# closed door with every screen in the Hub reporting a clean publish.
+#
+# The prefix is imported rather than spelled again: the mount and the module
+# must not be able to disagree about which path is open.
+def _llms_prefix() -> str:
+    try:
+        from .llms_hosting import PUBLIC_PREFIX
+        return PUBLIC_PREFIX
+    except Exception:  # noqa: BLE001 -- robots.txt must render regardless
+        return "/llms/"
+
+
+# Named individually, and this is the entire reason the groups exist: robots.txt
+# is matched by user-agent GROUP, never by substring, so a group naming GPTBot
+# says nothing whatever about ClaudeBot. A bare `Allow:` under `User-agent: *`
+# would not do it either -- the original standard has no Allow directive and
+# parser behaviour still varies, so the permission is written into each
+# reader's own group above its own Disallow.
+#
+# Deliberately a SUBSET of AI_CRAWLERS rather than all of it. `Google-Extended`
+# and `Applebot-Extended` are AI-*training* opt-outs and stay refused: the
+# client files are for retrieval at answer time, and nothing on this host is
+# for a training set. Anything not listed here is refused exactly as before.
+LLMS_READERS = (
+    # OpenAI
+    "GPTBot", "ChatGPT-User", "OAI-SearchBot",
+    # Anthropic
+    "ClaudeBot", "Claude-User", "Claude-SearchBot",
+    # Perplexity
+    "PerplexityBot", "Perplexity-User",
+)
+
+
 def robots_txt() -> str:
     """The whole file. One wildcard block, then every crawler by name."""
+    allow = _llms_prefix()
     lines = [
         "# Smart 1 Hub is an internal tool. Nothing here is for indexing, for",
         "# search results, or for training a model. If you are reading this as",
         "# a person: the same statement is sent as an X-Robots-Tag header on",
         "# every response, which is the part that is actually enforced.",
+        "#",
+        f"# The one exception is {allow}, where each client's own llms.txt is",
+        "# served. Those are published deliberately, for the AI systems named",
+        "# below to read, and for nothing else on this host.",
         "",
         "User-agent: *",
         "Disallow: /",
@@ -104,6 +158,11 @@ def robots_txt() -> str:
     ]
     for name in SEARCH_CRAWLERS + AI_CRAWLERS:
         lines.append(f"User-agent: {name}")
+        # Allow first, then Disallow. Longest-match decides in every parser
+        # that implements Allow at all, and a reader that ignores Allow
+        # entirely falls back to the refusal, which is the safe direction.
+        if name in LLMS_READERS:
+            lines.append(f"Allow: {allow}")
         lines.append("Disallow: /")
         lines.append("")
     # Deliberately no Sitemap: line. There is nothing to offer, and pointing a
@@ -143,7 +202,11 @@ class NoIndex:
 
     It never replaces a header a response set for itself: a route with a
     considered reason to be indexable can say so and this will not argue with
-    it. Nothing in the Hub does today, and the check is one line.
+    it. The check is one line, and it is now load-bearing — the client
+    llms.txt route under `/llms/` sets its own, because the default here
+    carries `noai` and that file exists to be read by AI. Without the
+    deferral, publishing would have been a redirect into a refusal with every
+    screen in the Hub reporting a clean save.
     """
 
     def __init__(self, app, value: str = ROBOTS_TAG):

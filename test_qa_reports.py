@@ -377,6 +377,188 @@ check("and it says the window it actually uses",
 
 
 # ---------------------------------------------------------------------------
+section("The Scorecards measure 'running' the way the rest of the page does")
+# ---------------------------------------------------------------------------
+# The two Scorecards tested `status in ("live", "complete")` — the narrow test
+# `knack_data.is_running()`'s own docstring says "missed about a third of the
+# work actually running" — while every other report on /qa counted the union.
+# Nothing on either said they were measured differently, which is what made it
+# the /api/db/structure versus /api/integrity trap rather than a disagreement
+# somebody could see.
+import datetime as _dt                                          # noqa: E402
+
+from hub import knack_data                                      # noqa: E402
+
+_MS, _ME = _dt.date(2026, 8, 1), _dt.date(2026, 8, 31)
+
+
+def _row(status, start="07/01/2026", end="09/30/2026"):
+    return {"status": status, "start": start, "end": end}
+
+
+for label, rec, want in [
+    ("a Live row in term counts", _row("Live"), True),
+    ("a Complete row in term counts — it ran, even though it is finished",
+     _row("Complete"), True),
+    ("so do the in-flight statuses the old allowlist dropped",
+     _row("Pending Assets"), True),
+    ("...and Assigned", _row("Assigned"), True),
+    ("...and Scheduled", _row("Scheduled"), True),
+    ("...and Paused", _row("Paused"), True),
+    ("a Cancelled row in term counts, as it does everywhere else",
+     _row("Cancelled"), True),
+    ("a Revised row never counts — its replacement carries the numbers",
+     _row("Revised"), False),
+    ("a row whose term ended before the month does not count",
+     _row("Live", "01/01/2026", "03/31/2026"), False),
+    ("nor one that starts after it", _row("Live", "11/01/2026", "12/31/2026"), False),
+    ("a row with no dates is in no month at all",
+     {"status": "Live"}, False),
+]:
+    got = knack_data.ran_in_month(rec, _MS, _ME)
+    check(label, got is want, f"got {got!r}, wanted {want!r}")
+
+# The report must not keep a second copy of the rule -- read by AST, because
+# `_active_in_month`'s own docstring quotes the old allowlist to explain the
+# fix, and a check that matches text reports the explanation as the defect.
+_qa_tree = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text())
+_fn = next((n for n in ast.walk(_qa_tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "_active_in_month"),
+           None)
+check("_active_in_month is still there", _fn is not None)
+if _fn is not None:
+    _body = [n for n in _fn.body if not (isinstance(n, ast.Expr)
+                                         and isinstance(n.value, ast.Constant))]
+    check("it does nothing but hand the question to the shared rule",
+          len(_body) == 1 and isinstance(_body[0], ast.Return), ast.dump(_fn)[:120])
+    _called = {n.func.id for n in ast.walk(_fn)
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    check("and the rule it hands it to is knack_data's",
+          "_knack_ran_in_month" in _called, sorted(_called))
+    _strings = {n.value for n in ast.walk(_fn)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and n is not _fn.body[0].value}
+    check("with no status allowlist left behind",
+          not ({"live", "complete"} & {str(x).lower() for x in _strings}),
+          sorted(_strings))
+
+# The invariant that makes the two agree, over the real export rather than a
+# fixture: anything delivering today ran in the month containing today. The one
+# documented exception is a row with no dates -- is_running() accepts it on the
+# strength of a Live status, and a month test cannot place it.
+_today = _dt.date.today()
+_tms, _tme = qa._month_bounds(_today.strftime("%Y%m"))
+_disagree = [
+    r for r in knack_data.products()
+    if knack_data.is_running(r)
+    and not knack_data.ran_in_month(r, _tms, _tme)
+    and (r.get("start") or r.get("end"))
+]
+check("everything delivering today counts for this month",
+      len(_disagree), 0)
+
+# And the two salespeople the old rule hid are back on the scorecard.
+_sc = qa.run("sales-scorecard")
+_names = " ".join(str(c) for row in _sc["rows"] for c in row)
+for _who in ("Debi Greenfield", "Kim Marshall"):
+    check(f"{_who} has live work and appears on the Scorecard",
+          _who in _names, True)
+
+
+# ---------------------------------------------------------------------------
+section("A products export that could not be read is not a book with nobody in it")
+# ---------------------------------------------------------------------------
+# `knack_data._load()` swallows OSError and returns None, so a missing,
+# unreadable or malformed products.json yields [] -- and to a caller that is
+# indistinguishable from a client base with nobody on it. Six client reports
+# and both Scorecards then rendered a clean empty table: "every client has a
+# dashboard, nobody has lapsed, nobody is missing Analytics, nobody churned",
+# and `report_cache.is_answer()` stored it as the day's answer, frozen until
+# tomorrow, on a source that was never read.
+#
+# Which reports are built on that source is read from the AST rather than
+# listed, so one added next month is swept without anybody remembering. The
+# closure is over qa.py's own calls, because `salesperson_scorecard` reaches
+# `_month_rollup` through `_scorecard`.
+_QA_TREE = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text())
+_QA_FNS = {n.name: n for n in ast.walk(_QA_TREE)
+           if isinstance(n, ast.FunctionDef)}
+_PRODUCT_READERS = {"_client_groups", "_month_rollup"}
+
+
+def _reads_products(name, seen=None):
+    """Does this qa.py function reach the products export, at any depth?"""
+    seen = seen or set()
+    if name in seen or name not in _QA_FNS:
+        return False
+    seen.add(name)
+    for node in ast.walk(_QA_FNS[name]):
+        if not isinstance(node, ast.Call):
+            continue
+        called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if called in _PRODUCT_READERS:
+            return True
+        if called and _reads_products(called, seen):
+            return True
+    return False
+
+
+_product_backed = sorted(k for k, meta in qa.REPORTS.items()
+                         if _reads_products(meta["fn"].__name__))
+check("the sweep found the reports built on the products export",
+      len(_product_backed) >= 8, _product_backed)
+
+_real_base = knack_data.BASE
+knack_data.BASE = os.path.join(_TMP, "no-such-export")
+knack_data._cache.clear()
+try:
+    # Asked without assuming the helper exists: on the code this was written
+    # against it did not, and an AttributeError here would crash the file
+    # before the sweep below could name a single report -- a failure that
+    # reports nothing is barely better than a green run.
+    _src_state = getattr(knack_data, "products_error", lambda: "")()
+    check("the source says it could not be read",
+          "could not be read" in _src_state,
+          f"products_error() -> {_src_state!r}")
+    _all_clear = []
+    for _key in _product_backed:
+        _out = qa.run(_key)
+        # What the page would draw: anything but a green tick is acceptable
+        # here -- `cannotLook()` reads `measured`, and a report with its own
+        # error or call to action is already saying it could not look.
+        _drawn_as_all_clear = (
+            not _out.get("error") and not _out.get("needs_qb")
+            and not _out.get("unavailable") and _out.get("measured") is not False
+            and not _out.get("rows"))
+        if _drawn_as_all_clear:
+            _all_clear.append(_key)
+        # The invariant is "never a green tick", not "always `measured:
+        # False`". Two of these reach a provider before they reach the export
+        # and say so first -- with GHL and QuickBooks unconfigured here, that
+        # is what they answer, and it is a true statement about why they could
+        # not look. Asserting the flag would pass or fail on which providers
+        # this environment happens to have.
+        check(f"{_key} never draws a green tick on an unreadable export",
+              not _drawn_as_all_clear,
+              f"rows={len(_out.get('rows') or [])} measured={_out.get('measured')!r}")
+        check(f"{_key} is not stored as the day's answer",
+              report_cache.is_answer(_out) is False)
+    check("and not one of them renders as a green tick", _all_clear == [],
+          _all_clear)
+finally:
+    knack_data.BASE = _real_base
+    knack_data._cache.clear()
+
+# ...and with the export readable they answer exactly as before. Over-correcting
+# is its own failure: a page that cries wolf on every clean run is one people
+# stop reading.
+check("a readable export is not reported as unmeasured",
+      knack_data.products_error() == "", knack_data.products_error())
+check("and the reports draw their tables again",
+      all(qa.run(k).get("measured") is not False for k in _product_backed))
+
+
+# ---------------------------------------------------------------------------
 section("Every QA tile points at something that answers")
 # ---------------------------------------------------------------------------
 # Six of the eight EXTRAS are whole tools rather than table-returning

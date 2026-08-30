@@ -1579,27 +1579,131 @@ def test_animating_needs_a_saved_static_build_and_says_so():
 
 
 def test_an_animation_never_replaces_the_static_file():
-    """Most placements on a buy take the still one, so both ship.
+    """Most placements on a buy take the still one, so the static set always ships.
 
     A folder holding only GIFs is a set that cannot be trafficked: Amazon takes
     none of them and three of Google's own sizes take none either. So the GIF
-    is written beside its sibling with ``_animated`` on the end, delivered in
-    its own folder, and counted apart — "8 files delivered" about a pack of
-    five ads and three GIFs is a sentence a client reads as eight ads.
+    is written beside its sibling with ``_animated`` on the end and never over
+    it.
     """
     src = RENDER_TS.read_text()
     check("the file is written beside the static one", "_animated" in src)
+    check("and the static render still strips gif from its own format list",
+          "f !== 'gif'" in src)
 
+
+def test_an_animation_is_not_in_the_delivery_zip():
+    """A zip is one act; an animation is one decision per file.
+
+    Every file in a package is delivered on the strength of the same press. An
+    animation is not: each is approved on its own and filed on its own. Bundled
+    here, an animation nobody had watched would go out inside a package
+    somebody approved the STATIC set of — which is the whole distinction the
+    approval exists to draw.
+
+    They are still named, with whether each was approved, because a client who
+    was shown a moving version and then opens a package without one needs the
+    package to account for it. Silence reads as a file somebody forgot.
+    """
     dsrc = DELIVER_TS.read_text()
-    check("the zip carries them in their own folder",
-          "${root}/animated/${clientSlug}_${a.size}_animated.gif" in dsrc)
-    check("the count is reported apart from the static one",
-          "animatedCount" in dsrc)
-    check("the machine manifest lists them apart from `assets`",
-          re.search(r"animated: animated\.map", dsrc) is not None)
-    # A failing animation is withheld, and the static file goes in its place.
-    check("a QA-failing animation is withheld and named",
-          "the animated version did not pass creative checks and was withheld" in dsrc)
+    check("no animated file is written into the archive",
+          "zipEntries.push" in dsrc
+          and "_animated.gif" not in dsrc.split("const zipEntries")[1].split("fs.writeFileSync(zipFile")[0])
+    check("the README says they are not in it",
+          "ANIMATED VERSIONS — NOT IN THIS ZIP" in dsrc)
+    check("and says where they actually go",
+          "delivered separately" in dsrc)
+    check("each row says whether it was approved",
+          "not approved yet, so not delivered" in dsrc)
+    check("the machine manifest says the same rather than naming a path",
+          "inThisZip: false" in dsrc and "deliveredSeparately" in dsrc)
+    check("the count is never added to the static file count",
+          "animatedCount" in dsrc
+          and "fileCount: shipped.length" in dsrc)
+
+
+def test_one_animation_is_one_decision_and_one_file():
+    """Eight moving ads are eight decisions, and approving is what sends one.
+
+    Somebody watches one, likes it, sends it; the next may need its second
+    slide rewritten. A project-wide flag would deliver the seven nobody watched
+    on the strength of the one they did. And because the zip no longer carries
+    animations, this approval is the ONLY gate between a clipped second slide
+    and a client's asset library.
+    """
+    proj = (MODULE / "src" / "projects.ts").read_text()
+    check("approval is recorded per animation", "approvedAt?: string;" in proj)
+    check("and names who gave it", "approvedBy?: string;" in proj)
+    check("a QA-failing animation cannot be approved at all",
+          "if (approved && row.status === 'fail')" in proj)
+    check("and is refused by name rather than silently doing nothing",
+          "did not pass its checks, so it cannot be approved" in proj)
+    # A sign-off is about the file as it was: rebuilding a size retires it, and
+    # says so rather than reading as a size nobody ever looked at.
+    check("rebuilding a size retires its approval",
+          "r.previouslyApprovedAt = stamp" in proj)
+
+    srv = SERVER_TS.read_text()
+    check("there is a route to approve one, and it is a POST",
+          "/approve$/" in srv and "animApprove && req.method === 'POST'" in srv)
+    check("the approver's name comes from the proxy, never the request body",
+          "const approvedBy = (req.headers['x-s1-user'] as string)" in srv)
+    check("approving and storing are reported apart",
+          "storeError" in srv and "stored: false" in srv)
+    check("an approval survives a failed upload",
+          "approved: true, approvedAt: row.approvedAt, size: key.size, stored: false" in srv)
+    check("and an already-stored file is not uploaded twice",
+          "if (row.cloudinaryPublicId) {" in srv)
+
+
+def test_an_approved_animation_reaches_the_client_record():
+    """Otherwise it is the failure this repo has counted six times.
+
+    A client who has just been sent an animated ad reading as a client nobody
+    made anything for. The static pack reaches the gallery through
+    attach_ads(); animations live on their own list and would have reached it
+    through nothing at all.
+    """
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    check("there is a path from an approved animation to the gallery",
+          "def attach_animations(" in link)
+    check("it files under its own kind", 'ANIMATION_KIND = "animated_ad"' in link)
+    check("only approved ones", 'if not a.get("approvedAt")' in link)
+    check("only stored ones, never our own render path",
+          'a.get("cloudinaryPublicId")' in link)
+    check("and never a QA failure, even though the renderer already refuses one",
+          'a.get("status") == "fail"' in link)
+    check("filing is its own route, called when the approval lands",
+          "attach-animation" in link)
+    check("and it is recorded against the client",
+          '"animation_attached"' in link)
+
+    # A kind the gallery cannot name arrives as a bare key under no heading —
+    # the failure `io_creative` and `display_ads` each cost once already.
+    filing = (ROOT / "modules" / "image_picker" / "filing.py").read_text()
+    check("the gallery has a heading for it",
+          '"animated_ad": "Animated display ads"' in filing)
+    check("declared in both tables, so a source label is not a bare key either",
+          filing.count('"animated_ad"') >= 2)
+
+
+def test_an_approved_gif_is_stored_byte_for_byte():
+    """A re-encode rewrites the two numbers the compliance check measured.
+
+    `uploadCreative` passes `quality: 100`, which is an incoming
+    transformation. On a GIF any re-encode rewrites the frame delays and the
+    loop block — the frame rate and the 30-second stop — so the stored file
+    would no longer have the properties that were measured. It would still
+    play, still look right, and be a different file from the one QA passed.
+    """
+    cld = (MODULE / "src" / "cloudinary.ts").read_text()
+    check("animations have their own upload", "async uploadAnimation(" in cld)
+    body = cld.split("async uploadAnimation(")[1].split("/* ---")[0]
+    check("with no quality passed", "quality" not in body)
+    check("and as an image, not a video",
+          "resource_type: 'image'" in body)
+    check("the reason is written down where the next person will read it",
+          "rewrites its frame delays and its loop block" in cld)
 
 
 def test_the_animation_is_its_own_job():
