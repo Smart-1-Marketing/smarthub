@@ -76,6 +76,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: modules/ad_builder/package-lock.json
 
       - name: Install dependencies
         run: |
@@ -107,15 +109,44 @@ jobs:
       - name: Ad builder module tests
         run: python test_ads_module.py
 
+      # The Display Ad Builder is the one module that is not Python: ~14,000
+      # lines of TypeScript with its own test suite, and until now this
+      # workflow ran none of it. The stated reason was that its tests need an
+      # npm install "this workflow deliberately does not do" — which was worth
+      # re-measuring rather than inheriting. A clean `npm ci` for this module
+      # is a couple of seconds and 63 MB, the suite is about ten, and what it
+      # buys is the layout engine, the delivery zip, the QA checks and the
+      # platform registry actually being exercised instead of described.
+      #
+      # So the renderer is compiled and tested here, and the file-content
+      # checks below keep the job they are uniquely good at.
+      - name: Display ad renderer — install
+        working-directory: modules/ad_builder
+        run: npm ci
+
+      # Typecheck first, and separately: a type error and a failing assertion
+      # are different problems, and a combined step reports whichever came
+      # first as though it were the only one.
+      - name: Display ad renderer — typecheck
+        working-directory: modules/ad_builder
+        run: npx tsc --noEmit
+
+      - name: Display ad renderer — tests
+        working-directory: modules/ad_builder
+        run: npm test
+
       - name: Display ad layout and build screen tests
-        # The Node ad builder's own tests need an npm install this workflow
-        # deliberately does not do, so this asserts what lives in the files:
-        # that the Proof point field has a box to draw into on every layout
-        # with room for one, that those boxes are inside the safe area and
-        # clear of everything else, and that the build screen and the render
-        # server still agree about the shapes they exchange. Guarded like the
-        # steps below so this workflow stays mergeable on a branch that
-        # predates the file. Reads files only — no database, no network.
+        # This is NOT made redundant by the suite above, and the two do not
+        # overlap at all. Every node test imports a module from src/; this
+        # reads the things nothing imports — the hand-authored template JSON,
+        # and build.html, which is a browser file no test can require. So it
+        # still asserts that the Proof point field has a box to draw into on
+        # every layout with room for one, that those boxes sit inside the safe
+        # area and clear of everything else, and that the build screen and the
+        # render server agree about the shapes they exchange across a wire
+        # nothing typechecks. Guarded like the steps below so this workflow
+        # stays mergeable on a branch that predates the file. Reads files
+        # only — no database, no network.
         run: |
           if [ -f test_display_ads.py ]; then
             python test_display_ads.py
