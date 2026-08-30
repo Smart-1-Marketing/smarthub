@@ -103,6 +103,13 @@ SOURCE_LABELS = {
     # across -- so the heading has to exist here or they arrive in the new
     # client's gallery as a bare key under nothing.
     "prospect": "Collected before they were a client",
+    # A photograph a location manager sent in with a social content request.
+    # `modules/social_planner` has filed these under this provider since the
+    # day it was written and the table never named it, so they arrived in the
+    # client's gallery as a bare `social_request` chip under no heading and,
+    # unlisted, in the tier that claims nothing -- a photograph the client
+    # themselves sent us, sorted in with stock.
+    "social_request": "Sent with a social request",
 }
 
 # Which of the three questions a group answers. The first thing anybody asks
@@ -110,7 +117,7 @@ SOURCE_LABELS = {
 # not a column. Anything unlisted is stock, which is the safe default: it
 # sorts last and claims nothing.
 THEIRS = ("local", "camera", "google_drive", "dropbox", "instagram",
-          "facebook", "url")
+          "facebook", "url", "social_request")
 WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
            "display_ads", "ad_builder", "logo", "logo_brand", "logo_scan",
            "client_logos", "bg_remover", "cutout", "image_creator", "graphic",

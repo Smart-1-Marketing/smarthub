@@ -203,6 +203,17 @@
       </div>
     </div>
 
+    {# Stale Creative, above System status for the reason the birthdays block
+       is: a key that is set is housekeeping and a client we have made nothing
+       for is work. The partial brings its own styles, loads its own data and
+       stays `hidden` until that answers, so a card that cannot read costs the
+       dashboard nothing. It was written for exactly this include and had none
+       — `stale_creative.py`'s own docstring calls it "for the dashboard" —
+       which `check_orphan_templates()` could not report, because the line
+       documenting the include is inside the partial and registered it as
+       rendered. #}
+    {% include "_scorecard_stale_creative.html" ignore missing %}
+
     <div class="card">
       <div class="card-h"><h3>System status {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
       <div class="card-b flush">
