@@ -1801,6 +1801,81 @@ def test_the_panel_prints_the_timing_rather_than_implying_it():
 
 
 
+def test_the_build_screen_does_not_promise_a_zip_that_holds_none():
+    """The panel went on describing the delivery it stopped being part of.
+
+    "They are written beside the static ones and go into the delivery ZIP
+    under animated/" was true for exactly one release, and the day approving
+    an animation became how it reaches the client nothing anywhere corrected
+    it. Both halves stayed internally consistent — the deliverer really does
+    withhold them, the panel really does build them — so an operator built
+    eight moving ads and waited for a folder that was never going to exist.
+
+    Asserted from both ends, because either alone reads as fine: the zip
+    writes no such folder, and the screen does not claim one.
+    """
+    screen = BUILD_HTML.read_text()
+    dsrc = DELIVER_TS.read_text()
+    # Read with the comments stripped: the fix is explained in a comment that
+    # quotes the sentence it replaced, and a text match over the whole file
+    # reports that explanation as the defect — the rule hub/config.py's drift
+    # check gives, one screen over.
+    said = re.sub(r"/\*.*?\*/", "", screen, flags=re.S)
+    check("the deliverer writes no animated/ folder",
+          "animated/" not in re.sub(r"/\*.*?\*/", "", dsrc, flags=re.S))
+    check("and the build screen no longer names one to an operator",
+          "animated/" not in said)
+    check("it says the client gets each as its own file",
+          "sent to the client as its own file" in screen)
+    check("and says the zip holds none of them",
+          "none of them goes into the delivery ZIP" in screen)
+    check("a size that failed its checks is said to be unsendable, not undelivered",
+          "cannot be " in screen and "approved or sent" in screen)
+
+
+def test_the_animation_panel_says_it_is_working():
+    """Three waits arrived on the one screen that had already been fixed for this.
+
+    CLAUDE.md records that the Display Ad Builder's build screen was the
+    longest wait in the Hub with no mark at all, and `bgBusy(what, kind)` is
+    what closed it. The animation panel then added three more — encoding a
+    real GIF to preview it, running the job, and the Cloudinary upload behind
+    Approve — and each said a word in plain text, because bgBusy was hardwired
+    to the background panel and nothing generalised it.
+
+    One reading of "put the mark here", not a fourth copy: bgBusy delegates to
+    the same helper the animator uses. And nothing may raise — a handle comes
+    back even with no S1Think and even with no button.
+    """
+    screen = BUILD_HTML.read_text()
+    check("there is a helper for a box and one for a button",
+          "function waitIn(" in screen and "function waitBtn(" in screen)
+    check("bgBusy reads it rather than keeping its own copy",
+          "function bgBusy(what, kind) {\n    return waitIn(" in screen)
+    check("both are guarded on the script being there",
+          screen.count("if (window.S1Think) {") >= 2)
+    check("neither can raise on a missing target",
+          "if (!btn) return { stage:" in screen)
+    check("neither claims a result",
+          "'Done'" not in screen.split("function waitIn(")[1].split("function chooseBackground")[0])
+
+    # The three call sites.
+    preview = screen.split("function animPreview()")[1].split("function animBuild()")[0]
+    check("the preview encode carries the mark",
+          "waitIn(stage," in preview)
+    check("and no longer says a word in gray",
+          ">Building…<" not in preview)
+    build = screen.split("function animBuild()")[1].split("function followAnimate")[0]
+    check("the build button carries it", "waitBtn($('animBuild')" in build)
+    check("and is restored on both exits", build.count("mark.done();") == 2)
+    approve = screen.split("function animApprove(")[1].split("function fileAnimationToClient")[0]
+    check("approve carries it", "waitBtn(btn," in approve)
+    check("and ends it before the redraw rather than relying on one",
+          approve.count("mark.done();") == 2)
+    check("no animator button is still swapped by hand",
+          "btn.textContent = " not in preview + build + approve)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()
