@@ -76,17 +76,21 @@
   .wrapover{overflow-x:auto}
 </style>
 </head>
-{# `data-screen` is what offers a tour, and this screen registers no steps.
-   hub-help.js already declines to offer an empty one, so naming it costs
-   nothing today -- but `tour()` falls back to the MODULE prefix, so the day
-   somebody registers a sibling screen's steps this would serve them over
-   elements that are not on this page. `has_tour` exists for exactly that,
-   and guarded `is defined` like every other helper, so a Jinja env that
-   never got install_template_helpers() loses the attribute rather than the
-   page. #}
-<body{% if has_tour is defined and has_tour("prospect") %} data-screen="prospect"{% endif %} data-module="prospect">
+{# `data-screen` is what OFFERS a tour, so it names the screen the registry
+   actually publishes -- these keys are filed under `hub.prospect.*`, and the
+   plain `prospect` this carried before matched nothing. That cost nothing while
+   there were no steps, because hub-help.js declines to offer an empty tour;
+   the day a sibling screen registered any, `tour()` falls back to the MODULE
+   prefix and would have served them over elements that are not on this page.
+   `has_tour` is the exact question, and it is guarded `is defined` like every
+   other helper, so a Jinja env that never got install_template_helpers()
+   loses the attribute rather than the page. #}
+<body{% if has_tour is defined and has_tour("hub.prospect") %} data-screen="hub.prospect"{% endif %} data-module="prospect">
 <div class="wrap">
-  <p class="sub" style="margin:0 0 8px"><a href="/sales/leads">&larr; Leads</a></p>
+  <p class="sub" style="margin:0 0 8px"><a href="/sales/leads">&larr; Leads</a>
+    {%- if has_tour is defined and has_tour("hub.prospect") %}
+    &middot; <a href="#" data-tour-start="hub.prospect">How this works</a>
+    {%- endif %}</p>
   <div id="head"></div>
   <div id="body"><p class="empty">Loading this prospect&hellip; <span class="spin"></span></p></div>
 </div>
@@ -127,9 +131,21 @@
     return '';
   }
 
-  function card(tag, tagClass, title, bodyHtml, actions, wide){
-    return '<div class="card'+(wide?' wide':'')+'"><div class="card-h">'
-      +'<span class="tag '+(tagClass||'')+'">'+esc(tag)+'</span><h3>'+esc(title)+'</h3>'
+  /* `key` is the one argument that carries both halves of a card's
+     explanation: the bubble beside its heading and the anchor its tour step
+     rings. Decided here rather than at the nine call sites, so a card added
+     next month is explained by naming itself and cannot end up with a ring
+     pointing at nothing. <span data-help> is exactly what the help_dot
+     helper emits —
+     this whole record is drawn from a fetch, and hub-help.js mounts bubbles
+     on a debounced MutationObserver for precisely that reason. A key the
+     registry does not know is removed client-side, so a typo costs the icon
+     rather than leaving a "?" that explains nothing. */
+  function card(tag, tagClass, title, bodyHtml, actions, wide, key){
+    return '<div class="card'+(wide?' wide':'')+'"'
+      +(key?' data-card="'+esc(key)+'"':'')+'><div class="card-h">'
+      +'<span class="tag '+(tagClass||'')+'">'+esc(tag)+'</span><h3>'+esc(title)
+      +(key?' <span data-help="hub.prospect.'+esc(key)+'"></span>':'')+'</h3>'
       +'<div class="right">'+(actions||'')+'</div></div>'
       +'<div class="card-b">'+bodyHtml+'</div></div>';
   }
@@ -197,10 +213,12 @@
     var acts = l.converted_at
       ? '<a class="btn" href="/client360?client='+encodeURIComponent(l.client||'')
         +'">Open the client record &rarr;</a>'
-      : '<button class="btn go" id="btnConvert">Convert to a client</button>';
+      : '<button class="btn go" id="btnConvert">Convert to a client</button>'
+        +' <span data-help="hub.prospect.convert"></span>';
 
     return '<div class="strip">'
       +'<div class="who"><b>'+esc(l.name||'—')+'</b>'
+      +' <span data-help="hub.prospect.intro"></span>'
       +'<div class="small muted">'+esc(l.company||'')+'</div></div>'
       +'<div style="flex:1;min-width:260px"><div>'+contact+'</div>'
       +'<div class="small muted" style="margin-top:5px">'+suitePill
@@ -243,7 +261,7 @@
     } else if(!body){
       body = '<div class="empty">'+esc((d.audit||{}).note||'')+'</div>';
     }
-    return card('Audit','money','What they are already spending', body, '', true);
+    return card('Audit','money','What they are already spending', body, '', true, 'spend');
   }
 
   /* ---- where it has got to: read from Suite, never decided here ---- */
@@ -296,7 +314,7 @@
         +'second notebook only this Hub can read.</div>'
         +'<div class="small" id="noteMsg" style="margin-top:5px"></div></div>';
     }
-    return card('Suite','suite','Where this has got to', body);
+    return card('Suite','suite','Where this has got to', body, '', false, 'suite');
   }
 
   function auditCard(d){
@@ -321,7 +339,7 @@
     }
     var acts = a.scan_url
       ? '<a class="btn" href="'+esc(a.scan_url)+'">Open the full audit &rarr;</a>' : '';
-    return card('Audit','','What the audit found', body, acts);
+    return card('Audit','','What the audit found', body, acts, false, 'audit');
   }
 
   function scansCard(d){
@@ -361,7 +379,7 @@
     var acts = l.domain
       ? '<a class="btn" href="/sales/builder/?audit='+encodeURIComponent(l.domain)
         +'">New proposal &rarr;</a>' : '';
-    return card('Sales','','Proposals', body, acts);
+    return card('Sales','','Proposals', body, acts, false, 'proposals');
   }
 
   function assetsCard(d){
@@ -384,7 +402,7 @@
       +'<input id="assetLabel" placeholder="What is it? (optional)" style="margin-left:6px">'
       +'<button class="btn" id="btnAsset" style="margin-left:6px">Add</button>'
       +'<div class="small" id="assetMsg" style="margin-top:6px"></div></div>';
-    return card('Hub','hub','Files on this prospect', body);
+    return card('Hub','hub','Files on this prospect', body, '', false, 'assets');
   }
 
   function workCard(d){
@@ -416,7 +434,7 @@
           +'own details and only fills its blanks.</div></div>';
       }).join('');
     }
-    return card('Hub','hub','The same prospect, twice', body);
+    return card('Hub','hub','The same prospect, twice', body, '', false, 'duplicates');
   }
 
   function timelineCard(d){
@@ -432,7 +450,7 @@
     if((t.incomplete||[]).length){
       body += '<div class="nm" style="margin-top:10px">'+esc(t.note)+'</div>';
     }
-    return card('Hub','hub','Everything that has happened', body, '', true);
+    return card('Hub','hub','Everything that has happened', body, '', true, 'timeline');
   }
 
   /* ---------------------------------------------------------------- wiring */

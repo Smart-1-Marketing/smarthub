@@ -293,6 +293,24 @@ def api_lead():
               "audit_read_on": (payload.get("age") or {}).get("read_on") or ""})
     _log("audited", client=client or None, detail=payload.get("domain") or domain,
          lead=result.get("lead_id") or "")
+
+    # Where the lead went. The panel is a list; the record is where a prospect
+    # is actually worked -- the audit, what has been quoted, the files and the
+    # Suite stage in one place -- and filing used to end at the word "Filed."
+    # A rep then went to /sales/leads, found the row and clicked the name,
+    # which is the failure `hub/stale_creative.py` names: a row that reports
+    # something and offers nothing to do about it is a signpost.
+    #
+    # `capture()` allocates a uuid4 hex, so an id is always there and always
+    # URL-safe -- the empty branch is not written here because nothing on this
+    # path can produce it, and a state nothing reaches reads as one the code
+    # handles. The page still guards: two gunicorn workers means a rolling
+    # deploy can answer from a version that has never heard of this key.
+    #
+    # It is a third fact rather than either of the two already reported apart:
+    # `note` distinguishes saved here from created in Smart 1 Suite, and where
+    # the row can be worked is neither of those.
+    result["record_url"] = f"/prospect/{result['lead_id']}"
     return jsonify(result)
 
 

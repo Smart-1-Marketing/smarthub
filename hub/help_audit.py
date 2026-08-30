@@ -52,6 +52,20 @@ _PATTERNS = (
 # cannot be resolved from the source.
 _BUILT = ("${", "{{", "+")
 
+# The other half of that, and it does not show up inside the captured key.
+# A template literal puts the interpolation between the attribute's own
+# quotes -- `data-help="${k}"` -- so `_BUILT` sees it. Plain JS concatenation
+# puts it *outside* them:
+#
+#     '<span data-help="hub.prospect.'+esc(key)+'"></span>'
+#
+# and the pattern stops at that inner quote, capturing `hub.prospect.` -- a
+# prefix with no `+` in it, reported as a key nobody registered. Which is the
+# mistake `tools/linkcheck.py` refuses to make about a URL built by
+# concatenation: it is not a dead bubble, it is a bubble this cannot resolve.
+# The evidence is the character after the quote the match stopped at.
+_JOINS = ("+",)
+
 _EXTS = (".html", ".js")
 
 
@@ -90,7 +104,9 @@ def placements(root: str | None = None) -> tuple[dict, dict]:
         for rx in _PATTERNS:
             for m in rx.finditer(src):
                 key = m.group(1)
-                bucket = runtime if any(t in key for t in _BUILT) else literal
+                built = (any(t in key for t in _BUILT)
+                         or src[m.end():m.end() + 1] in _JOINS)
+                bucket = runtime if built else literal
                 bucket.setdefault(key, set()).add(rel)
     return literal, runtime
 

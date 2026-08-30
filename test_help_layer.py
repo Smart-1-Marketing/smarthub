@@ -72,17 +72,32 @@ for key in ("site_blocks.intro", "social.planner", "video_backgrounds.overview")
 print("\nBoth ways a bubble is placed, and the one that cannot be resolved")
 print("-" * 62)
 
-# The reach panel on the Proposal Builder's areas step writes
-# data-help="sales_builder.areas.${key}" from a loop. A scan for help_dot()
-# alone calls its four entries dead; a scan that resolved the interpolation
-# would be guessing. Named, the way tools/linkcheck.py names a URL built by
+# Two screens build a key from a loop. The Proposal Builder's reach panel
+# writes data-help="sales_builder.areas.${key}" -- the interpolation inside
+# the attribute's own quotes -- and the prospect record's card() concatenates
+# outside them, 'data-help="hub.prospect.'+esc(key)+'". A scan for help_dot()
+# alone calls both sets dead; a scan that resolved the interpolation would be
+# guessing. Named, the way tools/linkcheck.py names a URL built by
 # concatenation.
+#
+# Asserted as prefixes rather than as one hard-coded count: a third screen
+# building a key is a thing this file should keep working, and what matters is
+# that every entry a runtime prefix reaches is accounted for rather than
+# reported as a bubble nobody registered.
+RUNTIME_PREFIXES = ("sales_builder.areas.", "hub.prospect.")
 ok("a key built at runtime is named rather than resolved",
    any("${" in r["key"] for r in DATA["runtime"]),
    str([r["key"] for r in DATA["runtime"]]))
-ok("and the entries its prefix reaches are not called dead",
-   all(k.startswith("sales_builder.areas.") for k in DATA["runtime_covers"])
-   and len(DATA["runtime_covers"]) == 4,
+ok("including one concatenated outside the attribute's quotes",
+   any(r["key"] == "hub.prospect." for r in DATA["runtime"]),
+   str([r["key"] for r in DATA["runtime"]]))
+ok("and the entries those prefixes reach are not called dead",
+   bool(DATA["runtime_covers"])
+   and all(k.startswith(RUNTIME_PREFIXES) for k in DATA["runtime_covers"]),
+   str(DATA["runtime_covers"]))
+ok("with every runtime prefix actually reaching something",
+   all(any(k.startswith(p) for k in DATA["runtime_covers"])
+       for p in RUNTIME_PREFIXES),
    str(DATA["runtime_covers"]))
 check("nothing registered is left unaccounted for", DATA["unplaced"], [])
 
