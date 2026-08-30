@@ -972,6 +972,34 @@ a comparison can come back without inventing anything.
 `test_dashboard_trends.py` holds both halves: the readings accumulate, and
 nothing on the page claims a comparison.
 
+**A customer is matched to a client exactly, or not at all.**
+`invoice_off()` fell through to `next(... if norm in n or n in norm)` — an
+unbounded substring, both directions, first out of a dict ordered by the
+export. That is the rule `hub/client_key.py` exists to refuse, and it was
+live: **32 of this deployment's 547 client names contain or are contained by
+another**, and `cirilla s` alone matches 18. So a QuickBooks customer named
+"Cirilla's" was costed against whichever of eighteen came first, and the
+variance printed with no sign a guess had been made.
+
+**It failed in both directions, and the second is the expensive one.** Forward,
+a customer was attributed to a client nobody chose. Backward, an active client
+with live billing and *no invoice at all* dropped off the report the moment any
+customer name merely contained theirs — nine clients carrying **$22,091 a month**
+sit in that shape here, seven of them the `N2 Advertising - Cirilla's <city>`
+rows, every one of which contains the parent client `Cirilla's`.
+
+Nothing is dropped to fix it, which is what made the change safe to make: a
+resemblance is **printed and still counted as unmatched**, the answer
+`sites_billing` and `domain_renewals` both arrived at, so the confident wrong
+rows become labelled unmatched ones and the hidden findings come back. A
+customer that only resembles a client is listed with **no difference at all**,
+because there is no client we can stand behind to compute one against, and it
+names what it resembles. A client invoiced under a similar but different name
+is listed too, with that name on the row: *"no invoice found"* and *"no invoice
+under this name; QuickBooks has X"* are different things to chase, and only the
+first is a billing gap. `_join_names()` caps the naming at three and says how
+many more, because a row is not a list.
+
 **And eleven reports read that export without ever asking whether it could
 be read.** `knack_data._load()` swallows `OSError` and returns `None`, so a
 missing, unreadable or malformed `products.json` yields `[]` — and to a caller
