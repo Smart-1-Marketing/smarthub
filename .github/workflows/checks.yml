@@ -768,6 +768,19 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: SEO client list and record tests
+        # The four status pills, the empty client name that matched the whole
+        # website registry, the failed record load that rendered as an empty
+        # record, and that SEO work reaches the client's own 360 page. Guarded
+        # like the steps above so this workflow stays mergeable on a branch
+        # that predates the file. Needs no network.
+        run: |
+          if [ -f test_seo_page.py ]; then
+            python test_seo_page.py
+          else
+            echo "test_seo_page.py not on this branch — nothing to run."
+          fi
+
       - name: Image download and shared zip builder tests
         # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
         # picker's gallery download now that it runs on the shared builder.

@@ -1253,6 +1253,96 @@ with Image Creator on the bare query `image` and took the top slot off it —
 decision. It is **Unattached Images**, beside "No Dashboards" and "Stale
 Creative". `test_image_audit.py` asserts all of it.
 
+**A pill with four answers was a bool, and the page contradicted itself.**
+The SEO client list draws four status pills per client. Three are a tick
+somebody makes and are genuinely yes/no; `blogs` is *derived*, and `False`
+covered both **"this client does not buy blogs"** and **"their plan is
+behind"**. On this deployment's own book that drew a permanent red *"Blogs —
+not yet"* on **16 of the 21** SEO clients, for a product they have never
+bought, in the one column that says what to act on — the permanent-red failure
+`hub/creative_evergreen.py` exists to undo. And the summary tile at the top of
+the *same page* counts the **product** and read **"With blogs: 5"**, so the
+screen said five clients have blogs and twenty-one are behind on them. Neither
+figure is wrong on its own, which is why it stood: the `/api/db/structure`
+versus `/api/integrity` trap, wearing a pill.
+
+`client_status()` returns a `BLOGS_STATES` key now — `not_sold`, `none`,
+`behind`, `current` — with the label beside it, and both screens read that one
+function rather than each deciding from truthiness, so the list and the record
+cannot come to disagree about who is behind. The client record already *knew*
+the difference (`blogsVisible()` draws a "blogs are off" note) and drew its
+dot without it. **`not_sold` is never reached by inference**: it is the state
+that takes a row out of the queue, so a caller that could not look reads as
+`none` — unknown owes a plan, and silencing a row on a guess is how a client
+who is genuinely behind stops being chased. `/api/seo/checks` is handed the
+same fact, or ticking *Setup* would move a no-blogs client's pill from gray to
+amber and read as the tick having done something it did not do.
+
+**A name nobody gave matched everybody.** `_client_websites("")` tested
+`ck in wk`, and `"" in wk` is true of every string — so `/api/seo/detail?name=`
+came back with the **whole 610-row website registry** attributed to a nameless
+client, and `webs[0]` then supplied that client's "website", its GA id and the
+domain its Brandfetch is looked up under. The `client_key.resolve()` rule about
+substrings, one field along. The route refuses an empty name now, the way
+`/api/seo/tasks` already did.
+
+**And a record that could not be built rendered as a record with nothing in
+it.** `/api/seo/detail` answered **200** with an `error` key — and `fetch()`
+resolves for 4xx and 5xx alike, so the page's `.catch()` never saw it. Reading
+straight past it, every card drew its own empty state: *"no site on file"*, no
+business info, no schema pages. A client with months of work behind them,
+drawn as a client with none, on the one screen that would have shown the work.
+The page reads `error` before it assigns anything now, and the route answers
+502, so the next reader of it does not inherit the same silence.
+
+**Every route in that section filed its work under `hub`.** Schema, blogs,
+FAQs, alt text, the publish instructions — all `audit.log("hub", …)`, and
+`client_brand.NOT_WORK` calls `hub` housekeeping, so `work_log()` dropped the
+lot and a client who had just had a month of blogs written read as a client
+nobody had done any work for. The `display_ads` failure, one section later.
+`check_work_kinds()` **cannot** see this one: it flags a module in *neither*
+table, and `hub` is in one — so `test_seo_page.py` walks the call sites by AST
+and requires every `seo`/`faq` event to log under a module the record can name.
+The three helper modules beside them (`schema_questions`, `blog_images`,
+`llms_txt`) had been logging under `seo` the whole time, so the section was
+filing half its output as a deliverable and half as housekeeping.
+
+**An editor rebuilt underneath somebody loses what they typed.** Two on the
+SEO client record: the alt-text list and the FAQ draft. Both are a container
+of live inputs redrawn with `innerHTML` — and the trigger is not the typing,
+which is what makes it a different bug from the Smart 1 Ads target-area rows.
+It is a **sibling row's** button and a **fetch that lands tens of seconds
+later**. The FAQ half was the worse of the two: those inputs carry no change
+handler at all, so half-writing an answer on question 3 and pressing Approve
+on question 5 discarded question 3 immediately, in silence. Removing a focused
+field does not fire `change`, so the alt half went the same way whenever the
+AI write finished while somebody was typing in another box.
+
+`faqHarvest()` and `altHarvest()` read the open editors back into the model
+before any redraw, so a redraw cannot destroy what nothing has read yet.
+Three rules on them. **Only a field somebody typed in is harvested** — a
+`dirty` flag set on `input`, never a comparison against the model, because a
+fetch response makes *every* field differ at once and harvesting on
+difference would revert a whole page of freshly AI-written alt text to what
+the boxes held before the write, which is worse than the loss it fixes.
+**Cancel skips its own row**, or the harvest would keep the text that button
+exists to throw away. And **an empty box is not an edit**: clearing a
+question keeps it, the rule `savedit` already worked to, so a cleared field
+cannot delete the answer behind it. `altSave()` sets `new_alt` from the typed
+value *before* the request goes out, so a redraw mid-flight shows what was
+typed and the harvest then sees nothing to write twice. `keepCaret()` puts
+the cursor back, and costs the caret rather than the page when it cannot.
+`test_seo_page.py` lifts both blocks and drives them in **node**, the
+arrangement `test_menu_layout.py` uses on `hub-crumbs.js` — a copy restated
+in the test would be a third thing to keep in step.
+
+**None of it was checked, because the page redirects.** `tools/pagecheck.py`
+names parameterized pages like `/prospect/none` explicitly, and `/seo/client`
+was on no list: without a `?name=` the route **redirects to `/seo`**, so a
+sweep of bare paths lands on the list, reports it green, and the largest
+template in the Hub — 3,600 lines, drawn almost entirely from fetches — goes
+unchecked while reading as covered. Both it and `/seo/webmaster` are named now.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -8399,6 +8489,10 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_seo_page.py           # the SEO list and record: a pill with four
+                                   #   answers, a name nobody gave, a failed
+                                   #   record that is not an empty one, and SEO
+                                   #   work reaching the client's own page
 python3 test_image_download.py     # image downloads, the shared zip builder, and the
                                    #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,
