@@ -248,11 +248,21 @@ table.s1d-t a, table.seoc-t td a.u {
   display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
   margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--s1d-line);
 }
-.s1d-subnav a, .s1d-subnav button {
+/* An element in the strip that names itself a button is a button, not a nav
+   link. The Commercial Builder had already paid for this once inside its own
+   sheet -- `.cb-topnav a` is (0,1,1) and `.cb-btn-primary` is (0,1,0), so the
+   muted gray won and painted the "+ New Commercial" label a dull gray-brown on
+   solid blue -- and adopting this strip would have brought it straight back in
+   a worse form, because this file loads *after* a module's own and therefore
+   wins every tie the module used to win. Matched on the class containing
+   "btn" rather than on a list of names, the reason `ghost` and `sec` are both
+   accepted below: the name is the page's, not this file's. */
+.s1d-subnav a:not([class*="btn"]), .s1d-subnav button:not([class*="btn"]) {
   color: var(--s1d-muted); text-decoration: none; font: 600 13px 'Segoe UI', system-ui, sans-serif;
   padding: 7px 12px; border-radius: 8px; border: 0; background: none; cursor: pointer;
 }
-.s1d-subnav a:hover, .s1d-subnav button:hover { background: #eef2ff; color: var(--s1d-navy); }
+.s1d-subnav a:not([class*="btn"]):hover,
+.s1d-subnav button:not([class*="btn"]):hover { background: #eef2ff; color: var(--s1d-navy); }
 /* `.active` as well as `.on`, because the Suite panel's tab strip is driven by
    JavaScript that has written `active` since it was an underline tab bar.
    Renaming the class in the script to match the stylesheet would be the

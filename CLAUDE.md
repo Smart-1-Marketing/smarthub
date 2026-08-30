@@ -7183,6 +7183,51 @@ somebody else meant something by it. The editor itself takes none of this — it
 is a full-height canvas workbench with its own toolbar and tool rail, which is
 the shape the Hub collapses its sidebar for.
 
+**Three tools shipped the same second branded bar, and the last two are gone
+now.** The Commercial Builder's said *Creative Hub · Commercial Builder* and
+the IO Builder's said *SMART1 Campaign Builder AI* — both sticky, both
+full-width, both above the Hub's own sidebar, which is chrome twice and is
+what makes a tool read as a separate product standing next to Client 360. The
+IO's also named the tool a third thing: the tile, the sidebar and Client 360
+all call it the IO Builder, and the browser tab did not.
+
+What each needed in its place is not the same, which is the point. The
+Commercial Builder's Dashboard and Spot Library are a real second level of
+navigation and become the shared strip — **marked from the request**, because
+a nav that has to be told which entry to highlight gets it wrong on the next
+page somebody adds, and a **wizard step marks nothing**, since the step has
+its own stepper and lighting up Dashboard on step four says somebody is
+somewhere they are not. The IO Builder is one screen with a progress bar under
+its chat, so there was nothing to put back at all.
+
+**And the strip goes inside the page container, not above it.** A full-bleed
+bar at the top of the viewport is the branded bar again wearing the shared
+classes — it sits over the Hub's own breadcrumb and pins the page's primary
+action to the edge of the screen rather than to the column it belongs to.
+
+**A button in the strip is a button, not a nav link.** The Commercial Builder
+had already paid for this inside its own sheet: `.cb-topnav a` is (0,1,1) and
+`.cb-btn-primary` is (0,1,0), so the muted gray won and painted the
+*+ New Commercial* label a dull gray-brown on solid blue. Adopting the shared
+strip would have done it again and the module could no longer have answered,
+because `hub-detail.css` is injected **after** a module's own stylesheet and
+wins every tie the module used to win. So the exclusion lives on the strip —
+`a:not([class*="btn"])`, matched on the class containing *btn* rather than on
+a list of names, for the reason `ghost` and `sec` are both accepted: the name
+is the page's.
+
+**The wide tool that never asked for the rail to fold was the one named for
+it.** This file has listed the IO's printable documents beside the Display Ad
+Builder's bench and the Proposal Builder's wizard since `collapsed_default`
+was written, and the other two are covered — one by the `/tools/display-ads`
+prefix, one by `data-s1hub-collapse="1"` — while the IO Builder carried
+neither. Its two panels want 970px between them before anything wraps, so
+224px of a nav nobody reads while they work is what turns that into a
+horizontal scroll on an ordinary laptop. It carries the attribute now, and
+**not** `data-module`: no walkthrough is registered for it, and offering a
+tour that does not exist is the silence Smart 1 Ads shipped on Settings and
+Live campaigns.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
