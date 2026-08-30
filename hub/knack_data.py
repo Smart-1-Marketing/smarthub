@@ -1,9 +1,29 @@
 """Read-only access to the Knack data JSONs that ship with the Clients app.
 
-The files live in clients_app/data/ (committed to the repo, refreshed by the
-existing `npm run refresh` flow / GitHub Action).  Loaded lazily and cached
-until the file's mtime changes, so a data refresh + redeploy (or a mounted
-newer file) is picked up automatically.
+Two files, both in clients_app/data/ and both committed to the repo:
+`products.json` and `websites.json`. Loaded lazily and cached until the
+file's mtime changes, so a newer file mounted or deployed over them is picked
+up without a restart.
+
+**Nothing refreshes them.** This docstring used to say they were kept current
+by "the existing `npm run refresh` flow / GitHub Action"; there is no such
+workflow in this repo — `.github/workflows/` has one file and it runs the
+checks. They are a hand-committed snapshot, and believing otherwise is the
+reason `/status` spent a long time reporting a Docker image build time as a
+data refresh.
+
+That is survivable because neither is the primary source any more. Products
+read live through `hub/knack_products.py` (object_135) and websites through
+`hub/knack_websites.py` (object_153), each falling back to the export here
+only when Knack cannot be reached — which is exactly when a frozen snapshot
+beats an empty list. `export_state()` is what says how old it is, from the
+export's own month rather than from a file timestamp.
+
+`campaigns.json` and `live_products.json` used to sit beside them and are
+gone: 7,854 rows and 2.1 MB of the first, 96 KB of the second, and not one
+reference to either anywhere in the repo — no reader, and for campaigns not
+even a `campaigns()` function. They were described in CLAUDE.md as stale,
+which implied a refresh would fix them; nothing would.
 """
 import json
 import os

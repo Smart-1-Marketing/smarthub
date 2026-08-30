@@ -1755,7 +1755,7 @@ where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
 |---|---|---|
 | Knack products (IOs) | live API, `hub/knack_products.py` (object_135), export as fallback | current |
 | Knack websites | live API via `hub/knack_websites.py` (object_153), export as fallback | current |
-| Knack campaigns | static JSON in `clients_app/data/campaigns.json` | **stale — and read by nothing** |
+
 | Knack object_153 (website registry) | live API, `hub/knack_websites.py` | current |
 | Knack tickets | live API, `hub/knack_api.py` | current |
 | Insites scans | own SQLite/Postgres tables | current |
@@ -1804,10 +1804,30 @@ Client 360 and `/status` say which source answered, exactly as the products
 card already does — a stale export looks identical to live data on screen,
 which is the whole reason this went unnoticed.
 
-**`campaigns.json` is a different case: 7,854 rows, 2.1 MB, and nothing in the
-repo references it** — no `.py`, no `.html`, no `campaigns()` reader in
-`knack_data`. It is not stale, it is dead, and the row above says so rather
-than implying a refresh would fix anything.
+**`campaigns.json` and `live_products.json` are gone.** 7,854 rows and 2.1 MB
+of the first, 96 KB of the second, and not one reference to either anywhere in
+the repo — no reader, and for campaigns not even a `campaigns()` function.
+They were described here as *stale*, which implies a refresh would fix them;
+nothing would. `clients_app/data/` is `products.json` and `websites.json` now,
+both fallbacks rather than sources.
+
+**And nothing refreshes those two.** `hub/knack_data.py`'s header used to say
+they were kept current by "the existing `npm run refresh` flow / GitHub
+Action". There is no such workflow — `.github/workflows/` holds one file and
+it runs the checks. They are a hand-committed snapshot, which is survivable
+only because neither is the primary source any more.
+
+**A staleness check measured against the wrong clock is worse than none.**
+`/status` read `products.json`'s mtime and printed it as "Refreshed Xh ago",
+warning past 48 hours — and `data_age_hours()`'s own docstring already said
+why that is wrong: in a Docker deploy every file is written at image build
+time, so it measures **time since the last deploy**. Wrong in both directions.
+A months-old export reads as "refreshed 2h ago" for two days after any
+deploy, and a container simply left up for a week warns that data nothing has
+touched needs refreshing. The row is not about the data and is read as though
+it is. It reads `export_state()` now — the month the export was generated
+*for*, against the calendar — which is the signal the dashboard and
+`hub/housekeeping.py` already share, so the three cannot disagree.
 
 **The URL is the join key, not the name.** Eleven field names hold a URL
 across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
