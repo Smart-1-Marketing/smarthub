@@ -174,6 +174,126 @@ REGISTRY: list[Help] = [
        "frequency is counted per person rather than per device: the same "
        "someone can be served the same ad on all of them."),
 
+    # ------------- The wizard's fourteen steps -------------
+    # Written where CLAUDE.md already documents a trap, because those are the
+    # places a rep gets it wrong and the copy can say what the field does to
+    # the output rather than what it is. Placed on the step heading by
+    # renderStep(), which is the one function that draws all fourteen.
+    _h("sales_builder.areas.list", "A ZIP exception is a rule, not a note",
+       "A radius does not stop at a state line and a campaign frequently "
+       "does \u2014 a client licensed in one state, a franchise with a protected "
+       "territory, a dealer whose registration works one side of the river. "
+       "Write it the way you would say it (\u201conly New Jersey zip codes\u201d, "
+       "\u201ceverything except Ohio\u201d) and it narrows the list that reaches "
+       "both the proposal and the insertion order, so the two cannot "
+       "disagree about where the campaign runs. A rule that could not be "
+       "read says *not applied* beside the sentence rather than quietly "
+       "doing nothing, and filtering only ever removes: if it leaves "
+       "nothing, that is reported as nothing rather than falling back to "
+       "the unfiltered list."),
+
+    _h("sales_builder.goal.pick", "What the goals decide",
+       "The goals choose which products get recommended on the media mix "
+       "step and which KPIs the campaign is judged on later. They are a "
+       "starting point, not a lock: you can add or remove any product "
+       "afterwards. What they will not do is pick a filler product — run of "
+       "network is untargeted inventory that tops a buy up, so it is "
+       "addable by name and is never recommended for anybody."),
+
+    _h("sales_builder.customer.audit", "Read the audit, or run a new one",
+       "Reading what we already measured about their site is free and "
+       "instant. Running a new audit spends a scan credit, so it asks first. "
+       "Past sixty days the reading is about a site that may have been "
+       "rebuilt since — it still fills the proposal in, with the date shown, "
+       "because an old answer with a date on it beats leaving a rep with "
+       "nothing while they wait."),
+
+    _h("sales_builder.landing.url", "The page is fetched, not described",
+       "Smart 1 requests the page and counts its conversion points off the "
+       "markup — phone links, forms and their field counts, booking tools "
+       "and chat widgets by their own script signatures. The model is given "
+       "those facts and asked only for judgment, so a recommendation is "
+       "about the page as it actually is. A page that could not be fetched "
+       "is reported as not measured and is never reviewed anyway."),
+
+    _h("sales_builder.marketing.answers", "Every answer changes the document",
+       "These feed the We Suggest They Should list, the friction section, "
+       "and what the Suite license is shown to close. Leaving one blank is "
+       "not the same as answering no: an unanswered question is left off "
+       "the client's document rather than printed as a confident No, so "
+       "skip what you do not know rather than guessing."),
+
+    _h("sales_builder.guardrails.exclusions", "Where these end up",
+       "Exclusions, negative keywords and restricted audiences are written "
+       "onto the insertion order's exclusions field, so what you put here "
+       "reaches whoever traffics the campaign. Removing a negative later "
+       "always counts as a material edit — it reopens spend the list "
+       "existed to stop — and sends the estimate back through the check."),
+
+    _h("sales_builder.measurement.kpi", "Set this before the products",
+       "What counts as success decides which products belong on the plan, "
+       "which is why it is asked first. It also drives Expected Results & "
+       "ROI, which is a KPI framework rather than an impression count: each "
+       "product is shown with the range that inventory normally delivers, "
+       "said once in the client's own words as an expectation and not a "
+       "guarantee."),
+
+    _h("sales_builder.audience.competitors", "Name them, do not tick them",
+       "A ticked box saying \u201ccompetitor conquesting\u201d is not a campaign — "
+       "whoever builds the geo-fence still has to ask who. The client is the "
+       "only person in the room who knows who they lose business to, so ask "
+       "on the call. A row with no address is still worth keeping: "
+       "conquesting by brand and browsing behavior needs no location, and "
+       "nothing here is ever guessed from a name."),
+
+    _h("sales_builder.budget.working", "The plan is the number",
+       "This is what the client asked for, and it is kept. Once there are "
+       "line items, they are what is being bought — so the cover, the media "
+       "plan, the investment summary and the insertion order all derive "
+       "from the plan rather than from this figure. If the two have parted "
+       "company the step says so, because a rep who set one number and "
+       "built a different plan should not have to wonder which won."),
+
+    _h("sales_builder.mix.rates", "The card rate is what we pay",
+       "Every rate on the Smart 1 card is the buy-side number. CPM and CPV "
+       "lines are quoted to the client at twice it by default, editable per "
+       "line, which is where the margin lives — quote one straight through "
+       "and the delivery table promises impressions the budget cannot buy. "
+       "A management fee, flat fee or custom quote has nothing to multiply "
+       "and is left exactly as the card lists it."),
+
+    _h("sales_builder.creative.gate", "Who is producing the files",
+       "A campaign that reaches an insertion order with no spot or no "
+       "banners behind it is a launch date nobody can hit, so each medium "
+       "on the plan is asked about here. If Smart 1 is comping production "
+       "on a buy too small to pay for it, that gets one explicit "
+       "confirmation with the number shown — and the confirmation lapses if "
+       "the budget is later cut below what was confirmed."),
+
+    _h("sales_builder.packages.investment", "Three kinds of money, kept apart",
+       "Recurring platform licensing, media spend and one-time production "
+       "are never added together, so a client can tell what stops if they "
+       "pause the campaign and what does not. The Suite license is a "
+       "separate product with its own line and can be left off the quote "
+       "entirely; adjusting its price records the reason internally, "
+       "because a discount nobody wrote down is one nobody can renew."),
+
+    _h("sales_builder.document.sections", "Editing what the client reads",
+       "Every section can be rewritten, hidden or left to generate, and the "
+       "tables under them can be edited or excluded — useful for a location "
+       "under NDA or a KPI they asked us to drop. An edited table is drawn "
+       "in amber and stops recomputing, which is exactly true: it will not "
+       "follow a later change to the budget or the plan. Three sections "
+       "cannot be removed, because the document is quoted from them."),
+
+    _h("sales_builder.review.deliver", "Sending it, and how long it stands",
+       "The client link shows the same document you are looking at and the "
+       "one thing on it is accept. How long the price stands is set here "
+       "and runs from when it was sent rather than written; past that the "
+       "client is told so above the document and given somebody to ask, "
+       "rather than reading four pages and finding out at the end. An "
+       "acceptance is tied to one revision, so revising an accepted quote "
+       "does not carry their yes onto a document they never saw."),
 
     # ---------------- Dashboard ----------------
     _h("hub.dashboard.tiles", "Your tools",

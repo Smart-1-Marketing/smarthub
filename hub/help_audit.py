@@ -40,12 +40,21 @@ from __future__ import annotations
 import os
 import re
 
-# `help_dot('key')` in a Jinja template, and `data-help="key"` on an element.
-# Both are real: the reach panel on the Proposal Builder's areas step uses the
-# second, so a scan for the first alone calls four live entries dead.
+# `help_dot('key')` in a Jinja template, `data-help="key"` on an element, and
+# `help:"key"` on a screen the page's own renderer draws.
+#
+# All three are real. The reach panel on the Proposal Builder's areas step
+# uses the second, so a scan for the first alone calls four live entries
+# dead. And that same builder's fourteen wizard steps are JavaScript objects
+# whose one renderer turns `help:"…"` into the `data-help` span -- a literal
+# key in the template reached through a variable, which is neither a Jinja
+# call nor an attribute and would otherwise read as thirteen registered keys
+# nobody had placed. It is still a *literal*: the key is written in the file
+# and can be resolved from it, unlike the runtime-assembled kind below.
 _PATTERNS = (
     re.compile(r"help_dot\(\s*['\"]([^'\"]+)['\"]"),
     re.compile(r"""data-help=["']([^"']+)["']"""),
+    re.compile(r"""\bhelp:\s*["']([\w.]+)["']"""),
 )
 
 # A key with an interpolation in it is assembled while the page runs and
