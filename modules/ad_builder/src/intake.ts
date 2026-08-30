@@ -623,7 +623,7 @@ export async function buildCampaign(
     notes.push(
       sub.stockOk
         ? 'No photography supplied. Placeholder imagery is in place — replace with stock or generated imagery before the client proof.'
-        : 'No photography supplied and stock was not authorised. These proofs use placeholders and must not be sent as-is.',
+        : 'No photography supplied and stock was not authorized. These proofs use placeholders and must not be sent as-is.',
     );
   }
 

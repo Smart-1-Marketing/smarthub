@@ -172,19 +172,19 @@ test('a logo override on a layout with no logo is skipped', () => {
 });
 
 /* -------------------------------------------------------------- text ink
-   There was no colour control for a text block at all: the layout's ink was
+   There was no color control for a text block at all: the layout's ink was
    the only ink, so a client whose brand is a dark green on cream got
    near-black. The rule that matters is the same one the font check follows --
-   resolveColor falls back for anything it does not recognise, so an
+   resolveColor falls back for anything it does not recognize, so an
    unvalidated value renders as near-black while the panel still shows the
-   colour that was asked for. */
+   color that was asked for. */
 
 test('a text block takes a hex ink', () => {
   const out = applyBlockStyles(layout(), { headline: { color: '#1F3A5F' } });
   assert.equal((out as any).headline.color, '#1F3A5F');
 });
 
-test('a text block takes a brand colour by name', () => {
+test('a text block takes a brand color by name', () => {
   // The better answer where it fits: a name follows the palette when somebody
   // corrects a swatch upstream, where a hex is a snapshot that goes stale.
   const out = applyBlockStyles(layout(), { headline: { color: 'accent' } });
@@ -203,8 +203,8 @@ test('an ink the renderer cannot resolve is dropped, not passed on', () => {
 
 test('an unresolvable button fill is dropped too', () => {
   // Same reasoning: an unrecognised fill resolves to the #ffc400 default, so
-  // accepting one paints a button a colour nobody chose.
-  const out = applyBlockStyles(layout(), { cta: { bg: 'not-a-colour' } });
+  // accepting one paints a button a color nobody chose.
+  const out = applyBlockStyles(layout(), { cta: { bg: 'not-a-color' } });
   assert.equal((out as any).cta.bg, 'accent');       // the template's own
 });
 
@@ -215,9 +215,9 @@ test('aligning the button moves the BUTTON, not the label inside it', () => {
   // which every template already centres — so Center, Left and Right all
   // rendered identically and the control read as broken.
   const l = layout();                       // 300x250, safe 16, cta w=150 x=20
-  const centred = applyBlockStyles(l, { cta: { align: 'center' } });
-  assert.equal((centred as any).cta.x, 75, 'centred in the 268px safe region');
-  assert.equal((centred as any).cta.align, undefined, 'the label is left alone');
+  const centered = applyBlockStyles(l, { cta: { align: 'center' } });
+  assert.equal((centered as any).cta.x, 75, 'centered in the 268px safe region');
+  assert.equal((centered as any).cta.align, undefined, 'the label is left alone');
 
   const right = applyBlockStyles(l, { cta: { align: 'right' } });
   assert.equal((right as any).cta.x, 134, 'flush with the right safe edge');
@@ -259,7 +259,7 @@ test('a panel opacity outside 0..1 is clamped, and a bad fill dropped', () => {
   const l = { ...layout(), panels: [{ x: 0, y: 130, w: 300, h: 120, fill: 'primary' }] } as any;
   assert.equal((applyBlockStyles(l, { panel: { opacity: 4 } }) as any).panels[0].opacity, 1);
   assert.equal((applyBlockStyles(l, { panel: { opacity: -2 } }) as any).panels[0].opacity, 0);
-  assert.equal((applyBlockStyles(l, { panel: { fill: 'not-a-colour' } }) as any).panels[0].fill,
+  assert.equal((applyBlockStyles(l, { panel: { fill: 'not-a-color' } }) as any).panels[0].fill,
                'primary', 'an unresolvable fill leaves the template alone');
 });
 

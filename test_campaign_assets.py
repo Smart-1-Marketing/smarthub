@@ -246,6 +246,38 @@ def main():
     check("and they are object_135's", fc["object"], "object_135")
 
     print()
+    print("a renumbered field reaches the page, not just field_check()")
+    # The ids are pinned so a renamed *label* cannot silently break a read, and
+    # field_check() computes the warning for the other half -- an id that is
+    # gone. labels() copied out only the label and its source, so report()
+    # shipped no `warnings` key at all and the template's `(d.warnings||[])`
+    # loop was always empty. Rename field_2346 in Knack and the report says
+    # "No campaign in scope is waiting on a clarification or an asset" about
+    # the whole book, because measurable() still passes on `clarification` --
+    # with nothing saying the tick it is all gated on stopped answering.
+    _real_check = campaign_assets.field_check
+    campaign_assets.field_check = lambda: {
+        "configured": True, "object": "object_135", "error": "",
+        "fields": [{"id": "field_2346", "key": "assets_flag",
+                    "label": "field_2346", "label_source": "not found",
+                    "type": "", "found": False,
+                    "warning": "field_2346 is not on object_135."}],
+        "warnings": ["field_2346 is not on object_135."],
+    }
+    try:
+        drift = campaign_assets.report(today=TODAY)
+    finally:
+        campaign_assets.field_check = _real_check
+    ok("the payload carries the key the template reads", "warnings" in drift)
+    check("and the drift warning is in it", drift.get("warnings"),
+          ["field_2346 is not on object_135."])
+    check("the labels come off that same answer, not a second schema read",
+          (drift.get("fields") or {}).get("field_2346", {}).get("label"),
+          "field_2346")
+    ok("and a clean schema leaves the page nothing to draw",
+       r.get("warnings") == [])
+
+    print()
     if FAILURES:
         print(f"{len(FAILURES)} FAILED")
         for f in FAILURES:

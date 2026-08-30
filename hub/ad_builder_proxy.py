@@ -129,6 +129,11 @@ _ACTIONS = (
     # showed one entry for both could not say whether the animated versions on
     # the delivery were ever built here.
     (re.compile(r"^api/animate/([\w-]+)$"), "ads_animated", 1),
+    # Approving an animation is what sends it to a client, so it is its own
+    # entry: "we built one" and "somebody signed one off and it went out" are
+    # different events, and only the second is a deliverable leaving the
+    # building.
+    (re.compile(r"^api/animate/([\w-]+)/approve$"), "ads_animation_approved", 1),
     (re.compile(r"^api/project/([\w.-]+)/deliver$"), "ads_delivered", 1),
     (re.compile(r"^api/project/([\w.-]+)/approve-size$"), "ads_size_approved", 1),
     (re.compile(r"^api/project/([\w.-]+)/override$"), "ads_override_saved", 1),

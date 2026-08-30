@@ -2917,7 +2917,10 @@ def create_hub_app() -> Flask:
             return gate
         from . import seo
         try:
-            return jsonify({"clients": seo.seo_clients()})
+            rows, source, age = seo.seo_clients_result()
+            return jsonify({"clients": rows, "products_source": source,
+                            "products_age_minutes": age,
+                            "products_note": seo.products_note(source, age)})
         except Exception as exc:  # noqa: BLE001
             return jsonify({"clients": [], "error": str(exc)})
 

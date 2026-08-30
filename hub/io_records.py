@@ -288,6 +288,35 @@ def _rows() -> list[dict]:
     return out
 
 
+def flight_start(record: dict) -> str:
+    """When this order's campaign actually starts.
+
+    The stored `start` is the *shared* campaign start, and an order whose
+    products run their own dates genuinely has none: the wizard clears it the
+    moment one product is given its own term ("Because at least one product
+    runs its own dates, I'll ask for dates product by product"), so `start`
+    is `""` on every such order. That is right for the record — what is stored
+    is the agreement — and wrong for anybody asking whether the flight has
+    begun. `io_reconcile`'s "should be running right now" bucket read the bare
+    field and was therefore blind to a whole class of orders: the headline
+    urgency on that report, silently never firing for a multi-product IO.
+
+    So the campaign start when there is one, and otherwise the earliest date
+    any line starts on, because that is when some of this order is live.
+    Returns "" when nothing carries a date rather than inventing one; a row
+    with no date at all is reported as waiting rather than as late.
+    """
+    if not isinstance(record, dict):
+        return ""
+    shared = _text(record.get("start"), 40)
+    if shared:
+        return shared
+    dates = sorted(d for d in (_text(l.get("start"), 40)
+                               for l in record.get("lines") or []
+                               if isinstance(l, dict)) if d)
+    return dates[0] if dates else ""
+
+
 def listing(client: str = "") -> dict:
     """Orders we have sent, newest first. `(rows, measured, error)` in a dict.
 

@@ -56,7 +56,7 @@ test('an already-transparent logo has no plate to strip', async () => {
   assert.equal(await flatBackdrop(await logo(path.join(d, 'b.png'), null, '#0a0a0a')), null);
 });
 
-test('and a plated one reports the colour that will show', async () => {
+test('and a plated one reports the color that will show', async () => {
   const d = dir();
   const white = await flatBackdrop(await logo(path.join(d, 'w.png'), '#ffffff'));
   assert.deepEqual(white?.rgb, [255, 255, 255]);

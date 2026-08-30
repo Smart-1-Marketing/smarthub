@@ -14,12 +14,29 @@ MAX_BYTES = 2 * 1024 * 1024      # rotate at ~2 MB so the log never grows unboun
 
 
 def _path() -> str:
+    """Where the error log lives.
+
+    The same rule as hub/audit.py, and for the same reason: `ERROR_LOG_PATH`
+    names one file and wins, and everything else defers to
+    `jsonstore.data_root()` rather than restating it. This copy skipped
+    `HUB_DATA_DIR` entirely, so a test that set it still wrote into -- and read
+    from -- the real shared log. Nothing moves on Render.
+
+    Never raises.
+    """
     override = os.environ.get("ERROR_LOG_PATH")
     if override:
         return override
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-    os.makedirs(base, exist_ok=True)
+    try:
+        from . import jsonstore
+        base = jsonstore.data_root()
+    except Exception:  # noqa: BLE001 — fall back to the expression it replaced
+        base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError:
+        pass
     return os.path.join(base, "hub-errors.log.jsonl")
 
 
