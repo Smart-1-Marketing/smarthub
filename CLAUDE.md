@@ -2745,13 +2745,37 @@ Only one combination breaks. Setting **neither** is fine — the file inherits
 both and they agree. Setting **both** is the `test_blog_publish.py` pattern.
 Only *own directory, inherited database* gives you an empty disk in front of a
 full mirror, and `test_dashboard_trends.py` and `test_google_index.py` were
-the two files in it: three failures and four, on the second run, every time.
-They assign `DATABASE_URL` now. `test_jsonstore.py` pins that pair rather than
-sweeping every file of the shape — thirteen others share it and all re-run
-clean, because they write nothing durable or overwrite what they read, and
-several boot the composed app, where forcing SQLite would drop Sites Admin out
-of the gate. A check landing with thirteen findings it cannot act on is the
-one people learn to skip.
+the first two files in it: three failures and four, on the second run, every
+time. They assign `DATABASE_URL` now.
+
+**And the sweep that pins it asked for that pair by its spelling rather than
+by what a file ends up with.** It looked for `HUB_DATA_DIR` *assigned* and
+`DATABASE_URL` not — so a file that `setdefault`s **both** was invisible to
+it, while reaching the identical state whenever only the database is set in
+the environment: fresh directory, inherited mirror. Two were, and both write
+durable rows, so both passed on the first run against a database and failed
+on every run after. `test_io_records.py` reported "two rows under one number"
+and `test_sales_status.py` a pipeline count; neither had anything to do with
+the code it was testing.
+
+Nothing could see it. **CI is structurally blind to this class**: every run
+gets a new Postgres, so every file passes its first run for ever. It became
+reachable the day a session-start hook began exporting `DATABASE_URL` for a
+whole session — after which the second time anybody runs the suite, two files
+fail for reasons the output cannot explain.
+
+`test_jsonstore.py` reads either spelling now, and the exemption is
+**evidence** rather than an assumption: the twenty-three files in the shape
+that were run twice against one database and came back identical are named,
+and a file in the shape that is not on that list fails. The note this
+replaces claimed the same thing about thirteen files and was wrong about two,
+because nobody had run them twice. Held to `check_stale_json_exemptions()`'s
+rule in both directions — an entry naming a file that is gone, or one that
+has since started owning its database, is named too — and it started green.
+Fixing them all by pinning SQLite is what is *not* done: several boot the
+composed app, where that would drop Sites Admin out of the gate, and a check
+landing with two dozen findings it cannot act on is the one people learn to
+skip.
 
 **Two checks asking one question will answer it differently, and both
 answers are on screen.** `/api/db/structure` and `/api/integrity` both report
