@@ -1105,6 +1105,33 @@ jobs:
             echo "test_housekeeping.py not on this branch — nothing to run."
           fi
 
+      - name: Client ownership and the My Clients report
+        # Who owns which client, and what is outstanding on each of them: that
+        # a client has exactly one owner and a handover names who held it, that
+        # "Riverside HVAC" never collects "Riverside HVAC Supply", that a bulk
+        # assignment reports every row's own outcome and writes the file once
+        # rather than once per client, that a standing partner rule writes no
+        # assignment rows at all and every row it owns says which partner it
+        # came from, that a direct assignment beats a rule and taking a client
+        # off everybody sticks rather than being re-claimed on the next read,
+        # that two rules naming different people leave the client unassigned
+        # and name both, that an owner whose account is gone is named rather
+        # than read as unassigned, that owners and Ignore/Done marks are
+        # applied on read so one gunicorn worker's press is not invisible to
+        # the other, that a Done mark on an issue which has since changed
+        # reports itself superseded, that a source which could not be read is
+        # named instead of counted as nothing, and that every route refuses a
+        # stranger. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file. It sets
+        # its own DATABASE_URL and HUB_DATA_DIR, so it never touches the real
+        # ones.
+        run: |
+          if [ -f test_client_owners.py ]; then
+            python test_client_owners.py
+          else
+            echo "test_client_owners.py not on this branch — nothing to run."
+          fi
+
       - name: Boot the composed app
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a
@@ -1136,6 +1163,11 @@ jobs:
                    # redirect; a 3xx here is the correct answer.
                    "/sales/builder/", "/sales/proposals/", "/tools/io/",
                    "/client360", "/tools",
+                   # Two blueprint pages and the API each draws itself from.
+                   # A page that boots while its API 500s is a blank tool, and
+                   # this one's whole content arrives from the fetch.
+                   "/my-clients", "/api/my-clients/scoreboard",
+                   "/qa/client-owners", "/api/client-owners",
                    # The landing maker, and the API its page calls.
                    "/sales/landing", "/api/landing",
                    # The website block builder. Its page draws itself entirely

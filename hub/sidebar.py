@@ -81,6 +81,10 @@ def collapses_by_default(path: str) -> bool:
 _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
     ("c360", "/client360", "&#127919;", "Client 360"),
+    # Directly under Client 360, and above the sections: that page answers
+    # "what do we know about this client" and this one answers "which of them
+    # needs an hour today", which is the question somebody opens the Hub with.
+    ("myclients", "/my-clients", "&#128203;", "My Clients"),
     ("_sec2", "", "", "Sales"),
     # One entry, because there is one proposal builder. /sales/proposals is the
     # retired standalone tool: it redirects here and serves its archive only.
