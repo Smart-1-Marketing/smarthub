@@ -450,6 +450,93 @@ REGISTRY: list[Help] = [
        "so first: a proposal written from an older one describes a site that "
        "may have been rebuilt since.", step=6, selector="#nextCard"),
 
+    # ---------------- Google Finder ----------------
+    _h("google_finder.intro", "What this tool is for",
+       "Every Google login somebody has connected, and every Analytics "
+       "property, Tag Manager container, Search Console site and Business "
+       "Profile behind them — searchable by client name, domain, GA4 id, GTM "
+       "id or the email the account is under. The index is rebuilt on a "
+       "schedule rather than on every visit, so what you are reading is a "
+       "sweep with a time on it; Refresh forces one."),
+    _h("google_finder.empty", "An empty platform is not an empty account",
+       "A platform that came back with nothing is one of five different "
+       "things, and only one of them means the client has nothing there. "
+       "\u2022 ok — we asked and this is the answer, which may legitimately "
+       "be zero. \u2022 refused — a scope this login was never granted, or "
+       "an API nobody enabled; reconnecting re-consents, because the connect "
+       "link forces a fresh consent screen. \u2022 failed — we could not ask "
+       "at all. \u2022 disabled — we did not ask, because Business Profile "
+       "needs per-project access Google grants on top of the OAuth scope. "
+       "\u2022 partial — Tag Manager rate-limited us and these are the last "
+       "sweep's containers, carried over and counted apart. An index built "
+       "before those notes existed reads not measured rather than clean."),
+    _h("google_finder.ga", "Asking GA4 a question",
+       "Two different calls. The question box reads the property and answers "
+       "in prose; the comparator pulls two date ranges and charts them with "
+       "an AI reading underneath. Both are billed and both need the property "
+       "id — which is the numeric one from GA4's own admin screen, not the "
+       "measurement id beginning G-."),
+    _h("google_finder.gtm", "Finding a container, and writing to it",
+       "Search resolves a client to their container and fills the account "
+       "and container ids into the tools below it, which is what stops a tag "
+       "being deployed into the wrong client's container. The page analyzer "
+       "reads a real URL and proposes the events worth tracking on it; the "
+       "uploader puts a pixel or a code block in. Every write is recorded "
+       "under History & Logs — a change to somebody else's Tag Manager that "
+       "nobody can point to later is the one this Hub most wants attributed."),
+    _h("google_finder.webmaster", "Bulk property and sitemap deployment",
+       "One line per site, the property and its sitemap separated by a pipe. "
+       "It is a bulk write to somebody else's Search Console, so read what "
+       "comes back per row rather than the headline: a run that reports "
+       "success overall can still have refused individual properties, and "
+       "those are the ones nobody notices."),
+    _h("google_finder.gmb", "Business Profile is links, not an API",
+       "The Business Profile APIs need per-project access Google grants "
+       "separately, so this screen does not read the account — it builds the "
+       "links that take you to the listing and to the claim flow for a "
+       "business you name. That is why the platform can read disabled on the "
+       "index while this page still works: it never needed the scope."),
+    _h("google_finder.history", "What was saved, and what was changed",
+       "Two logs, and they answer different questions. Saved reports are the "
+       "GA4 comparisons somebody kept. The audit log is every Tag Manager "
+       "deployment this Hub has made — searchable by tag, container, the "
+       "email it went out under, or the kind of action — which is what makes "
+       "a change to a client's container something anybody can point to "
+       "afterwards."),
+
+    # ---------------- Media calculators ----------------
+    _h("calculators.intro", "One calculator, two audiences",
+       "Each calculator computes the same plan from the same function "
+       "whichever door it is opened through, because two readings of one "
+       "sum is how a client is quoted different numbers depending on which "
+       "link they were sent. What differs is everything around it: the "
+       "public page withholds the plan until a name, an email and a phone "
+       "number are captured and files that as a lead, and the internal page "
+       "shows the whole plan at once and stores nothing at all — no "
+       "estimate, no contact, and nothing to Smart 1 Suite. Sizing a buy "
+       "for a client we have had for years should not put a made-up contact "
+       "in the leads panel."),
+    _h("calculators.assumptions", "The numbers behind the number",
+       "Every calculator rests on house assumptions — the listen-through "
+       "rate on audio, the completion rate on Connected TV, the venue view "
+       "rate and CPM on DOOH, weeks per month — and they are one table read "
+       "by every calculator rather than a figure typed into each. They are "
+       "ours rather than a platform's, which is worth knowing before a "
+       "figure from here is quoted as though a publisher had published it."),
+    _h("calculators.embed", "Putting one on a client's page",
+       "The embed code frames the real calculator rather than shipping a "
+       "copy of the form: a pasted copy needs the host spelled correctly, "
+       "needs its mount prefix concatenated correctly, and goes stale the "
+       "day a field is added here. A frame needs none of those. The framed "
+       "page is exempted from the staff sidebar and the help layer, so a "
+       "prospect meets the calculator and nothing else."),
+    _h("calculators.leads", "Where an estimate goes",
+       "A public estimate produces a lead, not a client, so it goes through "
+       "the one lead store and on to Smart 1 Suite like every other capture "
+       "point in the Hub. Retry failed sends re-delivers the rows Suite "
+       "refused; it never re-sends one that landed, because a duplicate "
+       "contact is the one thing the leads panel cannot undo."),
+
     # ---------------- Prospect record ----------------
     _h("hub.prospect.intro", "What this record is for",
        "Everything the Hub knows about one prospect, in one place: what they "

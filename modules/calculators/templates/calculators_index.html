@@ -40,7 +40,7 @@ code{display:block;background:#0f2747;color:#dbe8ff;padding:12px;border-radius:9
 </head>
 <body>
 <div class="wrap">
-  <h1>Media Calculators</h1>
+  <h1>Media Calculators {{ help_dot('calculators.intro') if help_dot is defined else '' }}</h1>
   <p class="sub">Five lead-driving calculators. Share the hosted link or embed one on a page — every
     unlocked estimate lands as a lead in Smart 1 Suite.</p>
 
@@ -77,7 +77,7 @@ code{display:block;background:#0f2747;color:#dbe8ff;padding:12px;border-radius:9
   <div class="bar">
     <a class="btn" href="{{ mount }}/leads">View leads</a>
     <a class="btn ghost" href="{{ mount }}/leads.csv">Download CSV</a>
-    <button class="btn ghost" onclick="retry()">Retry failed sends</button>
+    <button class="btn ghost" onclick="retry()">Retry failed sends</button> {{ help_dot('calculators.leads') if help_dot is defined else '' }}
   </div>
 
   <div class="cards">
@@ -93,7 +93,7 @@ code{display:block;background:#0f2747;color:#dbe8ff;padding:12px;border-radius:9
         <div class="links">
           <a class="btn ghost" href="{{ mount }}/c/{{ c.slug }}" target="_blank" rel="noopener">Open</a>
           <a class="btn ghost" href="{{ mount }}/leads?slug={{ c.slug }}">Leads</a>
-          <button class="btn ghost" onclick="copyEmbed('{{ c.slug }}')">Copy embed code</button>
+          <button class="btn ghost" onclick="copyEmbed('{{ c.slug }}')">Copy embed code</button> {{ help_dot('calculators.embed') if help_dot is defined else '' }}
         </div>
         <code id="embed-{{ c.slug }}">&lt;iframe data-s1calc src="{{ base_url }}{{ mount }}/embed/{{ c.slug }}?src=YOUR-PAGE"
   style="width:100%;border:0;height:900px" title="{{ c.title }}"&gt;&lt;/iframe&gt;

@@ -8578,7 +8578,29 @@ fix and a paragraph to write, so the two are counted apart. `test_help_layer.py`
 feeds it the bug it was written for and requires it to say so, because a
 check that reads green either way is one nobody can trust.
 
-It **reports rather than gates**. Twenty-three of the forty-seven tiles have
+**And the two tools it named loudest are explained now.** Eleven of the
+twenty-three uncovered tiles were two tools: Google Finder is six screens
+(the index, GA4, GTM, Webmaster, Business Profile, History) and the media
+calculators are five (four internal pages and the index). Both are written
+against what those screens actually do rather than what a directory listing
+suggests — the five states an empty platform can be in and which one means
+the client genuinely has nothing there; that a container search fills the
+account and container ids into the tools below it, which is what stops a tag
+reaching the wrong client's container; that Business Profile builds links
+rather than reading the account, which is why it can read *disabled* on the
+index while its own page works; and that a calculator computes the identical
+plan through both doors while the public one captures a lead and the internal
+one stores nothing at all.
+
+**Two entries were written and then deleted rather than placed.** The orphan
+list and what attaching writes are explained at length in
+`google_match.html`'s own standfirst, so a bubble there would repeat the
+paragraph directly above it — and registering help that is placed nowhere is
+help nobody can reach. `dead_help_bubbles` cannot see either failure: it
+reads placement to registration and a registered key nothing places is
+deliberately not a finding, because a tour step is anchored by a selector.
+
+It **reports rather than gates**. Twelve of the forty-seven tiles have
 no help behind them; that is all real, none of it breaks a page, and a build
 failing on it is a check switched off within a week. `env_report()`'s shape —
 the thing that stands beside a check and says what the check cannot see.

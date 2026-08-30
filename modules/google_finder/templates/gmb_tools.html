@@ -13,7 +13,7 @@
   <div class="s1d-head">
     <div>
       <div class="s1d-crumb">Google</div>
-      <h1>Business Profile</h1>
+      <h1>Business Profile {{ help_dot('google_finder.gmb') if help_dot is defined else '' }}</h1>
       <p>The client's Google Business Profile listings, whether each is claimed and verified, and what address Google is showing.</p>
     </div>
     <div class="s1d-actions">

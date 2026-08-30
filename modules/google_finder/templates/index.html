@@ -13,7 +13,7 @@
   <div class="s1d-head">
     <div>
       <div class="s1d-crumb">Google</div>
-      <h1>Google Finder</h1>
+      <h1>Google Finder {{ help_dot('google_finder.intro') if help_dot is defined else '' }}</h1>
       <p>Search every connected Analytics, Tag Manager, Search Console and Business Profile account at once.</p>
     </div>
     <div class="s1d-actions">
@@ -32,6 +32,7 @@
           <button class="filter" data-platform="gsc">Search Console <span id="cnt-gsc" class="badge-count"></span></button>
           <button class="filter" data-platform="gmb">Business Profiles <span id="cnt-gmb" class="badge-count"></span></button>
           <button id="refresh" class="refresh">Refresh Google data</button>
+          {{ help_dot('google_finder.empty') if help_dot is defined else '' }}
         </div>
         <div class="searchbox">
           <input id="q" autocomplete="off" autofocus placeholder="Type client name, domain, GA4 ID, GTM ID, or email to search all sites...">

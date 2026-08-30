@@ -106,7 +106,7 @@ tbody tr.total td{font-weight:800;background:#f8fbff;color:var(--navy)}
 
   <div class="s1-card">
     <div class="s1-head">
-      <h1>{{ calc.title }}</h1>
+      <h1>{{ calc.title }} {{ help_dot('calculators.intro') if help_dot is defined else '' }}</h1>
       <p>{{ calc.tagline }}</p>
       {#
         Said on the page, not only in the code. The public copy of this exact
@@ -188,7 +188,7 @@ tbody tr.total td{font-weight:800;background:#f8fbff;color:var(--navy)}
         <div class="metrics" id="metrics"></div>
         <div class="note good hidden" id="teaserNote"></div>
         <div class="plan" id="detail">
-          <h3>The plan</h3>
+          <h3>The plan {{ help_dot('calculators.assumptions') if help_dot is defined else '' }}</h3>
           <p id="detailSummary"></p>
           <div id="detailTable"></div>
           <div id="detailSteps"></div>
