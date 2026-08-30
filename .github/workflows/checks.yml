@@ -904,6 +904,26 @@ jobs:
             echo "test_user_accounts.py not on this branch — nothing to run."
           fi
 
+      - name: Nothing answers a stranger
+        # Boots the composed app and requests every static GET route it serves
+        # with no session at all. A module registered as a blueprint on the hub
+        # app never passes through wsgi.py's AuthGuard, so one that does not
+        # guard itself answers 200 to anyone with the URL -- which is how three
+        # staff tools came to be open behind tiles that redirect to /login.
+        # Every 200 has to be on an allowlist that says why it is public, so a
+        # new open route fails this without anybody adding an assertion for it.
+        # Guarded like the steps around it so this workflow stays mergeable on a
+        # branch that predates the file.
+        # It sets DATABASE_URL, HUB_DATA_DIR and AUDIT_LOG_PATH itself rather
+        # than setdefault-ing them, so it always gets its own throwaway
+        # database and never appends to the real activity log.
+        run: |
+          if [ -f test_blueprint_guards.py ]; then
+            python test_blueprint_guards.py
+          else
+            echo "test_blueprint_guards.py not on this branch — nothing to run."
+          fi
+
       - name: Environment resolution and per-module attribution tests
         # One setting, several variable names. This deployment's environment is
         # assembled from linked Render env groups that each named things their

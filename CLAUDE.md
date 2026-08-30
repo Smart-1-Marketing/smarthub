@@ -1084,6 +1084,50 @@ redirected to `/login`. The guard now sits on the blueprint
 the next route added must not have to remember. `hub/auth.py` names this
 failure in its own docstring; `test_commercial_heygen.py` asserts it.
 
+**And three more were still open, because each fix was written out again
+rather than shared.** Commercial Builder was fixed that way and so was
+`modules/calculators`, which is two copies of one `before_request` and no
+answer for the fourth blueprint. An anonymous sweep of the composed app found
+ten routes across three more modules answering **200 to anyone with the
+URL**: Web Tickets, its setup screen and its Knack field map; the Page Image
+Optimizer and its saved-job archive; and Video Search with the Cloudinary
+library, its search and its status. Every one of them is a staff tool sitting
+on the Client Tools page behind a tile that redirects to `/login`, and nothing
+anywhere reported the difference.
+
+`hub/blueprint_guard.py` is that gate, once. `install(bp, mount=…,
+public=…)` puts one `before_request` on the blueprint, so the route added
+next month is covered without anybody remembering, and `public` takes the
+same shape a dispatcher-mounted module's `PUBLIC_PREFIXES` has — a module
+that later becomes mounted needs no second spelling of what is public. It
+**never raises**: a module that cannot import `hub.auth` is one running
+standalone, and refusing to start it would be worse than a gate not applying
+where there is nothing to protect. And it redirects rather than answering
+403, because the reader is a member of staff who followed a bookmark, and
+`next` puts them back.
+
+**Exempting a path from the login is only half of "public".** The hub app's
+own `after_request` injects the sidebar, the help layer and the feedback tab
+into any HTML it returns, so a client-facing blueprint path needs an entry in
+`CHROMELESS` as well — the two halves `modules/commercial_builder`'s review
+routes already carry separately. Either one missing is its own failure, in
+opposite directions: login-exempt and chrome-bearing is a client reading our
+staff nav, chrome-exempt and guarded is a sign-in form in front of somebody
+who will never have an account.
+
+**The check is a sweep, not a list of the three we fixed.** A test naming
+those modules proves nothing about the next blueprint. `test_blueprint_guards.py`
+boots the composed app, requests **every** static GET route it serves with no
+session at all, and requires each one that answers 200 to be in an allowlist
+that says *why* it is public — the crawler files, the health probes, the
+chrome's own scripts, the help registry, the Suite SSO frame, the calculator
+embed. A new open route fails the run without anybody having thought to add
+an assertion for it. The allowlist is held to the rule
+`check_stale_json_exemptions()` works to: an entry naming a route that no
+longer exists, or one that is not actually reachable, fails too, because an
+exemption that outlives what it exempted goes on covering whatever is served
+at that path next.
+
 **A provider job is not done when the call that started it returns.** HeyGen
 renders a spokesperson clip in minutes, so `POST .../spokesperson` hands back
 a job id and nothing else. Nothing polled it, so the scene kept
@@ -6627,6 +6671,9 @@ python3 test_calculator_embed.py   # the media calculators framed on smart1marke
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
+python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
+                                   #   composed app serves, probed with no session,
+                                   #   against an allowlist that says why each is public
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
 python3 test_knack_websites_source.py # websites live where Knack answers, the
                                    #   export where it will not, and a failed
