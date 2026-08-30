@@ -60,28 +60,21 @@ MOUNT = "/tools/calculators"
 PUBLIC_PREFIXES = ("/c/", "/embed/", "/api/", "/embed.js")
 
 
-# The guard sits on the blueprint rather than on each view, for the reason
-# modules/commercial_builder/__init__.py gives at length: `wsgi.py` wraps only
-# *dispatcher-mounted* modules in AuthGuard, and this is a blueprint on the hub
-# app, which has no blanket gate of its own. So every route here that is not in
-# PUBLIC_PREFIXES was answering 200 to anyone with the URL -- including
-# /tools/calculators/leads, which is a table of real people's names, emails and
-# phone numbers. One before_request, so the next route added does not have to
-# remember.
-@bp.before_request
-def _staff_only():
-    path = request.path or "/"
-    rel = path[len(MOUNT):] if path.startswith(MOUNT) else path
-    if rel.startswith(PUBLIC_PREFIXES):
-        return None
-    try:
-        from hub.auth import user_from_environ
-    except Exception:  # noqa: BLE001 — standalone, outside the Hub
-        return None
-    if user_from_environ(request.environ):
-        return None
-    from flask import redirect
-    return redirect("/login?next=" + path)
+# The guard sits on the blueprint rather than on each view: `wsgi.py` wraps
+# only *dispatcher-mounted* modules in AuthGuard, and this is a blueprint on
+# the hub app, which has no blanket gate of its own. So every route here that
+# is not in PUBLIC_PREFIXES was answering 200 to anyone with the URL --
+# including /tools/calculators/leads, which is a table of real people's names,
+# emails and phone numbers. It is `hub/blueprint_guard.py` rather than a
+# before_request written out here, because this was the second module to write
+# one and three more needed the same thing; `public` there takes exactly the
+# shape PUBLIC_PREFIXES already had, so a module that later becomes mounted
+# needs no second spelling of what is public.
+try:
+    from hub.blueprint_guard import install as _install_guard
+    _install_guard(bp, mount=MOUNT, public=PUBLIC_PREFIXES)
+except Exception:  # noqa: BLE001 — standalone, outside the Hub
+    pass
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$")

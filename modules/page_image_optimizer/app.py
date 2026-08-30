@@ -37,6 +37,18 @@ bp = Blueprint(
     static_folder=None,
 )
 
+# Staff only. This is a blueprint on the hub app, so wsgi.py's AuthGuard --
+# which wraps dispatcher-mounted modules -- never sees it, and the hub app has
+# no blanket gate of its own. Without this the tool and its saved-job archive
+# answered 200 to anyone with the URL. The mount is applied at register()
+# time; it is named here because the guard takes public paths relative to it,
+# and there are none.
+try:
+    from hub.blueprint_guard import install as _install_guard
+    _install_guard(bp, mount="/tools/page-images")
+except Exception:                                       # noqa: BLE001
+    pass                                                # standalone, no Hub
+
 
 # --------------------------------------------------------------------------- #
 # helpers

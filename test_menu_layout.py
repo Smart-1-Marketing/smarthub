@@ -306,8 +306,16 @@ for path in STAFF:
     check(f"{path} refuses an anonymous request", r.status_code in (301, 302, 303), True)
     check(f"  ...by sending them to sign in", "/login" in r.headers.get("Location", ""), True)
 
+# The run route is called by fetch() from the internal page, and a fetch that
+# follows a redirect to the login page parses the HTML as JSON and reports
+# "Bad response from server" -- which says nothing about the real problem. So
+# a JSON caller gets a 401 it can read rather than the redirect a browser
+# following a link gets. `hub/blueprint_guard.py` decides which, for every
+# blueprint-registered module at once.
 r = anon.post("/tools/calculators/internal/ctv/run", json={"inputs": {}})
-check("so does the internal run route", r.status_code in (301, 302, 303), True)
+check("so does the internal run route", r.status_code, 401)
+check("  ...as an answer a fetch() can read, not a login page",
+      "application/json" in (r.headers.get("Content-Type") or ""), True)
 
 # The other half, and the one that breaks a client's website if it goes wrong:
 # the embedded calculator has no Hub session and must never be asked for one.
