@@ -43,7 +43,8 @@ from __future__ import annotations
 
 from hub.client_key import same_client
 
-__all__ = ["location_for", "token_for", "publishing", "SCOPE_PUBLISH"]
+__all__ = ["location_for", "client_for_location", "token_for",
+           "publishing", "SCOPE_PUBLISH"]
 
 # The scope a Social Planner write needs. Named here rather than spelled out
 # at each call site so the gate and the request list cannot drift.
@@ -104,6 +105,70 @@ def location_for(name: str, url: str = "") -> dict:
                        candidates=sorted(unique))
     return _answer("connected", "", location_id=matches[0][0],
                    matched_name=matches[0][1])
+
+
+def client_for_location(location_id: str) -> dict:
+    """Which client a Suite sub-account belongs to — `location_for()` backwards.
+
+    `location_for()` answers "which sub-account is this client", which is what
+    a tool asks when it already knows the client. This answers the question a
+    *client-facing* page asks: somebody is looking at us from inside sub-account
+    X, whose data may they see. `hub/suite_sso.py` is the caller, and there the
+    answer is the entire security model — so this is deliberately the strictest
+    lookup in this file.
+
+    **Exactly one client, or none.** Two rows recording the same sub-account
+    comes back `ambiguous` with both named, never picked between: choosing
+    would be choosing whose record a stranger is shown. That is the same
+    refusal `location_for()` makes in the other direction, for a much worse
+    reason.
+
+    An id that matches nothing is `not_connected` — a setup gap, and it says
+    so rather than reading as a client with an empty record.
+    """
+    location_id = str(location_id or "").strip()
+    if not location_id:
+        return _answer("not_connected", "No sub-account was named.")
+    try:
+        from modules.image_picker.models import PickerClient
+    except Exception as exc:                              # noqa: BLE001
+        return _answer("not_measured",
+                       "The client-to-sub-account mapping could not be read "
+                       f"({type(exc).__name__}).")
+    try:
+        rows = list(PickerClient.query.all())
+    except Exception as exc:                              # noqa: BLE001
+        return _answer("not_measured",
+                       "The client-to-sub-account mapping could not be read "
+                       f"({type(exc).__name__}).")
+
+    matches = []
+    for row in rows:
+        recorded = str(getattr(row, "ghl_location_id", "") or "").strip()
+        # An exact string match and nothing else. A sub-account id is an
+        # opaque identifier, so there is no near-miss worth entertaining and a
+        # prefix match here would be a way to reach another client's data.
+        if recorded and recorded == location_id:
+            matches.append(row)
+
+    if not matches:
+        return _answer("not_connected",
+                       "No client on file records this Smart 1 Suite "
+                       "sub-account. It is set on their row in Client Image "
+                       "Uploads.", location_id=location_id)
+    names = {str(getattr(r, "name", "") or "").strip() for r in matches}
+    if len({n.lower() for n in names if n}) > 1:
+        return _answer("ambiguous",
+                       "More than one client records this sub-account, so "
+                       "whose data this page may show is not a question this "
+                       "Hub can answer. Fix the duplicate in Client Image "
+                       "Uploads.",
+                       location_id=location_id, candidates=sorted(names))
+    row = matches[0]
+    return _answer("connected", "", location_id=location_id,
+                   client=str(getattr(row, "name", "") or "").strip(),
+                   client_url=str(getattr(row, "website", "")
+                                  or getattr(row, "url", "") or "").strip())
 
 
 def token_for(name: str, url: str = "") -> dict:

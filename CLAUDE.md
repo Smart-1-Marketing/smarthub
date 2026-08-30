@@ -432,6 +432,60 @@ chrome check asks `suite_embed.is_embedded()` itself rather than reading a flag 
 policy handler sets — which would still be unset. `test_suite_embed.py` asserts
 all of it.
 
+**A client inside their own Suite has no Hub account, and must never be given
+one.** `hub/suite_embed.py` solved the staff half with a companion cookie; its
+own closing note said the client half needs HighLevel's SSO handshake.
+`hub/suite_sso.py` is that half. The framed page asks its parent for the user
+payload, HighLevel replies encrypted under the app's **SSO key** — a *third*
+credential, separate from `GHL_CLIENT_ID` and `GHL_CLIENT_SECRET` — and the
+Hub decrypts it server-side.
+
+**The location id in that payload is the authorization, and it is the whole
+security model.** Everything else in it — `userId`, `email`, `role` — is
+carried for the audit line and is never joined on. Identity comes from the
+sub-account, resolved to a client by `suite_accounts.client_for_location()`,
+and from nothing else: the session route accepts no client name at all, so a
+request that simply names one is refused as unreadable. Getting this wrong
+shows one client another client's record, which is the worst outcome any tool
+in this Hub can produce, and it is silent — the frame renders, the page looks
+right, and it is the wrong client's data.
+
+Five refusals, each its own state because each sends a different person
+somewhere different. **No key is `not_configured` and never a lenient
+session** — the tempting failure is treating an unverifiable frame as trusted
+because it looks like it came from HighLevel, and a frame is a URL anybody can
+point at us. **A payload that will not decrypt is `unreadable`, and a wrong
+key, a tampered payload and a truncated one all give the identical answer** —
+anything finer tells whoever is probing which guess was closer. **A payload
+naming no sub-account is `no_location`**, never a fall-through to the first
+client. **A sub-account no client records is `unknown_location`**, a setup gap
+that says where it is fixed. And **a sub-account two clients claim is
+`ambiguous`, named and refused** — picking between them is picking whose
+record a stranger sees.
+
+**The client-facing surface is deliberately two routes and no more.** They
+prove who is looking and then hand the client their *existing* content link;
+the pages behind it are already client-facing, already scoped to one client
+and already tested. The smallest way to build somewhere a client could be
+shown the wrong record is not to build one.
+
+**The path is `/suite-app`, not `/suite/app`.** `/suite` is a
+dispatcher-mounted module, so a hub route under it never receives the
+request — and it does not even 404, it is swallowed by the module and
+redirects to a *staff login*, which a client would meet as a sign-in form for
+an account they will never have. That is the first trap this file names, it
+has now bitten four times, and `/api/integrity`'s high-severity check is what
+caught this one before it shipped. `test_suite_sso.py` asserts the mount does
+not serve the frame.
+
+**The crypto is transcribed, and round-tripped rather than trusted.**
+HighLevel encrypts with CryptoJS's `AES.encrypt`, which is OpenSSL's
+`Salted__` envelope — AES-256-CBC with the key and IV from EVP_BytesToKey over
+MD5. Nothing here has ever seen a live HighLevel payload, so
+`test_suite_sso.py` carries its own independent encryptor and round-trips
+against it: if the derivation drifts from the spec, the test stops passing.
+MD5 appears only inside that derivation, where the format specifies it.
+
 **`linkcheck` sees `fetch("…")` and nothing else, and `sendBeacon` is where
 the leads were.** The trap above is about the URL it cannot verify; this is
 about the call it cannot see at all. Six landing modules posted their
@@ -5595,6 +5649,8 @@ python3 test_landing_spec.py       # what a landing page is for, and what it sel
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
 python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the chrome, who may frame
+python3 test_suite_sso.py          # the client half: the location id is the
+                                   #   authorization, and every way that goes wrong
 python3 test_calculator_embed.py   # the media calculators framed on smart1marketing.com
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,

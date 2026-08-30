@@ -1008,3 +1008,11 @@ jobs:
       # live list it reports 2 active websites instead of 610.
       - name: Websites read live, with the export as the fallback
         run: python3 test_knack_websites_source.py
+
+      # The client half of the Suite embed. The location id inside the
+      # encrypted SSO payload is the authorization and the whole security
+      # model: every refusal here is a way to show one client another client's
+      # record, and every one of them is silent. Carries its own encryptor so
+      # the CryptoJS envelope is round-tripped rather than assumed.
+      - name: Suite SSO — who is looking, inside a client's own sub-account
+        run: python3 test_suite_sso.py
