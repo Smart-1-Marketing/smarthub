@@ -34,6 +34,11 @@ import os
 import pathlib
 import re
 
+# The bubble audit lives in its own module rather than here: it is read by
+# /api/integrity and by test_help_layer.py, and two copies of "which keys
+# resolve" is the drift a second reader always becomes.
+from . import help_audit as _help_audit
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # Third-party code is not ours to fix, and a local virtualenv sits inside the
@@ -749,6 +754,16 @@ CHECKS = [
     # build, and the fix is one line at the call site.
     ("provider_key_drift", "Provider key read under one spelling only", "high",
      check_provider_key_drift),
+    # Medium, and green the day it went in. A bubble whose key is not in the
+    # registry is removed client-side rather than left as a dead "?" -- right
+    # for the page, and exactly what makes the mistake invisible: the template
+    # reads as helped, the screen shows nothing, and nothing errors at either
+    # end. Three tools had one on their own title. Not high, because the page
+    # still works and nobody is waiting on output; not low, because the whole
+    # help layer is opt-in and a screen that opted in and got nothing is
+    # indistinguishable from one that never tried.
+    ("dead_help_bubbles", "A help bubble with no help behind it", "medium",
+     _help_audit.check_dead_bubbles),
 ]
 
 

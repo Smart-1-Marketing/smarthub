@@ -60,7 +60,15 @@
   .spin.on{display:inline}
 </style>
 </head>
-<body data-module="stock_photos" data-screen="stock.search">
+{# `data-screen` is what offers a tour, and this screen registers no steps.
+   hub-help.js already declines to offer an empty one, so naming it costs
+   nothing today -- but `tour()` falls back to the MODULE prefix, so the day
+   somebody registers a sibling screen's steps this would serve them over
+   elements that are not on this page. `has_tour` exists for exactly that,
+   and guarded `is defined` like every other helper, so a Jinja env that
+   never got install_template_helpers() loses the attribute rather than the
+   page. #}
+<body data-module="stock_photos"{% if has_tour is defined and has_tour("stock.search") %} data-screen="stock.search"{% endif %}>
 <div class="wrap s1d-page">
   <a class="back" href="/creative">&larr; Creative</a>
   <h1>Stock Photo Search</h1>
