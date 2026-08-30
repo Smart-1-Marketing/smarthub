@@ -304,6 +304,121 @@ ok("and tells a screen reader what is running",
    'role="img"' in MACRO and "aria-label" in MACRO)
 
 
+# ---------------------------------- the fourth surface: the embedded intake
+section("The ad builder's embedded form draws the same two glyphs")
+
+# modules/ad_builder/public/embed.html is the customer-facing intake form,
+# served straight off the Node renderer with `frame-ancestors` set so a
+# client's marketing site can frame it. It is not one of the proxy's
+# PUBLIC_PATTERNS, so a prospect never reaches it through the Hub — which
+# means hub-thinking.js is not on it and cannot be, for exactly the reason
+# the three scan pages above inline theirs. It carries its own copy, and
+# the point of this section is that "its own copy" is not license to draw
+# something else: an image generation started from a client's website and
+# one started from the build screen are the same call.
+EMBED = (ROOT / "modules" / "ad_builder" / "public" / "embed.html").read_text()
+
+ok("the dish is the Hub's own path",
+   "M12 12 L12 2.8 A9.2 9.2 0 0 1 20.5 8.6 Z" in EMBED)
+ok("and the star is too",
+   "M12 3.2 13.6 9.1 19.4 10.7 13.6 12.3" in EMBED)
+ok("both sweep at the same 1.9s", EMBED.count("1.9s") >= 2)
+ok("reduced motion drops the movement and keeps the mark",
+   "prefers-reduced-motion" in EMBED
+   and "animation:none" in EMBED.replace("animation: none", "animation:none"))
+ok("and a screen reader is told what is running",
+   'role="img"' in EMBED and "aria-label" in EMBED)
+
+# The wait that was two captions ping-ponging every 1.8 seconds. Past about
+# four seconds that reads as a hung page: the words go round and nothing
+# else changes. The elapsed line is what separates a slow answer from a dead
+# one, and it is silent until six seconds for the reason the Hub's is.
+ok("the caption no longer loops", "AI_CAPTIONS" not in EMBED)
+ok("an elapsed line replaces it", "s1Clock(" in EMBED)
+ok("silent until six seconds, like the Hub's",
+   "S1_SLOW_AT = 6000" in EMBED and "SLOW_AT: 6000" in SCRIPT.replace(
+       "SLOW_AT = 6000", "SLOW_AT: 6000"))
+ok("and it stops itself when its box leaves the page",
+   "isConnected" in EMBED)
+
+# A JS string literal written "\\u2026" is a backslash and then u2026, so the
+# customer reads the escape rather than the ellipsis — on the page they are
+# looking at while they wait. Four of these were on this form.
+ok("no escape sequence reaches the customer as text",
+   not re.search(r"\\\\u[0-9a-fA-F]{4}", EMBED))
+
+
+# ------------------------------------- the build screen, where the wait is
+section("The Display Ad Builder's build screen marks its billed calls")
+
+# The staff half of the same tool, and the screen with the longest waits in
+# the Hub: two image generations and a copy draft, all billed, all tens of
+# seconds. It had no mark of any kind — not a border spinner, not a class the
+# upgrader could have found — only a sentence of text that did not change.
+# That is the note CLAUDE.md already makes about the QA reports saying
+# "Running report…" in two words with no sign it was still going, on the one
+# screen where it costs money to wait.
+#
+# It is a blueprint on the hub app (hub/ad_builder_proxy.register), so the
+# hub's own injector reaches it and window.S1Think is there. Guarded anyway,
+# every time: the same file is also served straight off the renderer.
+BUILD = (ROOT / "modules" / "ad_builder" / "public" / "build.html").read_text()
+
+ok("the build screen asks for the mark", "S1Think" in BUILD)
+ok("and degrades to the message alone without it",
+   "window.S1Think" in BUILD)
+ok("the model's own waits draw the star", "'ai'" in BUILD)
+ok("somebody else's server draws the dish", "'scan'" in BUILD)
+# Six waits hang off one panel and they are not alike. The kind travels with
+# the message rather than every call site being edited again next time.
+ok("bgBusy takes the kind rather than assuming one",
+   "function bgBusy(what, kind)" in BUILD)
+# Every call site, not most of them: a wait left without a kind falls back to
+# the arc, which on a billed model call is the glyph for "our own database"
+# and reads as the cheap wait it is not. The call spans lines, so the kind is
+# looked for between the call and its closing paren rather than on one line.
+_calls, _kinded = 0, 0
+for _chunk in BUILD.split("bgBusy(")[1:]:
+    if _chunk.startswith("what, kind)"):          # the definition itself
+        continue
+    _calls += 1
+    _head = _chunk.split(";")[0]
+    if any(k in _head for k in ("'ai'", "'scan'", "'wait'")):
+        _kinded += 1
+ok("and every one of its callers names one",
+   _calls and _kinded == _calls, f"{_kinded} of {_calls}")
+
+# A wait that changes hands halfway. The page is fetched (their server) and
+# then a model writes from it (billed) — back to back, and one glyph for both
+# says either that the model never started or that a page fetch was billed.
+ok("attach() can move the glyph as well as the words",
+   "handle.stage = function (text, nextKind)" in SCRIPT)
+ok("an unrecognized kind changes nothing",
+   "KINDS.indexOf(nextKind) >= 0" in SCRIPT)
+ok("the elapsed line is not restarted by the change",
+   "box.replaceChild" in SCRIPT and "started = Date.now()" not in
+   SCRIPT.split("handle.stage = function (text, nextKind)")[1].split("};")[0])
+ok("and the build screen uses it on both of its two-part waits",
+   BUILD.count("think.stage(") >= 2)
+
+# ensureLanding() caches on state.landing, so the second draft has no page to
+# fetch. Announcing a step that is not happening is the indicator claiming
+# what it does not know — the one thing it must never do.
+_readings = re.findall(r"var reading = ([^;]+);", BUILD)
+ok("both two-part waits decide the reading step the same way",
+   len(_readings) == 2, f"found {len(_readings)}")
+ok("the reading step is claimed only when there is a page to read",
+   BUILD.count("var hasPage = !!state.landingPage;") == 2
+   and all(r.strip() == "hasPage && !state.landing" for r in _readings),
+   "; ".join(_readings))
+# And the copy draft says what it is doing when there is no page at all:
+# "writing from what their page says" about a campaign that has none is a
+# claim about a page that does not exist, and it is the sentence a rep
+# would quote back when the copy turns out to be wrong.
+ok("with no landing page it does not claim to have read one",
+   "'Writing your ad copy\\u2026'" in BUILD)
+
+
 # ------------------------------------------- the screens that say which wait
 section("The screens that know which kind of wait they are, say so")
 

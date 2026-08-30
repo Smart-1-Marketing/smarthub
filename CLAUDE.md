@@ -201,6 +201,56 @@ prospect who starts a scan on a client's site and a rep who starts one from
 Site Scans are waiting on the identical thing and it must not look like two
 features.
 
+**The screen with the longest waits in the Hub had no mark at all, and
+nothing could have found it.** The Display Ad Builder's build screen makes
+three billed calls — two image generations and a copy draft, each tens of
+seconds — and carried no spinner, no `.spin`, no class the upgrader could
+have caught: a sentence of text that did not change, which is the note this
+file already makes about the QA reports saying "Running report…" in two
+words with no sign they were still going. It is the one module that is not
+Python, so a sweep for `.spin` in templates and stylesheets went straight
+past it. `hub-thinking.js` was *there* the whole time —
+`hub/ad_builder_proxy.register` is a blueprint on the hub app, so the hub's
+own injector reaches it even though the response is streamed — and the page
+simply never asked.
+
+Six waits hang off one panel there and they are not alike, so `bgBusy(what,
+kind)` takes the kind rather than each call site being edited again the next
+time the mark changes: two are a model drawing, two are somebody else's
+server (the client's own landing page, the stock libraries) and two are our
+own storage. **Two of them change hands halfway** — the page is fetched and
+*then* a model writes from it — so `attach()`'s handle gained
+`stage(text, kind)`, which swaps the glyph and keeps the box. Two marks in
+sequence would say the same thing and would read as two waits rather than
+one that moved on, and each would restart the elapsed line, which on the
+longest wait on that screen is the number that matters. And the reading step
+is claimed **only when there is a page still to fetch**: `ensureLanding()`
+caches, so a second draft goes straight to the model and announcing a step
+that is not happening is the indicator claiming what it does not know.
+
+**And the customer-facing half of that tool is a fourth surface, not a
+fourth copy of the decision.** `modules/ad_builder/public/embed.html` is the
+intake form a client frames on their own marketing site, served straight off
+the renderer with `frame-ancestors` set — and it is not one of the proxy's
+`PUBLIC_PATTERNS`, so a prospect never reaches it through the Hub and
+`hub-thinking.js` is not on it and cannot be. Same answer as the three scan
+pages: the glyphs are inlined, the same paths at the same 1.9s, with the
+same reduced-motion rule, and `test_thinking.py` holds all three
+implementations in step. What it also carried was **its own third copy of
+the stage timer** — two captions alternating every 1.8 seconds, for ever,
+which past about four seconds is exactly what a hung page looks like: the
+words go round and nothing else changes. The caption is said once now and an
+elapsed line carries the rest, silent until six seconds and stopping itself
+when its box leaves the page, because half that form ends a wait by
+assigning `innerHTML` over whatever was there.
+
+Four escape sequences on that same form reached the customer as text. A JS
+string literal written `'\\u2026'` is a backslash followed by `u2026`, so
+somebody filling in the form read *"Creating your image\u2026"* and *"\u2713
+This photo will be used"* — on the page they were looking at while they
+waited, which is the only place they appear. Nothing in this repo could see
+it: the file parses, the page renders, and the English is correct.
+
 **Bubbles mount on late-rendered content.** Client 360, the SEO client page
 and Image Creator draw panels from a fetch. `hub-help.js` runs a debounced
 MutationObserver for this. A bubble added to a JS-rendered panel works; one
@@ -6437,7 +6487,8 @@ python3 test_ai_proposals.py       # the model proposes, the code decides, a per
                                    #   presses: project names, client photos, ticket type
 python3 test_thinking.py           # the mark that says a scan or a model is running:
                                    #   one implementation, three kinds, both halves
-                                   #   of the app, and nothing claiming a result
+                                   #   of the app, nothing claiming a result, and
+                                   #   the three inline copies held in step
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
