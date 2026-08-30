@@ -176,6 +176,10 @@ CLIENT_FACING: dict[str, str] = {
 NOT_A_TOOL: dict[str, str] = {
     "hub": "the dashboard and Client 360 -- the Hub itself, not a tool tile",
     "qa": "the QA report index, reached from its own page",
+    "client_health": "My Clients, reached from the nav and the QA index "
+                     "rather than tiled on Creative or Client Tools",
+    "client_owner": "Assign Clients, reached from the QA index and from the "
+                    "owner strip on a client record",
     "seo": "the schema and FAQ builders, reached from a client record",
     "demo": "the walkthrough layer explaining itself",
 }
