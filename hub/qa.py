@@ -2255,6 +2255,132 @@ def io_delivery_report() -> dict:
     }
 
 
+
+def knack_field_map() -> dict:
+    """Every Knack object and field this Hub knows about, and who owns each.
+
+    The running record of what is mapped and what is still somebody's
+    assumption, so that pushing more into Knack is a reviewed step rather than
+    a hopeful one. A field id pinned to the wrong column writes into the wrong
+    place on a live record — and Knack refuses the *whole* record over one bad
+    value, so an unconfirmed mapping costs the write rather than the field.
+
+    Nothing here is restated: `hub/knack_map.py` reads each mapping from the
+    module that owns it, so a field repinned in `knack_products` shows up here
+    without anybody editing a table.
+    """
+    from . import knack_map
+
+    rows_in = knack_map.fields()
+    checked = knack_map.verify()
+    live = {(r["object"], r["key"]): r for r in (checked.get("rows") or [])}
+    summary = knack_map.summary()
+
+    columns = ["Field", "Id", "How", "Read / written", "Knack says",
+               "Confirmed"]
+    rows, styles = [], []
+
+    by_object = {}
+    for row in rows_in:
+        by_object.setdefault(row["object"], []).append(row)
+
+    for obj, meta in knack_map.OBJECTS.items():
+        group = by_object.get(obj)
+        label = f"{meta['name']} ({obj})"
+        if meta.get("discovered"):
+            label = f"{meta['name']} (object discovered from its own ids)"
+        if not group:
+            # An object with no mapping to show is still on the record: one
+            # matched by label, and one read for its records rather than its
+            # fields, are each a fact about how much of Knack is pinned.
+            why = ("its fields are matched by label rather than pinned"
+                   if meta["how"] == knack_map.BY_LABEL else
+                   "read for its records, not for its fields")
+            rows.append([{"group": f"{label} — {why}",
+                          "tone": "now" if meta["how"] == knack_map.BY_LABEL
+                                  else "later"}, "", "", "", "", ""])
+            styles.append(None)
+            continue
+        done = sum(1 for r in group if r["confirmed"])
+        rows.append([{"group": f"{label} — {done} of {len(group)} confirmed "
+                               f"· {meta['tool']}",
+                      "tone": "later"}, "", "", "", "", ""])
+        styles.append(None)
+        for row in group:
+            seen = live.get((obj, row["key"]))
+            if seen is None:
+                says = "not measured"
+            elif seen["found"]:
+                says = f"{seen['knack_label']} ({seen['knack_type']})"
+            else:
+                says = "NOT ON THIS OBJECT"
+            rows.append([
+                row["key"],
+                row["field"],
+                row["how"],
+                "written" if row["written"] else "read",
+                says,
+                {"knack_confirm": f"{obj}|{row['key']}|{row['field']}",
+                 "state": ("superseded" if row["superseded"]
+                           else "yes" if row["confirmed"] else "no"),
+                 "detail": (f"{row['confirmed_by'] or 'not recorded'} · "
+                            f"{row['confirmed_at'][:10]}" if row["confirmed"]
+                           else f"was confirmed as {row['was_confirmed_as']}"
+                           if row["superseded"] else "")},
+            ])
+            # A field the Hub writes and nobody has confirmed is the row this
+            # report exists for. One it only reads is worth confirming and is
+            # not urgent, so it is not drawn as a fault.
+            if seen is not None and not seen["found"]:
+                styles.append("bad")
+            elif row["superseded"]:
+                styles.append("warn")
+            elif row["written"] and not row["confirmed"]:
+                styles.append("warn")
+            else:
+                styles.append(None)
+
+    note = (f"{summary['fields']} field mappings across {summary['objects']} "
+            f"Knack objects. {summary['written']} of them are written by this "
+            f"Hub and {summary['written_unconfirmed']} of those have not been "
+            "confirmed against the live builder by anybody \u2014 which is the "
+            "list to work down before more is pushed into Knack, because a "
+            "value Knack refuses costs the whole record rather than the "
+            "field.")
+    if summary["unpinned_objects"]:
+        note += (" " + ", ".join(summary["unpinned_objects"])
+                 + " is still matched by label rather than pinned: a renamed "
+                   "label breaks that silently, which is the state object_107 "
+                   "was in before its ids were pinned.")
+    if summary["superseded"]:
+        note += (f" {summary['superseded']} confirmation"
+                 f"{'' if summary['superseded'] == 1 else 's'} "
+                 f"{'was' if summary['superseded'] == 1 else 'were'} given for "
+                 "an id the code no longer pins, so "
+                 f"{'it has' if summary['superseded'] == 1 else 'they have'} "
+                 "been retired rather than carried onto a different column.")
+    if not checked.get("measured"):
+        note += (" " + (checked.get("error") or "The live builder could not be "
+                        "read.") + " The map is still worth reviewing on "
+                 "paper; what is missing is what Knack calls each id.")
+    for err in checked.get("errors") or []:
+        note += " " + err + "."
+    note += (" Nothing on this page writes to Knack: it reads the schema, and "
+             "a confirmation is a Hub-side note of who checked what.")
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        # Deliberately measured even with no Knack: the map itself is the
+        # answer this report exists to give, and the live check is the half
+        # that is missing. Reporting the whole thing unmeasurable would hide
+        # the record somebody is meant to work down.
+        "measured": True,
+        "note": note,
+    }
+
+
 # Whole tools rather than table-returning functions, and every one of them
 # answers "what is wrong / what do we owe" -- which is the question the QA page
 # exists for. They were on the Tools page under a group called "Client Work",
@@ -2358,6 +2484,16 @@ REPORTS = {
         "ico": "&#9679;",
         "fn": active_clients,
         "group": "Clients",
+    },
+    "knack-field-map": {
+        "title": "Knack Field Map",
+        "desc": "Every Knack object and field this Hub reads or writes, which "
+                "tool owns it, what Knack itself calls the id, and whether "
+                "anybody has confirmed the mapping \u2014 the record to work "
+                "down before more is pushed into Knack.",
+        "ico": "&#128279;",
+        "fn": knack_field_map,
+        "group": "Data Quality",
     },
     "io-money-mismatch": {
         "title": "Campaigns Not At Order Value",

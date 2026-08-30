@@ -5657,6 +5657,70 @@ that prefix — a card pointed anywhere else renders on every screen except
 inside the Suite frame, and fails silently there. `test_io_records.py` asserts
 all of it.
 
+### What is mapped in Knack, and what is still somebody's assumption
+
+`hub/knack_map.py` and **QA → Data Quality → Knack Field Map**. Knack is the
+system of record and this Hub reaches into it from nine modules, and there was
+no one description of what it thinks each object and field is — so "which
+mappings have we confirmed?" could only be answered by reading nine files and
+holding the answer in your head. That question matters far more the moment
+more is pushed into Knack: a field id pinned to the wrong column writes into
+the wrong place on a live record, and Knack refuses the **whole** record over
+one bad value, so an unconfirmed mapping costs the write rather than the field.
+
+**It is not a second copy of the field ids.** Nine modules pin them and each
+owns its own; a copy here is the drift `hub/config.py`'s ALIASES table and the
+two rate cards have each paid for. `fields()` imports from the owning module —
+`knack_api.field_ids()`, `knack_api.SUPPORT_FIELDS`, `knack_websites.FIELDS`,
+`ad_copy.field_ids()`, the `knack_products` constants — so a field repinned
+there moves here with no edit, and one that stops existing cannot linger in a
+table nobody re-read. `test_knack_map.py` asserts that by repinning a constant
+and requiring the map to follow, and asserts the file carries no `field_<n>`
+literal of its own.
+
+**What lives here is the part no module holds**: which object each map belongs
+to, which tool creates the records, whether the ids are pinned or matched by
+label, and whether a person has confirmed the mapping against the live builder.
+Today that is **110 fields across 7 objects, 64 of them written**.
+
+**A field is confirmed once, against the object, and every tool inherits it.**
+Object 135's monthly cost is read by Client 360, the scorecards, the billing
+reports and the IO reconciliation; checking it four times is four chances to
+disagree. So a confirmation is keyed on object and field rather than on tool.
+
+**A confirmation is a person, a date and a field** — never an object. "We
+checked object_153" is the kind of assurance nobody can act on later, and the
+point is to be able to say which of the eighteen were looked at. **The id is
+stored with it**, so repinning a field *retires* the tick and the row says
+**superseded** rather than carrying a confirmation from one column silently
+onto another, which is the single way this record could become worse than
+having none.
+
+**A field matched by label is a finding, not a mapping.** `object_140`
+(Campaign Change Requests) is still matched by label and is a **write target**;
+`hub/knack_api.py`'s own comment says why that is dangerous — a renamed label
+breaks label matching silently, which is exactly the state `object_107` was in
+before its ids were pinned. It is reported as unpinned rather than listed as
+though it were confirmed.
+
+**Without Knack the live check is not measured, and the report is still
+measured.** `verify()` reads the schema and says what Knack calls each id; with
+no credentials it refuses rather than drawing ticks nobody earned. But the
+report itself still answers, because the map *is* what it exists to show and
+calling the whole thing unmeasurable would hide the record somebody is meant to
+work down. The two halves are said apart.
+
+**Nothing here writes to Knack.** It reads the schema and writes one small
+Hub-side overlay of confirmations; the test asserts that from the AST, and that
+the module does not import `requests` so it could not reach an API by accident.
+
+**The five write paths in daily use are not gated on this.** Tickets, campaign
+support, ad copy, the dashboard-URL button and the website record are live, and
+switching them off until a hundred and ten rows are ticked would break working
+tools to make a record tidy. What the map does is say which of them are running
+on a mapping nobody has confirmed — 64 of 64 today — so that is a list to work
+down rather than a gate that fires on the wrong day.
+
 ### An order we sent, and the campaign nobody set up
 
 `hub/io_reconcile.py` and **QA → Data Quality → Orders With No Campaign**.
@@ -9468,6 +9532,9 @@ python3 test_menu_layout.py        # the three index pages: every tool tiled onc
                                    #   computes the same plan and captures nothing
 python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
                                    #   one reading, and counts that land on rows
+python3 test_knack_map.py          # what is mapped in Knack and what is
+                                   #   assumed: read from the owning modules,
+                                   #   a confirmation retired when repinned
 python3 test_io_reconcile.py       # the orders we sent against the campaigns
                                    #   Knack has: a stale source never reads as
                                    #   proof, a row can be settled, and the
