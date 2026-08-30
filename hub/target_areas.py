@@ -792,17 +792,6 @@ def area_zips(area) -> dict:
     return result
 
 
-def running_zips(areas) -> list[str]:
-    """Every ZIP a campaign actually runs in, exceptions applied."""
-    seen, out = set(), []
-    for area in normalize(areas):
-        for code in area_zips(area)["kept"]:
-            if code not in seen:
-                seen.add(code)
-                out.append(code)
-    return out
-
-
 # ---------------------------------------------------------------------------
 # Pasting a list of locations instead of typing each one into a box
 #
