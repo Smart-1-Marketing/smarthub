@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Fan Radio — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --bad:#dc2626;--ok:#16a34a;--warn:#b45309;--turf:#0f5132}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 90px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px;max-width:80ch;line-height:1.55}
   .back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
   h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
@@ -77,7 +78,7 @@
 </style>
 </head>
 <body data-module="fan_radio">
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="/tools">← Tools</a>
   <h1>Fan Radio</h1>
   <p class="sub">Football-flavoured :15 and :30 spots in three dayparts — pre-game

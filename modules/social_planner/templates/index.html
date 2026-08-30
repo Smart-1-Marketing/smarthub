@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Social Content Planner — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --bad:#dc2626;--warn:#b45309;--ok:#16a34a}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:78ch;line-height:1.55}
   .back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
   h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
@@ -87,7 +88,7 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="/creative">&larr; Creative</a>
   <h1>Social Content Planner {{ help_dot('social.planner') if help_dot is defined else '' }}</h1>
   <p class="sub">Build a client's month of organic posts in one pass, then export it for

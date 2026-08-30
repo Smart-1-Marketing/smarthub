@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page Image Optimizer · Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{
     --navy:#0a2240; --navy-2:#143a63; --cyan:#17b6c9; --cyan-dk:#0e8fa1;
     --ink:#16202c; --muted:#64748b; --line:#e3e9f0; --bg:#f4f7fa;
@@ -33,10 +37,6 @@
         border:1px solid var(--line);color:var(--muted)}
   .step.on{background:var(--navy);border-color:var(--navy);color:#fff}
   .step.done{background:var(--good-bg);border-color:#bfe4d4;color:var(--good)}
-
-  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);
-        padding:20px;margin-bottom:18px}
-  .card > h2{font-size:16px;margin-bottom:4px}
   .card > .hint{color:var(--muted);font-size:13px;margin:0 0 16px}
 
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
@@ -149,7 +149,7 @@
   </div>
 </header>
 
-<div class="wrap">
+<div class="wrap s1d-page">
   <nav class="steps" aria-label="Progress">
     <span class="step on" id="s1">1 · Page</span>
     <span class="step" id="s2">2 · Choose images</span>

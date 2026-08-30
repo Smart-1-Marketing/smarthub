@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Website Blocks — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --bad:#dc2626;--ok:#16a34a}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1400px;margin:0 auto;padding:26px 22px 80px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 18px;max-width:96ch;line-height:1.55}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
   h2{color:var(--navy);font-size:14px;margin:0 0 12px;letter-spacing:.01em}
   h2 .c{color:var(--muted);font-weight:500;font-size:12px;margin-left:6px}
   label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin:10px 0 4px}
@@ -83,7 +84,7 @@
 </style>
 </head>
 <body data-module="site_blocks">
-<div class="wrap">
+<div class="wrap s1d-page">
 
   <h1>Website Blocks {{ help_dot('site_blocks.intro') if help_dot is defined else '' }}</h1>
   <p class="sub">Builds a landing-page section for smart1marketing.com in the same
