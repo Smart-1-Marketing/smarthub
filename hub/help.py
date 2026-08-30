@@ -926,6 +926,21 @@ def tour(screen: str) -> list[dict]:
     return [h.as_dict() for h in sorted(steps, key=lambda x: x.step or 999)]
 
 
+def has_tour(screen: str) -> bool:
+    """Whether THIS screen registers tour steps of its own.
+
+    Exact, unlike `tour()` above, which falls back to the module prefix when a
+    screen has none. That fallback is right for serving a tour somebody asked
+    for and wrong for deciding whether to OFFER one: asked that way, every
+    screen in a module carrying any steps at all answers yes, and then draws
+    another screen's steps over elements that are not on the page — a ring
+    anchored to nothing, with the narration still reading confidently. Which
+    is the Smart 1 Ads failure, and the reason a layout asks this rather than
+    drawing data-screen on the truth of a name.
+    """
+    return any(h.step and h.key.startswith(screen + ".") for h in REGISTRY)
+
+
 def screens() -> list[str]:
     return sorted({h.screen for h in REGISTRY})
 
