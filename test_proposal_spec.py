@@ -778,6 +778,80 @@ check("each addition names itself rather than sharing one sentence",
 
 
 # ---------------------------------------------------------------------------
+section("YouTube is judged at the weights and shapes the kit publishes")
+# ---------------------------------------------------------------------------
+# The 2025 model named two formats to the kit's six, one of them under a name
+# Google retired -- "TrueView" is a metric now -- and all three of its shared
+# numbers refused creative the kit allows. The file weight is the one worth
+# stating plainly: 10 MB against a published 256 GB, which the kit's own
+# update note calls wrong by four orders of magnitude.
+_yt = {u["id"]: u for u in cs.UNITS if u["channel"] == "youtube"}
+check("YouTube carries the six formats the kit publishes", len(_yt) == 6,
+      sorted(u["name"] for u in _yt.values()))
+check("and nothing is still called TrueView",
+      not any(u["name"] == "TrueView" for u in _yt.values()),
+      [u["name"] for u in _yt.values()])
+check("...while the id survives, because tags_for() has written it onto creative",
+      _yt["youtube_trueview"]["name"] == "Skippable in-stream",
+      _yt["youtube_trueview"]["name"])
+
+_GB = 1024 * 1024 * 1024
+check("a 500 MB spot is accepted, against a published 256 GB",
+      cs.check(unit_id="youtube_trueview", width=1920, height=1080, fmt="mp4",
+               size_bytes=500 * _MB, duration=45)["result"] == "pass",
+      cs.check(unit_id="youtube_trueview", width=1920, height=1080, fmt="mp4",
+               size_bytes=500 * _MB, duration=45)["summary"])
+check("an .mpg master is accepted — it is the preferred format",
+      cs.check(unit_id="youtube_trueview", width=1920, height=1080, fmt="mpg",
+               size_bytes=4 * _GB, duration=30)["result"] == "pass")
+check("a 1080x1920 vertical is accepted as Shorts",
+      cs.check(unit_id="youtube_shorts", width=1080, height=1920, fmt="mp4",
+               size_bytes=200 * _MB, duration=45)["result"] == "pass")
+check("and a skippable spot has no maximum length to fall outside",
+      "duration" not in _yt["youtube_trueview"],
+      _yt["youtube_trueview"].get("duration"))
+
+# The lengths that are published still bite, or raising the rest would have
+# been a loosening rather than a correction.
+check("a :08 bumper is still refused",
+      cs.check(unit_id="youtube_bumper", width=1920, height=1080, fmt="mp4",
+               size_bytes=50 * _MB, duration=8)["result"] == "fail")
+check("a :04 non-skippable is under the published :07",
+      cs.check(unit_id="youtube_non_skippable", width=1920, height=1080,
+               fmt="mp4", size_bytes=50 * _MB, duration=4)["result"] == "fail")
+check("and :90 is past the :60 reservation cap",
+      cs.check(unit_id="youtube_non_skippable", width=1920, height=1080,
+               fmt="mp4", size_bytes=50 * _MB, duration=90)["result"] == "fail")
+check("a .wmv master is still not one of the eight",
+      cs.check(unit_id="youtube_trueview", width=1920, height=1080, fmt="wmv",
+               size_bytes=50 * _MB, duration=30)["result"] == "fail")
+check("and a 4:3 Shorts is refused on the ratio",
+      cs.check(unit_id="youtube_shorts", width=1440, height=1080, fmt="mp4",
+               size_bytes=50 * _MB, duration=30)["result"] == "fail")
+
+# The Commercial Builder reads this unit's :06 to decide that a bumper is its
+# own length rather than a rounding of the :05, so the transcription must not
+# quietly move it.
+check("the bumper is still (0, 6), which the Commercial Builder reads",
+      _yt["youtube_bumper"]["duration"] == (0, 6),
+      _yt["youtube_bumper"]["duration"])
+
+# Nine codecs printed once per unit across a six-unit buy is the wall the
+# sizes rule already exists for, on the line a client reads.
+_yt_line = cn.units_line(
+    {"items": [{"product": "TrueView", "category": "YOUTUBE",
+                "dollars": 3000}]}, "video")
+check("a long format list says how many more rather than printing all nine",
+      "MPG/MPEG/MP4/MOV/WEBM and 4 more" in _yt_line, _yt_line[:160])
+check("...and a list of five or fewer is still printed whole",
+      "PDF/DOC/DOCX/PPT/PPTX" in cn.units_line(
+          {"items": [{"product": "LinkedIn - Display & Text Ads - Budget "
+                                 "Based - No Impression Guarantee",
+                      "category": "SOCIAL ADS - VIDEO", "dollars": 3000}]},
+          "social"))
+
+
+# ---------------------------------------------------------------------------
 section("the gate and the spec kit read the same product the same way")
 # ---------------------------------------------------------------------------
 # Two readings of one question -- whether to ask for creative, and what to ask

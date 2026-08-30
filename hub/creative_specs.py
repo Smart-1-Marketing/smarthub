@@ -219,14 +219,108 @@ UNITS: list[dict[str, Any]] = [
      "max_bytes": 10 * GB, "duration": (15, 60), "bitrate_kbps": (15000, 30000),
      "notes": ["VAST 2.0 / 3.0 compliant.",
                "Third-party VAST must contain MP4 and FLV format videos."]},
-    {"id": "youtube_trueview", "channel": "youtube", "name": "TrueView",
-     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
-     "max_bytes": 10 * MB, "duration": (12, 180),
-     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+    # ---- YouTube ---------------------------------------------------------
+    # Transcribed against the 2026 kit. The 2025 model held two formats to the
+    # kit's six, one of them under a name Google has retired -- "TrueView" is
+    # a *metric* now, TrueView views, spanning four of these formats -- and
+    # every one of its three shared numbers refused creative the kit allows.
+    # The file weight is the one worth stating plainly: **10 MB against a
+    # published 256 GB**, which the kit's own update note calls wrong by four
+    # orders of magnitude. A YouTube ad under 10 MB is a file nobody delivers,
+    # so this refused every real upload -- and it refused them at the upload
+    # manager, where the answer reads as the client's file being wrong.
+    #
+    # The other two ran the same way: 16:9 alone, when the kit publishes 9:16
+    # and 1:1 beside it (so a Shorts vertical failed on ratio), and MP4 or MOV
+    # alone against eight accepted formats with MPG the *preferred* one.
+    #
+    # `youtube_trueview` keeps its id, the rule `billboard` gives: tags_for()
+    # has written `unit_youtube_trueview` onto delivered creative. It becomes
+    # Skippable in-stream, which is what we were describing -- In-feed video
+    # is the other half of what TrueView used to name and is its own unit
+    # rather than a second claim on that id.
+    {"id": "youtube_trueview", "channel": "youtube",
+     "name": "Skippable in-stream",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm", "prores", "dnxhr", "cineform", "hevc"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "text": {"headline": 40, "description": 35},
+     "notes": ["No maximum length; under 3:00 is recommended.",
+               "The viewer can skip at 5 seconds.",
+               "A Google Ads reservation runs :12 to 6:00.",
+               "Video assets are uploaded to YouTube. Google's ad policy requires "
+               "a public video; the Shorts asset page permits unlisted, so "
+               "use public unless a Google rep says otherwise for the "
+               "campaign type.",
+               "MPG is the preferred delivery format.",
+               "Thumbnail: 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Companion banner: 300x60 at 5:1, under 150 KB, desktop only."]},
+    {"id": "youtube_non_skippable", "channel": "youtube",
+     "name": "Non-skippable in-stream",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm", "prores", "dnxhr", "cineform", "hevc"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB, "duration": (7, 60),
+     "notes": [":07 to :15 is standard; :16 to :30 runs on Connected TV.",
+               "The policy cap is :30 on auction and :60 on reservation.",
+               "Video assets are uploaded to YouTube. Google's ad policy requires "
+               "a public video; the Shorts asset page permits unlisted, so "
+               "use public unless a Google rep says otherwise for the "
+               "campaign type.",
+               "MPG is the preferred delivery format.",
+               "Thumbnail: 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Companion banner: 300x60 at 5:1, under 150 KB, desktop only."]},
     {"id": "youtube_bumper", "channel": "youtube", "name": "Bumper",
-     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
-     "max_bytes": 10 * MB, "duration": (0, 6),
-     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm", "prores", "dnxhr", "cineform", "hevc"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB, "duration": (0, 6),
+     "notes": ["Six seconds or shorter, and non-skippable.",
+               "Video assets are uploaded to YouTube. Google's ad policy requires "
+               "a public video; the Shorts asset page permits unlisted, so "
+               "use public unless a Google rep says otherwise for the "
+               "campaign type.",
+               "MPG is the preferred delivery format.",
+               "Thumbnail: 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Companion banner: 300x60 at 5:1, under 150 KB, desktop only."]},
+    {"id": "youtube_in_feed", "channel": "youtube", "name": "In-feed video",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm", "prores", "dnxhr", "cineform", "hevc"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "notes": ["No maximum length is specified.",
+               "This is what TrueView Discovery was called.",
+               "Video assets are uploaded to YouTube. Google's ad policy requires "
+               "a public video; the Shorts asset page permits unlisted, so "
+               "use public unless a Google rep says otherwise for the "
+               "campaign type.",
+               "MPG is the preferred delivery format.",
+               "Thumbnail: 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Companion banner: 300x60 at 5:1, under 150 KB, desktop only."]},
+    {"id": "youtube_shorts", "channel": "youtube", "name": "YouTube Shorts",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm", "prores", "dnxhr", "cineform", "hevc"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920),
+     "max_bytes": 256 * GB, "duration": (1, 180),
+     "notes": ["Up to 3:00, but the feed shows the first :60 only.",
+               "Under :60 is recommended; :06 to :60 in Video Reach and "
+               ":10 to :30 for action campaigns.",
+               "Video assets are uploaded to YouTube. Google's ad policy requires "
+               "a public video; the Shorts asset page permits unlisted, so "
+               "use public unless a Google rep says otherwise for the "
+               "campaign type.",
+               "MPG is the preferred delivery format.",
+               "Thumbnail: 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Companion banner: 300x60 at 5:1, under 150 KB, desktop only."]},
+    {"id": "youtube_masthead", "channel": "youtube", "name": "Masthead",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm", "prores", "dnxhr", "cineform", "hevc"],
+     "size": (1920, 1080), "max_bytes": 256 * GB,
+     "notes": ["Any length; over :10 is recommended.",
+               "Video assets are uploaded to YouTube. Google's ad policy requires "
+               "a public video; the Shorts asset page permits unlisted, so "
+               "use public unless a Google rep says otherwise for the "
+               "campaign type.",
+               "MPG is the preferred delivery format.",
+               "Thumbnail: 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Companion banner: 300x60 at 5:1, under 150 KB, desktop only."]},
     {"id": "ctv", "channel": "ctv", "name": "Connected TV / OTT",
      "kind": "video", "formats": ["mp4"], "size": (1920, 1080),
      "max_bytes": 10 * GB, "duration": (15, 30), "bitrate_kbps": (15000, 30000),
@@ -937,7 +1031,8 @@ def _plain(fragment: str) -> str:
 
 
 _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
-                     "tiktok": "tiktok", "snapchat": "snapchat"}
+                     "tiktok": "tiktok", "snapchat": "snapchat",
+                     "youtube-video": "youtube"}
 
 # Transcribed against the 2025 kit and not yet re-checked against 2026, with
 # what is known to have moved. Not findings -- a backlog somebody works down,
@@ -945,8 +1040,6 @@ _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
 # the build on them. Each is a client being asked for a format under a name
 # its platform has changed or dropped.
 _KIT_NAMES_PENDING = {
-    "youtube": "'TrueView' is retired branding for what the kit calls "
-               "Skippable in-stream; the kit also sells Shorts and Masthead",
     "native_display": "the kit's asset list is per-platform (The Trade Desk "
                       "and Google Demand Gen) and names 8 assets to our 2",
 }

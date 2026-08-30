@@ -4880,12 +4880,12 @@ tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
 declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
-`linkedin`, `tiktok` and `snapchat` today. The two still on the 2025
-transcription are named in `_KIT_NAMES_PENDING` with what is known to have
-moved (YouTube's *TrueView* is now *Skippable in-stream*), and
-`kit_coverage()` carries them. A backlog named rather than left as an absence
-— a check listing every platform on the day it is written is red on the day
-it is written, and gets switched off.
+`linkedin`, `tiktok`, `snapchat` and `youtube` today. The one still on the
+2025 transcription is named in `_KIT_NAMES_PENDING` with what is known to have
+moved (native display's asset list is per-platform and names eight assets to
+our two), and `kit_coverage()` carries it. A backlog named rather than left as
+an absence — a check listing every platform on the day it is written is red on
+the day it is written, and gets switched off.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
@@ -4988,6 +4988,30 @@ what the client owed us. `ADDITIONS` maps each to **its own words**, because
 a moving 720x1560 GIF. Splitting it would invent two names the kit does not
 publish, which is exactly what `kit_name_drift()` exists to catch. No file
 weight is published for it, so none is invented.
+
+**And YouTube is the largest number this file records.** Its 2025 model held
+two formats to the kit's six, one of them under a name Google has retired —
+*TrueView* is a **metric** now, TrueView views, spanning four of these formats
+— and all three of its shared numbers refused creative the kit allows. The
+file weight is the one worth stating plainly: **10 MB against a published
+256 GB**, which the kit's own update note calls wrong by four orders of
+magnitude. A YouTube ad under 10 MB is a file nobody delivers, so this refused
+**every real upload**, at the upload manager, where the answer reads as the
+client's file being wrong. The other two ran the same way: 16:9 alone when the
+kit publishes 9:16 and 1:1 beside it, so a Shorts vertical failed on ratio;
+and MP4 or MOV alone against eight accepted formats with **MPG the preferred
+one**. `youtube_trueview` keeps its id and becomes Skippable in-stream, which
+is what it was describing; In-feed video is the other half of what TrueView
+used to name and is its own unit rather than a second claim on that id. The
+`(0, 6)` bumper is unchanged, because `modules/commercial_builder/config.py`
+reads it to decide that a :06 is its own length rather than a rounding of the
+:05.
+
+**A run of nine codecs is the wall the sizes rule already exists for.**
+Printed once per unit across a six-unit buy, on the line a client reads, it
+buries everything else on it. `_describe_unit()` prints five whole — which is
+every other unit in the kit — and past that says how many more, rather than
+pretending the list is all of them.
 
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
