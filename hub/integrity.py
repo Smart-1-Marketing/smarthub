@@ -173,6 +173,66 @@ def check_untracked_provider_usage() -> list[dict]:
     return out
 
 
+def _calls_the_logger(src: str) -> bool:
+    """Does this source actually *call* the activity logger?
+
+    The AST, not the text, and a call rather than an import -- the two ways
+    this went wrong in opposite directions.
+
+    It read `"for_module(" in src` before, which is satisfied by binding the
+    logger and never using it. Seven modules did exactly that: imported it,
+    assigned it, wrapped it in a no-op fallback, wrote a comment above the
+    import explaining why attribution mattered, and called it nowhere. The
+    check reported all seven as modules that log.
+
+    Reading the text the other way is the mistake hub/config.py's drift check
+    and hub/image_audit.py's producer check each name: several files here
+    explain this very trap in prose, so a substring match reports the
+    explanation of the fix as the defect.
+
+    Two shapes count, because both are in use:
+      audit.log("mod", "thing")          -- the direct call
+      log = audit.for_module("mod"); log("thing")   -- the bound logger
+    A file that only binds counts for nothing; a file that only calls a name
+    bound in *another* file of the same module still counts, because the
+    module is what is being asked about.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return False
+
+    bound: set[str] = set()
+    direct = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        owner = func.value.id if isinstance(func.value, ast.Name) else ""
+        if func.attr == "log" and "audit" in owner.lower():
+            direct = True
+        elif func.attr == "for_module":
+            for parent in ast.walk(tree):
+                if isinstance(parent, ast.Assign) and parent.value is node:
+                    bound.update(t.id for t in parent.targets
+                                 if isinstance(t, ast.Name))
+    if direct:
+        return True
+
+    # A bound logger only counts once something calls it. Names bound in this
+    # file are checked here; a module whose binding and call sit in different
+    # files is covered because seen[mod] is an OR across the module's files.
+    called = {n.func.id for n in ast.walk(tree)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    if bound & called:
+        return True
+    # A call to a conventionally-named module logger whose binding is in a
+    # sibling file (modules/scans and modules/msa are shaped that way).
+    return bool(called & {"_audit", "_log", "_cb_log"})
+
+
 def check_silent_modules() -> list[dict]:
     """A module that never writes to the activity log is unauditable.
 
@@ -189,9 +249,9 @@ def check_silent_modules() -> list[dict]:
     search covers hub/ as well as the module's own files.
     """
     try:
-        from .audit import LOG_NAMES
+        from .audit import LOG_NAMES, NO_ACTIVITY
     except Exception:                               # noqa: BLE001
-        LOG_NAMES = {}
+        LOG_NAMES, NO_ACTIVITY = {}, {}
 
     out = []
     seen: dict[str, bool] = {}
@@ -202,9 +262,7 @@ def check_silent_modules() -> list[dict]:
         mod = _module_of(rel)
         if mod.endswith(".py"):        # modules/__init__.py is not a module
             continue
-        logs = ("hub import audit" in src or "hub.audit" in src
-                or "audit.log(" in src or "for_module(" in src)
-        seen[mod] = seen.get(mod, False) or logs
+        seen[mod] = seen.get(mod, False) or _calls_the_logger(src)
 
     # A module whose logging is written elsewhere — declared, and then actually
     # looked for, so a declaration alone cannot silence this.
@@ -218,16 +276,34 @@ def check_silent_modules() -> list[dict]:
                         if rel.startswith("hub/") for n in needles)
 
     for mod, logs in sorted(seen.items()):
-        if not logs:
-            out.append({
-                "file": f"modules/{mod}/", "module": mod,
-                "detail": "Never writes to the activity log, so nothing this "
-                          "module does is attributable.",
-                "fix": "log = audit.for_module(\"" + mod + "\") and call it on "
-                       "the actions that matter. If it logs under another name "
-                       "or from outside its own directory, declare that in "
-                       "hub/audit.py's LOG_NAMES.",
-            })
+        if logs or mod in NO_ACTIVITY:
+            continue
+        out.append({
+            "file": f"modules/{mod}/", "module": mod,
+            "detail": "Never writes to the activity log, so nothing this "
+                      "module does is attributable.",
+            "fix": "log = audit.for_module(\"" + mod + "\") and call it on "
+                   "the actions that matter. Binding it is not enough -- this "
+                   "check reads a call. If it logs under another name or from "
+                   "outside its own directory, declare that in hub/audit.py's "
+                   "LOG_NAMES; if it genuinely has nothing to log, declare it "
+                   "in NO_ACTIVITY with the reason.",
+        })
+
+    # An exemption that outlives what it exempted goes on covering whatever is
+    # written at that path next -- check_stale_json_exemptions()'s rule, and
+    # the reason NO_ACTIVITY is a table rather than a habit.
+    live = set(seen)
+    for mod in sorted(NO_ACTIVITY):
+        if mod in live:
+            continue
+        out.append({
+            "file": "hub/audit.py", "module": mod,
+            "detail": f"NO_ACTIVITY exempts {mod!r} from the activity log and "
+                      f"there is no such module any more.",
+            "fix": f"Drop {mod!r} from hub/audit.NO_ACTIVITY. Left there it "
+                   f"silently exempts whatever is written at that path next.",
+        })
     return out
 
 
@@ -892,7 +968,62 @@ def check_provider_key_drift() -> list[dict]:
     return out
 
 
+def check_ghl_scope_coverage() -> list[dict]:
+    """A file that writes to HighLevel with no scope declared for it.
+
+    High, for the same reason `provider_key_drift` is: every finding it can
+    produce is silent by construction. The write runs on the agency Private
+    Integration Token today and works, so nothing looks wrong — right up until
+    that call moves onto a per-sub-account token, where the scope was never
+    consented to. Then it 401s for every client at once, looking exactly like
+    a bad token, and the fix is not a code change but an agency re-consent that
+    somebody has to sit through.
+
+    The check exists because the hand-written version could not work. The test
+    enumerated five known call sites, so it re-confirmed what somebody had
+    already thought of and could never find the sixth — and within a few months
+    two had slipped past it: hub/qa.py grew an opportunity-status write, and
+    the Social Planner's posting moved from app.py into suite_client.py while
+    the table went on naming app.py.
+
+    It asserts the weak invariant on purpose: the file must be named in *some*
+    scope's `needed_by`, not that the right scope was chosen. Inferring the
+    scope from an endpoint is where false positives come from, and a check
+    people learn to ignore is worse than no check. Being named is enough to
+    guarantee somebody looked at it.
+    """
+    try:
+        from . import ghl_scopes
+    except Exception:                               # noqa: BLE001
+        return []
+
+    out = []
+    for rel in ghl_scopes.undeclared_writes():
+        out.append({
+            "file": rel, "module": _module_of(rel),
+            "detail": "Writes to the HighLevel API but no scope in "
+                      "hub/ghl_scopes.py names it. On the agency token this "
+                      "works; on a per-sub-account token it 401s for every "
+                      "client, because the scope was never consented to.",
+            "fix": "Add the file to the `needed_by` of the scope its write "
+                   "needs, or to WRITE_EXEMPT with the reason it needs none.",
+        })
+    for rel in ghl_scopes.stale_declarations():
+        out.append({
+            "file": rel, "module": _module_of(rel),
+            "detail": "hub/ghl_scopes.py declares this file as a caller, but "
+                      "it no longer exists. A declaration pointing at a "
+                      "deleted file reads as coverage and is not.",
+            "fix": "Point the scope's `needed_by` at the file that took over "
+                   "the call, or drop the entry.",
+        })
+    return out
+
+
+
 CHECKS = [
+    ("ghl_scope_coverage", "A GHL write with no scope declared for it", "high",
+     check_ghl_scope_coverage),
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),
     ("convert_without_resize", "Converts without resizing", "high", check_convert_without_resize),
     ("untracked_openai", "OpenAI spend not recorded", "medium", check_untracked_openai),

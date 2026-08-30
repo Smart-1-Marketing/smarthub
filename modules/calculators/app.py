@@ -39,16 +39,17 @@ from flask import (Blueprint, Response, abort, current_app, jsonify,
 from . import catalog, store
 from hub.webargs import clamp_int
 
-# Activity logging. Guarded so this module still runs standalone, but
-# inside the Hub every action is attributable — this module published calculators and captured leads,
-# and an unattributable change to a client's account is one nobody can
-# explain later.
-try:
-    from hub import audit as _hub_audit
-    _audit = _hub_audit.for_module("calculators")
-except Exception:  # noqa: BLE001
-    def _audit(*a, **k):  # no-op outside the Hub
-        return None
+# No activity logging here, deliberately, and it is declared in
+# hub/audit.NO_ACTIVITY with the reason rather than left to be rediscovered.
+#
+# This module used to bind `_audit = audit.for_module("calculators")` under a
+# comment claiming "every action is attributable", and then call it nowhere --
+# which silenced the silent-module check on the strength of the import alone.
+# The binding is gone rather than wired, because what a public calculator
+# produces is a LEAD: a stranger on somebody else's website typing into an
+# estimate box. Those go through hub/leads.py, the one store, delivery and
+# panel for a prospect. A row per estimate would file hundreds of strangers
+# into a log about what we did for a CLIENT.
 
 
 bp = Blueprint("calculators", __name__, template_folder="templates")

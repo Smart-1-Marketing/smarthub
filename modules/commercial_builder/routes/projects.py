@@ -455,10 +455,25 @@ def set_cta(project_id):
         qr_data_url = qr_result.get("data_url")
         qr_error = qr_result.get("error") or ""
         if qr_result.get("bytes_io") and cloudinary_service.is_live():
-            upload = cloudinary_service.upload_asset(qr_result["bytes_io"], client.slug, "logo",
-                                                       public_id=f"project-{project_id}-qr", resource_type="image",
-                                                       client_name=client.name)
+            # `filename` is passed because bytes carry no name, and the
+            # extension is what the format is read from — upload_asset asks
+            # rather than guessing one, since a wrong guess puts a .png on an
+            # MP3. This whole call had never once succeeded: it hands over a
+            # BytesIO, and until upload_asset understood bytes it stringified
+            # the object and open()'d that as a path.
+            upload = cloudinary_service.upload_asset(
+                qr_result["bytes_io"], client.slug, "logo",
+                public_id=f"project-{project_id}-qr", resource_type="image",
+                client_name=client.name, filename="qr.png")
             qr_image_url = upload.get("secure_url") or qr_image_url
+            # And the failure was swallowed twice — once by upload_asset's own
+            # except, once here by an `or` that never read `error`. The code
+            # still renders from the data URL, so this is a note rather than a
+            # refusal; saying nothing is what let it run silently for so long.
+            if upload.get("error") and not upload.get("secure_url"):
+                qr_error = (qr_error + " " if qr_error else "") + (
+                    "The code was generated but could not be stored: "
+                    f"{upload['error']}")
 
     project.cta = {
         "style": data.get("style", "logo_centered"),
