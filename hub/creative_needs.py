@@ -184,6 +184,26 @@ CATEGORY_MEDIUM = {
     "mobile only": DISPLAY,
     "email marketing": EMAIL,
     "smart 1 signage": DOOH,
+    # ...and two headings that are not media buys at all, which the keyword
+    # pass below could not tell apart from one. Adding SOCIAL to the gate made
+    # the word "social" decisive, so `Social Media Ad Creation per platform` --
+    # the card's own $35 *production* line -- was gated as a social buy and
+    # asked whether the client already had the creative it exists to produce;
+    # and `Social Media Management`, a $199/month organic posting retainer
+    # that buys no advertising, was asked the same. Both then printed "the
+    # spec kit maps no unit for this" onto the client's creative section, and
+    # both counted their spend into the social medium, which is what decides
+    # whether a comped $35 line is questioned at all.
+    #
+    # Named by category rather than product, because the other four lines
+    # under CREATIVE / DESIGN SERVICES already answered OTHER by accident --
+    # they simply contain no medium keyword -- and the next production line
+    # added there must not depend on that luck. It is the reason
+    # `SPEC_AGREE_EXEMPT` already carries ("other", "email") in writing: a
+    # creative-production line item is not a media buy that needs creative
+    # supplied for it.
+    "creative / design services": OTHER,
+    "social media management": OTHER,
 }
 
 
@@ -573,7 +593,7 @@ def required_units(state, medium: str) -> dict:
                         f"Sizes not measured."}
 
     seen, units = set(), []
-    unmapped = []
+    unmapped, chan_ids = [], set()
     for item in products:
         rows = creative_specs.units_for_product(
             str(item.get("product") or ""), str(item.get("category") or ""))
@@ -581,6 +601,7 @@ def required_units(state, medium: str) -> dict:
             unmapped.append(str(item.get("product") or item.get("category") or ""))
             continue
         for unit in rows:
+            chan_ids.add(unit.get("channel", ""))
             if unit["id"] in seen:
                 continue
             seen.add(unit["id"])
@@ -600,13 +621,32 @@ def required_units(state, medium: str) -> dict:
                 "seconds": list(duration) if len(duration) == 2 else [],
             })
 
+    # Formats the kit sells for these channels that this Hub has no unit for.
+    # Not the same answer as `unmapped` above: there the kit maps nothing at
+    # all and the requirement says so, here it maps most of the buy and is
+    # silent about the rest — which reads as a complete list and is the more
+    # dangerous of the two. A Meta requirement listing Stories and never Reels
+    # is the confident wrong answer this module exists to avoid, and the
+    # published page says in as many words that the two are not
+    # interchangeable.
+    try:
+        unmodelled = creative_specs.unmodelled_for(chan_ids)
+    except Exception:                                   # noqa: BLE001
+        unmodelled = []
+
     note = ""
     if unmapped:
         note = ("The spec kit maps no unit for " + ", ".join(sorted(set(unmapped)))
                 + " — sizes for those are not measured here.")
+    if unmodelled:
+        extra = ("The kit also sells " + ", ".join(unmodelled)
+                 + " on this buy, and there is no unit here to measure "
+                   "those against — ask for them separately.")
+        note = f"{note} {extra}".strip()
     return {"units": units,
             "products": [str(p.get("product") or "") for p in products],
             "measured": bool(units), "note": note,
+            "not_measured_formats": unmodelled,
             "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
 
 
@@ -686,4 +726,19 @@ def units_line(state, medium: str) -> str:
         parts = [", ".join(sizes)]
     if not parts:
         return result.get("note") or "Sizes not measured."
+    # The published formats we hold no unit for ride on this line as well as
+    # in the note, because this is the line that reaches the client document.
+    # Left in the note alone, the requirement a client actually reads lists
+    # Stories and never Reels and looks complete.
+    extra = result.get("not_measured_formats") or []
+    if extra:
+        parts = parts + [f"the kit also sells {_and(extra)} — not sized here"]
     return " · ".join(parts)
+
+
+def _and(items) -> str:
+    """"a", "a and b", "a, b and c" — a list a person reads, not a join."""
+    items = [str(i) for i in items if i]
+    if len(items) <= 1:
+        return items[0] if items else ""
+    return ", ".join(items[:-1]) + " and " + items[-1]

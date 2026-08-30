@@ -70,7 +70,165 @@ WORK_KINDS = {
     # skipped module reads on the record as a client nobody has done any work
     # for -- the `display_ads` failure, two tools later.
     "website_audit":        ("Website audit", "Website Audit"),
+    # Five more, found by asking the question of every call site rather than
+    # one tool at a time. Each writes `audit.log(..., client=…)` and each was
+    # dropped on the way to the record it was written for. The insertion
+    # order is the worst of them: it is the document the campaign is sold on,
+    # and `hub/io_clients.py` exists precisely because a client whose only
+    # trace is an IO was invisible on their own record — so the IO was
+    # registering the client and then not appearing as work for them.
+    "io_builder":           ("Insertion order", "IO Builder"),
+    # Built for a client and often pasted onto the client's own domain.
+    "landing_maker":        ("Landing page", "Landing Page Maker"),
+    # Creative picked for a client, the same kind of row as seo_images and
+    # image_picker, which are both already here.
+    "stock_photos":         ("Stock photo used", "Stock Photos"),
+    # A logo filed into their gallery, and a brand guide delivered to their
+    # Suite. Both are things the client receives.
+    "brand":                ("Brand assets", "Brand"),
+    # `hub/ghl_blog.py` publishing a post's llms.txt into the client's Suite.
+    "suite":                ("Published to Suite", "Smart 1 Suite"),
 }
+
+# The other side of the same question, written down rather than left as an
+# absence. These modules log with a `client=` and are deliberately **not**
+# work produced for a client, so `check_work_kinds()` can tell "decided to
+# leave out" apart from "nobody has noticed yet" — which is the only reason
+# the check can be green rather than a list somebody re-triages every time it
+# runs. The rule `tools/spellcheck.py`'s ALLOW works to: per name, with the
+# reason beside it.
+NOT_WORK = {
+    # Every landing module files the prospect's own business name from the
+    # form. A prospect is not a client, and putting a lead on a client record
+    # would be the Hub inventing a relationship — the distinction
+    # `hub/leads.py` and `hub/prospect.py` are built around.
+    "leads":        "a prospect, not a client we have done work for",
+    "boat":         "a lead off a landing page — the prospect's own name",
+    "hvac":         "a lead off a landing page — the prospect's own name",
+    "legal":        "a lead off a landing page — the prospect's own name",
+    "recruit":      "a lead off a landing page — the prospect's own name",
+    "restaurant":   "a lead off a landing page — the prospect's own name",
+    "rv":           "a lead off a landing page — the prospect's own name",
+    "ski":          "a lead off a landing page — the prospect's own name",
+    "stadium":      "a lead off a landing page — the prospect's own name",
+    "tourism":      "a lead off a landing page — the prospect's own name",
+    # A join we recorded, not something the client received. Attaching a GA4
+    # property says who owns it; it does not say we made anything.
+    "google_index": "a resource joined to a client, not work delivered",
+    # Hub housekeeping: a domain attached, an SEO task ticked. Same reason.
+    "hub":          "housekeeping — a join or a status, not a deliverable",
+    "qa":           "a report row acted on, not work produced",
+}
+
+
+def check_work_kinds(root=None) -> list[dict]:
+    """Module names that log client work and that this table cannot name.
+
+    `work_log()` skips a module it cannot name, and a skipped module is
+    indistinguishable on the record from a client nobody has done any work
+    for. That has now happened five times — display_ads, ad_copy,
+    website_audit and the five added above — each found by somebody opening
+    one client's record and noticing, which is not a way of finding the sixth.
+
+    Reads `audit.log(...)` call sites through the AST rather than by matching
+    text: three modules explain this failure in prose that quotes the call,
+    and a check that reads the explanation of a fix as the defect is one
+    somebody switches off. Only an attribute call on a name ending in
+    `audit` counts — a bare `log()` is a module's own wrapper whose first
+    argument is the event rather than the module, and counting those made
+    four modules look misfiled.
+    """
+    import ast
+    import os
+
+    base = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out, seen = [], {}
+    for folder in ("hub", "modules"):
+        top = os.path.join(base, folder)
+        for dirpath, dirnames, filenames in os.walk(top):
+            dirnames[:] = [d for d in dirnames
+                           if d not in ("_attic", "node_modules", ".git")]
+            for name in filenames:
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    with open(path, encoding="utf-8", errors="ignore") as fh:
+                        tree = ast.parse(fh.read())
+                except (OSError, SyntaxError):
+                    continue
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    f = node.func
+                    if not (isinstance(f, ast.Attribute) and f.attr == "log"
+                            and isinstance(f.value, ast.Name)
+                            and f.value.id.endswith("audit")):
+                        continue
+                    if not any(k.arg == "client" for k in node.keywords):
+                        continue
+                    if not node.args:
+                        continue
+                    first = node.args[0]
+                    if not (isinstance(first, ast.Constant)
+                            and isinstance(first.value, str)):
+                        continue
+                    mod = first.value
+                    if mod in WORK_KINDS or mod in NOT_WORK:
+                        continue
+                    seen.setdefault(mod, set()).add(
+                        os.path.relpath(path, base))
+    for mod in sorted(seen):
+        out.append({
+            "file": sorted(seen[mod])[0],
+            "module": mod,
+            "detail": (f"logs work against a client under {mod!r}, which "
+                       "hub/client_brand.WORK_KINDS cannot name — work_log() "
+                       "skips it, so the client record reads as a client "
+                       "nobody has done any work for"),
+            "fix": (f"Add {mod!r} to WORK_KINDS with how to describe it, or "
+                    "to NOT_WORK with the reason it is not a deliverable."),
+        })
+    return out
+
+
+def stale_work_exemptions(root=None) -> list[str]:
+    """NOT_WORK entries naming a module that no longer logs with a client.
+
+    An exemption that outlives what it exempted goes on covering whatever is
+    written under that name next — the failure `check_stale_json_exemptions()`
+    names, on a different shelf.
+    """
+    import ast
+    import os
+
+    base = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    live = set()
+    for folder in ("hub", "modules"):
+        for dirpath, dirnames, filenames in os.walk(os.path.join(base, folder)):
+            dirnames[:] = [d for d in dirnames
+                           if d not in ("_attic", "node_modules", ".git")]
+            for name in filenames:
+                if not name.endswith(".py"):
+                    continue
+                try:
+                    with open(os.path.join(dirpath, name), encoding="utf-8",
+                              errors="ignore") as fh:
+                        tree = ast.parse(fh.read())
+                except (OSError, SyntaxError):
+                    continue
+                for node in ast.walk(tree):
+                    if (isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute)
+                            and node.func.attr == "log"
+                            and isinstance(node.func.value, ast.Name)
+                            and node.func.value.id.endswith("audit")
+                            and node.args
+                            and isinstance(node.args[0], ast.Constant)
+                            and isinstance(node.args[0].value, str)
+                            and any(k.arg == "client" for k in node.keywords)):
+                        live.add(node.args[0].value)
+    return sorted(set(NOT_WORK) - live)
 
 
 def _norm(name: str) -> str:

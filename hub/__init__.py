@@ -5272,7 +5272,21 @@ def create_hub_app() -> Flask:
             # and "we could not look" read identically as zero.
             demo = {"measured": False,
                     "error": f"{type(exc).__name__}: {exc}"}
-        return jsonify({"bubbles": bubbles, "walkthroughs": demo})
+        try:
+            from . import help_coverage
+            coverage = help_coverage.report()
+        except Exception as exc:                        # noqa: BLE001
+            coverage = {"measured": False,
+                        "reason": f"{type(exc).__name__}: {exc}"}
+        # One question asked of three mechanisms, answered on one panel
+        # for the same reason the other two are: bubbles and walkthroughs
+        # ask whether an explanation *works*, and this asks whether one
+        # was ever written.
+        # Split across two screens they come to disagree about which tools
+        # are explained -- and this one already had a surface of its own
+        # answering `missing: []` while two dozen tiled tools had nothing.
+        return jsonify({"bubbles": bubbles, "walkthroughs": demo,
+                        "coverage": coverage})
 
     @app.route("/api/celebrations")
     def api_celebrations():
