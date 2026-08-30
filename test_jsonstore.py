@@ -416,6 +416,73 @@ check("test_blog_publish.py assigns both, as CI says it does",
       (_blog.get("HUB_DATA_DIR"), _blog.get("DATABASE_URL")), ("assign", "assign"))
 
 
+section("Every log follows the one root, not its own copy of the rule")
+# =====================================================================
+# data_root() says why it exists: "every module had its own copy of this
+# expression. They all agreed, which is luck rather than design: the moment
+# one of them disagreed, its files would land somewhere the backup sweep never
+# looks." hub/audit.py and hub/errors.py were two such copies, and they did
+# disagree -- on HUB_DATA_DIR, which data_root() reads first and neither read
+# at all. Both preferred /var/data unconditionally.
+#
+# Nothing moved on Render, where HUB_DATA_DIR is unset and /var/data is
+# mounted. What it cost was every test that sets HUB_DATA_DIR and then reads
+# one of those logs: it was handed the real shared one. test_msa_embed.py
+# asserts that signing writes an entry carrying the client -- and on this
+# machine fourteen `msa` rows were already there, entries[0] already carried
+# "Acme Marine, LLC", and both assertions passed before the test ran a line.
+# Dropping client= from the route left it green.
+#
+# So: a log answers to the root, and the explicit per-file override still
+# wins, because naming one file is the more specific answer.
+
+import subprocess as _sp                                          # noqa: E402
+
+_probe = """
+import os, sys, json, tempfile
+root = tempfile.mkdtemp(prefix="rootcheck_")
+os.environ["HUB_DATA_DIR"] = root
+os.environ.pop("AUDIT_LOG_PATH", None)
+os.environ.pop("ERROR_LOG_PATH", None)
+sys.path.insert(0, %r)
+from hub import audit, errors, jsonstore
+out = {"root": jsonstore.data_root(), "audit": audit._path(),
+       "errors": errors._path()}
+os.environ["AUDIT_LOG_PATH"] = "/tmp/named-audit.jsonl"
+os.environ["ERROR_LOG_PATH"] = "/tmp/named-errors.jsonl"
+import importlib
+importlib.reload(audit); importlib.reload(errors)
+out["audit_named"] = audit._path()
+out["errors_named"] = errors._path()
+print(json.dumps(out))
+""" % str(ROOT)
+
+# A subprocess, because both modules read the environment at call time and
+# this file has already set HUB_DATA_DIR for its own run.
+_r = _sp.run([sys.executable, "-c", _probe], capture_output=True, text=True)
+check("the probe runs", _r.returncode, 0)
+if _r.returncode:
+    print("   " + (_r.stderr or "").strip()[-300:])
+else:
+    _p = json.loads(_r.stdout.strip().splitlines()[-1])
+    check("the activity log follows HUB_DATA_DIR",
+          _p["audit"].startswith(_p["root"]), True)
+    check("the error log follows HUB_DATA_DIR",
+          _p["errors"].startswith(_p["root"]), True)
+    # Neither may fall back to the shared disk while a root is named.
+    check("...and neither falls back to /var/data",
+          [x for x in (_p["audit"], _p["errors"]) if x.startswith("/var/data")], [])
+    # Naming one file is more specific than naming a root.
+    check("AUDIT_LOG_PATH still wins", _p["audit_named"], "/tmp/named-audit.jsonl")
+    check("ERROR_LOG_PATH still wins", _p["errors_named"], "/tmp/named-errors.jsonl")
+
+# And neither may go back to deciding for itself.
+for _rel in ("hub/audit.py", "hub/errors.py"):
+    _src = (ROOT / _rel).read_text(encoding="utf-8")
+    check(f"{_rel} defers to the one root", "jsonstore.data_root()" in _src, True)
+
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
