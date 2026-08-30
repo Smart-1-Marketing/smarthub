@@ -4174,46 +4174,67 @@ note says so rather than letting a site billed either way read as unbilled.
 ## Wiring four call sites is not wiring the module
 
 `/api/integrity`'s silent-module check reads a **call** now rather than an
-import, and seven modules that had bound `hub.audit` and never used it were
-fixed. `modules/sites_admin` was one of them, and what it got was four call
-sites: suspend/cancel/reactivate, connect domain, disconnect domain, delete
-website. Four more writes on the same screens stayed silent, and every one of
-them changes something a client would notice.
+import, and the seven modules that had bound `hub.audit` and never used it
+were fixed. That sweep wired a handful of call sites per module and stopped,
+and nothing could see the remainder — because **the check one level up is
+satisfied by one call site.** It asks whether a module logs *at all*, which is
+the same shape as the check that read the string `for_module(` and counted the
+binding. A module can be loudly attributable about a quarter of its work and
+pass.
 
-**The create half of a destroy/create pair was the one left out.**
-`delete_website` has been attributable since that fix and `add_site` — which
-creates a client's website and can activate a paid plan — was not, so the
-record showed sites being deleted by somebody and appearing from nowhere.
-`personalization` writes brand colors and tags onto a client's live pages.
-`pricing` sets `client_price`, which is what they are billed, **and**
-`internal_client_name`, which is the join `hub/domain_links.py` writes and
-every domain-keyed report reads — changing it moves a website onto a different
-client's record, which is precisely the attribution nobody can reconstruct
-afterwards. And `project_sso` mints a builder session into the site: not a
-change, but the door the changes are made through, and an unexplained edit to
-a client's pages is answerable only if somebody can say who was let in.
+**Two modules were found doing exactly that, and in both the creating half of
+a create/destroy pair was the half left out.**
 
-**Nothing could see it, because the check one level up is satisfied by one
-call site.** `test_activity_logging.py` asks whether a module logs *at all* —
-which is the same shape as the check that read the string `for_module(` and
-counted the binding, one level finer. A module can be loudly attributable
-about a quarter of its work and pass.
+`modules/sites_admin` recorded `delete_website` and not `add_site`, which
+makes a client's website and can activate a paid plan — so the record showed
+sites being deleted by somebody and appearing from nowhere. Nor
+`personalization`, which writes brand colors onto their live pages, nor
+`pricing`, which sets `client_price` **and** `internal_client_name` — the join
+`hub/domain_links.py` writes and every domain-keyed report reads, so changing
+it moves a website onto a different client's record. Nor `project_sso`, which
+is not a change to the site but is the door the changes are made through.
 
-`HOUSEKEEPING_ROUTES` is the other side, written down rather than left as an
-absence: the reads, the imports of our own tables, and the question-asking
-route, each with its reason, so a silent write is a decision somebody made
-rather than one nobody noticed. `test_sites_admin.py` holds it in **both**
-directions — a write route in neither list fails, and an entry naming a route
-that is gone or one that has since started logging fails too — reads the
-**AST** rather than the text, because this module's own comments name `_audit`
-while explaining why it went uncalled, and is handed a silent route and
-required to name it, because a check that has only ever been green is one
-nobody can trust.
+`modules/google_finder` recorded `disconnect` and not `oauth_callback`, which
+is the moment the Hub *gains* a refresh token for somebody else's Google
+account — the grant every write in that module is made under. And it recorded
+`gtm_deploy_event` while `gtm_deploy_pixel` went unrecorded: arbitrary code,
+in a container we do not own, which is the very action this file already names
+as one of the least attributable in the Hub. `api_gsc_bulk_add` writes
+properties into their Search Console and was silent too.
 
-**And every one of the four logs after the provider answered**, inside the
-try, which is the shape `project_action`'s own comment already describes and
-the shape `approve_render` uses in the Commercial Builder: a change Simvoly
-refused is not written down as a change that was made.
+**One walk, read by both.** `audit.write_route_attribution()` is the question
+asked one level finer, and it lives beside the log rather than being copied
+per module: two readings of one question drift the day either is edited, the
+failure `_client_log_modules()` already had to undo. It reads the **AST**,
+because both modules name `_audit` in comments explaining why it had gone
+uncalled and a check matching text reports the fix as the defect; it resolves
+a module's own `log()` wrapper, the shape `check_work_kinds()` had to learn;
+and it is handed a silent route and required to name it.
+
+**A route that writes without a write method is named rather than missed.**
+Google redirects the browser to `oauth_callback`, so it is a `GET` by protocol
+and a method-based walk cannot classify it — while what it does is store a
+credential. It is asserted by name, because the one thing worse than a walk
+that misses a route is a walk that misses it silently.
+
+**`HOUSEKEEPING_ROUTES` is the other side**, per module, each entry with its
+reason: the reads, the imports of our own tables, and GA4's `runReport`, which
+is a POST that reads. Held in both directions, so an entry naming a route that
+is gone — or one that has since started logging — fails.
+
+**And every one of the new calls logs after the provider answered**, inside
+the try, the shape `project_action`'s own comment already describes and
+`approve_render` uses in the Commercial Builder: a change Simvoly or Google
+refused is not written down as one that was made.
+
+**What is deliberately not here is a repo-wide gate.** The same walk over
+every module that logs finds about **229 silent write routes across 34
+files**, and the great majority are genuinely housekeeping — autosaves,
+drafts, previews, and POSTs that read. A check landing with 229 findings
+nobody can act on is the one people learn to skip, which is the note
+`help_audit.demo_targets()` already makes about the walkthrough backlog. The
+modules that have been triaged declare their remainder and are held to it; the
+rest is a list somebody works down, module by module.
 
 ## Two guards on one client account, and both worked about half the time
 
@@ -9793,10 +9814,11 @@ python3 test_client_owners.py      # whose client is this, and what is outstandi
                                    #   not be read named rather than counted
                                    #   as nothing
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
-python3 test_sites_admin.py        # every write on a client's website has a
-                                   #   name against it: creating one was silent
-                                   #   while deleting one was logged, and the
-                                   #   remainder is declared rather than absent
+python3 test_write_attribution.py   # every write into a client's own account
+                                   #   has a name against it: in both modules
+                                   #   the creating half of a pair was the half
+                                   #   left out, and the remainder is declared
+                                   #   rather than left as an absence
 python3 test_suite_panel.py        # creating and deleting Suite sub-accounts:
                                    #   a claim taken before the work and shared
                                    #   between workers, a duplicate check that

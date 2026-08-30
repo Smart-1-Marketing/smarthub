@@ -227,6 +227,80 @@ def tail(limit: int = 300, module: str | None = None,
     return out
 
 
+def _route_methods(fn) -> set:
+    """The HTTP methods a Flask view is registered for, from its decorators."""
+    import ast as _ast
+    methods, is_route = set(), False
+    for d in fn.decorator_list:
+        if not (isinstance(d, _ast.Call) and isinstance(d.func, _ast.Attribute)):
+            continue
+        if d.func.attr == "route":
+            is_route = True
+            named = False
+            for kw in d.keywords:
+                if kw.arg == "methods":
+                    methods |= {e.value.upper() for e in kw.value.elts
+                                if isinstance(e, _ast.Constant)}
+                    named = True
+            if not named:
+                methods.add("GET")
+        elif d.func.attr in ("get", "post", "put", "delete", "patch"):
+            is_route = True
+            methods.add(d.func.attr.upper())
+    return methods if is_route else set()
+
+
+def write_route_attribution(source: str) -> dict:
+    """Which of a module's write routes record who did the work, and which do not.
+
+    ``/api/integrity``'s silent-module check asks whether a module logs **at
+    all**, and one call site satisfies it — the same shape as the check that
+    read the *string* ``for_module(`` and counted the binding. So a module can
+    be loudly attributable about a quarter of its work and pass: Sites Admin
+    recorded deleting a client's website and not creating one, and Google
+    Finder recorded deploying a tag and not deploying a pixel into the same
+    container. This is that question asked one level finer.
+
+    Read through the **AST**, never by matching text: the two modules this was
+    written for both name ``_audit`` in comments explaining why it had gone
+    uncalled, and a check that matches the explanation reports the fix as the
+    defect — the rule ``hub/config.py``'s drift check gives at length.
+
+    Returns ``{"logs": [...], "silent": [...], "declared": {name: reason}}``.
+    A module declares the writes that deliberately record nothing in its own
+    ``HOUSEKEEPING_ROUTES``, so the remainder is a decision somebody made
+    rather than one nobody noticed — and an entry naming a route that is gone,
+    or one that has since started logging, is a caller's to reject.
+    """
+    import ast as _ast
+    tree = _ast.parse(source)
+    logs, silent, declared = [], [], {}
+
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Assign) and any(
+                getattr(t, "id", "") == "HOUSEKEEPING_ROUTES" for t in node.targets):
+            if isinstance(node.value, _ast.Dict):
+                declared = {k.value: v.value
+                            for k, v in zip(node.value.keys, node.value.values)
+                            if isinstance(k, _ast.Constant)
+                            and isinstance(v, _ast.Constant)}
+
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.FunctionDef):
+            continue
+        if not (_route_methods(node) & {"POST", "PUT", "DELETE", "PATCH"}):
+            continue
+        writes_a_row = any(
+            isinstance(c, _ast.Call) and (
+                (isinstance(c.func, _ast.Name) and c.func.id in ("_audit", "log"))
+                or (isinstance(c.func, _ast.Attribute) and c.func.attr == "log"
+                    and getattr(c.func.value, "id", "") == "audit"))
+            for c in _ast.walk(node))
+        (logs if writes_a_row else silent).append(node.name)
+
+    return {"logs": sorted(logs), "silent": sorted(silent), "declared": declared}
+
+
 def rotate(max_mb: int = 64, keep: int = 5) -> bool:
     """Roll the log when it gets large. Called nightly by the maintenance job.
 
