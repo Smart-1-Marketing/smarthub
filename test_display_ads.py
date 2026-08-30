@@ -381,6 +381,54 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
           "1200x628" in google and "1200x628" in meta)
 
 
+def test_a_white_box_round_the_logo_is_named_rather_than_scored():
+    """logo-tools.ts opens with a rule nothing asked.
+
+    "Any logo that is not already transparent must have its background
+    removed before compositing -- a white box around a logo on a coloured ad
+    looks broken." `hasTransparency()` was written for exactly that question
+    and had no caller anywhere in the repo.
+
+    The QA pass could not have caught it either, and read BETTER on the
+    broken ad: `logoInkLuminance()` averages every opaque pixel, so on a
+    plated logo it measures the plate. The same navy wordmark scores about
+    2.3:1 on a transparent canvas and about 9.9:1 with a white box behind it,
+    against a navy panel -- the box makes QA more confident about the one ad
+    with a white rectangle stamped across it.
+
+    The same corner sample failed the other way too. It never asked whether
+    the corners were opaque, so on an already-transparent logo they read
+    (0,0,0, alpha 0), black was taken for the background colour, and every
+    near-black pixel in the mark was made transparent: Rework logo erased a
+    #0a0a0a wordmark outright and reported success. #111111 survived only
+    because it happens to sit 51 units of colour distance from black against
+    a tolerance of 42, which is luck rather than a rule.
+
+    One reader now answers both -- what a flat opaque plate is, and whether
+    there is one.
+    """
+    tools = (MODULE / "src" / "logo-tools.ts").read_text()
+    qa = (MODULE / "src" / "qa.ts").read_text()
+
+    check("there is one description of what a plate is",
+          "export async function flatBackdrop" in tools)
+    check("and the stripper reads it rather than sampling again",
+          "backdropOf(data, width, height, channels)" in tools
+          and "spread > 60" not in tools.split("export async function removeFlatBackground")[1])
+    check("a transparent corner means there is no plate to strip",
+          "data[p + 3] < 250" in tools)
+    check("so an already-transparent logo is copied through, not eaten",
+          "if (!plate) {" in tools)
+
+    check("QA asks the same reader", "flatBackdrop" in qa)
+    check("and names the colour that will show",
+          "opaque rgb(" in qa and "Rework logo" in qa)
+    check("only when it will actually show against the panel",
+          "plateShowsAgainst" in qa and "PLATE_VISIBLE_DELTA" in qa)
+    check("and a plated logo gets no contrast finding at all",
+          "if (ink !== null && !plateShows) {" in qa)
+
+
 def test_the_alert_channel_reports_itself():
     """notify.ts promised a check that was never written.
 
