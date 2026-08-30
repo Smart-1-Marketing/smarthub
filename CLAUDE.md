@@ -273,6 +273,41 @@ client-facing tests that already fetch these pages each assert the mark
 reaches the **served** page — checking for the guard alone proves nothing,
 since every call site contains it whether the block was emitted or not.
 
+**Seven found by reading is how the eighth was missed.**
+`modules/fan_radio/templates/share.html` is the page a rep mails a client to
+approve a radio spot — `/r/<token>`, one of the three prefixes that module
+declares public — and approving said *"Sending…"* in a message line and
+grayed a button out, with nothing moving. It is the same defect as the seven
+above and it was not on the list, because the list was written by opening
+files. A list of the seven we fixed proves nothing about the ninth, so
+`test_thinking.py` asks the question of **every public route** instead: it
+reads each module's own `PUBLIC_PREFIXES` / `PUBLIC_PATHS`, finds the route
+functions under them, collects the templates those render, and requires any
+that runs a `fetch` or a `sendBeacon` to carry the mark or be named with a
+reason. `test_blueprint_guards.py`'s rule, wearing a spinner.
+
+Three things it has to get right. **A computed template name is still a
+render** — `modules/scans` picks between `widget.html` and
+`widget_audit.html` inside a helper and passes the result, so reading only
+the literal arguments would skip the two pages a prospect most often meets;
+the helper's own string constants are read, the looser reading
+`check_orphan_templates()` settled on for the same reason. **Finding nothing
+is a failure**, not a clean sweep — the count is asserted *and* four pages
+are named, because a set of the right size and the wrong contents is the same
+failure one step on. And **what it cannot reach is said rather than left
+implied**: the display-ad proof is served straight off the Node renderer, so
+no Flask route renders it and no Jinja global exists on it — the position
+`embed.html` is in, and the reason both carry their own inlined glyphs.
+
+The one exemption is the media calculator, named with its reason: it already
+draws a complete inline mark of its own — its own SVG, `role="status"`,
+`aria-live` and a reduced-motion rule, torn down in a `finally` — and it is
+framed on smart1marketing.com, where the shared block would be several
+kilobytes on a page whose whole job is to load, to replace six working lines.
+Converging what it *draws* with the Hub's own arc is separate work, and the
+check fails if the exemption ever outlives the page or the page gains the
+block anyway.
+
 **The screen with the longest waits in the Hub had no mark at all, and
 nothing could have found it.** The Display Ad Builder's build screen makes
 three billed calls — two image generations and a copy draft, each tens of
@@ -871,6 +906,46 @@ both ends and it cannot be taken retrospectively. When there are two of them,
 a comparison can come back without inventing anything.
 `test_dashboard_trends.py` holds both halves: the readings accumulate, and
 nothing on the page claims a comparison.
+
+**And the two Scorecards were measuring "running" a third way, on the same
+page as the reports that do not.** `qa._active_in_month()` was written beside
+the scorecard rather than beside `is_running()`, and it tested `status in
+("live", "complete")` — the narrow test that function's own docstring says
+"missed about a third of the work actually running". So Active Clients, No
+Dashboards and the renewal queue counted the union while the Salesperson and
+Partner Scorecards counted two statuses, three rows apart on `/qa`, with
+nothing on either saying they were measured differently. On this deployment's
+own export that hid **147 rows and $140,439 a month** from August, and took
+**Debi Greenfield and Kim Marshall** off the Scorecard entirely — two people
+with live work, each listed on Active Clients immediately above. Every screen
+was internally consistent, which is why it survived: the `/api/db/structure`
+versus `/api/integrity` trap, wearing a scorecard.
+
+`knack_data.ran_in_month()` is that rule now, a **neighbour** of `is_running()`
+rather than a second reading of it, because the two must still differ and the
+reasons only make sense read together. **Complete is a pass here and a fail
+there** — a finished row cannot cover today, and a row that ran January to
+June plainly delivered in March, so dropping it empties every historical
+month. **Live does not override the dates**: there it is a union, because an
+IO nobody has closed out is still delivering; asked about a month, a Live row
+with no term would land in all twelve. And **a row with no dates at all is in
+no month**, which the old test got right by accident — it trusted an undated
+row only when Live, and none of the export's 33 undated rows is Live, so the
+branch had never matched anything.
+
+What it keeps is the tolerance, **Cancelled included**: those rows sit inside
+their dates and bill, which is the reading `is_running()` already applies to
+the 73 of them worth $85,105 a month that Active Clients counts today. The
+limit is written down rather than discovered — Knack publishes no cancellation
+*date*, so an IO cancelled mid-term is counted for every month its term spans;
+the alternative was dropping rows the rest of the Hub counts, which is a third
+definition rather than one fewer. `test_qa_reports.py` asserts the invariant
+that binds them over the **real export** rather than a fixture — anything
+`is_running()` calls live today counts for the month containing today, its one
+documented exception named — and reads `_active_in_month`'s **AST** to require
+it be nothing but a call to the shared rule, because that function's own
+docstring quotes the old allowlist to explain the fix and a text match reports
+the explanation as the defect.
 
 **A filtered list that reports an unfiltered total is a wrong answer with
 two right ones either side of it.** `/tools/seo-images/api/gallery` filtered

@@ -377,6 +377,95 @@ check("and it says the window it actually uses",
 
 
 # ---------------------------------------------------------------------------
+section("The Scorecards measure 'running' the way the rest of the page does")
+# ---------------------------------------------------------------------------
+# The two Scorecards tested `status in ("live", "complete")` — the narrow test
+# `knack_data.is_running()`'s own docstring says "missed about a third of the
+# work actually running" — while every other report on /qa counted the union.
+# Nothing on either said they were measured differently, which is what made it
+# the /api/db/structure versus /api/integrity trap rather than a disagreement
+# somebody could see.
+import datetime as _dt                                          # noqa: E402
+
+from hub import knack_data                                      # noqa: E402
+
+_MS, _ME = _dt.date(2026, 8, 1), _dt.date(2026, 8, 31)
+
+
+def _row(status, start="07/01/2026", end="09/30/2026"):
+    return {"status": status, "start": start, "end": end}
+
+
+for label, rec, want in [
+    ("a Live row in term counts", _row("Live"), True),
+    ("a Complete row in term counts — it ran, even though it is finished",
+     _row("Complete"), True),
+    ("so do the in-flight statuses the old allowlist dropped",
+     _row("Pending Assets"), True),
+    ("...and Assigned", _row("Assigned"), True),
+    ("...and Scheduled", _row("Scheduled"), True),
+    ("...and Paused", _row("Paused"), True),
+    ("a Cancelled row in term counts, as it does everywhere else",
+     _row("Cancelled"), True),
+    ("a Revised row never counts — its replacement carries the numbers",
+     _row("Revised"), False),
+    ("a row whose term ended before the month does not count",
+     _row("Live", "01/01/2026", "03/31/2026"), False),
+    ("nor one that starts after it", _row("Live", "11/01/2026", "12/31/2026"), False),
+    ("a row with no dates is in no month at all",
+     {"status": "Live"}, False),
+]:
+    got = knack_data.ran_in_month(rec, _MS, _ME)
+    check(label, got is want, f"got {got!r}, wanted {want!r}")
+
+# The report must not keep a second copy of the rule -- read by AST, because
+# `_active_in_month`'s own docstring quotes the old allowlist to explain the
+# fix, and a check that matches text reports the explanation as the defect.
+_qa_tree = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text())
+_fn = next((n for n in ast.walk(_qa_tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "_active_in_month"),
+           None)
+check("_active_in_month is still there", _fn is not None)
+if _fn is not None:
+    _body = [n for n in _fn.body if not (isinstance(n, ast.Expr)
+                                         and isinstance(n.value, ast.Constant))]
+    check("it does nothing but hand the question to the shared rule",
+          len(_body) == 1 and isinstance(_body[0], ast.Return), ast.dump(_fn)[:120])
+    _called = {n.func.id for n in ast.walk(_fn)
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    check("and the rule it hands it to is knack_data's",
+          "_knack_ran_in_month" in _called, sorted(_called))
+    _strings = {n.value for n in ast.walk(_fn)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and n is not _fn.body[0].value}
+    check("with no status allowlist left behind",
+          not ({"live", "complete"} & {str(x).lower() for x in _strings}),
+          sorted(_strings))
+
+# The invariant that makes the two agree, over the real export rather than a
+# fixture: anything delivering today ran in the month containing today. The one
+# documented exception is a row with no dates -- is_running() accepts it on the
+# strength of a Live status, and a month test cannot place it.
+_today = _dt.date.today()
+_tms, _tme = qa._month_bounds(_today.strftime("%Y%m"))
+_disagree = [
+    r for r in knack_data.products()
+    if knack_data.is_running(r)
+    and not knack_data.ran_in_month(r, _tms, _tme)
+    and (r.get("start") or r.get("end"))
+]
+check("everything delivering today counts for this month",
+      len(_disagree), 0)
+
+# And the two salespeople the old rule hid are back on the scorecard.
+_sc = qa.run("sales-scorecard")
+_names = " ".join(str(c) for row in _sc["rows"] for c in row)
+for _who in ("Debi Greenfield", "Kim Marshall"):
+    check(f"{_who} has live work and appears on the Scorecard",
+          _who in _names, True)
+
+
+# ---------------------------------------------------------------------------
 section("Every QA tile points at something that answers")
 # ---------------------------------------------------------------------------
 # Six of the eight EXTRAS are whole tools rather than table-returning
