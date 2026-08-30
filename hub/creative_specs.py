@@ -395,30 +395,95 @@ UNITS: list[dict[str, Any]] = [
      "text": {"total": 280, "option": 25},
      "notes": ["2 to 4 options, 25 characters each.",
                "Runs 5 minutes to 7 days."]},
+    # ---- LinkedIn --------------------------------------------------------
+    # Transcribed against the 2026 kit. The 2025 model held five formats to
+    # the kit's eleven, and three of its numbers refused files the kit itself
+    # allows: Message Ads were capped at 40 KB against a published 2 MB,
+    # Sponsored Content video at 200 MB against 500 MB, and that video carried
+    # a `max_width` of 1080 while the kit publishes 1920. Each is the Half Page
+    # failure this file already records -- creative refused that the client was
+    # told to send.
+    #
+    # "Sponsored InMail" is what LinkedIn used to call Message Ads, and the id
+    # is kept through the rename for the reason `billboard` already gives:
+    # tags_for() has written `unit_li_inmail` onto delivered creative and a
+    # gallery filters on it.
     {"id": "li_single_image", "channel": "linkedin",
-     "name": "Sponsored Content — Single Image", "kind": "image",
-     "formats": ["jpg", "jpeg", "png"], "size": (1200, 627),
+     "name": "Sponsored Content \u2014 Single Image",
+     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
+     "sizes": [(1200, 628), (1200, 1200), (600, 900), (720, 900)],
      "max_bytes": 5 * MB,
-     "text": {"intro": 150, "headline": 70, "description": 100}},
-    {"id": "li_video", "channel": "linkedin", "name": "Sponsored Content — Video",
-     "kind": "video", "formats": ["mp4"], "max_width": 1080,
-     "min_bytes": 75 * KB, "max_bytes": 200 * MB, "duration": (3, 1800),
-     "text": {"intro": 600, "headline": 70}},
+     "text": {"intro": 150, "headline": 70, "description": 70},
+     "notes": ["600x900 and 720x900 are mobile-only.",
+               "The 70-character description shows on the LinkedIn Audience "
+               "Network only."]},
+    {"id": "li_video", "channel": "linkedin", "name": "Sponsored Content \u2014 Video",
+     "kind": "video", "formats": ["mp4"],
+     "ratios": [(9, 16), (1, 1), (16, 9), (4, 5)],
+     "min_width": 360, "min_bytes": 75 * KB, "max_bytes": 500 * MB,
+     "duration": (3, 1800),
+     "text": {"intro": 600, "headline": 200},
+     "notes": ["9:16 to 1080x1920, 1:1 to 1920x1920, 16:9 to 1920x1080, "
+               "4:5 to 1080x1350.",
+               "150 characters of intro and a 70-character headline are "
+               "recommended; 200 is the headline maximum.",
+               "Length across Sponsored Content is :03 to 30 minutes."]},
     {"id": "li_carousel", "channel": "linkedin",
-     "name": "Sponsored Content — Carousel", "kind": "image",
-     "formats": ["jpg", "jpeg", "png"], "size": (1080, 1080),
-     "max_bytes": 10 * MB,
-     "text": {"intro": 150, "headline": 45, "description": 30},
-     "notes": ["2 to 10 cards. Headline links to a URL, description to a form."]},
+     "name": "Sponsored Content \u2014 Carousel",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (1080, 1080), "max_bytes": 10 * MB,
+     "text": {"intro": 255, "headline": 45},
+     "notes": ["2 to 10 cards, 1:1, 1080x1080 minimum.",
+               "Video is not supported in a carousel."]},
     {"id": "li_text_ad", "channel": "linkedin", "name": "Text Ad",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (100, 100),
-     "max_bytes": 2 * MB, "text": {"headline": 25, "description": 75}},
-    {"id": "li_inmail", "channel": "linkedin", "name": "Sponsored InMail",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (300, 250),
-     "max_bytes": 40 * KB,
-     "text": {"subject": 60, "message": 1500, "custom_terms": 2500,
-              "call_to_action": 20},
-     "notes": ["Up to 3 click links."]},
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (100, 100), "max_bytes": 2 * MB,
+     "text": {"headline": 25, "description": 75}},
+    {"id": "li_inmail", "channel": "linkedin", "name": "Message Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (300, 250), "max_bytes": 2 * MB,
+     "text": {"subject": 60, "message": 8000, "footer": 20000,
+              "call_to_action": 25},
+     "notes": ["The 300x250 banner is desktop only.",
+               "Sponsored messaging delivers in the EU only to members who "
+               "have opted in \u2014 plan for reduced reach."]},
+    {"id": "li_conversation", "channel": "linkedin", "name": "Conversation Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (300, 250), "max_bytes": 2 * MB,
+     "text": {"subject": 60, "message": 8000, "footer": 20000,
+              "call_to_action": 25}},
+    {"id": "li_document", "channel": "linkedin", "name": "Document Ads",
+     "kind": "raw", "formats": ["pdf", "doc", "docx", "ppt", "pptx"],
+     "max_bytes": 100 * MB,
+     "text": {"intro": 150, "headline": 70},
+     "notes": ["Under 10 pages recommended; 300 maximum."]},
+    # The client supplies no file for these two: one runs an author's own post
+    # and the other pulls its image off the LinkedIn Event page. They are
+    # modeled so a requirement can name them; there is nothing here to judge a
+    # file against, which is the honest answer rather than an invented ceiling.
+    {"id": "li_thought_leader", "channel": "linkedin",
+     "name": "Thought Leader Ads", "kind": "other", "formats": [],
+     "notes": ["Runs an author's post verbatim; no separate creative.",
+               "Single image or single video posts only.",
+               "The file is whatever the source post carries."]},
+    {"id": "li_event", "channel": "linkedin", "name": "Event Ads",
+     "kind": "other", "formats": [],
+     "text": {"intro": 600, "event_name": 255},
+     "notes": ["The 4:1 image is pulled from the LinkedIn Event page "
+               "automatically."]},
+    {"id": "li_ctv", "channel": "linkedin", "name": "Connected TV Ads",
+     "kind": "video", "formats": ["mp4"], "ratios": [(16, 9)],
+     "min_width": 1280, "max_bytes": 500 * MB, "duration": (6, 60),
+     "notes": ["1920x1080 recommended, 1280x720 minimum.",
+               "H.264, 23.98-30 fps CFR, 15-40 Mbps.",
+               "Audio -23 LUFS, 192 kbps minimum, 48 kHz."]},
+    {"id": "li_click_to_message", "channel": "linkedin",
+     "name": "Click to Message Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
+     "min_width": 401, "max_bytes": 5 * MB,
+     "text": {"intro": 600, "message": 8000, "response": 8000,
+              "footer": 20000},
+     "notes": ["A single image under 401 px wide renders as a thumbnail."]},
 
     # ---- Snapchat --------------------------------------------------------
     {"id": "snap_image", "channel": "snapchat", "name": "Single Image Ad",
@@ -726,7 +791,7 @@ def _plain(fragment: str) -> str:
         re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment or ""))).strip()
 
 
-_KIT_NAME_CHECKED = {"x-twitter": "x"}
+_KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin"}
 
 # Transcribed against the 2025 kit and not yet re-checked against 2026, with
 # what is known to have moved. Not findings -- a backlog somebody works down,
@@ -734,8 +799,6 @@ _KIT_NAME_CHECKED = {"x-twitter": "x"}
 # the build on them. Each is a client being asked for a format under a name
 # its platform has changed or dropped.
 _KIT_NAMES_PENDING = {
-    "linkedin": "the kit sells 11 formats against our 5, and 'Sponsored "
-                "InMail' is what LinkedIn now calls Message Ads",
     "tiktok": "the kit sells 6 formats and none of our 3 names is among "
               "them (Auction In-Feed, Spark Ads, Reservation In-Feed...)",
     "snapchat": "the kit sells 7 formats against our 2",

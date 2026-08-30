@@ -559,6 +559,100 @@ check("and the reports draw their tables again",
 
 
 # ---------------------------------------------------------------------------
+section("Invoice Off matches a customer to a client exactly, or not at all")
+# ---------------------------------------------------------------------------
+# It used to fall through to `next(... if norm in n or n in norm)` -- an
+# unbounded substring, both directions, first out of a dict ordered by the
+# export. That is the rule `hub/client_key.py` exists to refuse, and it is
+# live: 32 of this deployment's 547 client names contain or are contained by
+# another, and "cirilla s" alone matches 18.
+#
+# It failed in both directions. Forward, a QuickBooks customer was compared
+# against whichever candidate came first and the variance printed with no sign
+# a guess had been made. Backward -- and this is the worse one -- an active
+# client with live billing and *no invoice at all* dropped off the report the
+# moment any customer name merely contained theirs.
+_QB_KEY = qa._month_keys(1)[0]
+
+_BOOK = {
+    "Acme Plumbing": {"live": [1], "live_total": 1000.0, "rows": [],
+                      "thisM": True, "lastM": True, "this_total": 1000.0,
+                      "last_total": 1000.0, "has_dash": True, "last_end": None,
+                      "partners": set(), "sales": set()},
+    "Acme": {"live": [1], "live_total": 400.0, "rows": [],
+             "thisM": True, "lastM": True, "this_total": 400.0,
+             "last_total": 400.0, "has_dash": True, "last_end": None,
+             "partners": set(), "sales": set()},
+}
+
+
+class _FakeQB:
+    def __init__(self, customers):
+        self._c = customers
+
+    def monthly_totals_by_customer(self, _n):
+        return {k: {"id": "", "months": {_QB_KEY: v}} for k, v in self._c.items()}
+
+    def customer_link(self, _i):
+        return ""
+
+
+def _invoice_off(customers, book=None):
+    _real = (qa._qb_state, qa.invoice_assignments, qa._client_groups)
+    qa._qb_state = lambda: (_FakeQB(customers), "")
+    qa.invoice_assignments = lambda: {}
+    qa._client_groups = lambda: dict(book if book is not None else _BOOK)
+    try:
+        return qa.invoice_off()
+    finally:
+        qa._qb_state, qa.invoice_assignments, qa._client_groups = _real
+
+
+def _cell(row, i):
+    c = row[i]
+    return c.get("text") if isinstance(c, dict) else c
+
+
+# An exact name is matched and its variance computed, exactly as before.
+_out = _invoice_off({"Acme Plumbing": 250.0})
+_acme = [r for r in _out["rows"] if _cell(r, 0) == "Acme Plumbing"]
+check("an exact name is still matched", len(_acme), 1)
+check("and its variance is computed against that client",
+      _cell(_acme[0], 2) if _acme else None, "$1,000")
+
+# A customer resembling clients is printed and counted as unmatched -- the
+# rule sites_billing and domain_renewals both work to.
+_out = _invoice_off({"Acme Plumbing Supply": 900.0})
+_res = [r for r in _out["rows"] if _cell(r, 0) == "Acme Plumbing Supply"]
+check("a customer that only resembles a client is still listed", len(_res), 1)
+check("with no difference, because there is no client to compute one against",
+      _cell(_res[0], 2) if _res else None, "—")
+check("and the row says which clients it resembles",
+      "resembles" in _cell(_res[0], 3) if _res else False, True)
+check("it is counted as a resemblance, not a match", _out.get("resembled"), 1)
+check("and it never claims a variance against a guessed client",
+      all("▼" not in str(_cell(r, 3)) and "▲" not in str(_cell(r, 3))
+          for r in _out["rows"] if _cell(r, 0) == "Acme Plumbing Supply"), True)
+
+# The direction that hid findings: a client invoiced under no name of its own
+# must still appear, with the resembling customer named on the row.
+_out = _invoice_off({"Acme": 400.0})
+_hidden = [r for r in _out["rows"] if _cell(r, 0) == "Acme Plumbing"]
+check("a client whose name is merely contained by a customer is not hidden",
+      len(_hidden), 1)
+check("and the row names the customer rather than silencing the finding",
+      "Acme" in _cell(_hidden[0], 3) if _hidden else False, True)
+check("a genuinely uninvoiced client still reads as no invoice found",
+      any("no invoice found" in str(_cell(r, 3))
+          for r in _invoice_off({})["rows"]), True)
+
+# row_styles is indexed positionally by the page, so it must stay in step.
+_out = _invoice_off({"Acme Plumbing Supply": 900.0, "Acme": 400.0})
+check("row_styles stays in step with rows",
+      len(_out.get("row_styles") or []), len(_out.get("rows") or []))
+
+
+# ---------------------------------------------------------------------------
 section("Every QA tile points at something that answers")
 # ---------------------------------------------------------------------------
 # Six of the eight EXTRAS are whole tools rather than table-returning
