@@ -295,6 +295,13 @@ class Settings:
             # itself the day that provider reorganises, with nothing saying
             # why -- modules/stock_photos/app.py.
             "stock_photos": "smart1-stock-photos",
+            # Anything collected against a prospect before they are a client:
+            # the mock-up, the screenshot, the signed page, the rate sheet
+            # somebody emailed over -- hub/prospect.py. Its own folder rather
+            # than the client tree, because a prospect has no client key yet
+            # and filing them together is how one company's assets end up on
+            # another's record.
+            "prospects": "smart1-prospects",
         }
         return defaults.get(kind, f"smart1-{kind}")
 

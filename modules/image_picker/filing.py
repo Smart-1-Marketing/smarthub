@@ -98,6 +98,11 @@ SOURCE_LABELS = {
     "logo_brand": "Logo (from their brand record)",
     "logo_scan": "Logo (seen on their website)",
     "display_ads": "Display ads",
+    # Files kept against a business before they were a client. They live on
+    # the prospect record while it is one, and a conversion carries them
+    # across -- so the heading has to exist here or they arrive in the new
+    # client's gallery as a bare key under nothing.
+    "prospect": "Collected before they were a client",
 }
 
 # Which of the three questions a group answers. The first thing anybody asks
@@ -110,7 +115,7 @@ WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
            "display_ads", "ad_builder", "logo", "logo_brand", "logo_scan",
            "client_logos", "bg_remover", "cutout", "image_creator", "graphic",
            "page_image_optimizer", "page_image", "commercial_builder",
-           "commercial", "gpt_ads")
+           "commercial", "gpt_ads", "prospect")
 
 
 def source_tiers() -> dict:

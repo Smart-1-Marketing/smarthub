@@ -808,6 +808,16 @@ slug — resolving a slug back to a client is a guess, and filing one client's
 creative into another's gallery is the single mistake here that cannot be
 undone by editing a row. No name, no filing, and the audit reports it.
 
+**"A client or a lead" is two right answers, not one.** A client's work goes
+to a gallery through `filing.file_asset`; a prospect's goes to that prospect's
+own record through `hub/prospect.add_asset`, keyed on the lead id. A producer
+check that demanded `file_asset` of everything would report the lead half as
+unfiled — which is the exact thing this audit exists to find — so the filing
+call is per producer. The `prospect` heading is in `SOURCE_LABELS` even though
+those files sit outside a gallery today, because a conversion carries them
+across and they would otherwise arrive in the new client's gallery as a bare
+key under nothing.
+
 **A report that cannot fix the row it names is a signpost.** Each unattached
 image carries a client picker and one press writes both the tool's own record
 and the gallery — reported **separately**, because "attached" and "attached in
@@ -1703,7 +1713,8 @@ where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
 | Source | How it's read | Freshness |
 |---|---|---|
 | Knack products (IOs) | live API, `hub/knack_products.py` (object_135), export as fallback | current |
-| Knack campaigns / websites | static JSON in `clients_app/data/` | **stale — nothing refreshes these** |
+| Knack websites | live API via `hub/knack_websites.py` (object_153), export as fallback | current |
+| Knack campaigns | static JSON in `clients_app/data/campaigns.json` | **stale — and read by nothing** |
 | Knack object_153 (website registry) | live API, `hub/knack_websites.py` | current |
 | Knack tickets | live API, `hub/knack_api.py` | current |
 | Insites scans | own SQLite/Postgres tables | current |
@@ -1714,8 +1725,48 @@ read live: `hub/knack_data.search_client()` prefers `hub.knack_products`
 (object_135) and falls back to the export, and Client 360 labels which source
 it used — before that, a client's insertion orders showed the last export's
 line-up while the Knack pull reported success, because the two are different
-sources and only one was live. **Campaigns and websites still come from the
-export**, so the same trap remains for them; both need their Knack object IDs.
+sources and only one was live.
+
+**Websites now read live too, and the split between the two readers is the
+point.** `clients_registry.all_clients()` — which feeds client search, every
+client picker, Client 360's lookup and the social content link — built its
+domains from a 610-row `websites.json` committed to the repo and refreshed by
+hand, while `hub/knack_websites.py` had been reading *the same object* live
+for the domain record, the renewals calendar and the orphan list. The Hub held
+a live answer and a stale one to "what websites does this client have", and
+every load-bearing reader took the stale one — silently, because a short list
+looks exactly like a complete one, so a site added in Knack last week read as
+a client with no website at all.
+
+`knack_data.websites()` prefers the live pull and falls back to the export,
+the shape `_product_source()` already had. Four rules on it:
+
+- **A failed pull never empties a good export.** An outage that turned 610
+  sites into zero would take every domain-keyed join in the Hub apart with
+  nothing on any screen saying why. Stale beats empty, and the reason travels
+  with the rows.
+- **Live rows arrive in the export's own field names.** `website_row_from_live()`
+  is the one mapping — it was written inside `_attachment_only_websites()` for
+  the attachment path and is read from both now. Eight call sites needed no
+  edit, and none of them can tell which source answered.
+- **`summary()` deliberately keeps reading `export_websites()`.** It measures
+  the dashboard scorecard against the export's own period and its `active`
+  field, which object_153 does not publish. Pointed at the live list it
+  reports **2 active websites and no H&M billing** — `test_knack_websites_source.py`
+  asserts exactly that number, because it is a confident wrong answer on the
+  CEO's dashboard rather than an error.
+- **Nothing is invented in the mapping.** `active`, `hmFreq`, `notes`,
+  `created` and `domainCost` are absent from a live row rather than defaulted:
+  a `False` `active` would read as a dead site on every row.
+
+Client 360 and `/status` say which source answered, exactly as the products
+card already does — a stale export looks identical to live data on screen,
+which is the whole reason this went unnoticed.
+
+**`campaigns.json` is a different case: 7,854 rows, 2.1 MB, and nothing in the
+repo references it** — no `.py`, no `.html`, no `campaigns()` reader in
+`knack_data`. It is not stale, it is dead, and the row above says so rather
+than implying a refresh would fix anything.
 
 **The URL is the join key, not the name.** Eleven field names hold a URL
 across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
@@ -2649,6 +2700,97 @@ a setting comes to be honoured by eleven of the twelve. An edited table is
 drawn in amber in the builder with the generated one one click away, and its
 badge says it no longer recomputes, which is exactly true.
 
+### One product, one name — or the IO quietly carries 88 of 90
+
+Two products were both called **Google Grant** — a $125 one-time setup fee and
+a 15% monthly management fee — and two more were both **Local Service Ads
+(LSA)**. The published rate card at `/partner/rate-card-universal` had already
+solved this, naming them *(Setup)* and *(Management)*; both copies of the card
+in this repo had not. Three things went wrong at once and not one of them
+errored:
+
+* `rate_card.find()` walked the list and returned the **first** match, so a
+  quote for management was costed against the setup fee;
+* the IO builder's `productConfig` is a dict **keyed on the label**, so the
+  second row overwrote the first — 90 card rows became **88 products**, and
+  neither setup fee could be put on an insertion order at all;
+* `check_drift()` is keyed on the label too, in *both* dicts, so the one check
+  that exists to notice the two copies disagreeing could not have seen a
+  difference between the pair it was collapsing.
+
+The two ends failed in **opposite directions on the same product** — the
+proposal quoted the setup fee, the IO could only bill management — which is
+the shape that survives review, because each screen is internally consistent.
+
+Both copies carry the published names now. The lookup is the other half:
+**a name that could mean more than one product resolves to none of them**, the
+`client_key.resolve()` rule wearing a rate, and `candidates()` is what a screen
+shows instead of the refusal so it never reads as *not on the card*.
+`product_intake.classify()` returns those candidates and commits to neither,
+which is what that function already said it did. **A category resolves what a
+name cannot** — four headings carry a product called *Behavioral* at four
+different rates — so `find(name, category)` and the IO's `cardLabelFor(name,
+category)` take one, and a line that recorded its heading is answered rather
+than asked. `ai_match` offers the candidates rather than dropping the row: a
+model that names an ambiguous product has not invented anything, and dropping
+it leaves the rep with nothing.
+
+`test_proposal_spec.py` asserts every label is unique in both copies, that the
+IO's product list is the whole card rather than what survived a collision, and
+that the names we publish are the names we quote from — the partner pages ship
+in this repo, so that last one is checkable rather than remembered.
+
+### A category heading is not a word about the product
+
+`creative_needs.medium_of()` read a blob of `category + product + label +
+description`, and the **label** is `"<category heading> — <product>"`. A
+heading describes a *section of the card*, not the thing in it. The card files
+four IP-targeting products under a heading called **"Display & Video"**, so
+the word *video* appeared in the label of `IP Targeted Display - New Movers` —
+whose own description reads "deliver **display** ads" — and the video test
+runs before the display one. All three IP display products were gated as
+video, which asks a client for a TV spot to run a banner buy. The label is out
+of the blob; category and product were both in it already, so it contributed
+nothing else.
+
+**And "other" is not a medium — it is the gate never being asked.** Every
+product under `MOBILE ONLY`, `EMAIL MARKETING` and `SMART 1 SIGNAGE` answered
+`OTHER`, and an ungated medium is one the Creative step never mentions. A
+signage buy reached the insertion order with nobody having established that
+artwork exists, exactly as a CTV buy used to before the gate existed. Those
+three headings are in `CATEGORY_MEDIUM` now and `EMAIL` and `DOOH` are gated
+mediums with their own production figures — email creative is the card's own
+$150 line, so it is questioned at $400 rather than $1,500, the per-medium rule
+display already followed.
+
+**Two readings of one question, disagreeing in both directions.**
+`medium_of()` decides *whether* to ask for creative;
+`creative_specs.channels_for_product()` decides *what* to ask for. They
+disagreed on **25 of the 90 products**. The kit had known about mobile, email
+and signage the whole time. Going the other way, the four programmatic
+**video** products filed under the card's DISPLAY heading are named in
+`EXPLICIT_MEDIUM` so the gate asks for a spot — and the kit's regex list
+dropped them into the generic `display|programmatic` pattern, so the rep was
+asked for a video and handed *Leaderboard 728x90, Medium Rectangle 300x250*.
+Each screen was internally consistent, which is why it survived.
+
+`spec_disagreements()` is the check, and `/api/integrity` runs it at **high**.
+Its exemption list is pairs that are genuinely both right, each with its
+reason: a retargeting *buy* whose files are banners or Instagram units, and a
+creative-production line item that is not a media buy needing creative
+supplied for it. The new video pattern in `_PRODUCT_CHANNELS` sits **below**
+the audio rule on purpose — "Programmatic - Targeted" is also the $18.00 CPM
+buy under DIGITAL RADIO, and that one needs a spot rather than a video.
+
+The tables are deliberately **not** merged. The wizard mirrors `medium_of` in
+JavaScript, and reaching into the kit's twenty-entry regex list would be a
+third mirror of one fact — the cost this codebase has already paid twice. They
+stay separate and are held together by the check. `test_proposal_spec.py` runs
+the mirror over **every product on the real card** rather than a fixture: a
+hand-written list proves the halves agree about the rows somebody thought to
+write down, which is exactly the set that was already right — none of the four
+the label bleed broke were in it.
+
 ### The listed rate is what Smart 1 pays; the quoted rate is what is sold
 
 Every rate on the card is the buy-side number and the builder was quoting it
@@ -3372,6 +3514,84 @@ reads as a live prospect on every count that follows, the rule
 only, because `hub/leads.py` cleans and truncates every value and a nested one
 arrives in the Suite as the repr of a dict.
 
+### A scanned business is a lead, and a lead needs somewhere to be worked
+
+`hub/prospect.py`, `hub/prospect_routes.py` and `/prospect/<lead id>`. The
+audit filed a lead and stopped there: a row in a flat table with a name, an
+email and a delivery pill. Everything that made the prospect worth calling —
+what they are already spending, what the audit found, the proposal somebody
+drafted, the mock-up they were sent — was in four tools and one CRM with
+nothing joining them up, so the row was a record of a prospect rather than a
+place to work one.
+
+**The lead id is the record.** Not the domain and not the company name: a
+prospect is often a business with no website on file and a name typed by
+whoever took the call, and both of those change. `hub/leads.py` already
+allocates an id, already survives a merge and is already what the Suite
+contact is filed against. `leads.get()` **follows a merge** rather than
+dead-ending, because that id is in browser history and a link from before a
+merge must resolve to the survivor — with a ceiling on the walk, so a cycle
+written by a bug shows a record rather than hanging the request.
+
+**Smart 1 Suite owns the working state; the Hub owns the evidence.** That
+line is the whole design. The stage, the owner, the notes and the
+conversation are in the CRM, which is where the calls and the texts already
+are — a stage stored here as well is two systems answering "where has this
+got to" differently with nothing on either screen saying which to believe,
+which is the failure `jsonstore.unmirrored_json_writers()` exists to close
+wearing a sales pipeline. So `suite_state()` **reads** stage, owner and notes
+through `hub/suite_opportunity.py` and **never writes a stage**, and a note
+typed on the record is posted to the Suite contact so it lands where the next
+person to pick the prospect up will look. A prospect with no Suite contact is
+**refused by name** rather than having the note kept locally: that local copy
+is exactly the second notebook this rule exists to prevent.
+
+**Four empties on that card, and only one of them means "chase this".** Suite
+not configured, the lead never delivered, Suite refused the read, and Suite
+read fine with no deal open are four different situations. The first three are
+*not measured* and each says which it is; only the fourth is an empty that
+means somebody should open a deal. Collapsing them into "no stage" sends
+somebody to the wrong screen or, worse, makes them stop chasing.
+
+**A section that fails costs only itself.** The audit is worth reading when
+Suite is down and the notes are worth reading when Insites is. `_section()` is
+the one shape every card answers in — rows, `measured`, `error`, `note` — so
+no card can invent its own kind of nothing, and `_caught()` turns any source's
+failure into a named non-fatal section rather than a 500 on the whole record.
+
+**A timeline that quietly loses a week is worse than no timeline.** It is
+assembled from the sections that were actually measured, and the ones that
+were not are **named on it** (`incomplete`) rather than shortening it in
+silence — a history missing exactly the fortnight somebody is asking about,
+with nothing saying so, is the confident wrong answer this codebase keeps
+undoing.
+
+**A prospect collects things before they are a client** — the mock-up they
+were sent, a screenshot of the competitor they complained about, the rate
+sheet they emailed over. Those lived in somebody's inbox. Files go through
+`hub/storage.py` and are indexed through `hub/jsonstore.py`, in a folder of
+their own rather than the client tree: a prospect has no client key yet, and
+filing them together is how one company's assets land on another's record.
+Deleting reports **the record row and the stored copy apart**, the
+`hub/domain_links.py` rule — one tick covering both is how somebody learns not
+to trust the tick — and the index row is marked rather than dropped.
+
+**Converting is a link, never a creation.** A client in this Hub is a business
+with a product in Knack, which is what billing reads, so `convert()` refuses a
+name the registry does not know rather than inventing an account the Hub shows
+and no invoice ever mentions. What it adds over `leads.mark_converted` is the
+carry-across: the assets are re-filed under the client by being **named**
+against it rather than re-uploaded, because the bytes are already in storage
+and a second copy is a second thing to keep in step.
+
+**And the Leads panel had to stop hiding what a scan produced.** The Report
+column rendered `pdf_url` and nothing else — so a website-audit lead showed a
+dash, because that audit is a *page* rather than a PDF and its link was
+sitting unread in the row's own `meta`. `reportCell()` offers both, and every
+row's name now opens the record.
+
+`test_prospect_record.py` asserts all of it.
+
 ### The customer-facing half is a second kind of placement, not a second widget
 
 `modules/scans` owns placements, and a second table describing one would be a
@@ -3687,6 +3907,92 @@ day and each has its own kind of nothing, so `signals()` answers with a state
 per input and performance reads **not measured** with the reason rather than
 zero. Nothing it raises is drawn red: a page of red is a page people scroll
 past.
+
+**Ideas are offered on a schedule, or the client's link opens on nothing.**
+`generate()` was reachable only from a button in the staff queue, so a client
+who opened their swipe link saw "Nothing to look at just yet" — for ever,
+unless a strategist had remembered that week. `ideas.sweep()` runs on
+`hub/scheduler.py`, hourly ticks deciding a weekly interval **per client from
+that client's own last sweep** rather than from the job's schedule, so a
+redeploy cannot offer two batches in a day — the `purchased_domains` shape,
+for the same reason. Bounded on both axes (eight clients, three minutes)
+because these are model calls sharing one scheduler thread and a call has no
+useful ceiling.
+
+Three gates on who is swept, each a way to spend a model call on nobody.
+**Somebody at the client must have swiped at least once** — the first batch is
+the strategist's to send, and a client who has never opened the link would
+otherwise accumulate ideas nobody reads at a call a week for ever. **Their
+deck must be nearly empty**, or the backlog grows faster than anyone answers
+it. And **not more often than weekly**. What was skipped is named rather than
+counted: "nobody was eligible" and "we could not read the client list" are
+different answers.
+
+**A client record that says nothing about the work is the failure this repo
+counts six of.** Client 360 already had a Social Media card — that is their
+profile URLs, a different question from whether anybody at this client is
+asking us for anything. A client could have three requests overdue, a link
+nobody had sent them and four posts sitting unanswered, and none of it was on
+the one screen a rep opens. `hub/social_status.py` answers it, and the
+dashboard scoreboard reads the same module so the two cannot disagree — the
+`/api/db/structure` versus `/api/integrity` trap, where two checks asking one
+question answered it differently on one panel.
+
+**Nothing told anybody a request had arrived.** A location manager submitted
+at four on a Friday and it sat in a queue only somebody who opened the tool
+would ever see. There is no mailer in this Hub, so the honest route is putting
+it where people already look: a scoreboard on the dashboard, above System
+status, where every figure opens the rows behind it rather than the tool the
+reader would then have to filter. It counts **requests only** — reading posts
+awaiting approval means opening every plan file for every client on the book,
+on a page that loads on every visit, and a number that costs a page load is a
+number somebody turns off. The per-client card can afford that; the dashboard
+cannot, and the split is stated rather than discovered.
+
+**An empty scoreboard says which kind of empty.** "Nothing waiting" and
+"nobody has been sent their link yet" render identically as a zero and only
+the second is somebody's to fix, so the line says so in words beside the
+figure. Same on the card: a client with no requests is told that the link may
+never have gone out.
+
+**A photograph the client sends reaches Cloudinary and not the gallery.**
+That is the half of the asset pipeline that was actually missing.
+`storage.put()` stores the bytes; every screen that offers "the client's own
+assets first" — the planner's own image assignment, Image Creator — reads
+`client_context.gallery_images()`, which reads the image picker's gallery. So
+a photograph a location manager sent in was invisible to the tool built to
+prefer it, while the client had been told it arrived, and nothing errored at
+either end. `_file_into_gallery()` files it, labelled with the shop it came
+from, and the two writes are **reported apart** — the `hub/domain_links.py`
+rule, since "stored" and "stored in one of two places" are different
+outcomes. Nothing branches on the gallery write: the client is watching and
+their upload has already succeeded, so a gallery that will not answer costs
+the composer a picture and never costs them the photograph.
+
+The gallery row is **created** where a client has none, which is a deliberate
+exception to `provisioning.py`'s "creating is asked for, not assumed" — there
+the question is whether a link should exist, and here there are already bytes
+from a named client on a link we sent them. It is not pushed to the Suite
+media library: this is a photograph somebody sent us to consider, not
+approved work.
+
+**The canvas presets were already there.** 1080x1080, 1080x1920 and 1200x630
+have been in `modules/image_creator.CANVAS_PRESETS` all along, under Social.
+Worth writing down, because the obvious reading of the spec is that they need
+adding and adding them again is how one tool comes to offer two Instagram
+Posts of different sizes.
+
+**The queue shipped with no explanation on it, which is how Smart 1 Ads
+shipped.** `hub/help.py`, `hub-help.js` and the tour machinery all working,
+and nothing on the page opting into any of it. Eight bubbles now, every one
+guarded `if help_dot is defined` so a module whose Jinja environment never
+got `install_template_helpers()` loses the icon rather than the page. There
+is deliberately **no `data-screen`**: a tour is offered only where one is
+registered, and naming one that does not exist is the same silence one step
+earlier. `test_social_content.py` reads the template and requires every key
+it places to resolve in the registry — a bubble whose key is missing is
+removed client-side, so the template reads as helped and the page shows
+nothing, and nothing anywhere reports it.
 
 **The queue is linked from the planner, not tiled separately.** It is the
 other half of one tool; a second tile is two things to keep in step and only
@@ -5153,6 +5459,9 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_prospect_record.py    # the record a scan produces: four kinds of empty on
+                                   #   the Suite card, a timeline that names what it
+                                   #   could not read, files, and converting
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
@@ -5225,6 +5534,9 @@ python3 test_display_ads.py        # the display layouts, and the build screen's
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
+python3 test_knack_websites_source.py # websites live where Knack answers, the
+                                   #   export where it will not, and a failed
+                                   #   pull that never empties a good one
 python3 test_spelling.py           # the spelling check still bites, and its
                                    #   exemptions still name real files
 python3 test_client_prefill.py     # one client reader: what a form is offered,

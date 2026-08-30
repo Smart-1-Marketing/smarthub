@@ -109,6 +109,15 @@ for key in ("bg_remover", "image_creator", "page_image_optimizer",
             "stock_photos", "io_builder", "commercial_builder"):
     check(f"{key} files what it makes", by_key[key]["files"], True)
 
+# "A client or a lead" is two right answers, not one. A prospect's files are
+# attached to the prospect record, keyed on the lead id -- a rule demanding
+# file_asset of everything would report the lead half as unfiled, which is the
+# exact thing this audit is about.
+check("a prospect's files count as attached",
+      by_key["prospect_assets"]["files"], True)
+check("through the lead store, not a client gallery",
+      "add_asset" in by_key["prospect_assets"]["evidence"], True)
+
 # The IO Builder files over HTTP from the browser, so an AST-only check calls
 # the one tool that does file its worst offender.
 check("filing over the route counts as filing",

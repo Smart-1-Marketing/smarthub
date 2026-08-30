@@ -116,6 +116,12 @@ PRODUCERS = [
      "module": "modules/io_builder/app.py", "makes": "upload",
      "also": ["modules/io_builder/templates/index.html"],
      "why": "Creative attached to an insertion order."},
+    {"key": "prospect_assets", "label": "Prospect 360 files",
+     "provider": ["prospect"],
+     "module": "hub/prospect.py", "makes": "upload",
+     "filing_call": "add_asset",
+     "why": "Mock-ups, screenshots and signed pages collected against a "
+            "business before they are a client."},
     {"key": "commercial_builder", "label": "Commercial Builder",
      "provider": ["commercial_builder"],
      "module": "modules/commercial_builder/services/cloudinary_service.py",
@@ -137,11 +143,18 @@ def _files_via_route(path: str) -> tuple[bool, str]:
     return False, ""
 
 
-def _files(path: str) -> tuple[bool, str]:
+def _files(path: str, call: str = FILING_CALL) -> tuple[bool, str]:
     """(does this module call the filing path, why we say so).
 
     An AST read, so a docstring that merely mentions `file_asset` — and three
     files here explain the trap by naming it — cannot report as a call site.
+
+    ``call`` because there are two right answers, not one. A client's work
+    goes to a gallery; a **prospect's** goes to that prospect's own record
+    through `hub/prospect.add_asset`, keyed on the lead. A rule that demanded
+    `file_asset` of everything would report the lead half as unfiled — which
+    is precisely the "attached to either a lead or a client" this audit is
+    about.
     """
     full = ROOT / path
     try:
@@ -151,27 +164,28 @@ def _files(path: str) -> tuple[bool, str]:
     except SyntaxError as exc:                            # noqa: PERF203
         return False, f"could not be parsed ({exc.msg})"
 
+    FILING_CALL_LOCAL = call
     for node in ast.walk(tree):
         # The filing path itself files by definition. Without this the module
         # that DEFINES file_asset reports as the worst offender in the list,
         # which is the kind of finding that gets a report switched off.
-        if isinstance(node, ast.FunctionDef) and node.name == FILING_CALL:
-            return True, f"defines {FILING_CALL}() — this is the filing path"
+        if isinstance(node, ast.FunctionDef) and node.name == FILING_CALL_LOCAL:
+            return True, f"defines {FILING_CALL_LOCAL}() — this is the filing path"
         if not isinstance(node, ast.Call):
             continue
         fn = node.func
         name = (fn.attr if isinstance(fn, ast.Attribute)
                 else fn.id if isinstance(fn, ast.Name) else "")
-        if name == FILING_CALL:
-            return True, f"calls {FILING_CALL}() at line {node.lineno}"
-    return False, f"no call to {FILING_CALL}() anywhere in this file"
+        if name == FILING_CALL_LOCAL:
+            return True, f"calls {FILING_CALL_LOCAL}() at line {node.lineno}"
+    return False, f"no call to {FILING_CALL_LOCAL}() anywhere in this file"
 
 
 def producers() -> list[dict]:
     """Each image-producing tool, and whether it files what it makes."""
     out = []
     for p in PRODUCERS:
-        files, evidence = _files(p["module"])
+        files, evidence = _files(p["module"], p.get("filing_call", FILING_CALL))
         for extra in p.get("also") or []:
             if files:
                 break
@@ -243,7 +257,38 @@ def _gpt_ads():
                "when": r.get("updated") or r.get("created", ""), "where": ""}
 
 
+def _prospect_assets():
+    """Files kept against a prospect — the lead half of "a client or a lead".
+
+    Attached by construction: the store is keyed on the lead id, so a row that
+    exists names somebody. It is counted here anyway, because a report that
+    only shows what is broken cannot say how much is right.
+    """
+    from hub import leads as _leads, prospect
+    names = {}
+    try:
+        # A generous window: a file kept against a prospect long outlives the
+        # thirty days the panel opens on, and a lead we cannot name still
+        # counts as attached — it is the id that does the attaching.
+        for row in (_leads.listing(days=3650) or {}).get("leads", []):
+            names[str(row.get("id"))] = (row.get("business")
+                                         or row.get("name") or "")
+    except Exception:                                     # noqa: BLE001
+        names = {}
+    for lead_id, rows in (prospect._all_assets() or {}).items():
+        for r in rows or []:
+            yield {"id": r.get("id", ""),
+                   "client": names.get(str(lead_id)) or f"prospect {lead_id}",
+                   "kind_of_client": "prospect",
+                   "label": r.get("label") or r.get("filename") or "file",
+                   "url": r.get("url", ""), "when": r.get("added", ""),
+                   "where": "Prospect 360"}
+
+
 STORES: list[dict] = [
+    {"key": "prospect_assets", "label": "Prospect 360 files",
+     "reader": _prospect_assets,
+     "fix": "/sales/leads"},
     {"key": "seo_images", "label": "SEO Image Pipeline archive",
      "reader": _seo_images,
      "fix": "/tools/seo-images/"},

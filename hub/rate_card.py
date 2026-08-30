@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 
@@ -148,34 +149,71 @@ def by_category() -> dict[str, list[dict]]:
     return out
 
 
-def find(label: str) -> dict | None:
-    """One card product, by label or by product name.
+def _lookup(label: str, category: str = "") -> list[dict]:
+    """Every card product a lookup could have meant, strongest rule first.
 
-    Exact first, then the card's own name *starting with* what was asked for.
-    Several products carry their whole description in the product field --
-    "Connected TV - Targeted  - This is played on televisions only  *If you
-    require..." -- while every document written here stores the short name a
-    rep would recognise. Exact-only therefore missed them, and each miss
-    became a silent default: Connected TV took the $500 floor instead of
-    OTT's $1,500, and nothing on either document said a lookup had failed.
+    One reading of "what does this name match", so `find()` and `candidates()`
+    cannot come to disagree about it -- the first decides what to do with one
+    hit, the second is what a screen shows when there are several.
 
-    The match is one-directional and anchored, which is what keeps it honest.
-    A contains-match either way round would let the short generic product
-    "Category" swallow any longer phrase containing the word. The IO
-    template's `cardLabelFor` uses the same rule, so both ends of the
-    hand-off agree on what counts as a match.
+    A category narrows before anything else where the caller has one: four
+    headings carry a product called "Behavioral" at four different rates, and
+    the name alone cannot say which. A category that matches nothing is
+    ignored rather than obeyed, or a heading renamed on the card would turn
+    every lookup under it into a miss.
     """
     want = (label or "").strip().lower()
     if not want:
-        return None
-    for p in products():
-        if p["label"].lower() == want or p["product"].lower() == want:
-            return p
-    if len(want) > 3:
-        for p in products():
-            if p["product"].lower().startswith(want):
-                return p
-    return None
+        return []
+    rows = products()
+    cat = (category or "").strip().lower()
+    if cat:
+        rows = [p for p in rows if p["category"].lower() == cat] or rows
+    exact = [p for p in rows
+             if p["label"].lower() == want or p["product"].lower() == want]
+    if exact:
+        return exact
+    # Anchored, and one-directional. Several products carry their whole
+    # description in the product field -- "Connected TV - Targeted  - This is
+    # played on televisions only  *If you require..." -- while every document
+    # written here stores the short name a rep would recognise. Exact-only
+    # therefore missed them, and each miss became a silent default: Connected
+    # TV took the $500 floor instead of OTT's $1,500, with nothing on either
+    # document saying a lookup had failed. A contains-match either way round
+    # would let the short generic product "Category" swallow any longer phrase
+    # containing the word.
+    if len(want) <= 3:
+        return []
+    return [p for p in rows if p["product"].lower().startswith(want)]
+
+
+def find(label: str, category: str = "") -> dict | None:
+    """One card product, by label or by product name -- or None.
+
+    None means one of two things, and the caller wants `candidates()` for
+    both: nothing on the card matched, or **more than one did**. A name that
+    could mean more than one product means none of them -- "Google Grant" is
+    a $125 setup fee *and* a 15% monthly management fee, and returning
+    whichever the card listed first billed the one nobody quoted. That is the
+    `client_key.resolve()` rule wearing a rate.
+
+    `category` answers the names that cannot be resolved without it, so a
+    caller that knows the heading is answered rather than asked. The IO
+    template's `cardLabelFor(name, category)` takes the same two arguments
+    and applies the same rules, so both ends of the hand-off agree on what
+    counts as a match.
+    """
+    hits = _lookup(label, category)
+    return hits[0] if len(hits) == 1 else None
+
+
+def candidates(label: str, category: str = "") -> list[dict]:
+    """Every card product a lookup could have meant.
+
+    `find()` refuses an ambiguous name; this is what a screen shows instead of
+    the refusal, so "we could not tell which" never reads as "not on the card".
+    """
+    return _lookup(label, category)
 
 
 def search(term: str, limit: int = 20) -> list[dict]:
@@ -279,16 +317,35 @@ def check_drift(io_template: str | None = None) -> dict:
         embedded = json.loads(m.group(1))
     except ValueError:
         return {"checked": False, "note": "Embedded rate card wouldn't parse."}
+    # Keyed on the label, which has to be unique for that to mean anything.
+    # It was not: two products were both called "SEARCH ENGINE MARKETING /
+    # PAY PER CLICK — Google Grant", one a setup fee and one a monthly
+    # management fee, so each collapsed onto the other in *both* dicts and
+    # this check could not have seen a difference between them. It also cost
+    # the IO the product outright -- its `productConfig` is keyed the same
+    # way, so 90 card rows became 88 and the setup fee could not be billed.
+    # A duplicate label is therefore a finding in its own right.
     ours = {p["label"]: p["listed_rate"] for p in products()}
     theirs = {p.get("label", ""): p.get("listedRate", "") for p in embedded}
+    seen_ours = Counter(p["label"] for p in products())
+    seen_theirs = Counter(p.get("label", "") for p in embedded)
+    dupes = sorted({label for label, n in (seen_ours + seen_theirs).items() if n > 1
+                    and (seen_ours[label] > 1 or seen_theirs[label] > 1)})
     diffs = [k for k in set(ours) | set(theirs) if ours.get(k) != theirs.get(k)]
+    notes = []
+    if diffs:
+        notes.append(f"{len(diffs)} product(s) differ between the shared card "
+                     f"and the IO template. A proposal and its IO will quote "
+                     f"different numbers until this is resolved.")
+    if dupes:
+        notes.append(f"{len(dupes)} label(s) are carried by more than one "
+                     f"product. The IO keys its product list on the label, so "
+                     f"one of each pair is dropped and cannot be quoted.")
     return {
         "checked": True, "shared": len(ours), "embedded": len(theirs),
-        "differences": diffs[:20], "in_sync": not diffs,
-        "note": ("Both copies agree." if not diffs else
-                 f"{len(diffs)} product(s) differ between the shared card and "
-                 f"the IO template. A proposal and its IO will quote different "
-                 f"numbers until this is resolved."),
+        "differences": diffs[:20], "duplicate_labels": dupes[:20],
+        "in_sync": not diffs and not dupes,
+        "note": " ".join(notes) or "Both copies agree.",
     }
 
 

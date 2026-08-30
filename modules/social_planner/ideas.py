@@ -407,3 +407,153 @@ def generate(client: str, url: str = "", *, context: dict | None = None,
                   source=item.get("source", "house"))
               for item in kept[:size]]
     return {"ideas": stored, "source": source, "note": note, "tags": tags}
+
+
+# =====================================================================
+# The weekly sweep
+#
+# `generate()` was only ever reachable from a button in the staff queue, so a
+# client who opened their swipe link saw "Nothing to look at just yet" — for
+# ever, unless a strategist had remembered that week. A link nobody has a
+# reason to open is a link nobody opens, which is the whole feature failing in
+# the one place it is visible to the client.
+#
+# This is the scheduler's half. Every rule in it is about the two ways a
+# recurring model call goes wrong: spending on clients nobody is listening to,
+# and burying the ones who are.
+# =====================================================================
+SWEEP_INTERVAL_DAYS = 7      # a client is offered a batch at most this often
+SWEEP_PENDING_FLOOR = 3      # ...and only when fewer than this are unanswered
+SWEEP_MAX_CLIENTS = 8        # per run, whatever the budget allows
+SWEEP_BUDGET_SECONDS = 180.0
+
+
+def _swept_at(prefs: dict) -> float:
+    from datetime import datetime, timezone as _tz
+    text = str(prefs.get("swept_at") or "").strip()
+    if not text:
+        return 0.0
+    try:
+        stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if not stamp.tzinfo:
+        stamp = stamp.replace(tzinfo=_tz.utc)
+    return stamp.timestamp()
+
+
+def _mark_swept(client: str, url: str) -> None:
+    with _lock:
+        rows = _read(PREFS_FILE, "clients")
+        row = next((r for r in rows if _mine(r, client, url)), None)
+        if row is None:
+            row = _blank_prefs(client, url)
+            rows.insert(0, row)
+        row["swept_at"] = _now()
+        _write(PREFS_FILE, "clients", rows, MAX_PREFS)
+
+
+def sweep_candidates() -> list[dict]:
+    """Clients a batch is worth generating for, and why the rest were not.
+
+    Three gates, each a way to spend a model call on nobody:
+
+      * **Somebody at the client has answered at least once.** The first batch
+        is a deliberate act by a strategist, from the button in the queue. A
+        client who has never opened the link would otherwise accumulate ideas
+        nobody will ever read, at a model call a week for ever — the shape
+        `hub/google_index.py` had to learn to stop, where an unconfigured Hub
+        wrote eight identical failures a day into the activity log.
+      * **Their deck is nearly empty.** Topping up a client with nine
+        unanswered cards makes the backlog grow faster than anyone answers it,
+        and a deck that never ends is one people stop opening.
+      * **Not more often than weekly**, measured from the last sweep of that
+        client rather than from this run, so a scheduler that fires twice
+        cannot offer two batches in a day.
+
+    Returns rows carrying `skip` where a client was passed over, because
+    "nobody was eligible" and "we could not read the client list" are
+    different answers and only the first one is the system working.
+    """
+    import time as _time
+    out: list[dict] = []
+    now = _time.time()
+    week = SWEEP_INTERVAL_DAYS * 86400
+    for prefs in _read(PREFS_FILE, "clients"):
+        client = str(prefs.get("client") or "").strip()
+        if not client:
+            continue
+        url = str(prefs.get("client_url") or "")
+        weights = prefs.get("weights") if isinstance(prefs.get("weights"), dict) else {}
+        answered = sum(int((w or {}).get("liked_count") or 0) +
+                       int((w or {}).get("passed_count") or 0)
+                       for w in weights.values())
+        row = {"client": client, "url": url, "answered": answered, "skip": ""}
+        if not answered:
+            row["skip"] = ("nobody here has swiped yet — the first batch is "
+                           "the strategist's to send")
+        elif now - _swept_at(prefs) < week:
+            row["skip"] = f"offered a batch within the last {SWEEP_INTERVAL_DAYS} days"
+        elif len(pending(client, url, limit=SWEEP_PENDING_FLOOR + 1)) >= SWEEP_PENDING_FLOOR:
+            row["skip"] = "still has unanswered ideas waiting"
+        out.append(row)
+    return out
+
+
+def sweep(*, limit: int | None = None, budget_seconds: float | None = None,
+          actor: str = "scheduler") -> dict:
+    """Generate one batch for each client due one. Never raises.
+
+    Bounded on **both** axes, for the reason `video_library.index_backlog()`
+    gives: scheduler jobs share one thread and a model call has no useful
+    ceiling, so a count limit alone lets one slow run hold up every job behind
+    it. A client is marked swept whether the batch came back from the model or
+    from our own prompts — the point of the mark is that this client was
+    offered something this week, and a house batch is something.
+    """
+    import time as _time
+    limit = SWEEP_MAX_CLIENTS if limit is None else max(1, int(limit))
+    budget = SWEEP_BUDGET_SECONDS if budget_seconds is None else float(budget_seconds)
+    started = _time.time()
+
+    try:
+        rows = sweep_candidates()
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"The client preferences could not be "
+                                      f"read ({type(exc).__name__})."}
+
+    due = [r for r in rows if not r["skip"]]
+    done, failed, out_of_time = [], [], 0
+    for row in due:
+        if len(done) + len(failed) >= limit:
+            break
+        if _time.time() - started >= budget:
+            out_of_time = len(due) - len(done) - len(failed)
+            break
+        try:
+            context = {}
+            try:
+                from hub.client_context import tool_context
+                context = tool_context(row["client"], row["url"], gallery=False)
+            except Exception:                             # noqa: BLE001
+                # The context is an enrichment, not a requirement. A client
+                # book that would not answer costs the batch its detail, not
+                # its existence.
+                context = {}
+            context["client"] = row["client"]
+            result = generate(row["client"], row["url"], context=context,
+                              origin="agent")
+            _mark_swept(row["client"], row["url"])
+            done.append({"client": row["client"], "ideas": len(result["ideas"]),
+                         "source": result["source"]})
+        except Exception as exc:                          # noqa: BLE001
+            # Named, never counted: a client whose batch failed is a client
+            # whose deck is still empty, and a total says nothing about which.
+            failed.append({"client": row["client"], "why": type(exc).__name__})
+
+    return {"ok": True, "clients": len(rows), "due": len(due),
+            "generated": done, "failed": failed,
+            "out_of_time": out_of_time,
+            "skipped": len(rows) - len(due),
+            "seconds": round(_time.time() - started, 1),
+            "actor": actor}

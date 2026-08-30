@@ -88,13 +88,17 @@ def _norm(text) -> str:
     return " ".join(str(text or "").strip().lower().split())
 
 
-def classify(name: str) -> dict:
+def classify(name: str, category: str = "") -> dict:
     """What the card makes of one product name a proposal used.
 
     Returns {status, product, category, candidates, query}. `product` is set
     only when the status is `matched` -- a near match names its candidates and
     commits to none of them, because the wrong product on an insertion order
     is the error nobody catches until it bills.
+
+    `category` is optional and answers the names that cannot be resolved
+    without it: four headings carry a product called "Behavioral", so a
+    proposal that recorded the heading is matched rather than asked.
     """
     query = str(name or "").strip()
     out = {"status": UNKNOWN, "product": "", "category": "",
@@ -103,10 +107,24 @@ def classify(name: str) -> dict:
     if not query or rc is None:
         return out
 
-    hit = rc.find(query)
+    hit = rc.find(query, category)
     if hit:
         out.update(status=MATCHED, product=hit.get("product", ""),
                    category=hit.get("category", ""))
+        return out
+
+    # Anchored on more than one product: it *is* one of these, we just cannot
+    # tell which, so those are the candidates rather than whatever else shares
+    # a word. "Google Grant" is the setup fee and the monthly management fee;
+    # offering those two beside Google Analytics Consultation buries the
+    # answer in the noise.
+    anchored = rc.candidates(query, category) if hasattr(rc, "candidates") else []
+    if len(anchored) > 1:
+        out["status"] = NEAR
+        out["candidates"] = [{"product": p.get("product", ""),
+                              "category": p.get("category", ""),
+                              "listed_rate": p.get("listed_rate", "")}
+                             for p in anchored[:MAX_CANDIDATES]]
         return out
 
     # Nothing exact or anchored. Offer what the card has that shares the
@@ -455,6 +473,19 @@ def ai_match(entries: list, catalogue: list | None = None) -> list:
         if not picked:
             continue
         hit = rc.find(picked) if rc is not None else None
+        if not hit and rc is not None:
+            # The model named something the card carries more than once --
+            # "Demographic" is four products at four rates. Dropping the row
+            # would leave the rep with nothing; suggesting one would pick a
+            # rate nobody quoted. Offer the real options and let them say.
+            near = rc.candidates(picked)
+            if len(near) > 1:
+                entry["candidates"] = [{"product": c.get("product", ""),
+                                        "category": c.get("category", ""),
+                                        "listed_rate": c.get("listed_rate", "")}
+                                       for c in near[:MAX_CANDIDATES]]
+                entry["status"] = NEAR
+                continue
         if not hit or not hit.get("product"):
             # Not on the card. This is the guard that matters: a model that
             # invents "Connected TV - Local" produces a product code nothing

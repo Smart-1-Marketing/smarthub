@@ -801,6 +801,83 @@
         "keepColorOnBg": true
       }
     },
+    "1200x1500": {
+      "canvas": {
+        "w": 1200,
+        "h": 1500
+      },
+      "safe": 62,
+      "background": "primary",
+      "panels": [
+        {
+          "x": 72,
+          "y": 584,
+          "w": 1056,
+          "h": 853,
+          "fill": "light",
+          "radius": 16,
+          "overBg": true,
+          "opacity": 0.94
+        }
+      ],
+      "logo": {
+        "x": 132,
+        "y": 644,
+        "w": 356,
+        "h": 62,
+        "align": "left",
+        "valign": "top"
+      },
+      "headline": {
+        "x": 132,
+        "y": 724,
+        "w": 936,
+        "h": 309,
+        "size": [
+          57,
+          102
+        ],
+        "maxLines": 3,
+        "lineHeight": 1.1,
+        "weight": "bold",
+        "color": "dark",
+        "align": "left",
+        "keepColorOnBg": true
+      },
+      "support": {
+        "x": 132,
+        "y": 1051,
+        "w": 936,
+        "h": 207,
+        "size": [
+          34,
+          41
+        ],
+        "maxLines": 2,
+        "lineHeight": 1.25,
+        "color": "dark",
+        "align": "left",
+        "keepColorOnBg": true
+      },
+      "cta": {
+        "x": 132,
+        "y": 1276,
+        "w": 422,
+        "h": 102,
+        "size": [
+          31,
+          41
+        ],
+        "maxLines": 1,
+        "radius": 11,
+        "bg": "accent",
+        "color": "dark",
+        "align": "center",
+        "valign": "middle",
+        "weight": "bold",
+        "keepColorOnBg": true
+      }
+    },
     "1080x1920": {
       "canvas": {
         "w": 1080,
