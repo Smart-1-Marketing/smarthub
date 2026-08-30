@@ -416,6 +416,60 @@ check("and it has a sidebar entry", '"/tools/website-audit"' in sidebar, True)
 
 
 # =====================================================================
+section("One reading of one audit, on every screen that shows it")
+# =====================================================================
+
+# Client 360 was the last screen on the thin reading: five collapsed reference
+# rows about what a business spends, where every other screen shows the total,
+# the annualised figure and what is left out of it. Same client, same audit,
+# two answers depending on which record you opened.
+
+r = c.get("/api/client/audit?domain=acme.com")
+check("the client record has the same audit behind it", r.status_code, 200)
+same = r.get_json()
+check("and it is the same reading, not a second description",
+      same["spend"]["total"], full["spend"]["total"])
+check("with the same findings", [o["key"] for o in same["opportunities"]],
+      [o["key"] for o in full["opportunities"]])
+check("the thin group is dropped there too, so the figures appear once",
+      any(g["title"] == wa.SPEND_GROUP_TITLE for g in same["groups"]), False)
+
+r = c.get("/api/client/audit?domain=acme.com", headers={"Accept": "application/json"})
+check("it is behind the same login as the rest of the record", r.status_code, 200)
+
+anon = hub.test_client()
+r = anon.get("/api/client/audit?domain=acme.com",
+             headers={"Accept": "application/json"})
+check("and refuses an anonymous request", r.status_code in (302, 401), True)
+
+# The card is framed inside Smart 1 Suite. `/api/website-audit` is not on the
+# embed allowlist and `/api/client/` is, so a card pointed at the audit tool's
+# own blueprint would render everywhere except inside the frame -- the
+# half-broken embed hub/suite_embed.py exists to prevent.
+from hub import suite_embed                                   # noqa: E402
+
+check("the client route is reachable from inside the Suite frame",
+      any("/api/client/audit".startswith(p) for p in suite_embed.EMBEDDABLE), True)
+check("and the audit tool's own route is deliberately not",
+      any("/api/website-audit".startswith(p) for p in suite_embed.EMBEDDABLE), False)
+
+c360 = (ROOT / "hub" / "templates" / "client360.html").read_text()
+check("Client 360 reads the client route rather than the tool's",
+      "/api/client/audit?domain=" in c360, True)
+check("and no longer reads the thin one",
+      "/api/client/scan-facts" in c360, False)
+check("the spend card is on the record", 'id="c-spend"' in c360, True)
+# One definition and three call sites -- the no-website path, the answer and
+# the failure. Every exit from that fetch has to draw the card, or it spins
+# for ever on the one the reference card has already reported.
+check("drawn from the same payload as the reference card, so neither can "
+      "contradict the other", c360.count("drawSpend(") - 1, 3)
+check("the no-website path draws it", "drawSpend(null, '')" in c360, True)
+check("so does the answer", "drawSpend(d, dom)" in c360, True)
+check("and so does the failure", "drawSpend(null, dom)" in c360, True)
+
+
+# =====================================================================
 section("The widget: a second kind of placement, not a second widget")
 # =====================================================================
 

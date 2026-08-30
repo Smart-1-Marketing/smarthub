@@ -181,6 +181,20 @@ REGISTRY: list[Help] = [
        "pipeline's archive, and cannot be undone. The count is this client's, "
        "not the whole archive's.", step=4,
        selector="[data-tour='client-images']"),
+    _h("hub.client360.spend", "What they are already spending",
+       "The first thing worth knowing about a client, and the one that decides "
+       "what the next conversation is about. Every figure is a third-party "
+       "estimate of somebody else's spend, not a billed number: the total "
+       "covers only what carries a figure, and what is deliberately left out "
+       "of it is named beside it — Meta publishes the ads and never the money, "
+       "so counting paid social as zero would understate a business by "
+       "thousands in a clean confident row. Annualising is our multiplication "
+       "and a cost per visit is their own two numbers divided, so both say so. "
+       "Underneath it is what the audit says we could fix, which is the "
+       "finding rather than a product name. This is the same reading of the "
+       "same audit the Website Audit tool and a prospect record show — read "
+       "again with the date on it, and nothing here is fetched afresh or "
+       "costs anything."),
     _h("hub.client360.scanfacts", "What we know about this business",
        "About 440 things are read off a client's website and this record used "
        "to show four of them. This is the rest of what is worth reading: the "
