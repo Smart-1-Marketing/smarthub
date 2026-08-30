@@ -88,9 +88,14 @@ PRODUCERS = [
      "module": "hub/client_logos.py", "makes": "upload",
      "why": "A logo found on the brand record or the last site scan."},
     {"key": "display_ads", "label": "Display Ad Builder",
-     "provider": ["display_ads", "display_ad"],
+     # `animated_ad` is the same tool filing a second kind of file: an
+     # animated version, filed one at a time as each is approved. Declared on
+     # the producer that writes it rather than given a producer of its own,
+     # because the question this table asks -- does this module reach the
+     # filing path at all -- has one answer for both.
+     "provider": ["display_ads", "display_ad", "animated_ad"],
      "module": "hub/ad_builder_link.py", "makes": "create",
-     "why": "Finished banner sets a client receives."},
+     "why": "Finished banner sets a client receives, still and animated."},
     {"key": "gpt_ads", "label": "GPT Ads Builder",
      "provider": ["gpt_ads"],
      "module": "modules/gpt_ads/app.py", "makes": "create",
@@ -179,6 +184,82 @@ def _files(path: str, call: str = FILING_CALL) -> tuple[bool, str]:
         if name == FILING_CALL_LOCAL:
             return True, f"calls {FILING_CALL_LOCAL}() at line {node.lineno}"
     return False, f"no call to {FILING_CALL_LOCAL}() anywhere in this file"
+
+
+def written_providers(path: str) -> set[str]:
+    """Every literal a module passes as `provider=` when it files.
+
+    An AST read, so prose naming a provider is not a call site -- the rule
+    `hub/config.py`'s drift check gives, and three files in this corner
+    explain the trap by quoting one.
+
+    Only literals. `provider=kind` is a value decided at runtime and there is
+    nothing here that could resolve it; naming it would be the guess
+    `tools/linkcheck.py` refuses to make about a concatenated URL, so it is
+    left out rather than reported as undeclared.
+    """
+    out: set[str] = set()
+    try:
+        tree = ast.parse((ROOT / path).read_text(errors="ignore"))
+    except (FileNotFoundError, SyntaxError):
+        return out
+    # A module-level `X = "animated_ad"` used as `provider=X` is the ordinary
+    # way this is written -- hub/ad_builder_link.py does exactly that -- so a
+    # single-assignment string constant is resolved. One level, no chains: a
+    # value that takes tracing is one this cannot honestly claim to know.
+    consts: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)):
+            consts[node.targets[0].id] = node.value.value
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for kw in node.keywords:
+            if kw.arg != "provider":
+                continue
+            if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                out.add(kw.value.value)
+            elif isinstance(kw.value, ast.Name) and kw.value.id in consts:
+                out.add(consts[kw.value.id])
+    return out
+
+
+def undeclared_providers() -> list[dict]:
+    """Providers a producer writes and this table never named.
+
+    The other direction, and the one that was missing. `test_image_audit.py`
+    has always required every provider a PRODUCERS row DECLARES to have a
+    heading in `filing.SOURCE_LABELS` -- which catches a label somebody forgot
+    to write and cannot catch a value somebody forgot to declare. Those are
+    different failures and only the second is silent: the file is filed, the
+    gallery draws it under a bare key with no heading, and every count on
+    every screen is correct.
+
+    It has already happened twice. `social_request` was found by somebody
+    opening a client's gallery and noticing, and is recorded in that test as a
+    one-line assertion about one string; `animated_ad` arrived the same way
+    one release later. A list of the two we fixed proves nothing about the
+    third, so this asks the question of every producer module instead.
+    """
+    declared = {v for p in PRODUCERS for v in p.get("provider", [])}
+    out: list[dict] = []
+    for p in PRODUCERS:
+        for value in sorted(written_providers(p["module"]) - declared):
+            out.append({
+                "producer": p["key"],
+                "label": p["label"],
+                "module": p["module"],
+                "provider": value,
+                "cost":
+                    f"{p['label']} files under {value!r} and no producer here "
+                    "declares it, so nothing checks that the gallery can name "
+                    "it -- a file reaching a client's record as a bare key "
+                    "under no heading.",
+            })
+    return out
 
 
 def producers() -> list[dict]:
@@ -386,6 +467,12 @@ def audit(limit_unfiled: int = 200) -> dict:
     return {
         "producers": prod,
         "not_filing": [p for p in prod if not p["files"]],
+        # A producer that files under a name this table never declared. Its
+        # own key rather than folded into `not_filing`: that list is "this
+        # tool reaches no gallery at all", and this is "it reaches one under a
+        # name nothing has checked can be displayed". Different failures, and
+        # the second is the quieter of the two.
+        "undeclared_providers": undeclared_providers(),
         "stores": st,
         # Only over the stores that answered. A total that quietly counts an
         # unreadable store as nought is the confident wrong answer this whole
