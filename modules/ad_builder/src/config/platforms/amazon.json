@@ -125,9 +125,9 @@
         18
       ],
       "minFontPx": 11,
-      "notes": "VERIFY: the background research does not give an Amazon static limit for this size. 40 KB is assumed by analogy with 728x90 and 160x600 \u2014 confirm against Amazon's current creative spec sheet before first live delivery.",
+      "notes": "Desktop. 40 KB static maximum \u2014 Amazon's published rule is 40 KB for every static desktop unit except the billboard, which takes 200 KB. That is the US ceiling; FR, IT, ES and JP allow 50 KB, and building to the lower one is what makes a single file deliverable in every market Smart 1 buys.",
       "source": "doc",
-      "_verifiedAgainst": "https://advertising.amazon.com/resources/ad-specs/dsp/desktop, fetched 2026-08-02"
+      "_verifiedAgainst": "Amazon DSP desktop static display specs, re-checked 2026-08-30: the 40 KB rule for all non-billboard static desktop units is what covers this size. Previously carried as an assumption by analogy with 728x90 and 160x600, which the rule confirms."
     },
     "250x250": {
       "w": 250,
