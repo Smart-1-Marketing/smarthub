@@ -46,6 +46,8 @@ AUDIO = "audio"
 DISPLAY = "display"
 RETARGETING = "retargeting"
 SOCIAL = "social"
+EMAIL = "email"
+DOOH = "dooh"
 OTHER = "other"
 
 # Display and retargeting joined the gate after the paragraph above turned out
@@ -66,13 +68,22 @@ OTHER = "other"
 # video shoot does, so a comped set of banners is questioned at $500 rather
 # than at $1,500 -- a warning that fires on every plan is a warning nobody
 # reads, which is the note hub/qr_codes.py makes about QR on social.
-GATED = (VIDEO, AUDIO, DISPLAY, RETARGETING)
+# Email and digital out-of-home joined for the reason display did, one step
+# further on. Both sell creative with published specs -- the kit has an Email
+# Creative and an HTML package, and four billboard sizes -- and neither was
+# ever asked for, because `medium_of` answered OTHER for every product under
+# EMAIL MARKETING and SMART 1 SIGNAGE and an ungated medium is one the
+# Creative step never mentions. A signage buy reached the insertion order with
+# nobody having established that artwork exists, exactly as a CTV buy used to.
+GATED = (VIDEO, AUDIO, DISPLAY, RETARGETING, EMAIL, DOOH)
 
 MEDIUM_LABEL = {
     VIDEO: "Video (CTV, streaming, YouTube, pre-roll)",
     AUDIO: "Audio (digital radio, podcasts, streaming audio)",
     DISPLAY: "Display (banners, native, IP targeted, geo-fenced)",
     RETARGETING: "Retargeting (the banners that bring them back)",
+    EMAIL: "Email (the creative that goes in the send)",
+    DOOH: "Signage (digital out-of-home and indoor screens)",
     SOCIAL: "Paid social",
     OTHER: "Other",
 }
@@ -85,13 +96,17 @@ COMP_CONFIRM_UNDER = 1500
 # Per medium, where the medium's own economics differ from the default above.
 # Display is $250 of design on the card, so the campaign at which comping it
 # stops being sensible is far lower than the one for a shoot.
-COMP_CONFIRM_BY_MEDIUM = {DISPLAY: 500, RETARGETING: 500}
+# Email creative is the card's own "Email Template Creation" at $150, so it is
+# questioned lower still. Signage artwork is a custom quote and is left at the
+# default rather than given a number nobody published.
+COMP_CONFIRM_BY_MEDIUM = {DISPLAY: 500, RETARGETING: 500, EMAIL: 400}
 
 # Starting points for production when Smart 1 builds it. Overridable on the
 # quote; a custom shoot is a custom quote. Display and retargeting are the
 # card's own "Standard Set of 6 Ad Creation" at $250 rather than a number
 # invented here -- the same rule the video figures follow, one step further.
-TYPICAL_PRODUCTION = {VIDEO: 750, AUDIO: 250, DISPLAY: 250, RETARGETING: 250}
+TYPICAL_PRODUCTION = {VIDEO: 750, AUDIO: 250, DISPLAY: 250, RETARGETING: 250,
+                      EMAIL: 150, DOOH: 250}
 
 
 def confirm_under(medium: str) -> int:
@@ -139,13 +154,33 @@ CATEGORY_MEDIUM = {
     # banners at all.
     "data targeted display": DISPLAY,
     "programmatic campaign": DISPLAY,
+    # These three answered OTHER, which is not a medium -- it is the gate
+    # never being asked. The spec kit has known what they are the whole time
+    # (`creative_specs.channels_for_product` returns mobile_display, email and
+    # dooh for them), so the two halves of one question were disagreeing:
+    # one decides whether we ask for creative, the other what we ask for.
+    "mobile only": DISPLAY,
+    "email marketing": EMAIL,
+    "smart 1 signage": DOOH,
 }
 
 
 def _text(item) -> str:
+    """The words that describe the product itself.
+
+    `label` is deliberately not among them. It is "<category heading> —
+    <product>", and a heading is a statement about a *section* of the card
+    rather than about the product: the card files four IP-targeting products
+    under a heading called "Display & Video", so the word "video" appeared in
+    the label of "IP Targeted Display - New Movers" -- whose own description
+    reads "deliver display ads" -- and the video test below runs first. All
+    three IP display products were gated as video, which asks a client for a
+    TV spot to run a banner buy. Category and product are both here already,
+    so the label contributed nothing else.
+    """
     if isinstance(item, dict):
         return " ".join(str(item.get(k, "")) for k in
-                        ("category", "product", "label", "description")).lower()
+                        ("category", "product", "description")).lower()
     return str(item or "").lower()
 
 
@@ -186,6 +221,89 @@ def medium_of(item) -> str:
                                "ip target", "select tactics")):
         return DISPLAY
     return OTHER
+
+
+# Which medium a spec-kit channel's creative belongs to.
+#
+# `creative_specs.channels_for_product()` answers *what* to ask a client for;
+# `medium_of()` above answers *whether* to ask at all. Two readings of one
+# question, and they were disagreeing on 25 of the 90 products on the card --
+# in both directions. Products under MOBILE ONLY, EMAIL MARKETING and SMART 1
+# SIGNAGE were OTHER here and had perfectly good channels there, so the gate
+# never mentioned them; and three IP-targeted *display* products were video
+# here and display there, so the gate asked for a spot while the kit asked
+# for banners.
+#
+# This table is what lets `spec_disagreements()` say so. It is deliberately
+# not consulted by `medium_of` itself: the wizard mirrors that function in
+# JavaScript, and reaching into the kit's twenty-entry regex list would make
+# a third mirror of the same fact -- the cost this codebase has already paid
+# twice. The tables stay separate and are held together by a check.
+SPEC_CHANNEL_MEDIUM = {
+    "desktop_display": DISPLAY, "mobile_display": DISPLAY,
+    "tablet_display": DISPLAY, "native_display": DISPLAY,
+    "standard_video": VIDEO, "youtube": VIDEO, "ctv": VIDEO,
+    "native_video": VIDEO,
+    "digital_radio": AUDIO,
+    "email": EMAIL,
+    "dooh": DOOH,
+    "facebook": SOCIAL, "instagram": SOCIAL, "facebook_video": SOCIAL,
+    "facebook_carousel": SOCIAL, "stories": SOCIAL, "x": SOCIAL,
+    "linkedin": SOCIAL, "snapchat": SOCIAL, "tiktok": SOCIAL,
+    "gpt_ads": OTHER,
+}
+
+# Products where the two readings differ and both are right, so a check that
+# reported them would be a check people learn to skim. Each says why.
+SPEC_AGREE_EXEMPT = {
+    # The buy is the retargeting line -- its own category, its own budget --
+    # while the files it runs are Instagram and Stories units. Different
+    # questions, both answered correctly.
+    ("retargeting", "social"),
+    # And its display twin: retargeting creative *is* banners. The gate keeps
+    # it apart from display because it is a different set of the same sizes --
+    # the offer that brings somebody back, not the one that introduced the
+    # brand -- which is a fact about who supplies the files, not about which
+    # units they are judged against.
+    ("retargeting", "display"),
+    # A creative-production line item is not a media buy that needs creative
+    # supplied for it. The kit still knows how to judge an email if one is
+    # uploaded; the gate is right not to ask the client for one.
+    ("other", "email"),
+    # A social buy sold as video: the gate wants a video, the kit judges it
+    # against that platform's units. Both true.
+    ("video", "social"),
+}
+
+
+def spec_disagreements() -> list[dict]:
+    """Products the creative gate and the spec kit read differently.
+
+    Empty is the only acceptable answer, and it started that way -- which is
+    the only way this was worth adding. A disagreement here is silent from
+    both ends: each screen is internally consistent and the rep is asked for
+    one thing and judged against another.
+    """
+    try:
+        from . import creative_specs, rate_card
+    except Exception:                                   # noqa: BLE001
+        return []
+    out = []
+    for product in rate_card.products():
+        channels = creative_specs.channels_for_product(
+            product.get("product", ""), product.get("category", ""))
+        if not channels:
+            continue
+        kit = {SPEC_CHANNEL_MEDIUM.get(c) for c in channels} - {None}
+        gate = medium_of(product)
+        if gate in kit or not kit:
+            continue
+        if any((gate, k) in SPEC_AGREE_EXEMPT for k in kit):
+            continue
+        out.append({"product": product.get("product", ""),
+                    "category": product.get("category", ""),
+                    "gate": gate, "kit": sorted(kit)})
+    return out
 
 
 def card_drift() -> list[str]:

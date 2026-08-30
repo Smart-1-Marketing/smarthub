@@ -2624,6 +2624,57 @@ IO's product list is the whole card rather than what survived a collision, and
 that the names we publish are the names we quote from — the partner pages ship
 in this repo, so that last one is checkable rather than remembered.
 
+### A category heading is not a word about the product
+
+`creative_needs.medium_of()` read a blob of `category + product + label +
+description`, and the **label** is `"<category heading> — <product>"`. A
+heading describes a *section of the card*, not the thing in it. The card files
+four IP-targeting products under a heading called **"Display & Video"**, so
+the word *video* appeared in the label of `IP Targeted Display - New Movers` —
+whose own description reads "deliver **display** ads" — and the video test
+runs before the display one. All three IP display products were gated as
+video, which asks a client for a TV spot to run a banner buy. The label is out
+of the blob; category and product were both in it already, so it contributed
+nothing else.
+
+**And "other" is not a medium — it is the gate never being asked.** Every
+product under `MOBILE ONLY`, `EMAIL MARKETING` and `SMART 1 SIGNAGE` answered
+`OTHER`, and an ungated medium is one the Creative step never mentions. A
+signage buy reached the insertion order with nobody having established that
+artwork exists, exactly as a CTV buy used to before the gate existed. Those
+three headings are in `CATEGORY_MEDIUM` now and `EMAIL` and `DOOH` are gated
+mediums with their own production figures — email creative is the card's own
+$150 line, so it is questioned at $400 rather than $1,500, the per-medium rule
+display already followed.
+
+**Two readings of one question, disagreeing in both directions.**
+`medium_of()` decides *whether* to ask for creative;
+`creative_specs.channels_for_product()` decides *what* to ask for. They
+disagreed on **25 of the 90 products**. The kit had known about mobile, email
+and signage the whole time. Going the other way, the four programmatic
+**video** products filed under the card's DISPLAY heading are named in
+`EXPLICIT_MEDIUM` so the gate asks for a spot — and the kit's regex list
+dropped them into the generic `display|programmatic` pattern, so the rep was
+asked for a video and handed *Leaderboard 728x90, Medium Rectangle 300x250*.
+Each screen was internally consistent, which is why it survived.
+
+`spec_disagreements()` is the check, and `/api/integrity` runs it at **high**.
+Its exemption list is pairs that are genuinely both right, each with its
+reason: a retargeting *buy* whose files are banners or Instagram units, and a
+creative-production line item that is not a media buy needing creative
+supplied for it. The new video pattern in `_PRODUCT_CHANNELS` sits **below**
+the audio rule on purpose — "Programmatic - Targeted" is also the $18.00 CPM
+buy under DIGITAL RADIO, and that one needs a spot rather than a video.
+
+The tables are deliberately **not** merged. The wizard mirrors `medium_of` in
+JavaScript, and reaching into the kit's twenty-entry regex list would be a
+third mirror of one fact — the cost this codebase has already paid twice. They
+stay separate and are held together by the check. `test_proposal_spec.py` runs
+the mirror over **every product on the real card** rather than a fixture: a
+hand-written list proves the halves agree about the rows somebody thought to
+write down, which is exactly the set that was already right — none of the four
+the label bleed broke were in it.
+
 ### The listed rate is what Smart 1 pays; the quoted rate is what is sold
 
 Every rate on the card is the buy-side number and the builder was quoting it

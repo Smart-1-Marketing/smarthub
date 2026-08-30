@@ -1331,13 +1331,16 @@ const COMP_CONFIRM_UNDER=1500;
    $250 of design on the card, so comping it stops being sensible far lower
    down than a shoot does -- and a confirmation that fires on every plan is
    one nobody reads. */
-const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500};
+const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500,email:400};
 function confirmUnder(m){return COMP_CONFIRM_BY_MEDIUM[m]||COMP_CONFIRM_UNDER;}
-const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250};
+const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250,
+ email:150,dooh:250};
 const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
  audio:"Audio (digital radio, podcasts, streaming audio)",
  display:"Display (banners, native, IP targeted, geo-fenced)",
  retargeting:"Retargeting (the banners that bring them back)",
+ email:"Email (the creative that goes in the send)",
+ dooh:"Signage (digital out-of-home and indoor screens)",
  social:"Paid social",other:"Other"};
 /* Four programmatic VIDEO products sit under the same DISPLAY category as
    banner inventory and their names do not say so -- "Programmatic - Targeted"
@@ -1352,13 +1355,24 @@ const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video",
     buy, whose name lists retargeting as one of the tactics inside it. Read
     off the name alone it becomes a retargeting line and the display half of
     the plan never gets asked for banners at all. */
- "data targeted display":"display","programmatic campaign":"display"};
+ "data targeted display":"display","programmatic campaign":"display",
+ /* These three answered "other", which is not a medium -- it is the gate
+    never being asked. The spec kit has known what they are the whole time,
+    so the two halves of one question were disagreeing: one decides whether
+    we ask for creative, the other what we ask for. */
+ "mobile only":"display","email marketing":"email","smart 1 signage":"dooh"};
 function mediumOf(i){
  const cat=String((i&&i.category)||"").trim().toLowerCase();
  if(CATEGORY_MEDIUM[cat])return CATEGORY_MEDIUM[cat];
  const prod=String((i&&i.product)||"").trim().toLowerCase();
  if(EXPLICIT_MEDIUM[prod])return EXPLICIT_MEDIUM[prod];
- const t=[cat,prod,String((i&&i.label)||"")].join(" ").toLowerCase();
+ /* The label is deliberately left out. It is "<category heading> —
+    <product>", and a heading describes a section of the card rather than a
+    product: four IP-targeting products are filed under a heading called
+    "Display & Video", so "IP Targeted Display - New Movers" carried the word
+    video and the test below runs first. Category and product are both here
+    already, so the label added nothing but that. */
+ const t=[cat,prod,String((i&&i.description)||"")].join(" ").toLowerCase();
  if(/radio|podcast|audio|spotify|pandora|iheart/.test(t))return "audio";
  if(/video|ott|youtube|trueview|bumper|connected tv|advanced tv|ctv|pre-?roll|non-skippable/.test(t))return "video";
  if(/facebook|instagram|meta|tik ?tok|linkedin|snapchat|pinterest|twitter|social/.test(t))return "social";
@@ -1376,7 +1390,11 @@ function mediumSpend(m){
    Retargeting is asked separately because it is a different set of files:
    the same six sizes carrying the offer that brings somebody back, not the
    one that introduced the brand. */
-const GATED_MEDIA=["video","audio","display","retargeting"];
+/* Email and signage joined for the reason display did. Both sell creative
+   with published specs and neither was ever asked for, because every product
+   under EMAIL MARKETING and SMART 1 SIGNAGE answered "other" and an ungated
+   medium is one this step never mentions. */
+const GATED_MEDIA=["video","audio","display","retargeting","email","dooh"];
 function gatedMedia(){
  const present=new Set(S.items.map(mediumOf));
  return GATED_MEDIA.filter(m=>present.has(m));}
