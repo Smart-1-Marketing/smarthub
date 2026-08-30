@@ -482,6 +482,7 @@ const server = http.createServer(async (req, res) => {
             platforms: acceptPlatforms(body.platforms).platforms,
             notes: result.notes,
             assetSources: result.assetSources,
+            colorSources: result.colorSources,
           }, null, 2),
         );
         build = { renderable: result.renderable, notes: result.notes };
