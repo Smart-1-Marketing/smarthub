@@ -57,6 +57,7 @@ from flask_cors import CORS
 from sqlalchemy import (Column, DateTime, Integer, LargeBinary, String, Text,
                         func, or_)
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import object_session as _sa_object_session
 
 # ---- PDF (reportlab, same stack as the IO app) ----
 from reportlab.lib import colors as rl_colors
@@ -84,6 +85,7 @@ from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
 from hub import kpi_framework as hub_kpi
 from hub import proposal_spec as hub_spec
+from hub import quote_validity as hub_validity
 from hub import rate_card as hub_rate_card
 from hub import target_areas as hub_areas
 from hub import target_map as hub_map
@@ -415,16 +417,96 @@ def _signed_in_as() -> str:
         return ""
 
 
-def quote_json(q, include_data=False):
+_UNSET = object()
+
+
+def _sent_at_of(q):
+    """When this quote was last deliberately sent, or None.
+
+    Read through the session that loaded the quote -- one small indexed query
+    -- so every caller of quote_json() gets the right answer without nine call
+    sites having to remember. `list_quotes` prefetches instead, because one
+    query per row on a 300-row list is the N+1 this would otherwise be.
+    """
+    try:
+        db = _sa_object_session(q)
+        if db is None:
+            return None
+        share = (db.query(QuoteShare)
+                 .filter(QuoteShare.quote_id == q.id)
+                 .order_by(QuoteShare.id.desc()).first())
+        return share.sent_at if share else None
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
+def _sent_at_map(db, quotes) -> dict:
+    """{quote_id: sent_at} for a page of quotes, in one query."""
+    ids = [q.id for q in quotes]
+    if not ids:
+        return {}
+    out = {}
+    try:
+        for share in (db.query(QuoteShare)
+                      .filter(QuoteShare.quote_id.in_(ids))
+                      .order_by(QuoteShare.id.asc()).all()):
+            out[share.quote_id] = share.sent_at
+    except Exception:                                   # noqa: BLE001
+        return {}
+    return out
+
+
+def _state_of(q) -> dict:
+    """A quote's saved answers, or an empty dict. Never raises: half this
+    module reads the blob to answer one question about it, and a malformed one
+    must cost that answer rather than the page."""
+    try:
+        state = json.loads(q.data or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def _quote_window(q, state, sent_at=_UNSET):
+    """How long this quote's pricing stands. hub/quote_validity.py has the rules."""
+    if sent_at is _UNSET:
+        sent_at = _sent_at_of(q)
+    try:
+        return hub_validity.window(q.status or "", sent_at=sent_at,
+                                   created_at=q.created_at, state=state)
+    except Exception:                                   # noqa: BLE001
+        # A window that cannot be computed must not cost the quote: every
+        # screen reads `applies`, and False is "no window here", which is what
+        # every quote had before this existed.
+        return {"applies": False, "measured": False, "expired": False}
+
+
+def _validity_block(win):
+    """What a screen is handed. The sentence travels with the dates, so no
+    caller can render a date without the words that explain it."""
+    out = dict(win or {})
+    out["note"] = hub_validity.staff_note(win)
+    out["client_note"] = hub_validity.client_note(win)
+    return out
+
+
+def quote_json(q, include_data=False, sent_at=_UNSET):
     state = {}
     try:
         state = json.loads(q.data or "{}")
     except Exception:
         state = {}
+    win = _quote_window(q, state, sent_at)
     out = {
         "id": q.id,
         "quote_number": q.quote_number,
         "status": q.status,
+        # What a screen shows. `status` stays exactly as stored, because that
+        # is what a status change writes back and what the picker sets; this
+        # is the same fact with the clock applied. Two fields rather than one
+        # so nothing can round-trip a derived value into the column.
+        "shown_status": (hub_validity.EXPIRED_STATUS if win.get("expired")
+                         else q.status),
         "client": q.client,
         "website": q.website,
         "industry": q.industry,
@@ -446,6 +528,13 @@ def quote_json(q, include_data=False):
         # against a column that was silently absent in production.
         "client_key": _client_key(q.client, q.website),
         "revision": q.revision,
+        # How long the pricing stands, and whether it still does. Derived on
+        # read and never stored: there are two gunicorn workers, so a status
+        # written by whichever one ran a sweep is one the other disagrees
+        # with -- and a stored "Expired" would survive an extension, leaving a
+        # quote reading as dead on the one screen a rep would go to revive it.
+        # hub/quote_validity.py owns the rules.
+        "validity": _validity_block(win),
         # How far into the wizard this quote was left. Read from the state
         # blob rather than a column of its own: create_all() adds no column
         # to an existing table, so one here would be silently absent on the
@@ -478,6 +567,12 @@ def quote_json(q, include_data=False):
     }
     if include_data:
         out["data"] = state
+        # The plan as the PDF and the Word export draw it, so the builder's
+        # preview shows the delivery figures rather than carrying a fourth
+        # copy of the arithmetic. Only on a single quote: the list does not
+        # draw this table, and computing it per row there is work nothing
+        # reads.
+        out["media_plan"] = media_plan_rows(state)
     return out
 
 
@@ -689,7 +784,10 @@ def list_quotes():
                 func.lower(Quote.io_number).like(like),
             ))
         rows = query.order_by(Quote.updated_at.desc()).limit(limit).all()
-        return jsonify({"ok": True, "quotes": [quote_json(r) for r in rows]})
+        sent = _sent_at_map(db, rows)
+        return jsonify({"ok": True,
+                        "quotes": [quote_json(r, sent_at=sent.get(r.id))
+                                   for r in rows]})
     finally:
         db.close()
 
@@ -886,9 +984,18 @@ def dashboard():
         acts = db.query(Activity).order_by(Activity.created_at.desc()).limit(12).all()
         stale = [r for r in sent_rows if (now - aware(r.updated_at)).days >= 7]
         nudges = []
+        sent_map = _sent_at_map(db, stale[:3])
         for r in stale[:3]:
+            # Whether the pricing still stands changes what the follow-up is.
+            # "Chase this" and "this one needs re-quoting before they can say
+            # yes" are different jobs, and the second one has a client sitting
+            # in front of a page that will not let them accept.
+            win = _quote_window(r, _state_of(r), sent_map.get(r.id))
             nudges.append({"tag": "FOLLOW-UP NUDGE", "text": f"{r.client} ({r.quote_number}) was sent "
-                          f"{(now - aware(r.updated_at)).days} days ago with no response. Consider a follow-up."})
+                          f"{(now - aware(r.updated_at)).days} days ago with no response. "
+                          + ("The pricing has expired — re-send it to quote at "
+                             "current rates." if win.get("expired")
+                             else "Consider a follow-up.")})
         for r in approved[:3]:
             g = compute_gaps(json.loads(r.data or "{}"))
             nudges.append({"tag": "READY TO CONVERT", "text": f"{r.client} ({r.quote_number}) is approved. "
@@ -1442,7 +1549,7 @@ def _type_scale(state) -> float:
     return round(max(TYPE_SCALE_MIN, 1.0 - (load - TYPE_SCALE_FULL_UNDER) * 0.009), 3)
 
 
-def build_proposal_pdf(q, state):
+def build_proposal_pdf(q, state, sent_at=_UNSET):
     title = f"S1M Proposal - {q.quote_number} - {q.client or 'Client'}"
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, rightMargin=0.55 * inch, leftMargin=0.55 * inch,
@@ -1599,23 +1706,33 @@ def build_proposal_pdf(q, state):
                 story += _body_flowables(
                     hub_spec.bullets(auds, "Audience layers"), st_body)
         elif kind == "mediaplan":
-            items = state.get("items") or []
-            if items:
-                rows = [["Product", "Category", "Rate", "Monthly", f"Total ({q.months} mo)"]]
-                for i in items:
-                    quoted = _sell_rate(i)
-                    rows.append([_p(hub_rate_card.quote_label(i.get("product"), i.get("category")), st_small),
-                                 _p(i.get("category") or "", st_small),
-                                 _p(f"{i.get('rate')} ${quoted:,.2f}" if quoted
-                                    else (i.get("rate") or "Managed"), st_small),
-                                 _money(i.get("dollars") or 0), _money((i.get("dollars") or 0) * q.months)])
-                mt = Table(rows, colWidths=[2.3 * inch, 1.7 * inch, 1.1 * inch, 1.15 * inch, 1.15 * inch], repeatRows=1)
+            # One reading of the plan, shared with the Word export and the
+            # builder's preview -- the three had already drifted, and the
+            # delivery column is the reason it matters: three copies of that
+            # arithmetic is three answers to what a line buys.
+            plan = media_plan_rows(state)
+            if plan["rows"]:
+                rows = [[*plan["columns"][:4], f"Total ({plan['months']} mo)",
+                         plan["columns"][5]]]
+                for r in plan["rows"]:
+                    rows.append([_p(r["product"], st_small),
+                                 _p(r["category"], st_small),
+                                 _p(r["rate"], st_small),
+                                 _money(r["monthly"]), _money(r["campaign"]),
+                                 _p(r["delivery"], st_small)])
+                mt = Table(rows, colWidths=[1.85 * inch, 1.35 * inch, 1.0 * inch,
+                                            0.95 * inch, 1.0 * inch, 1.25 * inch],
+                           repeatRows=1)
                 mt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), NAVY), ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
                                         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8),
                                         ("GRID", (0, 0), (-1, -1), 0.4, LINE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                                        ("ALIGN", (3, 1), (-1, -1), "RIGHT"), ("TOPPADDING", (0, 0), (-1, -1), 5),
+                                        ("ALIGN", (3, 1), (4, -1), "RIGHT"), ("TOPPADDING", (0, 0), (-1, -1), 5),
                                         ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
                 story.append(mt)
+                # An estimate printed with no words around it reads as a
+                # guarantee, which is what the ROI section was rebuilt to undo.
+                if plan["note"]:
+                    story += [Spacer(1, 4), Paragraph(plan["note"], st_small)]
         elif kind == "packages":
             # Recurring platform licensing, recurring media and one-time
             # production, shown apart. A client reading one blended number
@@ -1658,6 +1775,15 @@ def build_proposal_pdf(q, state):
                 pt.setStyle(TableStyle(style))
                 story.append(pt)
                 story.append(_p("★ recommended package", st_small))
+            # How long these figures stand, under the figures. An expiry the
+            # client cannot see is one we cannot hold them to, and this is the
+            # section it qualifies. Nothing at all on a quote that has not
+            # been sent -- that one has no window yet, and a date invented for
+            # it would be a promise made before the document went out.
+            validity = hub_validity.client_note(
+                _quote_window(q, state, sent_at=sent_at))
+            if validity:
+                story += [Spacer(1, 6), _p(validity, st_small)]
         elif kind == "kpis":
             # A list of things the campaign will be judged on is a list. Six
             # KPIs joined by commas is a sentence a client skims, and the
@@ -1885,7 +2011,7 @@ def quote_pdf_archived(qid):
 # =====================================================================
 # Word (.docx) export
 # =====================================================================
-def build_proposal_docx(q, state):
+def build_proposal_docx(q, state, sent_at=_UNSET):
     d = Document()
     for section in d.sections:
         section.top_margin = Inches(0.7)
@@ -1983,18 +2109,28 @@ def build_proposal_docx(q, state):
                     + (f" (geo-fenced at {row['address']})" if row["fenceable"]
                        else " (brand and behavior — no address on file to fence)"))
         elif kind == "mediaplan" and state.get("items"):
-            t2 = d.add_table(rows=1, cols=4)
+            # Same reading as the PDF and the preview. This table used to be
+            # four columns to the PDF's five -- one client's proposal saying
+            # two different things depending on which file was sent.
+            plan = media_plan_rows(state)
+            t2 = d.add_table(rows=1, cols=len(plan["columns"]))
             t2.style = "Light Grid Accent 1"
             hdr = t2.rows[0].cells
-            for i, htxt in enumerate(["Product", "Category", "Monthly", f"Total ({q.months} mo)"]):
+            heads = [*plan["columns"][:4], f"Total ({plan['months']} mo)",
+                     plan["columns"][5]]
+            for i, htxt in enumerate(heads):
                 hdr[i].text = htxt
                 hdr[i].paragraphs[0].runs[0].font.bold = True
-            for it in state.get("items") or []:
+            for r in plan["rows"]:
                 row = t2.add_row().cells
-                row[0].text = str(it.get("product") or "")
-                row[1].text = str(it.get("category") or "")
-                row[2].text = _money(it.get("dollars") or 0)
-                row[3].text = _money((it.get("dollars") or 0) * q.months)
+                row[0].text = r["product"]
+                row[1].text = r["category"]
+                row[2].text = r["rate"]
+                row[3].text = _money(r["monthly"])
+                row[4].text = _money(r["campaign"])
+                row[5].text = r["delivery"]
+            if plan["note"]:
+                d.add_paragraph(plan["note"])
         elif kind == "packages" and state.get("packages"):
             pkgs = state.get("packages") or []
             t3 = d.add_table(rows=1, cols=1 + len(pkgs))
@@ -2009,6 +2145,12 @@ def build_proposal_docx(q, state):
                 row[0].text = label
                 for i, pkg in enumerate(pkgs):
                     row[i + 1].text = _money(pkg.get(key))
+            # The same line the PDF prints under the same table: one client
+            # note, so a Word copy and a PDF copy of one proposal cannot
+            # disagree about how long the price stands.
+            validity = hub_validity.client_note(_quote_window(q, state, sent_at))
+            if validity:
+                d.add_paragraph(validity)
         elif kind == "kpis" and state.get("kpis"):
             _docx_body(d, hub_spec.bullets(state.get("kpis") or []))
         elif kind == "friction":
@@ -2279,6 +2421,99 @@ def expected_results(state):
     }
 
 
+# Column headings for the media plan, in one place because three renderers
+# draw this table and they had already drifted: the PDF carried Rate and the
+# Word export did not, so the same client's proposal said two different things
+# depending on which file was sent.
+MEDIA_PLAN_COLUMNS = ("Product", "Category", "Rate", "Monthly", "Total",
+                      "Delivery / mo")
+
+
+def media_plan_rows(state) -> dict:
+    """The media plan as every renderer draws it, computed once.
+
+    **Delivery is back on the client's document, and this is where it belongs.**
+    It came off the proposal with "Expected Results & ROI", correctly: an
+    impression count answers what the money *bought*, not what the business
+    gets, and printed under that heading it read as a promise about outcomes.
+    Under the media plan it is answering the question the media plan asks --
+    what does this line buy -- and a client comparing two proposals has no
+    other way to tell a $4.25 CPM apart from an $8.50 one.
+
+    It is `expected_results()`'s arithmetic and not a second copy: the quoted
+    rate rather than the listed one, a one-time line spread across the flight,
+    and a management fee reporting **no units at all** rather than a plausible
+    number. That last one is most of the value of doing it this way.
+    """
+    est = expected_results(state)
+    months = est["months"]
+    rows = []
+    for r in est["rows"]:
+        units, label = r.get("units"), r.get("unit_label") or ""
+        unit = label.replace("/month", "").strip()
+        if not units:
+            # Never a zero and never a dash on its own: a fee that buys no
+            # impressions is a different statement from one nobody priced.
+            delivery = "Not impression-based"
+        elif (r.get("basis") or "monthly") == "one_time":
+            # A one-time line does not deliver every month, and printing its
+            # units under a per-month heading multiplies it by the flight.
+            delivery = f"{units:,} {unit}, once"
+        else:
+            # The column's own heading carries "per month"; repeating it on
+            # every row makes the narrowest column the widest.
+            delivery = f"{units:,} {unit}"
+        rows.append({
+            "product": r["product"], "category": r["category"],
+            "rate": r["rate"] or "Managed",
+            "monthly": r["monthly"], "campaign": r["campaign"],
+            "units": units, "unit_label": label, "delivery": delivery,
+            "basis": r.get("basis") or "monthly",
+        })
+    totals = est["totals"]
+    return {
+        "columns": list(MEDIA_PLAN_COLUMNS),
+        "months": months,
+        "rows": rows,
+        "monthly_total": round(totals.get("monthly") or 0, 2),
+        "campaign_total": round(totals.get("campaign") or 0, 2),
+        "impressions": totals.get("impressions") or 0,
+        "views": totals.get("views") or 0,
+        # Named, so the table can say which lines are not in the delivery
+        # column rather than quietly under-reporting the campaign.
+        "unpriced": est.get("unpriced") or [],
+        "note": delivery_note(est),
+    }
+
+
+def delivery_note(est) -> str:
+    """The sentence under the delivery column. An estimate printed with no
+    words around it reads as a guarantee, which is the failure the ROI section
+    was rebuilt to undo -- so the words travel with the figures."""
+    est = est or {}
+    totals = est.get("totals") or {}
+    bits = []
+    if totals.get("impressions"):
+        bits.append(f"{int(totals['impressions']):,} impressions")
+    if totals.get("views"):
+        bits.append(f"{int(totals['views']):,} views")
+    if not bits:
+        return ("No line in this plan is bought on an impression or view rate, "
+                "so there is no delivery estimate to show.")
+    note = ("Delivery is estimated at the rates quoted above and is what this "
+            "plan is expected to buy over the campaign — "
+            + " and ".join(bits) + " — not a guarantee of results.")
+    unpriced = [u for u in (est.get("unpriced") or []) if u]
+    if unpriced:
+        one = len(unpriced) == 1
+        note += (" " + ", ".join(unpriced)
+                 + (" is not bought on an impression rate, so it is"
+                    if one else
+                    " are not bought on impression rates, so they are")
+                 + " not counted in that figure.")
+    return note
+
+
 def _tracked_metrics(state):
     """What we will report on — the shared reading, not a second copy.
 
@@ -2370,10 +2605,15 @@ def _seeded_sections(state):
                             "\n\nBudget is concentrated on the moments that produce "
                             "revenue: " + ", ".join(template["triggers"]) + ".").strip()
 
+    # Deliberately says nothing about markup. This read "every rate is the
+    # Smart 1 card rate -- there is no markup between the line item and what
+    # runs", which named our internal pricing on a document a client reads
+    # and, since sell_rate() started quoting CPM at 2x, was printed directly
+    # above a table disproving it.
     body["mediaplan"] = (
         "The split below is weighted toward the stage of the funnel this campaign has "
-        "to move. Every rate is the Smart 1 card rate — there is no markup between the "
-        "line item and what runs.")
+        "to move, and the delivery column is what each line is expected to buy at the "
+        "rate it is quoted at.")
 
     body["creative"] = _creative_section_body(state)
 
@@ -3463,6 +3703,7 @@ def _share_state(db, q) -> dict:
                   for v in views[:12]],
         "accepted": _acc(live),
         "superseded": _acc(superseded) if not live else None,
+        "validity": _validity_block(_quote_window(q, _state_of(q), share.sent_at)),
     }
 
 
@@ -3496,6 +3737,52 @@ def api_share_create(qid):
         # first-positional trap this file's own docstring names, one keyword on.
         _audit("quote_shared", client=q.client, quote=q.quote_number,
                sent_by=_signed_in_as(), revision=q.revision or 1)
+        return jsonify({"ok": True, "share": _share_state(db, q)})
+    finally:
+        db.close()
+
+
+@app.post("/api/quotes/<int:qid>/validity")
+def api_share_validity(qid):
+    """How long this quote's pricing stands, if not the house window.
+
+    Written into the quote's own data blob -- never a new column, the
+    `create_all()` rule -- and set from the share panel because that is where
+    the send happens and where the answer matters. Clearing it (0 or blank)
+    puts the quote back on the house window rather than removing the window,
+    which is a different thing and not one this button offers.
+    """
+    body = request.get_json(silent=True) or {}
+    raw = body.get("days")
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        state = _state_of(q)
+        if raw in (None, "", 0, "0"):
+            state.pop("validityDays", None)
+            chosen = 0
+        else:
+            try:
+                chosen = int(raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False,
+                                "error": "Give the number of days as a whole number."}), 400
+            if not (hub_validity.MIN_DAYS <= chosen <= hub_validity.MAX_DAYS):
+                # Refused by name rather than silently clamped: a rep who
+                # typed 3650 and got 365 has been told something different
+                # from what they asked for, on a date a client relies on.
+                return jsonify({"ok": False, "error":
+                                f"A proposal can stand for between "
+                                f"{hub_validity.MIN_DAYS} and "
+                                f"{hub_validity.MAX_DAYS} days."}), 400
+            state["validityDays"] = chosen
+        q.data = json.dumps(state, ensure_ascii=False)
+        log_activity(db, q.id, "⏰",
+                     (f"Pricing held for {chosen} days" if chosen
+                      else "Pricing back on the standard window"))
+        db.commit()
         return jsonify({"ok": True, "share": _share_state(db, q)})
     finally:
         db.close()
@@ -3544,9 +3831,20 @@ def page_client_proposal(token):
         if not share:
             return render_template("client_gone.html"), 404
         staff = _staff_reader()
+        state = _state_of(q)
+        win = _quote_window(q, state, share.sent_at)
         return render_template(
             "client_proposal.html", q=q, token=token, staff=staff,
             revision=q.revision or 1,
+            # Past the date the page says so and names who to ask rather than
+            # 404ing. A revoked or invented token answers 404 because saying
+            # "that one expired" tells somebody probing which tokens are real;
+            # an expired quote is a real quote belonging to a real client who
+            # is trying to say yes.
+            validity=win, validity_note=hub_validity.client_note(win),
+            expired=bool(win.get("expired")),
+            contact_name=str(state.get("salesContact") or q.salesperson or ""),
+            contact_email=str(state.get("salesEmail") or ""),
             accepted=_share_state(db, q)["accepted"])
     finally:
         db.close()
@@ -3568,7 +3866,10 @@ def page_client_pdf(token):
             return jsonify({"ok": False, "error": "Not found"}), 404
         state = json.loads(q.data or "{}")
         ensure_sections(state)
-        pdf_bytes, title = build_proposal_pdf(q, state)
+        # The share row is right here, so the validity line is dated from the
+        # send rather than from a second lookup that could disagree with the
+        # page the client just read it on.
+        pdf_bytes, title = build_proposal_pdf(q, state, sent_at=share.sent_at)
     except Exception as exc:                    # noqa: BLE001
         logger.warning("client PDF failed for %s: %s", token, exc)
         return jsonify({"ok": False, "error": "Not found"}), 404
@@ -3666,6 +3967,19 @@ def api_client_accept(token):
             return jsonify({"ok": False,
                             "error": "You are signed in to the Hub — a proposal is "
                                      "accepted by the client, on their own copy."}), 403
+        state = _state_of(q)
+        win = _quote_window(q, state, share.sent_at)
+        if win.get("expired"):
+            # Server-side as well as on the form: a rule the page keeps while
+            # the write breaks it is not a rule. 409 rather than 404 -- the
+            # link is genuinely theirs and the answer is "not at this price",
+            # which is a different thing from "no such quote".
+            out = hub_validity.refusal(
+                win, str(state.get("salesContact") or q.salesperson or ""),
+                str(state.get("salesEmail") or ""))
+            _audit("quote_accept_expired", quote=q.quote_number,
+                   client=q.client, expired_on=win.get("expires_on", ""))
+            return jsonify({"ok": False, **out}), 409
         revision = q.revision or 1
         existing = (db.query(QuoteAcceptance)
                     .filter(QuoteAcceptance.quote_id == q.id,

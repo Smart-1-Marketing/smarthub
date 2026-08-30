@@ -747,7 +747,7 @@ function rowHtml(x){
   <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
   <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
   <td>${byLine(x.created_by,"Built here")}</td>
-  <td><span class="badge ${badge(x.status)}">${x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}
+  <td><span class="badge ${badge(x.shown_status||x.status)}">${x.shown_status||x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}
    ${x.status==='Draft'&&x.step>0?`<small style="display:block;color:var(--muted);margin-top:3px">Left at step ${x.step+1} of ${STEP_COUNT}</small>`:""}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    <button class="ic" title="Edit proposal" onclick="editQuote(${x.id})">✏️</button>
@@ -1022,6 +1022,7 @@ async function drawShare(id){
     since you sent revision ${s.sent_revision}. The link already shows revision ${s.revision} —
     tell the client there is a new version, or
     <a onclick="makeShare(${id})" style="cursor:pointer;color:var(--blue);font-weight:700">mark it as sent</a>.</div>`:''}
+  ${validityPanel(id,s)}
   <div class="dsec" style="margin-top:14px">Opened</div>
   ${opens?`<div class="note"><b>${opens}</b> time${opens===1?'':'s'}${
      s.views_this_revision!==opens?` · <b>${s.views_this_revision}</b> since revision ${s.revision}`:''}
@@ -1039,9 +1040,41 @@ async function drawShare(id){
         ${s.revision}, so that acceptance is <b>superseded</b> — the client has not agreed to the
         current version.</div>`
       :`<div class="note">Not yet.</div>`)}`;}
+function validityPanel(id,s){
+ /* How long the price stands, on the screen where the link is sent. An
+    expired quote that a client can still accept commits us to last spring's
+    rates; a rep who cannot see the date cannot extend it either. */
+ const v=s.validity||{};
+ if(!v.applies)return `<div class="dsec" style="margin-top:14px">How long it stands</div>
+  <div class="note">${esc(v.reason||'This quote has no expiry window.')}</div>`;
+ const cls=v.expired?'warnbox':'note';
+ return `<div class="dsec" style="margin-top:14px">How long it stands</div>
+  <div class="${cls}" style="margin-top:${v.expired?'6px':'0'}">${esc(v.note||'')}
+   ${v.expired?`<br>Sending it again re-quotes at today's rates and starts a new
+     ${v.days}-day window — <a onclick="makeShare(${id})" style="cursor:pointer;color:var(--blue);font-weight:700">re-send the link</a>.`:''}</div>
+  <div class="addrow" style="margin-top:7px">
+   <label style="font-weight:600;font-size:12px;color:var(--muted);margin:0">Hold the pricing for</label>
+   <input id="valDays${id}" type="number" min="1" max="365" step="1" value="${+v.days||30}"
+          style="width:84px" onkeydown="if(event.key==='Enter')setValidity(${id})">
+   <span class="note" style="margin:0">days</span>
+   <button class="btn btn-ghost" onclick="setValidity(${id})">Save</button>
+   ${v.custom?`<button class="btn btn-ghost" onclick="setValidity(${id},0)">Use the standard window</button>`:''}
+  </div>`;}
+async function setValidity(id,days){
+ const el=document.getElementById('valDays'+id);
+ const n=(days===0)?0:(el?+el.value:0);
+ try{await api('/sales/builder/api/quotes/'+id+'/validity',
+      {method:'POST',body:JSON.stringify({days:n})});
+  toast(n?("Pricing held for "+n+" days."):"Back on the standard window.");
+  drawShare(id);refreshLists();}
+ catch(e){toast(e.message);}}
 async function makeShare(id){
+ /* Sending moves a Draft to Sent, so the whole drawer is redrawn rather than
+    just the share panel: the header badge and the status pills were left
+    saying Draft beside a panel saying how long it stands, which is the two
+    halves of one screen disagreeing about whether it has gone out. */
  try{await api('/sales/builder/api/quotes/'+id+'/share',{method:'POST'});
-  toast("Client link ready — copy it to the client.");drawShare(id);refreshLists();}
+  toast("Client link ready — copy it to the client.");openDrawer(id);refreshLists();}
  catch(e){toast(e.message);}}
 async function revokeShare(id){
  if(!confirm("Switch the client link off? Anyone who already has it will see the same page as a link that never existed."))return;
@@ -1133,6 +1166,11 @@ function editLoaded(q){
  S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;_lastStep=-1;
  step=resumeStep();
  S._kpiPlan=q.kpi_framework||null;
+ /* The delivery figures, computed server-side. Never a JavaScript copy of
+    that arithmetic: the PDF, the Word export and this preview are three
+    renderers of one table already, and a fourth answer to "what does this
+    line buy" is the drift this codebase has paid for twice. */
+ S._mediaPlan=q.media_plan||null;
  S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
  // geoType/geo/radius. The server already converted it (hub/target_areas
@@ -1184,12 +1222,23 @@ async function saveNow(extra){
      only when it actually changed and only when nothing is being edited:
      drawPreview() rebuilds the whole document, and a rebuild 900ms after a
      keystroke takes the caret out of the section somebody is typing in. */
+  /* Both of these are the server's, not S's: computed from the plan, and a
+     stale copy is a document contradicting the table above it. Repainted
+     only when one actually changed and only when nothing is being edited --
+     drawPreview() rebuilds the whole document, and a rebuild 900ms after a
+     keystroke takes the caret out of the section somebody is typing in. */
+  let repaint=false;
+  if(saved&&saved.quote&&saved.quote.media_plan){
+   const before=JSON.stringify(S._mediaPlan||null);
+   S._mediaPlan=saved.quote.media_plan;
+   if(before!==JSON.stringify(S._mediaPlan))repaint=true;
+  }
   if(saved&&saved.quote&&saved.quote.kpi_framework){
    const before=JSON.stringify(S._kpiPlan||null);
    S._kpiPlan=saved.quote.kpi_framework;
-   if(before!==JSON.stringify(S._kpiPlan)&&!S._editSec&&!S._tableEdit
-      &&document.getElementById('docPreview'))drawPreview();
+   if(before!==JSON.stringify(S._kpiPlan))repaint=true;
   }
+  if(repaint&&!S._editSec&&!S._tableEdit&&document.getElementById('docPreview'))drawPreview();
   setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
  }catch(e){setSave("⚠ Not saved: "+e.message);}
 }
@@ -1751,7 +1800,7 @@ const PROPOSAL_OUTLINE=[
  {id:"areas",title:"Audience & Market Strategy",kind:"areas",purpose:"Precision targeting, area by area."},
  {id:"reach",title:"Addressable Audience",kind:"reach",purpose:"How many people this actually reaches."},
  {id:"channels",title:"Recommended Channel Strategy",kind:"channels",purpose:"Every channel's role in the funnel and its KPI."},
- {id:"mediaplan",title:"Media Mix & Budget Allocation",kind:"mediaplan",purpose:"Where the money goes, at card rates."},
+ {id:"mediaplan",title:"Media Mix & Budget Allocation",kind:"mediaplan",purpose:"Where the money goes, and what each line buys."},
  {id:"creative",title:"Creative & Messaging Strategy",kind:"creative",purpose:"Messaging themes and who produces the creative."},
  {id:"technology",title:"Smart 1 Technology",kind:"text",purpose:"The Suite as the client's command center."},
  {id:"reporting",title:"Reporting, Optimization & Transparency",kind:"text",purpose:"How it is optimized and what they can see."},
@@ -1791,7 +1840,7 @@ function defaultSections(){
    +"• A bolted-on tech stack — separate tools for email, forms, reviews and calls, each with its own login and none of them talking to each other.\n"
    +"• No central CRM, so an inbound lead cools while it waits for someone to notice it.\n"
    +"• Fixed-schedule advertising that runs the same way regardless of weather, foot traffic or real-time intent.",
-  mediaplan:"The split below is weighted toward the stage of the funnel this campaign has to move. Every rate is the Smart 1 card rate — there is no markup between the line item and what runs.",
+  mediaplan:"The split below is weighted toward the stage of the funnel this campaign has to move, and the delivery column is what each line is expected to buy at the rate it is quoted at.",
   technology:"The Smart 1 Suite is the central nervous system of this campaign. Every call, form, chat and message the media generates lands in one inbox, and the Suite goes to work immediately: Missed Call Text Back so a missed call becomes a conversation instead of a lost lead, automated text and email follow-up, online scheduling, and automated review requests that compound into local search visibility. The media creates the opportunity; the Suite is what turns it into revenue you can trace.",
   reporting:"Optimization is a routine, not a promise: bids adjusted against delivery and cost per action, negative keywords and placement exclusions updated, creative checked against performance and rotated before it fatigues. Everything reports into one live dashboard inside the Smart 1 Suite that you can open whenever you want, rather than waiting for a monthly PDF.",
   packages:"Platform licensing, media spend and any one-time production are listed separately below so it is clear what recurs and what does not.",
@@ -2660,19 +2709,38 @@ function creativePhrase(r){
 
 /* The media plan is editable here: budgets, deletions and additions, without
    walking back three steps to change one number. */
+function planRowFor(ix){
+ /* The server's row for this line, and only if it was priced against the
+    budget that is on screen now. Changing a budget redraws immediately and
+    the save lands 900ms later, so without that check the delivery column
+    would sit there stating a confident figure for the previous number. */
+ const plan=S._mediaPlan;
+ if(!plan||!plan.rows||!plan.rows[ix])return null;
+ const row=plan.rows[ix],it=S.items[ix]||{};
+ if(Math.round(+row.monthly||0)!==Math.round(+it.dollars||0)
+    &&(row.basis||'monthly')!=='one_time')return null;
+ return row;}
+/* The rate column draws the server's rate, which is the QUOTED one. S carries
+   the card's listed rate, so drawing that put "CPM 4.25" beside a delivery
+   figure computed at $8.50 -- the preview contradicting the PDF on one
+   screen, which is exactly the drift this table was consolidated to end. */
 function mediaPlanEditor(){
  const months=Math.max(1,+S.months||1);
- return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th></th></tr></thead><tbody>`
-  +S.items.map((it,ix)=>`<tr>
+ const note=(S._mediaPlan||{}).note||"";
+ return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th>Delivery / mo</th><th></th></tr></thead><tbody>`
+  +S.items.map((it,ix)=>{const pr=planRowFor(ix);return `<tr>
     <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
-    <td>${esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
+    <td>${pr?esc(pr.rate):esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
     <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
     <td style="text-align:right">${money((it.dollars||0)*months)}</td>
-    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`).join('')
+    <td class="tiny">${pr?esc(pr.delivery):'<span style="opacity:.6">recalculating…</span>'}</td>
+    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`}).join('')
   +`<tr class="dtot"><td colspan="3">Campaign total</td>
      <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td></td></tr>`
-  +`</tbody></table>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td colspan="2"></td></tr>`
+  +`</tbody></table>`
+  +(note?`<div class="note" style="margin-top:6px">${esc(note)}</div>`:'')
+  +`
    <div class="addrow" style="margin-top:8px"><select id="pvAddCat">${productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')}</select>
     <button class="btn btn-ghost" onclick="previewAddItem()">+ Add product</button>
     <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>

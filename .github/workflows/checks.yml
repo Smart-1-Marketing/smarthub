@@ -410,6 +410,18 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Quote validity tests — the clock, and what Suite decides
+        # How long a sent proposal's pricing stands, the Expired status that
+        # nothing used to set, the Suite stage change that reaches the quote
+        # row, and the delivery figures back on the media plan. Guarded like
+        # the steps around it; nothing in it reaches a third party.
+        run: |
+          if [ -f test_quote_validity.py ]; then
+            python test_quote_validity.py
+          else
+            echo "test_quote_validity.py not on this branch — nothing to run."
+          fi
+
       - name: Draft tests — unfinished IOs and proposals
         # Both halves of coming back to interrupted work: the server-side
         # draft store, the IO builder's list, and the proposal wizard
