@@ -194,7 +194,7 @@ window.KnackForm = (function () {
           'A name will be refused, an id will be written.</div>';
       }
       var picked = Array.isArray(v) ? String(v[0] || '') : String(v);
-      // A truncated picker is drawn amber rather than in the quiet grey the
+      // A truncated picker is drawn amber rather than in the muted style the
       // other hints use: it is not a note about the field, it is a warning
       // that the answer somebody wants may not be on the list.
       var short = f.hint && /Showing /.test(f.hint)
