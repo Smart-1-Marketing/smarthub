@@ -71,7 +71,18 @@ LOCK_STALE_SECONDS = 300
 
 
 def _lock_path() -> str:
-    base = "/var/data" if os.path.isdir("/var/data") else "."
+    """Where the leader lock lives.
+
+    The fallback used to be `"."` -- the *current working directory*, which is
+    a fourth spelling of the data root and the only one that depends on where
+    somebody happened to start the process. data_root() is the answer, and it
+    is the same file on Render.
+    """
+    try:
+        from . import jsonstore
+        base = jsonstore.data_root()
+    except Exception:  # noqa: BLE001 — leadership must not fail to resolve
+        base = "/var/data" if os.path.isdir("/var/data") else "."
     return os.path.join(base, "hub-scheduler.lock")
 
 

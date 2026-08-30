@@ -382,7 +382,7 @@ const server = http.createServer(async (req, res) => {
       const auth = checkAuth(req, url);
       if (!auth.ok) {
         console.warn(`[auth] refused ${route} from ${req.headers['x-forwarded-for'] ?? req.socket.remoteAddress}`);
-        return denied(res, 401, auth.reason ?? 'Unauthorised');
+        return denied(res, 401, auth.reason ?? 'Unauthorized');
       }
       // Move a token supplied in the query string into a cookie, so it stops
       // appearing in the address bar, browser history and referrer headers.
@@ -583,7 +583,7 @@ const server = http.createServer(async (req, res) => {
             .then((analysis) => {
               const p = projects.get(project.projectId);
               if (p) { p.landingAnalysis = analysis; projects.save(p); }
-              console.log(`[landing] ${project.projectId} analysed via ${analysis.source}`);
+              console.log(`[landing] ${project.projectId} analyzed via ${analysis.source}`);
             })
             .catch((e) => console.warn(`[landing] ${project.projectId} failed: ${e?.message ?? e}`));
         }
@@ -1102,8 +1102,8 @@ const server = http.createServer(async (req, res) => {
         if (!['primary', 'secondary', 'accent', 'light', 'dark'].includes(behind)) {
           return json(res, 200, {
             ratio: null, verdict: 'not measured', variants: [],
-            reason: `On ${size} the logo sits on a fixed colour in the layout rather than a ` +
-              `brand colour, so changing the palette would not move it.`,
+            reason: `On ${size} the logo sits on a fixed color in the layout rather than a ` +
+              `brand color, so changing the palette would not move it.`,
           });
         }
 
@@ -2268,7 +2268,32 @@ const server = http.createServer(async (req, res) => {
         // What has already been built, so the panel says "these five are done"
         // rather than offering to build them again with nothing on screen
         // saying they exist.
-        animations: project?.animations ?? [],
+        //
+        // Projected rather than passed straight through: the stored row
+        // carries `file`, which is a path on our own render disk, and this
+        // answer is read into a page. Naming the fields also means the panel
+        // cannot come to depend on one that was never meant for it.
+        animations: (project?.animations ?? []).map((a) => ({
+          conceptId: a.conceptId,
+          platform: a.platform,
+          size: a.size,
+          url: a.url,
+          bytes: a.bytes,
+          frames: a.frames,
+          loop: a.loop,
+          totalMs: a.totalMs,
+          fps: a.fps,
+          kind: a.kind,
+          status: a.status,
+          issues: a.issues,
+          renderedAt: a.renderedAt,
+          approvedAt: a.approvedAt,
+          approvedBy: a.approvedBy,
+          previouslyApprovedAt: a.previouslyApprovedAt,
+          // Whether it is stored, never where: the panel only has to know
+          // there is something to file.
+          cloudinaryPublicId: a.cloudinaryPublicId ? true : undefined,
+        })),
       });
     }
 
@@ -2323,6 +2348,111 @@ const server = http.createServer(async (req, res) => {
         });
       } catch (e: any) {
         return json(res, 422, { error: e?.message ?? 'That could not be animated' });
+      }
+    }
+
+    /* Sign one animation off, and put it where a client can be given it.
+   
+       This is the whole of "an animation is delivered separately". The delivery
+       zip does not carry these -- it is one act covering the static set, and an
+       animation is approved one at a time -- so this route is the only path
+       from a rendered GIF to a client, and the approval is the only gate on it.
+
+       Approving and storing are reported SEPARATELY. "Approved" and "approved
+       and uploaded" are different outcomes and one tick for both is how
+       somebody learns not to trust the tick, which is the rule
+       `hub/domain_links.py` works to. The approval stands either way: a
+       Cloudinary that would not answer must not cost the decision somebody
+       made, and the upload is retried by pressing approve again. */
+    const animApprove = url.pathname.match(/^\/api\/animate\/([\w-]+)\/approve$/);
+    if (animApprove && req.method === 'POST') {
+      const requestId = animApprove[1];
+      const project = projects.byRequest(requestId);
+      if (!project) return json(res, 404, { error: 'No project for that build.' });
+
+      const body = JSON.parse(await readBody(req, 20_000)) as {
+        conceptId?: string; platform?: string; size?: string;
+        approved?: boolean;
+      };
+      // Who approved comes from the Hub proxy's own header and never from the
+      // body. A name a browser can put in a POST is a name anybody can put in
+      // a POST, and this one is the whole content of the record -- "who said
+      // this size can go to the client" is the only question an approval
+      // exists to answer. Blank rather than invented when there is no session
+      // behind it, the `hub/ad_copy.py` refusal: "Shared login" is a true
+      // statement about a session and a useless one in a field a person reads
+      // as a name.
+      const approvedBy = (req.headers['x-s1-user'] as string) || '';
+      const key = {
+        conceptId: String(body.conceptId ?? '').trim(),
+        platform: String(body.platform ?? 'google').trim(),
+        size: String(body.size ?? '').trim(),
+      };
+      if (!key.conceptId || !key.size) {
+        return json(res, 400, { error: 'Name the concept and the size to approve.' });
+      }
+
+      const approved = body.approved !== false;
+      const out = projects.approveAnimation(project, key, approved, approvedBy);
+      if (!out.ok) return json(res, 422, { error: out.error });
+      if (!approved) {
+        return json(res, 200, { approved: false, size: key.size, stored: false });
+      }
+
+      const row = out.row!;
+      // Already stored is not a reason to pay for it again. Cloudinary bills
+      // for the upload and for the storage, and re-approving after a wording
+      // change to the panel must not re-spend it.
+      if (row.cloudinaryPublicId) {
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size,
+          stored: true, publicId: row.cloudinaryPublicId, url: row.cloudinaryUrl,
+          note: 'Already stored; the approval was recorded and nothing was re-uploaded.',
+        });
+      }
+      if (!fs.existsSync(row.file)) {
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size, stored: false,
+          storeError:
+            'The rendered file is no longer on disk, so there was nothing to store. ' +
+            'Animate this size again and approve it.',
+        });
+      }
+
+      try {
+        const cld = new CloudinaryService();
+        cld.assertUsable();
+        const asset = await cld.uploadAnimation({
+          file: row.file,
+          folder: cld.finalFolder(project.client, project.campaignName, row.platform, row.conceptId),
+          publicId: `${slug(project.domain || project.client)}_${row.conceptId}_${row.size}_animated`,
+          tags: ['display_ads', 'animated', slug(project.client), row.size],
+          context: {
+            client: project.client,
+            campaign: project.campaignName,
+            size: row.size,
+            motion: row.kind,
+            frames: row.frames,
+            plays: row.loop,
+            seconds: Number((row.totalMs / 1000).toFixed(1)),
+          },
+        });
+        projects.noteAnimationUpload(project, key, {
+          publicId: asset.publicId, url: asset.secureUrl,
+        });
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size,
+          stored: true, simulated: Boolean(asset.simulated),
+          publicId: asset.publicId, url: asset.secureUrl,
+        });
+      } catch (e: any) {
+        // Approved and not stored. Said plainly rather than turned into a
+        // failure: the decision is recorded and is not lost, and pressing
+        // approve again retries only the half that did not happen.
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size, stored: false,
+          storeError: e?.message ?? 'Cloudinary would not take the file.',
+        });
       }
     }
 

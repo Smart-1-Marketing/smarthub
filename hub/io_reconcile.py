@@ -233,7 +233,11 @@ def submitted() -> dict:
             row["client"] = row["client"] or str(rec.get("client") or "")
             row["actor"] = row["actor"] or str(rec.get("submitted_by") or "")
             row["partner"] = row["partner"] or str(rec.get("partner") or "")
-            row["start"] = row["start"] or _day(rec.get("start"))
+            # `flight_start()`, not the bare field: an order whose products
+            # run their own dates has no shared campaign start, so this read
+            # "" for every one of them and `started` could never be true --
+            # the report's own headline bucket, blind to a whole class of IOs.
+            row["start"] = row["start"] or _day(io_records.flight_start(rec))
             row["monthly"] = row["monthly"] or float(rec.get("monthly") or 0)
             when = _aware(rec.get("submitted_at"))
             if when and (row["at"] is None or when < row["at"]):

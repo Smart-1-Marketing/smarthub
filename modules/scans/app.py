@@ -23,6 +23,7 @@ Design choices that matter:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import threading
@@ -38,7 +39,8 @@ from sqlalchemy.orm import declarative_base
 from . import (audit_fields, insites_client, leads as widget_state,
                linkcheck, report_pdf, reports, site_health, widget)
 from .insites_client import InsitesError, is_configured
-from hub.extensions import create_all_metadata, session_factory, shared_engine
+from hub.extensions import (BootProbe, create_all_metadata, session_factory,
+                            shared_engine)
 from hub.webargs import clamp_int
 
 try:                                   # Hub activity log (present in the Hub)
@@ -171,22 +173,6 @@ class LinkCheck(Base):
     finished_at = Column(DateTime, nullable=True)
 
 
-# A database that isn't up yet must not take the module offline for the life
-# of the worker \u2014 capture the problem and let every request explain it, the
-# same way the Sites admin does.
-# create_all_metadata takes the Postgres advisory lock, so the two gunicorn
-# workers no longer race each other into a duplicate-key stack trace, and it
-# reports rather than raises.
-DB_BOOT_ERROR = ""
-for _metadata in (Base.metadata,
-                  # The widget's placements and run state ride the same engine,
-                  # so a deploy that can reach the scans database can always
-                  # serve the embed too.
-                  widget_state.Base.metadata):
-    _err = create_all_metadata(_metadata)
-    if _err and not DB_BOOT_ERROR:
-        DB_BOOT_ERROR = _err
-
 # Columns added to the widget tables after they first shipped. `create_all()`
 # creates missing tables and never adds a column to an existing one, so on the
 # live Postgres these would be silently absent while every local test passed --
@@ -223,11 +209,55 @@ def _add_missing_columns() -> None:
             pass                                        # raced by the other worker
 
 
-if not DB_BOOT_ERROR:
+# A database that isn't up yet must not take the module offline for the life
+# of the worker - capture the problem and let every request explain it, the
+# same way the Sites admin does. create_all_metadata takes the Postgres
+# advisory lock, so the two gunicorn workers no longer race each other into a
+# duplicate-key stack trace, and it reports rather than raises.
+def _create_scan_tables() -> str:
+    """The whole of this module's boot DDL, as one answer.
+
+    One function rather than a block, because BootProbe re-runs it: a verdict
+    that came from a failure to *connect* is revised by asking the same
+    question again, and the late columns have to be inside that or a module
+    which recovers comes back missing them.
+    """
+    for metadata in (Base.metadata,
+                     # The widget's placements and run state ride the same
+                     # engine, so a deploy that can reach the scans database
+                     # can always serve the embed too.
+                     widget_state.Base.metadata):
+        err = create_all_metadata(metadata)
+        if err:
+            return err
     try:
         _add_missing_columns()
-    except Exception as _mc_exc:                        # noqa: BLE001
-        DB_BOOT_ERROR = DB_BOOT_ERROR or f"{type(_mc_exc).__name__}: {_mc_exc}"
+    except Exception as exc:                            # noqa: BLE001
+        return f"{type(exc).__name__}: {exc}"
+    return ""
+
+
+# This module gates *every* route on the verdict below - including
+# /scans/w/<slug>, which is the widget on a client's own website, and the audit
+# report a prospect reads - so a six-second blip at boot took all of it down
+# until somebody deployed again. The probe re-asks a transient failure; a
+# database that is genuinely misconfigured still answers the same for ever.
+_DB_PROBE = BootProbe(_create_scan_tables, label="scans")
+DB_BOOT_ERROR = _DB_PROBE.record(_create_scan_tables())
+if DB_BOOT_ERROR:
+    # Logged, because it was not. This module recorded a module-wide 503 and
+    # wrote nothing at all to the deploy log, so its half of the failure was
+    # invisible from either end.
+    logging.getLogger(__name__).error(
+        "scans: database not ready at boot: %s", DB_BOOT_ERROR)
+
+
+def db_error() -> str:
+    """The verdict now. Refreshes the module global the routes already read."""
+    global DB_BOOT_ERROR
+    DB_BOOT_ERROR = _DB_PROBE.error()
+    return DB_BOOT_ERROR
+
 
 # Serialises the duplicate-check-then-insert in api_new_scan so a double-click
 # can't spend two Insites credits on the same domain.
@@ -389,7 +419,11 @@ def _apply_report(s: Scan, report: dict):
 def _db_guard():
     """A database that wasn't reachable at boot shouldn't produce tracebacks
     on every route — say so once, plainly."""
-    if DB_BOOT_ERROR and request.path not in ("/health",):
+    # db_error() rather than the global: a database that was unreachable for
+    # six seconds during a deploy must not keep the public widget 503ing until
+    # somebody redeploys. It refreshes the global the routes below read, so a
+    # recovery reaches all of them and not only this one.
+    if db_error() and request.path not in ("/health",):
         if request.path.startswith("/api/"):
             return jsonify({"error": "Scans database not ready. " + DB_BOOT_ERROR}), 503
         return (

@@ -346,6 +346,37 @@ check("and it drops the day's stored copy of the report, or the row is still "
       'qa.forget("io-not-in-knack")' in route)
 
 # ---------------------------------------------------------------------------
+section("An order whose products run their own dates still has a flight start")
+# ---------------------------------------------------------------------------
+# `_summary()` stores the *shared* campaign start, and the wizard clears it the
+# moment one product is given its own term ("Because at least one product runs
+# its own dates, I'll ask for dates product by product"). So `start` is "" on
+# every multi-product IO, `started` could never be true for one, and the
+# report's own headline urgency -- "it should be running now and nothing is
+# trafficked" -- was silently blind to a whole class of orders.
+from hub import io_records                                        # noqa: E402
+
+for _label, _rec, _want in [
+    ("a shared campaign start is used as it stands",
+     {"start": "2026-07-01", "lines": [{"start": "2026-08-01"}]}, "2026-07-01"),
+    ("per-product dates fall back to the earliest line",
+     {"start": "", "lines": [{"start": "2026-09-01"}, {"start": "2026-07-15"}]},
+     "2026-07-15"),
+    ("lines carrying no dates invent nothing",
+     {"start": "", "lines": [{"start": ""}, {}]}, ""),
+    ("nor does an order with no lines at all", {"start": ""}, ""),
+]:
+    _got = io_records.flight_start(_rec)
+    check(_label, _got == _want, f"got {_got!r}, wanted {_want!r}")
+
+# The report has to read it, not the bare field.
+with open(os.path.join(ROOT, "hub", "io_reconcile.py")) as _fh:
+    _src = _fh.read()
+check("the report asks for the flight start rather than the stored field",
+      "io_records.flight_start(rec)" in _src, "io_reconcile.py")
+
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

@@ -115,6 +115,74 @@ check("every exemption names its words rather than the whole file",
        "tools/spellcheck.py"])
 
 
+# --------------------------------------------------- 3b. and it reads TypeScript
+section("TypeScript is read the way Python is: literals, not code")
+
+# The one module that is not Python renders a page a CLIENT reads out of
+# TypeScript, and was outside this check entirely -- the proof footer said
+# "Colours may vary slightly" and nothing here could see it. What made it safe
+# to add is the rule the Python side already follows: string literals only. A
+# full-text pass over ten thousand lines of renderer would report `rasterise`,
+# `normalise`, `optimise` and sharp's own `colours` option, which is a rename
+# of the module dressed up as a copy change.
+
+SAMPLE = "\n".join([
+    "// A comment about the brand colour, for whoever opens the file.",
+    "/* And a block one about behaviour. */",
+    "import { optimise } from './images';",
+    "const focal = 'centre';",
+    "const key = { colours: 4, dither: 0.8 };",
+    "function normalise(x) { return rasterise(x); }",
+    "const shown = 'Pick the brand colour you want.';",
+    "const many = `",
+    "  a sentence about behaviour here",
+    "`;",
+    "const interp = `${step.colours} colors`;",
+    "const pattern = /colour|centre/;",
+])
+
+
+def ts_words(src, rel="some/file.ts"):
+    """What the TypeScript path would report, word by word."""
+    out = []
+    for offset, body in spellcheck._ts_strings(src):
+        if spellcheck._IDENTIFIER.match(body.strip()):
+            continue
+        base = src.count("\n", 0, offset) + 1
+        out.extend(spellcheck.findings_in(body, rel, base))
+    return out
+
+
+hits = ts_words(SAMPLE)
+got = sorted(w.lower() for _, w in hits)
+
+check("a sentence in a literal is reported", "colour" in got)
+check("...and one inside a template literal", "behaviour" in got)
+check("nothing else is", got, ["behaviour", "colour"])
+# Each of those four is a way a full-text pass turns a copy check into a
+# refactor of somebody else's module.
+check("a line comment is not copy", got.count("colour") == 1)
+check("an imported function is not copy", "optimise" not in got)
+check("a declared function is not copy", "normalise" not in got)
+check("an object key is not copy", "colours" not in got)
+check("a stored value is not copy", "centre" not in got)
+check("a regex pattern is not copy", "centre" not in got)
+
+# The line reported is the WORD's, not the line the literal opens on. proof.ts
+# draws its whole page from one 400-line template literal, so a report that put
+# every finding on the backtick is one nobody can act on.
+multi = "const x = `\nalpha\nthe brand colour\n`;\n"
+check("the line is the word's, not the literal's",
+      [ln for ln, _ in ts_words(multi)], [3])
+
+# And .ts is in the sweep rather than merely supported: a reader that nothing
+# calls is the failure test_unwired.py exists for.
+check("scan() reads .ts",
+      'rglob("*.ts")' in Path(spellcheck.__file__).read_text())
+check("a .d.ts is left out, being declarations rather than copy",
+      '.d.ts' in Path(spellcheck.__file__).read_text())
+
+
 # ------------------------------------------------------------ 4. and it is green
 section("The Hub's own copy")
 

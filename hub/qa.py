@@ -83,6 +83,20 @@ def _client_groups() -> dict:
     return groups
 
 
+def _unmeasured(columns: list, note: str) -> dict:
+    """A report that could not read the products it is built from.
+
+    `measured: False` is what keeps it out of the day's cache and what
+    `qa_report.html` draws as "Not measured" rather than as a green tick --
+    the rule the whole page works to, applied to the source these reports
+    share. Without it, an export that could not be read rendered as "every
+    client has a dashboard, nobody has lapsed, nobody is missing Analytics,
+    nobody churned", stored until tomorrow.
+    """
+    return {"columns": columns, "rows": [], "row_styles": [],
+            "measured": False, "note": note}
+
+
 def _is_active(g: dict) -> bool:
     return bool(g["live"]) or g["thisM"]
 
@@ -260,6 +274,10 @@ def _end_bucket(end) -> str:
 
 
 def active_clients() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Client", "Partner", "Live products", "Live monthly",
+         "Ends", "Dashboard"], _why)
     groups = _client_groups()
     buckets = {"Ending this month": [], "Ending next month": [], "Other": []}
     skipped_empty = 0
@@ -353,6 +371,10 @@ def active_clients() -> dict:
 
 
 def no_dashboards() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Partner", "Client", "Live products",
+         "Products", "Monthly"], _why)
     groups = _client_groups()
     by_partner: dict[str, list] = {}
     total = 0
@@ -412,6 +434,10 @@ def no_dashboards() -> dict:
 
 
 def stale_90() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Partner", "Client", "Salesperson", "Last product ended",
+         "Days since", "Last monthly"], _why)
     groups = _client_groups()
     today = _dt.date.today()
     by_partner: dict[str, list] = {}
@@ -482,6 +508,9 @@ def stale_90() -> dict:
 
 
 def lost_by_partner() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Partner", "Client", "Salesperson", "Billing last month"], _why)
     groups = _client_groups()
     rows = []
     for name, g in groups.items():
@@ -518,20 +547,29 @@ def _month_bounds(ym: str):
     return _dt.date(y, m, 1), _dt.date(y, m, calendar.monthrange(y, m)[1])
 
 
+from hub.knack_data import ran_in_month as _knack_ran_in_month
+
+
 def _active_in_month(r: dict, mstart, mend) -> bool:
-    """An IO counts for a month when its date range covers any of it and it
-    actually ran (Live or Complete — cancelled/pending never count)."""
-    status = str(r.get("status", "")).strip().lower()
-    if status not in ("live", "complete"):
-        return False
-    s, e = _parse_date(r.get("start")), _parse_date(r.get("end"))
-    if s and s > mend:
-        return False
-    if e and e < mstart:
-        return False
-    if not s and not e:          # undated: only trust currently-live rows
-        return status == "live"
-    return True
+    """Did this IO deliver during the month? `knack_data.ran_in_month()`.
+
+    It used to be `status in ("live", "complete")` plus a date overlap, written
+    here rather than beside `is_running()` — and it is the narrow test that
+    function's own docstring says "missed about a third of the work actually
+    running". So the two Scorecards counted Live and Complete while every other
+    report on this page counted the union: 147 rows and $140,439 a month hidden
+    from August, and two salespeople with live work — Debi Greenfield and Kim
+    Marshall — absent from the Scorecard entirely, each of whom appears on
+    Active Clients three rows up. Nothing said the two were measured
+    differently, which is what makes it the `/api/db/structure` versus
+    `/api/integrity` trap rather than a disagreement somebody could notice.
+
+    The rule is a neighbour of `is_running()` now rather than a second reading
+    of it, and the reasons the two must still differ — Complete is a pass here,
+    Live does not override the dates, a row with no dates is in no month — are
+    written there, once, where both can be read together.
+    """
+    return _knack_ran_in_month(r, mstart, mend)
 
 
 def _month_rollup(field: str, ym: str) -> dict:
@@ -562,6 +600,16 @@ def _scorecard(field: str, month: str = "") -> dict:
     """Salesperson / partner scorecard for any of the last 12 months.
     Rows with zero active clients are hidden; each row is colored by the
     person's revenue vs the previous month (green up / yellow flat / red down)."""
+    # `_month_rollup()` groups `knack_data.products()` directly rather than
+    # through `_client_groups()`, so it needs the same guard: an export that
+    # could not be read makes every salesperson and every partner disappear,
+    # which renders as a scorecard nobody is on rather than as a source that
+    # would not answer.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(
+            [("Salesperson" if field == "sales" else "Partner"),
+             "Active clients", "Active products", "Monthly revenue"], why)
     months = _last_12_months()
     ym = month if month in {m["ym"] for m in months} else months[0]["ym"]
     cur = _month_rollup(field, ym)
@@ -696,6 +744,10 @@ def sell_to_clients() -> dict:
 
 
 def no_analytics() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Client", "Partner", "Salesperson", "Website",
+         "Monthly", "Analytics account"], _why)
     groups = _client_groups()
     rows, styles = [], []
     for name in sorted(groups, key=str.lower):
@@ -755,6 +807,9 @@ def _gtm_from_scan(domain: str) -> str:
 
 
 def no_gtm() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Client", "Partner", "Live products", "Monthly", "GTM container"], _why)
     groups = _client_groups()
     priority, suggested = [], []
     found_on_site = 0
@@ -1196,6 +1251,14 @@ def ghl_billing_no_products() -> dict:
     between what GHL is charging and what Knack has on file."""
     columns = ["Client", "GHL sub-account", "Plan", "Monthly", "Billing status",
                "Matched in Knack"]
+
+    # The Knack side of the join. An unreadable export makes every
+    # sub-account look like one with no live product, which is this
+    # report's own finding -- so it would invent them rather than
+    # merely miss them.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(columns, why)
     try:
         rows_raw = _ghl_billing_rows()
     except RuntimeError as exc:
@@ -1240,6 +1303,14 @@ def ghl_billing_this_month() -> dict:
     simplified to client / plan / monthly price / status — no Stripe or
     customer IDs, biggest bill first."""
     columns = ["Client", "GHL sub-account", "Plan", "Monthly", "Billing status"]
+
+    # The Knack side of the join. An unreadable export makes every
+    # sub-account look like one with no live product, which is this
+    # report's own finding -- so it would invent them rather than
+    # merely miss them.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(columns, why)
     try:
         rows_raw = _ghl_billing_rows()
     except RuntimeError as exc:
@@ -1417,6 +1488,15 @@ def invoice_off() -> dict:
                "Difference", "Live products", "Partner"]
     if err:
         return {"columns": columns, "rows": [], "note": err, "needs_qb": True}
+    # Half this report is the QuickBooks side and half is the Knack side, and
+    # only the second one finds an active client nobody is invoicing. With the
+    # export unreadable that half goes silent while the first still answers --
+    # a report that looks like it ran and is missing the findings it exists
+    # for. Checked after the QuickBooks gate, because "connect QuickBooks" is
+    # the more actionable of the two.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(columns, why)
     assigned = invoice_assignments()
     data = qb.monthly_totals_by_customer(2)     # this + last month is plenty
     this_key = _month_keys(1)[0]
