@@ -746,6 +746,40 @@ def check_creative_kit_drift() -> list[dict]:
     } for r in rows]
 
 
+def check_creative_kit_names() -> list[dict]:
+    """Unit names we ask a client for that the published kit no longer sells.
+
+    `check_creative_kit_drift` compares numbers, and it can only read the three
+    sections whose table is Unit / Dimensions / weight. The social sections
+    publish a different table — but its first column is a **format name**, and
+    a name is what the requirement line prints at the client.
+
+    X is the case this was written for: its 2025 model named eight formats and
+    not one of them is a format X still sells. "Website Card" and "Direct
+    Message Card" are retired, and the mobile/desktop pairs modelled a split
+    the kit says in as many words is gone. So a client was asked to supply four
+    things that do not exist, and two of them twice — silently, because every
+    name was a real format's name once and nothing errors.
+
+    Only the channels declared transcribed against 2026 are checked; the rest
+    are a named backlog on `kit_coverage()`, because a check that is red on the
+    day it is written is one somebody switches off.
+    """
+    try:
+        from . import creative_specs
+        rows = creative_specs.kit_name_drift()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/creative_specs.py", "module": "io_builder",
+        "detail": r["detail"],
+        "fix": "Rename the unit to what hub/partner_pages/creative-specs.html "
+               "calls it, or move it to RETIRED_UNITS with what replaced it. "
+               "Keep the unit's id either way: tags_for() has written it onto "
+               "delivered creative in Cloudinary.",
+    } for r in rows]
+
+
 def check_creative_kit_coverage() -> list[dict]:
     """Sections of the published kit nobody has declared one way or the other.
 
@@ -1062,6 +1096,9 @@ CHECKS = [
     ("creative_kit_coverage",
      "A section of the published kit nobody has declared", "high",
      check_creative_kit_coverage),
+    ("creative_kit_names",
+     "A unit named after a format the kit no longer sells", "high",
+     check_creative_kit_names),
     # High, as the note that stood here asked for once the list was empty. It
     # went in at medium with seven pre-existing findings it did not cause,
     # because a check switched on red is a check somebody turns off; the list
