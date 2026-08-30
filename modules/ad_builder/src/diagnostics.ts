@@ -187,6 +187,33 @@ function checkTemplates(): Check[] {
   return out;
 }
 
+/**
+ * Is this size rule's file-weight limit actually sourced?
+ *
+ * `source` is the rule's own claim, and for a long time it was the whole of
+ * the answer -- so the panel below reported "all limits sourced from
+ * documentation" while thirteen of the twenty-three rules recorded no source
+ * at all. Nothing had ever been marked `verify`, so the check could not have
+ * said otherwise however many unsourced ceilings were added: it answered
+ * about what somebody had remembered to flag rather than about what was
+ * actually confirmed, which is a clean bill of health a single edit
+ * elsewhere silences.
+ *
+ * So it is derived. A ceiling is confirmed when a `_verifiedAgainst` line
+ * says what confirmed it; declaring `doc` with nothing behind it is not a
+ * confirmation, it is the claim being made twice. `verify` still stands on
+ * its own, because a rule somebody has looked at and could not confirm is
+ * exactly what that value is for -- and the two are reported with different
+ * reasons, since "nobody recorded where this came from" and "somebody looked
+ * and it did not check out" send you to different places.
+ */
+export function ceilingDoubt(rule: { source?: string; _verifiedAgainst?: string })
+    : string | null {
+  if (rule?.source === 'verify') return 'marked for confirmation';
+  if (!(rule?._verifiedAgainst || '').trim()) return 'no source recorded';
+  return null;
+}
+
 function checkPlatforms(): Check[] {
   const platforms = loadPlatforms();
   const out: Check[] = [];
@@ -194,7 +221,8 @@ function checkPlatforms(): Check[] {
 
   for (const cfg of platforms.values()) {
     for (const [size, rule] of Object.entries(cfg.sizes)) {
-      if (rule?.source === 'verify') unverified.push(`${cfg.platform}/${size}`);
+      const why = ceilingDoubt(rule as never);
+      if (why) unverified.push(`${cfg.platform}/${size} (${why})`);
     }
   }
 
@@ -207,8 +235,8 @@ function checkPlatforms(): Check[] {
   out.push({
     id: 'platforms.verify', group: 'Platform rules', label: 'Unconfirmed limits',
     level: unverified.length ? 'warn' : 'ok',
-    detail: unverified.length ? unverified.join(', ') : 'all limits sourced from documentation',
-    fix: unverified.length ? 'These file-weight limits were inferred, not documented. Confirm against the platform spec sheet before first live delivery.' : undefined,
+    detail: unverified.length ? unverified.join(', ') : 'every limit records where it came from',
+    fix: unverified.length ? 'These file-weight limits carry nothing saying where they came from. Confirm each against the platform spec sheet and record it in the rule\'s _verifiedAgainst, or a ceiling nobody checked goes on reading exactly like one that was: too high ships a file the platform refuses, too low steps the quality ladder down to satisfy a limit that does not exist.' : undefined,
   });
 
   return out;

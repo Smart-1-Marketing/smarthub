@@ -18,7 +18,8 @@
       ],
       "minFontPx": 11,
       "notes": "Universal rectangle. Recommended standard is roughly 18 words maximum.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "336x280": {
       "w": 336,
@@ -36,7 +37,8 @@
       ],
       "minFontPx": 11,
       "notes": "In-content and end-of-content inventory. Extra space should improve image and typography, not add copy.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "728x90": {
       "w": 728,
@@ -54,7 +56,8 @@
       ],
       "minFontPx": 11,
       "notes": "Design as one horizontal sentence, not a compressed 300x250.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "160x600": {
       "w": 160,
@@ -72,7 +75,8 @@
       ],
       "minFontPx": 11,
       "notes": "Desktop sidebar. CTA belongs in the bottom 15-20%.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "300x600": {
       "w": 300,
@@ -90,7 +94,8 @@
       ],
       "minFontPx": 12,
       "notes": "The only core size where a second supporting sentence stays readable.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "320x50": {
       "w": 320,
@@ -108,7 +113,8 @@
       ],
       "minFontPx": 11,
       "notes": "One idea in about one second. Usually omit supporting copy entirely.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "970x250": {
       "w": 970,
@@ -126,7 +132,8 @@
       ],
       "minFontPx": 14,
       "notes": "Premium desktop. Strong demand in preferred deals and private auctions.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "250x250": {
       "w": 250,
@@ -144,7 +151,8 @@
       ],
       "minFontPx": 12,
       "notes": "Square. Logo and CTA centered.",
-      "source": "doc"
+      "source": "doc",
+      "_verifiedAgainst": "Google's published ceiling for an uploaded image ad on the Display Network: GIF, JPG or PNG, 150 KB, and an ad over it will not upload or serve. Confirmed 2026-08-30. Recorded as the rule and its date rather than as a fetch: support.google.com is not reachable from this build environment, so nobody here has loaded the page itself."
     },
     "1200x628": {
       "w": 1200,
