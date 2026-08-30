@@ -331,6 +331,28 @@ def missing_for(observed: dict, wanted_actions) -> list[dict]:
     return out
 
 
+def headings_line(observed: dict) -> str:
+    """The page's headings as one line, each with the level it was set at.
+
+    ``observe`` returns ``{"level": "h1", "text": ...}`` rows, and the level is
+    half the fact: one h1 and nine h2s is a different page from nine h1s, and
+    "is the headline clear" cannot be judged without knowing which of them is
+    the headline.
+
+    It lives here rather than in the module that first needed it, because it
+    describes *this* function's output: two readings of one shape drift the
+    day either end of it changes.
+    """
+    out = []
+    for h in (observed or {}).get("headings") or []:
+        text = str(h.get("text") or "").strip() if isinstance(h, dict) else str(h).strip()
+        if not text:
+            continue
+        level = str(h.get("level") or "").strip() if isinstance(h, dict) else ""
+        out.append(f"{level}: {text}" if level else text)
+    return " | ".join(out)
+
+
 def summary_line(observed: dict) -> str:
     if not (observed or {}).get("measured"):
         return "Not measured — " + ((observed or {}).get("error") or "the page could not be read.")

@@ -86,19 +86,24 @@ el("tags").addEventListener("click", function(ev){
 el("save").addEventListener("click", function(){
   var msg = el("msg");
   msg.className = "msg";
-  msg.textContent = "Saving…";
-  el("save").disabled = true;
+  msg.textContent = "";
+  // The button says what is happening and carries the mark, so the line below
+  // it is free to hold the answer rather than the word "Saving…".
+  var w = window.S1Wait
+    ? S1Wait.busy(el("save"), {kind:"wait", label:"Saving…"})
+    : {done:function(){ el("save").disabled = false; }};
+  if (!window.S1Wait) { el("save").disabled = true; }
   fetch("preferences", {method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({topics_wanted:wanted, topics_avoid:el("avoid").value,
                              tone:el("tone").value, standing_notes:el("notes").value})})
     .then(function(r){ return r.json(); })
     .then(function(d){
-      el("save").disabled = false;
+      w.done();
       msg.className = d.ok ? "msg ok" : "msg err";
       msg.textContent = d.ok ? "Saved." : (d.error || "That didn't save.");
     })
     .catch(function(){
-      el("save").disabled = false;
+      w.done();
       msg.className = "msg err";
       msg.textContent = "That didn't save. Try again.";
     });

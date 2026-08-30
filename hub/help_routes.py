@@ -29,6 +29,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 from markupsafe import Markup, escape
 
 from hub import audit, demo, demos, help as help_registry
+from hub import thinking as _thinking
 
 bp = Blueprint("help_bp", __name__)
 
@@ -353,6 +354,11 @@ def install_template_helpers(app) -> None:
     app.jinja_env.globals.setdefault("demo_launcher", demo_launcher)
     app.jinja_env.globals.setdefault("demo_banner", lambda *a, **k: Markup(""))
     app.jinja_env.globals.setdefault("hub_sidebar", lambda *a, **k: Markup(""))
+    # The mark that says something is running, for a page hub-thinking.js
+    # cannot reach. Every client-facing surface in this Hub is chrome-free by
+    # design, and the script rides in with that chrome — so switching the
+    # chrome off switched the mark off with it. See hub/thinking.py.
+    _thinking.install(app)
 
 
 def register_help(app, current_user_fn=None) -> None:
@@ -379,3 +385,8 @@ def register_help(app, current_user_fn=None) -> None:
         # than drawing data-screen on the truth of a name.
         has_tour=help_registry.has_tour,
     )
+    # The hub app's own environment needs them too: modules registered as a
+    # BLUEPRINT here (Commercial Builder, whose client review link is one of
+    # the pages this exists for) render in this environment and never pass
+    # through install_template_helpers above.
+    _thinking.install(app)

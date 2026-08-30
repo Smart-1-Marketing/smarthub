@@ -48,6 +48,12 @@
  .err{color:#9b2c2c;font-size:13px;margin-top:9px}
  footer{text-align:center;color:var(--muted);font-size:12px;padding:26px 16px}
 </style>
+{# The mark that says something is running. /p/ is in this module's
+   PUBLIC_PREFIXES, which wsgi.py hands to HubBar as well as AuthGuard, so
+   hub-thinking.js is not on this page — the client reading it has no Hub
+   account and must not meet our chrome. Guarded, so a Jinja environment
+   without the global loses the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
 </head>
 <body>
 <div class="band">SMART 1 MARKETING</div>
@@ -173,7 +179,11 @@ async function accept(){
  if(!nm.value.trim()||em.value.indexOf('@')<0){
   err.textContent='Please give your name and an email address so we know who accepted.';
   return;}
- go.disabled=true;go.textContent='Sending…';
+ // busy() keeps the button's own label to put back, so the hand-written
+ // restore below is only needed where the inline block did not run.
+ var w=window.S1Wait?S1Wait.busy(go,{kind:'wait',label:'Sending\u2026'})
+                    :{done:function(){go.disabled=false;go.textContent='Accept this proposal';}};
+ if(!window.S1Wait){go.disabled=true;go.textContent='Sending…';}
  try{
   var r=await fetch({{ url_for('api_client_accept', token=token)|tojson }},
    {method:'POST',headers:{'Content-Type':'application/json'},
@@ -182,8 +192,8 @@ async function accept(){
   if(!r.ok||!d.ok){throw new Error((d&&d.error)||'That did not go through.');}
   location.reload();
  }catch(e){
+  w.done();
   err.textContent=e.message;
-  go.disabled=false;go.textContent='Accept this proposal';
  }
 }
 </script>
