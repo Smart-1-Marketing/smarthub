@@ -381,6 +381,49 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
           "1200x628" in google and "1200x628" in meta)
 
 
+def test_the_alert_channel_reports_itself():
+    """notify.ts promised a check that was never written.
+
+    Its header has said since the day it was written that a missing transport
+    is "appended to out/notifications/outbox.jsonl instead of being lost, and
+    diagnostics flags the missing configuration". Diagnostics did not: there
+    was no such check, its Integrations group held one entry for Cloudinary,
+    and `notificationsConfigured()` -- written for exactly this question --
+    had no caller anywhere in the repo. The declared-but-unwired shape this
+    codebase has now hit six times.
+
+    Nine call sites in server.ts raise an alert and every one discards the
+    NotifyResult, so the route reports success whether or not anything was
+    sent. The self-health timer is the one that matters: it runs the
+    diagnostics every three hours so a 2am failure pages somebody rather than
+    waiting for a customer to find it, and with no transport that page is a
+    line in a JSONL file on the output directory, which a deploy wipes. The
+    thing built to say the tool is broken was itself unrouted.
+    """
+    notify = (MODULE / "src" / "notify.ts").read_text()
+    diag = (MODULE / "src" / "diagnostics.ts").read_text()
+
+    check("the check the header promises now exists",
+          "function checkNotifications" in diag)
+    check("and is actually registered, not merely written",
+          "checks.push(checkNotifications(opts.outDir));" in diag)
+    check("it reads the transport state rather than the two keys",
+          "notificationsState" in diag and "notificationsState" in notify)
+    check("the function written for this finally has a caller",
+          "notificationsConfigured" in notify)
+
+    # Three states, because a key with no recipient is not the same as no key.
+    check("a key with nowhere to send it is its own answer",
+          "EMAIL_TO is not" in notify and "blocked" in notify)
+    check("and it is a failure rather than a warning",
+          "level: 'fail'," in diag.split("function checkNotifications")[1]
+          .split("function checkPlatforms")[0])
+    check("an unrouted channel names where the alerts are going instead",
+          "outbox.jsonl" in diag)
+    check("and how many have gone there already",
+          "outboxState" in diag and "export function outboxState" in notify)
+
+
 def test_a_ceiling_says_where_it_came_from_and_the_panel_derives_it():
     """A file-weight limit nobody sourced reads exactly like one that was.
 
