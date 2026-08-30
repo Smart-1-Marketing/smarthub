@@ -7081,6 +7081,29 @@ is the quality ladder `render.ts` steps on the composed raster, and this budget
 keeps a 6 MB phone photo from being the input to it -- a different job, worth
 having, just not the one the sentence claimed.
 
+**And the gallery beside it could come back empty with everything healthy.**
+Cloudinary publishes a folder as `asset_folder` in dynamic-folder mode and
+`folder` in fixed, and a search asking for the wrong one returns **zero**: the
+request succeeds, the page renders, and a client's gallery reads as a client
+with nothing in it. `cloudinary.searchFolder` picked between the two from
+`CLOUDINARY_FOLDER_MODE` -- a variable set in `modules/ad_builder/render.yaml`,
+which is the manifest for running the renderer as its *own service*. Here it is
+a second process in the Hub's container whose Cloudinary settings
+`docker-start.sh` derives from `CLOUDINARY_URL`, and nothing sets the mode. So
+the default answered for an account nobody had checked, and `gallery.ts` is
+what reads it.
+
+`hub/video_library.py` reached this first, ran both fields against this account,
+found they answer identically and asks for **both** -- so the extra clause costs
+nothing and there is no setting left that can be silently wrong. The renderer
+does the same now, through one exported `folderExpression()` rather than an
+expression built inline where nothing could test it. It also takes that note's
+other half: the exact form is `=` and the subtree form the trailing wildcard,
+because neither alone is enough and the old expression used `:` for both, so
+the folder's own assets were matched by a contains rather than an equality.
+`folderMode` still decides the shape of a dry-run public_id, which is a
+different question and a real one.
+
 **The scan photographed their website and nobody was shown the photograph.**
 `website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
 so an operator judging brand colour on a dark canvas had to open the client's
