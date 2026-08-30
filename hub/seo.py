@@ -104,15 +104,47 @@ def set_link(client: str, kind: str, data, remove: str = "") -> dict:
 
 
 # ------------------------------------------------------- status + socials
-def _blogs_current(store: dict) -> bool:
-    """Green when a plan exists and every post due by today is checked as
-    posted on the site."""
-    posts = store.get("blogs", {}).get("posts", [])
+# The four status pills. Three of them are a tick somebody makes and are
+# genuinely yes/no; `blogs` is derived, and it is the one with more than two
+# answers.
+#
+# It was a bool, and `False` covered both "this client does not buy blogs" and
+# "their plan is behind" -- so on this deployment's own book 16 of the 21 SEO
+# clients carried a permanent red "Blogs -- not yet" for a product they have
+# never bought, in the one column that says what to act on. The summary tile
+# at the top of the same page counts the *product* and read "With blogs: 5",
+# so the page contradicted itself: five clients have blogs, twenty-one are
+# behind on them. Neither figure is wrong on its own, which is why it stood --
+# the `/api/db/structure` versus `/api/integrity` trap, wearing a pill.
+BLOGS_STATES = {
+    "not_sold": "No blogs product",
+    "none": "No plan yet",
+    "behind": "Posts overdue",
+    "current": "Up to date",
+}
+
+
+def _blogs_state(store: dict, sells: bool | None = None) -> str:
+    """Which of BLOGS_STATES this client's blogs are in.
+
+    `sells` is whether a live SEO product with "blog" in its name is on their
+    book -- the fact `seo_clients()` and `_client_base()` each compute two
+    functions away and never passed in.
+
+    It is None where the caller could not look, and that is deliberately NOT
+    read as "they do not buy blogs": `not_sold` is the state that takes a row
+    out of the queue, and silencing a row on a guess is how a client who is
+    genuinely behind stops being chased. Unknown owes a plan, like anybody
+    else who has none -- a failed read never quiets the list.
+    """
+    posts = (store.get("blogs") or {}).get("posts") or []
     if not posts:
-        return False
+        return "not_sold" if sells is False else "none"
     today = _dt_date_today_iso()
     due = [p for p in posts if str(p.get("date", "")) <= today]
-    return all(p.get("posted") for p in due) if due else True
+    if not due:
+        return "current"                  # a plan exists and nothing is due yet
+    return "current" if all(p.get("posted") for p in due) else "behind"
 
 
 def _dt_date_today_iso() -> str:
@@ -120,13 +152,21 @@ def _dt_date_today_iso() -> str:
     return _dt.date.today().isoformat()
 
 
-def client_status(store: dict) -> dict:
+def client_status(store: dict, sells_blogs: bool | None = None) -> dict:
+    """The four pills. `blogs` is a BLOGS_STATES key, not a bool -- see above.
+
+    Every screen reads this one function rather than deciding for itself, so
+    the client list and the client record cannot come to disagree about
+    whether somebody is behind on blogs.
+    """
     checks = store.get("checks", {})
+    blogs = _blogs_state(store, sells_blogs)
     return {
         "setup": bool(store.get("setup", {}).get("completed")),
         "schema": bool(checks.get("schema")),
         "listings": bool(checks.get("listings")),
-        "blogs": _blogs_current(store),
+        "blogs": blogs,
+        "blogs_label": BLOGS_STATES[blogs],
     }
 
 
@@ -553,6 +593,13 @@ def _client_websites(client: str) -> list[dict]:
     match Client 360 uses), plus any website records manually attached to
     the client in the Hub."""
     ck = str(client).strip().lower()
+    if not ck:
+        # `ck in wk` is true of every string when ck is empty, so a nameless
+        # client matched the WHOLE registry -- 610 rows on this deployment,
+        # and webs[0] then supplied that client's "website", its GA id and the
+        # domain its Brandfetch is looked up under. A name nobody gave matches
+        # nobody, the rule `client_key.resolve()` refuses a substring for.
+        return []
     out = []
     for w in knack_data.websites():
         wk = str(w.get("name", "")).strip().lower()
@@ -686,7 +733,9 @@ def seo_clients() -> list[dict]:
             "partner": ", ".join(sorted(g["partner"])),
             "setup_done": bool(store.get("setup", {}).get("completed")),
             "schema_pages": approved,
-            "status": client_status(store),
+            # The product fact goes in, or the Blogs pill cannot tell a client
+            # who does not buy blogs from one who is behind on them.
+            "status": client_status(store, g["blogs"]),
         })
     return out
 
@@ -766,6 +815,17 @@ def _client_base(client: str) -> dict:
             "blogs": blogs}
 
 
+def sells_blogs(client: str) -> bool:
+    """Whether a live SEO product with "blog" in its name is on this client's
+    book -- for a caller holding only the store, so it can hand the fact to
+    `client_status()` rather than letting the Blogs pill fall back to
+    "no plan yet". Without it, ticking *Setup* would silently move a
+    no-blogs-product client's Blogs pill from gray to amber, which reads as
+    the tick having done something it did not do.
+    """
+    return bool(_client_base(client).get("blogs"))
+
+
 def client_detail(client: str, full: bool = False) -> dict:
     base = _client_base(client)
     client = base["client"]
@@ -798,7 +858,7 @@ def client_detail(client: str, full: bool = False) -> dict:
         "last_scan": store.get("last_scan"),
         "brandfetch": brand_for(client, (webs[0]["domain"] if webs else "")),
         "checks": store.get("checks", {}),
-        "status": client_status(store),
+        "status": client_status(store, base["blogs"]),
         "social": get_social(client, (webs[0]["domain"] if webs else "")),
     })
     if full:                      # one round-trip for the whole SEO page

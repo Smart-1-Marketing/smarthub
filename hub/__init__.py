@@ -2886,12 +2886,23 @@ def create_hub_app() -> Flask:
             return gate
         from . import seo
         name = (request.args.get("name") or "").strip()
+        if not name:
+            # Answered for a nameless client before now, which is not a
+            # cheap kind of nothing: the loose website match takes an empty
+            # name as matching every record.
+            return jsonify({"error": "client is required."}), 400
         try:
             return jsonify(seo.client_detail(name, full=bool(request.args.get("full"))))
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("seo-detail", exc, path=request.path,
                                  actor=current_user() or "")
-            return jsonify({"client": name, "error": str(exc)})
+            # 502 rather than 200: this used to answer OK with an `error` key
+            # nobody read, so a client whose record could not be built rendered
+            # as a client with no website, no business info and no schema
+            # pages -- months of work, drawn as an empty record. The page reads
+            # `error` now; the status is what stops the next reader of this
+            # route inheriting the same silence.
+            return jsonify({"client": name, "error": str(exc)}), 502
 
     @app.route("/api/seo/scan", methods=["POST"])
     def api_seo_scan():
@@ -2916,7 +2927,8 @@ def create_hub_app() -> Flask:
             store = seo.load_store(client)
             store["last_scan"] = out
             seo.save_store(client, store)
-        audit.log("hub", "seo_scan", actor=current_user(), detail=url)
+        audit.log("seo", "seo_scan", actor=current_user(),
+                  client=client or None, detail=url)
         return jsonify(out)
 
     @app.route("/api/seo/sitemap", methods=["POST"])
@@ -2969,8 +2981,8 @@ def create_hub_app() -> Flask:
         remaining = [p for p in store.get("sitemap", []) if p not in store.get("pages", {})]
         out["remaining"] = len(remaining)
         out["total"] = len(store.get("sitemap", []))
-        audit.log("hub", "seo_generate", actor=current_user(),
-                  detail=f"{client}: {len(urls)} pages")
+        audit.log("seo", "seo_generate", actor=current_user(),
+                  client=client, detail=f"{len(urls)} pages")
         # One ticket per page that actually got schema, not per page asked for.
         from . import seo_tasks
         done = [pg.get("url") for pg in (out.get("pages") or []) if pg.get("url")]
@@ -3048,7 +3060,7 @@ def create_hub_app() -> Flask:
             if k in body:
                 setup[k] = body[k]
         seo.save_store(client, store)
-        audit.log("hub", "seo_setup_saved", actor=current_user(), detail=client)
+        audit.log("seo", "seo_setup_saved", actor=current_user(), client=client)
         return jsonify({"ok": True})
 
     @app.route("/api/seo/pages")
@@ -3082,8 +3094,10 @@ def create_hub_app() -> Flask:
         if "setup" in body:
             store.setdefault("setup", {})["completed"] = bool(body["setup"])
         seo.save_store(client, store)
-        audit.log("hub", "seo_checks", actor=current_user(), detail=client)
-        return jsonify({"ok": True, "status": seo.client_status(store)})
+        audit.log("seo", "seo_checks", actor=current_user(), client=client)
+        return jsonify({"ok": True,
+                        "status": seo.client_status(store,
+                                                    seo.sells_blogs(client))})
 
     @app.route("/api/client/social")
     def api_client_social():
@@ -3869,8 +3883,8 @@ def create_hub_app() -> Flask:
                                 (body.get("start") or "").strip())
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_blog_plan", actor=current_user(),
-                  detail=f"{client}: {len(out['posts'])} posts")
+        audit.log("seo", "seo_blog_plan", actor=current_user(),
+                  client=client, detail=f"{len(out['posts'])} posts")
         from . import seo_tasks
         out["tasks"] = seo_tasks.for_posts(client, out.get("posts") or [],
                                            actor=current_user())
@@ -3891,8 +3905,8 @@ def create_hub_app() -> Flask:
             out = seo.blog_write(client, ids)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_blog_write", actor=current_user(),
-                  detail=f"{client}: {len(out['written'])} posts")
+        audit.log("seo", "seo_blog_write", actor=current_user(),
+                  client=client, detail=f"{len(out['written'])} posts")
         return jsonify(out)
 
     @app.route("/api/seo/blogs/update", methods=["POST"])
@@ -3985,7 +3999,7 @@ def create_hub_app() -> Flask:
             out = seo.blog_tag_posts(client, ids or None)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_blog_tag", actor=current_user(), client=client,
+        audit.log("seo", "seo_blog_tag", actor=current_user(), client=client,
                   detail=f"{out['tagged']} posts")
         return jsonify(out)
 
@@ -4004,7 +4018,7 @@ def create_hub_app() -> Flask:
                    ("author", "guidance", "avoid", "categories", "approved_only")
                    if k in body}
         settings = seo.save_blog_settings(client, updates)
-        audit.log("hub", "seo_blog_settings", actor=current_user(),
+        audit.log("seo", "seo_blog_settings", actor=current_user(),
                   client=client, detail=", ".join(sorted(updates)) or "no change")
         return jsonify({"ok": True, "settings": settings})
 
@@ -4046,7 +4060,7 @@ def create_hub_app() -> Flask:
         if not text.strip():
             return jsonify({"error": "Upload a document or paste the topics."}), 400
         out = seo.set_approved_topics(client, text, filename, append=append)
-        audit.log("hub", "seo_blog_topics", actor=current_user(), client=client,
+        audit.log("seo", "seo_blog_topics", actor=current_user(), client=client,
                   detail=f"{out['found']} topics from {filename}")
         return jsonify(out)
 
@@ -4106,7 +4120,7 @@ def create_hub_app() -> Flask:
         out = cms_publish.instructions(cms, kind, chosen, client=client,
                                        site_url=site, settings=settings,
                                        placement=str(body.get("placement") or ""))
-        audit.log("hub", "seo_publish_instructions", actor=current_user(),
+        audit.log("seo", "seo_publish_instructions", actor=current_user(),
                   client=client, detail=f"{kind} → {cms}: {len(out.get('items', []))}")
         return jsonify(out)
 
@@ -4137,7 +4151,7 @@ def create_hub_app() -> Flask:
                                 [str(u) for u in (body.get("urls") or [])])
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_alt_scan", actor=current_user(), client=client,
+        audit.log("seo", "seo_alt_scan", actor=current_user(), client=client,
                   detail=f"{len(out['pages'])} pages, {out['total_images']} images")
         return jsonify(out)
 
@@ -4156,7 +4170,7 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
         if not out.get("error"):
-            audit.log("hub", "seo_alt_write", actor=current_user(), client=client,
+            audit.log("seo", "seo_alt_write", actor=current_user(), client=client,
                       detail=f"{out.get('written', 0)} images")
         return jsonify(out)
 
@@ -4279,8 +4293,8 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)}), 500
         if out.get("filled"):
-            audit.log("hub", "seo_business_enriched", actor=current_user(),
-                      detail=client, fields=", ".join(out["filled"]))
+            audit.log("seo", "seo_business_enriched", actor=current_user(),
+                      client=client, fields=", ".join(out["filled"]))
         return jsonify(out)
 
     # ---------------- saved schema pages: table, edit, delete ----------------
@@ -4413,7 +4427,7 @@ def create_hub_app() -> Flask:
                                  style=body.get("style"))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        audit.log("hub", "faq_page_saved", actor=current_user(), detail=client,
+        audit.log("seo", "faq_page_saved", actor=current_user(), client=client,
                   url=url, questions=len(page.get("questions", [])))
         # The FAQ exists in the Hub; somebody still has to put it on the page.
         # Raising the ticket must not be able to fail the save that earned it.

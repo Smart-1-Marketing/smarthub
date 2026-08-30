@@ -18,7 +18,7 @@
     <label class="seoc-check"><input type="checkbox" id="ck_setup"> Setup complete</label>
     <label class="seoc-check"><input type="checkbox" id="ck_schema"> Schema updated</label>
     <label class="seoc-check"><input type="checkbox" id="ck_listings"> Listings complete</label>
-    <span class="seoc-check seoc-check-ro" id="ck_blogs_wrap"><span id="ck_blogs_dot" class="seoc-dot"></span> Blogs current <span class="seoc-muted" style="font-weight:400">(from the posted checkboxes below)</span></span>
+    <span class="seoc-check seoc-check-ro" id="ck_blogs_wrap"><span id="ck_blogs_dot" class="seoc-dot"></span> Blogs <span class="seoc-muted" style="font-weight:400">&mdash; <span id="ck_blogs_label">&mdash;</span></span></span>
     <span id="ckMsg" class="seoc-muted"></span>
   </div>
 </div>
@@ -732,6 +732,12 @@ table.seoc-blogt input[type=checkbox]{width:auto}
 .seoc-check-ro{cursor:default}
 .seoc-dot{width:12px;height:12px;border-radius:50%;display:inline-block;background:#dc2626}
 .seoc-dot.on{background:#16a34a}
+/* The four blogs states. `not_sold` is gray rather than red: a client who
+   does not buy blogs is not a client who is behind on them. */
+.seoc-dot.current{background:#16a34a}
+.seoc-dot.behind{background:#dc2626}
+.seoc-dot.none{background:#d97706}
+.seoc-dot.not_sold{background:#cbd5e1}
 .seoc-socialgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
 .seoc-socialgrid .srow{display:flex;gap:6px;align-items:center}
 .seoc-socialgrid .srow b{width:76px;font-size:12px;color:#475569;text-transform:capitalize;flex:none}
@@ -955,6 +961,17 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     catch(err){ console.error('[seo_client] '+label+' failed:', err); }
   }
   fetch('/api/seo/detail?name='+encodeURIComponent(CLIENT)+'&full=1').then(function(r){return r.json();}).then(function(d){
+    /* A failed build comes back as a body with `error` on it, and fetch()
+       resolves for 4xx and 5xx alike -- so the .catch() below never sees it.
+       Read straight past this and every card renders its own empty state:
+       "no site on file", no business info, no schema pages. That is a client
+       with months of work behind them drawn as a client with none, which is
+       the confident wrong answer this codebase treats as worse than an error. */
+    if(d&&d.error){
+      var em='<span class="seoc-bad">Could not load this client &mdash; '+esc(d.error)+'</span>';
+      ['accBody','siteBody','socialBody'].forEach(function(id){ if($(id)) $(id).innerHTML=em; });
+      return;
+    }
     detail=d; slug=d.slug||''; siteUrl=d.url||'';
     $('seocSub').textContent=(d.products||[]).join(' · ')+(d.billing?'  —  $'+Number(d.billing).toLocaleString()+'/mo':'');
     if(siteUrl){var b=$('btnSite');b.href=siteUrl;b.style.display='inline-block';}
@@ -1227,7 +1244,16 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('ck_setup').checked=!!st.setup;
     $('ck_schema').checked=!!st.schema;
     $('ck_listings').checked=!!st.listings;
-    $('ck_blogs_dot').className='seoc-dot'+(st.blogs?' on':'');
+    /* Four answers, not two. The dot was red for a client who does not buy
+       blogs exactly as it was for one whose posts are overdue -- and this
+       page already knew the difference (blogsVisible / blogOffNote) and drew
+       the dot without it. The state is the server's, so this record and the
+       SEO client list cannot disagree about who is behind. */
+    var bs=String(st.blogs||'none');
+    $('ck_blogs_dot').className='seoc-dot '+bs;
+    $('ck_blogs_wrap').title='Blogs: '+(st.blogs_label||bs);
+    var lbl=$('ck_blogs_label');
+    if(lbl) lbl.textContent=st.blogs_label||bs;
   }
   ['ck_setup','ck_schema','ck_listings'].forEach(function(id){
     $(id).onchange=function(){
