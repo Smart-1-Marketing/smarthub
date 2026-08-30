@@ -11,6 +11,7 @@ import sharp from 'sharp';
 import type { Box, Brand, ColorRef, CopySet, HeroSet, SizeLayout, TextBox } from './types';
 import { resolveFont, textPath } from './fonts';
 import { baselines, countWords, fitText, xForAlign, type FitResult } from './typeset';
+import { hexLuminance } from './raster';
 
 export interface ComposeInput {
   layout: SizeLayout;
@@ -20,6 +21,8 @@ export interface ComposeInput {
   scale: number;
   /** false renders background only — used to sample contrast under text. */
   includeText?: boolean;
+  /** Draw the logo image. False for QA's background pass -- see below. */
+  includeLogo?: boolean;
   /** Amazon responsive / 414x125 supply their own CTA. */
   noBakedCta?: boolean;
   /** Full-bleed background photo path + overlay strength (0..1). */
@@ -217,6 +220,63 @@ export function coverRect(
 }
 
 /**
+ * Should this panel carry the reverse (white) logo?
+ *
+ * The comparison here used to be `layout.background === 'dark'`, evaluated in
+ * render.ts. 'dark' is a legal ColorRef -- it is a brand palette *role* -- so
+ * that read as deliberate, and it was never true: across all five shipped
+ * templates a background is `light` (61 layouts) or `primary` (14), and never
+ * `dark`. The panels that are genuinely dark are the `primary` ones, so the
+ * automatic choice this file's own comment promised ("the composer can pick
+ * the reverse logo on dark panels") could not fire, and a concept that did not
+ * set `useReverseLogo` put the dark logo on a navy panel: on Icon Solar's mark
+ * that leaves the yellow sun visible and the wordmark gone.
+ *
+ * So the decision is made from the colour the role actually resolves to rather
+ * than from the name of the role, which is the same move `hexIsLight` already
+ * makes one function down. Deciding by role name cannot survive a brand whose
+ * `primary` is a pale yellow; deciding by luminance is right for both.
+ *
+ * A background photo is not a flat colour, so it defers to inkOverBackground()
+ * -- the logo then follows the same ink the text is already using, rather than
+ * being a second opinion about the same panel.
+ */
+export function reverseLogoOnPanel(
+  layout: {
+    background?: ColorRef;
+    logo?: Box;
+    panels?: Array<{ x: number; y: number; w: number; h: number; fill?: ColorRef; overBg?: boolean }>;
+  },
+  brand: Brand,
+  input: { backgroundImage?: string; backgroundOverlayColor?: string; backgroundOverlay?: number } = {},
+): boolean {
+  const dark = (ref: ColorRef | undefined) => hexLuminance(resolveColor(ref, brand, '#ffffff')) < 0.5;
+
+  // What the logo actually sits on, which is not always the canvas. T02 drops
+  // a `light` content card under the mark on nine of its layouts while the
+  // canvas behind it is `primary` -- so reading the canvas there would put the
+  // white logo on a white card, which is the same failure this function exists
+  // to stop, one panel further in. The server's palette advisor already had to
+  // work this out; it is here so both reach the same answer.
+  const lb = layout.logo;
+  if (lb) {
+    for (const p of layout.panels ?? []) {
+      // Panels yield to a full-bleed photo unless they are part of the design
+      // over one -- the same rule compose() applies when it draws them.
+      if (input.backgroundImage && !p.overBg) continue;
+      const overlaps = lb.x < p.x + p.w && p.x < lb.x + lb.w
+                    && lb.y < p.y + p.h && p.y < lb.y + lb.h;
+      if (overlaps) return dark(p.fill);
+    }
+  }
+
+  if (input.backgroundImage) return inkOverBackground(input, brand) === 'light';
+  // Mid-point on relative luminance. A panel darker than this reads white ink
+  // better than dark ink, which is the whole question being asked.
+  return dark(layout.background);
+}
+
+/**
  * Which brand ink survives whatever is painted over the photo.
  *
  * Exported because QA has to reach the same answer: measuring the template's
@@ -271,6 +331,7 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
     hero,
     scale,
     includeText = true,
+    includeLogo = true,
     noBakedCta = false,
     assetRoot = process.cwd(),
   } = input;
@@ -451,9 +512,19 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
           : lb.valign === 'middle'
             ? lb.y + (lb.h - dh) / 2
             : lb.y;
-      body.push(
-        `<image x="${dx.toFixed(2)}" y="${dy.toFixed(2)}" width="${dw.toFixed(2)}" height="${dh.toFixed(2)}" href="${img.uri}"/>`,
-      );
+      // QA measures the logo's own ink against the panel behind it, and the
+      // background pass is where "behind" comes from -- so the logo must not
+      // be in it. includeText only ever gated glyphs, so the pass carried the
+      // logo and QA compared the mark against a region containing that same
+      // mark: a white logo on a white panel read 1.0:1 because both numbers
+      // were the logo. The bias is always toward a false "invisible" warning.
+      // The rect is still published either way, because callers use it as the
+      // region to sample.
+      if (includeLogo) {
+        body.push(
+          `<image x="${dx.toFixed(2)}" y="${dy.toFixed(2)}" width="${dw.toFixed(2)}" height="${dh.toFixed(2)}" href="${img.uri}"/>`,
+        );
+      }
       rects.logo = { x: dx, y: dy, w: dw, h: dh };
     }
   }

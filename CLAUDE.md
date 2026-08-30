@@ -439,6 +439,42 @@ the three. `test_client_images.py` now asserts that **every name
 exists precisely because the directory and the log disagree, which makes it
 exactly the case where a second table gets keyed on the wrong one.
 
+**That assertion covers one entry, and the failure has now happened five
+times.** `LOG_NAMES` holds exactly one mapping, so asserting over it caught
+`display_ads` and nothing else. `ad_copy` and `website_audit` were each added
+to `WORK_KINDS` later with a note in this file saying *the `display_ads`
+failure, one tool later* and *two tools later* — and then **`io_builder`,
+`landing_maker`, `stock_photos`, `brand` and `suite`** turned out to be doing
+the same thing. The insertion order is the worst of them: `hub/io_clients.py`
+exists precisely because a client whose only trace is an IO was invisible on
+their own record, so the IO was registering the client and then not appearing
+as work for them. Every one of the five was found the same way — somebody
+opens a client's record and notices — which is not a way of finding the sixth.
+
+`client_brand.check_work_kinds()` asks the question of **every call site**
+instead, through the AST: any `audit.log(…, client=…)` whose module name is
+in neither table is a finding, and `/api/integrity` runs it at **high**. It
+went in green. Two things it had to get right, both of which caught a first
+draft of it. **A bare `log()` is a module's own wrapper** whose first argument
+is the *event* rather than the module — Radio Promo and Landing Ads both have
+one — and counting those reported four modules as filing work under
+`project.create`. And **prose is not a call site**: three modules explain this
+very trap by quoting the call, so it reads the AST rather than matching text,
+or the check reports the explanation of the fix as the defect —
+`tools/spellcheck.py`'s rule, on a different shelf.
+
+**`NOT_WORK` is the other side, written down rather than left as an
+absence.** Ten landing modules and `hub/leads.py` log with a `client=` that is
+the **prospect's** own business name off a form, and a lead on a client record
+would be the Hub inventing a relationship — the distinction `hub/leads.py` and
+`hub/prospect.py` are built around. `google_index`, `hub` and `qa` record a
+join or a status rather than a deliverable. Each is named with its reason, so
+the check can tell *decided to leave out* from *nobody has noticed yet*, which
+is the only thing that lets it be green rather than a list somebody re-triages
+on every run. `stale_work_exemptions()` fails on an entry naming a module that
+no longer logs against a client, because an exemption that outlives its call
+site goes on covering whatever is written under that name next.
+
 **And a base read twice is a base with two answers.** `modules/sales_builder`
 read `IO_API_BASE` in two places with **different defaults**: `_io_api_base()`
 returned the `/tools/io` mount and carries a docstring explaining at length
@@ -1778,6 +1814,41 @@ separate entry in `hub/__init__.py`'s `CHROMELESS`. Either one missing is its
 own failure — a page exempted from the login and not from the chrome is a
 client reading our staff nav, and the other way round is a login form in front
 of somebody who has no account and will be emailed the file instead.
+
+**And a dispatcher-mounted module fails it the other way: by declaring
+nothing at all.** Commercial Builder is a blueprint, so both halves had to be
+written out by hand. Fan Radio is mounted, so `_mount()` would have handed
+one list to *both* `AuthGuard` and `HubBar` — and it was called with no
+`public_prefixes` argument, so it handed them nothing. The module's own
+docstring had said since the day it was written that `/r/…`,
+`/api/public/…` and `/audio/…` are the customer's; `wsgi.py` had never been
+told. So the approval link a rep mails a client opened a **staff sign-in
+form** for an account they will never have, the page's `<audio>` element
+404'd behind the same redirect, and the approve button posted into it.
+Nothing errored at either end — a redirect is a perfectly correct answer to
+a question nobody had asked, and the rep who tested the link was signed in,
+which is the one state in which it works. The other half was armed and
+waiting the same way: with the list finally passed, `HubBar` is what keeps
+the sidebar, the help layer and live links to Client 360 and `/sales/leads`
+off a page a customer reads. `PUBLIC_PREFIXES` is declared in the module and
+read by `wsgi.py` with `getattr` now, the arrangement `modules/scans`,
+`modules/ads_builder` and `modules/sales_builder` already use, so the mount
+and the module cannot disagree about what is public.
+
+**Neither radio store read `HUB_DATA_DIR`.** Both carried their own copy of
+the six-line data-root expression — the thing `hub/jsonstore.data_root()`
+exists to be the single reader of — and neither consulted the variable at
+all. On this service it is unset, so they agreed with every other module by
+luck; on a deployment that sets it, every radio project would land outside
+the root the database mirror keys against and `/api/backup` reports on,
+while everything else moved. Both go through `jsonstore.data_dir()` now.
+`test_radio_builders.py` asserts all of it, and asserts the two speech
+passes' **divergence** rather than the identical reading `fan_radio/speech.py`
+used to claim: Radio Promo says numbers as words and spells a web address
+and an email out loud, and Fan Radio does neither, so a spot whose whole
+call to action is the website is handed to the voice raw. Named rather than
+quietly merged — one shared reader is what closes it, and it changes what a
+client hears.
 
 **Three answers, and the fourth state is not an answer.** Approve/reject
 forces "yes, but fix the phone number" into whichever end is nearest, the rule
@@ -3853,6 +3924,27 @@ invented here — low enough that its comp confirmation is in practice never
 raised, which is the right outcome for a $35 line rather than a threshold
 nobody would act on.
 
+**And gating it made the word "social" decisive, which caught two things that
+are not media buys.** `Social Media Ad Creation per platform` is the card's own
+$35 **production** line, so the gate asked whether the client already had the
+creative that line exists to produce; and `Social Media Management` is a
+$199/month organic posting retainer that buys no advertising at all. Both then
+printed *"the spec kit maps no unit for this"* onto the client's creative
+section, and both counted their spend into the **social medium** — which is the
+figure the comp confirmation is measured against, so a production line sitting
+beside a Meta buy raised the number that decides whether comping it is
+questioned.
+
+They are named by **category** rather than by product, and that is the point:
+the other four lines under CREATIVE / DESIGN SERVICES answer OTHER only because
+they happen to contain no medium keyword, so the next production line added
+there would depend on that luck. It is also already written down —
+`SPEC_AGREE_EXEMPT` carries `("other", "email")` with the reason *a
+creative-production line item is not a media buy that needs creative supplied
+for it* — so this is that exemption's rule applied one heading up rather than a
+new judgment. `spec_disagreements()` cannot see any of it: the kit maps no unit
+for either product, and an empty kit is skipped.
+
 **One product runs the other way.** The card files
 `LinkedIn - Display & Text Ads` under a heading called **SOCIAL ADS - VIDEO**,
 and the heading is what the keyword pass reads — so a product whose own name
@@ -3973,6 +4065,34 @@ also wins over the looked-up card row, because `find()` matches on the product
 name and four categories carry a product called "Demographic" — a location
 lookback line resolved to the $4.25 display row and was costed against a rate
 nobody quoted.
+
+**And a rate with no `rate_type` is not a rate that is sold.** All four IP
+Targeting products carried a bare `listedRate` of `"25.0"` with `rateType:
+null`, in both copies of the card, while the page we publish sells every one
+of them per **CPM** — `$18.00`, `$25.00`, `$19.50`, `$31.00`. Two things fell
+out of that, in opposite directions, and each screen stayed internally
+consistent, which is why it stood. `sell_rate()` answers `None` for a line
+with no rate type, so the **buy-side rate went onto the proposal with no
+margin on it**, beside a display line correctly doubling $4.25 to $8.50. And
+`estimate_delivery()` answered *"25.0 — not an impression-based rate, so
+delivery isn't estimated here"* about a $25 CPM buy, so the media plan quoted
+IP Targeting with **no impressions** and printed the bare float at the client.
+
+Nothing here could see it. `check_drift()` holds the two copies of the card to
+each other and they agreed — both were wrong the same way. The only place the
+unit exists is the published page, which ships in this repo, so
+`test_proposal_spec.py` now holds the card to it: a product the page sells per
+CPM or CPV that the Hub does not mark as one is a failure. It **also asserts
+how much of the card matched**, because the names do not all join — the Hub
+spells one product "purchased seperately" and the page spells it "separately"
+— and a name comparison that quietly stops matching is a check reporting a
+clean bill of health about nothing.
+
+The five genuine flat fees beside them keep `rateType: null`, which is what
+that means, and gained the rate string the page prints: `250.0` reaching a
+client document as *"250.0 — not an impression-based rate"* is the same bare
+float one row over. An existing quote is unaffected either way — a saved line
+carries its own rate, which is the rule `_sell_rate()` already works to.
 
 ### What a goal leads with, and what a client reads it as
 
@@ -6905,6 +7025,58 @@ line `hub/ad_builder_link.py` draws. Without that move, the gallery gains a row
 that opens today, 404s after the sweep, and was never openable by the client
 whose gallery it is in.
 
+**And "only a path this service wrote" was one route's rule, not the app's.**
+`POST /api/images/generate` takes a `previousUrl` too — on a revision the
+previous picture becomes the primary reference, which is what makes "make the
+sky darker" iterate rather than re-roll — and it did `path.join(OUT,
+url.replace(/^\/files\//, ''))` with nothing in between. `path.join(OUT,
+"../../../etc/passwd")` is `/etc/passwd`, and the route then copies whatever it
+finds into the campaign's cache directory, which lives under `imagery/` and is
+served at `/files/`. So an arbitrary readable file could be lifted into a
+web-served folder and handed to an image model, from a value in a POST body.
+Nothing errors: a path that resolves is a path that copies. `keep`'s check sat
+one route above it in the same file, comment and all — this is the second copy
+of a rule that was never written rather than one that drifted, which is the
+same failure arriving from the other direction. `assets.generatedImagePath()`
+is the one reading now.
+
+**And the reference photos on that route skipped the guard the neighbours use.**
+`referenceImages` is a list of URLs this server then fetches, and the loop
+tested `^https?://` and nothing else — which admits plain http to any host:
+`169.254.169.254`, `127.0.0.1` (the Hub's own gunicorn shares this container),
+and every private range. `assetUrlIsSafe` already stands behind
+`/api/background/apply`, `/api/logo/apply` and `/api/palette/variants`, and its
+own note says why it applies even to a gated route: staff credentials leak and
+the check costs nothing. It is applied here too now, with a ceiling and a
+timeout — `arrayBuffer()` on an arbitrary URL wrote the whole body to the
+volume `retention.ts` exists to keep clear, the shape `landing-images.ts`
+already had right. The one real caller passes Cloudinary `secure_url`, so
+nothing legitimate is refused. `tests/asset-paths.test.ts` holds both.
+
+**Except that the sweep was not removing it, and the paragraph above was the
+rule people reasoned from.** `retention.PRUNABLE` listed `google`, `amazon`,
+`cache` and `jobs`; `imagery/` was in neither that list nor the protected one,
+so every generated hero stayed on the volume for ever — on the one module whose
+whole job is to stop this service eating the disk its neighbours live on.
+Nothing errored in either direction: `keep` worked, the drafts simply also
+survived. A rule the code does not keep is worse than no rule.
+
+The platform directories were the same failure with a name on it. `render.ts`
+writes to `<outDir>/<platform>/<concept>` and the list here said google and
+amazon while `meta.json` sat in the registry being rendered — the **fourth**
+hardcoded platform list in this app, after the three `.filter(p => p ===
+'google' || p === 'amazon')` calls that dropped a Meta buy outright. It is read
+from `loadPlatforms()` now, so a platform added next month is swept without
+anybody remembering.
+
+And **`deliveries/` is named in `PROTECTED` rather than merely left out**,
+which is the difference between a decision and an oversight: an omission reads
+as something to fix, and the next person to widen this list takes the file
+behind the proof page's download button with it — the link a client opens
+whenever they like, turned into a 404 for the one person the tool is for.
+`tests/retention.test.ts` drives the clock rather than waiting on it, and holds
+all three.
+
 **The scan photographed their website and nobody was shown the photograph.**
 `website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
 so an operator judging brand colour on a dark canvas had to open the client's
@@ -6991,6 +7163,41 @@ gate, and `test_user_accounts.py` asserts every admin-only nav entry is a path
 mounted module the nav reads the role from the **signed cookie** rather than
 the database, because `HubBar` runs with no app context in front of every
 module page; a stale nav is cosmetic and the gate re-reads the row.
+
+**And the page was gated while its own data was not.** The list above says
+the APIs are on it because "gating the page while its data stays readable is
+a gate in name only" — and four of the Diagnostics page's own APIs were not
+on it. `/api/db/structure` is the sibling of `/api/integrity`, the same panel
+answering the same question, and only one of the two was covered;
+`/api/environment` describes every setting and which name answered;
+`/api/scheduler` reports the jobs. All four answered **200 to a General
+account** while `/diagnostics` answered 403 at the same person, and nothing
+on either side said so.
+
+**One of them is not a read.** `POST /api/scheduler/run/<name>` fires a job
+on demand — the Google sweep is 180 rate-limited Tag Manager accounts against
+a per-day project quota, the Cloudinary reconcile is billed Admin API calls,
+and the Knack pulls are a full paged object each. A POST any of the eleven
+General accounts can fire is the cost `hub/domain_purchase.py` already
+refuses to carry on a GET.
+
+**Nothing outside the Diagnostics page fetches any of them**, which is what
+made this safe to close: gating an API a General-visible page reads is how
+`/api/status` came to render "✓ 0 checks OK · no issues" at somebody who had
+just been refused it. `test_user_accounts.py` asserts that too, per path,
+rather than leaving it to the reasoning that made the change look safe.
+
+**The check is a sweep, not a list of the five that were open.**
+`test_blueprint_guards.py` probes every route with **no session at all**, so
+a route open to every signed-in member of staff is invisible to it — which is
+why these five stood. The new sweep walks every admin-shaped route on the hub
+app and requires each one to be gated or named in an exemption list **with
+its reason**, held to `check_stale_json_exemptions()`'s rule that an entry
+outliving its route goes on covering whatever is served there next. Three are
+named: `/api/version` (the sign-in page and every footer), `/login/health`
+(being locked out of it is how a locked-out person reports the problem) and
+`/api/presence` (the headcount is everybody's; the account-by-account list on
+`/status` stays in Utilities).
 
 **The shared password counts as Admin, and that is a decision rather than an
 oversight.** `PANEL_PASSWORD` grants a session with no account behind it, so
@@ -7185,6 +7392,55 @@ ever. A partial reached by `{% include %}` and a layout reached by
 It is **low** severity: an orphan breaks no page, it wastes the next person
 who edits it. And it started at zero, because the three it found were deleted
 in the change that added it.
+
+**And the audit that would have said so was measured against a list nobody
+had touched.** `hub/help.py` says the registry "can be audited for coverage —
+`missing_for()` will tell you which screens have no help at all", and the
+function is fine. What decided the answer was a **hand-typed list** at each
+of the two call sites in `hub/help_routes.py`, and both had stopped keeping
+up: `/api/help/coverage` named 23 screens and answered **`missing: []`** — a
+clean bill of health — while the Proposal Builder carried bubbles on one
+panel of its fourteen steps and the IO Builder, the Social Content Planner,
+Web Tickets, Stock Photo Search, Scan Widgets, Website Blocks, GPT Ads and
+Google Access carried none at all. `/api/demos/coverage` was worse: its one
+finding was a walkthrough for `modules/proposal_builder`, whose own docstring
+opens *"The retired Proposal Builder — a redirect and an archive"*. It was
+reporting a gap in a module that no longer does anything and silence about
+two dozen live ones.
+
+That is the shape this file already names twice — a check measured against a
+restated copy, reading as clean because the copy went stale — so
+`hub/help_coverage.py` reads the **tiles on the two staff index pages**
+instead. That is this codebase's own definition of a tool somebody opens, and
+the conventions above already require one. Four rules. **Finding no tiles is
+a failure**, not a clean sweep: the templates are parsed, and a parse that
+comes back empty means the markup moved, so `measured` is False and the
+report says as much rather than answering that nothing is missing. **An
+unmapped tile is named, never counted as covered** — a help key's prefix is a
+label chosen for the registry (`utm` is `modules/utm_builder`, `display_ads`
+is the TypeScript renderer), so it is declared, and a tile in neither table
+comes back under `unmapped`. **A page a client reads takes no staff help and
+says why**: the nine landing pages and the MSA signing page are tiled for
+staff and served to a prospect, and a bubble there is an internal note in
+front of somebody we are selling to. And `stray_prefixes()` runs the other
+way, because that direction is silent — help written under a prefix no tile
+maps to leaves the tool reading as *missing* while its copy sits there
+written, and somebody writes it twice.
+
+It **reports rather than gates**. Twenty-four of the forty-seven tiles have
+no help behind them; that is all real, none of it breaks a page, and a build
+failing on it is a check switched off within a week. `env_report()`'s shape —
+the thing that stands beside a check and says what the check cannot see.
+
+**And it is on the panel the other two halves are already on.** Bubbles,
+walkthroughs and coverage are one question asked of three mechanisms — does
+an explanation resolve, can a step still be driven, was one ever written —
+and split across screens they come to disagree about which tools are
+explained, which is the trap `jsonstore.unmirrored_json_writers()` exists to
+close. `/api/help-audit` carries all three and the Diagnostics panel draws
+them together. The renderer checks `measured` before it draws a count, for
+the reason the whole change exists: *nothing to measure* and *nothing
+missing* must never render alike.
 
 ### Who is signed in, and what that number is allowed to claim
 
@@ -7622,8 +7878,10 @@ python3 test_ads_estimate.py       # the estimate a client reads, and what they 
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
 python3 test_help_layer.py         # every bubble placed has help behind it, both
                                    #   ways one is placed, a key built at runtime
-                                   #   named rather than guessed at, and the
-                                   #   walkthrough saying which step it cannot run
+                                   #   named rather than guessed at, the
+                                   #   walkthrough saying which step it cannot
+                                   #   run, and coverage measured against the
+                                   #   tiles rather than a list that went stale
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
@@ -7685,7 +7943,9 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
                                    #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   and a gallery you can search
-python3 test_client_images.py      # deleting a client image, the count, the one brand
+python3 test_client_images.py      # every module that logs client work is one the
+                                   #   record can name; deleting a client image, the
+                                   #   count, the one brand
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
@@ -7704,6 +7964,10 @@ python3 test_google_index.py       # the Google sweep: no request, and none vs c
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
+python3 test_radio_builders.py     # the two radio builders: the client's own
+                                   #   approval page public and chrome-free,
+                                   #   nobody's trademark leaving the building,
+                                   #   and a long read flagged rather than trimmed
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,

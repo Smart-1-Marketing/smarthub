@@ -329,6 +329,143 @@ ok("a key built at runtime is drawn as unverified, not as a fault",
 # on look like a thing somebody must.
 ok("and never as a warning",
    'row("warn"' not in _render.split("Built at runtime")[0].rsplit("row(", 1)[-1])
+# --------------------------------------------------------------- coverage
+print()
+print("And the coverage audit is measured against what the Hub serves")
+
+from hub import help_coverage                                     # noqa: E402
+
+_cov = help_coverage.report()
+
+# The load-bearing assertion, and the one the old version could not make.
+# `/api/help/coverage` answered `missing: []` against a hand-typed list of 23
+# screens while two dozen tiled tools carried no explanation -- a clean bill
+# of health produced by not looking. Finding no tiles must therefore be a
+# refusal to answer, never an empty sweep: the same rule the anonymous route
+# sweep works to about a mount table it could not read.
+ok("the index pages were actually read", _cov["measured"] is True,
+   _cov.get("reason", ""))
+ok("and they hold the tools the Hub tiles", _cov["tools"] >= 40,
+   f"{_cov['tools']} tiles")
+
+# A parse that comes back empty is the failure above. Fed markup that no
+# longer matches, the report must say it could not measure rather than
+# reporting that nothing is missing.
+_real = help_coverage._TILE
+try:
+    help_coverage._TILE = re.compile(r"<a class=\"no-such-tile\" href=\"([^\"]+)\">(.*?)</a>")
+    _blind = help_coverage.report()
+    check("a parse that finds no tiles refuses to answer", _blind["measured"], False)
+    check("  ...and claims nothing about what is missing", _blind["missing"], [])
+    ok("  ...saying why, rather than reporting a clean bill",
+       "coverage" in _blind.get("reason", ""), _blind.get("reason", ""))
+finally:
+    help_coverage._TILE = _real
+
+# Every tile lands in exactly one bucket. A tile in none of them is the
+# silence this file exists to end -- it would read as covered by absence.
+_seen = sum(len(_cov[k]) for k in ("covered", "missing", "unmapped", "client_facing"))
+check("every tile is accounted for", _seen, _cov["tools"])
+check("and none is unmapped", [t["href"] for t in _cov["unmapped"]], [])
+
+# A page a prospect reads takes no staff help, and is not reported as a gap:
+# the help layer is our explanation of our own screens, so a bubble there is
+# an internal note in front of somebody we are selling to.
+_client = {t["href"] for t in _cov["client_facing"]}
+for _href in ("/land/boat/", "/land/stadium/", "/msa/"):
+    ok(f"{_href} is named client-facing rather than unexplained",
+       _href in _client)
+ok("and each says why", all(t.get("reason") for t in _cov["client_facing"]))
+
+# The other direction, which fails silently: help written under a prefix no
+# tile maps to leaves that tool reading as missing while its copy sits there
+# written, so somebody writes it twice.
+check("no help is registered under a prefix nothing maps to",
+      help_coverage.stray_prefixes(), [])
+
+# And the routes read this rather than restating it. Two hand-typed lists is
+# how one surface came to report a retired module as its only finding while
+# the other reported nothing at all.
+ok("both coverage routes read hub/help_coverage",
+   _help_routes_src.count("help_coverage.report()") >= 2)
+
+# Read as an assignment through the AST, not matched as text: the docstrings
+# at those two call sites now *explain* the hand-typed lists they replaced,
+# and a full-text pass reports the explanation of the fix as the defect --
+# the rule check_provider_key_drift() and check_orphan_templates() both work
+# to, met here for the third time.
+import ast as _ast                                                # noqa: E402
+
+_tree = _ast.parse(_help_routes_src)
+_hardcoded = []
+for _node in _ast.walk(_tree):
+    if not isinstance(_node, _ast.Assign):
+        continue
+    _names = [t.id for t in _node.targets if isinstance(t, _ast.Name)]
+    if "expected" not in _names:
+        continue
+    if isinstance(_node.value, (_ast.List, _ast.Tuple)) and any(
+            isinstance(e, _ast.Constant) for e in _node.value.elts):
+        _hardcoded.append(_ast.unparse(_node.value)[:60])
+check("neither route assigns a literal list of what to expect",
+      _hardcoded, [])
+
+# The bubble text and the tour steps stay outside the login -- they are our
+# own explanation of our own screens and the chrome fetches them on every
+# page, including the ones a prospect reads. Coverage is a different thing:
+# it returns the whole tool inventory and which of it is unfinished, which is
+# a roadmap rather than help copy, and it sat under the same anonymous
+# prefix.
+import tempfile as _tf                                            # noqa: E402
+
+_T = _tf.mkdtemp()
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_T, "t.db")
+os.environ["SECRET_KEY"] = "help-layer-test"
+os.environ["PANEL_PASSWORD"] = "test"
+os.environ["HUB_DATA_DIR"] = _T
+os.environ["AUDIT_LOG_PATH"] = os.path.join(_T, "audit.jsonl")
+
+import wsgi                                                       # noqa: E402
+from werkzeug.test import Client                                  # noqa: E402
+
+_anon = Client(wsgi.application)
+for _path in ("/api/help/coverage", "/api/demos/coverage"):
+    check(f"{_path} refuses a stranger", _anon.get(_path).status_code, 401)
+for _path in ("/api/help", "/api/demos"):
+    check(f"{_path} stays public, because the chrome fetches it everywhere",
+          _anon.get(_path).status_code, 200)
+
+_staff = Client(wsgi.application)
+_staff.post("/login", data={"password": "test"})
+_r = _staff.get("/api/help/coverage")
+check("and a signed-in reader gets the coverage", _r.status_code, 200)
+ok("which names what is missing rather than answering none",
+   len(_r.get_json()["missing"]) > 0,
+   "an empty answer here is what the hand-typed list used to give")
+
+# And it is on the panel the other two halves are on, rather than being a
+# report reachable only over the API. Bubbles, walkthroughs and coverage are
+# one question asked of three mechanisms, and split across screens they come
+# to disagree about which tools are explained -- the trap
+# jsonstore.unmirrored_json_writers() exists to close.
+_audit = _staff.get("/api/help-audit")
+check("the help-audit panel carries coverage too", _audit.status_code, 200)
+ok("with all three halves on the one answer",
+   set(_audit.get_json()) >= {"bubbles", "walkthroughs", "coverage"})
+
+with open(os.path.join(ROOT, "hub", "templates", "diagnostics.html"),
+          encoding="utf-8") as _fh:
+    _DIAG = _fh.read()
+_r = _DIAG[_DIAG.index("function renderHelpAudit"):_DIAG.index("function loadAll")]
+ok("and the panel draws it", "d.coverage" in _r and '"Coverage"' in _r)
+# "we could not look" must not render as "nothing is missing" -- the failure
+# this whole change is about, one layer up in the renderer.
+ok("checking measured before it draws a count", "c.measured===false" in _r)
+ok("and it names the client-facing tiles rather than counting them as gaps",
+   "client_facing" in _r)
+
+import shutil as _shutil                                          # noqa: E402
+_shutil.rmtree(_T, ignore_errors=True)
 
 
 print()

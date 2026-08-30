@@ -115,13 +115,29 @@ test('a rendered ad names the box, and withholds the contrast number', async () 
   assert.ok(clean.qa.some((f) => f.check === 'logo-contrast'),
     'and its contrast is measured as it always was');
 
-  const boxed = await renderPreview({
+  // This size's panel is `light`, i.e. #FFFFFF, so a WHITE plate on it is
+  // genuinely invisible and correctly says nothing. That is the rule the check
+  // states for itself, and it only became reachable once the background pass
+  // stopped containing the logo: `behind` used to be the plated logo's own
+  // average (a white box around a navy mark, ~0.8), which differs from the
+  // plate by enough to warn -- so this warned about the mark inside the box
+  // rather than about the box standing out from the panel.
+  const invisible = await renderPreview({
     brand: { ...campaign.brand, logos: { primary: plated } },
+    concept, platform: 'google', size, assetRoot: ROOT,
+  });
+  const quiet = invisible.qa.find((f) => f.check === 'logo-plate');
+  assert.equal(quiet?.status, 'pass', 'a white plate on a white card is not a box');
+
+  // A plate that will actually show is still named.
+  const showy = await logo(path.join(d, 'showy.png'), '#7A2E1F');
+  const boxed = await renderPreview({
+    brand: { ...campaign.brand, logos: { primary: showy } },
     concept, platform: 'google', size, assetRoot: ROOT,
   });
   const finding = boxed.qa.find((f) => f.check === 'logo-plate');
   assert.equal(finding?.status, 'warn', 'the box is named');
-  assert.match(finding!.detail, /opaque rgb\(255, 255, 255\)/);
+  assert.match(finding!.detail, /opaque rgb\(122, 46, 31\)/);
   assert.match(finding!.detail, /Rework logo/, 'and points at the tool that fixes it');
   assert.equal(boxed.qa.find((f) => f.check === 'logo-contrast'), undefined,
     'no contrast finding at all — a passing one would be the plate measured '

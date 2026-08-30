@@ -1546,7 +1546,14 @@ const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video",
     never being asked. The spec kit has known what they are the whole time,
     so the two halves of one question were disagreeing: one decides whether
     we ask for creative, the other what we ask for. */
- "mobile only":"display","email marketing":"email","smart 1 signage":"dooh"};
+ "mobile only":"display","email marketing":"email","smart 1 signage":"dooh",
+ /* Two headings that are not media buys. Gating SOCIAL made the word
+    "social" decisive below, so the card's own $35 social ad *production*
+    line was asked whether the client already had the creative it exists to
+    produce, and a $199/month organic posting retainer was asked the same.
+    By category, because the other four production lines answer "other" only
+    because they happen to contain no medium keyword. */
+ "creative / design services":"other","social media management":"other"};
 function mediumOf(i){
  const cat=String((i&&i.category)||"").trim().toLowerCase();
  if(CATEGORY_MEDIUM[cat])return CATEGORY_MEDIUM[cat];
