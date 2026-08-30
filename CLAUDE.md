@@ -5090,6 +5090,89 @@ exempts `PUBLIC_PREFIXES` — a guard that also refuses the embedded calculator
 is a broken grey box on a client's website, which is the failure
 `test_calculator_embed.py` was written about.
 
+## One description of what a record page looks like
+
+`hub/static/hub-detail.css`. The SEO client page is the shape every record-like
+screen in this Hub should have — a crumb and a title with the actions beside
+them, white cards with a small navy heading and a control on the right,
+key/value rows that line up, muted secondary text, one blue button — and it was
+written as ninety lines of `.seoc-*` rules inside that one template. So the
+three module screens beside it each grew their own idea of what a card is:
+Sites Admin with a dark "Smart 1 Sites Admin" bar of its own, the Suite panel
+with a second one, and the client lookup at `/clients` still in the old
+near-black and lime green. Four screens of one product, three palettes, and a
+person moving between them reading it as three different tools.
+
+The primitives are in one stylesheet now, declared under **both** the `s1d-`
+names the modules use **and** the `seoc-` ones the SEO page already had, *in
+the same rule*. That is the whole point: a change to what a card looks like
+lands once, and the page the look came from cannot drift away from the pages
+that adopted it. It is loaded twice because the Hub is two apps —
+`hub/templates/base.html` links it for the hub's own pages and `wsgi.py`'s
+HubBar injects it beside `theme.css` for every mounted module — so a module
+that adopts the class names needs no stylesheet of its own. `.s1d-card` carries
+its own background and border rather than assuming hub.css's `.card`
+underneath it, because a mounted module never loads hub.css.
+
+What each module keeps is what is genuinely its own: Sites keeps the filter
+row, the website blocks and the pager; the Suite panel keeps the fact that a
+button there may hold a spinner. **A second branded header bar is not one of
+them** — the Hub's sidebar is already on the page, so that bar was chrome
+twice, and it is what made each of these read as a separate product. What those
+modules do still need is a *second level* of navigation (Accounts / Inventory /
+Packages; Create / Manage / Activity / Status), which is `.s1d-subnav`. Sites
+marks the current section from `request.endpoint` rather than having every view
+pass one in — a nav that has to be told which entry to highlight is a nav that
+gets it wrong on the next page somebody adds — and the shared strip answers to
+`.active` as well as `.on`, because the Suite panel's tabs are driven by a
+script that has written `active` since they were an underline bar. Renaming
+that in the script to suit a stylesheet would be the stylesheet deciding what
+the page's state is called.
+
+**A status pill says the same thing everywhere.** `sites_admin.status_class()`
+returned `good` / `warn` / `bad` / `muted`, which are not the modifiers the
+shared sheet defines, so its pills were a second set that looked nearly like
+the Hub's. It returns `ok` / `warn` / `bad` and **`""`** now — and that last
+one is the point: a status this app has never seen is not a *bad* status, so it
+is grey rather than red, the confident wrong answer this codebase keeps having
+to undo.
+
+**A prebuilt bundle can be restyled, and cannot be rebuilt.** `clients_app/` is
+a compiled React app: the minified JS and CSS are committed and there is no
+source in this repo, so its markup cannot be edited. What it can be given is a
+later stylesheet, and `hub/static/clients-theme.css` is injected by
+`clients_index()` *after* the bundle's own `<link>` so equal rules win.
+Remapping the five variables it declares does most of the work; the rest is
+there because the bundle also hardcodes colors in rules carrying no variable at
+all, and a half-converted palette is worse than an unconverted one. Two things
+it deliberately does not do. `--s1-dark` is that bundle's ink **and** its dark
+surfaces — one variable doing two jobs — so the surfaces are named individually
+rather than remapped, or the body text would come out as heavy as a heading.
+And nothing in it changes layout: this is a color pass over a working tool, not
+a rebuild of one. It is scoped to a `body` class even though it is injected on
+one page, because `.kpi`, `.badge`, `.tabs` and `.search` are ordinary words and
+an unscoped rule for one of them would restyle a module nobody was thinking
+about.
+
+**`:not(:has(.main))` was matching modules, and one of them was laid out from
+x=0.** The sidebar offsets `<body>` by 224px except where the page already
+offsets itself — hub.css lays the Hub's own pages out with
+`.main{margin-left:224px}`, and applying both pushed the content 448px right.
+The guard was `.main` anywhere in the document, and "main" is one of the most
+ordinary class names there is: the client lookup names its content wrapper
+`.main`, so **the whole React app got no offset and its first column of tiles
+sat behind the sidebar**, on every visit, with nothing erroring and every page
+still passing linkcheck and pagecheck. It is `.shell > .main` now — only
+`base.html` puts a `.main` directly inside a `.shell`, which is precisely the
+layout the rule needs to keep its hands off. Image Creator, which also uses
+`.main` and reads `--s1hub-offset` to size a full-height canvas, was reading 0
+for the same reason.
+
+`test_detail_ui.py` asserts all of it, including that the SEO page no longer
+restates the rules it handed over: a copy left behind is not a broken page, it
+is a page that silently stops matching the others the next time one of them is
+edited.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -5131,6 +5214,8 @@ python3 test_scan_widgets.py       # widget placements: leads counted, pause/edi
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
+python3 test_detail_ui.py          # one description of the record-page look, and the
+                                   #   three module screens that read from it
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing

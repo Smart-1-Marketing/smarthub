@@ -143,12 +143,20 @@ _CSS = """
   /* Offset the page for the fixed sidebar — but only when the host page
      isn't already doing it. hub.css lays the Hub's own pages out with
      .main{margin-left:224px}, so applying it to <body> as well pushed the
-     content 448px right. :not(:has(.main)) leaves those pages alone and
-     still offsets every module page, which has no such rule. */
-  body:not(:has(.main)) { margin-left: 224px; --s1hub-offset: 224px; }
+     content 448px right.
+
+     The guard is `.shell > .main`, not `.main`. "main" is one of the most
+     ordinary class names there is, and matching it anywhere in the document
+     meant any *module* that happened to use it got no offset at all: the
+     client lookup at /clients names its content wrapper `.main`, so the whole
+     React app was laid out from x=0 and its first column of tiles sat behind
+     the sidebar — on every visit, with nothing erroring. Only the Hub's own
+     base.html puts a `.main` directly inside `.shell`, which is precisely the
+     layout this needs to keep its hands off. */
+  body:not(:has(.shell > .main)) { margin-left: 224px; --s1hub-offset: 224px; }
   /* Published so full-height tools (Image Creator) can size themselves
      against the space the sidebar actually took, rather than guessing. */
-  body.s1hub-collapsed:not(:has(.main)) { --s1hub-offset: 56px; }
+  body.s1hub-collapsed:not(:has(.shell > .main)) { --s1hub-offset: 56px; }
   .s1hub-chip { display: none !important; }
 }
 /* Below 950px the sidebar becomes a slide-out drawer rather than vanishing.
@@ -179,8 +187,8 @@ body.s1hub-collapsed .s1hub-sb .s1hub-foot,
 body.s1hub-collapsed .s1hub-sb .s1hub-logo span { display: none !important; }
 body.s1hub-collapsed .s1hub-sb a.s1hub-item { justify-content: center; padding: 11px 0; }
 body.s1hub-collapsed .s1hub-sb .s1hub-ico { margin: 0 }
-body.s1hub-collapsed:not(:has(.main)) { margin-left: 56px; }
-body.s1hub-collapsed .main { margin-left: 56px !important; }
+body.s1hub-collapsed:not(:has(.shell > .main)) { margin-left: 56px; }
+body.s1hub-collapsed .shell > .main { margin-left: 56px !important; }
 .s1hub-toggle { position: absolute; top: 10px; right: 8px; z-index: 2;
   width: 24px; height: 24px; border: 0; border-radius: 6px; cursor: pointer;
   background: rgba(255,255,255,.08); color: #c9d4ea; font-size: 13px;

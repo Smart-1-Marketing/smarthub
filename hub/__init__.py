@@ -4511,9 +4511,20 @@ def create_hub_app() -> Flask:
         _admin = viewer_is_admin()
         with open(os.path.join(CLIENTS_APP, "index.html"), "rb") as fh:
             body = fh.read()
-        snippet = b'<link rel="stylesheet" href="/assets/theme.css">'
+        # Two stylesheets, both after the bundle's own <link> so equal rules
+        # here win. theme.css is the shared typography-and-colour layer every
+        # module gets; clients-theme.css is this page's alone, because the
+        # bundle carries the old near-black-and-lime identity in class names
+        # (.kpi, .badge, .tabs) too ordinary to restyle globally. It is scoped
+        # to the body class added below for the same reason.
+        snippet = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                   b'<link rel="stylesheet" href="/assets/clients-theme.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", snippet + b"</head>", 1)
+        # Not data-module: that is what hub-demo.js floats "Walk me through
+        # this" onto, and this page has no walkthrough written for it.
+        if b"<body>" in body:
+            body = body.replace(b"<body>", b'<body class="s1-clients">', 1)
         bar = render_sidebar("clients", is_admin=_admin)
         # Deep links from Client 360: /clients?q=<client> auto-fills and runs
         # the React app's search (native value setter so React sees the input).
