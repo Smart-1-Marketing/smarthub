@@ -325,6 +325,64 @@ REGISTRY: list[Help] = [
        "acceptance is tied to one revision, so revising an accepted quote "
        "does not carry their yes onto a document they never saw."),
 
+    # ---------------- IO Builder ----------------
+    # The document that bills the client, and the tool with the most ways to
+    # be quietly wrong: a proposal quotes a price and an insertion order
+    # charges it, so what separates them is worth saying out loud.
+    _h("io_builder.start.source", "Load it rather than retype it",
+       "A client's record, a saved proposal or last year's IO all carry most "
+       "of this already, and everything loaded is read back to you in the "
+       "interview before it lands. That confirmation is the point: a "
+       "proposal quotes a price and an insertion order bills it, so nothing "
+       "reaches the IO unchecked. Starting from scratch is for a campaign "
+       "with nothing behind it yet."),
+
+    _h("io_builder.start.drafts", "Where an unfinished order went",
+       "This tool saves as you go, in this browser and on the server. The "
+       "browser copy is instant and is nearly always the right one; the "
+       "server copy is what lets you pick an order up on a different "
+       "machine after being interrupted. A colleague's unfinished order is "
+       "listed here too, marked whose \u2014 hiding it is how the same insertion "
+       "order gets built twice. Starting a new one and throwing an old one "
+       "away are different things, so discarding asks by name."),
+
+    _h("io_builder.creative.checklist", "What the client still has to send",
+       "What each product on this order needs before it can run, and the "
+       "client's own upload link at the top of it \u2014 send them that rather "
+       "than asking for photographs by email, and what they upload lands in "
+       "their gallery where every other tool can already see it. Files "
+       "delivered through the Creative manager are checked against the S1M "
+       "creative spec kit, so a size the platform would refuse is caught "
+       "here rather than at delivery."),
+
+    _h("io_builder.report.rates", "The rate here is what the client pays",
+       "Lines carried over from a proposal arrive at the **quoted** rate, "
+       "not the buy-side number the rate card lists \u2014 so what the order "
+       "bills and what the proposal promised are the same figure. The "
+       "management and creative fee fields want an amount, a percentage, "
+       "INCLUDED or NONE. NONE is a real answer and is flagged for "
+       "confirmation rather than refused; what they cannot take is a "
+       "sentence, because a fee field holding prose reaches whoever bills "
+       "the campaign as nothing at all."),
+
+    _h("io_builder.submit.finished", "What submitting does, and what it does not",
+       "Submitting files the order in the activity log, sends it to Smart 1 "
+       "Suite, and registers the business as a client if nobody here has "
+       "heard of them yet \u2014 an overlay of our own, never a write to Knack, "
+       "so the day the real record appears it wins. What it does **not** do "
+       "is set the campaign up: that is somebody trafficking it, and an "
+       "order whose products never arrive looks exactly like one that was "
+       "handled. **QA \u2192 Orders With No Campaign** is the report that "
+       "catches those, so an order signed in March cannot sit unbuilt "
+       "until a client asks why nothing ran."),
+
+    _h("io_builder.pdf.two", "Two documents from one record",
+       "The customer PDF is what the client signs; the internal one carries "
+       "what the campaign team needs and the client does not. They are "
+       "generated from the same record rather than edited apart, so they "
+       "cannot come to disagree about what was sold \u2014 which is why a "
+       "correction goes back through the interview rather than into a PDF."),
+
     # ---------------- Dashboard ----------------
     _h("hub.dashboard.tiles", "Your tools",
        "Every tool lives behind this one login. Tiles you haven't set up yet "

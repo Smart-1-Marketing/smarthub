@@ -8308,6 +8308,27 @@ tool's screens are is not derivable from anything the Hub holds. Per-tool is
 the honest granularity; the finer answer would need a list, and a list is
 what the audit had before.
 
+**And the second one down that list is the document that bills the client.**
+The IO Builder is a conversation rather than a stepped wizard, so the anchors
+are the decisions that are static markup — where the campaign is loaded from,
+the unfinished-order list, the creative checklist, the rates on the report,
+the two PDFs and Submit — and the interview asks its own questions in words
+already. Six entries, each on a trap this file names: a line carried from a
+proposal arrives at the **quoted** rate rather than the card's buy-side one,
+so the order bills what the proposal promised; the fee fields take an amount,
+a percentage, INCLUDED or NONE and not a sentence; the browser draft is
+instant and the server copy is what survives a different machine, with a
+colleague's unfinished order listed rather than hidden, because hiding it is
+how the same IO gets built twice.
+
+**And what submitting does not do is the one worth saying out loud.** It
+files the order, sends it to Suite and registers a genuinely new business as
+an overlay — and it does not set the campaign up. An order whose products
+never arrive looks exactly like one that was handled, which is why
+`hub/io_reconcile.py` exists; the bubble names that report, so the tool says
+where its own blind spot is answered rather than leaving a rep to find out
+when a client asks why nothing ran.
+
 ### Who is signed in, and what that number is allowed to claim
 
 `hub/presence.py`, the top of the **System status** card on the dashboard, and
