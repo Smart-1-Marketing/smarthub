@@ -48,13 +48,17 @@ import { notify } from './notify';
 import { discoverBrand, normalizeDomain } from './brandfetch';
 import { BrandCache } from './brand-cache';
 import { renderOverview, renderOverviewPdf } from './overview';
-import { ALLOWED_FORMATS, assetUrlIsSafe, folderFor, signUpload, type AssetKind } from './assets';
+import { ALLOWED_FORMATS, assetUrlIsSafe, folderFor, generatedImagePath, signUpload, type AssetKind } from './assets';
 import { CloudinaryService, slug } from './cloudinary';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const OUT = process.env.OUTPUT_DIR ?? path.join(ROOT, 'out');
 const PUBLIC = path.join(ROOT, 'public');
 const PORT = Number(process.env.PORT ?? 3000);
+/** Ceiling on a reference photo fetched on a caller's behalf. The model is
+ *  handed a few hundred KB of it either way; the number is here to stop an
+ *  arbitrary URL writing the render volume full. */
+const REFERENCE_MAX_BYTES = 12 * 1024 * 1024;
 
 /** Build stamp written by the build step; tells us what is actually deployed. */
 const BUILD_STAMP: { builtAt?: string; node?: string } = (() => {
@@ -1350,11 +1354,10 @@ const server = http.createServer(async (req, res) => {
       // Only a path this service wrote. The value comes from a page, and a
       // route that uploads whatever URL it is handed is an open relay into
       // our own Cloudinary account.
-      const rel = String(body.url ?? '').replace(/^\/files\//, '');
-      if (!/^imagery\/[\w.\-/]+\.(png|jpg|jpeg|webp)$/i.test(rel) || rel.includes('..')) {
+      const file = generatedImagePath(body.url, OUT);
+      if (!file) {
         return json(res, 400, { error: 'That is not a generated picture from this build.' });
       }
-      const file = path.join(OUT, rel);
       if (!fs.existsSync(file)) {
         return json(res, 404, { error: 'That picture is no longer on the render disk.' });
       }
@@ -1370,7 +1373,7 @@ const server = http.createServer(async (req, res) => {
         const up = await cld.uploadCreative({
           file,
           folder: `${cld.projectFolder(client, campaign)}/generated`,
-          publicId: `ai-${path.basename(rel).replace(/\.[^.]+$/, '')}`,
+          publicId: `ai-${path.basename(file).replace(/\.[^.]+$/, '')}`,
           tags: ['smart1', 'display-ads', 'ai-generated'],
           context: { client, campaign, source: 'ai' },
         });
@@ -1501,25 +1504,51 @@ const server = http.createServer(async (req, res) => {
         // If the caller passed uploaded photo URLs (Cloudinary), fetch them as
         // local references so the generated hero echoes the real product.
         const refs: string[] = [];
-        for (const u of (body.referenceImages ?? []) as string[]) {
+        // These are URLs from a request body that this server then fetches, so
+        // they go through `assetUrlIsSafe` like every other asset reference --
+        // the guard the background and logo editors already stand behind, and
+        // whose own note says it applies even where a route is gated, because
+        // staff credentials leak and the check costs nothing. This loop tested
+        // `^https?://` and nothing else, which admits plain http to any host:
+        // 169.254.169.254, 127.0.0.1 (the Hub's own gunicorn shares this
+        // container), and the private ranges.
+        //
+        // Bounded as well as guarded. `arrayBuffer()` on an arbitrary URL
+        // wrote the whole body to disk with no ceiling, and the volume this
+        // lands on is the one `retention.ts` exists to keep clear -- so the
+        // declared length is checked before the read and the real length
+        // after it, the shape landing-images.ts already uses. Three is what
+        // the model is given anyway.
+        for (const u of ((body.referenceImages ?? []) as string[]).slice(0, 3)) {
+          const safe = assetUrlIsSafe(String(u ?? ''));
+          if (!safe.ok) continue;
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 12_000);
           try {
-            if (!/^https?:\/\//.test(u)) continue;
-            const r = await fetch(u);
+            const r = await fetch(u, { signal: ctrl.signal, redirect: 'follow' });
             if (!r.ok) continue;
+            const declared = Number(r.headers.get('content-length') ?? 0);
+            if (declared && declared > REFERENCE_MAX_BYTES) continue;
+            const buf = Buffer.from(await r.arrayBuffer());
+            if (buf.byteLength > REFERENCE_MAX_BYTES) continue;
             fs.mkdirSync(cacheDir, { recursive: true });
             const f = path.join(cacheDir, `ref-${refs.length}.png`);
-            fs.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+            fs.writeFileSync(f, buf);
             refs.push(f);
-          } catch { /* skip a bad reference */ }
+          } catch { /* skip a bad reference */ } finally {
+            clearTimeout(timer);
+          }
         }
         // On a revision, the previous image becomes the primary reference so
         // the edit builds on the last result rather than starting fresh. This
         // is what makes "make the sky darker" iterate instead of re-roll.
         if (body.reviseInstruction && body.previousUrl) {
           try {
-            const rel = String(body.previousUrl).replace(/^\/files\//, '');
-            const prev = path.join(OUT, rel);
-            if (fs.existsSync(prev)) {
+            // The same "a path this service wrote" test the keep route uses.
+            // Without it `/files/../../../etc/passwd` resolved to /etc/passwd
+            // and was copied into imagery/, which is served under /files/.
+            const prev = generatedImagePath(body.previousUrl, OUT);
+            if (prev && fs.existsSync(prev)) {
               fs.mkdirSync(cacheDir, { recursive: true });
               const f = path.join(cacheDir, `prev-${Date.now().toString(36)}.png`);
               fs.copyFileSync(prev, f);
