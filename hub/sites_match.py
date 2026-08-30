@@ -165,6 +165,57 @@ def _site_rows() -> list[dict]:
     return out
 
 
+def _ai_state(titles) -> dict:
+    """How many project titles have been read, and how many are left.
+
+    Tri-state on purpose. "Nothing has been read yet", "everything readable has
+    been read" and "we could not look at the file" are three situations, and
+    only the first is a button somebody should press — the answer
+    `connected_accounts_result()` gives in Google Finder, on a smaller
+    question.
+    """
+    try:
+        from hub import ai as _ai
+        from hub import site_names_ai
+        have = site_names_ai.readings()
+        left = site_names_ai.pending(titles)
+        return {"measured": True, "read": len(have), "pending": len(left),
+                "configured": bool(_ai.ready()), "error": ""}
+    except Exception as exc:                            # noqa: BLE001
+        # Not zero. A file we could not open reads as "nothing has been read",
+        # which is a button press somebody would make for no reason.
+        return {"measured": False, "read": 0, "pending": 0,
+                "configured": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _ai_readings() -> dict:
+    """Every stored project-name reading, read once for the whole pass.
+
+    Read once and handed down rather than looked up per project: this report
+    walks a thousand projects, and a fresh read each time is a thousand file
+    reads, each asking jsonstore to restore from the database on a miss.
+    """
+    try:
+        from hub import site_names_ai
+        return site_names_ai.readings()
+    except Exception:                                   # noqa: BLE001
+        return {}
+
+
+def _ai_candidates(site: str, store: dict):
+    """The stored reading of this project title, as a candidate. Never raises.
+
+    Reads the map above; calls nobody. The model runs behind the button on
+    /tools/sites-match, for the reason `hub/brand_lookup.py` gives: the call
+    is billed and this report is opened several times a day.
+    """
+    try:
+        from hub import site_names_ai
+        return site_names_ai.candidates_for(site, store)
+    except Exception:                                   # noqa: BLE001
+        return []
+
+
 def suggest(limit: int = 2000, active_only: bool = True, *,
             cached: bool = True) -> dict:
     """Propose a client for every unmatched *live* site. Changes nothing.
@@ -186,6 +237,7 @@ def suggest(limit: int = 2000, active_only: bool = True, *,
             "sites-match", lambda: suggest(limit, active_only, cached=False),
             params=f"live={int(bool(active_only))}")
     clients = _hub_clients()
+    ai_store = _ai_readings()
     by_domain, name_pairs = {}, []
     for c in clients:
         name = (c.get("name") or "").strip()
@@ -247,13 +299,19 @@ def suggest(limit: int = 2000, active_only: bool = True, *,
         offered once, keeping whichever reading scored higher.
         """
         best: dict[str, dict] = {}
-        for m in site_names.near_matches(site, name_book):
+        # A reading of the project title from hub/site_names_ai.py, if one is
+        # on file. It is an extra *candidate*, not an extra matcher: it goes
+        # through the same exact/near rules below, so the model can add a way
+        # of reading a string and can never add a client. It never sees the
+        # client book at all.
+        extra = _ai_candidates(site, ai_store)
+        for m in site_names.near_matches(site, name_book, extra=extra):
             best[m["client"]] = {"client": m["client"], "score": m["score"],
                                  "why": m["why"], "knack_domain": "",
                                  "platform": "", "hm_fee": 0}
         # An exact hit on a candidate name outranks every resemblance, and it
         # is written last so it wins the merge.
-        for m in site_names.exact_matches(site, name_book):
+        for m in site_names.exact_matches(site, name_book, extra=extra):
             best[m["client"]] = {"client": m["client"], "score": 1.0,
                                  "why": m["why"], "knack_domain": "",
                                  "platform": "", "hm_fee": 0}
@@ -337,7 +395,9 @@ def suggest(limit: int = 2000, active_only: bool = True, *,
         # "TMRG - JWS Pottery" is a media partner, a business and nothing that
         # normalises to a client, which is why `site_names` derives the
         # candidates first and each match says which one of them it hit.
-        hits = [] if placeholder else site_names.exact_matches(site, name_book)
+        hits = ([] if placeholder else
+                site_names.exact_matches(site, name_book,
+                                         extra=_ai_candidates(site, ai_store)))
         if len(hits) == 1:
             matched.append({"project_id": pid, "site": site, "domain": dom,
                             "client": hits[0]["client"], "confidence": "name",
@@ -395,6 +455,14 @@ def suggest(limit: int = 2000, active_only: bool = True, *,
         # a project called "Anna's Website" or "S1M Test" names no business,
         # and on this deployment's own export 249 of 1,021 projects are one.
         "named_nobody": named_nobody,
+        # What the "Read the project names" button would do, and what it has
+        # already done. Counted here rather than on the page so the button can
+        # say the number instead of asking somebody to press it and find out —
+        # and so "nobody has run it" and "there is nothing left to read" are
+        # different sentences, which is the whole reason `read_state` is a
+        # dict rather than a count.
+        "ai_names": _ai_state([r.get("name") or r.get("site") or ""
+                               for r in rows]),
         "clients_with_domain": len(by_domain),
         "registry_domains": len(knack_by_domain),
         "registry_names": len(name_book),
