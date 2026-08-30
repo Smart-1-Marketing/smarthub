@@ -553,6 +553,29 @@ that says where it is fixed. And **a sub-account two clients claim is
 `ambiguous`, named and refused** — picking between them is picking whose
 record a stranger sees.
 
+**And "identical" was true 199 times in 200.** The padding branch carried a
+comment saying a wrong key *almost* always lands there, and the almost was the
+whole finding: AES-CBC under the wrong key produces garbage, garbage ends in
+bytes that are valid PKCS#7 padding about **0.6%** of the time, and those fell
+through to `json.loads` and answered *"Payload is not JSON."* instead — the
+finer answer the function exists not to give, since it tells a prober their
+guess produced valid padding. Every refusal decided by bytes the key produced
+says one thing now; the two structural ones before it (not base64, not the
+envelope) stay distinct, because anybody can tell those about their own payload
+without holding a key. The cause still rides the exception chain, so a genuine
+HighLevel fault is diagnosable from a traceback — it is the answer *handed back
+to the frame* that is one word.
+
+**A property asserted once is a property asserted 0.6% of the time.**
+`test_suite_sso.py` compared a single wrong key against a single tampered
+payload, so it passed on 199 runs in 200 while the leak stood, and on the
+two-hundredth it failed in CI reading exactly like a flake somebody re-runs —
+which is how a real finding gets a re-run instead of a fix. It sweeps six
+hundred distinct wrong keys now, which puts the odds of missing it below one in
+10^15 and costs a tenth of a second, and the failure names the **count**:
+"3 of 600" is a leak and "600 of 600" is a broken decrypt, and those are fixed
+in different places.
+
 **The client-facing surface is deliberately two routes and no more.** They
 prove who is looking and then hand the client their *existing* content link;
 the pages behind it are already client-facing, already scoped to one client
