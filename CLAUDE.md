@@ -872,6 +872,46 @@ a comparison can come back without inventing anything.
 `test_dashboard_trends.py` holds both halves: the readings accumulate, and
 nothing on the page claims a comparison.
 
+**And the two Scorecards were measuring "running" a third way, on the same
+page as the reports that do not.** `qa._active_in_month()` was written beside
+the scorecard rather than beside `is_running()`, and it tested `status in
+("live", "complete")` — the narrow test that function's own docstring says
+"missed about a third of the work actually running". So Active Clients, No
+Dashboards and the renewal queue counted the union while the Salesperson and
+Partner Scorecards counted two statuses, three rows apart on `/qa`, with
+nothing on either saying they were measured differently. On this deployment's
+own export that hid **147 rows and $140,439 a month** from August, and took
+**Debi Greenfield and Kim Marshall** off the Scorecard entirely — two people
+with live work, each listed on Active Clients immediately above. Every screen
+was internally consistent, which is why it survived: the `/api/db/structure`
+versus `/api/integrity` trap, wearing a scorecard.
+
+`knack_data.ran_in_month()` is that rule now, a **neighbour** of `is_running()`
+rather than a second reading of it, because the two must still differ and the
+reasons only make sense read together. **Complete is a pass here and a fail
+there** — a finished row cannot cover today, and a row that ran January to
+June plainly delivered in March, so dropping it empties every historical
+month. **Live does not override the dates**: there it is a union, because an
+IO nobody has closed out is still delivering; asked about a month, a Live row
+with no term would land in all twelve. And **a row with no dates at all is in
+no month**, which the old test got right by accident — it trusted an undated
+row only when Live, and none of the export's 33 undated rows is Live, so the
+branch had never matched anything.
+
+What it keeps is the tolerance, **Cancelled included**: those rows sit inside
+their dates and bill, which is the reading `is_running()` already applies to
+the 73 of them worth $85,105 a month that Active Clients counts today. The
+limit is written down rather than discovered — Knack publishes no cancellation
+*date*, so an IO cancelled mid-term is counted for every month its term spans;
+the alternative was dropping rows the rest of the Hub counts, which is a third
+definition rather than one fewer. `test_qa_reports.py` asserts the invariant
+that binds them over the **real export** rather than a fixture — anything
+`is_running()` calls live today counts for the month containing today, its one
+documented exception named — and reads `_active_in_month`'s **AST** to require
+it be nothing but a call to the shared rule, because that function's own
+docstring quotes the old allowlist to explain the fix and a text match reports
+the explanation as the defect.
+
 **A filtered list that reports an unfiltered total is a wrong answer with
 two right ones either side of it.** `/tools/seo-images/api/gallery` filtered
 its rows by client and then returned `len(load_archive())` as the total, so
