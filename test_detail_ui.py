@@ -485,6 +485,22 @@ check("the strip leaves an element that names itself a button alone",
 check("...so the module no longer restates the fix",
       ".cb-topnav a.cb-btn{" in CBC, False)
 
+# One control drawn twice. The dashboard's own head offers `new_commercial`
+# as "+ Start a Commercial", so the strip drew a second solid blue button 61px
+# above it worded differently -- and the difference in wording is what makes a
+# reader stop to work out whether they are two things. Everywhere else the
+# strip's is the only way in.
+check("the strip holds its action back where the page already offers it",
+      "_here != 'dashboard'" in CBL, True)
+check("...and the page it holds it back from is the one that offers it",
+      "new_commercial" in
+      (ROOT / "modules/commercial_builder/templates/commercial_dashboard.html")
+      .read_text(encoding="utf-8"), True)
+check("...while the Spot Library, which offers none, keeps it",
+      "new_commercial" in
+      (ROOT / "modules/commercial_builder/templates/commercial_library.html")
+      .read_text(encoding="utf-8"), False)
+
 
 # ------------------------------------------ the failure markup cannot show
 section("The wrapper still contains the page")
