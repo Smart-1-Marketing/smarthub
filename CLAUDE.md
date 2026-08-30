@@ -2970,6 +2970,45 @@ writes**, because `paint()` writes into the panel and moves the ring, and an
 unfiltered observer would repaint every 150ms for as long as a walkthrough is
 open.
 
+**Seven hub tours were written, registered, anchored — and unreachable.**
+`hub-help.js` offers a tour only to a screen that names itself in
+`data-screen`, and `hub/templates/base.html` rendered a fixed `<body>` that
+never carried one. So `hub.dashboard`, `hub.client360`, `hub.creative`,
+`hub.activity`, `hub.leads`, `hub.seo` and `hub.status` — sixteen steps whose
+selectors ring real elements — could not be offered on any page. The declared-
+and-never-wired trap, at the layer that explains the Hub to its own staff.
+
+What made it invisible is that the layer plainly worked *somewhere*:
+`prospect.html` and `website_audit.html` own their own `<body>` rather than
+extending the base template, so those two tours are offered and the mechanism
+looked fine. `HUB_TOUR_SCREENS` maps the path to the screen, because there is
+no mechanical route from `/` to `hub.dashboard`; `test_hub_help_layer.py`
+holds it against the registry in **both** directions, and counts a template
+that names itself as reachable — an entry naming a screen with no tour fails,
+and so does a `hub.*` tour no path reaches.
+
+**And the button beside it was offered where it could not run.**
+`{{ hub_demo_module or 'hub' }}` — the launcher tests that attribute for
+truthiness, so the default made every *unmapped* hub page offer the hub
+module's first scenario, and four of the eight mapped entries named a module
+whose only scenario lives on a different page. **Fifteen pages** offered a
+Client 360 walkthrough: "it highlights nothing and Do it for me silently does
+nothing, which is worse than no button", which is the note `hub-demo.js`
+already carries about Smart 1 Ads. The module is *derived* from where the
+scenarios actually are now, so the hand-typed half cannot drift, and there is
+no default — one page still offers it, `/client360`, which is the scenario's
+own page.
+
+**Two things it turned up and did not fix.** `client360.proposal` anchors
+three of its four steps to nothing, and passes `demo_targets()`'s
+drives-none-of-its-steps floor only on the strength of step 3's
+`input[type='file']` — a selector generic enough to match anywhere, so the
+check clears it without the scenario being drivable. And the hub app's
+`after_request` injector tags `<body data-module>` by **first URL segment**
+for pages that declare none, so every `/qa/*` page gets the qa module: it puts
+one back on `client_owners.html`, whose author deliberately left it off for
+exactly this reason.
+
 **A tour that opens itself is a dialog in front of somebody doing a job.**
 `data-screen` used to *start* the tour on a screen's first visit — modal, over
 the form, before anyone had asked for anything. It **offers** it now, in a
@@ -9734,6 +9773,9 @@ python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
 python3 test_site_blocks.py        # the website blocks a page is built from
+python3 test_hub_help_layer.py    # the hub's own tours: offered at all,
+                                   #   and a walkthrough button only
+                                   #   where a scenario can run
 python3 test_linkcheck_helpers.py # the URLs linkcheck could not see: a
                                    #   module's own request helper, and
                                    #   sendBeacon; and prose is not a

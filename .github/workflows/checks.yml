@@ -836,6 +836,18 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: The hub's own tours and walkthrough buttons
+        # That every registered hub tour can actually be offered, and that a
+        # walkthrough button appears only where a scenario for that page
+        # exists. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_hub_help_layer.py ]; then
+            python test_hub_help_layer.py
+          else
+            echo "test_hub_help_layer.py not on this branch — nothing to run."
+          fi
+
       - name: linkcheck helper and sendBeacon coverage tests
         # The helper tables linkcheck resolves URLs through, and that a
         # browser-only pattern never reads Python prose as a call site.
