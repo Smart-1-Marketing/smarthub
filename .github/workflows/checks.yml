@@ -198,6 +198,16 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder client review tests
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_commercial_review.py ]; then
+            python test_commercial_review.py
+          else
+            echo "test_commercial_review.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.

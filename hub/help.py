@@ -756,6 +756,23 @@ REGISTRY: list[Help] = [
        "requirement \u2014 the check will mark it amber, not block the render.",
        step=3, selector="#cta-logo-persistent"),
 
+    _h("commercial_builder.preview.review", "The client answers on a link, not in an email",
+       "Rendering makes a file; this makes a page the client opens with no "
+       "login, watches the cut on, leaves notes against a timestamp, and "
+       "answers. There is no mail sender in the Hub, so the link is made here "
+       "and you send it \u2014 anyone holding it can answer, which is the point: "
+       "the marketing manager forwards it to the owner and both replies are "
+       "kept. There are three answers rather than two, because \u201cyes, but "
+       "fix the phone number\u201d forced into approve-or-reject goes to "
+       "whichever end is nearest. If two people disagree, the most restrictive "
+       "answer is the one that stands \u2014 a colleague\u2019s \u201clooks "
+       "good\u201d must not overwrite somebody else\u2019s \u201cyou cannot say "
+       "that\u201d \u2014 and both replies are listed. A spot the client asked "
+       "changes on will not file until you make them or say you have settled "
+       "it another way, and filing it anyway is recorded as exactly that. "
+       "Rounds are counted to four; a fifth is not refused, it is flagged, "
+       "because a client turned away from the page just gets emailed the file "
+       "and every note goes back to being untraceable."),
     _h("commercial_builder.preview.render", "One size, then the next",
        "Rendering all three sizes at once means the second and third come off "
        "a storyboard nobody has watched yet \u2014 so a note on the first applies "
