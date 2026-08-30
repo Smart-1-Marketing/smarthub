@@ -144,7 +144,15 @@ print("-" * 62)
 
 # Every call guarded, so a module whose Jinja env never got
 # install_template_helpers() loses the icon rather than the page.
+#
+# Matched as a call *inside a Jinja delimiter*, not as the bare token: a
+# template that emits the bubble markup from JavaScript explains in a comment
+# that help_dot() is a Jinja global and cannot be used there, and a substring
+# pass reports that explanation as an unguarded call. Same rule the env drift
+# check, the orphan-template check and the coverage check all work to --
+# prose is not a call site.
 ROOT = os.path.dirname(os.path.abspath(__file__))
+_JINJA_CALL = re.compile(r"\{\{[^}]*help_dot\(|\{%[^%]*help_dot\(")
 unguarded = []
 for folder in ("hub", "modules"):
     for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, folder)):
@@ -156,7 +164,7 @@ for folder in ("hub", "modules"):
             path = os.path.join(dirpath, name)
             with open(path, encoding="utf-8", errors="ignore") as fh:
                 for i, line in enumerate(fh, 1):
-                    if "help_dot(" in line and "is defined" not in line:
+                    if _JINJA_CALL.search(line) and "is defined" not in line:
                         unguarded.append(f"{os.path.relpath(path, ROOT)}:{i}")
 check("every help_dot call is guarded", unguarded, [])
 
@@ -432,6 +440,54 @@ ok("and the panel draws it", "d.coverage" in _r and '"Coverage"' in _r)
 ok("checking measured before it draws a count", "c.measured===false" in _r)
 ok("and it names the client-facing tiles rather than counting them as gaps",
    "client_facing" in _r)
+
+
+# ------------------------------------------------ the Proposal Builder
+print()
+print("The wizard explains its own steps")
+
+# The biggest staff tool in the Hub: fourteen steps a rep spends a quarter of
+# an hour in, and until now four bubbles on one panel of it. The keys are
+# written where CLAUDE.md already documents a trap -- the card rate being
+# buy-side, the budget parting company with the plan, a ZIP rule that reads
+# as saved and does nothing -- so the copy says what the field does to the
+# output rather than what it is.
+_WIZ = os.path.join(ROOT, "modules", "sales_builder", "templates", "index.html")
+with open(_WIZ, encoding="utf-8") as _fh:
+    _wiz = _fh.read()
+
+_placed = re.findall(r'help:"(sales_builder\.[\w.]+)"', _wiz)
+ok("the wizard places a bubble on its steps", len(_placed) >= 12, str(len(_placed)))
+check("and each step's key is placed once", len(_placed), len(set(_placed)))
+
+_known = set(help_registry.keys()) if hasattr(help_registry, "keys") else {
+    h.key for h in help_registry.REGISTRY}
+_dead = sorted(k for k in _placed if k not in _known)
+check("every key it places resolves in the registry", _dead, [])
+
+# The rule test_ads_explainer.py holds the client estimate to: the page a
+# client reads carries no staff help, because a bubble there is an internal
+# note in front of somebody we are selling to.
+for _name in ("client_proposal.html", "client_gone.html"):
+    with open(os.path.join(ROOT, "modules", "sales_builder", "templates", _name),
+              encoding="utf-8") as _fh:
+        _client = _fh.read()
+    ok(f"{_name} carries no staff help", "data-help" not in _client
+       and "help_dot" not in _client)
+
+# And no tour is named. A tour is anchored by selector, and this is one page
+# whose markup is replaced on every step -- so one written for it could not
+# drive past the step it started on, which is the silence hub-demo.js was
+# just fixed to stop. Naming a screen with no steps is the other half of
+# that, and hub/help.tour() would fall back to the module prefix and serve
+# another screen's steps over elements that are not on the page.
+# Matched as an attribute rather than as the bare word: the comment in that
+# template *explains* the data-screen it deliberately does not draw, and a
+# substring pass reports the explanation as the defect. Fourth time that rule
+# has earned its keep -- the env drift check, the orphan-template check and
+# the hand-typed-list check all read structure for the same reason.
+ok("and it names no tour it cannot drive",
+   not re.search(r'data-screen\s*=', _wiz))
 
 import shutil as _shutil                                          # noqa: E402
 _shutil.rmtree(_T, ignore_errors=True)

@@ -7382,6 +7382,46 @@ them together. The renderer checks `measured` before it draws a count, for
 the reason the whole change exists: *nothing to measure* and *nothing
 missing* must never render alike.
 
+**And the tool the report named loudest is explained now.** The Proposal
+Builder is fourteen steps a rep spends a quarter of an hour in, and it
+carried four bubbles on one panel of it — the reach figures — and nothing
+anywhere else. The keys are written where this file already documents a
+trap, because those are the places a rep gets it wrong and the copy can then
+say what the field *does to the output*: the card rate is the buy-side
+number and CPM lines are quoted at twice it, the working budget is what the
+client asked for while the **plan** is what gets billed, a ZIP rule nobody
+could read says *not applied* rather than quietly doing nothing, and an
+acceptance is tied to one revision.
+
+**They are placed on the step heading, by the one function that draws all
+fourteen.** `renderStep()` is where a step's `help:` key becomes the
+`<span data-help>` — so a step added next month gets its bubble by naming a
+key rather than by anybody editing markup, and `hub-help.js`'s debounced
+observer mounts it like any other. There is deliberately **no
+`data-screen`**: a tour is anchored by selector and this is one page whose
+markup is replaced on every step, so a tour written for it could not drive
+past the step it started on — the silence `hub-demo.js` was fixed to stop.
+
+**That made a third way of placing a bubble, and two checks could not see
+it.** `hub/help_audit.py`'s note says a bubble is placed two ways —
+`help_dot()` in Jinja and `data-help` on an element — and a key named in a
+step descriptor is neither, so thirteen live entries read as registered and
+never placed. It is a *literal* either way: the key is written in the file
+and resolves from it, unlike the runtime-assembled kind that is named rather
+than guessed at. And the guarded-call check matched the bare token
+`help_dot(`, so the comment in that template *explaining* that `help_dot()`
+is a Jinja global and cannot be used from JavaScript was reported as an
+unguarded call — **prose is not a call site**, for the fourth time in this
+file, so it matches a call inside a Jinja delimiter now.
+
+**The coverage number does not move, and that is correct.** Coverage asks
+whether a *tool* has any help, with the tile as the unit, and this tool
+already counted as covered on the strength of those four bubbles. Thirteen
+of fourteen steps gaining an explanation is invisible to it, because what a
+tool's screens are is not derivable from anything the Hub holds. Per-tool is
+the honest granularity; the finer answer would need a list, and a list is
+what the audit had before.
+
 ### Who is signed in, and what that number is allowed to claim
 
 `hub/presence.py`, the top of the **System status** card on the dashboard, and
