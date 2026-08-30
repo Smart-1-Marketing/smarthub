@@ -70,13 +70,34 @@ staff.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value("Harness"),
                  domain="localhost")
 stranger = Client(wsgi.application)
 
+# The book this test finds is not necessarily empty: CI runs every suite
+# against one shared Postgres, so quotes written by earlier files are already
+# there. Everything below is asserted as a delta or against ids this file
+# created — a test that only works on an empty database is one that breaks the
+# day somebody adds a fixture upstream, which is exactly how it broke.
+BASE = sales_status.scoreboard()
+
+
+def delta(now, key):
+    return now["counts"][key] - BASE["counts"].get(key, 0)
+
+
 # ---------------------------------------------------------------------------
 section("an empty book says which kind of empty it is")
 # ---------------------------------------------------------------------------
-empty = sales_status.scoreboard()
-check("it answers before anything exists", empty["measured"] is True)
-check("with no open proposals, it says so rather than drawing a nought",
-      empty["open_count"] == 0 and "No open proposals" in empty["line"], empty["line"])
+check("it answers before this file has written anything",
+      BASE["measured"] is True)
+# The wording is a pure function of the counts, so it is asserted directly
+# rather than by emptying a database this test does not own.
+check("with no open proposals at all, it says so rather than drawing a nought",
+      "No open proposals" in sales_status._line({}, 0, 0, False))
+check("and with open ones that have never been sent, it says THAT instead — "
+      "two different noughts",
+      "no client link has been sent"
+      in sales_status._line({}, 3, 0, False))
+check("a book that is out with clients and quiet says so as a third thing",
+      "nothing needs chasing"
+      in sales_status._line({}, 3, 2, True))
 
 
 def quote(name, budget=4000):
@@ -90,11 +111,12 @@ def quote(name, budget=4000):
 
 draft = quote("Zeta Drafting", 1000)
 board = sales_status.scoreboard()
-check("a quote nobody has sent is open and is not waiting on anybody",
-      board["open_count"] == 1 and board["attention"] == 0)
-check("and the line says no link has been sent, which is a different empty "
-      "from 'nothing is waiting'",
-      "no client link has been sent" in board["line"], board["line"])
+check("a quote nobody has sent joins the open book",
+      board["open_count"] == BASE["open_count"] + 1,
+      (board["open_count"], BASE["open_count"]))
+check("and is waiting on nobody — it has not been sent anywhere",
+      board["attention"] == BASE["attention"]
+      and not any(draft["id"] in v for v in board["ids"].values()))
 
 # ---------------------------------------------------------------------------
 section("five signals, five different jobs")
@@ -102,7 +124,7 @@ section("five signals, five different jobs")
 alpha = quote("Alpha Dental", 4000)      # sent, never opened
 beta = quote("Beta Roofing", 2500)       # sent, read, no answer
 gamma = quote("Gamma HVAC", 6000)        # sent, pricing lapsed
-delta = quote("Delta Law", 3000)         # accepted, no IO
+delta_q = quote("Delta Law", 3000)         # accepted, no IO
 eps = quote("Epsilon Auto", 1500)        # sent, expiring this week
 for q in (alpha, beta, gamma, eps):
     staff.post(f"/sales/builder/api/quotes/{q['id']}/share")
@@ -114,13 +136,13 @@ try:
      .first().sent_at) = datetime.now(timezone.utc) - timedelta(days=40)
     (db.query(B.QuoteShare).filter(B.QuoteShare.quote_id == eps["id"])
      .first().sent_at) = datetime.now(timezone.utc) - timedelta(days=26)
-    db.get(B.Quote, delta["id"]).status = "Approved"
+    db.get(B.Quote, delta_q["id"]).status = "Approved"
     db.commit()
 finally:
     db.close()
 
 board = sales_status.scoreboard()
-c = board["counts"]
+c = {k: delta(board, k) for k in board["counts"]}
 check("sent and never opened is its own count — the link never reached them, "
       "which is a different job from being ignored",
       c["unopened"] == 1 and alpha["id"] in board["ids"]["unopened"], c)
@@ -132,17 +154,19 @@ check("expiring within the week is its own count, before the client tries to "
       "accept and cannot", c["expiring"] == 1
       and eps["id"] in board["ids"]["expiring"])
 check("accepted with no insertion order is its own count",
-      c["to_convert"] == 1 and delta["id"] in board["ids"]["to_convert"])
+      c["to_convert"] == 1 and delta_q["id"] in board["ids"]["to_convert"])
 check("and they are not folded into one 'needs attention' number, which is a "
-      "figure nobody can act on", board["attention"] == 5 and len(c) == 5)
+      "figure nobody can act on",
+      board["attention"] - BASE["attention"] == 5 and len(c) == 5)
 
+mine = {alpha["id"], beta["id"], gamma["id"], delta_q["id"], eps["id"]}
+placed = [i for v in board["ids"].values() for i in v if i in mine]
 check("a quote is in exactly one bucket — a lapsed one is not also counted "
-      "as unanswered",
-      sum(len(v) for v in board["ids"].values()) == 5
-      and len({i for v in board["ids"].values() for i in v}) == 5)
+      "as unanswered", sorted(placed) == sorted(mine), placed)
 check("the pipeline is what the plans total, from the quote's own column",
-      board["pipeline_monthly"] == 1000 + 4000 + 2500 + 6000 + 3000 + 1500,
-      board["pipeline_monthly"])
+      board["pipeline_monthly"] - BASE["pipeline_monthly"]
+      == 1000 + 4000 + 2500 + 6000 + 3000 + 1500,
+      board["pipeline_monthly"] - BASE["pipeline_monthly"])
 check("the most at risk is first — a lapsed price is the only one of these "
       "that actively stops a client saying yes",
       board["rows"][0]["client"] == "Gamma HVAC", board["rows"][0])
@@ -164,8 +188,9 @@ finally:
 after = sales_status.scoreboard()
 check("a Lost quote leaves the book — counting it would make every figure "
       "grow forever and none of it actionable",
-      after["counts"]["expired"] == 0)
-check("and so does a Converted one", after["counts"]["unopened"] == 0)
+      gamma["id"] not in after["ids"]["expired"])
+check("and so does a Converted one",
+      alpha["id"] not in after["ids"]["unopened"])
 db = B.SessionLocal()
 try:
     db.get(B.Quote, gamma["id"]).status = "Sent"
