@@ -135,7 +135,7 @@ test('a logo over a hero photograph is decided from the photograph', async () =>
   assert.ok(lb.x >= hb.x && lb.y >= hb.y && lb.y + lb.h <= hb.y + hb.h,
     'and the logo sits inside the hero box');
   assert.equal(reverseLogoOnPanel(layout, campaign.brand), false,
-    'so the layout-only rule reaches for the full-colour logo');
+    'so the layout-only rule reaches for the full-color logo');
 
   // Measured against what actually renders, the answer changes.
   const concept = {
