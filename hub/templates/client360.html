@@ -309,6 +309,20 @@ function render(g,q){
      titled by what it answers rather than by which of our tools answered it,
      the note modules/ads_builder/logo.py carries about naming a provider to a
      rep. The Site Health card above is the audit itself and keeps its name. */
+  /* ---------- What they are already spending ----------
+     The block that decides what the next conversation is about, and the one
+     the audit tool, the prospect record, the customer placement and the
+     upsell report all lead with. Client 360 was the last screen still showing
+     it as five collapsed reference rows -- same client, same audit, two
+     answers depending on which record you opened. One reading now, from
+     /api/client/audit, which drops the thin group so the figures are on the
+     page once rather than twice. */
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e8f7ef;color:#12633f">Spend</span>
+    <h3>What they are already spending {{ help_dot('hub.client360.spend') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-spend-acts"></div></div>
+    <div class="card-b" id="c-spend"><div class="empty">Reading the last audit… <span class="spin"></span></div></div></div>`;
+
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
     <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Business</span>
     <h3>What we know about this business {{ help_dot('hub.client360.scanfacts') if help_dot is defined else '' }}</h3>
@@ -774,13 +788,99 @@ function render(g,q){
     const host=$('c-scanfacts'), acts=document.getElementById('c-scanfacts-acts');
     if(!host) return;
     const dom=(web0&&web0.domain)?String(web0.domain):'';
+
+    /* Both cards are drawn from the one payload, so neither can be left
+       saying something the other contradicts. */
+    function drawSpend(d, domain){
+      const box=$('c-spend'), sacts=document.getElementById('c-spend-acts');
+      if(!box) return;
+      if(sacts){
+        sacts.innerHTML=(domain
+          ? '<a class="open-link" href="/tools/website-audit?domain='
+            +encodeURIComponent(domain)+'&client='+encodeURIComponent(window.CURRENT_CLIENT||'')
+            +'">Open the audit tool →</a>' : '');
+      }
+      if(!domain){
+        box.innerHTML='<div class="empty">No website record attached, so there '
+          +'is nothing to read this off. Attach one below.</div>';
+        return;
+      }
+      if(!d || d.error){
+        box.innerHTML='<div class="empty">This could not be read, so it is '
+          +'<b>not measured</b>'+(d&&d.error?': '+esc(d.error):'.')+'</div>';
+        return;
+      }
+      if(!d.found){
+        box.innerHTML='<div class="empty">'+esc(d.note||'')+'</div>';
+        return;
+      }
+      const sp=d.spend||{}, age=d.age||{};
+      let h='';
+      /* The age first and loudest when it matters: a figure with no date on
+         it is read as today's, which is how a stale reading reaches a client. */
+      if(age.stale){
+        h+='<div class="empty" style="border-left:3px solid #d18b1f;padding-left:9px;'
+          +'margin-bottom:10px"><b>This reading is '+esc(age.age_days)+' days old</b> — '
+          +'over the '+esc(age.limit_days)+'-day mark. Re-audit before quoting from it.</div>';
+      }
+      if(sp.total_display){
+        h+='<div style="font-size:26px;font-weight:700;color:var(--navy);line-height:1.15">'
+          +esc(sp.total_display)+' <span class="muted" style="font-size:13px;font-weight:400">'
+          +'a month, that we can put a number on</span></div>';
+        if(sp.total_note) h+='<div class="muted" style="font-size:12px;margin-top:4px">'
+          +esc(sp.total_note)+'</div>';
+      }
+      if((sp.observed||[]).length){
+        h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));'
+          +'gap:10px;margin-top:12px">'
+          + sp.observed.map(f=>
+              '<div style="border:1px solid var(--line);border-radius:9px;padding:9px 11px;'
+              +'background:#fbfdff"><div style="font-size:'+(f.measured?'18px':'13.5px')
+              +';font-weight:'+(f.measured?'650':'600')+';color:'+(f.measured?'var(--navy)':'#6b7d99')
+              +'">'+esc(f.value)+'</div>'
+              +'<div class="muted" style="font-size:11.5px">'+esc(f.label)+'</div>'
+              +(f.why?'<div class="muted" style="font-size:11px;margin-top:4px">Worked out as '
+                 +esc(f.why)+'.</div>':'')+'</div>').join('')
+          +'</div>';
+      }else{
+        h+='<div class="empty">'+esc(sp.note||'Nothing came back about their advertising.')+'</div>';
+      }
+      if(sp.stated&&sp.stated.finding){
+        h+='<div class="empty" style="margin-top:10px"><b>Worth asking:</b> '
+          +esc(sp.stated.finding)+'</div>';
+      }
+      /* What the audit says we could fix. Client 360 has never shown this and
+         it is the whole upsell conversation -- the finding, never a product
+         name, because the finding is the half that survives being read out. */
+      if((d.opportunities||[]).length){
+        h+='<div style="margin-top:14px"><b style="font-size:13px;color:var(--navy)">'
+          +'What the audit says we could fix</b>'
+          +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));'
+          +'gap:9px;margin-top:8px">'
+          + d.opportunities.map(o=>
+              '<div style="border:1px solid var(--line);border-left:3px solid #d18b1f;'
+              +'border-radius:9px;padding:9px 11px"><div style="font-weight:620;font-size:12.5px">'
+              +esc(o.finding)+'</div><div class="muted" style="font-size:11.5px;margin-top:2px">'
+              +esc(o.means)+'</div></div>').join('')
+          +'</div></div>';
+      }
+      box.innerHTML=h;
+    }
+
     if(!dom){
+      drawSpend(null, '');
       host.innerHTML='<div class="empty">No website record attached, so there is '
         +'nothing to read this off. Attach one below.</div>';
       return;
     }
-    fetch('/api/client/scan-facts?domain='+encodeURIComponent(dom),{credentials:'same-origin'})
+    /* /api/client/audit rather than the Website Audit tool's own route: this
+       record is framed inside Smart 1 Suite, and suite_embed.EMBEDDABLE
+       allowlists /api/client/ and not /api/website-audit -- a card pointed at
+       the tool would render everywhere except inside the frame. Same function
+       behind both. */
+    fetch('/api/client/audit?domain='+encodeURIComponent(dom),{credentials:'same-origin'})
       .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+        drawSpend(d, dom);
         if(d.error){
           // "We could not look" is not "there is nothing" — never a clean nothing.
           host.innerHTML='<div class="empty">This could not be read, so '
@@ -823,6 +923,9 @@ function render(g,q){
             + '</dl></details>').join('')
           + '</div>';
       }).catch(()=>{
+        /* Both cards, or the spend one spins for ever on a failure the other
+           has already reported. */
+        drawSpend(null, dom);
         host.innerHTML='<div class="empty">These details could not be loaded — '
           +'<b>not measured</b> rather than nothing found.</div>';
       });

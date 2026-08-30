@@ -611,6 +611,35 @@ def create_hub_app() -> Flask:
         from . import scan_facts
         return jsonify(scan_facts.facts(request.args.get("domain", "")))
 
+    @app.route("/api/client/audit")
+    def api_client_audit():
+        """The same audit the Website Audit tool shows, for a client record.
+
+        One reading of one audit, on every screen that shows it. The tool at
+        `/tools/website-audit`, the prospect record, the customer-facing
+        placement and the upsell report all read `hub/website_audit.py`, and
+        Client 360 was the last screen still on the thin one — five collapsed
+        reference rows about what a business spends, where every other screen
+        shows the total, the annualised figure and what is deliberately left
+        out of it. Same client, same audit, two answers depending on which
+        record you opened.
+
+        **Served from `/api/client/` rather than from the audit tool's own
+        blueprint on purpose.** Client 360 is framed inside Smart 1 Suite, and
+        `hub/suite_embed.EMBEDDABLE` allowlists `/api/client/` and not
+        `/api/website-audit` — so a card pointed at the tool's route would
+        render everywhere except inside the frame, which is the half-broken
+        embed that file exists to prevent. This is the same function, not a
+        second description of it.
+
+        Read-only and unbilled: no scan is started here.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import website_audit
+        return jsonify(website_audit.audit(request.args.get("domain", "")))
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""

@@ -804,6 +804,29 @@ not include is **left out** rather than printed — forty rows of "not measured"
 is a wall nobody reads, and a zero there would be a lie. A `False` boolean is
 an answer and is kept. `test_client_images.py` asserts all of it.
 
+**And Client 360 was the fourth screen, reading the same audit differently.**
+The audit tool, the prospect record, the customer-facing placement and the
+upsell report all lead with `website_audit.spend()` — the total, the annualised
+figure, the implied cost per visit and what is deliberately left out of it.
+Client 360 showed the same five fields as one collapsed reference group among
+ten, so the same client's own money read two ways depending on whether somebody
+opened the *client* record or the *prospect* record. It reads
+`/api/client/audit` now, which is `website_audit.audit()` and therefore drops
+the thin group itself — the figures are on the page once rather than twice —
+and it gained the findings, which that record has never shown and which are the
+whole upsell conversation.
+
+**The route is `/api/client/audit` and not the audit tool's own, and that is
+the embed rule rather than a preference.** Client 360 is framed inside Smart 1
+Suite, and `suite_embed.EMBEDDABLE` allowlists `/api/client/` and not
+`/api/website-audit`. A card pointed at the tool's blueprint renders on every
+screen except inside the frame — which is the half-broken embed
+`hub/suite_embed.py` exists to prevent, and it fails silently: the record loads
+and one card is empty. Same function behind both routes, different guards.
+`test_website_audit.py` asserts both halves, and that every exit from that one
+fetch draws the card — a path that returns early leaves it spinning for ever
+on a failure the card beside it has already reported.
+
 **Two brand cards is the reader deciding which of our services to believe.**
 The record drew the brand kit and, underneath it, a second block for what had
 been read off the client's own website — so the same company's colours
