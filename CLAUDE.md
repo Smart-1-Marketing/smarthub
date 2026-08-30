@@ -3300,6 +3300,118 @@ touched by" while the heading says Created by; an uploaded proposal answers
 the same question with its own field, and a row from before it was recorded
 says *not recorded* rather than showing a blank somebody reads as nobody.
 
+### A price with no end on it
+
+`hub/quote_validity.py`. `VALID_STATUSES` has carried **Expired** since the day
+it was written — a badge color, a ⏰ in the status picker, and nothing anywhere
+that set it, so it was reachable only by a rep remembering to click it, which
+in practice meant never.
+
+That was cosmetic until the client got a link. `/sales/builder/p/<token>` lets
+a client accept a proposal themselves, and the accept route checked that the
+link was live, that the reader was not staff, and that this revision had not
+already been accepted — and **nothing at all about when the quote was
+written**. So a March link could be accepted in September at March's rates,
+filed as a clean acceptance with the client's name and a timestamp on it,
+while the rate card and the sell multiplier had both moved underneath it.
+
+Six rules, each a way to be confidently wrong:
+
+- **Only a document the client was given can expire.** A Draft was never
+  sent — an old one is *abandoned*, a different word and a different thing to
+  do about it; an Approved quote is one they said yes to, and expiring an
+  acceptance takes back an agreement; Converted has an insertion order behind
+  it. `Sent` and nothing else.
+- **Derived on read, never stored** — the `hub/creative_evergreen.py` rule.
+  Two gunicorn workers, so a status written by whichever one ran a sweep is
+  one the other disagrees with, and a stored `Expired` would survive an
+  extension: a quote reading as dead on the one screen a rep would go to
+  revive it. `status` stays exactly as stored and `shown_status` is the same
+  fact with the clock applied, so nothing can round-trip a derived value into
+  the column.
+- **The clock starts when the client could first see it**, which is the send
+  rather than the writing — and *which date answered* is carried and printed,
+  because "thirty days from when I sent it" and "from when I wrote it" are
+  different promises and the client is holding one of them. Re-sending
+  restarts it, since a re-send is the current document at current rates.
+- **A quote with no date at all is not measured**, never expired. An absent
+  timestamp reading as "expired today" would refuse an acceptance a client is
+  entitled to give.
+- **The client is never turned away.** Past the date the page says so *above*
+  the document — the embed is 78vh tall, and underneath it a client reads four
+  pages and only then finds out the price is stale — and names who to ask, with
+  the accept form replaced rather than the page 404ing. A revoked or invented
+  token still answers 404, because saying "that one expired" tells somebody
+  probing which tokens are real; an expired quote is a real quote belonging to
+  a real client who is trying to say yes. The accept route refuses in the same
+  words, so the rule is not one the form merely keeps.
+- **A window a rep chose is refused when it is out of range, not clamped.**
+  Somebody who typed 3650 and got 365 has been told something different from
+  what they asked, on a date a client relies on. It lives in the quote's own
+  data blob — `create_all()` adds no column to an existing table — and is set
+  from the share panel, where the send happens.
+
+The follow-up nudge on the dashboard says which kind of follow-up it is:
+"chase this" and "this one needs re-quoting before they can say yes" are
+different jobs, and the second has a client sitting in front of a page that
+will not let them accept.
+
+### Two systems disagreeing about whether a proposal was won
+
+`hub/ghl_hooks.sync_quote_status()`. The push into Suite has always recorded
+`suite_opportunity_id` on the quote and **nothing ever read it back**: a deal
+marked Won in Suite updated the client's Proposals card and left the Proposal
+Builder's dashboard — the screen a rep actually looks at — still saying Sent.
+Neither screen said the other existed.
+
+Four rules. It matches on the **opportunity id and nothing else** — never the
+client name, which for a client with three quotes is the guess
+`hub/client_key.py` exists to refuse. **Only the decided outcomes write**
+(`won` → Approved, `lost` → Lost): "open", "quoted" and "viewed" tell us
+nothing the Hub does not already know better, and letting them write would
+walk an approved quote backwards to Sent because somebody dragged a card in a
+pipeline. **Converted is never moved** — an insertion order exists, Suite has
+no way to know that, and it is the one change nobody could undo from either
+screen. And **a status that changed by itself says who changed it**, on the
+quote's own activity strip as well as in the Hub log, or a rep reading "Lost"
+has no way to find out why. It reuses the module `wsgi.py` loaded (`salesb_app`)
+rather than importing a second declarative mapping of the same tables, and it
+can never fail the webhook: the client card is written either way, and
+GoHighLevel retries a non-2xx.
+
+### Delivery figures belong under the media plan
+
+`media_plan_rows()`. Impression counts came off the client document with
+"Expected Results & ROI", correctly — an impression count answers what the
+money *bought*, not what the business gets, and printed under that heading it
+read as a promise about outcomes. But it left the proposal with no answer to
+the question the media plan itself asks, and a client comparing two proposals
+had no way to tell a $4.25 CPM apart from an $8.50 one.
+
+It is `expected_results()`'s arithmetic and never a second copy: the **quoted**
+rate rather than the listed one, a one-time line spread across the flight and
+labelled *once* rather than multiplied by it under a per-month heading, and a
+management fee reporting **no units at all** rather than a plausible number.
+The words travel with the figures — an estimate printed bare reads as a
+guarantee — and the lines that are *not* in the headline total are named
+rather than quietly under-reporting the campaign.
+
+**One reading, three renderers.** The PDF drew five columns and the Word export
+drew four, so one client's proposal already said two different things depending
+on which file was sent; both read `media_plan_rows()` now, and the builder's
+preview is handed the server's rows on the quote payload rather than carrying a
+**fourth** copy of the arithmetic — the mirror this codebase has paid for twice.
+A row priced against a budget that has since been edited reads *recalculating*
+rather than stating a confident wrong number.
+
+**And the copy above it was contradicting it.** The seeded media-plan paragraph
+said "every rate is the Smart 1 card rate — there is no markup between the line
+item and what runs", printed directly above a table quoting CPM at 2x, on a
+document a client reads. `client_safe()` was written against "the rate card"
+and this said "card rate", so the rule passed a sentence written for exactly
+it; it matches both orders now, and the seeded copy says what the split is and
+nothing about markup.
+
 ### An interruption cost the work in one builder and the place in the other
 
 `hub/drafts.py`. Fifteen minutes of concentration is what an insertion order
@@ -5531,6 +5643,9 @@ python3 test_website_audit.py      # the spend block that leads the audit, the c
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_quote_validity.py     # how long a price stands, the Expired nothing
+                                   #   set, what Suite may decide, and delivery
+                                   #   back under the media plan
 python3 test_proposal_share.py     # the client's copy: who opened it, how often,
                                    #   and an acceptance tied to one revision
 python3 test_proposal_targeting.py # the coverage map, the pasted location list,
