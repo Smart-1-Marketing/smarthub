@@ -2516,6 +2516,28 @@ Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one
 way the backup can bite you.
 
+**And a test's throwaway data directory is the same trap wearing a harness.**
+`key_for()` keys the mirror **relative to the data root** — deliberately, so a
+production blob restores into a development checkout — which means a fresh
+`HUB_DATA_DIR` in front of an *inherited* `DATABASE_URL` is refilled with the
+last run's rows. The file looks isolated, the directory really is empty, and
+the second run reads the first one's writes. `checks.yml` carried a paragraph
+headed **RUN THIS FILE EXACTLY ONCE** recording exactly that: two lineages
+each added a target-areas step, git merged both cleanly, and the duplicate
+failed on the first run's rows.
+
+Only one combination breaks. Setting **neither** is fine — the file inherits
+both and they agree. Setting **both** is the `test_blog_publish.py` pattern.
+Only *own directory, inherited database* gives you an empty disk in front of a
+full mirror, and `test_dashboard_trends.py` and `test_google_index.py` were
+the two files in it: three failures and four, on the second run, every time.
+They assign `DATABASE_URL` now. `test_jsonstore.py` pins that pair rather than
+sweeping every file of the shape — thirteen others share it and all re-run
+clean, because they write nothing durable or overwrite what they read, and
+several boot the composed app, where forcing SQLite would drop Sites Admin out
+of the gate. A check landing with thirteen findings it cannot act on is the
+one people learn to skip.
+
 **Two checks asking one question will answer it differently, and both
 answers are on screen.** `/api/db/structure` and `/api/integrity` both report
 who still writes JSON outside `hub/jsonstore.py`, on the same Diagnostics
