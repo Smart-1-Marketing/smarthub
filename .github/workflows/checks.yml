@@ -1110,14 +1110,18 @@ jobs:
         # a client has exactly one owner and a handover names who held it, that
         # "Riverside HVAC" never collects "Riverside HVAC Supply", that a bulk
         # assignment reports every row's own outcome and writes the file once
-        # rather than once per client, that assigning a whole media partner
-        # stores no standing rule, that an owner whose account is gone is named
-        # rather than read as unassigned, that owners and Ignore/Done marks are
+        # rather than once per client, that a standing partner rule writes no
+        # assignment rows at all and every row it owns says which partner it
+        # came from, that a direct assignment beats a rule and taking a client
+        # off everybody sticks rather than being re-claimed on the next read,
+        # that two rules naming different people leave the client unassigned
+        # and name both, that an owner whose account is gone is named rather
+        # than read as unassigned, that owners and Ignore/Done marks are
         # applied on read so one gunicorn worker's press is not invisible to
         # the other, that a Done mark on an issue which has since changed
         # reports itself superseded, that a source which could not be read is
-        # named instead of counted as nothing, and that every one of the twelve
-        # routes refuses a stranger. Guarded like the steps above so this
+        # named instead of counted as nothing, and that every route refuses a
+        # stranger. Guarded like the steps above so this
         # workflow stays mergeable on a branch that predates the file. It sets
         # its own DATABASE_URL and HUB_DATA_DIR, so it never touches the real
         # ones.
