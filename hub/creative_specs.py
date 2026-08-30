@@ -480,6 +480,22 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     (r"stor(y|ies)", ["stories"]),
     (r"carousel", ["facebook_carousel"]),
     (r"instagram", ["instagram", "stories"]),
+    # Pinterest is on the rate card and is in no part of the kit -- S1M
+    # CREATIVE SPEC KIT 2025 publishes no Pinterest section at all. Its own
+    # name matches nothing above, so without this entry it fell to the
+    # `social ads?` pattern below, which was matching the *category*
+    # ("SOCIAL ADS - VIDEO") rather than anything about the product: a
+    # Pinterest buy was asked for Facebook and Instagram units. Not a near
+    # miss -- a 1:1 feed square and a 9:16 story against a platform whose
+    # feed is 2:3, so a client who supplied exactly what was asked for
+    # delivers creative Pinterest crops, and every screen reads as correct
+    # while it happens. Snapchat, TikTok, X and LinkedIn each have a name
+    # rule above and are right; this is the one platform the category was
+    # answering for. It maps to nothing, so `required_units()` says the kit
+    # maps no unit for it -- the rule this module already works to, that a
+    # format the kit maps no unit for is *not measured* and never judged
+    # against the nearest channel.
+    (r"pinterest", []),
     (r"facebook|\bmeta\b|social ads?", ["facebook", "instagram",
                                         "facebook_video", "facebook_carousel",
                                         "stories"]),
