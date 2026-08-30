@@ -482,6 +482,30 @@ stale. They read one `_client_log_modules()` now, the
 `/api/db/structure` versus `/api/integrity` rule. `test_activity_logging.py`
 asserts all of it, and both checks were reverted and confirmed red first.
 
+**And a file is not tracked just because one of its calls is.** Image Creator
+generates images with OpenAI, and that route posted straight to
+`/v1/images/generations` and recorded nothing — while the two text routes
+beside it go through a helper that does. So every image it produced was billed
+per press and invisible on the usage page. What kept it invisible is the check:
+`untracked_openai_modules()` exempted the whole **file** the moment
+`from hub import ai` appeared anywhere in it, and that helper is where it
+appears — so the module read as fully tracked. The string satisfying the check,
+which is the `for_module(` failure one provider over, and
+`unmirrored_json_writers()` exempting each scanner because its own prose named
+jsonstore.
+
+It is asked per **call site** now, through the AST: a function that reaches an
+OpenAI endpoint and names no recorder is a finding whatever the rest of the
+file does. `openai_spend_unrecorded()` is lifted out of the walk so it can be
+handed a source, and `test_api_usage.py` hands it the shape that was live and
+requires it to say so — the file as it stood before the fix reads as
+unrecorded, and the same file after it does not. **The model is passed
+explicitly** where the image is recorded, because an images response carries no
+`usage` block and `openai_cost()` prices anything named `gpt-image*` per image:
+without the name there is nothing to price. And a **refused call keeps its
+row** with `ok=False` — it spent nothing and is out of every billable total,
+but a wall of them is what a spent allowance looks like from this side.
+
 **A provider is not metered in calls just because you counted calls.**
 `hub/quotas.py` estimates six providers now, and only three of them bill per
 call. ElevenLabs bills the **character** of script, so counting renders makes
