@@ -8462,6 +8462,42 @@ half that did not happen, and an already-stored file is never re-uploaded.
 body** — a name a browser can put in a POST is a name anybody can put in a
 POST, and it is the entire content of the record.
 
+**And the panel went on describing the delivery it had stopped being part
+of.** The build screen's own success message said the files *"are written
+beside the static ones and go into the delivery ZIP under `animated/`"* — true
+for exactly one release, and nothing corrected it the day approving one became
+how it reaches the client. Both halves stayed internally consistent, which is
+why it survived: the deliverer really does withhold them and the panel really
+does build them, so an operator built eight moving ads and waited for a folder
+that was never going to exist. The wording about a failing size was the same
+mistake one clause on — *"will not be delivered"* describes a zip that is now
+all-static either way; what is actually true is that it **cannot be approved,
+and approving is the only thing that sends one**. `test_display_ads.py` asserts
+it from **both ends**, because either alone reads as fine.
+
+**Three waits arrived on the one screen this file had already fixed for
+having none.** The note above about `bgBusy(what, kind)` was written because
+the Display Ad Builder's build screen made three billed calls behind a
+sentence of text that did not change. The animation panel then added three
+more — encoding a real GIF to preview it, running the job, and the Cloudinary
+upload behind Approve — and each said a word in plain text, because `bgBusy`
+was **hardwired to the background panel** and nothing generalised it. A helper
+that only one panel can reach is how the next panel writes its own.
+
+`waitIn()` and `waitBtn()` are the one reading of *put the mark here*, and
+`bgBusy` delegates to the first rather than keeping the copy it had. **Two of
+them because there are two targets**, which `hub-thinking.js` already draws
+differently: a box gets the glyph and the elapsed line, a button keeps its
+width and its **original label** — the failure that helper's own note names,
+where a hand-written swap loses the label and re-enables the button in
+whichever of the two exit paths the author remembered. That was live here:
+`animApprove` ended by redrawing the row from the server, and a fetch that
+failed there never rewrote it, leaving the button disabled reading
+*"Sending…"* with nothing coming. The handle is ended before the redraw now
+rather than by it. The preview is the opposite case and is left to
+`isConnected`: five returns each write over the stage, and requiring every one
+of them to remember a `.done()` is how one forgets.
+
 **The upload is its own Cloudinary call, and that is not tidiness.**
 `uploadCreative` passes `quality: 100`, which is an incoming transformation,
 and **any** re-encode of a GIF rewrites its frame delays and its loop block —
