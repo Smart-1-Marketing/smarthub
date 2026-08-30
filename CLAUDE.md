@@ -1078,6 +1078,58 @@ creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
 
+**One field held two questions, and answered neither.** `COMMERCIAL_TYPES` is
+a single-select mixing how a spot gets **made** (`stock_vo`,
+`ai_spokesperson`) with what it **is** (`testimonial`, `promo_sale`,
+`seasonal`), so "an AI spokesperson testimonial" was unsayable and the concept
+writer was told half of what a rep had decided.
+`modules/commercial_builder/library_spec.py` splits them — and
+`commercial_type` keeps its column and its meaning, because `create_all()`
+adds no column to an existing table and `compliance_spec` reads that value (a
+`testimonial` engages 16 CFR 255). The archetype lives in the **brief JSON**,
+and `LEGACY_ARCHETYPE` reads the five narrative values as the archetype they
+always were, so nothing is migrated — `hub/target_areas.from_legacy()`'s rule.
+`archetype_for()` returns `(key, source)`, because *a rep picked this* and *we
+inferred it from a column that meant two things* are different confidences and
+the screen says which rather than drawing a selection nobody made.
+
+**An archetype is a promise about what the client has to supply.** Twelve of
+them, each naming what it is good at, what it is bad at, and what it **needs**
+— a testimonial needs a customer who has agreed; a before-and-after needs the
+BEFORE, which nobody photographs because at the time it was just a Tuesday.
+`readiness()` turns those into an advisory QC finding, so an archetype nobody
+can supply surfaces while it is still free to change rather than at the shoot;
+`hub/creative_needs.py` asks the same question one medium earlier. `NEED_KEYS`
+is derived from the table rather than typed out, so an archetype that gains a
+need is saved by the route without anybody widening a list. Each also names
+which published regimes it tends to engage — read by nothing, since
+`compliance_spec.py` scans the finished copy and is the authority, but worth
+knowing before the script exists.
+
+**A pack is creative data; `hub/industries.py` is the media plan.** Hooks,
+what proof looks like, stock vocabulary, the shape of the offer, what falls
+flat. Different data, same clients — so where an industry exists in both it is
+the **same id**, and `test_commercial_library.py` asserts it, because two
+taxonomies for one client is the year the two proposal builders cost. Four
+packs are Commercial Builder-only (`hvac`, `solar`, `medical_dental`,
+`home_services`), for categories the Proposal Builder has no page for.
+
+**A wrong pack is worse than none**, because it reads as research somebody did
+rather than as a gap. `pack_for()` is tri-state — matched, unmatched, or
+nothing recorded — and `prompt_guidance()` carries that state to the model
+with an instruction not to invent a category it was not given. What suits a
+category is a **suggestion and never a filter**: an unusual spot for a
+category is often the reason it works, and a picker that hides nine of twelve
+makes that impossible, the rule `hub/voice_casting.match_quality()` works to.
+
+**And the choice has to change something.** `check_spec()` names any archetype
+or pack field read by nothing, the way `current_marketing.unanswered_keys()`
+does — this module shipped four discovery questions read by nothing, so a rep
+could answer all four and the document came out identical. It returns an empty
+list today, which is the only way it was worth adding. Mock concepts reflect
+the archetype too, because mock mode is where a developer forms their
+impression of whether a field does anything at all.
+
 **A tool that renders finished video and never asks what the rules require.**
 `testimonial` is a commercial type on the Start page and the offer field
 invites exactly the copy Truth in Lending triggers on — "$79 a month", "0%
@@ -5578,6 +5630,8 @@ python3 test_msa_embed.py          # the signing page: public, chrome-free, ours
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
+python3 test_commercial_library.py # what a spot is versus how it is made, the
+                                   #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
                                    #   they are, and the acknowledgment before filing
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,

@@ -3,7 +3,7 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link, compliance_spec
+from .. import client_link, compliance_spec, library_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
@@ -248,6 +248,19 @@ def save_brief(project_id):
     if "publishers" in data:
         brief["publishers"] = [p for p in (data.get("publishers") or [])
                                if p in {x["id"] for x in CTV_PUBLISHERS}]
+    # The archetype — what the spot IS, as distinct from how it gets made.
+    # It lives here rather than on a column because `commercial_type` already
+    # holds both answers and `create_all()` adds no column to an existing
+    # table; `library_spec.archetype_for()` reads the legacy value so a
+    # project saved before this reads as the archetype it always was.
+    if "archetype" in data:
+        chosen = str(data.get("archetype") or "")
+        brief["archetype"] = chosen if chosen in library_spec.ARCHETYPES else ""
+    # What each archetype needs from the client, answered on the same screen
+    # it is asked on. Free text: "which customer" is a name, not an option.
+    for need in library_spec.NEED_KEYS:
+        if need in data:
+            brief[need] = str(data.get(need) or "").strip()[:600]
     project.brief = brief
     if project.status == "draft":
         project.status = "brief"

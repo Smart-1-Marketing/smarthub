@@ -123,8 +123,22 @@ def _mock_brand_profile(url):
 # 3. Commercial Brief -> Generate Concepts
 # ---------------------------------------------------------------------------
 def generate_concepts(brief, client_profile, commercial_type):
+    # What the spot IS, and what its category needs. `hub/current_marketing.
+    # for_prompt()`'s rule: a model handed a label writes label-flavored
+    # adjectives, and a model told what to DO about it writes a different
+    # script. So the archetype's beat emphasis, the category's hooks and what
+    # falls flat in it are handed over — never the labels on their own.
+    #
+    # It reads the LEGACY value too, so a project saved before the archetype
+    # existed is still described to the model as the thing it always was.
+    from .. import library_spec
+    archetype, _source = library_spec.archetype_for(
+        brief, commercial_type)
+    guidance = library_spec.prompt_guidance(
+        archetype, (client_profile or {}).get("industry", ""))
+
     if not is_live():
-        return _mock_concepts(brief)
+        return _mock_concepts(brief, guidance)
 
     try:
         result = _chat_json(
@@ -135,34 +149,54 @@ def generate_concepts(brief, client_profile, commercial_type):
                 "(different emotional angle or narrative structure, not just reworded copy). "
                 'Respond as JSON: {"concepts":[{"title":"...","angle":"...","summary":"..."}, '
                 '... exactly 3 items]}. "angle" is a short label like \'Problem -> service -> '
-                "offer -> CTA\' or \'Lifestyle / family-oriented\'. \"summary\" is 1-2 sentences."
+                "offer -> CTA\' or \'Lifestyle / family-oriented\'. \"summary\" is 1-2 sentences. "
+                "`guidance` carries the chosen archetype's structure and what it is bad at, "
+                "plus what works and what falls flat in this client's category. Write to it. "
+                "Where `category_state` is not 'matched' there is no category guidance and you "
+                "must NOT invent any — say nothing category-specific rather than guessing at "
+                "a trade you were not told."
             ),
             user=json.dumps({
-                "client": client_profile, "brief": brief, "commercial_type": commercial_type,
+                "client": client_profile, "brief": brief,
+                "production_method": library_spec.production_method(commercial_type),
+                "guidance": guidance,
             }),
             max_tokens=700,
         )
         concepts = result.get("concepts", [])[:3]
         for i, c in enumerate(concepts):
             c["id"] = f"concept_{i + 1}"
-        return concepts or _mock_concepts(brief)
+        return concepts or _mock_concepts(brief, guidance)
     except Exception:
-        return _mock_concepts(brief)
+        return _mock_concepts(brief, guidance)
 
 
-def _mock_concepts(brief):
+def _mock_concepts(brief, guidance=None):
+    """Mock mode still reflects the archetype, or the choice reads as dead.
+
+    A picker whose answer produces identical output whatever is chosen is the
+    failure `hub/current_marketing.py` was written to undo — and mock mode is
+    where a developer forms their impression of whether the field does
+    anything at all.
+    """
+    guidance = guidance or {}
     what = brief.get("what_advertising") or "this offer"
+    shape = guidance.get("archetype") or "Problem -> solution"
+    structure = guidance.get("structure") or "Problem -> service -> offer -> CTA"
+    hooks = guidance.get("category_hooks") or []
+    lead = hooks[0] if hooks else f"Opens on the reason somebody needs {what}."
     return [
-        {"id": "concept_1", "title": "Beat the Heat" if "ac" in what.lower() or "cool" in what.lower()
-            else "The Direct Approach", "angle": "Problem -> service -> offer -> CTA",
-         "summary": f"Opens on the pain point, introduces the solution, then presents {what} "
-                    f"with a clear call to action."},
-        {"id": "concept_2", "title": "Don't Wait", "angle": "Preventative / urgency angle",
-         "summary": f"Leads with urgency and consequence of inaction, positions {what} as the "
-                    f"smart move before it's too late."},
-        {"id": "concept_3", "title": "Life Made Easier", "angle": "Lifestyle / family-oriented angle",
-         "summary": f"Shows the everyday benefit for a family/customer, then ties it back to "
-                    f"{what} as an easy win."},
+        {"id": "concept_1", "title": f"{shape}: the direct read",
+         "angle": structure,
+         "summary": f"{lead} Then {what}, and a call to action."},
+        {"id": "concept_2", "title": f"{shape}: the urgent read",
+         "angle": f"{structure} — weighted to the deadline",
+         "summary": f"Leads on the cost of waiting and positions {what} as the "
+                    f"move to make now."},
+        {"id": "concept_3", "title": f"{shape}: the human read",
+         "angle": f"{structure} — through one person",
+         "summary": f"One recognizable person, one moment, and {what} as the "
+                    f"thing that changed it."},
     ]
 
 
