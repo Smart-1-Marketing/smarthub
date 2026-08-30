@@ -4058,6 +4058,43 @@ disagreement is `analytics_ids`' whole point — either the site is running a
 property we do not administer or the record is stale — and flattening it
 destroys the only evidence of it.
 
+**And that disagreement was mostly not one.** GA has two identifiers for one
+property: the **measurement id** `G-XXXXXXX`, which is on the site, in the GTM
+tag and on every report and is therefore what a person types into Knack — and
+the **property id**, a bare number, which is all a GA4 property summary
+returns, because it carries no measurement id at all. `_state()` normalised
+both, found them different, and answered **mismatch**. On this deployment's
+own 610-row registry every one of the 166 recorded GA ids is a `G-` (159) or a
+legacy `UA-` (7) and **not one is a property id**, so for GA the verdict could
+only ever be `mismatch` or `recorded_only`: **`match` was unreachable.** Client
+360 drew a red pill and the advice *"reports built on the wrong property are
+silently wrong"* about properties we administer, correctly recorded, and
+`audit_all()` collected every one into a report whose premise is that each
+entry means somebody's reporting may be pointed at the wrong place — while
+`in_agreement` counted only `match` and so could never count a GA row at all.
+Overstating the problems and understating the agreement, at once.
+
+`not_comparable` is the answer, because that is what is true: nothing here can
+tell whether the two names refer to the same property, and judging it either
+way invents one. It is drawn neutral rather than red or amber — there is
+nothing to act on — and it is **not** counted in `needs_attention`. The
+module's own note under `_norm_ga` had warned about exactly this in the
+abstract: a false mismatch *"is worse than no check at all because it trains
+people to ignore the warning."*
+
+**GTM had the same hole, quieter, and the rule is per platform rather than
+special-cased.** `google_finder` stores `public_id or container_id`, so where
+the API returns no publicId the value lands in the numeric space and produces
+the identical false mismatch — rarer only because publicId is usually present,
+which is a reason to expect it rather than to leave it. What must **keep**
+saying mismatch is asserted just as hard, because a fix that silences the real
+findings with the false one is worse than the bug: two different measurement
+ids, two different property ids, two different containers, and a legacy `UA-`
+id against a live GA4 property, since Universal Analytics stopped processing
+in 2023 and that record is genuinely stale. `bucket_for()` is the one reading
+of which audit column a state lands in, so the client record and the book-wide
+report cannot come to disagree about whether a state is a finding.
+
 Client 360's own "attach a property" button goes through the same path, so
 attaching there records in Knack and clears the orphan too. So does the
 customer picker on the **Google Accounts & Mapping** QA report — the report is
@@ -10066,6 +10103,11 @@ python3 test_sites_billing.py      # hosting charges joined to sites: unbilled, 
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_google_access.py      # the paused Ads flow, and who an invite is for
 python3 test_google_index.py       # the Google sweep: no request, and none vs cannot look
+python3 test_analytics_ids.py      # two names for one property are not a
+                                   #   disagreement: the measurement id Knack
+                                   #   holds against the property id Google
+                                   #   returns, and what must keep saying
+                                   #   mismatch
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
