@@ -4,7 +4,7 @@
  * `assetSources` has recorded provenance for the logo and the hero since it
  * was written. The palette had no equivalent: `finalizeColors()` spread
  * DEFAULTS underneath whatever was discovered and said nothing at all. So a
- * client with no brand colours on file got Smart 1's placeholder navy and
+ * client with no brand colors on file got Smart 1's placeholder navy and
  * gold on every size, in an ad that looks plausibly branded, with nothing on
  * any screen saying so — absent data reading as a confident value, on the
  * thing the client receives.
@@ -57,7 +57,7 @@ test('a color we moved to keep text readable is ours, not theirs', async () => {
   // finalizeColors nudges the accent when it is unreadable on the primary,
   // and substitutes light/dark when they do not contrast. Those are our
   // edits: reporting them as discovered would credit the client with a
-  // colour they never chose.
+  // color they never chose.
   const r = await build({ colorOverrides: { primary: '#aa0000' } });
   assert.equal(r.colorSources.accent, 'adjusted');
   assert.ok(r.notes.some((n) => /adjusted to/.test(n)), 'and the note says what it was');
@@ -96,7 +96,7 @@ test('the line says nothing about a campaign built before the field existed', ()
   const draw = paletteProvenanceFromPage();
   // The campaign JSONs already on disk carry no colorSources. Reading their
   // absence as "default" would put a warning about a stock palette on an ad
-  // whose colours may have been perfectly correct — absent is not the same
+  // whose colors may have been perfectly correct — absent is not the same
   // answer as placeholder, which is the whole point of the line.
   assert.equal(draw(undefined), '', 'no doc');
   assert.equal(draw(null), '', 'a doc with no colorSources');

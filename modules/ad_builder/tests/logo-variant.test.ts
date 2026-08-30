@@ -54,20 +54,20 @@ test('no shipped template declares the background the old rule tested for', () =
   assert.ok(seen.has('primary'), 'the dark panels in practice are the `primary` ones');
 });
 
-test('the panel decides the variant, by colour rather than by role name', () => {
+test('the panel decides the variant, by color rather than by role name', () => {
   const brand = example().brand;
   assert.equal(reverseLogoOnPanel({ background: 'primary' }, brand), true,
     'Icon Solar primary is navy, so the white logo belongs on it');
   assert.equal(reverseLogoOnPanel({ background: 'light' }, brand), false,
-    'and the full-colour one belongs on white');
+    'and the full-color one belongs on white');
 
-  // The role name cannot answer this and the resolved colour can: a brand
+  // The role name cannot answer this and the resolved color can: a brand
   // whose `primary` is pale needs the dark logo on exactly the same layout.
   const pale: Brand = { ...brand, colors: { ...brand.colors, primary: '#FFE9A8' } };
   assert.equal(reverseLogoOnPanel({ background: 'primary' }, pale), false,
-    'a pale primary takes the full-colour logo, though the role is unchanged');
+    'a pale primary takes the full-color logo, though the role is unchanged');
 
-  // A photo is not a flat colour, so it defers to the same call the text ink
+  // A photo is not a flat color, so it defers to the same call the text ink
   // already makes rather than being a second opinion about one panel.
   assert.equal(
     reverseLogoOnPanel({ background: 'light' }, brand, { backgroundImage: 'hero.jpg' }),
@@ -94,7 +94,7 @@ test('a panel under the logo is what the logo sits on, not the canvas', () => {
   for (const [size, layout] of withCard) {
     assert.equal(layout.background, 'primary', `${size}: the canvas is the dark role`);
     assert.equal(reverseLogoOnPanel(layout, brand), false,
-      `${size}: but the logo is on a light card, so it takes the full-colour mark`);
+      `${size}: but the logo is on a light card, so it takes the full-color mark`);
   }
 });
 
