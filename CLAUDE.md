@@ -6672,6 +6672,53 @@ the blueprint now rather than on each route, the arrangement
 `modules/commercial_builder/__init__.py` arrived at for the same reason: the
 write route added here must not have to remember, and neither must the next one.
 
+**And it was reading two of its four sources.** `SOURCES` is a table of field
+names for four modules this file does not own, and three of the four guessed
+wrong — silently, each differently, on the report whose entire purpose is
+*what have we made for this client*. **Image Picker** reflected over
+`SavedImage` expecting Flask-SQLAlchemy's `.query`; it is a plain declarative
+model with its own `session()`, so `_load_source` returned `[]` at the guard —
+and that is the store `filing.file_asset` writes to, which is every asset every
+tool files against a client. **Image Creator** asked for `created_at` /
+`updated_at` where the index writes `created` / `updated`, so every row was
+dropped by `if not when: continue`. **Commercial Builder** asked for
+`client_name` where the row carries `client_id`, and that one is the worst of
+the three because the rows were *not* empty: the source counted as **live**,
+inflated `totals.creatives`, and every record was then dropped for having no
+client. So a client whose gallery, canvas graphics and commercial were all
+produced this month read as *"No creative on file"*, with two of the three
+showing only as a footer line and the third showing as nothing at all.
+
+**`hub/image_audit.py` reads exactly those stores and had them right the whole
+time.** Two modules each guessing at one store's columns is the drift
+`hub/storage.py` exists to stop, wearing a report — so the image sources are
+not described here any more: `store` names one of its `STORES` entries and the
+tuples read that reader's normalised shape. The reflection branch is gone with
+them, because a table of column names for somebody else's model is what broke
+this; a new source writes a reader, and `_commercial_rows()` is the example.
+That one is **an approved render rather than a project row**: a cut nobody has
+watched is not creative the client received, the distinction `approve_render`
+already draws, and it resolves the name through `cb_clients` rather than
+guessing at a column. `_thumb()` went with it — it was a second reading of
+`hub/storage.preview_url()` that disagreed on both halves, `c_fill` where the
+rule is `c_limit` and a second derived size Cloudinary caches and bills
+separately, with neither of that function's guards, so a video URL was rewritten
+as an image transformation.
+
+**And `measured` covered one half of a join.** `_registry_clients()` tries four
+paths and swallows each failure, so a client list that refused returned `[]` and
+the audit reported **nought clients** while the creative sources answered
+perfectly well — `measured: True`, and held as the day's answer. It is both
+halves now, and each is named, because *the client list refused* and *no source
+answered* send somebody to different places. The page draws it: `measured` was
+on the payload for exactly this and **no template read it**, so a morning where
+everything refused rendered the full six tiles and a "No creative on file"
+section naming the whole book, with the only clue being *"Sources read: none."*
+in the footer below everything. `test_stale_creative.py` seeds each store and
+requires **every** entry in `SOURCES` to produce a record with a client, a date
+and a title — a sweep, because a test naming the three that were wrong proves
+nothing about the fourth.
+
 ## A report that has been opened has already been run
 
 `hub/report_cache.py`. Every QA report and every report-shaped tool page
@@ -6770,6 +6817,57 @@ workaround.** `test_domain_links.py` and `test_google_links.py` swap a source
 out from under a report between assertions — a Knack that answers, then one
 that times out — which is the one thing a report held for the day cannot see.
 They assert the report; `test_report_cache.py` asserts the holding.
+
+**And `measured: False` was read by the cache and by nothing on the page.**
+That flag is the whole reason a refused run is not frozen into the day's
+answer — and `qa_report.html` never looked at it. Its branch order was
+`error`, then `needs_qb`, then `unavailable`, then an all-clear, so a report
+that carried its refusal in `note` alone fell through to **"Nothing to
+report — all clear ✓"**. Four returns are in that shape:
+`upsell._unmeasured()` when the client list or the site audits refuse,
+`prospect_queue._unmeasured()` when the lead store does, and the two
+uploads-gallery refusals in `qa.uploads_not_in_suite()`. So a Knack timeout
+drew a green tick directly above the report's own sentence reading *"which is
+not the same as nobody"*, and *"Couldn't read the uploads database"* was
+rendered as every client's files being safely in Suite — the page contradicting
+the line printed beneath it, which is worse than either half alone. The
+page's own comment had said exactly this for three years: *"'We looked and it
+is fine' and 'we could not look' are different answers, and rendering both as
+a green tick is how a page ends up confidently telling you the opposite of the
+truth."* It said it about `unavailable`, and `unavailable` was the one case
+that already worked.
+
+`cannotLook(d)` is the one reading now — `unavailable` keeps its action button
+because it has one, and `measured: false` becomes the same panel with the note
+as its message. A report that genuinely found nothing **keeps its green tick**,
+because crying wolf on every clean run is its own failure and is the one that
+gets a page ignored. `campaign_assets.html` had this right all along and was
+the only one of the QA screens that did.
+
+**And `is_answer()` did not read `needs_qb` either, which is the same gap on
+the other side of the wire.** This module's own docstring names it — *"it is
+also what stops 'QuickBooks isn't connected yet' being cached for a day by
+whoever opened the report before anyone connected it"* — and `serve()`'s
+comment three hundred lines down calls the connect call-to-action a payload
+that "ran and could not measure". `is_answer()` tested `error`, `unavailable`
+and `measured is False` and never `needs_qb`, so all three billing reports
+stored it: somebody who opened Invoice Off at 08:50, before the QuickBooks
+connect at 09:10, left *"QuickBooks isn't configured"* and an Open System
+Status button on Customer Billing Comparison, Invoice Off and Sites Billing
+for everybody for the rest of the day — and the person who had just connected
+it read that as the connection having failed. A POST-Refresh cleared it; a GET
+never could.
+
+`test_qa_reports.py` asserts both directions, and it is **a sweep rather than
+the four that were wrong** — a test naming those four proves nothing about the
+fifth. It reads the **AST** of every module a report is built from and fails
+any return of no rows carrying nothing the page draws, because three of those
+modules explain this very trap in prose and a check that matches text reports
+the explanation as the defect. The decision block is **lifted out of the page**
+between its own markers and run in node, the arrangement `test_menu_layout.py`
+uses over `hub-crumbs.js`: a copy restated in the test is a third thing to keep
+in step, and a regex pinned to one line's formatting fails the day somebody
+reindents it, which is how a check gets switched off.
 
 ## An ad copy request is fourteen fields, and the form asked four
 
@@ -8417,6 +8515,9 @@ python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   that cannot see the timings
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
+python3 test_qa_reports.py         # every report on /qa answers and is drawable,
+                                   #   and one that could not look never renders
+                                   #   as "all clear"
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_keyword_plan.py   # measured CPC, the access tier, the deploy preflight

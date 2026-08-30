@@ -93,6 +93,10 @@
     .act{margin:4px 6px 0 0}
   }
   .foot{color:var(--muted);font-size:12px;margin-top:26px}
+  .sc-unmeasured{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;
+    padding:10px 12px;margin:12px 0;font-size:13px;color:#92400e}
+  .sc-unmeasured b{display:block;font-size:12px;text-transform:uppercase;
+    letter-spacing:.8px;margin-bottom:2px}
   @media (max-width:640px){
     th:nth-child(3),td:nth-child(3),th:nth-child(4),td:nth-child(4){display:none}
     .wrap{padding:16px 10px 48px}
@@ -107,6 +111,23 @@
   <h1>Stale Creative</h1>
   <p class="sub">How long it has been since we last uploaded creative for each
     client currently running a product.</p>
+  {#- "We looked and nobody is overdue" and "we could not look" are different
+      answers, and this page drew them identically: every source in the audit
+      degrades to an empty list rather than raising, so a morning where the
+      galleries, Cloudinary and Knack all refused rendered the full six tiles
+      and a "No creative on file" section naming the whole book. `measured` was
+      on the payload for exactly this and nothing read it -- the only clue was
+      "Sources read: none." in the footer, below everything. -#}
+  {% if data.measured is defined and not data.measured %}
+  <p class="sc-unmeasured"><b>Not measured</b>
+    {% if not data.clients_measured %}The client list could not be read, so
+      there is nobody to report on — which is not the same as nobody being
+      overdue.{% else %}None of the creative sources answered, so how long it
+      has been is not measured — which is not the same as no creative.{% endif %}
+    {% if data.sources.no_records %}No records from:
+      {{ data.sources.no_records|join(', ') }}.{% endif %}
+    Press Refresh to try again.</p>
+  {% endif %}
   {% set _left_out = (data.totals.inactive or 0) + (data.totals.unmatched or 0) %}
   {% if _left_out %}
   <p class="sub" style="font-size:13px" data-demo="sc-unmatched">Not listed:
