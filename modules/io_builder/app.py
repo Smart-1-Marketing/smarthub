@@ -213,30 +213,50 @@ def brandfetch_lookup():
     # Through hub.config, which accepts BRANDFETCH_API too — the spelling the
     # rest of this deployment's provider keys use. Read one way here, the
     # lookup answered "not configured" over a key Smart 1 Ads was using.
-    api_key = _hub_settings().brandfetch_key
-    client_id = os.getenv('BRANDFETCH_CLIENT_ID', '').strip()
-    if not api_key:
-        return jsonify({'error': 'Brandfetch is not configured'}), 503
+    # Through hub/brand_lookup.py rather than a request of our own.
+    #
+    # This route used to call Brandfetch directly, and the call was the least
+    # of it: the payload went to the browser and nowhere else. So the plan --
+    # a hundred lookups a month -- was being spent here without the usage page
+    # counting it, and Client 360's brand card, which reads *stored* brand
+    # data and never fetches, stayed empty for a client somebody had looked up
+    # in this very builder. That is the exact pair of failures brand_lookup.py
+    # was written to close, in a module its docstring does not name.
+    #
+    # The shared lookup records the call, saves the answer against the domain
+    # (and the client when one is known), and answers a cache hit without
+    # spending anything. What is kept here is the response shape: this route's
+    # own reading of the payload, and the status codes the IO Builder's script
+    # already branches on.
+    from hub import brand_lookup
+
     domain = (request.args.get('domain') or '').strip().lower()
     if '://' in domain:
         domain = urlparse(domain).hostname or ''
     domain = domain.removeprefix('www.').split('/')[0]
     if not domain or '.' not in domain:
         return jsonify({'error': 'A valid website domain is required'}), 400
-    headers = {'Authorization': f'Bearer {api_key}', 'Accept': 'application/json'}
-    if client_id:
-        headers['X-Client-Id'] = client_id
-    try:
-        response = requests.get(f'https://api.brandfetch.io/v2/brands/domain/{domain}', headers=headers, timeout=20)
-        if response.status_code == 404:
-            return jsonify({'error': f'No Brandfetch profile was found for {domain}'}), 404
-        response.raise_for_status()
-        return jsonify(_extract_brandfetch(response.json(), domain))
-    except requests.RequestException as exc:
-        detail = ''
-        if getattr(exc, 'response', None) is not None:
-            detail = (exc.response.text or '')[:300]
-        return jsonify({'error': 'Brandfetch request failed', 'detail': detail}), 502
+
+    # Optional, and worth taking when the page has one: a payload filed against
+    # the client is the one Client 360's card reads, and a domain-only save is
+    # only found by the domain cache.
+    client = (request.args.get('client') or '').strip()
+
+    result = brand_lookup.lookup(domain, client=client, module='io_builder')
+    if result.get('found'):
+        return jsonify(_extract_brandfetch(result.get('payload') or {}, domain))
+
+    note = result.get('note') or 'Brandfetch request failed'
+    if result.get('unconfigured'):
+        return jsonify({'error': 'Brandfetch is not configured'}), 503
+    # "Nothing is published for this domain" is a real answer about the client
+    # and not a failure of ours, which is the distinction the 404 branch here
+    # has always drawn. A refusal or an unreachable service is not that, and
+    # calling either one "no profile found" sends somebody to look for a logo
+    # that was never asked for -- brand_lookup.py's own rule.
+    if 'Nothing is published' in note:
+        return jsonify({'error': f'No Brandfetch profile was found for {domain}'}), 404
+    return jsonify({'error': 'Brandfetch request failed', 'detail': note}), 502
 
 
 
@@ -1319,6 +1339,121 @@ def media_mix_recommendation():
         if getattr(exc, 'response', None) is not None:
             detail = (exc.response.text or '')[:500]
         return jsonify({'ok': False, 'error': 'Media-mix recommendation failed', 'detail': detail or str(exc)}), 502
+
+
+
+# ---------------------------------------------------------------------------
+# Unfinished insertion orders
+#
+# The browser keeps its own copy in localStorage and always did; this is the
+# half that survives the browser. Somebody interrupted on their laptop and
+# picking the IO up on a different machine had no draft at all before this,
+# and -- worse -- nothing on the start screen said an unfinished one existed,
+# so it was simply started again from the top. See hub/drafts.py.
+#
+# Nothing in here may fail the form it is insuring: every route answers 200
+# with what happened in the body, so an autosave that could not write costs
+# the server copy and never the IO somebody is in the middle of.
+# ---------------------------------------------------------------------------
+
+def _signed_in_as():
+    """Who is using the builder, from the Hub session.
+
+    `AuthGuard` puts the display name on the WSGI environ before Flask sees
+    the request -- the only place it exists for a dispatcher-mounted module,
+    which has no Hub app context and no `flask.g` of its own. Empty is a real
+    answer (the module runs standalone in the tests, and behind the shared
+    password in an emergency) and reads as "not recorded" on the list rather
+    than as somebody's name.
+    """
+    try:
+        return str(request.environ.get("s1hub.user") or "").strip()[:160]
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
+def _drafts():
+    from hub import drafts
+    return drafts
+
+
+def _draft_title(state):
+    """What the row says, from whatever the rep has filled in so far.
+
+    An IO is identified by its client and its order number, and the ordinary
+    case for a draft is that neither is there yet -- so this degrades rather
+    than refusing, and an untitled draft still appears on the list. A row
+    somebody cannot recognize is still better than a draft nobody knows about.
+    """
+    if not isinstance(state, dict):
+        return ""
+    # The browser wraps its own state -- {state, index, currentProduct} -- so
+    # the answers are one level down. Unwrapped here rather than at the route,
+    # because the fallback has to work for whatever posts the draft, and a
+    # title read off the wrapper is "Untitled" on every row.
+    if isinstance(state.get("state"), dict):
+        state = state["state"]
+    client = str(state.get("client") or state.get("client_name") or "").strip()
+    order = str(state.get("orderNumber") or state.get("order_number") or "").strip()
+    if client and order:
+        return f"{client} - IO {order}"
+    return client or (f"IO {order}" if order else "")
+
+
+@app.post("/api/draft")
+def api_draft_save():
+    body = request.get_json(silent=True) or {}
+    try:
+        out = _drafts().save(
+            "io",
+            str(body.get("id") or ""),
+            owner=_signed_in_as(),
+            title=str(body.get("title") or "") or _draft_title(body.get("state")),
+            step=body.get("step") or 0,
+            state=body.get("state") or {},
+        )
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("IO draft save failed: %s", exc)
+        return jsonify({"ok": False, "id": "", "dropped": [],
+                        "error": "not saved on the server"}), 200
+    return jsonify(out), 200
+
+
+@app.get("/api/drafts")
+def api_draft_list():
+    try:
+        rows = _drafts().listing("io", owner=_signed_in_as())
+    except Exception as exc:                            # noqa: BLE001
+        # "nobody has an unfinished IO" and "we could not look" are different
+        # answers, and only the first means there is nothing to pick up.
+        return jsonify({"drafts": [], "measured": False,
+                        "error": f"{type(exc).__name__}"}), 200
+    return jsonify({"drafts": rows, "measured": True, "error": ""}), 200
+
+
+@app.get("/api/draft/<draft_id>")
+def api_draft_get(draft_id):
+    try:
+        row = _drafts().get(draft_id)
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}"}), 200
+    if not row or row.get("kind") != "io":
+        return jsonify({"ok": False, "error": "No such draft."}), 404
+    return jsonify({"ok": True, "draft": row}), 200
+
+
+@app.delete("/api/draft/<draft_id>")
+def api_draft_delete(draft_id):
+    try:
+        row = _drafts().get(draft_id)
+        if not row or row.get("kind") != "io":
+            # Deleted, never existed and belongs to the other builder all
+            # answer the same thing: there is nothing here to discard.
+            return jsonify({"ok": True, "deleted": False}), 200
+        return jsonify({"ok": True, "deleted": _drafts().delete(draft_id)}), 200
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "deleted": False,
+                        "error": f"{type(exc).__name__}"}), 200
 
 
 if __name__ == '__main__':

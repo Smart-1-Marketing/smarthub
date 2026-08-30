@@ -208,6 +208,36 @@ jobs:
             echo "test_commercial_review.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder advertising-rule tests
+        # Which published rules a spot's copy engages, and the two ways the
+        # feature would be worse than absent: a tool that claims a spot is
+        # compliant, and a rule that fires on every spot. Also that nothing
+        # here blocks a render, that an empty industry reads as not measured
+        # rather than unregulated, and that rewriting the offer retires the
+        # sign-off. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_commercial_compliance.py ]; then
+            python test_commercial_compliance.py
+          else
+            echo "test_commercial_compliance.py not on this branch — nothing to run."
+          fi
+
+      - name: Commercial Builder archetype and category tests
+        # What a spot IS as distinct from how it gets made, the legacy
+        # commercial_type reading as the archetype it always was, pack ids
+        # matching hub/industries.py so one client cannot get two taxonomies,
+        # an unmatched category reading generic rather than wrong, and the
+        # check that names any field which changes nothing. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_library.py ]; then
+            python test_commercial_library.py
+          else
+            echo "test_commercial_library.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -270,6 +300,19 @@ jobs:
             python test_scan_widgets.py
           else
             echo "test_scan_widgets.py not on this branch — nothing to run."
+          fi
+
+      - name: Prospect record tests
+        # The record a scanned business gets before it is a client: four kinds
+        # of empty on the Suite card, a timeline that names what it could not
+        # read, and files that report the record and the stored copy apart.
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_prospect_record.py ]; then
+            python test_prospect_record.py
+          else
+            echo "test_prospect_record.py not on this branch — nothing to run."
           fi
 
       - name: Website audit tests
@@ -365,6 +408,30 @@ jobs:
             python test_proposal_spec.py
           else
             echo "test_proposal_spec.py not on this branch — nothing to run."
+          fi
+
+      - name: Quote validity tests — the clock, and what Suite decides
+        # How long a sent proposal's pricing stands, the Expired status that
+        # nothing used to set, the Suite stage change that reaches the quote
+        # row, and the delivery figures back on the media plan. Guarded like
+        # the steps around it; nothing in it reaches a third party.
+        run: |
+          if [ -f test_quote_validity.py ]; then
+            python test_quote_validity.py
+          else
+            echo "test_quote_validity.py not on this branch — nothing to run."
+          fi
+
+      - name: Draft tests — unfinished IOs and proposals
+        # Both halves of coming back to interrupted work: the server-side
+        # draft store, the IO builder's list, and the proposal wizard
+        # reopening where it was left. Guarded like the steps around it, and
+        # nothing in it reaches a third party.
+        run: |
+          if [ -f test_drafts.py ]; then
+            python test_drafts.py
+          else
+            echo "test_drafts.py not on this branch — nothing to run."
           fi
 
       - name: Proposal share tests
@@ -959,3 +1026,20 @@ jobs:
       # counts. Reproduced before it was fixed, and both runs are green now.
       - name: Content requests, ideas and the Suite push
         run: python3 test_social_content.py
+
+      # The client registry ran on a 610-row JSON file committed to the repo
+      # while hub/knack_websites.py read the same object live. This holds the
+      # switch: live where Knack answers, the export where it will not, a
+      # failed pull that never empties a good export, and summary() still
+      # measuring the dashboard scorecard against the export -- pointed at the
+      # live list it reports 2 active websites instead of 610.
+      - name: Websites read live, with the export as the fallback
+        run: python3 test_knack_websites_source.py
+
+      # The client half of the Suite embed. The location id inside the
+      # encrypted SSO payload is the authorization and the whole security
+      # model: every refusal here is a way to show one client another client's
+      # record, and every one of them is silent. Carries its own encryptor so
+      # the CryptoJS envelope is round-tripped rather than assumed.
+      - name: Suite SSO — who is looking, inside a client's own sub-account
+        run: python3 test_suite_sso.py

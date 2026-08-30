@@ -142,6 +142,9 @@ class Settings:
     public_base_url: str = field(default_factory=lambda: _s("PUBLIC_BASE_URL").rstrip("/"))
     data_dir: str = field(default_factory=lambda: _s("HUB_DATA_DIR") or ("/var/data" if os.path.isdir("/var/data") else "data"))
     max_upload_mb: int = field(default_factory=lambda: _i("MAX_UPLOAD_MB", 100))
+    # How long a sent proposal's pricing stands. Read by hub/quote_validity.py,
+    # which clamps it -- a zero would expire a quote the moment it was sent.
+    proposal_validity_days: int = field(default_factory=lambda: _i("PROPOSAL_VALIDITY_DAYS", 30))
 
     # ---- OpenAI ----
     openai_key: str = field(default_factory=lambda: _s("OPENAI_API_KEY"))
@@ -290,6 +293,13 @@ class Settings:
             # Photographs a client's own location manager attaches to a
             # content request -- modules/social_planner/intake.py.
             "social_requests": "smart1-social-requests",
+            # Anything collected against a prospect before they are a client:
+            # the mock-up, the screenshot, the signed page, the rate sheet
+            # somebody emailed over -- hub/prospect.py. Its own folder rather
+            # than the client tree, because a prospect has no client key yet
+            # and filing them together is how one company's assets end up on
+            # another's record.
+            "prospects": "smart1-prospects",
         }
         return defaults.get(kind, f"smart1-{kind}")
 

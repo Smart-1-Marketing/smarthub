@@ -421,3 +421,52 @@ class ReviewComment(db.Model):
             "format": self.format or "",
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class ComplianceAck(db.Model):
+    """Somebody looked at what the published rules require, and said so.
+
+    Its own table for the `RenderApproval` reason — `create_all()` creates a
+    missing TABLE and never adds a column to an existing one — and because
+    what it records is a *person's statement*, which does not belong inside a
+    JSON blob a route rewrites on every save.
+
+    It is an acknowledgment rather than a gate, and the distinction is the
+    whole design. `compliance_spec.py` says at length why: whether an ad
+    complies is a legal judgment about a specific spot in a specific state,
+    and a tool that blocks a render on it is claiming an answer it does not
+    have. What this records is narrower and true — that the findings were put
+    in front of a named person before the cut was filed, on a stated date,
+    against the exact set of findings that stood at that moment.
+
+    `findings_key` is what makes it survive an edit. An acknowledgment is a
+    statement about the copy as it was; rewriting the offer after somebody
+    signed off must not leave their name attached to a spot they never read,
+    which is the rule `modules/ads_builder` applies when an edit supersedes an
+    approved estimate.
+    """
+    __tablename__ = "cb_compliance_acks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=False)
+    acknowledged_by = db.Column(db.String(200), default="")
+    acknowledged_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # A stable fingerprint of the findings that stood when this was signed.
+    findings_key = db.Column(db.String(64), default="")
+    # What was on screen, kept verbatim, so the record can be read back years
+    # later without re-running a scanner whose patterns have since changed.
+    findings_json = db.Column(db.Text)
+    note = db.Column(db.Text, default="")
+
+    findings = JSONField("findings_json")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "project_id": self.project_id,
+            "acknowledged_by": self.acknowledged_by or "",
+            "acknowledged_at": (self.acknowledged_at.isoformat()
+                                if self.acknowledged_at else None),
+            "findings_key": self.findings_key or "",
+            "findings": self.findings or [],
+            "note": self.note or "",
+        }

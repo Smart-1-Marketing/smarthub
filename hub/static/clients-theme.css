@@ -1,0 +1,204 @@
+/* The client lookup at /clients, in the Hub's own colors.
+ *
+ * clients_app/ is a prebuilt React bundle: the compiled JS and CSS are
+ * committed and there is no source in this repo, so its markup cannot be
+ * edited and its stylesheet cannot be rebuilt. What it *can* be given is a
+ * later stylesheet, which is what this is — injected by `clients_index()` in
+ * hub/__init__.py after the bundle's own <link>, so equal-specificity rules
+ * here win.
+ *
+ * The bundle carries the old Smart 1 identity: near-black (#231f20) and lime
+ * green (#7ac043), on a green-tinted gray. Standing next to Client 360 and the
+ * SEO client page that reads as a different product, which is the whole reason
+ * this file exists. Remapping the five variables it declares does most of the
+ * work; the rest is here because the bundle also hardcodes colors in rules
+ * that carry no variable at all, and a half-converted palette is worse than an
+ * unconverted one.
+ *
+ * Two things are deliberately not attempted. `--s1-dark` is the bundle's ink
+ * *and* its dark surfaces — one variable doing two jobs — so the surfaces are
+ * named individually below rather than remapped, or the body text would end up
+ * as heavy as a heading. And nothing here changes layout: this is a color and
+ * weight pass over a working tool, not a rebuild of it.
+ *
+ * Scoped to body.s1-clients even though it is injected on one page only. The
+ * class names in this bundle are ordinary words — .kpi, .badge, .tabs, .search —
+ * and if this file is ever linked somewhere else, an unscoped `.badge` rule
+ * would restyle a module nobody was thinking about.
+ */
+
+body.s1-clients {
+  /* The accent, the secondary text and the page ground. Not --s1-dark: see above. */
+  --s1-green: #2563eb;      /* was lime; the Hub's blue */
+  --s1-green-dk: #1d4ed8;
+  --s1-gray: #64748b;
+  --s1-light: #f4f6fa;
+
+  --s1c-navy: #1a2e58;
+  --s1c-ink: #1e293b;
+  --s1c-line: #e2e8f0;
+  --s1c-line-soft: #eef2f7;
+  --s1c-wash: #f8fafc;
+
+  background: var(--s1-light);
+  color: var(--s1c-ink);
+  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+}
+
+/* ---------------- the header becomes a page head ---------------- */
+/* The Hub's sidebar is already on this page, so a full-width dark bar with a
+   second logo in it is chrome twice. White ground, navy title, one rule under
+   it — the shape every other record screen in the Hub opens with. */
+
+body.s1-clients .hdr {
+  background: #fff; color: var(--s1c-ink);
+  border-bottom: 1px solid var(--s1c-line); padding: 20px 24px;
+}
+body.s1-clients .brand { color: var(--s1c-navy); font-size: 19px; letter-spacing: 1px; }
+body.s1-clients .brand-1 { color: var(--s1-green); }
+body.s1-clients .hdr-title {
+  border-left: 1px solid var(--s1c-line); color: var(--s1-gray); font-size: 14px;
+}
+
+/* ---------------- tabs ---------------- */
+
+body.s1-clients .tab {
+  background: none; border: 1px solid var(--s1c-line); color: var(--s1-gray);
+  font-size: 13px; border-radius: 8px; padding: 7px 14px;
+}
+body.s1-clients .tab:hover { background: #eef2ff; border-color: #c7d2fe; color: var(--s1c-navy); }
+body.s1-clients .tab.active {
+  background: var(--s1c-navy); border-color: var(--s1c-navy); color: #fff;
+}
+body.s1-clients .tab-badge { background: #eef2ff; color: var(--s1c-navy); font-weight: 700; }
+body.s1-clients .tab.active .tab-badge { background: rgba(255,255,255,.22); color: #fff; }
+body.s1-clients .refresh-btn {
+  background: #fff; border: 1px solid var(--s1c-line); color: var(--s1c-ink);
+}
+body.s1-clients .refresh-btn:hover { background: var(--s1c-wash); border-color: var(--s1-green); color: var(--s1c-navy); }
+
+/* ---------------- number tiles ---------------- */
+/* A colored strip along the top of every tile is decoration on a row read for
+   its figures. The Hub's tile is a wash panel: the number, then its label. */
+
+body.s1-clients .kpi {
+  background: var(--s1c-wash); border: 1px solid var(--s1c-line);
+  border-top: 1px solid var(--s1c-line); border-radius: 10px; padding: 12px 14px;
+}
+body.s1-clients .kpi-n { color: var(--s1c-navy); font-size: 22px; }
+body.s1-clients .kpi-l { color: var(--s1-gray); font-size: 11px; letter-spacing: .6px; font-weight: 700; }
+/* The two emphasised tiles stay emphasised — they are how the page says which
+   figure is the headline — in the Hub's blue and navy rather than lime. */
+body.s1-clients .kpi.green { background: var(--s1-green); border-color: var(--s1-green); }
+body.s1-clients .kpi.dark { background: var(--s1c-navy); border-color: var(--s1c-navy); }
+body.s1-clients .kpi.green .kpi-l, body.s1-clients .kpi.dark .kpi-l { color: rgba(255,255,255,.85); }
+
+/* ---------------- cards and tiles ---------------- */
+
+body.s1-clients .dash-card,
+body.s1-clients .folder-tile,
+body.s1-clients .accordion,
+body.s1-clients .io-block,
+body.s1-clients .drop-group,
+body.s1-clients .table-wrap,
+body.s1-clients .fm-card { border-color: var(--s1c-line); border-radius: 12px; }
+body.s1-clients .dash-card { border-left: 1px solid var(--s1c-line); }
+body.s1-clients .folder-tile { border-top: 1px solid var(--s1c-line); }
+body.s1-clients .dash-card:hover,
+body.s1-clients .folder-tile:hover {
+  border-color: #c7d2fe; box-shadow: 0 6px 18px rgba(26,46,88,.12); transform: none;
+}
+body.s1-clients .dash-client, body.s1-clients .folder-io, body.s1-clients .acc-year,
+body.s1-clients .io-num, body.s1-clients .io-money, body.s1-clients .p-name,
+body.s1-clients .churn-head h3, body.s1-clients .rp-head h3,
+body.s1-clients .fm-header h2, body.s1-clients .fm-info h3, body.s1-clients .fm-open,
+body.s1-clients .qa-sub, body.s1-clients .summary strong { color: var(--s1c-navy); }
+body.s1-clients .report-panel { background: var(--s1c-wash); border-color: var(--s1c-line); }
+body.s1-clients .prompt { border-color: #cbd5e1; color: var(--s1-gray); }
+body.s1-clients .fm-header { border-bottom: 1px solid var(--s1c-line); }
+
+/* The blue that means "this is a link or a name you can follow". */
+body.s1-clients .folder-client, body.s1-clients .io-client, body.s1-clients .dash-open,
+body.s1-clients .fm-product, body.s1-clients .fm-io, body.s1-clients .data-table a,
+body.s1-clients .detail-table a, body.s1-clients .gain, body.s1-clients .chev { color: var(--s1-green); }
+
+/* ---------------- section headings ---------------- */
+
+body.s1-clients .year-h, body.s1-clients .qa-h {
+  color: var(--s1c-navy); border-bottom: 3px solid var(--s1-green);
+}
+body.s1-clients .prior-label { color: var(--s1-gray); }
+
+/* ---------------- tables ---------------- */
+
+body.s1-clients .data-table th,
+body.s1-clients .prod-table th,
+body.s1-clients .drop-head,
+body.s1-clients .io-head { background: var(--s1c-wash); color: var(--s1-gray); }
+body.s1-clients .data-table th,
+body.s1-clients .prod-table th,
+body.s1-clients .io-head,
+body.s1-clients .drop-head { border-bottom: 1px solid var(--s1c-line); }
+body.s1-clients .data-table td,
+body.s1-clients .prod-table td,
+body.s1-clients .detail-table td,
+body.s1-clients .detail-table th { border-bottom: 1px solid var(--s1c-line-soft); }
+body.s1-clients .clickrow:hover { background: #fbfdff; }
+body.s1-clients .score tfoot td {
+  background: var(--s1c-wash); border-top: 2px solid var(--s1c-navy);
+}
+body.s1-clients .acc-head:hover { background: var(--s1c-wash); }
+
+/* ---------------- pills ---------------- */
+/* The Hub's four states. `pending` is amber rather than the bundle's mustard,
+   and a badge with no state named stays gray — "we have not been told" is not
+   a failure, which is the rule every status pill in this Hub works to. */
+
+body.s1-clients .badge { background: #eef3f8; color: #68798c; border-radius: 999px; }
+body.s1-clients .badge.complete, body.s1-clients .badge.live { background: #ecfdf3; color: #12794b; }
+body.s1-clients .badge.pending { background: #fef7e7; color: #94620a; }
+body.s1-clients .badge.cancelled { background: #fdecec; color: #b01919; }
+
+/* ---------------- controls ---------------- */
+
+body.s1-clients .ctl label { color: var(--s1-gray); }
+body.s1-clients .search { border-color: var(--s1c-line); border-radius: 8px; font-size: 13.5px; }
+body.s1-clients .search:focus { border-color: var(--s1-green); outline: 2px solid rgba(37,99,235,.35); }
+body.s1-clients a:focus-visible,
+body.s1-clients button:focus-visible,
+body.s1-clients input:focus-visible { outline: 2px solid var(--s1-green); outline-offset: 2px; }
+
+/* One primary button, and the rest quiet. The bundle painted Reset, both
+   Export buttons and the QA actions the same near-black, so four controls of
+   three different importances read as one. */
+body.s1-clients .reset,
+body.s1-clients .empty button {
+  background: var(--s1-green); border-radius: 8px; font-weight: 600; font-size: 13px;
+}
+body.s1-clients .reset:hover, body.s1-clients .empty button:hover { background: var(--s1-green-dk); }
+body.s1-clients .exports button,
+body.s1-clients .exports-btn,
+body.s1-clients .qa-actions button {
+  background: #fff; border: 1px solid var(--s1c-line); color: var(--s1c-ink); font-weight: 600;
+}
+body.s1-clients .exports button:hover,
+body.s1-clients .exports-btn:hover,
+body.s1-clients .qa-actions button:hover { background: var(--s1c-wash); border-color: var(--s1-green); }
+body.s1-clients .toggle { border-color: var(--s1c-line); }
+body.s1-clients .toggle button.on { background: var(--s1c-navy); }
+body.s1-clients .report-btn {
+  border: 1px solid var(--s1c-line); border-left: 1px solid var(--s1c-line);
+  color: var(--s1c-ink); font-size: 13.5px;
+}
+body.s1-clients .report-btn:hover { border-color: #c7d2fe; background: var(--s1c-wash); }
+body.s1-clients .report-btn.on {
+  background: var(--s1c-navy); border-color: var(--s1c-navy); color: #fff;
+}
+
+/* ---------------- state ---------------- */
+
+body.s1-clients .err {
+  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px;
+}
+body.s1-clients .lost, body.s1-clients .churn-total { color: #b01919; }
+body.s1-clients .spinner { border-top-color: var(--s1-green); }

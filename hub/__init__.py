@@ -789,6 +789,51 @@ def create_hub_app() -> Flask:
                       client=body.get("client", ""))
         return jsonify(out)
 
+    @app.route("/api/sites-match/read-names", methods=["POST"])
+    def api_sites_match_read_names():
+        """Read the unmatched project titles for the business inside them.
+
+        A POST, and a button, because the call is billed: a GET that spends
+        money is one a reload or a link preview fires without anybody asking —
+        the rule `hub/domain_purchase.py` settled for the domain calendar and
+        `hub/brand_lookup.py` for the brand card.
+
+        The model is shown project titles and nothing else. It never sees the
+        client book, so it cannot name a client; what it returns is a run of
+        words out of the title, which then goes through
+        `site_names.exact_matches()` against the real book exactly like a
+        candidate a rule derived. Reading changes no match on its own.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import site_names_ai
+        from .sites_match import suggest
+        body = request.get_json(silent=True) or {}
+        include = bool(body.get("include_inactive"))
+        data = suggest(active_only=not include)
+        titles = [r.get("site") or "" for key in
+                  ("unmatched", "no_domain", "suggested")
+                  for r in (data.get(key) or [])]
+        out = site_names_ai.read_missing(titles)
+        # The report is held for the day, and a reading changes what it would
+        # say — so it is dropped here rather than leaving the page showing the
+        # answer from before the button was pressed, which reads as a button
+        # that did nothing. The drop lives beside the write, per
+        # hub/report_cache.py.
+        try:
+            from . import report_cache
+            report_cache.invalidate("sites-match")
+        except Exception:                               # noqa: BLE001
+            pass
+        try:
+            audit.log("sites_match", "read_names", actor=current_user() or "",
+                      read=out.get("read", 0), stored=out.get("stored", 0),
+                      ungrounded=out.get("ungrounded", 0))
+        except Exception:                               # noqa: BLE001
+            pass
+        return jsonify(out)
+
     @app.route("/api/sites-match/apply", methods=["POST"])
     def api_sites_match_apply():
         """Write only the matches a human accepted."""
@@ -2914,6 +2959,101 @@ def create_hub_app() -> Flask:
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "social": social})
 
+    # ------------- the Smart 1 Suite app frame (a CLIENT, not a rep)
+    #
+    # The path is "/suite-app" and deliberately NOT "/suite/app": /suite is a
+    # dispatcher-mounted module, and a hub route under a mounted prefix never
+    # receives the request — it 404s with every template valid and every link
+    # resolving. This is the first trap CLAUDE.md names and it has bitten four
+    # times now; /api/integrity's high-severity check is what caught this one.
+    #
+    # hub/suite_embed.py solved the staff case: a rep already has a Hub session
+    # in that browser. A client has none and must never be given one, so
+    # identity comes from HighLevel's SSO handshake instead — the framed page
+    # asks its parent for the user payload, HighLevel replies encrypted under
+    # the app's SSO key, and hub/suite_sso.py decrypts it here to learn which
+    # sub-account this person is in.
+    #
+    # These two routes are deliberately the whole client-facing surface. They
+    # prove who is looking and then hand them their *existing* content link —
+    # the pages behind it are already client-facing, already scoped to one
+    # client and already tested, so no new place to see data is created here.
+    # Somewhere for one client to be shown another client's record is exactly
+    # what this handshake exists to prevent, and the smallest way to build it
+    # is not to build one.
+    @app.route("/suite-app")
+    def suite_app_frame():
+        from . import suite_sso
+        # Not configured is said in words rather than drawn as a broken frame.
+        # This page is only ever reached from inside Suite, so the reader is
+        # whoever configured the menu link.
+        return render_template("suite_app.html",
+                               configured=suite_sso.configured(),
+                               why_not=suite_sso.why_not())
+
+    @app.route("/suite-app/session", methods=["POST"])
+    def suite_app_session():
+        """Turn an SSO payload into somewhere this client may go.
+
+        No client name is taken from the request — the location id inside the
+        decrypted payload is the only thing identity comes from, which is the
+        whole security model and the reason this route accepts nothing else.
+        """
+        from . import suite_sso
+        body = request.get_json(silent=True) or {}
+        found = suite_sso.identify(str(body.get("payload") or ""))
+        if not found["ok"]:
+            # The four refusals are named for whoever has to fix one, and none
+            # of them says anything a prober could tune a guess against: an
+            # unreadable payload is unreadable whatever was wrong with it.
+            return jsonify({"ok": False, "state": found["state"],
+                            "error": found["detail"]}), 403
+        from modules.social_planner import links as social_links
+        target = social_links.link(found["client"], found.get("client_url", ""),
+                                   "approve", request.host_url)
+        audit.log("hub", "suite_sso_session", actor="suite",
+                  client=found["client"], location=found["location_id"],
+                  user=found["user"].get("email", ""))
+        return jsonify({"ok": True, "client": found["client"], "url": target})
+
+    # ------------- social content: requests, ideas, the client's own link
+    #
+    # The Social Media card above is the client's profile URLs, which is a
+    # different question from "is anybody at this client asking us for
+    # anything". Before this the record said nothing at all about the work:
+    # a client could have three requests overdue, a link nobody had sent them
+    # and four posts sitting unanswered, and none of it was on the one screen
+    # a rep opens. hub/social_status.py answers it, and the dashboard
+    # scoreboard reads the same module so the two cannot disagree.
+    @app.route("/api/client/social-content")
+    def api_client_social_content():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        if not name:
+            return jsonify({"measured": False, "error": "No client was named."})
+        return jsonify(social_status.for_client(name, url,
+                                                request.host_url))
+
+    @app.route("/api/social/scoreboard")
+    def api_social_scoreboard():
+        """Who is waiting on us, for the dashboard.
+
+        Deliberately not behind `access.UTILITY_PREFIXES`: this is the
+        workload of the people reading the dashboard, and the presence
+        headcount already showed what happens when a figure everybody sees is
+        served by a path most accounts are refused — the panel rendered a
+        confident green nothing for eleven of fourteen people.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        return jsonify(social_status.scoreboard())
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
@@ -3069,6 +3209,49 @@ def create_hub_app() -> Flask:
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
             return jsonify({"configured": True, "tickets": [], "error": str(exc)})
+
+    @app.route("/api/client/requests/triage", methods=["POST"])
+    def api_client_request_triage():
+        """Read the description and propose the choices it already answers.
+
+        One route for both objects, because `ticket_form_fields()` and
+        `campaign_form_fields()` hand back the same shape and two copies of
+        this would be two descriptions of what a suggestion is.
+
+        A POST, and only ever into the fields the caller says are **empty**: a
+        value somebody chose is the better source and is never offered over,
+        and the gate is here rather than in the browser because a rule the
+        form keeps while the endpoint breaks it is not a rule. Nothing is
+        written — the suggestion is drawn dotted and one press keeps it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api, request_triage
+        body = request.get_json(silent=True) or {}
+        kind = str(body.get("kind") or "ticket")
+        if not knack_api.configured():
+            return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                            "error": "Knack is not configured, so the "
+                                     "options a field accepts cannot be read.",
+                            "note": ""})
+        try:
+            if kind == "ticket":
+                fields = knack_api.ticket_form_fields("create")
+            else:
+                fields = knack_api.campaign_form_fields(
+                    "support" if kind == "support" else "change")
+        except Exception as exc:                        # noqa: BLE001
+            # Named, not answered with an empty list: "this field accepts
+            # nothing" and "we could not read what it accepts" are different,
+            # and only the second is somebody's to fix.
+            return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                            "error": f"The live object could not be read "
+                                     f"({type(exc).__name__}).", "note": ""})
+        out = request_triage.suggest(
+            body.get("text") or "", fields, body.get("empty") or [],
+            module=("tickets" if kind == "ticket" else "campaign_support"))
+        return jsonify(out)
 
     @app.route("/api/client/tickets/fields")
     def api_client_ticket_fields():
@@ -4511,9 +4694,20 @@ def create_hub_app() -> Flask:
         _admin = viewer_is_admin()
         with open(os.path.join(CLIENTS_APP, "index.html"), "rb") as fh:
             body = fh.read()
-        snippet = b'<link rel="stylesheet" href="/assets/theme.css">'
+        # Two stylesheets, both after the bundle's own <link> so equal rules
+        # here win. theme.css is the shared typography-and-colour layer every
+        # module gets; clients-theme.css is this page's alone, because the
+        # bundle carries the old near-black-and-lime identity in class names
+        # (.kpi, .badge, .tabs) too ordinary to restyle globally. It is scoped
+        # to the body class added below for the same reason.
+        snippet = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                   b'<link rel="stylesheet" href="/assets/clients-theme.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", snippet + b"</head>", 1)
+        # Not data-module: that is what hub-demo.js floats "Walk me through
+        # this" onto, and this page has no walkthrough written for it.
+        if b"<body>" in body:
+            body = body.replace(b"<body>", b'<body class="s1-clients">', 1)
         bar = render_sidebar("clients", is_admin=_admin)
         # Deep links from Client 360: /clients?q=<client> auto-fills and runs
         # the React app's search (native value setter so React sees the input).
@@ -4961,7 +5155,15 @@ def create_hub_app() -> Flask:
         elif age > 48:
             add("Smart 1 Team data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
         else:
-            add("Smart 1 Team data", "ok", f"Refreshed {age:.0f}h ago · {len(knack_data.products())} product rows · {len(knack_data.websites())} sites.")
+            # The site count says which source answered. Products and websites
+            # each prefer the live Knack object and fall back to the committed
+            # export, and a count with no source on it reads as live whichever
+            # it was — which is the whole reason the export went unnoticed.
+            _wsrc = knack_data.websites_source()
+            add("Smart 1 Team data", "ok",
+                f"Refreshed {age:.0f}h ago · {len(knack_data.products())} "
+                f"product rows · {len(knack_data.websites())} sites "
+                f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
 
         # --- GHL ---
         token, company = _cfg.ghl_token, _cfg.ghl_company_id
@@ -5202,6 +5404,16 @@ def create_hub_app() -> Flask:
                   "/robots.txt", "/llms.txt",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
                   "/sales/landing/p/",
+                  # The Smart 1 Suite app frame. A *client* opens this inside
+                  # their own sub-account and has no Hub account at all, so
+                  # the staff sidebar, help layer and feedback tab must not be
+                  # injected into it — the same reason the landing pages above
+                  # are here, one audience further out.
+                  # NOT "/suite/…": that prefix is a mounted module, and a hub
+                  # route under a mount never receives the request. /api/integrity
+                  # has a high-severity check for exactly that, and it caught
+                  # this one before it shipped.
+                  "/suite-app",
                   # The display-ad proof. A client opens this to approve or
                   # send back a set of banners, so it must not arrive wearing
                   # the staff sidebar, the help layer and a feedback tab --
@@ -5477,6 +5689,19 @@ def create_hub_app() -> Flask:
     except Exception as _sc_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _sc_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Prospect 360 ----------------
+    # The record a scanned business gets before it is a client. Blueprint, so
+    # the login gate sits on the blueprint itself -- every route here names a
+    # real person and their phone number.
+    try:
+        from .prospect_routes import register_prospect
+        register_prospect(app)
+    except Exception as _pr_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _pr_exc)
         except Exception:  # noqa: BLE001
             pass
 

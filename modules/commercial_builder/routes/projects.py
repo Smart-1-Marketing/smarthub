@@ -3,7 +3,7 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link
+from .. import client_link, compliance_spec, library_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
@@ -11,7 +11,8 @@ from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE
                       SHOT_NUMBER_STEP, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
                       CTV_PUBLISHERS, publisher_qr_note, shot_label)
 from ..db import db
-from ..models import Client, CommercialProject, Scene, Campaign, Variation
+from ..models import (Client, CommercialProject, Scene, Campaign, Variation,
+                      ComplianceAck)
 from ..services import (openai_service, qrcode_service, cloudinary_service,
                         qc_service, abcd_service)
 
@@ -247,6 +248,19 @@ def save_brief(project_id):
     if "publishers" in data:
         brief["publishers"] = [p for p in (data.get("publishers") or [])
                                if p in {x["id"] for x in CTV_PUBLISHERS}]
+    # The archetype — what the spot IS, as distinct from how it gets made.
+    # It lives here rather than on a column because `commercial_type` already
+    # holds both answers and `create_all()` adds no column to an existing
+    # table; `library_spec.archetype_for()` reads the legacy value so a
+    # project saved before this reads as the archetype it always was.
+    if "archetype" in data:
+        chosen = str(data.get("archetype") or "")
+        brief["archetype"] = chosen if chosen in library_spec.ARCHETYPES else ""
+    # What each archetype needs from the client, answered on the same screen
+    # it is asked on. Free text: "which customer" is a name, not an option.
+    for need in library_spec.NEED_KEYS:
+        if need in data:
+            brief[need] = str(data.get(need) or "").strip()[:600]
     project.brief = brief
     if project.status == "draft":
         project.status = "brief"
@@ -575,6 +589,98 @@ def expand_narration(project_id):
     return jsonify({"ok": True, "written": written, "note": result.get("note", ""),
                     "budget": budget, "scenes": refreshed,
                     "live": openai_service.is_live()})
+
+
+# A shared-password session is a true statement about the session and a
+# useless one in a record whose entire value is the name on it. `hub/ad_copy.py`
+# refuses the same way, for the same reason.
+NOT_A_PERSON = {"", "Shared login", "shared login"}
+
+
+def _actor_name():
+    try:
+        from hub import auth as _hub_auth
+        user = _hub_auth.user_from_environ(request.environ)
+        return (getattr(user, "name", None) or getattr(user, "email", None)
+                or str(user or "") or "")[:200]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+@bp.get("/<int:project_id>/compliance")
+def get_compliance(project_id):
+    """Which published rules this spot's copy engages, and who has signed it off.
+
+    Its own route rather than a slice of /qc for the reason /abcd is: the
+    panel is read while the script is being edited, and QC makes an OpenAI
+    call for the spelling pass.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    result = compliance_spec.scan(
+        script=project.script, brief=project.brief, cta=project.cta,
+        client=client.to_dict(), commercial_type=project.commercial_type or "")
+    key = compliance_spec.findings_key(result)
+    ack = (ComplianceAck.query.filter_by(project_id=project.id)
+           .order_by(ComplianceAck.id.desc()).first())
+    return jsonify({
+        "ok": True,
+        "compliance": result,
+        "summary": compliance_spec.summary(result),
+        "needs_acknowledgment": compliance_spec.needs_acknowledgment(result),
+        "findings_key": key,
+        "acknowledgment": ack.to_dict() if ack else None,
+        # A sign-off against a different set of findings is not a sign-off on
+        # this one. Reported rather than silently ignored: "nobody has looked"
+        # and "somebody looked at an earlier cut" are different situations,
+        # and only the second has a name to go back to.
+        "acknowledged": bool(ack and ack.findings_key == key),
+        "superseded": bool(ack and ack.findings_key != key),
+        "not_enforced": compliance_spec.NOT_ENFORCED,
+    })
+
+
+@bp.post("/<int:project_id>/compliance/acknowledge")
+def acknowledge_compliance(project_id):
+    """One explicit "we have checked what these rules require".
+
+    Recorded against a name and against the exact findings that stood at the
+    time — never a boolean on the project, because the question somebody asks
+    later is *who* signed this off and *what did it say then*, and a flag
+    answers neither. The shape `hub/creative_needs.py` uses for a comp
+    confirmation on a low-spend medium.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    body = request.get_json(silent=True) or {}
+    result = compliance_spec.scan(
+        script=project.script, brief=project.brief, cta=project.cta,
+        client=client.to_dict(), commercial_type=project.commercial_type or "")
+
+    actor = _actor_name()
+    if actor in NOT_A_PERSON:
+        # `hub/ad_copy.py`'s rule. "Shared login" is a true statement about
+        # the session and a useless one in a record whose entire value is the
+        # name on it, so it is refused rather than written.
+        return jsonify({"ok": False, "error": (
+            "This session has no account behind it, so there is no name to "
+            "record. Sign in with your own Hub account to acknowledge "
+            "this.")}), 400
+
+    ack = ComplianceAck(
+        project_id=project.id, acknowledged_by=actor,
+        findings_key=compliance_spec.findings_key(result),
+        note=str(body.get("note") or "").strip()[:2000])
+    ack.findings = result.get("findings") or []
+    db.session.add(ack)
+    db.session.commit()
+    _cb_log("commercial_compliance_acknowledged", client=client.name,
+            detail=(f"{project.title or 'Commercial'} · "
+                    + (", ".join(compliance_spec.REGIMES[r]["label"]
+                                 for r in result.get("regimes", []))
+                       or "nothing engaged")),
+            project=project.id)
+    return jsonify({"ok": True, "acknowledgment": ack.to_dict()})
 
 
 @bp.get("/<int:project_id>/abcd")

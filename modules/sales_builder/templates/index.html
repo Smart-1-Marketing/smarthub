@@ -326,6 +326,10 @@
   <div id="view-proposals" style="display:none"></div>
   <div id="view-builder" style="display:none"><div class="bshell">
     <div style="display:flex;align-items:center;gap:12px"><span class="stepLabel" style="font-size:13px;color:var(--muted);font-weight:700" id="stepLabel"></span><span style="margin-left:auto" class="savestate" id="saveState"></span></div>
+    <!-- Says which step a reopened quote landed on, and offers the top.
+         A rep who is put on step 9 with no explanation reads it as the tool
+         having skipped ahead, and Back from there is eight presses. -->
+    <div id="resumeNote" class="note" style="display:none;margin:8px 0 0"></div>
     <div class="bprog"><i id="bar"></i></div>
     <div id="stage"></div>
   </div></div>
@@ -592,6 +596,11 @@ let _toastT=null;
 function toast(m){const t=document.getElementById('toastEl');t.textContent=m;t.style.display='block';clearTimeout(_toastT);_toastT=setTimeout(()=>t.style.display='none',5200);}
 function ago(iso){if(!iso)return"";const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return"Today";if(d<2)return"Yesterday";if(d<7)return Math.floor(d)+"d ago";return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 async function api(path,opts){const r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts));const d=await r.json().catch(()=>({}));if(!r.ok&&d&&d.error)throw new Error(d.error+(d.detail?": "+d.detail:""));if(!r.ok)throw new Error("HTTP "+r.status);return d;}
+/* How many steps the wizard has. The list is drawn in an earlier script
+   block than STEPS, so it cannot read STEPS.length -- test_drafts.py holds
+   the two in step rather than memory, the arrangement test_thinking.py uses
+   for the two halves of the thinking mark. */
+const STEP_COUNT=14;
 const badge=s=>({Draft:"b-draft",Sent:"b-sent",Approved:"b-approved",Converted:"b-converted",Lost:"b-lost",Expired:"b-expired"})[s]||"b-draft";
 function editRep(){const n=prompt("Salesperson name (appears on proposals):",REP_NAME||"");if(n===null)return;const e=prompt("Salesperson email:",REP_EMAIL||"");REP_NAME=(n||"").trim();REP_EMAIL=(e||"").trim();lsSet("s1_rep_name",REP_NAME);lsSet("s1_rep_email",REP_EMAIL);drawRep();}
 function drawRep(){document.getElementById('repName').textContent=REP_NAME||"Set your name";document.getElementById('repAv').textContent=(REP_NAME||"S 1").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();}
@@ -738,7 +747,8 @@ function rowHtml(x){
   <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
   <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
   <td>${byLine(x.created_by,"Built here")}</td>
-  <td><span class="badge ${badge(x.status)}">${x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}</td>
+  <td><span class="badge ${badge(x.shown_status||x.status)}">${x.shown_status||x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}
+   ${x.status==='Draft'&&x.step>0?`<small style="display:block;color:var(--muted);margin-top:3px">Left at step ${x.step+1} of ${STEP_COUNT}</small>`:""}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    <button class="ic" title="Edit proposal" onclick="editQuote(${x.id})">✏️</button>
    <button class="ic" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
@@ -1012,6 +1022,7 @@ async function drawShare(id){
     since you sent revision ${s.sent_revision}. The link already shows revision ${s.revision} —
     tell the client there is a new version, or
     <a onclick="makeShare(${id})" style="cursor:pointer;color:var(--blue);font-weight:700">mark it as sent</a>.</div>`:''}
+  ${validityPanel(id,s)}
   <div class="dsec" style="margin-top:14px">Opened</div>
   ${opens?`<div class="note"><b>${opens}</b> time${opens===1?'':'s'}${
      s.views_this_revision!==opens?` · <b>${s.views_this_revision}</b> since revision ${s.revision}`:''}
@@ -1029,9 +1040,41 @@ async function drawShare(id){
         ${s.revision}, so that acceptance is <b>superseded</b> — the client has not agreed to the
         current version.</div>`
       :`<div class="note">Not yet.</div>`)}`;}
+function validityPanel(id,s){
+ /* How long the price stands, on the screen where the link is sent. An
+    expired quote that a client can still accept commits us to last spring's
+    rates; a rep who cannot see the date cannot extend it either. */
+ const v=s.validity||{};
+ if(!v.applies)return `<div class="dsec" style="margin-top:14px">How long it stands</div>
+  <div class="note">${esc(v.reason||'This quote has no expiry window.')}</div>`;
+ const cls=v.expired?'warnbox':'note';
+ return `<div class="dsec" style="margin-top:14px">How long it stands</div>
+  <div class="${cls}" style="margin-top:${v.expired?'6px':'0'}">${esc(v.note||'')}
+   ${v.expired?`<br>Sending it again re-quotes at today's rates and starts a new
+     ${v.days}-day window — <a onclick="makeShare(${id})" style="cursor:pointer;color:var(--blue);font-weight:700">re-send the link</a>.`:''}</div>
+  <div class="addrow" style="margin-top:7px">
+   <label style="font-weight:600;font-size:12px;color:var(--muted);margin:0">Hold the pricing for</label>
+   <input id="valDays${id}" type="number" min="1" max="365" step="1" value="${+v.days||30}"
+          style="width:84px" onkeydown="if(event.key==='Enter')setValidity(${id})">
+   <span class="note" style="margin:0">days</span>
+   <button class="btn btn-ghost" onclick="setValidity(${id})">Save</button>
+   ${v.custom?`<button class="btn btn-ghost" onclick="setValidity(${id},0)">Use the standard window</button>`:''}
+  </div>`;}
+async function setValidity(id,days){
+ const el=document.getElementById('valDays'+id);
+ const n=(days===0)?0:(el?+el.value:0);
+ try{await api('/sales/builder/api/quotes/'+id+'/validity',
+      {method:'POST',body:JSON.stringify({days:n})});
+  toast(n?("Pricing held for "+n+" days."):"Back on the standard window.");
+  drawShare(id);refreshLists();}
+ catch(e){toast(e.message);}}
 async function makeShare(id){
+ /* Sending moves a Draft to Sent, so the whole drawer is redrawn rather than
+    just the share panel: the header badge and the status pills were left
+    saying Draft beside a panel saying how long it stands, which is the two
+    halves of one screen disagreeing about whether it has gone out. */
  try{await api('/sales/builder/api/quotes/'+id+'/share',{method:'POST'});
-  toast("Client link ready — copy it to the client.");drawShare(id);refreshLists();}
+  toast("Client link ready — copy it to the client.");openDrawer(id);refreshLists();}
  catch(e){toast(e.message);}}
 async function revokeShare(id){
  if(!confirm("Switch the client link off? Anyone who already has it will see the same page as a link that never existed."))return;
@@ -1101,7 +1144,7 @@ function freshState(){return{
 };}
 async function startNewProposal(){
  S=freshState();QUOTE_ID=null;QUOTE_NUMBER="";step=0;_lastStep=-1;S._areaView=null;S._areaIx=0;
- nav('builder');renderStep();
+ nav('builder');clearResumeNote();renderStep();
  try{const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});
   QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;drawQuoteTag("Saved as "+QUOTE_NUMBER);}
  catch(e){drawQuoteTag("⚠ Not saved — server unreachable");}
@@ -1109,9 +1152,25 @@ async function startNewProposal(){
 async function editQuote(id){
  try{const d=await api('/sales/builder/api/quotes/'+id);editLoaded(d.quote);}catch(e){toast(e.message);}
 }
+function resumeStep(){
+ /* The saved position, or the first step. Clamped, because the number was
+    written by whatever version of the wizard saved it and a step index that
+    is out of range would throw inside renderStep() -- a blank builder on a
+    quote whose answers are all perfectly intact. */
+ let n=0;
+ try{n=parseInt(S&&S._step,10);}catch(e){n=0;}
+ if(!(n>0))return 0;
+ return Math.min(n,STEPS.length-1);
+}
 function editLoaded(q){
- S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;step=0;_lastStep=-1;
+ S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;_lastStep=-1;
+ step=resumeStep();
  S._kpiPlan=q.kpi_framework||null;
+ /* The delivery figures, computed server-side. Never a JavaScript copy of
+    that arithmetic: the PDF, the Word export and this preview are three
+    renderers of one table already, and a fourth answer to "what does this
+    line buy" is the drift this codebase has paid for twice. */
+ S._mediaPlan=q.media_plan||null;
  S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
  // geoType/geo/radius. The server already converted it (hub/target_areas
@@ -1120,7 +1179,20 @@ function editLoaded(q){
  if(!(S.targetAreas||[]).length&&(q.target_areas||[]).length)S.targetAreas=q.target_areas;
  S._areaView=null;S._areaIx=0;
  nav('builder');renderStep();drawQuoteTag("Editing "+QUOTE_NUMBER+" · rev "+q.revision);
+ /* Landing on step 9 with no explanation reads as the tool having skipped
+    ahead, so it says which step it opened on and offers step one -- the
+    behavior everybody had before this. */
+ drawResumeNote();
 }
+function drawResumeNote(){
+ const el=document.getElementById('resumeNote');if(!el)return;
+ if(!(step>0)){el.style.display="none";el.innerHTML="";return;}
+ el.style.display="";
+ el.innerHTML="Reopened at step "+(step+1)+" of "+STEPS.length+", where this quote was left. "
+  +'<a onclick="restartWizard()" style="cursor:pointer;color:var(--blue);font-weight:700">Start at step 1</a>';
+}
+function clearResumeNote(){const el=document.getElementById('resumeNote');if(el){el.style.display="none";el.innerHTML="";}}
+function restartWizard(){step=0;clearResumeNote();renderStep();}
 function drawQuoteTag(t){const el=document.getElementById('quoteTag');if(el)el.textContent=t;}
 function saveSoon(){clearTimeout(_saveT);setSave("…");_saveT=setTimeout(saveNow,900);}
 async function saveNow(extra){
@@ -1128,6 +1200,14 @@ async function saveNow(extra){
  // Stamped on save so the IO payload, the PDF and the dashboard all read the
  // same sentence rather than each re-deriving it.
  try{S.creativeSummary=creativeSummary();}catch(e){}
+ /* Where the rep had got to, saved with the work. The quote's answers were
+    always kept -- what was lost on every interruption was the place: a rep
+    who was on the media plan reopened at step 1 of 14 and pressed Continue
+    until they found it again. It rides inside the quote's own data blob
+    rather than in a new column, because create_all() adds no column to an
+    existing table and one added here would be silently absent on the live
+    Postgres with every local test green. */
+ try{if(typeof step==="number")S._step=step;}catch(e){}
  setSave("Saving…");
  try{
   /* growth is computed by the server, not stored on the quote's data. Kept
@@ -1142,12 +1222,23 @@ async function saveNow(extra){
      only when it actually changed and only when nothing is being edited:
      drawPreview() rebuilds the whole document, and a rebuild 900ms after a
      keystroke takes the caret out of the section somebody is typing in. */
+  /* Both of these are the server's, not S's: computed from the plan, and a
+     stale copy is a document contradicting the table above it. Repainted
+     only when one actually changed and only when nothing is being edited --
+     drawPreview() rebuilds the whole document, and a rebuild 900ms after a
+     keystroke takes the caret out of the section somebody is typing in. */
+  let repaint=false;
+  if(saved&&saved.quote&&saved.quote.media_plan){
+   const before=JSON.stringify(S._mediaPlan||null);
+   S._mediaPlan=saved.quote.media_plan;
+   if(before!==JSON.stringify(S._mediaPlan))repaint=true;
+  }
   if(saved&&saved.quote&&saved.quote.kpi_framework){
    const before=JSON.stringify(S._kpiPlan||null);
    S._kpiPlan=saved.quote.kpi_framework;
-   if(before!==JSON.stringify(S._kpiPlan)&&!S._editSec&&!S._tableEdit
-      &&document.getElementById('docPreview'))drawPreview();
+   if(before!==JSON.stringify(S._kpiPlan))repaint=true;
   }
+  if(repaint&&!S._editSec&&!S._tableEdit&&document.getElementById('docPreview'))drawPreview();
   setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
  }catch(e){setSave("⚠ Not saved: "+e.message);}
 }
@@ -1331,13 +1422,16 @@ const COMP_CONFIRM_UNDER=1500;
    $250 of design on the card, so comping it stops being sensible far lower
    down than a shoot does -- and a confirmation that fires on every plan is
    one nobody reads. */
-const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500};
+const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500,email:400};
 function confirmUnder(m){return COMP_CONFIRM_BY_MEDIUM[m]||COMP_CONFIRM_UNDER;}
-const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250};
+const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250,
+ email:150,dooh:250};
 const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
  audio:"Audio (digital radio, podcasts, streaming audio)",
  display:"Display (banners, native, IP targeted, geo-fenced)",
  retargeting:"Retargeting (the banners that bring them back)",
+ email:"Email (the creative that goes in the send)",
+ dooh:"Signage (digital out-of-home and indoor screens)",
  social:"Paid social",other:"Other"};
 /* Four programmatic VIDEO products sit under the same DISPLAY category as
    banner inventory and their names do not say so -- "Programmatic - Targeted"
@@ -1352,13 +1446,24 @@ const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video",
     buy, whose name lists retargeting as one of the tactics inside it. Read
     off the name alone it becomes a retargeting line and the display half of
     the plan never gets asked for banners at all. */
- "data targeted display":"display","programmatic campaign":"display"};
+ "data targeted display":"display","programmatic campaign":"display",
+ /* These three answered "other", which is not a medium -- it is the gate
+    never being asked. The spec kit has known what they are the whole time,
+    so the two halves of one question were disagreeing: one decides whether
+    we ask for creative, the other what we ask for. */
+ "mobile only":"display","email marketing":"email","smart 1 signage":"dooh"};
 function mediumOf(i){
  const cat=String((i&&i.category)||"").trim().toLowerCase();
  if(CATEGORY_MEDIUM[cat])return CATEGORY_MEDIUM[cat];
  const prod=String((i&&i.product)||"").trim().toLowerCase();
  if(EXPLICIT_MEDIUM[prod])return EXPLICIT_MEDIUM[prod];
- const t=[cat,prod,String((i&&i.label)||"")].join(" ").toLowerCase();
+ /* The label is deliberately left out. It is "<category heading> —
+    <product>", and a heading describes a section of the card rather than a
+    product: four IP-targeting products are filed under a heading called
+    "Display & Video", so "IP Targeted Display - New Movers" carried the word
+    video and the test below runs first. Category and product are both here
+    already, so the label added nothing but that. */
+ const t=[cat,prod,String((i&&i.description)||"")].join(" ").toLowerCase();
  if(/radio|podcast|audio|spotify|pandora|iheart/.test(t))return "audio";
  if(/video|ott|youtube|trueview|bumper|connected tv|advanced tv|ctv|pre-?roll|non-skippable/.test(t))return "video";
  if(/facebook|instagram|meta|tik ?tok|linkedin|snapchat|pinterest|twitter|social/.test(t))return "social";
@@ -1376,7 +1481,11 @@ function mediumSpend(m){
    Retargeting is asked separately because it is a different set of files:
    the same six sizes carrying the offer that brings somebody back, not the
    one that introduced the brand. */
-const GATED_MEDIA=["video","audio","display","retargeting"];
+/* Email and signage joined for the reason display did. Both sell creative
+   with published specs and neither was ever asked for, because every product
+   under EMAIL MARKETING and SMART 1 SIGNAGE answered "other" and an ungated
+   medium is one this step never mentions. */
+const GATED_MEDIA=["video","audio","display","retargeting","email","dooh"];
 function gatedMedia(){
  const present=new Set(S.items.map(mediumOf));
  return GATED_MEDIA.filter(m=>present.has(m));}
@@ -1691,7 +1800,7 @@ const PROPOSAL_OUTLINE=[
  {id:"areas",title:"Audience & Market Strategy",kind:"areas",purpose:"Precision targeting, area by area."},
  {id:"reach",title:"Addressable Audience",kind:"reach",purpose:"How many people this actually reaches."},
  {id:"channels",title:"Recommended Channel Strategy",kind:"channels",purpose:"Every channel's role in the funnel and its KPI."},
- {id:"mediaplan",title:"Media Mix & Budget Allocation",kind:"mediaplan",purpose:"Where the money goes, at card rates."},
+ {id:"mediaplan",title:"Media Mix & Budget Allocation",kind:"mediaplan",purpose:"Where the money goes, and what each line buys."},
  {id:"creative",title:"Creative & Messaging Strategy",kind:"creative",purpose:"Messaging themes and who produces the creative."},
  {id:"technology",title:"Smart 1 Technology",kind:"text",purpose:"The Suite as the client's command center."},
  {id:"reporting",title:"Reporting, Optimization & Transparency",kind:"text",purpose:"How it is optimized and what they can see."},
@@ -1731,7 +1840,7 @@ function defaultSections(){
    +"• A bolted-on tech stack — separate tools for email, forms, reviews and calls, each with its own login and none of them talking to each other.\n"
    +"• No central CRM, so an inbound lead cools while it waits for someone to notice it.\n"
    +"• Fixed-schedule advertising that runs the same way regardless of weather, foot traffic or real-time intent.",
-  mediaplan:"The split below is weighted toward the stage of the funnel this campaign has to move. Every rate is the Smart 1 card rate — there is no markup between the line item and what runs.",
+  mediaplan:"The split below is weighted toward the stage of the funnel this campaign has to move, and the delivery column is what each line is expected to buy at the rate it is quoted at.",
   technology:"The Smart 1 Suite is the central nervous system of this campaign. Every call, form, chat and message the media generates lands in one inbox, and the Suite goes to work immediately: Missed Call Text Back so a missed call becomes a conversation instead of a lost lead, automated text and email follow-up, online scheduling, and automated review requests that compound into local search visibility. The media creates the opportunity; the Suite is what turns it into revenue you can trace.",
   reporting:"Optimization is a routine, not a promise: bids adjusted against delivery and cost per action, negative keywords and placement exclusions updated, creative checked against performance and rotated before it fatigues. Everything reports into one live dashboard inside the Smart 1 Suite that you can open whenever you want, rather than waiting for a monthly PDF.",
   packages:"Platform licensing, media spend and any one-time production are listed separately below so it is clear what recurs and what does not.",
@@ -2600,19 +2709,38 @@ function creativePhrase(r){
 
 /* The media plan is editable here: budgets, deletions and additions, without
    walking back three steps to change one number. */
+function planRowFor(ix){
+ /* The server's row for this line, and only if it was priced against the
+    budget that is on screen now. Changing a budget redraws immediately and
+    the save lands 900ms later, so without that check the delivery column
+    would sit there stating a confident figure for the previous number. */
+ const plan=S._mediaPlan;
+ if(!plan||!plan.rows||!plan.rows[ix])return null;
+ const row=plan.rows[ix],it=S.items[ix]||{};
+ if(Math.round(+row.monthly||0)!==Math.round(+it.dollars||0)
+    &&(row.basis||'monthly')!=='one_time')return null;
+ return row;}
+/* The rate column draws the server's rate, which is the QUOTED one. S carries
+   the card's listed rate, so drawing that put "CPM 4.25" beside a delivery
+   figure computed at $8.50 -- the preview contradicting the PDF on one
+   screen, which is exactly the drift this table was consolidated to end. */
 function mediaPlanEditor(){
  const months=Math.max(1,+S.months||1);
- return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th></th></tr></thead><tbody>`
-  +S.items.map((it,ix)=>`<tr>
+ const note=(S._mediaPlan||{}).note||"";
+ return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th>Delivery / mo</th><th></th></tr></thead><tbody>`
+  +S.items.map((it,ix)=>{const pr=planRowFor(ix);return `<tr>
     <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
-    <td>${esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
+    <td>${pr?esc(pr.rate):esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
     <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
     <td style="text-align:right">${money((it.dollars||0)*months)}</td>
-    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`).join('')
+    <td class="tiny">${pr?esc(pr.delivery):'<span style="opacity:.6">recalculating…</span>'}</td>
+    <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`}).join('')
   +`<tr class="dtot"><td colspan="3">Campaign total</td>
      <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td></td></tr>`
-  +`</tbody></table>
+     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td colspan="2"></td></tr>`
+  +`</tbody></table>`
+  +(note?`<div class="note" style="margin-top:6px">${esc(note)}</div>`:'')
+  +`
    <div class="addrow" style="margin-top:8px"><select id="pvAddCat">${productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')}</select>
     <button class="btn btn-ghost" onclick="previewAddItem()">+ Add product</button>
     <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>
@@ -2937,11 +3065,13 @@ function nextStep(){
  // and returns to the list rather than advancing the wizard.
  if(d.onNext&&d.onNext()===true)return;
  saveNow();
+ clearResumeNote();
  if(step<STEPS.length-1){step++;renderStep();}
  else{toast("Saved. "+(QUOTE_NUMBER||"")+" is on the dashboard.");nav('dashboard');}}
 function prevStep(){
  const d=window._stepDesc||STEPS[step]();
  if(d.onBack&&d.onBack()===true)return;   // the step walked its own sub-flow
+ clearResumeNote();
  if(step>0){step--;renderStep();}}
 
 /* creative gate widgets */

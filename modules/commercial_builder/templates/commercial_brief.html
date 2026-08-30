@@ -33,6 +33,45 @@
     </div>
   </div>
 
+  {# What the spot IS, which is a different question from how it gets made.
+     The Start page's "commercial type" holds both answers in one select, so
+     picking "AI spokesperson" said nothing about the narrative and picking
+     "Testimonial" said nothing about the method. This is the narrative half,
+     asked here rather than on Start because it is a creative decision that
+     wants the offer in front of it. #}
+  <div class="cb-field">
+    <label class="cb-label">What kind of spot is this?
+      {{ help_dot('commercial_builder.brief.archetype') if help_dot is defined else '' }}
+    </label>
+    <p class="cb-hint" style="margin-top:0;" id="archetype-suggested"></p>
+    <div class="cb-choice-grid" id="archetype-choices">
+      {% for key, a in archetypes.items() %}
+        <div class="cb-choice {{ 'selected' if archetype == key else '' }}"
+             data-value="{{ key }}"
+             data-needs="{{ a.needs|length }}">
+          <div class="cb-choice-title">{{ a.label }}</div>
+          <div class="cb-choice-sub">{{ a.what }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    {% if archetype_source != 'chosen' %}
+      {# An inferred archetype is a weaker claim than a chosen one, and saying
+         which beats drawing a selection somebody never made. #}
+      <p class="cb-hint">Nothing picked yet — this is showing
+        <strong>{{ archetypes[archetype].label }}</strong>, inferred from the
+        commercial type. Pick one if that is wrong.</p>
+    {% endif %}
+    <div id="archetype-detail"></div>
+  </div>
+
+  {# Handed to the browser as data rather than interpolated into a script
+     block, so tools/jscheck.py can pass the page's real JavaScript to
+     `node --check` instead of skipping it for carrying Jinja — the choice
+     modules/social_planner made for the same reason. #}
+  <script type="application/json" id="archetype-needs">{{ needs_by_archetype|tojson }}</script>
+  <script type="application/json" id="archetype-answers">{{ archetype_answers|tojson }}</script>
+  <script type="application/json" id="archetype-suggested-data">{{ suggested|tojson }}</script>
+
   <div class="cb-flex-between">
     <button class="cb-btn" id="save-btn">Save brief</button>
     <button class="cb-btn cb-btn-primary" id="concepts-btn">Generate Concepts →</button>

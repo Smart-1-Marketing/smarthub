@@ -1086,23 +1086,84 @@ def api_client_upload(token: str):
     if not files:
         return _fail("No file arrived.")
     from hub import storage
-    stored, failed = [], []
+    where = _str((request.form or {}).get("location_label"), 120)
+    stored, failed, unfiled = [], [], 0
     for item in files[:10]:
         try:
             asset = storage.put("social_requests", item.filename or "upload",
                                 item.read(), client=client,
                                 tags=["social-request"])
-            stored.append({"url": asset.url, "public_id": asset.public_id})
         except Exception as exc:                          # noqa: BLE001
             # Named, never counted. "Four of five went up" is a different
             # answer from "five went up", and only the client can re-send the
             # fifth.
             failed.append({"name": item.filename or "file",
                            "why": type(exc).__name__})
+            continue
+        stored.append({"url": asset.url, "public_id": asset.public_id})
+        if not _file_into_gallery(client, asset, item.filename or "", where):
+            unfiled += 1
+
     if not stored and failed:
         return _fail("None of those would upload. Try again, or send them to "
                      "us the usual way.", 502)
-    return jsonify({"ok": True, "assets": stored, "failed": failed})
+    return jsonify({"ok": True, "assets": stored, "failed": failed,
+                    # The client never sees this — their photograph arrived
+                    # either way. It is on the answer so the staff queue and
+                    # the tests can tell a stored-but-unfiled photo from a
+                    # filed one, which is the whole difference between the
+                    # composer being able to offer it and not.
+                    "unfiled": unfiled})
+
+
+def _file_into_gallery(client: str, asset, filename: str, where: str) -> bool:
+    """Put a client's own photograph into their gallery, not only in Cloudinary.
+
+    This is the half §5 of the spec is actually about. `storage.put()` stores
+    the bytes; the *composer* — and Image Creator, and every other tool that
+    offers "the client's own assets first" — reads
+    `client_context.gallery_images()`, which reads the image picker's gallery.
+    A photograph that went to Cloudinary and not to the gallery is one the
+    tool built to prefer it cannot see, while the client has been told it
+    arrived. Nothing errors at either end.
+
+    Reported **separately** from the upload rather than folded into it, the
+    rule `hub/domain_links.py` gives: "stored" and "stored in one of two
+    places" are different outcomes, and one tick for both is how somebody
+    learns not to trust the tick.
+
+    The gallery row is created where a client has none. That is a deliberate
+    exception to `provisioning.py`'s "creating is asked for, not assumed" —
+    there the question is whether a link should exist, and here there are
+    already bytes from a named client on a link they were sent. Refusing
+    would lose the photograph, which is the one outcome worse than an extra
+    empty gallery.
+
+    Never raises: the upload has already succeeded and the client is watching.
+    """
+    try:
+        from modules.image_picker.filing import file_asset
+    except Exception:                                     # noqa: BLE001
+        return False
+    try:
+        label = "Sent in by the client"
+        if where:
+            label += f" — {where}"
+        result = file_asset(
+            client_name=client,
+            public_id=getattr(asset, "public_id", "") or "",
+            url=getattr(asset, "url", "") or "",
+            kind="client_upload", provider="social_request",
+            label=label, filename=filename[:200],
+            resource_type=getattr(asset, "resource_type", "") or "image",
+            saved_by="social request", create_client=True,
+            # Not pushed to the Suite media library: this is a photograph
+            # somebody sent us to consider, not an approved asset, and the
+            # client's own media library is where approved work goes.
+            push_to_suite=False)
+        return bool(result.get("ok"))
+    except Exception:                                     # noqa: BLE001
+        return False
 
 
 @app.route("/c/<token>/ideas")

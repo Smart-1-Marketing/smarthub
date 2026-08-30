@@ -3,6 +3,7 @@ allowed to render. Each check returns {"passed": bool, "message": str} so
 the storyboard/review UI can render a simple pass/warn list."""
 
 from . import openai_service, abcd_service
+from .. import compliance_spec, library_spec
 from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
                       qr_eligible, qr_required, qr_default_on, is_social,
                       spec_channels, spec_channel_mode, publishers_refusing_qr,
@@ -32,6 +33,18 @@ ADVISORY_CHECKS = {
     "logo_persistence", "brand", "aspect_ratio", "text_safe_area",
     "qr_code", "abcd_pacing", "abcd_brand_window", "publisher_rules",
     "sound_off",
+    # Advisory on purpose, and this one is the load-bearing case. Whether an
+    # ad complies is a legal judgment about a specific spot in a specific
+    # state, which this tool cannot make and must not appear to. Blocking a
+    # render on it would be the tool claiming an answer it does not have --
+    # and a gate that refuses a correct spot is a gate somebody switches off,
+    # which is the note QR_CODE_RULES carries. What a finding here does
+    # instead is require an acknowledgment before the cut is FILED.
+    "compliance",
+    # An archetype nobody can supply is a launch date that moves, and saying
+    # so is worth a warning — but a rep may have the customer lined up and
+    # not have typed it here, so it asks rather than refuses.
+    "archetype_ready",
 }
 
 # The published creative specification. Imported defensively because this
@@ -70,6 +83,8 @@ def run_qc(project_dict, client_dict, scenes):
     checks["abcd_pacing"] = _check_pacing(project_dict, scenes)
     checks["abcd_brand_window"] = _check_brand_window(project_dict, scenes)
     checks["publisher_rules"] = _check_publisher_rules(project_dict)
+    checks["compliance"] = _check_compliance(project_dict, client_dict)
+    checks["archetype_ready"] = _check_archetype(project_dict)
 
     for key, result in checks.items():
         if key.startswith("_"):
@@ -88,7 +103,67 @@ def run_qc(project_dict, client_dict, scenes):
         if not k.startswith("_") and c.get("level") == LEVEL_WARN)
     checks["_abcd"] = abcd_service.score(scenes, project_dict.get("length_seconds"),
                                           project_dict.get("platform", "both"))
+    # The findings themselves, beside the one-line check. The panel prints the
+    # citation and what each rule requires, which is the half a QC row has no
+    # room for and the half that is actually actionable.
+    checks["_compliance"] = compliance_spec.scan(
+        script=project_dict.get("script"), brief=project_dict.get("brief"),
+        cta=project_dict.get("cta"), client=client_dict,
+        commercial_type=project_dict.get("commercial_type", ""))
     return checks
+
+
+def _check_archetype(project_dict):
+    """What the chosen archetype needs that the brief does not carry.
+
+    A before-and-after with no BEFORE is the commonest way this archetype gets
+    abandoned two weeks in — nobody photographs the before, because at the
+    time it was just a Tuesday. `hub/creative_needs.py` asks the same question
+    one medium earlier, and for the same reason: found here it is free to
+    change, and found at the shoot it is a launch date.
+    """
+    archetype, source = library_spec.archetype_for(
+        project_dict.get("brief"), project_dict.get("commercial_type", ""))
+    ready = library_spec.readiness(archetype, project_dict.get("brief"))
+    if ready["ready"]:
+        return {"passed": True, "level": LEVEL_PASS,
+                "message": f"{ready['label']}. {ready['note']}"}
+    asks = " ".join(g["question"] for g in ready["gaps"])
+    # An inferred archetype is a weaker claim than a chosen one, and the
+    # message says which rather than reporting a gap in something nobody
+    # actually picked.
+    lead = (f"This is being built as {ready['label']}"
+            + (" (inferred from the commercial type — pick one on the Brief "
+               "step if that is wrong)" if source != "chosen" else "")
+            + ". ")
+    return {"passed": False, "level": LEVEL_WARN, "message": lead + asks}
+
+
+def _check_compliance(project_dict, client_dict):
+    """Which published advertising rules this spot's copy puts in play.
+
+    Never a verdict. `modules/commercial_builder/compliance_spec.py` says at
+    length why: this reports that a rule is ENGAGED and what it requires, and
+    the question of whether the spot complies belongs to the client's counsel
+    or compliance officer. A row here that read "compliant" would be the tick
+    somebody relies on.
+    """
+    result = compliance_spec.scan(
+        script=project_dict.get("script"), brief=project_dict.get("brief"),
+        cta=project_dict.get("cta"), client=client_dict,
+        commercial_type=project_dict.get("commercial_type", ""))
+    if not result.get("measured", True):
+        return {"passed": True, "level": LEVEL_WARN,
+                "message": result.get("note") or "The compliance scan could not run."}
+    findings = result.get("findings") or []
+    if not findings:
+        # Not a pass in the sense of "this is fine to run" -- a statement about
+        # what was scanned. The wording keeps those apart, and the
+        # industry-unknown case says so rather than reading as an all-clear.
+        return {"passed": True, "level": LEVEL_PASS,
+                "message": compliance_spec.summary(result)}
+    return {"passed": False, "level": LEVEL_WARN,
+            "message": compliance_spec.summary(result)}
 
 
 def _check_timing(project_dict, scenes):
