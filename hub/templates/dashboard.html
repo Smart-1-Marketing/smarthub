@@ -132,10 +132,10 @@
 
 <div class="grid-2">
   {# One column, in the order somebody reads it: who to say something to
-     today, then whether the Hub is up and who is on it. The birthdays and
-     the anniversaries are one list under one another rather than two side by
-     side — at this width two columns of three names each was a lot of empty
-     table. #}
+     today, then who is waiting on us, then whether the Hub is up and who is
+     on it. The birthdays and the anniversaries are one list under one another
+     rather than two side by side — at this width two columns of three names
+     each was a lot of empty table. #}
   <div class="col-stack">
     <div class="card cheer-card">
       <div class="card-h">
@@ -146,6 +146,19 @@
       <div class="card-b">
         <div id="cheer-body" class="cheer-body"><span class="muted">Loading&hellip; <span class="spin"></span></span></div>
         <div id="cheer-gaps" class="cheer-gaps"></div>
+      </div>
+    </div>
+
+    {# Who is waiting on us. A client's location manager submits at four on a
+       Friday and, before this, it sat in a queue only somebody who opened the
+       tool would ever see — there is no mailer in this Hub, so the honest
+       route is putting it where people already look. Every figure opens the
+       rows behind it rather than the tool the reader would then have to
+       filter themselves. #}
+    <div class="card">
+      <div class="card-h"><h3>Social content requests</h3><div class="right"><a class="open-link" href="/tools/social/requests">Open the queue →</a></div></div>
+      <div class="card-b">
+        <div id="scoreboard"><span class="muted">Counting what is waiting… <span class="spin"></span></span></div>
       </div>
     </div>
 
@@ -348,6 +361,49 @@ fetch('/api/presence').then(r=>r.json()).then(d=>{
 }).catch(()=>{
   const host=$('presence');
   if(host) host.innerHTML='<span class="muted">Signed in now: not measured.</span>';
+});
+
+/* The scoreboard. Three rules it shares with every other count on this page:
+   a figure that could not be measured says so rather than drawing a zero, a
+   zero says which kind of zero it is, and nothing here is red unless it is
+   actually somebody's to fix today. */
+fetch('/api/social/scoreboard').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('scoreboard');
+  if(!box) return;
+  if(!d || d.measured===false){
+    box.innerHTML='<span class="muted">'+esc((d&&d.error)||'Not measured.')+'</span>';
+    return;
+  }
+  const stat=(label,value,href,warn)=>{
+    const color=warn&&value?'#dc2626':'var(--navy,#1a2e58)';
+    const inner='<div style="font-size:24px;font-weight:700;line-height:1.15;color:'
+      +color+'">'+value+'</div><div class="muted" style="font-size:11.5px">'
+      +esc(label)+'</div>';
+    return href?'<a href="'+esc(href)+'" style="text-decoration:none;display:block">'
+      +inner+'</a>':'<div>'+inner+'</div>';
+  };
+  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+    + stat('Waiting on us',d.waiting,d.queue_url)
+    + stat('Past their date',d.overdue,d.queue_url,true)
+    + stat('Clients',d.clients,d.queue_url)
+    + '</div>';
+  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
+  if((d.rows||[]).length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px">';
+    d.rows.forEach(r=>{
+      h+='<tr><td style="padding:5px 8px 5px 0"><a href="'+esc(r.url)+'">'
+        +esc(r.client)+'</a></td><td style="padding:5px 0;text-align:right" class="muted">'
+        +r.open+(r.overdue?' <b style="color:#dc2626">'+r.overdue+' overdue</b>':'')
+        +'</td></tr>';
+    });
+    h+='</table>';
+    if(d.more) h+='<div class="muted" style="font-size:11.5px;margin-top:6px">'
+      +'and '+d.more+' more — <a href="'+esc(d.queue_url)+'">the whole queue</a></div>';
+  }
+  box.innerHTML=h;
+}).catch(()=>{
+  const box=document.getElementById('scoreboard');
+  if(box) box.innerHTML='<span class="muted">The request queue could not be read.</span>';
 });
 
 fetch('/api/status').then(r=>r.json()).then(d=>{

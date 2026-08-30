@@ -1638,7 +1638,8 @@ where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
 | Source | How it's read | Freshness |
 |---|---|---|
 | Knack products (IOs) | live API, `hub/knack_products.py` (object_135), export as fallback | current |
-| Knack campaigns / websites | static JSON in `clients_app/data/` | **stale — nothing refreshes these** |
+| Knack websites | live API via `hub/knack_websites.py` (object_153), export as fallback | current |
+| Knack campaigns | static JSON in `clients_app/data/campaigns.json` | **stale — and read by nothing** |
 | Knack object_153 (website registry) | live API, `hub/knack_websites.py` | current |
 | Knack tickets | live API, `hub/knack_api.py` | current |
 | Insites scans | own SQLite/Postgres tables | current |
@@ -1649,8 +1650,48 @@ read live: `hub/knack_data.search_client()` prefers `hub.knack_products`
 (object_135) and falls back to the export, and Client 360 labels which source
 it used — before that, a client's insertion orders showed the last export's
 line-up while the Knack pull reported success, because the two are different
-sources and only one was live. **Campaigns and websites still come from the
-export**, so the same trap remains for them; both need their Knack object IDs.
+sources and only one was live.
+
+**Websites now read live too, and the split between the two readers is the
+point.** `clients_registry.all_clients()` — which feeds client search, every
+client picker, Client 360's lookup and the social content link — built its
+domains from a 610-row `websites.json` committed to the repo and refreshed by
+hand, while `hub/knack_websites.py` had been reading *the same object* live
+for the domain record, the renewals calendar and the orphan list. The Hub held
+a live answer and a stale one to "what websites does this client have", and
+every load-bearing reader took the stale one — silently, because a short list
+looks exactly like a complete one, so a site added in Knack last week read as
+a client with no website at all.
+
+`knack_data.websites()` prefers the live pull and falls back to the export,
+the shape `_product_source()` already had. Four rules on it:
+
+- **A failed pull never empties a good export.** An outage that turned 610
+  sites into zero would take every domain-keyed join in the Hub apart with
+  nothing on any screen saying why. Stale beats empty, and the reason travels
+  with the rows.
+- **Live rows arrive in the export's own field names.** `website_row_from_live()`
+  is the one mapping — it was written inside `_attachment_only_websites()` for
+  the attachment path and is read from both now. Eight call sites needed no
+  edit, and none of them can tell which source answered.
+- **`summary()` deliberately keeps reading `export_websites()`.** It measures
+  the dashboard scorecard against the export's own period and its `active`
+  field, which object_153 does not publish. Pointed at the live list it
+  reports **2 active websites and no H&M billing** — `test_knack_websites_source.py`
+  asserts exactly that number, because it is a confident wrong answer on the
+  CEO's dashboard rather than an error.
+- **Nothing is invented in the mapping.** `active`, `hmFreq`, `notes`,
+  `created` and `domainCost` are absent from a live row rather than defaulted:
+  a `False` `active` would read as a dead site on every row.
+
+Client 360 and `/status` say which source answered, exactly as the products
+card already does — a stale export looks identical to live data on screen,
+which is the whole reason this went unnoticed.
+
+**`campaigns.json` is a different case: 7,854 rows, 2.1 MB, and nothing in the
+repo references it** — no `.py`, no `.html`, no `campaigns()` reader in
+`knack_data`. It is not stale, it is dead, and the row above says so rather
+than implying a refresh would fix anything.
 
 **The URL is the join key, not the name.** Eleven field names hold a URL
 across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
@@ -3741,6 +3782,92 @@ per input and performance reads **not measured** with the reason rather than
 zero. Nothing it raises is drawn red: a page of red is a page people scroll
 past.
 
+**Ideas are offered on a schedule, or the client's link opens on nothing.**
+`generate()` was reachable only from a button in the staff queue, so a client
+who opened their swipe link saw "Nothing to look at just yet" — for ever,
+unless a strategist had remembered that week. `ideas.sweep()` runs on
+`hub/scheduler.py`, hourly ticks deciding a weekly interval **per client from
+that client's own last sweep** rather than from the job's schedule, so a
+redeploy cannot offer two batches in a day — the `purchased_domains` shape,
+for the same reason. Bounded on both axes (eight clients, three minutes)
+because these are model calls sharing one scheduler thread and a call has no
+useful ceiling.
+
+Three gates on who is swept, each a way to spend a model call on nobody.
+**Somebody at the client must have swiped at least once** — the first batch is
+the strategist's to send, and a client who has never opened the link would
+otherwise accumulate ideas nobody reads at a call a week for ever. **Their
+deck must be nearly empty**, or the backlog grows faster than anyone answers
+it. And **not more often than weekly**. What was skipped is named rather than
+counted: "nobody was eligible" and "we could not read the client list" are
+different answers.
+
+**A client record that says nothing about the work is the failure this repo
+counts six of.** Client 360 already had a Social Media card — that is their
+profile URLs, a different question from whether anybody at this client is
+asking us for anything. A client could have three requests overdue, a link
+nobody had sent them and four posts sitting unanswered, and none of it was on
+the one screen a rep opens. `hub/social_status.py` answers it, and the
+dashboard scoreboard reads the same module so the two cannot disagree — the
+`/api/db/structure` versus `/api/integrity` trap, where two checks asking one
+question answered it differently on one panel.
+
+**Nothing told anybody a request had arrived.** A location manager submitted
+at four on a Friday and it sat in a queue only somebody who opened the tool
+would ever see. There is no mailer in this Hub, so the honest route is putting
+it where people already look: a scoreboard on the dashboard, above System
+status, where every figure opens the rows behind it rather than the tool the
+reader would then have to filter. It counts **requests only** — reading posts
+awaiting approval means opening every plan file for every client on the book,
+on a page that loads on every visit, and a number that costs a page load is a
+number somebody turns off. The per-client card can afford that; the dashboard
+cannot, and the split is stated rather than discovered.
+
+**An empty scoreboard says which kind of empty.** "Nothing waiting" and
+"nobody has been sent their link yet" render identically as a zero and only
+the second is somebody's to fix, so the line says so in words beside the
+figure. Same on the card: a client with no requests is told that the link may
+never have gone out.
+
+**A photograph the client sends reaches Cloudinary and not the gallery.**
+That is the half of the asset pipeline that was actually missing.
+`storage.put()` stores the bytes; every screen that offers "the client's own
+assets first" — the planner's own image assignment, Image Creator — reads
+`client_context.gallery_images()`, which reads the image picker's gallery. So
+a photograph a location manager sent in was invisible to the tool built to
+prefer it, while the client had been told it arrived, and nothing errored at
+either end. `_file_into_gallery()` files it, labelled with the shop it came
+from, and the two writes are **reported apart** — the `hub/domain_links.py`
+rule, since "stored" and "stored in one of two places" are different
+outcomes. Nothing branches on the gallery write: the client is watching and
+their upload has already succeeded, so a gallery that will not answer costs
+the composer a picture and never costs them the photograph.
+
+The gallery row is **created** where a client has none, which is a deliberate
+exception to `provisioning.py`'s "creating is asked for, not assumed" — there
+the question is whether a link should exist, and here there are already bytes
+from a named client on a link we sent them. It is not pushed to the Suite
+media library: this is a photograph somebody sent us to consider, not
+approved work.
+
+**The canvas presets were already there.** 1080x1080, 1080x1920 and 1200x630
+have been in `modules/image_creator.CANVAS_PRESETS` all along, under Social.
+Worth writing down, because the obvious reading of the spec is that they need
+adding and adding them again is how one tool comes to offer two Instagram
+Posts of different sizes.
+
+**The queue shipped with no explanation on it, which is how Smart 1 Ads
+shipped.** `hub/help.py`, `hub-help.js` and the tour machinery all working,
+and nothing on the page opting into any of it. Eight bubbles now, every one
+guarded `if help_dot is defined` so a module whose Jinja environment never
+got `install_template_helpers()` loses the icon rather than the page. There
+is deliberately **no `data-screen`**: a tour is offered only where one is
+registered, and naming one that does not exist is the same silence one step
+earlier. `test_social_content.py` reads the template and requires every key
+it places to resolve in the registry — a bubble whose key is missing is
+removed client-side, so the template reads as helped and the page shows
+nothing, and nothing anywhere reports it.
+
 **The queue is linked from the planner, not tiled separately.** It is the
 other half of one tool; a second tile is two things to keep in step and only
 one of them ever gets updated. It carries `data-demo="off"` and no
@@ -5279,6 +5406,9 @@ python3 test_display_ads.py        # the display layouts, and the build screen's
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
+python3 test_knack_websites_source.py # websites live where Knack answers, the
+                                   #   export where it will not, and a failed
+                                   #   pull that never empties a good one
 python3 test_spelling.py           # the spelling check still bites, and its
                                    #   exemptions still name real files
 python3 test_client_prefill.py     # one client reader: what a form is offered,
