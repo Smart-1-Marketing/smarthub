@@ -50,7 +50,7 @@ sys.path.insert(0, str(ROOT))
 TMP = tempfile.mkdtemp(prefix="s1gindex_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
 os.environ["TOKEN_DB_PATH"] = os.path.join(TMP, "google_tokens.db")
 os.environ["SESSION_FILE_DIR"] = os.path.join(TMP, "sessions")
 

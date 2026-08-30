@@ -48,7 +48,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _TMP = tempfile.mkdtemp(prefix="hub-trends-")
 os.environ["HUB_DATA_DIR"] = _TMP
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ.setdefault("SECRET_KEY", "test-not-a-secret")
 
 from hub import knack_data                                          # noqa: E402
