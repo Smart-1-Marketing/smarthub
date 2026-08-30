@@ -241,6 +241,32 @@ def _read_all() -> list[dict]:
     return out
 
 
+def get(lead_id: str) -> dict | None:
+    """One lead by id, or None. Follows a merge rather than dead-ending.
+
+    A row that was merged into another is not a second lead, so asking for it
+    hands back the survivor: a link somebody bookmarked before the merge must
+    not 404, and it must not show a record that has been folded into another
+    one either. The chain is walked with a ceiling, because a cycle written by
+    a bug would otherwise hang the request rather than showing a record.
+    """
+    lead_id = str(lead_id or "").strip()
+    if not lead_id:
+        return None
+    rows = {r.get("id"): r for r in _read_all()}
+    seen: set[str] = set()
+    while lead_id and lead_id not in seen and len(seen) < 20:
+        seen.add(lead_id)
+        row = rows.get(lead_id)
+        if row is None:
+            return None
+        nxt = str(row.get("merged_into") or "").strip()
+        if not nxt:
+            return row
+        lead_id = nxt
+    return None
+
+
 def _rewrite(rows: list[dict]) -> None:
     tmp = _path() + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:

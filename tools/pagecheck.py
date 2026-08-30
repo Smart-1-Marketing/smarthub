@@ -101,6 +101,11 @@ HUB_PAGES = [
     # it, and it hands the browser its boot values in a JSON script block
     # beside a real one -- the pair this checker exists to tell apart.
     "/tools/website-audit",
+    # The prospect record: a blueprint on the hub app whose whole body is
+    # drawn from a fetch, and which hands the browser its lead id in a JSON
+    # script block beside a real one. It needs a path parameter, so no mount
+    # enumeration would reach it even if it had a mount.
+    "/prospect/none",
     # A blueprint on the hub app, so no mount enumeration reaches it, and its
     # three pages each build a table from JavaScript. Its staff pick page went
     # on 500ing for want of one template variable, which is the failure this

@@ -5480,6 +5480,19 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Prospect 360 ----------------
+    # The record a scanned business gets before it is a client. Blueprint, so
+    # the login gate sits on the blueprint itself -- every route here names a
+    # real person and their phone number.
+    try:
+        from .prospect_routes import register_prospect
+        register_prospect(app)
+    except Exception as _pr_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _pr_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- Website Audit (Tools > Sales) ----------------
     # A blueprint rather than a mounted module, because everything it reads --
     # the client registry, the discovered-URL overlay, the scan facts and the

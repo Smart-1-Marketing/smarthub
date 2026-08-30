@@ -3347,6 +3347,84 @@ reads as a live prospect on every count that follows, the rule
 only, because `hub/leads.py` cleans and truncates every value and a nested one
 arrives in the Suite as the repr of a dict.
 
+### A scanned business is a lead, and a lead needs somewhere to be worked
+
+`hub/prospect.py`, `hub/prospect_routes.py` and `/prospect/<lead id>`. The
+audit filed a lead and stopped there: a row in a flat table with a name, an
+email and a delivery pill. Everything that made the prospect worth calling —
+what they are already spending, what the audit found, the proposal somebody
+drafted, the mock-up they were sent — was in four tools and one CRM with
+nothing joining them up, so the row was a record of a prospect rather than a
+place to work one.
+
+**The lead id is the record.** Not the domain and not the company name: a
+prospect is often a business with no website on file and a name typed by
+whoever took the call, and both of those change. `hub/leads.py` already
+allocates an id, already survives a merge and is already what the Suite
+contact is filed against. `leads.get()` **follows a merge** rather than
+dead-ending, because that id is in browser history and a link from before a
+merge must resolve to the survivor — with a ceiling on the walk, so a cycle
+written by a bug shows a record rather than hanging the request.
+
+**Smart 1 Suite owns the working state; the Hub owns the evidence.** That
+line is the whole design. The stage, the owner, the notes and the
+conversation are in the CRM, which is where the calls and the texts already
+are — a stage stored here as well is two systems answering "where has this
+got to" differently with nothing on either screen saying which to believe,
+which is the failure `jsonstore.unmirrored_json_writers()` exists to close
+wearing a sales pipeline. So `suite_state()` **reads** stage, owner and notes
+through `hub/suite_opportunity.py` and **never writes a stage**, and a note
+typed on the record is posted to the Suite contact so it lands where the next
+person to pick the prospect up will look. A prospect with no Suite contact is
+**refused by name** rather than having the note kept locally: that local copy
+is exactly the second notebook this rule exists to prevent.
+
+**Four empties on that card, and only one of them means "chase this".** Suite
+not configured, the lead never delivered, Suite refused the read, and Suite
+read fine with no deal open are four different situations. The first three are
+*not measured* and each says which it is; only the fourth is an empty that
+means somebody should open a deal. Collapsing them into "no stage" sends
+somebody to the wrong screen or, worse, makes them stop chasing.
+
+**A section that fails costs only itself.** The audit is worth reading when
+Suite is down and the notes are worth reading when Insites is. `_section()` is
+the one shape every card answers in — rows, `measured`, `error`, `note` — so
+no card can invent its own kind of nothing, and `_caught()` turns any source's
+failure into a named non-fatal section rather than a 500 on the whole record.
+
+**A timeline that quietly loses a week is worse than no timeline.** It is
+assembled from the sections that were actually measured, and the ones that
+were not are **named on it** (`incomplete`) rather than shortening it in
+silence — a history missing exactly the fortnight somebody is asking about,
+with nothing saying so, is the confident wrong answer this codebase keeps
+undoing.
+
+**A prospect collects things before they are a client** — the mock-up they
+were sent, a screenshot of the competitor they complained about, the rate
+sheet they emailed over. Those lived in somebody's inbox. Files go through
+`hub/storage.py` and are indexed through `hub/jsonstore.py`, in a folder of
+their own rather than the client tree: a prospect has no client key yet, and
+filing them together is how one company's assets land on another's record.
+Deleting reports **the record row and the stored copy apart**, the
+`hub/domain_links.py` rule — one tick covering both is how somebody learns not
+to trust the tick — and the index row is marked rather than dropped.
+
+**Converting is a link, never a creation.** A client in this Hub is a business
+with a product in Knack, which is what billing reads, so `convert()` refuses a
+name the registry does not know rather than inventing an account the Hub shows
+and no invoice ever mentions. What it adds over `leads.mark_converted` is the
+carry-across: the assets are re-filed under the client by being **named**
+against it rather than re-uploaded, because the bytes are already in storage
+and a second copy is a second thing to keep in step.
+
+**And the Leads panel had to stop hiding what a scan produced.** The Report
+column rendered `pdf_url` and nothing else — so a website-audit lead showed a
+dash, because that audit is a *page* rather than a PDF and its link was
+sitting unread in the row's own `meta`. `reportCell()` offers both, and every
+row's name now opens the record.
+
+`test_prospect_record.py` asserts all of it.
+
 ### The customer-facing half is a second kind of placement, not a second widget
 
 `modules/scans` owns placements, and a second table describing one would be a
@@ -5128,6 +5206,9 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_prospect_record.py    # the record a scan produces: four kinds of empty on
+                                   #   the Suite card, a timeline that names what it
+                                   #   could not read, files, and converting
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
