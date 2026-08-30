@@ -383,6 +383,47 @@ ok("and each says why", all(t.get("reason") for t in _cov["client_facing"]))
 check("no help is registered under a prefix nothing maps to",
       help_coverage.stray_prefixes(), [])
 
+# And the third side, which `stray_prefixes()` structurally cannot see: it
+# reduces every screen to its FIRST segment, so `hub.website_audit.*` reduces
+# to `hub`, which NOT_A_TOOL exempts as the dashboard and Client 360. That
+# exemption has to be broad, so the forward direction is what has to catch a
+# tile mapped to a prefix that names the wrong thing -- and it fails in the
+# safe-looking way, reporting the tool as never explained.
+check("no tile is mapped to a prefix that names the wrong screen",
+      help_coverage.mislabeled_prefixes(), [])
+
+# A prefix in either shape resolves. Some screens need two segments to be
+# unambiguous -- hub.website_audit is a tool and hub.prospect is a record
+# page, and the bare `hub` they share names neither.
+ok("a tile may name a two-segment screen",
+   any("." in p for p in help_coverage.PREFIXES.values()),
+   str(sorted({p for p in help_coverage.PREFIXES.values() if "." in p})))
+_audit_tile = [t for t in _cov["covered"] if t["href"] == "/tools/website-audit"]
+ok("and the Website Audit tool reads as explained, which it is",
+   bool(_audit_tile), str([t["href"] for t in _cov["missing"]]))
+
+# Fed the bug it was written for, it must say so -- a check that cannot fail
+# is one nobody can trust, and this one would read green either way.
+_saved = dict(help_coverage.PREFIXES)
+try:
+    help_coverage.PREFIXES["/tools/website-audit"] = "website_audit"
+    _bit = help_coverage.mislabeled_prefixes()
+    ok("the check bites on a prefix that names the wrong screen",
+       [m["prefix"] for m in _bit] == ["website_audit"], str(_bit))
+    ok("and names the screen the help is actually under",
+       _bit and _bit[0]["registered"] == ["hub.website_audit"], str(_bit))
+    # The twenty-three tools nobody has written help for are NOT this finding.
+    # "Nobody wrote it" and "it is written under another name" are different
+    # jobs, and reporting the first as the second is a list somebody
+    # re-triages on every run.
+    ok("a tool that genuinely has no help is not reported as mislabeled",
+       "gpt_ads" not in [m["prefix"] for m in _bit], str(_bit))
+finally:
+    help_coverage.PREFIXES.clear()
+    help_coverage.PREFIXES.update(_saved)
+check("and it is green again once restored",
+      help_coverage.mislabeled_prefixes(), [])
+
 # And the routes read this rather than restating it. Two hand-typed lists is
 # how one surface came to report a retired module as its only finding while
 # the other reported nothing at all.
