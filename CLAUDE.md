@@ -9156,6 +9156,9 @@ python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
 python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
+python3 test_db_boot.py            # a database blip at boot is not a verdict for
+                                   #   the life of the worker, and sign-in says
+                                   #   so in words rather than answering 500
 python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   overdue, failure streaks, and the worker
                                    #   that cannot see the timings
