@@ -1628,6 +1628,74 @@ for _n in ("Google Grant (Setup)", "Google Grant (Management)"):
     check(f"the card we publish and the card we quote from agree on {_n!r}",
           _n in _page_names and rc.find(_n) is not None)
 
+# ...and the two agree about how a product is *sold*, not only what it is
+# called. Four IP Targeting products carried a bare `listedRate` of "25.0"
+# with `rateType: null`, while the page we publish sells every one of them per
+# CPM. Nothing errored at either end and every screen was internally
+# consistent, which is why it stood: `sell_rate()` returns None for a line
+# with no rate type, so the buy-side rate went onto the proposal with no
+# margin on it, beside a display line correctly doubling $4.25 to $8.50; and
+# `estimate_delivery()` answered "not an impression-based rate" about a $25
+# CPM buy, so the media plan quoted IP Targeting with no impressions and
+# printed the bare float at the client.
+import unicodedata as _ud                                          # noqa: E402
+
+
+def _card_norm(x):
+    x = _ud.normalize("NFKD", str(x or "")).replace("\u2014", "-").replace("\u2013", "-")
+    return " ".join(_re.sub(r"[^a-z0-9]+", " ", x.lower()).split())
+
+
+_page_rates = {}
+for _s in _data:
+    for _g in _s["groups"]:
+        for _it in _g["items"]:
+            _page_rates.setdefault(_card_norm(_it["p"]), set()).add(_it.get("w") or "")
+
+_unpriced, _compared = [], 0
+for _p in rc.products():
+    _rates = _page_rates.get(_card_norm(_p.get("product")))
+    if not _rates:
+        continue
+    _compared += 1
+    _per_unit = [r for r in _rates if _re.search(r"\bcp[mv]\b", r, _re.I)]
+    if _per_unit and not _p.get("rate_type"):
+        _unpriced.append(f"{_p['product'][:38]} — page says {sorted(_per_unit)}, "
+                         f"card carries rate_type={_p.get('rate_type')!r}")
+
+check("a product the published card sells per CPM is quoted as one",
+      _unpriced == [], _unpriced[:6])
+# ...and the join has to keep working, or this stops checking anything and
+# says so nowhere — the failure a coverage check exists to catch.
+check("and enough of the card matched the page for that to mean something",
+      _compared >= 50, _compared)
+
+# The four that were wrong, by name, because that is what a client was quoted.
+# Two of them are named here rather than caught by the page comparison above:
+# the Hub spells the product "purchased seperately" and the page spells it
+# "purchased separately", so the names do not join. Worth knowing — the sweep
+# above is a floor, not the whole guarantee.
+for _n in ("IP Targeted Display - New Movers", "IP Targeted Display - Venue Replay",
+           "IP Targeted Display - List is supplied or purchased seperately",
+           "IP Targeted Video - List is supplied or purchased seperately"):
+    _row = next(p for p in rc.products() if p["product"] == _n)
+    check(f"{_n!r} is marked up rather than sold at cost",
+          rc.sell_rate(_row.get("rate_value"), _row.get("rate_type")) ==
+          _row["rate_value"] * rc.SELL_MULTIPLIER,
+          rc.sell_rate(_row.get("rate_value"), _row.get("rate_type")))
+    check(f"...and {_n!r} reports the impressions it buys",
+          (rc.estimate_delivery(_row, 2000).get("units") or 0) > 0,
+          rc.estimate_delivery(_row, 2000))
+
+# A flat fee is left exactly as the card lists it -- that is what rate_type
+# None means -- but it must not reach a document as a bare float.
+for _n in ("Standard Set of 6 Ad Creation", "Social Media Management"):
+    _row = next(p for p in rc.products() if p["product"] == _n)
+    check(f"{_n!r} is still a flat fee, not marked up",
+          not rc.is_marked_up(_row.get("rate_type")), _row.get("rate_type"))
+    check(f"...and {_n!r} carries a rate a person can read",
+          str(_row.get("listed_rate", "")).startswith("$"), _row.get("listed_rate"))
+
 def _kit_unreadable():
     """A page we cannot read must not report as no drift."""
     import pathlib as _pl

@@ -3900,6 +3900,34 @@ name and four categories carry a product called "Demographic" — a location
 lookback line resolved to the $4.25 display row and was costed against a rate
 nobody quoted.
 
+**And a rate with no `rate_type` is not a rate that is sold.** All four IP
+Targeting products carried a bare `listedRate` of `"25.0"` with `rateType:
+null`, in both copies of the card, while the page we publish sells every one
+of them per **CPM** — `$18.00`, `$25.00`, `$19.50`, `$31.00`. Two things fell
+out of that, in opposite directions, and each screen stayed internally
+consistent, which is why it stood. `sell_rate()` answers `None` for a line
+with no rate type, so the **buy-side rate went onto the proposal with no
+margin on it**, beside a display line correctly doubling $4.25 to $8.50. And
+`estimate_delivery()` answered *"25.0 — not an impression-based rate, so
+delivery isn't estimated here"* about a $25 CPM buy, so the media plan quoted
+IP Targeting with **no impressions** and printed the bare float at the client.
+
+Nothing here could see it. `check_drift()` holds the two copies of the card to
+each other and they agreed — both were wrong the same way. The only place the
+unit exists is the published page, which ships in this repo, so
+`test_proposal_spec.py` now holds the card to it: a product the page sells per
+CPM or CPV that the Hub does not mark as one is a failure. It **also asserts
+how much of the card matched**, because the names do not all join — the Hub
+spells one product "purchased seperately" and the page spells it "separately"
+— and a name comparison that quietly stops matching is a check reporting a
+clean bill of health about nothing.
+
+The five genuine flat fees beside them keep `rateType: null`, which is what
+that means, and gained the rate string the page prints: `250.0` reaching a
+client document as *"250.0 — not an impression-based rate"* is the same bare
+float one row over. An existing quote is unaffected either way — a saved line
+carries its own rate, which is the rule `_sell_rate()` already works to.
+
 ### What a goal leads with, and what a client reads it as
 
 `findProduct(category)` meant "the first row the card happens to list under
