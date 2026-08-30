@@ -708,7 +708,7 @@ function render(g,q){
         '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
         + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff" data-img="${esc(r.id)}">
             <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
-              <img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
+              <img src="${esc(r.thumb||r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
                    style="width:100%;height:100%;object-fit:cover;display:block"></a>
             <div style="padding:7px 9px">
               <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
@@ -1756,7 +1756,7 @@ function socialContentHtml(d,name){
 
 // ---------- Creative gallery ----------
 function galleryThumb(item){
-  if(item.kind==='image') return `<img src="${esc(item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
+  if(item.kind==='image') return `<img src="${esc(item.thumb||item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
   if(item.kind==='gdrive'){
     const m=String(item.url).match(/\/d\/([\w-]+)/);
     if(m) return `<img src="https://drive.google.com/thumbnail?id=${m[1]}&sz=w400" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('gdrive')">`;

@@ -330,9 +330,26 @@ STORES: list[dict] = [
 
 def _read(reader: Callable) -> tuple[list[dict], str]:
     try:
-        return list(reader()), ""
+        return [_with_preview(r) for r in reader()], ""
     except Exception as exc:                              # noqa: BLE001
         return [], f"{type(exc).__name__}: {exc}"
+
+
+def _with_preview(row: dict) -> dict:
+    """The row, plus the URL its tile should draw.
+
+    Six readers, one funnel: deriving this per reader is six chances for the
+    seventh store added here to draw the full asset into a 56px box and for
+    nobody to notice, because the tile looks right either way. A store whose
+    rows are not ours, or are PDFs, gets its own URL back -- that decision
+    lives in `hub/storage.preview_url()` and not in any of the readers.
+    """
+    try:
+        from hub import storage
+        return {**row, "thumb": storage.preview_url(
+            row.get("url", ""), row.get("resource_type", ""))}
+    except Exception:                                     # noqa: BLE001
+        return {**row, "thumb": row.get("url", "")}
 
 
 def stores(limit_unfiled: int = 200) -> list[dict]:
@@ -512,14 +529,15 @@ def reconcile(kinds: list | None = None, max_per_kind: int = 500) -> dict:
             if not pid or pid in known:
                 continue
             proposed = _client_from_public_id(pid, key)
-            loose.append({"public_id": pid, "bytes": r.get("bytes"),
+            loose.append(_with_preview({
+                          "public_id": pid, "bytes": r.get("bytes"),
                           "created_at": r.get("created_at", ""),
                           "resource_type": r.get("resource_type", "image"),
                           "url": r.get("secure_url", ""),
                           "kind": key,
                           "proposed": proposed["client"],
                           "proposed_how": proposed["how"],
-                          "confident": proposed["confident"]})
+                          "confident": proposed["confident"]}))
         total += len(rows)
         orphans += len(loose)
         folders.append({"key": key, "label": label, "measured": True,

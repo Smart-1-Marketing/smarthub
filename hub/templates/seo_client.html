@@ -2904,7 +2904,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         $('imgCount').textContent=total+' image'+(total===1?'':'s')+' saved';
         $('imgStrip').innerHTML='<div class="seoc-imgstrip">'+rows.map(function(r){
           return '<div class="it"><a href="'+esc(r.url)+'" target="_blank" rel="noopener">'
-            +'<img src="'+esc(r.url)+'" alt="'+esc(r.alt_text)+'" loading="lazy"></a>'
+            +'<img src="'+esc(r.thumb||r.url)+'" alt="'+esc(r.alt_text)+'" loading="lazy"></a>'
             +'<div class="n">'+esc(r.filename)+'</div>'
             +'<div class="p">'+esc(r.project||'')+(r.page?' · '+esc(r.page):'')+'</div></div>';
         }).join('')+'</div>'
@@ -3471,7 +3471,7 @@ function blogThumb(p){
     return '<span class="seoc-muted" style="font-size:11px">—</span>';
   }
   var ring = im.status === 'pending' ? '#f59e0b' : '#86efac';
-  return '<img src="'+esc(im.url)+'" alt="" loading="lazy" '+
+  return '<img src="'+esc(im.thumb||im.url)+'" alt="" loading="lazy" '+
     'onclick="openImageModal('+p.id+')" '+
     'title="'+(im.status==='pending'?'Awaiting approval':'Approved')+'" '+
     'style="width:64px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;'+

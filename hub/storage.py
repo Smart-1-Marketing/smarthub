@@ -272,8 +272,27 @@ def signed_url(public_id: str, resource_type: str = "raw", ttl: int = 3600) -> s
     return url
 
 
-def thumb_url(public_id: str, edge: int = 400) -> str:
-    """Derived thumbnail. Galleries must never request the full asset."""
+# ------------------------------------------------------------- previews
+# One derived size for every gallery in the Hub, and deliberately not one per
+# box. Cloudinary bills a credit per thousand transformations and caches each
+# derivative separately, so a 64px row thumb, a 120px tile and a 300px grid
+# cell asked for at their own sizes is three derivatives of every image in the
+# account to save bytes nobody would notice. 400 covers all three: a 400px
+# image in a 64px box is still two orders of magnitude smaller than the
+# original a phone produced.
+THUMB_EDGE = 400
+
+# The transformation we insert, and the marker that says we already have.
+_THUMB_T = "c_limit,w_{edge},h_{edge},f_auto,q_auto"
+
+
+def thumb_url(public_id: str, edge: int = THUMB_EDGE) -> str:
+    """Derived thumbnail from a public_id. Galleries must never request the
+    full asset.
+
+    `preview_url()` is the sibling for a row that carries a delivery URL and
+    no public_id, which is most of them.
+    """
     if not ready():
         return ""
     _configure()
@@ -282,6 +301,52 @@ def thumb_url(public_id: str, edge: int = 400) -> str:
         transformation=[{"width": edge, "height": edge, "crop": "limit",
                          "quality": "auto", "fetch_format": "auto"}])
     return url
+
+
+def preview_url(url: str, resource_type: str = "", edge: int = THUMB_EDGE) -> str:
+    """The version a gallery draws, from a stored delivery URL.
+
+    Every gallery in this Hub drew `<img src="{the original}">` into a box a
+    fraction of its size: a client uploads forty photographs off a phone and
+    the staff gallery delivers a hundred and sixty megabytes to fill forty
+    64x48 boxes. Nothing errors, the pictures are right, and the only symptoms
+    are a slow page and a Cloudinary bill -- which is charged in credits, one
+    of which is a gigabyte delivered, so this is the line item rather than
+    what we upload. `thumb_url()` existed for exactly this and had no caller.
+
+    Four rules, each a way to turn a working tile into a broken one:
+
+    * **Anything that is not ours comes back unchanged.** A stock provider's
+      CDN, a Google Drive link, a `data:` URI, an empty string. The same
+      answer `attachment_url()` gives, for the same reason: rewriting a URL
+      we do not own produces a 404 where there was a picture.
+    * **Only an image.** An image transformation on a `/raw/upload/` or
+      `/video/upload/` URL 404s -- Cloudinary keeps the three in separate
+      namespaces, the lesson `cloudinary_sink.destroy()` paid for when a PDF
+      asked for as an image came back "not found" and read as a clean
+      success. A row's own `resource_type` is believed first, and the URL's
+      own segment decides when it says nothing.
+    * **Idempotent.** A row rewritten here and handed to a caller that
+      rewrites again must not chain two transformations, so the marker we
+      insert is what we look for.
+    * **`c_limit`, never `c_fill` or a bare width.** It caps and never
+      upscales or crops: a 180px logo stays 180px instead of being blown up
+      and re-encoded, and a tall photograph keeps its subject instead of
+      being centre-cropped through it.
+    """
+    u = str(url or "")
+    if "res.cloudinary.com" not in u or "/upload/" not in u:
+        return u
+    kind = str(resource_type or "").strip().lower()
+    if kind and kind != "image":
+        return u
+    if not kind and "/image/upload/" not in u:
+        return u                            # raw or video, by its own segment
+    edge = max(1, int(edge or THUMB_EDGE))
+    t = _THUMB_T.format(edge=edge)
+    if f"/{t}/" in u:
+        return u                            # already a preview
+    return u.replace("/upload/", f"/upload/{t}/", 1)
 
 
 # --------------------------------------------------------------- downloads

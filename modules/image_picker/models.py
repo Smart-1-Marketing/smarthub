@@ -291,6 +291,15 @@ class ImageDescription(Base):
         }
 
 
+def _preview(url, resource_type=""):
+    """A derived thumbnail where one is possible, and the original otherwise."""
+    try:
+        from hub import storage
+        return storage.preview_url(url or "", resource_type or "")
+    except Exception:                       # noqa: BLE001
+        return url or ""
+
+
 class SavedImage(Base):
     __tablename__ = "image_picker_images"
     __table_args__ = (
@@ -362,6 +371,16 @@ class SavedImage(Base):
             "collection_key": self.collection_key,
             "collection_label": self.collection_label,
             "url": self.cloudinary_url,
+            # What a gallery draws. The full asset stays on `url` for the
+            # link and the download; a tile that requested it was delivering
+            # a phone photograph to fill a 64x48 box, on every row, every
+            # load. Server-side because which URLs may be rewritten and which
+            # resource types must not be is a storage rule, and a copy of it
+            # in each of the twelve templates that draw a tile is the drift
+            # `hub/storage.py` exists to stop. Never raises: a gallery that
+            # cannot compute a preview shows the original, which is what it
+            # showed before.
+            "thumb": _preview(self.cloudinary_url, self.resource_type),
             "public_id": self.cloudinary_public_id,
             "width": self.width,
             "height": self.height,
