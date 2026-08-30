@@ -272,6 +272,19 @@ jobs:
             echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
+      - name: Prospect record tests
+        # The record a scanned business gets before it is a client: four kinds
+        # of empty on the Suite card, a timeline that names what it could not
+        # read, and files that report the record and the stored copy apart.
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_prospect_record.py ]; then
+            python test_prospect_record.py
+          else
+            echo "test_prospect_record.py not on this branch — nothing to run."
+          fi
+
       - name: Website audit tests
         # The spend block that leads every rendering of a site audit, the
         # customer-facing audit placement, the lead every audit files, and

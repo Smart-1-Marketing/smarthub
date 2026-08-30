@@ -290,6 +290,13 @@ class Settings:
             # Photographs a client's own location manager attaches to a
             # content request -- modules/social_planner/intake.py.
             "social_requests": "smart1-social-requests",
+            # Anything collected against a prospect before they are a client:
+            # the mock-up, the screenshot, the signed page, the rate sheet
+            # somebody emailed over -- hub/prospect.py. Its own folder rather
+            # than the client tree, because a prospect has no client key yet
+            # and filing them together is how one company's assets end up on
+            # another's record.
+            "prospects": "smart1-prospects",
         }
         return defaults.get(kind, f"smart1-{kind}")
 
