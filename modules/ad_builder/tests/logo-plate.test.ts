@@ -5,7 +5,9 @@
  * transparent must have its background removed before compositing — a white
  * box around a logo on a coloured ad looks broken." Nothing asked.
  * `hasTransparency()` was written for it and had no caller anywhere in the
- * repo, and the QA pass that could have caught it read BETTER on the broken
+ * repo — it is gone now, superseded by flatBackdrop(), which answers the
+ * same question and can also say what colour the plate is. The QA pass that
+ * could have caught it read BETTER on the broken
  * ad: `logoInkLuminance()` averages every opaque pixel, so on a plated logo
  * it measures the plate. The same navy wordmark scores about 2.3:1 on a
  * transparent canvas and about 9.9:1 with a white box behind it, against a

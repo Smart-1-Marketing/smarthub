@@ -24,18 +24,6 @@ export type SizeKey =
   | '320x50'
   | '970x250'
   | '414x125';
-
-export const ALL_SIZES: SizeKey[] = [
-  '300x250',
-  '336x280',
-  '728x90',
-  '160x600',
-  '300x600',
-  '320x50',
-  '970x250',
-  '414x125',
-];
-
 /* ------------------------------------------------------------------ brand */
 
 export type Weight = 'regular' | 'medium' | 'bold';

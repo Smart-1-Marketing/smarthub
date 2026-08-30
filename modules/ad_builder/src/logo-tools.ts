@@ -22,16 +22,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import sharp from 'sharp';
 
-/** True if the image already has meaningful transparency. */
-export async function hasTransparency(file: string): Promise<boolean> {
-  const meta = await sharp(file).metadata();
-  if (!meta.hasAlpha) return false;
-  // hasAlpha can be true with a fully-opaque alpha channel; check for real
-  // transparent pixels by sampling the alpha min.
-  const stats = await sharp(file).stats();
-  const alpha = stats.channels[stats.channels.length - 1];
-  return alpha.min < 250;
-}
 
 /**
  * Remove a flat background from a logo by making edge-colour pixels
