@@ -1529,6 +1529,17 @@ jobs:
       - name: The image and PDF optimizers
         run: python3 test_image_pdf_optimizers.py
 
+      # The third distinct way a tool's work has gone missing from the client
+      # record. The first two have checks: a name WORK_KINDS cannot name, and
+      # a module that binds a logger and never calls it. This is the one
+      # nothing was asking -- the row is written, the table knows the name,
+      # and the client sits under a key work_log() does not read. UTM Builder
+      # wrote detail=client AND logged under `utm` while the table said
+      # `utm_builder`, so every tracked-link batch was dropped twice over;
+      # Background Remover wrote detail=client too, with the gallery half of
+      # the same fix already done beside it.
+      - name: Work filed against a client reaches that client's record
+        run: python3 test_work_attribution.py
       # /api/integrity's silent-module check reads a call rather than an
       # import now, and the seven modules that had bound hub.audit and never
       # used it were fixed. That sweep wired a handful of call sites per
