@@ -512,6 +512,49 @@ check("the genuinely video social products still ask for a spot",
       cn.medium_of({"category": "SOCIAL ADS - VIDEO",
                     "product": "Tik Tok - Paid Social Media Advertising"}) == cn.VIDEO)
 
+# Gating paid social made the word "social" decisive in the keyword pass, and
+# two headings that are not media buys were caught by it: the card's own $35
+# social ad *production* line, asked whether the client already had the
+# creative it exists to produce, and a $199/month organic posting retainer
+# that buys no advertising at all. Both then printed "the spec kit maps no
+# unit for this" onto the client's creative section, and both counted their
+# spend into the social medium, which is what decides whether a comped line
+# is questioned.
+for _n in ("Social Media Ad Creation per platform", "Social Media Management"):
+    _row = next(p for p in _rc_for_media.products() if p["product"] == _n)
+    check(f"{_n!r} is not gated as a media buy",
+          cn.medium_of(_row) == cn.OTHER, cn.medium_of(_row))
+    check(f"...so a plan of only {_n[:24]!r} asks for no creative",
+          cn.gated_media({"items": [dict(_row, dollars=1500)], "months": 3}) == [],
+          cn.gated_media({"items": [dict(_row, dollars=1500)], "months": 3}))
+
+# It is the *heading* that is named, not those two products: the other four
+# lines under CREATIVE / DESIGN SERVICES answer OTHER only because they happen
+# to contain no medium keyword, and the next production line added there must
+# not depend on that luck.
+for _row in _rc_for_media.products():
+    if _row["category"] == "CREATIVE / DESIGN SERVICES":
+        check(f"no production line is gated: {_row['product'][:34]!r}",
+              cn.medium_of(_row) == cn.OTHER, cn.medium_of(_row))
+
+# ...and a real paid social buy is still asked, or this has undone the gate.
+_meta_buy = next(p for p in _rc_for_media.products()
+                 if p["product"].startswith("Facebook | Instagram - Awareness"))
+check("a real Meta buy is still asked whether the creative exists",
+      cn.gated_media({"items": [dict(_meta_buy, dollars=3000)], "months": 3})
+      == [cn.SOCIAL])
+
+# The spend a comp confirmation is measured against is the media, not the
+# production line sitting beside it on the same plan.
+_mixed = {"items": [dict(_meta_buy, dollars=3000),
+                    dict(next(p for p in _rc_for_media.products()
+                              if p["product"] == "Social Media Ad Creation per platform"),
+                         dollars=35)],
+          "months": 3}
+check("a production line does not inflate its own medium's spend",
+      cn.medium_spend(_mixed, cn.SOCIAL) == 9000.0,
+      cn.medium_spend(_mixed, cn.SOCIAL))
+
 # Pinterest is on the card and is in no part of the kit, so the category was
 # answering for it: "SOCIAL ADS - VIDEO" matched the `social ads?` pattern and
 # a Pinterest buy was asked for Facebook and Instagram units -- 1:1 feed
