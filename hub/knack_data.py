@@ -74,6 +74,34 @@ def products() -> list[dict]:
     return _records(_load("products.json"))
 
 
+def products_error() -> str:
+    """Why `products()` came back empty, or "" if it answered.
+
+    An empty product list is not an answer this Hub can have: the export is
+    ten thousand rows and every client report on `/qa` is built by grouping
+    them. `_load()` swallows `OSError` and returns None, so a missing,
+    unreadable or malformed export yields `[]` — indistinguishable, to a
+    caller, from a book with nobody on it. Six reports then rendered a clean
+    empty table and `hub/report_cache.py` stored it as the day's answer:
+    "every client has a dashboard, nobody has lapsed, nobody is missing
+    Analytics, nobody churned", frozen until tomorrow, on a source that was
+    never read.
+
+    Told apart from a genuinely empty file because they are different things
+    to do about it, and returned as a sentence rather than a bool so the
+    report can print the reason it is not measured.
+    """
+    if _load("products.json") is None:
+        return ("the products export could not be read, so this is not "
+                "measured — which is not the same as there being nothing "
+                "to report")
+    if not products():
+        return ("the products export was read and holds no rows at all, "
+                "which is a source this report cannot use rather than a "
+                "book with nobody on it")
+    return ""
+
+
 def export_websites() -> list[dict]:
     """The committed websites export, exactly as it is on disk.
 
@@ -255,6 +283,64 @@ def is_running(rec: dict) -> bool:
     if not (start and end):
         return False
     return start <= _dt.date.today() <= end
+
+
+# A revised IO is superseded: the replacement carries the real numbers, so
+# counting both double-counts the month. Complete is deliberately NOT here --
+# see ran_in_month() for why it is a pass there and a fail in is_running().
+_SUPERSEDED_STATUSES = {"revised"}
+
+
+def ran_in_month(rec: dict, mstart, mend) -> bool:
+    """Did this insertion order deliver during the month [mstart, mend]?
+
+    The sibling of `is_running()`, and it lives here rather than in the report
+    that asks it because the two were separately written and separately drifted:
+    `qa._active_in_month()` tested `status in ("live", "complete")`, which is
+    the narrow test this module's own docstring says "missed about a third of
+    the work actually running". On the real export that hid **147 rows and
+    $140,439 a month** from August's scorecard, and took two salespeople --
+    Debi Greenfield and Kim Marshall -- off it entirely, while every other
+    report on the same page counted their work. Two definitions of "running"
+    on one page is the `/api/db/structure` versus `/api/integrity` trap; they
+    are neighbours now so the next edit to either has to look at both.
+
+    Three deliberate differences from `is_running()`, each because "delivering
+    **today**" and "delivered in **March**" are different questions:
+
+      * **Complete counts here.** It is excluded there because a finished row
+        cannot cover today; a row that ran January to June plainly delivered in
+        March, and dropping it empties every historical month.
+      * **Live does not override the dates.** There it is a union, because an
+        IO nobody has closed out is still delivering. Asked about a month, a
+        Live row with no term would land in all twelve.
+      * **A row with no dates at all is not in any month.** It cannot be
+        placed, and the export carries 33 of them (31 Open) that would
+        otherwise be counted every month of the year.
+
+    What it keeps is the tolerance: anything whose term covers the month counts
+    unless it was superseded. That includes Cancelled, because those rows sit
+    inside their dates and bill -- the reading `is_running()` already applies,
+    and the reason the scorecards now agree with Active Clients. The limit
+    worth knowing is that Knack publishes no cancellation *date*, so an IO
+    cancelled mid-term is counted for every month its term spans; the
+    alternative is dropping 73 live rows worth $85,105 a month that the rest
+    of the Hub counts.
+    """
+    status = str(rec.get("status", "")).strip().lower()
+    if status in _SUPERSEDED_STATUSES:
+        return False
+
+    from hub import dates as _dates
+    start = _dates.to_date(rec.get("start"))
+    end = _dates.to_date(rec.get("end"))
+    if not (start or end):
+        return False
+    if start and start > mend:
+        return False
+    if end and end < mstart:
+        return False
+    return True
 
 
 # The old name, kept because renaming a predicate across six modules in the

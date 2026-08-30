@@ -8,6 +8,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
+{# The mark that says something is running. hub-thinking.js is not on these
+   pages and cannot be: /c/ is in PUBLIC_PREFIXES, so HubBar injects no chrome
+   here, and the script rides in with that chrome. Without this a client tapped
+   Like and nothing on the page changed at all until the answer landed — and
+   the double-tap guard then met the second tap by doing nothing, which is a
+   button that reads as broken. Guarded, so a Jinja environment that never
+   received the global loses the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
 <style>
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--muted:#64748b;
         --bad:#dc2626;--ok:#16a34a;--soft:#f8fafc}

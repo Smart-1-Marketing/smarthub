@@ -417,6 +417,24 @@ def test_the_palette_says_whether_anybody_chose_it():
 
     check("the screen draws it beside the swatches",
           "paletteProvenance()" in screen and "palette-note" in screen)
+
+    # The warning told a rep to set five swatches and gave them nothing to set
+    # them from: a brand-new prospect has no scan for the site-brand panel to
+    # read and no Brandfetch record either. colorsFromImage() was written for
+    # exactly that and had never been called -- and would have returned the
+    # padding rather than the mark, because sharp's `dominant` is a histogram
+    # over RGB that takes no notice of alpha. The same blindness as the corner
+    # sample in logo-tools.ts.
+    check("the logo's own colors are read from the mark, not what is behind it",
+          "data[i + 3] < 128" in intake and "flatBackdrop(file)" in intake)
+    check("and offered only where nobody has answered for the palette",
+          "everyRoleDefault && logoFile" in intake)
+    check("never from a wordmark we drew in the placeholder ink",
+          "assetSources.logo === 'upload' || assetSources.logo === 'brandfetch'" in intake)
+    check("the screen offers them to copy rather than applying them",
+          "logoPaletteOffer()" in screen and "click to copy" in screen)
+    check("and says it copied only when it did",
+          "could not copy, select and copy it by hand" in screen)
     check("and says nothing at all when the field is absent",
           "if (!src) return '';" in screen)
     check("naming only the roles nobody answered for",
@@ -1169,7 +1187,9 @@ def test_the_delivery_zip_describes_itself_to_a_machine():
     check("the zip carries a machine-readable manifest",
           "campaign-manifest.json" in deliver)
     check("built from the same arrays as the README",
-          "campaignManifest(project, concept, clientSlug, root, shipped, skipped)" in deliver)
+          "campaignManifest(project, concept, clientSlug, root, shipped, skipped, animated)"
+          in deliver
+          and "readme(project, concept, clientSlug, shipped, skipped, animated)" in deliver)
     check("the unit is a file in the zip, not a render",
           "for (const platform of targets) {" in deliver)
     check("a shared creative names the other platforms carrying it",
@@ -1390,6 +1410,395 @@ def test_the_font_signal_says_only_what_it_measured():
           "nothing here will match it by accident" in screen)
     check("it sits in the Type panel, where the decision is",
           "'<div id=\"siteType\"></div>' +" in screen)
+
+# ---------------------------------------------------------------- animation
+
+ANIMATION_TS = MODULE / "src" / "animation.ts"
+RENDER_TS = MODULE / "src" / "render.ts"
+SERVER_TS = MODULE / "src" / "server.ts"
+DELIVER_TS = MODULE / "src" / "deliver.ts"
+PLATFORM_DIR = MODULE / "src" / "config" / "platforms"
+PROXY_PY = ROOT / "hub" / "ad_builder_proxy.py"
+
+
+def test_the_animation_rules_are_googles_and_say_so():
+    """The four numbers that get an animated ad refused, and whose each is.
+
+    Every one of these is a published Google requirement for an animated image
+    ad, and every one is invisible on the screen it is broken on: a GIF that
+    loops for ever plays perfectly in every browser, and one running at 20
+    frames a second looks better than one at 5. So they are data with a source
+    against them rather than a habit in the encoder — the rule
+    ``services/abcd_service.py`` works to. The two that are OURS are marked as
+    ours, because "Google requires three slides" about a number Google has
+    never published is a claim a client can talk us out of once they check.
+    """
+    src = ANIMATION_TS.read_text()
+    check("there is an animation module at all", ANIMATION_TS.exists())
+
+    for name, value in (("minFrameMs", "200"), ("maxTotalMs", "30_000"),
+                        ("maxSlides", "3"), ("maxFrames", "5")):
+        check(f"{name} is stated as {value}",
+              re.search(rf"{name}:\s*{re.escape(value)}", src) is not None)
+
+    check("Google's own page is cited for the platform half",
+          "support.google.com/adspolicy" in src)
+    # The house numbers are named as house numbers, in the same block.
+    rules = src[src.index("export const ANIMATION_RULES"):]
+    rules = rules[:rules.index("} as const;")]
+    check("maxSlides and maxFrames are marked as ours, not Google's",
+          "Ours." in rules and "house:" in rules)
+
+
+def test_a_looping_gif_can_never_be_endless():
+    """`loop: 0` is the one value the 30-second rule forbids, and it is unreachable.
+
+    A GIF with a loop count of zero repeats for ever. It renders correctly in
+    every browser, passes every eye on every screen here, and is outside
+    Google's rule — which is exactly the shape of failure this codebase keeps
+    having to undo. So the count is COMPUTED from the cycle length rather than
+    chosen, and the floor is 1.
+    """
+    src = ANIMATION_TS.read_text()
+    body = src[src.index("export function loopsWithin"):]
+    body = body[:body.index("\n}")]
+    check("the loop count is computed from the cycle, not passed in",
+          "Math.floor(maxTotalMs / cycleMs)" in body)
+    check("and it can never come back as 0", "Math.max(1," in body)
+
+    # The encoder must take its loop from the plan and from nothing else.
+    enc = src[src.index("export async function encodeAnimation"):]
+    check("the encoder writes the plan's loop count",
+          "loop: plan.loop" in enc)
+    check("and never a literal 0", not re.search(r"loop:\s*0", enc))
+
+
+def test_only_a_placement_that_takes_a_gif_is_offered_one():
+    """Read out of the platform config, and refused by name where it is not.
+
+    Only Google's banner sizes list ``gif``. Amazon's specs here are static at
+    40-50 KB and Meta turns an uploaded GIF into a video, so an animation
+    offered there is a tickbox that consents and then fails for a reason that
+    is nothing to do with the operator — the failure that took Google Ads off
+    the Google Access list. And a size that came back static with nothing
+    saying which or why is the silent gap this module exists to avoid.
+    """
+    src = ANIMATION_TS.read_text()
+    check("support is read from the platform config, not decided in code",
+          "rule.formats.includes('gif')" in src)
+    check("a refusal carries a reason a person can read",
+          "ships as the static ad" in src)
+
+    google = json.loads((PLATFORM_DIR / "google.json").read_text())
+    animatable = [s for s, r in google["sizes"].items() if "gif" in r["formats"]]
+    check("Google's banner sizes accept an animated file", len(animatable) >= 8,
+          f"{len(animatable)} sizes")
+    # The responsive-display IMAGE assets must not: Google composes its own
+    # headline around those, and they are image assets rather than ad slots.
+    for size in ("1200x628", "1200x1200", "1200x1500"):
+        rule = google["sizes"].get(size)
+        check(f"{size} is not offered an animation",
+              rule is not None and "gif" not in rule["formats"])
+
+    for name in ("amazon", "meta"):
+        cfg = json.loads((PLATFORM_DIR / f"{name}.json").read_text())
+        gif = [s for s, r in cfg["sizes"].items() if "gif" in r["formats"]]
+        check(f"{name} is not offered one at any size", not gif, ", ".join(gif))
+
+
+def test_every_frame_is_checked_and_not_just_the_first():
+    """Slide 2 is different copy in the same box, and it can break it.
+
+    The static 320x50 of the sample campaign passes; the same ad with a
+    three-word-longer slide 2 fails on a clipped headline. Checking frame one
+    and calling the animation checked is how that reaches a client. This is
+    the one thing about the whole feature most likely to be quietly wrong,
+    because a set whose first frame is fine looks fine.
+    """
+    src = RENDER_TS.read_text()
+    frames = src[src.index("async function buildFrames"):]
+    frames = frames[:frames.index("\n/** Frame overrides")]
+    check("QA runs inside the per-frame loop", frames.count("await runQa(") == 1
+          and "for (let i = 0; i < plan.frames.length; i++)" in frames)
+    check("a later frame's finding names the slide it is on",
+          "frame.tag" in frames and "frame.label" in frames)
+    # And it must not repeat frame 1's findings once per frame: five copies of
+    # one warning is how a panel of warnings stops being read.
+    check("a finding frame 1 already carries is not repeated per frame",
+          "seen.has(key)" in frames)
+
+
+def test_slide_copy_can_be_written_for_one_canvas():
+    """Without it a set animates at seven sizes and fails at the eighth.
+
+    Exactly the reason ``CreativeConcept.copy`` carries per-size entries: a
+    headline that fits the 300x600 is two lines on the 320x50. Resolved slide
+    by slide and field by field, so a size that needs a shorter slide 2
+    overrides slide 2 and inherits slide 3.
+    """
+    src = ANIMATION_TS.read_text()
+    check("the spec carries per-size slides", "sizeSlides?" in src)
+    body = src[src.index("export function slidesFor"):]
+    body = body[:body.index("\n}")]
+    check("a size's slides overlay the default field by field",
+          "...(base[i] ?? {}), ...(forSize[i] ?? {})" in body)
+    check("and the planner resolves through it",
+          "slidesFor(spec, ctx.size)" in src)
+
+    screen = BUILD_HTML.read_text()
+    check("the build screen offers writing a slide for this size only",
+          "animThisSize" in screen and "sizeSlides" in screen)
+    # The scope trap the static copy fields already carry: writing the default
+    # while an override still holds the old value reads as the edit failing.
+    check("writing the default clears that field's override for this size",
+          "delete per2[i][field]" in screen)
+
+
+def test_animating_needs_a_saved_static_build_and_says_so():
+    """The gate, on the server rather than only in the form.
+
+    An animation is built FROM the still ad, so there is nothing to animate
+    until one exists. The campaign file on disk is what "a static build
+    exists" means — it is what Save writes and what the render job reads. A
+    rule the form keeps while the write breaks it is not a rule, so both the
+    options route and the build route check it.
+    """
+    src = SERVER_TS.read_text()
+    gate = "There is no saved build for this set yet."
+    check("the options route refuses without a saved build",
+          src.count(gate) >= 2, f"found {src.count(gate)} of 2")
+    check("and it names saving as the way out",
+          "Save the static ' +\n                 'design first" in src
+          or "Save the static design first" in src.replace("' +\n                 '", ""))
+
+    screen = BUILD_HTML.read_text()
+    check("the Animate button appears only once the build is saved",
+          "animBtn.style.display = state.saved ? '' : 'none'" in screen)
+    check("and it reads the saved build rather than the screen",
+          "leaveIfSafe('the animation panel', openAnimator)" in screen)
+
+
+def test_an_animation_never_replaces_the_static_file():
+    """Most placements on a buy take the still one, so the static set always ships.
+
+    A folder holding only GIFs is a set that cannot be trafficked: Amazon takes
+    none of them and three of Google's own sizes take none either. So the GIF
+    is written beside its sibling with ``_animated`` on the end and never over
+    it.
+    """
+    src = RENDER_TS.read_text()
+    check("the file is written beside the static one", "_animated" in src)
+    check("and the static render still strips gif from its own format list",
+          "f !== 'gif'" in src)
+
+
+def test_an_animation_is_not_in_the_delivery_zip():
+    """A zip is one act; an animation is one decision per file.
+
+    Every file in a package is delivered on the strength of the same press. An
+    animation is not: each is approved on its own and filed on its own. Bundled
+    here, an animation nobody had watched would go out inside a package
+    somebody approved the STATIC set of — which is the whole distinction the
+    approval exists to draw.
+
+    They are still named, with whether each was approved, because a client who
+    was shown a moving version and then opens a package without one needs the
+    package to account for it. Silence reads as a file somebody forgot.
+    """
+    dsrc = DELIVER_TS.read_text()
+    check("no animated file is written into the archive",
+          "zipEntries.push" in dsrc
+          and "_animated.gif" not in dsrc.split("const zipEntries")[1].split("fs.writeFileSync(zipFile")[0])
+    check("the README says they are not in it",
+          "ANIMATED VERSIONS — NOT IN THIS ZIP" in dsrc)
+    check("and says where they actually go",
+          "delivered separately" in dsrc)
+    check("each row says whether it was approved",
+          "not approved yet, so not delivered" in dsrc)
+    check("the machine manifest says the same rather than naming a path",
+          "inThisZip: false" in dsrc and "deliveredSeparately" in dsrc)
+    check("the count is never added to the static file count",
+          "animatedCount" in dsrc
+          and "fileCount: shipped.length" in dsrc)
+
+
+def test_one_animation_is_one_decision_and_one_file():
+    """Eight moving ads are eight decisions, and approving is what sends one.
+
+    Somebody watches one, likes it, sends it; the next may need its second
+    slide rewritten. A project-wide flag would deliver the seven nobody watched
+    on the strength of the one they did. And because the zip no longer carries
+    animations, this approval is the ONLY gate between a clipped second slide
+    and a client's asset library.
+    """
+    proj = (MODULE / "src" / "projects.ts").read_text()
+    check("approval is recorded per animation", "approvedAt?: string;" in proj)
+    check("and names who gave it", "approvedBy?: string;" in proj)
+    check("a QA-failing animation cannot be approved at all",
+          "if (approved && row.status === 'fail')" in proj)
+    check("and is refused by name rather than silently doing nothing",
+          "did not pass its checks, so it cannot be approved" in proj)
+    # A sign-off is about the file as it was: rebuilding a size retires it, and
+    # says so rather than reading as a size nobody ever looked at.
+    check("rebuilding a size retires its approval",
+          "r.previouslyApprovedAt = stamp" in proj)
+
+    srv = SERVER_TS.read_text()
+    check("there is a route to approve one, and it is a POST",
+          "/approve$/" in srv and "animApprove && req.method === 'POST'" in srv)
+    check("the approver's name comes from the proxy, never the request body",
+          "const approvedBy = (req.headers['x-s1-user'] as string)" in srv)
+    check("approving and storing are reported apart",
+          "storeError" in srv and "stored: false" in srv)
+    check("an approval survives a failed upload",
+          "approved: true, approvedAt: row.approvedAt, size: key.size, stored: false" in srv)
+    check("and an already-stored file is not uploaded twice",
+          "if (row.cloudinaryPublicId) {" in srv)
+
+
+def test_the_proof_says_what_the_approval_covers():
+    """A client is shown moving versions and given one button that is not about them.
+
+    The proof draws the animations, and "Approve concept A" on the same page
+    triggers deliverProject -- which no longer carries animations, because each
+    is approved and sent on its own. So a client who says yes to what they were
+    shown gets a package that accounts for the still set and reports a file
+    count that does not include the three GIFs they just watched.
+
+    Nothing errors, the download is correct, and only the sentence joining them
+    is missing -- which is the "Showing 1 of 7" failure this codebase names,
+    wearing a proof page.
+    """
+    src = (MODULE / "src" / "proof.ts").read_text()
+    raw = src[src.index("const movingBlock"):src.index("return `\n      <section")]
+    # Normalised, because this is wrapped markup: a sentence that reads on one
+    # line in the browser is split across three in the source, and an
+    # assertion pinned to where the line breaks fall fails the day somebody
+    # reflows the paragraph -- which is how a check gets deleted rather than
+    # fixed.
+    block = " ".join(raw.split())
+    check("the animated block says what the approve button covers",
+          "Approving below covers the still set" in block)
+    check("and that they arrive on their own instead",
+          "on its own, as its own file" in block)
+    check("and that the download from this page will not have them in it",
+          "will not contain them" in block)
+    # It must not invite a decision it cannot record: the client's answer to an
+    # animation is the notes box, because approving one is a staff act that
+    # sends the file.
+    check("it points at the notes rather than offering a button it has no route for",
+          "notes" in block and "data-approve" not in raw)
+
+
+def test_an_approved_animation_reaches_the_client_record():
+    """Otherwise it is the failure this repo has counted six times.
+
+    A client who has just been sent an animated ad reading as a client nobody
+    made anything for. The static pack reaches the gallery through
+    attach_ads(); animations live on their own list and would have reached it
+    through nothing at all.
+    """
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    check("there is a path from an approved animation to the gallery",
+          "def attach_animations(" in link)
+    check("it files under its own kind", 'ANIMATION_KIND = "animated_ad"' in link)
+    check("only approved ones", 'if not a.get("approvedAt")' in link)
+    check("only stored ones, never our own render path",
+          'a.get("cloudinaryPublicId")' in link)
+    check("and never a QA failure, even though the renderer already refuses one",
+          'a.get("status") == "fail"' in link)
+    check("filing is its own route, called when the approval lands",
+          "attach-animation" in link)
+    check("and it is recorded against the client",
+          '"animation_attached"' in link)
+
+    # A kind the gallery cannot name arrives as a bare key under no heading —
+    # the failure `io_creative` and `display_ads` each cost once already.
+    filing = (ROOT / "modules" / "image_picker" / "filing.py").read_text()
+    check("the gallery has a heading for it",
+          '"animated_ad": "Animated display ads"' in filing)
+    check("declared in both tables, so a source label is not a bare key either",
+          filing.count('"animated_ad"') >= 2)
+
+
+def test_an_approved_gif_is_stored_byte_for_byte():
+    """A re-encode rewrites the two numbers the compliance check measured.
+
+    `uploadCreative` passes `quality: 100`, which is an incoming
+    transformation. On a GIF any re-encode rewrites the frame delays and the
+    loop block — the frame rate and the 30-second stop — so the stored file
+    would no longer have the properties that were measured. It would still
+    play, still look right, and be a different file from the one QA passed.
+    """
+    cld = (MODULE / "src" / "cloudinary.ts").read_text()
+    check("animations have their own upload", "async uploadAnimation(" in cld)
+    body = cld.split("async uploadAnimation(")[1].split("/* ---")[0]
+    check("with no quality passed", "quality" not in body)
+    check("and as an image, not a video",
+          "resource_type: 'image'" in body)
+    check("the reason is written down where the next person will read it",
+          "rewrites its frame delays and its loop block" in cld)
+
+
+def test_the_animation_is_its_own_job():
+    """So a static build costs exactly what it costs today.
+
+    The whole point of the sequencing: animation is asked for after the fact,
+    on the sizes that take one, and must not be extra work bolted onto the
+    render every set goes through. Same queue — so it is watched, persisted and
+    recovered like any other job — and its own branch.
+    """
+    jobs = (MODULE / "src" / "jobs.ts").read_text()
+    check("a job says which of the two it is", "mode?: 'static' | 'animated'" in jobs)
+    check("'static' stays the default, so recovered jobs mean what they meant",
+          "mode: input.mode ?? 'static'" in jobs)
+    check("the animated branch does not write a static manifest",
+          "if (input.mode === 'animated')" in jobs
+          and jobs.index("if (input.mode === 'animated')") < jobs.index("const cld = new CloudinaryService()"))
+    # The denominator has to be the sizes that can actually carry one, or a
+    # finished job's progress bar stops short of its own total.
+    check("progress is counted over sizes that accept an animation",
+          "animationSupport(platform, size).supported" in jobs)
+
+
+def test_an_animation_is_attributable():
+    """A route added in TypeScript cannot be silent about client work.
+
+    The Display Ad Builder is the one module that is not Python, so everything
+    it does happens in a process that has never heard of ``hub/audit.py``. The
+    proxy is the single point it all passes through. Its own action rather than
+    folded into the render: a client record showing one entry for both could
+    not say whether the animated versions on a delivery were ever built here.
+    """
+    proxy = PROXY_PY.read_text()
+    check("the animate route has a name in the activity log",
+          'r"^api/animate/([\\w-]+)$"' in proxy and '"ads_animated"' in proxy)
+    check("and it is not one of the paths a client may reach",
+          "animate" not in proxy[proxy.index("PUBLIC_PATTERNS"):
+                                 proxy.index("def is_public")])
+
+
+def test_the_panel_prints_the_timing_rather_than_implying_it():
+    """The two numbers that refuse an ad are invisible on screen.
+
+    A GIF running at 20 frames a second looks better than one at 5, and one
+    looping for ever plays perfectly everywhere. Neither is visible on the
+    preview, so both are printed beside it, in words, from the SERVER's plan —
+    a second copy of that arithmetic in the browser is a second answer to "is
+    this legal", and the two disagree the day either is edited.
+    """
+    screen = BUILD_HTML.read_text()
+    for phrase in ("frames</b> at ", "then stops", "in total",
+                   "of the ", "KB this placement allows"):
+        check(f"the panel prints {phrase.strip('<>b/ ')!r}", phrase in screen)
+    check("the numbers come from the server's own plan",
+          "r.loop" in screen and "r.totalMs" in screen and "r.fps" in screen)
+    # No local recomputation of the rule.
+    check("the browser does not compute the loop count itself",
+          "30000" not in screen and "30_000" not in screen)
+    check("a size that cannot take one is said, not drawn as an error",
+          "r.supported === false" in screen and "ships as the static ad" in screen)
+
 
 
 def main():

@@ -315,10 +315,24 @@ def build(client: str, use_ai: bool = True) -> dict:
 
 
 def save(client: str, text: str) -> dict:
-    """Store the approved file against the client so it can be served."""
+    """Store the draft against the client. This does NOT put it on the air.
+
+    Publishing is `hub/llms_hosting.publish()`, and it is a separate act so
+    that a half-written file is never live.
+
+    **The write merges.** An earlier version assigned a fresh
+    `{"text", "updated"}` over the whole record, which silently destroyed the
+    `published` copy beside it — so saving a draft took the live file down and
+    the next read adopted the half-finished draft in its place, with the
+    screen reporting a clean save either way. Same shape as the Commercial
+    Builder's `set_music`, and invisible from both ends for the same reason.
+    """
     from hub import seo, audit
     store = seo.load_store(client) or {}
-    store["llms_txt"] = {"text": text, "updated": date.today().isoformat()}
+    rec = store.get("llms_txt")
+    rec = dict(rec) if isinstance(rec, dict) else {}
+    rec.update({"text": text, "updated": date.today().isoformat()})
+    store["llms_txt"] = rec
     seo.save_store(client, store)
     audit.log("seo", "llms_txt_saved", client=client, bytes=len(text))
     return {"ok": True, "bytes": len(text)}

@@ -42,7 +42,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
 import type { Manifest, ManifestEntry } from './manifest';
-import type { Project } from './projects';
+import type { AnimationRecord, Project } from './projects';
 import { slug } from './cloudinary';
 
 export interface DeliverOptions {
@@ -55,6 +55,11 @@ export interface DeliverResult {
   zipFile: string;          // absolute path
   zipUrl: string;           // /files/... path for the browser
   fileCount: number;
+  /** Animated versions this concept has, NAMED in the package and not in it.
+   *  Never added to fileCount: they are delivered one at a time, each after
+   *  its own approval, so a zip that counted them would be reporting files it
+   *  does not contain. */
+  animatedCount: number;
   overrideCount: number;
   skipped: { size: string; reason: string }[];
   bytes: number;
@@ -79,6 +84,7 @@ function readme(
   clientSlug: string,
   shipped: { entry: ManifestEntry; overridden: boolean; finalFile: string }[],
   skipped: { size: string; reason: string }[],
+  animated: AnimationRecord[],
 ): string {
   const lines: string[] = [];
   lines.push(`${project.client} — ${project.campaignName}`);
@@ -96,6 +102,24 @@ function readme(
       `  ·  ${human(fs.statSync(s.finalFile).size)}` +
       (s.overridden ? '  ·  MANUALLY EDITED replacement supplied by Smart 1' : ''),
     );
+  }
+  if (animated.length) {
+    lines.push('');
+    lines.push('ANIMATED VERSIONS — NOT IN THIS ZIP');
+    lines.push('-----------------------------------');
+    lines.push('Animated versions of these ads exist. They are delivered separately,');
+    lines.push('one file at a time, each after it has been approved on its own — so');
+    lines.push('they arrive in the asset library rather than in this package.');
+    lines.push('');
+    lines.push('This zip is the static set, and the static set is what runs on every');
+    lines.push('placement: most of them do not accept an animated file at all.');
+    for (const a of animated) {
+      lines.push(
+        `${clientSlug}_${a.size}_animated.gif  ·  ${a.platform}  ·  ${a.frames} frames  ·  ` +
+        `plays ${a.loop}x, ${(a.totalMs / 1000).toFixed(1)}s  ·  ${human(a.bytes)}  ·  ` +
+        `${a.approvedAt ? 'approved and delivered separately' : 'not approved yet, so not delivered'}`,
+      );
+    }
   }
   if (skipped.length) {
     lines.push('');
@@ -153,6 +177,7 @@ function campaignManifest(
   root: string,
   shipped: { entry: ManifestEntry; overridden: boolean; finalFile: string }[],
   skipped: { size: string; reason: string }[],
+  animated: AnimationRecord[],
 ): string {
   const assets = [];
   for (const s of shipped) {
@@ -198,9 +223,32 @@ function campaignManifest(
         files: assets.length,
         creatives: shipped.length,
         withheld: skipped.length,
+        animated: animated.length,
         bytes: assets.reduce((n, a) => n + a.bytes, 0),
       },
       assets,
+      // Listed apart from `assets` on purpose. An animated file is an EXTRA
+      // version of an ad that is already in `assets`, not a ninth ad -- folded
+      // in, it would double the creative count on any sheet keyed on this
+      // file, and an ops person would traffic the same placement twice.
+      animated: animated.map((a) => ({
+        // Deliberately no `file`: these are NOT in this archive. An ops person
+        // reading a path out of a manifest and not finding it in the folder is
+        // worse than a row that says plainly where the file actually is.
+        inThisZip: false,
+        deliveredSeparately: Boolean(a.approvedAt),
+        platform: a.platform,
+        size: a.size,
+        format: 'gif',
+        bytes: a.bytes,
+        frames: a.frames,
+        loop: a.loop,
+        totalSeconds: Number((a.totalMs / 1000).toFixed(1)),
+        fps: a.fps,
+        motion: a.kind,
+        qa: a.status,
+        qaIssues: a.issues,
+      })),
       withheld: skipped.map((s) => ({ size: s.size, reason: s.reason })),
     },
     null,
@@ -251,6 +299,23 @@ export async function deliverProject(
 
   if (!shipped.length) throw new Error('Nothing deliverable: every size was withheld or missing.');
 
+  /* Animated versions are NOT in this zip, and are read here only so the
+     package can say so.
+
+     A zip is one act: it is built once, downloaded once, and every file in it
+     is delivered on the strength of the same decision. An animation is not
+     delivered on that decision -- each one is approved on its own and then
+     filed to the client on its own, as a single file. Bundling them here
+     would deliver an unapproved animation inside a package somebody approved
+     the static set of, which is the whole distinction the approval exists to
+     draw.
+
+     They are still named in the README and the manifest, with whether each has
+     been approved, because a client who was shown an animated version and then
+     opens a package without one needs the package to account for it. Silence
+     reads as a file that was forgotten. */
+  const animated = (project.animations ?? []).filter((a) => a.conceptId === concept);
+
   const deliveriesDir = path.join(opts.outDir, 'deliveries');
   fs.mkdirSync(deliveriesDir, { recursive: true });
   const zipName = `${clientSlug}_${slug(project.campaignName)}_${concept}_${Date.now().toString(36)}.zip`;
@@ -277,12 +342,12 @@ export async function deliverProject(
   }
   zipEntries.push({
     name: `${root}/README.txt`,
-    data: Buffer.from(readme(project, concept, clientSlug, shipped, skipped), 'utf8'),
+    data: Buffer.from(readme(project, concept, clientSlug, shipped, skipped, animated), 'utf8'),
   });
   zipEntries.push({
     name: `${root}/campaign-manifest.json`,
     data: Buffer.from(
-      campaignManifest(project, concept, clientSlug, root, shipped, skipped),
+      campaignManifest(project, concept, clientSlug, root, shipped, skipped, animated),
       'utf8',
     ),
   });
@@ -292,6 +357,7 @@ export async function deliverProject(
     zipFile,
     zipUrl: `/files/deliveries/${zipName}`,
     fileCount: shipped.length,
+    animatedCount: animated.length,
     overrideCount: shipped.filter((s) => s.overridden).length,
     skipped,
     bytes: fs.statSync(zipFile).size,

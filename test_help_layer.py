@@ -144,7 +144,15 @@ print("-" * 62)
 
 # Every call guarded, so a module whose Jinja env never got
 # install_template_helpers() loses the icon rather than the page.
+#
+# Matched as a call *inside a Jinja delimiter*, not as the bare token: a
+# template that emits the bubble markup from JavaScript explains in a comment
+# that help_dot() is a Jinja global and cannot be used there, and a substring
+# pass reports that explanation as an unguarded call. Same rule the env drift
+# check, the orphan-template check and the coverage check all work to --
+# prose is not a call site.
 ROOT = os.path.dirname(os.path.abspath(__file__))
+_JINJA_CALL = re.compile(r"\{\{[^}]*help_dot\(|\{%[^%]*help_dot\(")
 unguarded = []
 for folder in ("hub", "modules"):
     for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, folder)):
@@ -156,7 +164,7 @@ for folder in ("hub", "modules"):
             path = os.path.join(dirpath, name)
             with open(path, encoding="utf-8", errors="ignore") as fh:
                 for i, line in enumerate(fh, 1):
-                    if "help_dot(" in line and "is defined" not in line:
+                    if _JINJA_CALL.search(line) and "is defined" not in line:
                         unguarded.append(f"{os.path.relpath(path, ROOT)}:{i}")
 check("every help_dot call is guarded", unguarded, [])
 
@@ -271,6 +279,37 @@ _anchored = [r for r in DEMO["clean"]]
 ok("some walkthroughs are clean, so this is not reporting everything",
    len(_anchored) >= 5, str(len(_anchored)))
 
+# A scenario that drives NONE of its steps is the one worth retiring rather
+# than repairing: the learner presses "Do it for me" on every step and nothing
+# happens, which is the Smart 1 Ads failure. The backlog above stays a
+# backlog; this is the floor under it.
+check("no walkthrough drives none of the steps it names",
+      [r["key"] for r in DEMO["rows"] if r["dead"]], [])
+
+# The five that did. Named rather than merely counted: the point is that these
+# screens can now be walked, not that a number went down.
+for _key in ("seo.faq_and_schema", "qa.stale_creative", "landing_ads.from_page",
+             "tickets.triage", "qa.billing_audit"):
+    ok(f"{_key} drives every step it names", _key in DEMO["clean"],
+       str([r["key"] for r in DEMO["rows"] if r["key"] == _key]))
+
+# A hook a template DERIVES cannot be found whole in any source. The QA index
+# writes data-demo="qa-report-{{ key }}" once for every report it lists, so a
+# scenario naming a report added next month is anchored without that template
+# being edited -- and a plain substring search calls it dead, which is the
+# guess linkcheck refuses to make about a concatenated URL.
+ok("a derived hook is accepted on its literal prefix",
+   "qa-report-" in DEMO["runtime_prefixes"], str(DEMO["runtime_prefixes"]))
+ok("and the targets it covers are named rather than folded into the count",
+   all(t.startswith("qa-report-") for t in DEMO["runtime"]) and bool(DEMO["runtime"]),
+   str(DEMO["runtime"]))
+# Three characters at least: a bare data-demo="{{ x }}" names no prefix, and
+# one that matched everything would switch the check off.
+check("a prefix short enough to match anything is not collected",
+      help_audit._runtime_demo_prefixes('data-demo="a{{ k }}"'), [])
+check("but a real one is",
+      help_audit._runtime_demo_prefixes('data-demo="thing-{{ k }}"'), ["thing-"])
+
 
 print("\nThe panel that shows it")
 print("-" * 62)
@@ -352,6 +391,47 @@ ok("and each says why", all(t.get("reason") for t in _cov["client_facing"]))
 check("no help is registered under a prefix nothing maps to",
       help_coverage.stray_prefixes(), [])
 
+# And the third side, which `stray_prefixes()` structurally cannot see: it
+# reduces every screen to its FIRST segment, so `hub.website_audit.*` reduces
+# to `hub`, which NOT_A_TOOL exempts as the dashboard and Client 360. That
+# exemption has to be broad, so the forward direction is what has to catch a
+# tile mapped to a prefix that names the wrong thing -- and it fails in the
+# safe-looking way, reporting the tool as never explained.
+check("no tile is mapped to a prefix that names the wrong screen",
+      help_coverage.mislabeled_prefixes(), [])
+
+# A prefix in either shape resolves. Some screens need two segments to be
+# unambiguous -- hub.website_audit is a tool and hub.prospect is a record
+# page, and the bare `hub` they share names neither.
+ok("a tile may name a two-segment screen",
+   any("." in p for p in help_coverage.PREFIXES.values()),
+   str(sorted({p for p in help_coverage.PREFIXES.values() if "." in p})))
+_audit_tile = [t for t in _cov["covered"] if t["href"] == "/tools/website-audit"]
+ok("and the Website Audit tool reads as explained, which it is",
+   bool(_audit_tile), str([t["href"] for t in _cov["missing"]]))
+
+# Fed the bug it was written for, it must say so -- a check that cannot fail
+# is one nobody can trust, and this one would read green either way.
+_saved = dict(help_coverage.PREFIXES)
+try:
+    help_coverage.PREFIXES["/tools/website-audit"] = "website_audit"
+    _bit = help_coverage.mislabeled_prefixes()
+    ok("the check bites on a prefix that names the wrong screen",
+       [m["prefix"] for m in _bit] == ["website_audit"], str(_bit))
+    ok("and names the screen the help is actually under",
+       _bit and _bit[0]["registered"] == ["hub.website_audit"], str(_bit))
+    # The twenty-three tools nobody has written help for are NOT this finding.
+    # "Nobody wrote it" and "it is written under another name" are different
+    # jobs, and reporting the first as the second is a list somebody
+    # re-triages on every run.
+    ok("a tool that genuinely has no help is not reported as mislabeled",
+       "gpt_ads" not in [m["prefix"] for m in _bit], str(_bit))
+finally:
+    help_coverage.PREFIXES.clear()
+    help_coverage.PREFIXES.update(_saved)
+check("and it is green again once restored",
+      help_coverage.mislabeled_prefixes(), [])
+
 # And the routes read this rather than restating it. Two hand-typed lists is
 # how one surface came to report a retired module as its only finding while
 # the other reported nothing at all.
@@ -432,6 +512,54 @@ ok("and the panel draws it", "d.coverage" in _r and '"Coverage"' in _r)
 ok("checking measured before it draws a count", "c.measured===false" in _r)
 ok("and it names the client-facing tiles rather than counting them as gaps",
    "client_facing" in _r)
+
+
+# ------------------------------------------------ the Proposal Builder
+print()
+print("The wizard explains its own steps")
+
+# The biggest staff tool in the Hub: fourteen steps a rep spends a quarter of
+# an hour in, and until now four bubbles on one panel of it. The keys are
+# written where CLAUDE.md already documents a trap -- the card rate being
+# buy-side, the budget parting company with the plan, a ZIP rule that reads
+# as saved and does nothing -- so the copy says what the field does to the
+# output rather than what it is.
+_WIZ = os.path.join(ROOT, "modules", "sales_builder", "templates", "index.html")
+with open(_WIZ, encoding="utf-8") as _fh:
+    _wiz = _fh.read()
+
+_placed = re.findall(r'help:"(sales_builder\.[\w.]+)"', _wiz)
+ok("the wizard places a bubble on its steps", len(_placed) >= 12, str(len(_placed)))
+check("and each step's key is placed once", len(_placed), len(set(_placed)))
+
+_known = set(help_registry.keys()) if hasattr(help_registry, "keys") else {
+    h.key for h in help_registry.REGISTRY}
+_dead = sorted(k for k in _placed if k not in _known)
+check("every key it places resolves in the registry", _dead, [])
+
+# The rule test_ads_explainer.py holds the client estimate to: the page a
+# client reads carries no staff help, because a bubble there is an internal
+# note in front of somebody we are selling to.
+for _name in ("client_proposal.html", "client_gone.html"):
+    with open(os.path.join(ROOT, "modules", "sales_builder", "templates", _name),
+              encoding="utf-8") as _fh:
+        _client = _fh.read()
+    ok(f"{_name} carries no staff help", "data-help" not in _client
+       and "help_dot" not in _client)
+
+# And no tour is named. A tour is anchored by selector, and this is one page
+# whose markup is replaced on every step -- so one written for it could not
+# drive past the step it started on, which is the silence hub-demo.js was
+# just fixed to stop. Naming a screen with no steps is the other half of
+# that, and hub/help.tour() would fall back to the module prefix and serve
+# another screen's steps over elements that are not on the page.
+# Matched as an attribute rather than as the bare word: the comment in that
+# template *explains* the data-screen it deliberately does not draw, and a
+# substring pass reports the explanation as the defect. Fourth time that rule
+# has earned its keep -- the env drift check, the orphan-template check and
+# the hand-typed-list check all read structure for the same reason.
+ok("and it names no tour it cannot drive",
+   not re.search(r'data-screen\s*=', _wiz))
 
 import shutil as _shutil                                          # noqa: E402
 _shutil.rmtree(_T, ignore_errors=True)

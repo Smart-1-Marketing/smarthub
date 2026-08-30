@@ -64,6 +64,39 @@ except Exception:  # noqa: BLE001
         return None
 
 
+
+# Write routes that deliberately record nothing, each with the reason.
+#
+# `_audit` was bound at the top of this module and called nowhere, which
+# CLAUDE.md records: deleting a client's live website and connecting a domain
+# were the least attributable actions in the Hub. The sweep that fixed it
+# wired four call sites and stopped — so `add_site`, which *creates* a
+# client's website, `personalization`, which writes brand colors onto their
+# live pages, `pricing`, which sets what they are billed and holds the join
+# every domain-keyed report reads, and `project_sso`, which is the door the
+# site is edited through, all stayed silent. Nothing could see it:
+# `test_activity_logging.py` asks whether a module logs *at all*, and one call
+# site satisfies that.
+#
+# So the remainder is written down rather than left as an absence — the rule
+# `audit.NO_ACTIVITY` and `compliance_spec.NOT_ENFORCED` already work to, so
+# a silent route is a decision somebody made rather than one nobody noticed.
+# `test_sites_admin.py` holds it in both directions: a write route in neither
+# list fails, and an entry naming a route that is gone, or one that now logs,
+# fails too.
+HOUSEKEEPING_ROUTES = {
+    "login": "authentication; hub/auth.py records the session",
+    "logout": "the same, from the other end",
+    "sync": "re-reads Simvoly into our own tables and changes nothing there",
+    "refresh_project": "one project's read, same as sync",
+    "inventory_import": "imports a portfolio export into our tables",
+    "inventory_discover": "a read of Simvoly to find projects we hold no row for",
+    "inventory_refresh_known": "re-reads projects we already hold",
+    "packages": "our own plan table, not a client's site",
+    "costs_import": "what the platform charges us, not what a client is billed",
+    "website_check_limits": "asks Simvoly a question and writes nothing",
+}
+
 app = Flask(__name__)
 
 
@@ -95,13 +128,27 @@ app.config.update(
 
 # Hub integration: don't crash the whole Hub at boot if the Sites database
 # isn't configured/reachable yet — surface the problem on the page instead.
+# Retried while the failure is a *connection* one: a deploy races the database
+# awake, and giving up on the first "SSL connection has been closed
+# unexpectedly" leaves this module's schema unensured for the life of the
+# worker. Nothing here reads DB_BOOT_ERROR -- connection() opens a fresh
+# psycopg2 connection per call, so the pages recover by themselves -- but the
+# schema step does not get a second chance without this.
 try:
-    init_db()
-    DB_BOOT_ERROR = None
-except Exception as _db_exc:  # noqa: BLE001
-    DB_BOOT_ERROR = str(_db_exc)
+    from hub.extensions import boot_retry as _boot_retry
+except Exception:  # noqa: BLE001 - standalone, outside the Hub
+    def _boot_retry(run, *, label=""):
+        try:
+            run()
+            return ""
+        except Exception as exc:  # noqa: BLE001
+            return f"{type(exc).__name__}: {exc}"
+
+DB_BOOT_ERROR = _boot_retry(init_db, label="sites_admin") or None
+if DB_BOOT_ERROR:
     import logging as _logging
-    _logging.getLogger(__name__).warning("Sites DB unavailable at boot: %s", _db_exc)
+    _logging.getLogger(__name__).warning(
+        "Sites DB unavailable at boot: %s", DB_BOOT_ERROR)
 client = SimvolyClient()
 
 
@@ -683,6 +730,15 @@ def pricing(pid):
             request.form.get("notes", "").strip(),
             request.form.get("internal_client_name", "").strip(),
         )
+        # Two things here are worth a name against them. `client_price` is
+        # what the client is billed, and `internal_client_name` is the join
+        # `hub/domain_links.py` writes and every domain-keyed report reads --
+        # changing it moves a website onto a different client's record, which
+        # is exactly the attribution nobody could reconstruct afterwards.
+        _audit("pricing_saved", project=pid,
+               client=request.form.get("internal_client_name", "").strip(),
+               price=request.form.get("client_price", "").strip() or None,
+               partner=request.form.get("partner", "").strip() or None)
         flash("Pricing and account notes saved.", "success")
     except ValueError:
         flash("Pricing fields must be valid numbers.", "danger")
@@ -721,7 +777,17 @@ def add_site():
             project_id = data.get("projectId") if isinstance(data, dict) else None
             if project_id and activate_plan_id:
                 client.set_project_status(project_id, "ACTIVE", activate_plan_id, period)
+            # Creating a client's website is the other half of the pair
+            # `delete_website` already records. The sweep that wired _audit
+            # into the destructive routes stopped there, so deleting a site
+            # was attributable and making one was not. Logged after Simvoly
+            # returned, so a refused create is not recorded as a made one.
             if project_id:
+                _audit("site_created", project=project_id,
+                       client=values.get("external_customer_id") or "",
+                       site=values.get("site_name") or "",
+                       subdomain=values.get("subdomain") or "",
+                       plan=activate_plan_id or "")
                 try:
                     sync_project(project_id)
                 except Exception:
@@ -762,6 +828,14 @@ def project_action(pid, action):
             set_lifecycle(pid, "")
         else:
             abort(404)
+        # Suspending, cancelling or reactivating changes whether a client's
+        # website is serving. _audit was bound at the top of this module and
+        # called nowhere, so none of that was attributable. Logged inside the
+        # try, after the Simvoly call returned, so a refused change is not
+        # recorded as a made one.
+        _audit(f"project_{action}", project=pid,
+               client=p.get("internal_client_name") or "",
+               site=p.get("name") or "")
         try:
             sync_project(pid)
         except Exception:
@@ -782,6 +856,10 @@ def connect_domain(website_id):
     domain = request.form.get("domain", "").strip()
     try:
         client.connect_domain(website_id, domain)
+        # Logged after Simvoly accepted it, so a refused connect is not
+        # recorded as a made one.
+        _audit("domain_connected", website=website_id, domain=domain,
+               project=w.get("project_id") or "")
         sync_project(w["project_id"])
         flash(f"Domain connection requested for {domain}.", "success")
     except Exception as exc:
@@ -799,6 +877,8 @@ def disconnect_domain(website_id):
     domain = request.form.get("domain", "").strip() or w.get("domain", "")
     try:
         client.disconnect_domain(website_id, domain)
+        _audit("domain_disconnected", website=website_id, domain=domain,
+               project=w.get("project_id") or "")
         sync_project(w["project_id"])
         flash(f"Domain disconnect requested for {domain}.", "success")
     except Exception as exc:
@@ -826,6 +906,12 @@ def personalization(website_id):
             "secondary_color_4": request.form.get("secondary_color_4", "").strip(),
         }
         client.set_personalization_tags(website_id, tags, colors)
+        # This writes brand colors onto a client's live website, which is a
+        # visible change to something they show customers -- the same class of
+        # work as connecting a domain, which is recorded three routes up.
+        _audit("personalization_updated", website=website_id,
+               project=w.get("project_id") or "",
+               domain=w.get("domain") or "", tags=len(tags))
         flash("Personalization tags updated.", "success")
     except Exception as exc:
         flash(f"Personalization update failed: {exc}", "danger")
@@ -844,6 +930,10 @@ def delete_website(website_id):
         return redirect(url_for("project_detail", pid=w["project_id"]))
     try:
         client.set_website_status(website_id, "DELETED")
+        # Deleting a client's live site is the least reversible thing this
+        # module does and was the least attributable.
+        _audit("website_deleted", website=website_id,
+               domain=w.get("domain") or "", project=w.get("project_id") or "")
         sync_project(w["project_id"])
         flash("Website/funnel delete request completed.", "success")
     except Exception as exc:
@@ -920,6 +1010,11 @@ def project_sso(pid):
         access_url = result.get("accessUrl")
         if not access_url:
             raise SimvolyError("SSO response did not contain accessUrl.")
+        # Not a change to the site, but it is the door the site is edited
+        # through: an unexplained edit to a client's pages is answerable only
+        # if somebody can say who was let in and when.
+        _audit("builder_session_started", project=pid,
+               website=website_id or "", user=user_email or user_id or "")
         return redirect(access_url)
     except Exception as exc:
         flash(f"Builder SSO failed: {exc}", "danger")

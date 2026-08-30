@@ -28,6 +28,7 @@ import { contrastRatio, hexLuminance } from './raster';
 import { fontIsAvailable } from './fonts';
 import { validateCampaign, type Finding } from './validate';
 import { makeWordmark } from './wordmark';
+import { flatBackdrop } from './logo-tools';
 import { fitImageToBudget } from './image-budget';
 import { getTemplate, acceptPlatforms } from './registry';
 import { generateCopy, type CopyBrief } from './copywriter';
@@ -105,6 +106,12 @@ export interface BuildResult {
    * so. Absent data reading as a confident value, on a deliverable.
    */
   colorSources: Record<keyof Brand['colors'], ColorSource>;
+  /**
+   * Colours read off the logo, to OFFER where the palette is wholly
+   * placeholder. Absent when there is nothing worth offering, which is not
+   * the same as an empty palette.
+   */
+  logoPalette?: string[];
   renderable: boolean;
 }
 
@@ -125,14 +132,54 @@ const DEFAULTS: Brand['colors'] = {
   dark: '#111111',
 };
 
-/** Pull a usable palette out of a logo when no brand colours are known. */
-export async function colorsFromImage(file: string): Promise<string[]> {
-  const { dominant } = await sharp(file).stats();
-  const hex = `#${[dominant.r, dominant.g, dominant.b]
-    .map((n) => n.toString(16).padStart(2, '0'))
-    .join('')
-    .toUpperCase()}`;
-  return [hex];
+/**
+ * Pull a usable palette out of a logo when no brand colours are known.
+ *
+ * This read sharp's `dominant` and returned it as the whole answer, which is
+ * the colour of the LOGO'S BACKGROUND rather than of the mark. dominant is a
+ * histogram over RGB and takes no notice of alpha, so a fully transparent
+ * pixel still votes with whatever RGB it happens to carry -- and a logo is
+ * mostly background by area. Measured on a #C8102E wordmark:
+ *
+ *     on a transparent canvas   -> #080808   (the padding)
+ *     on a white plate          -> #F8F8F8   (the plate)
+ *
+ * Neither is the mark, and the function had no caller, so nothing ever found
+ * out. Same alpha-blindness as the corner sample in logo-tools.ts, which
+ * erased a near-black mark for the same reason.
+ *
+ * So: opaque pixels only, the flat plate excluded where the logo has one
+ * (asked of logo-tools, which is the one description of what a plate is),
+ * and the most-used colours returned rather than a single value -- the
+ * signature has always promised several and a brand is rarely one colour.
+ */
+export async function colorsFromImage(file: string, max = 4): Promise<string[]> {
+  const plate = await flatBackdrop(file);
+  const { data, info } = await sharp(file).ensureAlpha().raw()
+    .toBuffer({ resolveWithObject: true });
+
+  // Coarse buckets: a logo is flat colour with anti-aliased edges, and at
+  // full precision every edge pixel is its own colour and outvotes the fill.
+  const STEP = 24;
+  const counts = new Map<string, { n: number; r: number; g: number; b: number }>();
+
+  for (let i = 0; i < data.length; i += info.channels) {
+    if (data[i + 3] < 128) continue;                       // transparent
+    const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
+    if (plate && Math.abs(r - plate.rgb[0]) + Math.abs(g - plate.rgb[1])
+        + Math.abs(b - plate.rgb[2]) <= 42) continue;      // the plate itself
+    const key = `${Math.round(r / STEP)}:${Math.round(g / STEP)}:${Math.round(b / STEP)}`;
+    const hit = counts.get(key);
+    if (hit) { hit.n++; hit.r += r; hit.g += g; hit.b += b; }
+    else counts.set(key, { n: 1, r, g, b });
+  }
+
+  return [...counts.values()]
+    .sort((a, z) => z.n - a.n)
+    .slice(0, max)
+    // The bucket's own mean, not its centre: a bucket is 24 units wide and
+    // its centre is a colour that may appear nowhere in the mark.
+    .map((c) => rgbToHex(c.r / c.n, c.g / c.n, c.b / c.n));
 }
 
 /* Colour maths for keeping a brand hue while forcing it to be readable. */
@@ -511,6 +558,33 @@ export async function buildCampaign(
     }
   }
 
+  /* ------------------------------------------------- colours from the logo */
+  // The placeholder-palette warning says to set the five swatches before
+  // sending a proof, and until now gave the rep nothing to set them from: a
+  // brand-new prospect has no Insites scan for /_hub/site-brand to read and
+  // no Brandfetch record either. The logo is the one thing we do have.
+  //
+  // Offered, never applied. Which of the five roles a colour should become is
+  // a judgement, and guessing it moves four other things -- the rule the
+  // site-brand panel already works to.
+  //
+  // Never read from a wordmark. makeWordmark() draws the business name in
+  // brand.colors.dark, which in this exact case IS the placeholder, so
+  // reading it back would offer #111111 as the client's own brand colour --
+  // the tool discovering what it just invented.
+  let logoPalette: string[] | undefined;
+  const everyRoleDefault = (Object.keys(colorSources) as (keyof Brand['colors'])[])
+    .every((r) => colorSources[r] === 'default');
+  if (everyRoleDefault && logoFile
+      && (assetSources.logo === 'upload' || assetSources.logo === 'brandfetch')) {
+    try {
+      const read = await colorsFromImage(logoFile);
+      if (read.length) logoPalette = read;
+    } catch {
+      // Advisory only: a logo we cannot read costs the offer, never the build.
+    }
+  }
+
   /* -------------------------------------------------------------- hero */
   const uploadedImages = sub.uploads?.image ?? [];
   let hero: { landscape?: string; square?: string; vertical?: string } = {};
@@ -549,7 +623,7 @@ export async function buildCampaign(
     notes.push(
       sub.stockOk
         ? 'No photography supplied. Placeholder imagery is in place — replace with stock or generated imagery before the client proof.'
-        : 'No photography supplied and stock was not authorised. These proofs use placeholders and must not be sent as-is.',
+        : 'No photography supplied and stock was not authorized. These proofs use placeholders and must not be sent as-is.',
     );
   }
 
@@ -745,6 +819,7 @@ export async function buildCampaign(
     findings,
     assetSources,
     colorSources,
+    logoPalette,
     renderable: !findings.some((f) => f.level === 'error'),
   };
 }

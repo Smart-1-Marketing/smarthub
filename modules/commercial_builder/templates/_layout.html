@@ -64,7 +64,17 @@
   <a href="#" data-tour-start="{{ screen }}">How this works</a>
   {% endif %}
   <span class="sp"></span>
+  {#
+    Not on the dashboard. Its own head already offers the same endpoint as
+    "+ Start a Commercial", so the strip drew a second solid blue button 61px
+    above it, worded differently -- which is one control drawn twice, and the
+    difference in wording is what makes a reader stop to work out whether they
+    are two things. Everywhere else the strip's is the only way in, so it
+    stays: the page's own primary action wins where the page has one.
+  #}
+  {% if _here != 'dashboard' %}
   <a href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}" class="cb-btn cb-btn-primary cb-btn-sm">+ New Commercial</a>
+  {% endif %}
 </nav>
   {% block content %}{% endblock %}
 </main>

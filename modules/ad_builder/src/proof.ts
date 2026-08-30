@@ -41,6 +41,27 @@ export interface ProofOptions {
   /** Latest delivered package, when the project is already complete. */
   delivered?: { at: string; zipUrl: string; fileCount?: number };
   /**
+   * Animated versions, when somebody built them after the static design.
+   *
+   * Drawn as their OWN block under the size grid rather than swapped into it,
+   * because they are not the same claim: most placements on a buy take the
+   * static file and only some take a GIF, so a grid that quietly showed the
+   * moving version wherever one existed would have a client approving an ad
+   * that runs in four of their eight slots. Absent means nobody built any,
+   * which is the ordinary case and draws nothing at all.
+   */
+  animations?: Array<{
+    conceptId: string;
+    size: string;
+    url: string;
+    bytes: number;
+    frames: number;
+    loop: number;
+    totalMs: number;
+    kind: 'text' | 'button';
+    status: 'pass' | 'warn' | 'fail';
+  }>;
+  /**
    * Whether to draw the live editor -- the copy and colour fields, the
    * background search, "Apply changes & rebuild" and the per-size editor.
    *
@@ -171,9 +192,47 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
       const inline = c.entries.find((e) => e.size === '300x250');
       const board = c.entries.find((e) => e.size === '728x90');
 
+      // Only what actually passed. A client reading a proof is deciding, and
+      // an animation withheld from the delivery for failing its checks must
+      // not be the version they say yes to.
+      const moving = (opts.animations ?? []).filter(
+        (a) => a.conceptId === c.id && a.status !== 'fail',
+      );
+      const movingBlock = moving.length
+        ? `
+        <div class="moving">
+          <h3>Animated versions</h3>
+          <p class="moving-note">These are the same ads with motion on them, not
+          replacements. Each one plays ${esc(String(moving[0].loop))} times and
+          stops, which is what Google requires. The still versions above are what
+          runs everywhere an animated file is not accepted.</p>
+          <p class="moving-note"><b>Approving below covers the still set.</b>
+          Each animated version is signed off and sent to you on its own, as its
+          own file, so the download you get from this page will not contain
+          them. Tell us in the notes if you would like any of them changed.</p>
+          <div class="grid">
+            ${moving.map((a) => {
+              const [w, h] = a.size.split('x').map(Number);
+              return `
+            <figure class="ad" data-size="${esc(a.size)}">
+              <figcaption>
+                <span class="size">${esc(a.size)}</span>
+                <span class="spec">gif · ${kb(a.bytes)} · ${a.frames} frames · ${(a.totalMs / 1000).toFixed(1)}s · ${esc(a.kind === 'text' ? 'changing text' : 'pulsing button')}</span>
+                <span class="dot ${esc(a.status)}" title="${esc(a.status)}"></span>
+              </figcaption>
+              <div class="frame" style="width:${w}px">
+                <img src="${esc(a.url)}" width="${w}" height="${h}" alt="${esc(a.size)} animated advertisement" loading="lazy">
+              </div>
+            </figure>`;
+            }).join('')}
+          </div>
+        </div>`
+        : '';
+
       return `
       <section class="panel${i === 0 ? ' on' : ''}" data-panel="${esc(c.id)}">
         <div class="grid">${tiles}</div>
+        ${movingBlock}
 
         <div class="context" hidden>
           <p class="context-note">Your ad as a reader meets it — inside someone else's page, at real size.</p>
@@ -183,7 +242,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
             <div class="page-body">
               <div class="page-col">
                 <h4>City approves new transit corridor</h4>
-                <p>Council members voted late Tuesday to advance the long-debated proposal, ending months of negotiation between neighbourhood groups and the transit authority.</p>
+                <p>Council members voted late Tuesday to advance the long-debated proposal, ending months of negotiation between neighborhood groups and the transit authority.</p>
                 <p>Construction would begin next spring under the current timetable, with the first segment opening to riders within three years.</p>
                 <p>Residents along the route have asked for noise mitigation and a guarantee that existing bus service will continue during the build.</p>
                 <p>The measure passed seven votes to two, with both dissenting members citing cost.</p>
@@ -213,7 +272,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* A proofing grey, not a brand colour. The interface must not compete
+    /* A proofing gray, not a brand color. The interface must not compete
        with whatever palette the creative is carrying. */
     --paper: #E9EAEC;
     --card: #FFFFFF;
@@ -330,6 +389,12 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
 
   /* ---- in-context ---- */
   .context-note { color: var(--ink-2); font-size: 13.5px; margin: 0 0 12px; }
+
+  /* The animated block sits under the grid rather than inside it, with a rule
+     between them, because it is a second set of files and not eight more ads. */
+  .moving { margin-top: 34px; padding-top: 26px; border-top: 1px solid var(--rule); }
+  .moving h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+  .moving-note { color: var(--ink-2); font-size: 13.5px; margin: 0 0 18px; max-width: 62ch; }
   .page {
     background: #fff; border: 1px solid var(--rule); box-shadow: var(--shadow);
     padding: 0 0 22px; max-width: 800px; overflow-x: auto;
@@ -510,7 +575,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
     </div>
   </div>
 
-  <footer>Sizes and file weights meet current Google Display and Amazon DSP requirements. Colours may vary slightly between screens.</footer>
+  <footer>Sizes and file weights meet current Google Display and Amazon DSP requirements. Colors may vary slightly between screens.</footer>
 </div>
 
 ${!editor ? '' : `<div class="size-editor" id="sizeEditor">
@@ -644,7 +709,7 @@ window.PROOF_DELIVERED = ${jsonScript(opts.delivered ?? null)};
     var ridHere = _pp2.length > 1 ? _pp2[1].split('/')[0].split('?')[0].split('#')[0] : '';
     var b = 'display:inline-block;text-decoration:none;padding:13px 24px;border-radius:8px;font-weight:600;font-size:15px;margin:0 10px 10px 0;';
     box.innerHTML = '<h2>Approved \u2014 your ads are ready</h2>' +
-      '<p>' + (count ? count + ' finished files, ' : '') + 'organised by platform and named for upload. What next?</p>' +
+      '<p>' + (count ? count + ' finished files, ' : '') + 'organized by platform and named for upload. What next?</p>' +
       '<a href="' + url + '" download style="' + b + 'background:#1F5FC0;color:#fff">Download ads</a>' +
       '<a href="/overview/' + ridHere + '" style="' + b + 'background:#fff;color:#1F5FC0;border:1px solid #C9D4E0">Review campaign overview</a>' +
       '<a href="/embed" style="' + b + 'background:#fff;color:#1F5FC0;border:1px solid #C9D4E0">Make another campaign</a>' +
@@ -716,9 +781,9 @@ window.PROOF_DELIVERED = ${jsonScript(opts.delivered ?? null)};
     });
   }
 
-  // Live rebuild: apply the editor's copy + colours to the chosen concept,
+  // Live rebuild: apply the editor's copy + colors to the chosen concept,
   // re-render every size on the server, and reload onto the fresh proof. This
-  // is the "changes reconfigure the ads right here" behaviour.
+  // is the "changes reconfigure the ads right here" behavior.
   var rebuildBtn = document.getElementById('rebuild');
   if (rebuildBtn) {
     rebuildBtn.addEventListener('click', function () {

@@ -924,6 +924,19 @@ function renderHelpAudit(d){
           '<em class="diag-fix">Each one says so on the step now, rather '+
           'than the button doing nothing. Placing the hooks is the fix.</em>'
         : esc(String(w.steps||0))+" steps, every one of them anchored."));
+    /* A hook a template derives cannot be found whole in any source, so it is
+       accepted on its literal prefix and said so rather than counted as
+       verified — the rule this panel already applies to a help key built at
+       runtime one row up. */
+    if((w.runtime||[]).length){
+      out.push(row("unverified","built","Built at runtime",
+        esc(String(w.runtime.length))+" target"+(w.runtime.length===1?"":"s")+
+        " matched a prefix a template assembles &mdash; "+
+        esc((w.runtime_prefixes||[]).join(", "))+
+        " &mdash; rather than a hook found whole, so they are accepted here "+
+        "and not verified."+
+        '<em class="diag-fix">'+esc(w.runtime.join("  "))+'</em>'));
+    }
     rows.forEach(function(r){
       out.push(row(r.dead?"warn":"off", r.dead?"none":"some", r.key,
         esc(r.title||"")+" &mdash; "+esc(String((r.unanchored||[]).length))+
@@ -955,6 +968,20 @@ function renderHelpAudit(d){
           'Client Tools, so a tool added there is asked about without '+
           'anybody widening a list. Writing the copy is the fix.</em>'
         : esc(String(c.tools||0))+" tiled tools, every one of them explained."));
+    /* The same failure from the third side, and the one that reads as a
+       backlog entry rather than as a defect: a tile whose declared prefix
+       names the wrong screen reports its tool as never explained, so nobody
+       investigates and the copy gets written twice. Drawn as a fault rather
+       than a gap, because one line fixes it. */
+    (c.mislabeled||[]).forEach(function(m){
+      out.push(row("warn","1","Mapped to the wrong prefix",
+        "<code>"+esc((m.tiles||[]).join(" "))+"</code> is declared as "+
+        "<code>"+esc(m.prefix)+"</code>, which backs no help — but "+
+        esc((m.registered||[]).join(", "))+" is registered, so this tool "+
+        "reads as unexplained while its copy sits there written."+
+        '<em class="diag-fix">Correct the entry in '+
+        'hub/help_coverage.PREFIXES to the screen the registry publishes.</em>'));
+    });
     /* Reported apart, because it fails the other way and in silence: help
        written under a prefix no tile maps to leaves the tool reading as
        missing while its copy sits there written. */

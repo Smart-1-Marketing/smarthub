@@ -61,6 +61,7 @@ _MOUNT_ACTIVE_HUB = {
     # Tools instead -- nav pointing at the wrong entry is a small lie the
     # reader corrects by ignoring the highlight.
     "/tools/website-audit": "website_audit",
+    "/my-clients": "myclients",
 }
 
 
@@ -654,6 +655,47 @@ def create_hub_app() -> Flask:
         # carries the member it belongs to — see hub/client_groups.py.
         also = client_groups.member_names(name, request.args.get("url", ""))
         return jsonify(work_log(name, limit, also=also))
+
+    @app.route("/api/client/orders")
+    def api_client_orders():
+        """The insertion orders this Hub has sent for a client.
+
+        Not the campaigns Knack holds — those are the Products & IOs card
+        above. This is what we sent, which exists from the day the order goes
+        out rather than from the day somebody sets the campaign up, and is the
+        only answer there is for a client whose record is otherwise empty.
+
+        Under `/api/client/` deliberately: `hub/suite_embed.EMBEDDABLE`
+        allowlists that prefix, so the card works inside the Smart 1 Suite
+        frame. A route somewhere else renders on every screen except the one
+        the record is framed in, and fails silently there.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups, io_records
+        name = request.args.get("name", "") or request.args.get("client", "")
+        # A grouped client reads across the whole group, the way the work log
+        # and the invoices do: the bill is one relationship even when the
+        # orders were written under two names.
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
+        rows, measured, error = [], True, ""
+        seen = set()
+        for member in [name] + [n for n in names if n != name]:
+            got = io_records.listing(member)
+            if not got.get("measured"):
+                measured, error = False, got.get("error", "")
+                continue
+            for row in got["rows"]:
+                if row.get("order") in seen:
+                    continue
+                seen.add(row.get("order"))
+                rows.append(dict(row, member=member))
+        rows.sort(key=lambda r: str(r.get("last_submitted_at")
+                                    or r.get("submitted_at") or ""),
+                  reverse=True)
+        return jsonify({"orders": rows, "measured": measured, "error": error})
 
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
@@ -1295,35 +1337,151 @@ def create_hub_app() -> Flask:
                                      "the whole thing as authoritative."}), 400
         return jsonify(save(client, text))
 
+    def _llms_404():
+        """Revoked, unpublished and never-existed all answer the same thing.
+
+        A client-facing URL that says "this one expired" tells whoever is
+        probing which slugs are real — the rule modules/ads_builder settled
+        for the client estimate, and this URL is handed out in exactly the
+        same way.
+        """
+        # `mimetype=` and not `content_type=`: handed a value that already
+        # carries a charset, Flask appends its own and the header goes out as
+        # "text/plain; charset=utf-8; charset=utf-8".
+        r = app.response_class("Not found.\n", status=404,
+                               content_type="text/plain; charset=utf-8")
+        r.headers["X-Robots-Tag"] = "noindex"
+        return r
+
+    @app.route("/llms/<slug>/llms.txt")
+    def public_client_llms_txt(slug):
+        """A client's published llms.txt, as plain text, for a crawler.
+
+        Deliberately no login: the whole point is that an AI system can fetch
+        it. The hub app has no blanket gate — its pages are guarded view by
+        view — so this route simply has no gate on it, and
+        test_blueprint_guards.py holds that open state to an allowlist entry
+        saying why.
+
+        Three things this route does that are not obvious and each of which
+        would have silently defeated the feature:
+
+        * **It sets its own `X-Robots-Tag`.** `hub/no_crawl.NoIndex` stamps
+          `noindex, nofollow, ..., noai, noimageai` onto every response in the
+          composed app, and `noai` on a file published for AI systems to read
+          is the flattest contradiction available. The middleware defers to a
+          header a response set for itself, so this one says `noindex` alone:
+          keep it out of search results, where nobody should land on a raw
+          text file under our domain, and say nothing that tells the exact
+          readers it exists for to leave it alone.
+        * **It serves the PUBLISHED copy, never the draft.** Publishing is a
+          separate act from saving so that a half-written file is never live.
+        * **`text/plain; charset=utf-8`**, so the chrome injector skips it on
+          the mimetype — and the prefix is in CHROMELESS as well, so that is a
+          decision rather than a coincidence.
+        """
+        from . import llms_hosting as lh
+        client = lh.client_for_slug(slug)
+        if not client:
+            return _llms_404()
+        body = str((lh.published(client) or {}).get("body") or "")
+        if not body.strip():
+            return _llms_404()
+        resp = app.response_class(body,
+                                  content_type="text/plain; charset=utf-8")
+        resp.headers["X-Robots-Tag"] = "noindex"
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+
     @app.route("/llms/<slug>.txt")
     def public_llms_txt(slug):
-        """Serve the approved file publicly, as plain text.
+        """The address this was served at before, kept as a 301.
 
-        Deliberately no login: the point is that an AI system can fetch it.
-        Ideally this lives at the client's own domain root as /llms.txt — this
-        URL is what you use until it can.
+        That URL has been handed out and is sitting in redirect rules on
+        clients' own websites. Retiring it would take those files off the air
+        with nothing anywhere saying why, so it moves rather than stopping —
+        and it is a **301** for the same reason the runbook insists on one at
+        the other end: a crawler stores a permanent redirect and treats a
+        temporary one as a page that may come back.
+
+        One canonical address, so the two cannot come to serve different text.
         """
-        import re as _re
-        from . import seo
+        from . import llms_hosting as lh
+        want = lh.slugify(slug)
+        if not lh.client_for_slug(want):
+            return _llms_404()
+        resp = redirect(f"{lh.PUBLIC_PREFIX}{want}/llms.txt", code=301)
+        # The redirect needs the header too, and this is not tidiness. The
+        # middleware default carries `noai` and `nosnippet`; left on a 301,
+        # a crawler that honours them may decline to follow it or discard
+        # what it finds — so the migration path would be closed for exactly
+        # the clients still on the old address, which are the only ones it
+        # exists for. Found by requesting it rather than by reading the
+        # route: the header is added by middleware three layers out and is
+        # invisible in this file.
+        resp.headers["X-Robots-Tag"] = "noindex"
+        return resp
+
+    @app.route("/api/seo/llms-txt/status")
+    def api_llms_status():
+        """What is live, where, and what the last check said. No fetches."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import llms_hosting as lh
+        client = request.args.get("client", "")
+        if not client:
+            return jsonify({"error": "A client is required."}), 400
+        return jsonify(lh.status(client, base=request.host_url))
+
+    @app.route("/api/seo/llms-txt/publish", methods=["POST"])
+    def api_llms_publish():
+        """Make the draft live, or take it off the air."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import llms_hosting as lh
         from .llms_txt import load
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        if not client:
+            return jsonify({"error": "A client is required."}), 400
+        if body.get("unpublish"):
+            return jsonify(lh.unpublish(client, actor=current_user() or ""))
+        text = str(body.get("text") or "") or load(client)
+        out = lh.publish(client, text, actor=current_user() or "")
+        if not out.get("ok"):
+            return jsonify(out), 400
+        out["status"] = lh.status(client, base=request.host_url)
+        return jsonify(out)
 
-        def slugify(v):
-            return _re.sub(r"[^a-z0-9]+", "-", str(v or "").lower()).strip("-")
+    @app.route("/api/seo/llms-txt/verify", methods=["POST"])
+    def api_llms_verify():
+        """Follow the client's own /llms.txt now and say what happened.
 
-        want = slugify(slug)
+        A POST rather than a GET: it makes several outbound requests to the
+        client's website and to two robots.txt files, and a GET that costs
+        that is one a reload or a link preview fires without anybody asking —
+        hub/domain_purchase.py's rule about a refresh.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import llms_hosting as lh
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        if not client:
+            return jsonify({"error": "A client is required."}), 400
         try:
-            from . import clients_registry
-            names = [c.get("name", "") for c in clients_registry.all_clients()]
-        except Exception:  # noqa: BLE001
-            names = []
-        for name in names:
-            if name and slugify(name) == want:
-                text = load(name)
-                if text:
-                    return app.response_class(
-                        text, mimetype="text/plain; charset=utf-8")
-        return app.response_class("Not found.\n", status=404,
-                                  mimetype="text/plain; charset=utf-8")
+            res = lh.verify(client, base=request.host_url)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"client": client, "measured": False,
+                            "verdict": "not_measured",
+                            "reasons": [f"{type(exc).__name__}: {exc}"],
+                            "notes": ["The check could not run, which is not "
+                                      "the same as the file being wrong."]}), 200
+        lh.record_check(client, res)
+        return jsonify(res)
 
     @app.route("/api/suite/blog/access")
     def api_blog_access():
@@ -2551,6 +2709,14 @@ def create_hub_app() -> Flask:
         shared_ok = bool(auth.panel_password()) and auth.check_password(password)
 
         # ---- 2. real user account ----
+        #
+        # Every line in here talks to the database, and the guard around it
+        # caught ImportError alone -- so a Postgres that was briefly
+        # unreachable came back out of by_email() as an OperationalError,
+        # escaped the route, and the one page nobody can already be signed in
+        # to read answered "Internal Server Error". That is the same failure
+        # the deploy log shows four other modules recording quietly, except
+        # here it locks the whole company out and explains nothing.
         account = None
         if not shared_ok:
             try:
@@ -2567,6 +2733,28 @@ def create_hub_app() -> Flask:
                         return page(str(exc), last_email=email, code=401)
             except ImportError:
                 account = None
+            except Exception as exc:  # noqa: BLE001
+                # Deliberately NOT counted as a failed attempt: the password
+                # was never checked, and a throttle strike would lock somebody
+                # out of retrying over a fault that is not theirs.
+                app.config["HUB_LOGIN_DB_ERROR"] = f"{type(exc).__name__}: {exc}"
+                try:
+                    errors.log_exception("hub", exc)
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    audit.log("hub", "login_unavailable", actor=email or "?", ip=ip)
+                except Exception:  # noqa: BLE001
+                    pass
+                # 503 rather than 500, and said in words: "the server had an
+                # error" sends somebody to check their own password, which is
+                # the one thing that is definitely not wrong.
+                return page(
+                    "Sign-in can't reach the Hub's database right now, so your "
+                    "password could not be checked. Nothing is wrong with your "
+                    "account - try again in a minute. If it keeps happening, "
+                    "/login/health says what is broken without needing a login.",
+                    last_email=email, code=503)
 
         # ---- 3. legacy shared password (emergency access) ----
         if shared_ok:
@@ -2875,7 +3063,10 @@ def create_hub_app() -> Flask:
             return gate
         from . import seo
         try:
-            return jsonify({"clients": seo.seo_clients()})
+            rows, source, age = seo.seo_clients_result()
+            return jsonify({"clients": rows, "products_source": source,
+                            "products_age_minutes": age,
+                            "products_note": seo.products_note(source, age)})
         except Exception as exc:  # noqa: BLE001
             return jsonify({"clients": [], "error": str(exc)})
 
@@ -2886,12 +3077,23 @@ def create_hub_app() -> Flask:
             return gate
         from . import seo
         name = (request.args.get("name") or "").strip()
+        if not name:
+            # Answered for a nameless client before now, which is not a
+            # cheap kind of nothing: the loose website match takes an empty
+            # name as matching every record.
+            return jsonify({"error": "client is required."}), 400
         try:
             return jsonify(seo.client_detail(name, full=bool(request.args.get("full"))))
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("seo-detail", exc, path=request.path,
                                  actor=current_user() or "")
-            return jsonify({"client": name, "error": str(exc)})
+            # 502 rather than 200: this used to answer OK with an `error` key
+            # nobody read, so a client whose record could not be built rendered
+            # as a client with no website, no business info and no schema
+            # pages -- months of work, drawn as an empty record. The page reads
+            # `error` now; the status is what stops the next reader of this
+            # route inheriting the same silence.
+            return jsonify({"client": name, "error": str(exc)}), 502
 
     @app.route("/api/seo/scan", methods=["POST"])
     def api_seo_scan():
@@ -2916,7 +3118,8 @@ def create_hub_app() -> Flask:
             store = seo.load_store(client)
             store["last_scan"] = out
             seo.save_store(client, store)
-        audit.log("hub", "seo_scan", actor=current_user(), detail=url)
+        audit.log("seo", "seo_scan", actor=current_user(),
+                  client=client or None, detail=url)
         return jsonify(out)
 
     @app.route("/api/seo/sitemap", methods=["POST"])
@@ -2969,8 +3172,8 @@ def create_hub_app() -> Flask:
         remaining = [p for p in store.get("sitemap", []) if p not in store.get("pages", {})]
         out["remaining"] = len(remaining)
         out["total"] = len(store.get("sitemap", []))
-        audit.log("hub", "seo_generate", actor=current_user(),
-                  detail=f"{client}: {len(urls)} pages")
+        audit.log("seo", "seo_generate", actor=current_user(),
+                  client=client, detail=f"{len(urls)} pages")
         # One ticket per page that actually got schema, not per page asked for.
         from . import seo_tasks
         done = [pg.get("url") for pg in (out.get("pages") or []) if pg.get("url")]
@@ -3048,7 +3251,7 @@ def create_hub_app() -> Flask:
             if k in body:
                 setup[k] = body[k]
         seo.save_store(client, store)
-        audit.log("hub", "seo_setup_saved", actor=current_user(), detail=client)
+        audit.log("seo", "seo_setup_saved", actor=current_user(), client=client)
         return jsonify({"ok": True})
 
     @app.route("/api/seo/pages")
@@ -3082,8 +3285,10 @@ def create_hub_app() -> Flask:
         if "setup" in body:
             store.setdefault("setup", {})["completed"] = bool(body["setup"])
         seo.save_store(client, store)
-        audit.log("hub", "seo_checks", actor=current_user(), detail=client)
-        return jsonify({"ok": True, "status": seo.client_status(store)})
+        audit.log("seo", "seo_checks", actor=current_user(), client=client)
+        return jsonify({"ok": True,
+                        "status": seo.client_status(store,
+                                                    seo.sells_blogs(client))})
 
     @app.route("/api/client/social")
     def api_client_social():
@@ -3869,8 +4074,8 @@ def create_hub_app() -> Flask:
                                 (body.get("start") or "").strip())
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_blog_plan", actor=current_user(),
-                  detail=f"{client}: {len(out['posts'])} posts")
+        audit.log("seo", "seo_blog_plan", actor=current_user(),
+                  client=client, detail=f"{len(out['posts'])} posts")
         from . import seo_tasks
         out["tasks"] = seo_tasks.for_posts(client, out.get("posts") or [],
                                            actor=current_user())
@@ -3891,8 +4096,8 @@ def create_hub_app() -> Flask:
             out = seo.blog_write(client, ids)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_blog_write", actor=current_user(),
-                  detail=f"{client}: {len(out['written'])} posts")
+        audit.log("seo", "seo_blog_write", actor=current_user(),
+                  client=client, detail=f"{len(out['written'])} posts")
         return jsonify(out)
 
     @app.route("/api/seo/blogs/update", methods=["POST"])
@@ -3985,7 +4190,7 @@ def create_hub_app() -> Flask:
             out = seo.blog_tag_posts(client, ids or None)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_blog_tag", actor=current_user(), client=client,
+        audit.log("seo", "seo_blog_tag", actor=current_user(), client=client,
                   detail=f"{out['tagged']} posts")
         return jsonify(out)
 
@@ -4004,7 +4209,7 @@ def create_hub_app() -> Flask:
                    ("author", "guidance", "avoid", "categories", "approved_only")
                    if k in body}
         settings = seo.save_blog_settings(client, updates)
-        audit.log("hub", "seo_blog_settings", actor=current_user(),
+        audit.log("seo", "seo_blog_settings", actor=current_user(),
                   client=client, detail=", ".join(sorted(updates)) or "no change")
         return jsonify({"ok": True, "settings": settings})
 
@@ -4046,7 +4251,7 @@ def create_hub_app() -> Flask:
         if not text.strip():
             return jsonify({"error": "Upload a document or paste the topics."}), 400
         out = seo.set_approved_topics(client, text, filename, append=append)
-        audit.log("hub", "seo_blog_topics", actor=current_user(), client=client,
+        audit.log("seo", "seo_blog_topics", actor=current_user(), client=client,
                   detail=f"{out['found']} topics from {filename}")
         return jsonify(out)
 
@@ -4106,7 +4311,7 @@ def create_hub_app() -> Flask:
         out = cms_publish.instructions(cms, kind, chosen, client=client,
                                        site_url=site, settings=settings,
                                        placement=str(body.get("placement") or ""))
-        audit.log("hub", "seo_publish_instructions", actor=current_user(),
+        audit.log("seo", "seo_publish_instructions", actor=current_user(),
                   client=client, detail=f"{kind} → {cms}: {len(out.get('items', []))}")
         return jsonify(out)
 
@@ -4137,7 +4342,7 @@ def create_hub_app() -> Flask:
                                 [str(u) for u in (body.get("urls") or [])])
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
-        audit.log("hub", "seo_alt_scan", actor=current_user(), client=client,
+        audit.log("seo", "seo_alt_scan", actor=current_user(), client=client,
                   detail=f"{len(out['pages'])} pages, {out['total_images']} images")
         return jsonify(out)
 
@@ -4156,7 +4361,7 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)})
         if not out.get("error"):
-            audit.log("hub", "seo_alt_write", actor=current_user(), client=client,
+            audit.log("seo", "seo_alt_write", actor=current_user(), client=client,
                       detail=f"{out.get('written', 0)} images")
         return jsonify(out)
 
@@ -4279,8 +4484,8 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"error": str(exc)}), 500
         if out.get("filled"):
-            audit.log("hub", "seo_business_enriched", actor=current_user(),
-                      detail=client, fields=", ".join(out["filled"]))
+            audit.log("seo", "seo_business_enriched", actor=current_user(),
+                      client=client, fields=", ".join(out["filled"]))
         return jsonify(out)
 
     # ---------------- saved schema pages: table, edit, delete ----------------
@@ -4413,7 +4618,7 @@ def create_hub_app() -> Flask:
                                  style=body.get("style"))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        audit.log("hub", "faq_page_saved", actor=current_user(), detail=client,
+        audit.log("seo", "faq_page_saved", actor=current_user(), client=client,
                   url=url, questions=len(page.get("questions", [])))
         # The FAQ exists in the Hub; somebody still has to put it on the page.
         # Raising the ticket must not be able to fail the save that earned it.
@@ -5149,6 +5354,17 @@ def create_hub_app() -> Flask:
 
         # Plain-English verdict, so nobody has to interpret the booleans.
         problems = []
+        out["login_db_error"] = app.config.get("HUB_LOGIN_DB_ERROR") or None
+        if out["login_db_error"]:
+            # Recorded by the login route itself, so this names the failure a
+            # person actually met rather than only the one boot saw. A boot
+            # that went fine and a database that dropped out an hour later are
+            # different situations and only one of them is in HUB_DB_BOOT_ERROR.
+            problems.append(
+                "Sign-in could not reach the database when somebody last tried: "
+                + str(out["login_db_error"])
+                + " - the shared PANEL_PASSWORD path does not touch the "
+                  "database and is the way back in while that is true.")
         if app.config.get("HUB_USERS_REGISTERED") is False:
             problems.append(
                 "The user-accounts blueprint failed to register, so /signup "
@@ -5760,6 +5976,14 @@ def create_hub_app() -> Flask:
                   # regardless. Named so it is a decision rather than a
                   # coincidence of the mimetype check.
                   "/robots.txt", "/llms.txt",
+                  # Each client's own published llms.txt, under
+                  # hub/llms_hosting.PUBLIC_PREFIX. Plain text, so the
+                  # injector below skips it on the mimetype anyway -- named
+                  # here so it is a decision rather than a coincidence, and
+                  # because the thing reading it is a crawler on behalf of
+                  # somebody else's business, which is the audience every
+                  # other entry in this list exists for.
+                  "/llms/",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
                   "/sales/landing/p/",
                   # The Smart 1 Suite app frame. A *client* opens this inside
@@ -5895,6 +6119,12 @@ def create_hub_app() -> Flask:
                        "sites-match": "sites_admin",
                        "domains": "sites_admin",
                        "google-match": "google_access",
+                       # /my-clients is deliberately absent: no walkthrough
+                       # is registered for it, and data-module is what floats
+                       # the "Walk me through this" button onto a page. A
+                       # button that offers a tour nobody wrote is the
+                       # silence Smart 1 Ads shipped on Settings and Live
+                       # campaigns.
                        "stale-creative": "qa", "qa": "qa"}.get(slug, "")
                 if mod:
                     body = re.sub(rb"<body\b",
@@ -6060,6 +6290,20 @@ def create_hub_app() -> Flask:
     except Exception as _pp_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _pp_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Client ownership and the health report ----------------
+    # Registered in a try of its own rather than beside the audits below: they
+    # answer different questions and a fault in one must not cost the other,
+    # which is the reason the Display Ad Builder's proxy and its client links
+    # are two registrations rather than one.
+    try:
+        from .client_health import register_client_health
+        register_client_health(app)
+    except Exception as _ch_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _ch_exc)
         except Exception:  # noqa: BLE001
             pass
 

@@ -14,8 +14,9 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Campaign, RenderResult } from './types';
-import { renderPackage } from './render';
+import type { AnimatedResult, Campaign, RenderResult } from './types';
+import { animatableSizes, animationSupport } from './animation';
+import { renderPackage, renderAnimatedPackage } from './render';
 import { CloudinaryService, slug, type UploadedAsset } from './cloudinary';
 import { buildManifest, contextFor, tagsFor } from './manifest';
 import { writeReports } from './report';
@@ -28,6 +29,18 @@ export type JobStatus = 'queued' | 'running' | 'complete' | 'failed';
 export interface Job {
   id: string;
   status: JobStatus;
+  /**
+   * What this job builds.
+   *
+   * 'static' is the original render and is the default, so every existing
+   * caller and every job recovered off disk from before this existed means
+   * exactly what it always meant. 'animated' is its own job on the same queue
+   * rather than extra work bolted onto the render, which is the whole point:
+   * a static build must not get slower because animation exists, and an
+   * animation asked for on a Friday must not require re-rendering eight ads
+   * that were signed off on Tuesday.
+   */
+  mode?: 'static' | 'animated';
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
@@ -37,6 +50,12 @@ export interface Job {
   upload: boolean;
   progress: { done: number; total: number };
   results?: RenderResult[];
+  /** 'animated' jobs only. */
+  animations?: AnimatedResult[];
+  /** Sizes an 'animated' job did not produce, each with the reason. Never a
+   *  silent gap: a set that came back with five of eight and no explanation is
+   *  the answer this module exists to avoid. */
+  animationSkipped?: { size: string; platform: string; reason: string }[];
   reports?: string[];
   projectFolder?: string;
   error?: string;
@@ -48,6 +67,10 @@ interface JobInput {
   upload: boolean;
   outDir: string;
   assetRoot: string;
+  mode?: 'static' | 'animated';
+  /** 'animated' jobs: which concept to animate. Absent means every one that
+   *  carries an animation, which is how a two-concept set is done in one go. */
+  conceptId?: string;
   /**
    * Render only these sizes.
    *
@@ -128,12 +151,56 @@ export function recoverJobs(outDir: string): { recovered: number; discarded: num
   return { recovered, discarded };
 }
 
+/**
+ * Which concepts an animated job is for.
+ *
+ * A concept with no animation on it is not an omission, it is a concept
+ * nobody asked to animate -- so it is filtered out here rather than refused,
+ * and a job with none left is what the route checks before enqueuing.
+ */
+function animatedConcepts(input: JobInput) {
+  return input.campaign.concepts.filter(
+    (c) => c.animation && c.animation.enabled !== false &&
+      (!input.conceptId || c.conceptId === input.conceptId),
+  );
+}
+
+/**
+ * How many files an animated job will actually write.
+ *
+ * Counted over the intersection of what the template draws, what the operator
+ * asked for, and what the PLACEMENT accepts -- the last of which is the one a
+ * naive count gets wrong. Google runs eight animatable sizes out of eleven, so
+ * a denominator of eleven leaves a progress bar that stops at 8/11 on a job
+ * that finished perfectly.
+ */
+function countAnimated(input: JobInput, wanted: Set<string> | null): number {
+  let n = 0;
+  for (const concept of animatedConcepts(input)) {
+    let template;
+    try {
+      template = getTemplate(concept.layoutFamily);
+    } catch {
+      continue;
+    }
+    for (const platform of input.platforms) {
+      for (const size of Object.keys(template.sizes) as SizeKey[]) {
+        if (wanted && !wanted.has(size)) continue;
+        if (animationSupport(platform, size).supported) n++;
+      }
+    }
+  }
+  return n;
+}
+
 export function enqueue(input: JobInput): Job {
   const id = randomUUID().slice(0, 8);
   // Counted over exactly the set runJob will render, or the progress bar
   // reports a denominator the job can never reach.
   const wanted = input.sizes?.length ? new Set<string>(input.sizes) : null;
-  const total = input.platforms.reduce((n, p) => {
+  const total = input.mode === 'animated'
+    ? countAnimated(input, wanted)
+    : input.platforms.reduce((n, p) => {
     try {
       const cfg = getPlatform(p);
       return (
@@ -157,6 +224,7 @@ export function enqueue(input: JobInput): Job {
   const job: Job = {
     id,
     status: 'queued',
+    mode: input.mode ?? 'static',
     createdAt: new Date().toISOString(),
     client: input.campaign.brand.name,
     campaignName: input.campaign.campaignName,
@@ -183,6 +251,38 @@ async function runJob(id: string): Promise<void> {
 
   try {
     const { campaign, platforms, upload, outDir, assetRoot } = input;
+
+    // An animated job is its own path from here down. It writes GIFs beside
+    // the static files, records them on the project, and deliberately does NOT
+    // write a manifest or a report: those describe the static delivery pack an
+    // ad ops person traffics, and a manifest containing only GIFs would be
+    // read by `deliverProject` as the whole of what was built.
+    if (input.mode === 'animated') {
+      const all: AnimatedResult[] = [];
+      const skipped: { size: string; platform: string; reason: string }[] = [];
+      for (const concept of animatedConcepts(input)) {
+        for (const platform of platforms) {
+          const out = await renderAnimatedPackage({
+            brand: campaign.brand,
+            concept,
+            platform,
+            outDir,
+            assetRoot,
+            sizes: input.sizes,
+            onProgress: (n) => { job.progress.done = all.length + n; persist(id); },
+          });
+          for (const r of out.results) r.url = `/files/${path.relative(outDir, r.file)}`;
+          all.push(...out.results);
+          for (const sk of out.skipped) skipped.push({ ...sk, platform });
+          job.progress.done = all.length;
+        }
+      }
+      job.animations = all;
+      job.animationSkipped = skipped;
+      job.status = 'complete';
+      return;
+    }
+
     const cld = new CloudinaryService();
     const projectFolder = cld.projectFolder(campaign.brand.name, campaign.campaignName);
     job.projectFolder = projectFolder;

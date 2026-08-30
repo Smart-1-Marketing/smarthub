@@ -80,6 +80,12 @@ HUB_PAGES = [
     "/", "/client360", "/tools", "/creative", "/qa", "/seo", "/activity",
     "/diagnostics", "/clients", "/status", "/sales/leads",
     "/tools/commercial-builder/",
+    # Two blueprint pages, so no mount enumeration reaches them, and both
+    # render their whole table from JavaScript into chrome the hub app
+    # injects afterwards -- which is exactly the pair of things this checker
+    # exists to look at together.
+    "/my-clients",
+    "/qa/client-owners",
     # A hub route under /tools, which is the shape CLAUDE.md's first trap
     # takes; it also renders two panels' worth of JavaScript that no mount
     # enumeration would reach.
@@ -126,6 +132,17 @@ HUB_PAGES = [
     # *rendering* if a field type gains an attribute the template does not
     # guard -- the failure /tools/image-picker/c/<id> already had.
     "/tools/calculators/internal/digital-audio",
+    # The largest template in the Hub (3,600+ lines) and the shape every
+    # record-like screen here is meant to take, drawn almost entirely from
+    # fetches. It needs ?name=, and WITHOUT one the route redirects to /seo --
+    # so a sweep of paths lands on the list page, reports it green, and this
+    # page goes unchecked while reading as covered. That is how it came to
+    # render a whole empty client record on a failed detail load with nothing
+    # on screen saying so.
+    "/seo/client?name=Pagecheck%20Client",
+    # Its sibling, and the one staff screen in the section with no help layer
+    # on it at all: a sortable table whose every number is drawn from a fetch.
+    "/seo/webmaster",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:

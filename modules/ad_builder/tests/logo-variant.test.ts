@@ -54,20 +54,20 @@ test('no shipped template declares the background the old rule tested for', () =
   assert.ok(seen.has('primary'), 'the dark panels in practice are the `primary` ones');
 });
 
-test('the panel decides the variant, by colour rather than by role name', () => {
+test('the panel decides the variant, by color rather than by role name', () => {
   const brand = example().brand;
   assert.equal(reverseLogoOnPanel({ background: 'primary' }, brand), true,
     'Icon Solar primary is navy, so the white logo belongs on it');
   assert.equal(reverseLogoOnPanel({ background: 'light' }, brand), false,
-    'and the full-colour one belongs on white');
+    'and the full-color one belongs on white');
 
-  // The role name cannot answer this and the resolved colour can: a brand
+  // The role name cannot answer this and the resolved color can: a brand
   // whose `primary` is pale needs the dark logo on exactly the same layout.
   const pale: Brand = { ...brand, colors: { ...brand.colors, primary: '#FFE9A8' } };
   assert.equal(reverseLogoOnPanel({ background: 'primary' }, pale), false,
-    'a pale primary takes the full-colour logo, though the role is unchanged');
+    'a pale primary takes the full-color logo, though the role is unchanged');
 
-  // A photo is not a flat colour, so it defers to the same call the text ink
+  // A photo is not a flat color, so it defers to the same call the text ink
   // already makes rather than being a second opinion about one panel.
   assert.equal(
     reverseLogoOnPanel({ background: 'light' }, brand, { backgroundImage: 'hero.jpg' }),
@@ -94,7 +94,7 @@ test('a panel under the logo is what the logo sits on, not the canvas', () => {
   for (const [size, layout] of withCard) {
     assert.equal(layout.background, 'primary', `${size}: the canvas is the dark role`);
     assert.equal(reverseLogoOnPanel(layout, brand), false,
-      `${size}: but the logo is on a light card, so it takes the full-colour mark`);
+      `${size}: but the logo is on a light card, so it takes the full-color mark`);
   }
 });
 
@@ -117,6 +117,38 @@ test('the background pass QA measures against no longer contains the logo', asyn
     'and omitted from the pass that exists to measure what sits behind it');
   assert.deepEqual(without.rects.logo, withLogo.rects.logo,
     'the rect is still published either way -- it is the region to sample');
+});
+
+test('a logo over a hero photograph is decided from the photograph', async () => {
+  const campaign = example();
+  const bella = JSON.parse(fs.readFileSync(path.join(ROOT, 'campaigns/bella-vista-catering.json'), 'utf8'));
+  const t03 = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/templates/T03.json'), 'utf8'));
+
+  // T03 is "Full background with copy panel": its hero box is the top of the
+  // canvas and its logo sits inside that box, so the layout says `light` while
+  // the mark lands on the picture. reverseLogoOnPanel() cannot see that -- it
+  // reads roles and panels -- and the navy copy panel it CAN see is nowhere
+  // near the logo.
+  const layout = t03.sizes['300x250'];
+  const lb = layout.logo, hb = layout.hero;
+  assert.equal(layout.background, 'light', 'the canvas role is the light one');
+  assert.ok(lb.x >= hb.x && lb.y >= hb.y && lb.y + lb.h <= hb.y + hb.h,
+    'and the logo sits inside the hero box');
+  assert.equal(reverseLogoOnPanel(layout, campaign.brand), false,
+    'so the layout-only rule reaches for the full-color logo');
+
+  // Measured against what actually renders, the answer changes.
+  const concept = {
+    conceptId: 'H', name: 'hero', layoutFamily: 'T03',
+    hero: bella.concepts[0].hero,
+    copy: { default: { headline: 'Solar Installation', supporting: 'Financing available.', cta: 'Get Offer' } },
+  } as any;
+  const out = await renderPreview({
+    brand: campaign.brand, concept, platform: 'google', size: '300x250' as SizeKey, assetRoot: ROOT,
+  });
+  const finding = out.qa.find((f) => f.check === 'logo-contrast');
+  assert.equal(finding?.status, 'pass',
+    'the mark reads against the photo it is actually printed on');
 });
 
 test('a two-tone logo is measured per pixel, not averaged into a tone it has nowhere', async () => {

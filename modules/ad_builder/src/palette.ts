@@ -183,7 +183,7 @@ export function paletteVariants(opts: {
       name: toward === 'lighter' ? 'A lighter version of their color'
                                  : 'A darker version of their color',
       why: `${current} keeps its hue and moves to ${shifted.hex}, which the logo reads on ` +
-        `at ${shifted.ratio.toFixed(1)}:1. Still recognisably their color.`,
+        `at ${shifted.ratio.toFixed(1)}:1. Still recognizably their color.`,
       colors: { ...brand.colors, [behind]: shifted.hex },
       ratio: shifted.ratio,
       source: 'computed',

@@ -45,7 +45,29 @@ def home():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"})
+    """Whether this tool can actually do its one job.
+
+    It answered {"status": "ok"} unconditionally, and this tool is a wrapper
+    around two binaries: with Ghostscript missing, every optimize returns an
+    error and the health probe went on saying ok. The Hub's own /status has
+    known that all along -- it reports "Ghostscript / qPDF" as an error when
+    either is absent -- so the module's health and the status page were two
+    answers to one question, and the module's was the confident wrong one.
+    Same fact, read the same way, so the two cannot disagree.
+    """
+    gs, qpdf = shutil.which("gs"), shutil.which("qpdf")
+    ready = bool(gs and qpdf)
+    missing = [n for n, p in (("gs", gs), ("qpdf", qpdf)) if not p]
+    return jsonify({
+        "status": "ok" if ready else "degraded",
+        "ready": ready,
+        "ghostscript": bool(gs),
+        "qpdf": bool(qpdf),
+        "detail": "PDF optimizer ready."
+        if ready else
+        "Missing " + " and ".join(missing) + " — optimizing will fail. The "
+        "Docker image installs both; see Ghostscript / qPDF on /status.",
+    })
 
 
 def _run(command: list[str], timeout: int) -> None:
@@ -126,6 +148,19 @@ def optimize_pdf():
             optimized_size = original_size
         savings = ((original_size - optimized_size) / original_size * 100) if original_size else 0.0
 
+        # The row this module has always described in its own docstring and
+        # never written: _audit was imported, wrapped in a no-op fallback and
+        # called nowhere, so every document it has ever compressed was work
+        # nobody could point to. Logged here rather than at the top of the
+        # route, so a PDF that failed Ghostscript is not filed as delivered
+        # work -- the rule approve_render arrived at for a mock render.
+        #
+        # Every value is a plain read, never an expression: audit.log swallows
+        # what it is *given*, and a caller that raises while building its own
+        # arguments is the failure that 500'd every Commercial Builder render.
+        _audit("pdf_optimized", quality=quality, original_bytes=original_size,
+               optimized_bytes=optimized_size, saved_percent=round(savings, 1))
+
         @after_this_request
         def _remove(response):
             _cleanup()
@@ -146,6 +181,26 @@ def optimize_pdf():
     except subprocess.TimeoutExpired:
         _cleanup()
         return jsonify({"detail": "PDF optimization timed out."}), 408
-    except Exception as exc:  # noqa: BLE001
+    except FileNotFoundError:
+        # Ghostscript or qPDF is not on PATH. The Docker image installs both,
+        # so this is a broken deployment rather than a bad document -- and
+        # "[Errno 2] No such file or directory: 'gs'" tells whoever uploaded
+        # the PDF nothing they can act on. /status carries the same fact under
+        # "Ghostscript / qPDF", which is where somebody can do something
+        # about it, so the message points there rather than restating it.
+        app.logger.exception("PDF optimizer: gs/qpdf missing")
         _cleanup()
-        return jsonify({"detail": f"Optimization failed: {exc}"}), 500
+        return jsonify({"detail": "The PDF tools are not available on this "
+                                  "server. Check Ghostscript / qPDF on the "
+                                  "status page."}), 503
+    except Exception:  # noqa: BLE001
+        # Never the exception text. _run() raises RuntimeError carrying the
+        # last 2000 characters of Ghostscript's stderr, which is absolute
+        # temp-directory paths and the uploader's own filename, handed
+        # straight to a browser. The rule modules/fan_radio.fail() states:
+        # no provider bodies and no tracebacks on a screen. The cause goes to
+        # the log, with the traceback, where it is diagnosable.
+        app.logger.exception("PDF optimization failed")
+        _cleanup()
+        return jsonify({"detail": "That PDF could not be optimized. It may be "
+                                  "encrypted, damaged, or an unusual format."}), 500

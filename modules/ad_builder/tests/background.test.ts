@@ -14,10 +14,10 @@
  * silently different crop.
  *
  * **The overlay.** There has always been one, and it was a fixed dark scrim
- * nobody could see or set. Leaving the colour unset has to keep that scrim
+ * nobody could see or set. Leaving the color unset has to keep that scrim
  * byte for byte, or every ad built before this release changes; choosing one
- * has to paint it flat, because a graded version of a chosen colour is that
- * colour nowhere on the canvas.
+ * has to paint it flat, because a graded version of a chosen color is that
+ * color nowhere on the canvas.
  *
  * Run with: npm test
  */
@@ -61,20 +61,20 @@ test('the nine SVG alignments are accepted and nothing else is', () => {
   for (const bad of ['top', 'xMidYMid slice', 'none', '', undefined,
                      'xMidYMid"/><script>', 'XMIDYMID']) {
     assert.equal(resolveBgPosition(bad as any), 'xMidYMid',
-      `${JSON.stringify(bad)} should have fallen back to centre`);
+      `${JSON.stringify(bad)} should have fallen back to center`);
   }
 });
 
-test('an overlay colour is a hex or it is nothing', () => {
+test('an overlay color is a hex or it is nothing', () => {
   assert.equal(normaliseHex('#abc'), '#ABC');
   assert.equal(normaliseHex('#A1B2C3'), '#A1B2C3');
   for (const bad of ['red', 'primary', '#12345', 'rgb(0,0,0)', '', undefined]) {
     assert.equal(normaliseHex(bad as any), null,
-      `${JSON.stringify(bad)} is not a colour this composer can paint`);
+      `${JSON.stringify(bad)} is not a color this composer can paint`);
   }
 });
 
-test('no chosen colour keeps the light ink the dark scrim needs', () => {
+test('no chosen color keeps the light ink the dark scrim needs', () => {
   assert.equal(inkOverBackground({}, brand), 'light');
   assert.equal(inkOverBackground({ backgroundOverlay: 0.9 }, brand), 'light');
 });
@@ -110,14 +110,14 @@ async function withPhoto(extra: Record<string, unknown>) {
   }
 }
 
-test('a chosen colour is painted flat at the chosen opacity', async () => {
+test('a chosen color is painted flat at the chosen opacity', async () => {
   const out = await withPhoto({ backgroundOverlayColor: '#FF0000', backgroundOverlay: 0.6 });
   assert.match(out.svg, /fill="#FF0000" fill-opacity="0\.60"/);
   assert.ok(!out.svg.includes('bgScrim'),
-    'a chosen colour replaces the graded scrim rather than adding to it');
+    'a chosen color replaces the graded scrim rather than adding to it');
 });
 
-test('no chosen colour keeps the graded scrim exactly as it was', async () => {
+test('no chosen color keeps the graded scrim exactly as it was', async () => {
   // Every ad built before this release renders through here. If this changes,
   // they all change.
   const out = await withPhoto({ backgroundOverlay: 0.42 });
@@ -141,7 +141,7 @@ test('a crop anchor SVG would not accept cannot reach the markup', async () => {
   // still has to be refused rather than carried.
   const out = await withPhoto({ backgroundPosition: 'xMidYMid" onload="x' });
   assert.ok(!out.svg.includes('onload'), 'nothing smuggled through the attribute');
-  assert.match(out.svg, /<image x="0\.00" y="-25\.00"/, 'and it falls back to centred');
+  assert.match(out.svg, /<image x="0\.00" y="-25\.00"/, 'and it falls back to centered');
 });
 
 /* ------------------------------------------------- nudging and zooming */
@@ -155,7 +155,7 @@ test('the offset names the part of the picture that shows', () => {
   const mid = coverRect(400, 400, 300, 250, { offset: { x: 0, y: 0 } });
   const bot = coverRect(400, 400, 300, 250, { offset: { x: 0, y: 1 } });
   assert.equal(top!.y, 0, 'top of the picture flush with the top of the canvas');
-  assert.equal(mid!.y, -25, 'centred leaves equal overflow either side');
+  assert.equal(mid!.y, -25, 'centered leaves equal overflow either side');
   assert.equal(bot!.y, -50, 'bottom of the picture flush with the bottom');
 });
 
@@ -174,7 +174,7 @@ test('a legacy alignment and its offset are the same placement', () => {
 });
 
 test('zoom never drops below covering the canvas', () => {
-  // Under 1 the picture stops covering and the ad shows the brand colour
+  // Under 1 the picture stops covering and the ad shows the brand color
   // through its own edges, which is not a look anybody is choosing.
   const zoomed = coverRect(400, 400, 300, 250, { zoom: 0.2 })!;
   const plain = coverRect(400, 400, 300, 250, {})!;
@@ -219,7 +219,7 @@ test('a logo that already reads gets no proposals', () => {
   assert.deepEqual(out.variants, []);
 });
 
-test('a dark logo on a dark brand colour gets palettes that make it read', () => {
+test('a dark logo on a dark brand color gets palettes that make it read', () => {
   // `primary` is the common case: most families paint the canvas with it,
   // and unlike `light`/`dark` its name asserts nothing about lightness, so
   // it is free to move.
@@ -249,8 +249,8 @@ test('the light and dark roles are never inverted to fix a logo', () => {
   }
 });
 
-test('nothing is proposed that is the colour it already is', () => {
-  // The shift walk returns the same colour whenever the current one is
+test('nothing is proposed that is the color it already is', () => {
+  // The shift walk returns the same color whenever the current one is
   // already at the end of its range: "#FFFFFF moves to #FFFFFF".
   const out = paletteVariants({
     brand, logoLuminance: 0.95, behind: 'light',
@@ -260,7 +260,7 @@ test('nothing is proposed that is the colour it already is', () => {
   }
 });
 
-test('the client\'s own site colours are offered first', () => {
+test('the client\'s own site colors are offered first', () => {
   const out = paletteVariants({
     brand, logoLuminance: 0.02, behind: 'primary',
     observed: { background: '#F4F1EA' },
@@ -272,7 +272,7 @@ test('the client\'s own site colours are offered first', () => {
 
 test('fixing the DARK role never makes it light', () => {
   // A near-black mark on near-black. Lifting `dark` to a lighter charcoal is
-  // a fair proposal and is offered; turning `dark` into a light colour is
+  // a fair proposal and is offered; turning `dark` into a light color is
   // not, because every template resolves ink against that role's name and
   // the fix would silently invert it on every other size.
   const out = paletteVariants({ brand, logoLuminance: 0.02, behind: 'dark' });

@@ -107,47 +107,141 @@ def _rows_from_callable(path: str) -> list[dict]:
         return []
 
 
+# The field names below were guesses at four modules this file does not own,
+# and three of the four guessed wrong -- silently, each in its own way, so the
+# report that answers "how long since we made anything for this client" was
+# reading two sources and claiming four:
+#
+#   Image Picker        `SavedImage` is a plain declarative model with its own
+#                       session(), not Flask-SQLAlchemy, so it has no `.query`
+#                       and `_load_source` returned [] at the guard. That is
+#                       the store `filing.file_asset` writes to -- every asset
+#                       every tool files against a client -- so the busiest
+#                       source in the Hub contributed nothing.
+#   Image Creator       asked for created_at/saved_at/updated_at; the index
+#                       writes `created` / `created_date` / `updated`. Every
+#                       row was dropped by `if not when: continue`.
+#   Commercial Builder  asked for client_name/client/company; the row has
+#                       `client_id` and nothing else. This one is the worst of
+#                       the three, because the rows were *not* empty: the
+#                       source counted as live, inflated `totals.creatives`,
+#                       and every record was then dropped for having no client.
+#
+# So the three image stores are not described here any more. `hub/image_audit.py`
+# reads exactly these stores, correctly, and had done all along -- two modules
+# each guessing at one store's columns is the drift `hub/storage.py` exists to
+# stop, and it is what happened. `store` names one of its `STORES` entries and
+# the tuples below read that reader's normalised shape rather than each
+# module's own spelling, so the next column renamed in the Image Picker is one
+# edit in one place instead of a source that quietly stops reporting.
+def _rows_from_store(key):
+    """Rows from one of `hub/image_audit.py`'s stores, in its normalised shape.
+
+    Never raises: a store that will not answer costs this source its records
+    and is reported as `no_records`, exactly as an empty one is. That is the
+    weaker of the two answers and it is the one this module already gives --
+    `measured` is what says nothing answered at all.
+    """
+    try:
+        from hub import image_audit
+        store = next((x for x in image_audit.STORES if x["key"] == key), None)
+        if store is None:
+            return []
+        return [r for r in store["reader"]() if isinstance(r, dict)]
+    except Exception:                                   # noqa: BLE001
+        return []
+
+
+def _commercial_rows():
+    """Commercials approved and filed for a client.
+
+    An approved render rather than a project row, because the question this
+    report asks is what we have *produced*: `approve_render` is the point a cut
+    somebody has watched reaches the client's library, and a draft nobody
+    rendered is not creative anybody received -- the distinction that module
+    already draws and the reason `check_render` stopped filing on its own.
+
+    Joined through the project to `cb_clients` for the name. The project row
+    carries `client_id` and nothing else, which is what the old guess at
+    `client_name` missed.
+    """
+    try:
+        from modules.commercial_builder.models import (
+            Client, CommercialProject, RenderApproval)
+    except Exception:                                   # noqa: BLE001
+        return []
+    try:
+        projects = {p.id: p for p in CommercialProject.query.all()}
+        names = {c.id: c.name for c in Client.query.all()}
+        out = []
+        for a in RenderApproval.query.all():
+            project = projects.get(a.project_id)
+            if project is None:
+                continue
+            name = names.get(project.client_id, "")
+            if not name:
+                # No name, no filing -- resolving a client id we cannot name
+                # is the guess `filing.file_asset` refuses to make.
+                continue
+            out.append({
+                "client": name,
+                "when": str(a.approved_at or "")[:19],
+                "label": project.title or "Commercial",
+                # The Cloudinary copy, never the provider URL: a render URL is
+                # signed and expires, so a link that works today 404s next week.
+                "url": a.stored_url or "",
+                "where": f"{project.length_seconds}s {project.platform or ''}".strip(),
+            })
+        return out
+    except Exception:                                   # noqa: BLE001
+        return []
+
+
 SOURCES = [
-    # Corrected 2026-08-17 against the real modules. The original guesses all
-    # pointed at SQLAlchemy models that do not exist: SEO Images, Image Creator
-    # and Background Remover persist to JSON on disk, not to tables. A source
-    # that fails resolves to zero rows *silently*, so the page reported "no
-    # records from" every tool while looking perfectly healthy.
     {
         "key": "seo_images",
         "label": "SEO Image Pipeline",
-        "callable": "modules.seo_images.app:load_archive",
-        "client": ("company", "client", "client_name", "company_name"),
-        "when": ("saved_at", "created_at", "uploaded_at", "timestamp"),
-        "title": ("filename", "public_id", "alt"),
-        "url": ("url", "secure_url"),
+        "store": "seo_images",
+        "client": ("client",),
+        "when": ("when",),
+        "title": ("label",),
+        "url": ("url",),
+        "note": ("where",),
     },
     {
         "key": "image_creator",
         "label": "Image Creator",
-        "callable": "modules.image_creator.projects:load_index",
-        "client": ("client", "client_name", "company", "client_slug"),
-        "when": ("updated_at", "saved_at", "created_at"),
-        "title": ("name", "project", "title", "id"),
-        "url": ("preview", "preview_url", "url"),
+        "store": "image_creator",
+        "client": ("client",),
+        "when": ("when",),
+        "title": ("label",),
+        "url": ("url",),
+        "note": ("where",),
     },
     {
         "key": "image_picker",
         "label": "Image Picker",
-        "models": ["modules.image_picker.models:SavedImage"],
-        "client": ("client", "client_name", "client_slug", "company"),
-        "when": ("created_at", "saved_at"),
-        "title": ("filename", "public_id", "title"),
-        "url": ("url", "secure_url"),
+        "store": "image_picker",
+        "client": ("client",),
+        "when": ("when",),
+        "title": ("label",),
+        "url": ("url",),
+        "note": ("where",),
     },
     {
+        # Not one of image_audit's stores, and deliberately not: a commercial
+        # is video, and `SavedImage` models an image or a raw file, so the
+        # Commercial Builder leaves the spot in the client's Cloudinary tree
+        # rather than filing a gallery row whose thumbnail can never render.
+        # It is read here from its own tables instead.
         "key": "commercial_builder",
         "label": "Commercial Builder",
-        "models": ["modules.commercial_builder.models:CommercialProject"],
-        "client": ("client_name", "client", "company"),
-        "when": ("updated_at", "created_at", "rendered_at"),
-        "title": ("name", "title", "concept"),
-        "url": ("output_url", "video_url", "url"),
+        "callable": "hub.stale_creative:_commercial_rows",
+        "client": ("client",),
+        "when": ("when",),
+        "title": ("label",),
+        "url": ("url",),
+        "note": ("where",),
     },
 ]
 
@@ -248,13 +342,24 @@ def _iso(dt):
 
 
 def _thumb(url):
-    """Cloudinary delivery URL -> a small filled thumbnail of the same asset."""
-    if not url or "/upload/" not in url:
+    """The URL this row's tile should draw.
+
+    `hub/storage.preview_url()` is the one reader of that rule and this was a
+    second one, disagreeing with it on both halves: `c_fill` center-crops, so a
+    logo or a tall photograph loses its subject, and a second derived size is a
+    second derivative of every asset -- Cloudinary caches and bills each one
+    separately, which is exactly what "one derived size for the whole Hub"
+    exists to prevent. It also skipped both of that function's guards, so a URL
+    that is not ours and a PDF were rewritten alike.
+
+    Never raises: a missing thumbnail costs a tile its picture, and this runs
+    once per creative record.
+    """
+    try:
+        from hub import storage
+        return storage.preview_url(url)
+    except Exception:                                   # noqa: BLE001
         return url
-    head, _, tail = url.partition("/upload/")
-    if tail.startswith(("w_", "c_", "f_", "q_")):
-        return url
-    return f"{head}/upload/w_320,h_240,c_fill,q_auto,f_auto/{tail}"
 
 
 def _text(value, limit=200):
@@ -272,49 +377,23 @@ def _text(value, limit=200):
 def _load_source(src):
     """Return a list of normalised creative records for one source.
 
-    Two shapes, because the modules genuinely differ: SEO Images and Image
-    Creator persist to JSON on disk and expose their own loader, while Image
-    Picker and Commercial Builder use SQLAlchemy models. Trying to read all
-    four as models is what made every source return nothing.
+    Every source is a function returning dicts now -- `store` names one of
+    `hub/image_audit.py`'s readers, `callable` names any other. There used to
+    be a second branch that reflected over a SQLAlchemy model and read columns
+    named in this file, and it is what broke two of the four sources: it
+    guessed `SavedImage` had `.query` (it is plain declarative, so it does not)
+    and that a commercial row had `client_name` (it has `client_id`). A module
+    that owns its own store reads it better than a table of guesses here can,
+    so a new source writes a reader -- `_commercial_rows()` is the example.
     """
     cb = src.get("callable")
-    if cb:
-        rows = _rows_from_callable(cb)
-        out = []
-        for row in rows:
-            when = _as_utc(_first(row, src["when"]))
-            if not when:
-                continue
-            url = _text(_first(row, src.get("url", ())), 600)
-            out.append({
-                "source": src["key"],
-                "source_label": src["label"],
-                "client_raw": _text(_first(row, src["client"]), 200),
-                "uploaded_at": when,
-                "title": _text(_first(row, src["title"]), 160) or "Untitled",
-                "note": _text(_first(row, src.get("note", ())), 160),
-                "alt": _text(_first(row, src.get("alt", ())), 200),
-                "url": url,
-                "thumb": _thumb(url),
-            })
-        return out
-
-    model = None
-    for candidate in src.get("models", []):
-        model = _resolve(candidate)
-        if model is not None:
-            break
-    if model is None or not hasattr(model, "query"):
+    store = src.get("store")
+    if not (cb or store):
+        # A source declaring neither is a source nobody can read. Returning []
+        # rather than falling off the end, which handed `records.extend()` a
+        # None and took the whole audit down with it.
         return []
-
-    try:
-        rows = model.query.all()
-    except Exception as exc:  # table missing, DB asleep, wrong bind
-        current_app.logger.warning(
-            "stale_creative: %s query failed: %s", src["key"], exc
-        )
-        return []
-
+    rows = _rows_from_store(store) if store else _rows_from_callable(cb)
     out = []
     for row in rows:
         when = _as_utc(_first(row, src["when"]))
@@ -333,7 +412,6 @@ def _load_source(src):
             "thumb": _thumb(url),
         })
     return out
-
 
 from hub.knack_data import CREATIVE_EXCLUDE   # one list, not two
 
@@ -570,8 +648,9 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
         by_key.setdefault(key, []).append(rec)
 
     # Start from the client registry so "never" is representable.
+    registry_rows = _registry_clients()
     clients, seen = [], set()
-    for c in _registry_clients():
+    for c in registry_rows:
         key = match(c["name"])
         seen.add(key)
         clients.append({"name": c["name"], "key": key, "id": c["id"],
@@ -674,7 +753,16 @@ def build_audit(items_per_client=DEFAULT_ITEMS_PER_CLIENT, now=None):
         # saying every client is overdue for creative. That is not an answer,
         # and `hub/report_cache.py` must not store it as the day's — it would
         # stand until tomorrow with nothing on the page saying why.
-        "measured": bool(sources_live) or used_fallback,
+        #
+        # Both halves, because this report is a join and either side going
+        # quiet produces a confident page. `_registry_clients()` tries four
+        # paths and swallows each failure, so a client list that refused
+        # returned [] and the audit reported *nought clients* while the
+        # creative sources answered perfectly well — measured: True, and held
+        # as the day's answer.
+        "measured": (bool(sources_live) or used_fallback) and bool(registry_rows),
+        "sources_measured": bool(sources_live) or used_fallback,
+        "clients_measured": bool(registry_rows),
         "edges": edges,
         "groups": groups,
         "totals": {
@@ -839,6 +927,61 @@ def scorecard():
                   for w in worst[:5]],
         "url": "/qa/stale-creative",
     }
+
+
+def by_client() -> tuple[dict, str]:
+    """`({matched key: row}, error)` — this audit, one row per client.
+
+    The client-health report needs to ask "how long since we made anything for
+    *this* client", which is what the whole audit already answers; walking the
+    six sources a second time there would be the mirror this codebase has paid
+    for twice. So the report reads this, keyed on the audit's **own** match key
+    so the two cannot disagree about what counts as one client.
+
+    The evergreen overlay has already been applied by `_cached()`, and its
+    group is deliberately included: a client whose creative is fixed for the
+    campaign is not a gap, and the row carries `evergreen` so the reader can
+    say so rather than counting it as one.
+
+    A pair rather than a bare dict, for the reason `connected_accounts_result`
+    gives in Google Finder: *nobody is overdue* and *the audit would not run*
+    are different answers.
+    """
+    try:
+        data = _cached()
+    except Exception as exc:                            # noqa: BLE001
+        return {}, f"{type(exc).__name__}: {exc}"[:200]
+    out: dict = {}
+    for group in data.get("groups") or ():
+        for row in group.get("clients") or ():
+            key = row.get("key")
+            if not key:
+                continue
+            out[key] = {
+                "client": row.get("client") or "",
+                "days_since": row.get("days_since"),
+                "last_upload": row.get("last_upload") or "",
+                "last_source": row.get("last_source") or "",
+                "total_creatives": int(row.get("total_creatives") or 0),
+                "last_12_months": int(row.get("last_12_months") or 0),
+                "group": group.get("key") or "",
+                "group_label": group.get("label") or "",
+                "evergreen": row.get("evergreen") or None,
+            }
+    return out, ""
+
+
+def match_key(name: str) -> str:
+    """The key this audit files a client under. Handed out rather than copied.
+
+    `hub/creative_evergreen.by_key()` already takes the matcher as an argument
+    for the same reason: a second normaliser somewhere else is a mark filed
+    against a client the audit does not think it is about.
+    """
+    try:
+        return _client_matcher()(name) or ""
+    except Exception:                                   # noqa: BLE001
+        return ""
 
 
 def _audit_log(event, **extra):

@@ -19,7 +19,7 @@ import * as crypto from 'node:crypto';
 import type { Campaign, SizeKey } from './types';
 import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
-import { renderPreview } from './render';
+import { renderPreview, renderAnimatedPreview } from './render';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates, acceptPlatforms } from './registry';
 import { logoInkLuminance } from './qa';
@@ -42,19 +42,30 @@ import { reworkLogo } from './logo-tools';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
 import { getPlatform, getTemplate } from './registry';
+import {
+  ANIMATION_RULES,
+  DEFAULTS as ANIMATION_DEFAULTS,
+  MOTIONS,
+  animationSupport,
+  type AnimationSpec,
+} from './animation';
 import { listFamilies } from './fonts';
 import sharp from 'sharp';
 import { notify } from './notify';
 import { discoverBrand, normalizeDomain } from './brandfetch';
 import { BrandCache } from './brand-cache';
 import { renderOverview, renderOverviewPdf } from './overview';
-import { ALLOWED_FORMATS, assetUrlIsSafe, folderFor, signUpload, type AssetKind } from './assets';
+import { ALLOWED_FORMATS, assetUrlIsSafe, folderFor, generatedImagePath, signUpload, type AssetKind } from './assets';
 import { CloudinaryService, slug } from './cloudinary';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const OUT = process.env.OUTPUT_DIR ?? path.join(ROOT, 'out');
 const PUBLIC = path.join(ROOT, 'public');
 const PORT = Number(process.env.PORT ?? 3000);
+/** Ceiling on a reference photo fetched on a caller's behalf. The model is
+ *  handed a few hundred KB of it either way; the number is here to stop an
+ *  arbitrary URL writing the render volume full. */
+const REFERENCE_MAX_BYTES = 12 * 1024 * 1024;
 
 /** Build stamp written by the build step; tells us what is actually deployed. */
 const BUILD_STAMP: { builtAt?: string; node?: string } = (() => {
@@ -184,7 +195,37 @@ function fileJobOntoProject(jobId: string, projectId: string): void {
       // hit the watchdog in jobs.ts and will be marked failed by it.
       if (!done && Date.now() - started <= 300_000) return;
       clearInterval(t);
-      if (j?.status === 'complete' && j.results?.length) {
+      if (j?.status !== 'complete') return;
+      // An animated job files onto the same project and never as a batch: a
+      // batch is a static delivery pack, and one containing only GIFs would be
+      // read by deliverProject as the whole of what was built for this client.
+      if (j.mode === 'animated') {
+        if (!j.animations?.length) return;
+        try {
+          const project = projects.get(projectId);
+          if (!project) return;
+          projects.recordAnimations(project, j.animations.map((a) => ({
+            conceptId: a.conceptId,
+            platform: a.platform,
+            size: a.size,
+            file: a.file,
+            url: a.url ?? `/files/${path.relative(OUT, a.file)}`,
+            bytes: a.bytes,
+            frames: a.frames,
+            loop: a.loop,
+            totalMs: a.totalMs,
+            fps: a.fps,
+            kind: a.kind,
+            status: a.status,
+            issues: a.qa.filter((q) => q.status !== 'pass').map((q) => q.detail),
+            renderedAt: new Date().toISOString(),
+          })));
+        } catch (e) {
+          console.error(`[jobs] could not file animations from ${jobId} onto ${projectId}`, e);
+        }
+        return;
+      }
+      if (j.results?.length) {
         const proofUrl = j.reports?.find((r) => r.includes('/proof_'));
         try {
           projects.addBatch(projectId, j.results, { reportUrl: proofUrl });
@@ -312,6 +353,10 @@ const server = http.createServer(async (req, res) => {
     url.pathname.startsWith('/api/campaigns') ||
     url.pathname.startsWith('/api/project') ||
     url.pathname.startsWith('/api/build/') ||
+    // Staff, like every other build route. A client on the proof page sees the
+    // finished GIF; deciding what an ad says is not a thing the proof link is
+    // a capability for.
+    url.pathname.startsWith('/api/animate') ||
     // Presets carry a client's brand and their finished creative, and a batch
     // renders against a client record. Both are staff work, never a public
     // route -- the split PUBLIC_PATTERNS draws for the proof page.
@@ -337,7 +382,7 @@ const server = http.createServer(async (req, res) => {
       const auth = checkAuth(req, url);
       if (!auth.ok) {
         console.warn(`[auth] refused ${route} from ${req.headers['x-forwarded-for'] ?? req.socket.remoteAddress}`);
-        return denied(res, 401, auth.reason ?? 'Unauthorised');
+        return denied(res, 401, auth.reason ?? 'Unauthorized');
       }
       // Move a token supplied in the query string into a cookie, so it stops
       // appearing in the address bar, browser history and referrer headers.
@@ -484,6 +529,7 @@ const server = http.createServer(async (req, res) => {
             notes: result.notes,
             assetSources: result.assetSources,
             colorSources: result.colorSources,
+            logoPalette: result.logoPalette,
           }, null, 2),
         );
         build = { renderable: result.renderable, notes: result.notes };
@@ -537,7 +583,7 @@ const server = http.createServer(async (req, res) => {
             .then((analysis) => {
               const p = projects.get(project.projectId);
               if (p) { p.landingAnalysis = analysis; projects.save(p); }
-              console.log(`[landing] ${project.projectId} analysed via ${analysis.source}`);
+              console.log(`[landing] ${project.projectId} analyzed via ${analysis.source}`);
             })
             .catch((e) => console.warn(`[landing] ${project.projectId} failed: ${e?.message ?? e}`));
         }
@@ -867,6 +913,10 @@ const server = http.createServer(async (req, res) => {
         delivered: (project?.delivered && project.delivered.length)
           ? project.delivered[project.delivered.length - 1]
           : undefined,
+        // Only the ones whose file is still on disk. `retention.ts` sweeps the
+        // render folder, and a proof drawing a broken image where an ad should
+        // be reads as the whole tool having failed.
+        animations: (project?.animations ?? []).filter((a) => fs.existsSync(a.file)),
       });
       // Inline every creative as a data URI so the page depends on nothing else.
       for (const e of manifest.entries) {
@@ -875,6 +925,14 @@ const server = http.createServer(async (req, res) => {
         const mime = e.format === 'png' ? 'image/png' : 'image/jpeg';
         const b64 = fs.readFileSync(e.localFile).toString('base64');
         html = html.split(`src="${srcAttr}"`).join(`src="data:${mime};base64,${b64}"`);
+      }
+      // The animations the same way. A proof is forwarded, saved and opened
+      // from an inbox weeks later; one of its ads loading from a URL behind
+      // the Hub login is a broken image on the page a client decides from.
+      for (const a of (project?.animations ?? [])) {
+        if (!fs.existsSync(a.file)) continue;
+        const b64 = fs.readFileSync(a.file).toString('base64');
+        html = html.split(`src="${a.url}"`).join(`src="data:image/gif;base64,${b64}"`);
       }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       return res.end(withBase(req, html));
@@ -1044,8 +1102,8 @@ const server = http.createServer(async (req, res) => {
         if (!['primary', 'secondary', 'accent', 'light', 'dark'].includes(behind)) {
           return json(res, 200, {
             ratio: null, verdict: 'not measured', variants: [],
-            reason: `On ${size} the logo sits on a fixed colour in the layout rather than a ` +
-              `brand colour, so changing the palette would not move it.`,
+            reason: `On ${size} the logo sits on a fixed color in the layout rather than a ` +
+              `brand color, so changing the palette would not move it.`,
           });
         }
 
@@ -1350,11 +1408,10 @@ const server = http.createServer(async (req, res) => {
       // Only a path this service wrote. The value comes from a page, and a
       // route that uploads whatever URL it is handed is an open relay into
       // our own Cloudinary account.
-      const rel = String(body.url ?? '').replace(/^\/files\//, '');
-      if (!/^imagery\/[\w.\-/]+\.(png|jpg|jpeg|webp)$/i.test(rel) || rel.includes('..')) {
+      const file = generatedImagePath(body.url, OUT);
+      if (!file) {
         return json(res, 400, { error: 'That is not a generated picture from this build.' });
       }
-      const file = path.join(OUT, rel);
       if (!fs.existsSync(file)) {
         return json(res, 404, { error: 'That picture is no longer on the render disk.' });
       }
@@ -1370,7 +1427,7 @@ const server = http.createServer(async (req, res) => {
         const up = await cld.uploadCreative({
           file,
           folder: `${cld.projectFolder(client, campaign)}/generated`,
-          publicId: `ai-${path.basename(rel).replace(/\.[^.]+$/, '')}`,
+          publicId: `ai-${path.basename(file).replace(/\.[^.]+$/, '')}`,
           tags: ['smart1', 'display-ads', 'ai-generated'],
           context: { client, campaign, source: 'ai' },
         });
@@ -1501,25 +1558,51 @@ const server = http.createServer(async (req, res) => {
         // If the caller passed uploaded photo URLs (Cloudinary), fetch them as
         // local references so the generated hero echoes the real product.
         const refs: string[] = [];
-        for (const u of (body.referenceImages ?? []) as string[]) {
+        // These are URLs from a request body that this server then fetches, so
+        // they go through `assetUrlIsSafe` like every other asset reference --
+        // the guard the background and logo editors already stand behind, and
+        // whose own note says it applies even where a route is gated, because
+        // staff credentials leak and the check costs nothing. This loop tested
+        // `^https?://` and nothing else, which admits plain http to any host:
+        // 169.254.169.254, 127.0.0.1 (the Hub's own gunicorn shares this
+        // container), and the private ranges.
+        //
+        // Bounded as well as guarded. `arrayBuffer()` on an arbitrary URL
+        // wrote the whole body to disk with no ceiling, and the volume this
+        // lands on is the one `retention.ts` exists to keep clear -- so the
+        // declared length is checked before the read and the real length
+        // after it, the shape landing-images.ts already uses. Three is what
+        // the model is given anyway.
+        for (const u of ((body.referenceImages ?? []) as string[]).slice(0, 3)) {
+          const safe = assetUrlIsSafe(String(u ?? ''));
+          if (!safe.ok) continue;
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 12_000);
           try {
-            if (!/^https?:\/\//.test(u)) continue;
-            const r = await fetch(u);
+            const r = await fetch(u, { signal: ctrl.signal, redirect: 'follow' });
             if (!r.ok) continue;
+            const declared = Number(r.headers.get('content-length') ?? 0);
+            if (declared && declared > REFERENCE_MAX_BYTES) continue;
+            const buf = Buffer.from(await r.arrayBuffer());
+            if (buf.byteLength > REFERENCE_MAX_BYTES) continue;
             fs.mkdirSync(cacheDir, { recursive: true });
             const f = path.join(cacheDir, `ref-${refs.length}.png`);
-            fs.writeFileSync(f, Buffer.from(await r.arrayBuffer()));
+            fs.writeFileSync(f, buf);
             refs.push(f);
-          } catch { /* skip a bad reference */ }
+          } catch { /* skip a bad reference */ } finally {
+            clearTimeout(timer);
+          }
         }
         // On a revision, the previous image becomes the primary reference so
         // the edit builds on the last result rather than starting fresh. This
         // is what makes "make the sky darker" iterate instead of re-roll.
         if (body.reviseInstruction && body.previousUrl) {
           try {
-            const rel = String(body.previousUrl).replace(/^\/files\//, '');
-            const prev = path.join(OUT, rel);
-            if (fs.existsSync(prev)) {
+            // The same "a path this service wrote" test the keep route uses.
+            // Without it `/files/../../../etc/passwd` resolved to /etc/passwd
+            // and was copied into imagery/, which is served under /files/.
+            const prev = generatedImagePath(body.previousUrl, OUT);
+            if (prev && fs.existsSync(prev)) {
               fs.mkdirSync(cacheDir, { recursive: true });
               const f = path.join(cacheDir, `prev-${Date.now().toString(36)}.png`);
               fs.copyFileSync(prev, f);
@@ -2106,6 +2189,338 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(file, JSON.stringify(body, null, 2));
         return json(res, 200, { saved: true, requestId: campMatch[1] });
       }
+    }
+
+    /* ------------------------------------------------------------ animation
+
+       Three routes, and the shape of them is the answer to "how does this not
+       slow the original build down".
+
+       Nothing here is reachable until a static build has been SAVED. That is
+       the gate the operator asked for and it is enforced on the server rather
+       than in the build screen: a rule the form keeps while the write breaks
+       it is not a rule. The campaign file on disk is what "a static build
+       exists" means -- it is written by the Save button, it is what the render
+       job reads, and it is the same file every other post-build step works
+       from.
+
+       And an animation is never part of a render job. It is asked for
+       afterwards, it produces GIFs beside the static files rather than instead
+       of them, and it runs on its own job so a set that nobody wants animated
+       costs exactly what it costs today. */
+
+    // What can be animated here, and what each size will and will not take.
+    // Answered from the platform config so the screen never has to guess, and
+    // so a size that stops accepting GIF disappears from the panel rather than
+    // failing at render.
+    const animOptions = url.pathname.match(/^\/api\/animate\/([\w-]+)\/options$/);
+    if (animOptions && req.method === 'GET') {
+      const requestId = animOptions[1];
+      const file = path.join(OUT, 'campaigns', `${requestId}.json`);
+      if (!fs.existsSync(file)) {
+        return json(res, 409, {
+          error: 'There is no saved build for this set yet. Save the static ' +
+                 'design first — an animation is built from it.',
+        });
+      }
+      const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const campaign: Campaign | undefined = doc.campaign;
+      if (!campaign) return json(res, 409, { error: 'That saved build has no campaign in it.' });
+
+      const platforms: string[] = Array.isArray(doc.platforms) && doc.platforms.length
+        ? doc.platforms : ['google'];
+      const concepts = (campaign.concepts ?? []).map((c) => {
+        let sizes: string[] = [];
+        try {
+          sizes = Object.keys(getTemplate(c.layoutFamily).sizes);
+        } catch { /* a family that will not load is reported as no sizes */ }
+        const rows = sizes.map((size) => {
+          // A size is offered when ANY platform on this buy takes an animation
+          // there. Where they disagree the reason names the ones that do not,
+          // rather than the size vanishing from a set it half belongs to.
+          const per = platforms.map((p) => ({ platform: p, ...animationSupport(p, size as SizeKey) }));
+          const yes = per.filter((x) => x.supported);
+          return {
+            size,
+            supported: yes.length > 0,
+            platforms: yes.map((x) => x.platform),
+            maxFileBytes: yes[0]?.maxFileBytes,
+            reasons: per.filter((x) => !x.supported).map((x) => x.reason).filter(Boolean),
+          };
+        });
+        return {
+          conceptId: c.conceptId,
+          name: c.name,
+          layoutFamily: c.layoutFamily,
+          animation: c.animation ?? null,
+          sizes: rows,
+        };
+      });
+
+      const project = projects.byRequest(requestId);
+      return json(res, 200, {
+        requestId,
+        platforms,
+        motions: MOTIONS,
+        rules: ANIMATION_RULES,
+        defaults: ANIMATION_DEFAULTS,
+        concepts,
+        // What has already been built, so the panel says "these five are done"
+        // rather than offering to build them again with nothing on screen
+        // saying they exist.
+        //
+        // Projected rather than passed straight through: the stored row
+        // carries `file`, which is a path on our own render disk, and this
+        // answer is read into a page. Naming the fields also means the panel
+        // cannot come to depend on one that was never meant for it.
+        animations: (project?.animations ?? []).map((a) => ({
+          conceptId: a.conceptId,
+          platform: a.platform,
+          size: a.size,
+          url: a.url,
+          bytes: a.bytes,
+          frames: a.frames,
+          loop: a.loop,
+          totalMs: a.totalMs,
+          fps: a.fps,
+          kind: a.kind,
+          status: a.status,
+          issues: a.issues,
+          renderedAt: a.renderedAt,
+          approvedAt: a.approvedAt,
+          approvedBy: a.approvedBy,
+          previouslyApprovedAt: a.previouslyApprovedAt,
+          // Whether it is stored, never where: the panel only has to know
+          // there is something to file.
+          cloudinaryPublicId: a.cloudinaryPublicId ? true : undefined,
+        })),
+      });
+    }
+
+    // The moving preview. Nothing is written; the spec comes off the request
+    // body so the panel previews what is being typed rather than what was last
+    // saved.
+    if (route === 'POST /api/animate/preview') {
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        campaign?: Campaign;
+        conceptId?: string;
+        size?: string;
+        platform?: string;
+        animation?: AnimationSpec;
+      };
+      const campaign = body.campaign;
+      const concept = campaign?.concepts?.find((c) => c.conceptId === body.conceptId)
+        ?? campaign?.concepts?.[0];
+      if (!campaign?.brand || !concept) {
+        return json(res, 400, { error: 'Provide a campaign and a concept' });
+      }
+      const size = (body.size ?? '300x250') as SizeKey;
+      const platform = body.platform ?? 'google';
+      const support = animationSupport(platform, size);
+      if (!support.supported) {
+        // 200 and not an error: "this size ships as the static ad" is an
+        // answer, and a red box over a correct decision is what teaches people
+        // to stop reading the panel.
+        return json(res, 200, { supported: false, reason: support.reason });
+      }
+      try {
+        const out = await renderAnimatedPreview({
+          brand: campaign.brand, concept, platform, size,
+          assetRoot: ROOT, animation: body.animation,
+        });
+        return json(res, 200, {
+          supported: true,
+          image: `data:image/gif;base64,${out.gif.toString('base64')}`,
+          width: out.width,
+          height: out.height,
+          bytes: out.bytes,
+          overweight: out.overweight,
+          settings: out.settings,
+          status: out.status,
+          frames: out.plan.frames.length,
+          loop: out.plan.loop,
+          fps: out.plan.fps,
+          cycleMs: out.plan.cycleMs,
+          totalMs: out.plan.totalMs,
+          adjustments: out.plan.adjustments,
+          maxFileBytes: support.maxFileBytes,
+          qa: out.qa.filter((f) => f.status !== 'pass'),
+        });
+      } catch (e: any) {
+        return json(res, 422, { error: e?.message ?? 'That could not be animated' });
+      }
+    }
+
+    /* Sign one animation off, and put it where a client can be given it.
+   
+       This is the whole of "an animation is delivered separately". The delivery
+       zip does not carry these -- it is one act covering the static set, and an
+       animation is approved one at a time -- so this route is the only path
+       from a rendered GIF to a client, and the approval is the only gate on it.
+
+       Approving and storing are reported SEPARATELY. "Approved" and "approved
+       and uploaded" are different outcomes and one tick for both is how
+       somebody learns not to trust the tick, which is the rule
+       `hub/domain_links.py` works to. The approval stands either way: a
+       Cloudinary that would not answer must not cost the decision somebody
+       made, and the upload is retried by pressing approve again. */
+    const animApprove = url.pathname.match(/^\/api\/animate\/([\w-]+)\/approve$/);
+    if (animApprove && req.method === 'POST') {
+      const requestId = animApprove[1];
+      const project = projects.byRequest(requestId);
+      if (!project) return json(res, 404, { error: 'No project for that build.' });
+
+      const body = JSON.parse(await readBody(req, 20_000)) as {
+        conceptId?: string; platform?: string; size?: string;
+        approved?: boolean;
+      };
+      // Who approved comes from the Hub proxy's own header and never from the
+      // body. A name a browser can put in a POST is a name anybody can put in
+      // a POST, and this one is the whole content of the record -- "who said
+      // this size can go to the client" is the only question an approval
+      // exists to answer. Blank rather than invented when there is no session
+      // behind it, the `hub/ad_copy.py` refusal: "Shared login" is a true
+      // statement about a session and a useless one in a field a person reads
+      // as a name.
+      const approvedBy = (req.headers['x-s1-user'] as string) || '';
+      const key = {
+        conceptId: String(body.conceptId ?? '').trim(),
+        platform: String(body.platform ?? 'google').trim(),
+        size: String(body.size ?? '').trim(),
+      };
+      if (!key.conceptId || !key.size) {
+        return json(res, 400, { error: 'Name the concept and the size to approve.' });
+      }
+
+      const approved = body.approved !== false;
+      const out = projects.approveAnimation(project, key, approved, approvedBy);
+      if (!out.ok) return json(res, 422, { error: out.error });
+      if (!approved) {
+        return json(res, 200, { approved: false, size: key.size, stored: false });
+      }
+
+      const row = out.row!;
+      // Already stored is not a reason to pay for it again. Cloudinary bills
+      // for the upload and for the storage, and re-approving after a wording
+      // change to the panel must not re-spend it.
+      if (row.cloudinaryPublicId) {
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size,
+          stored: true, publicId: row.cloudinaryPublicId, url: row.cloudinaryUrl,
+          note: 'Already stored; the approval was recorded and nothing was re-uploaded.',
+        });
+      }
+      if (!fs.existsSync(row.file)) {
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size, stored: false,
+          storeError:
+            'The rendered file is no longer on disk, so there was nothing to store. ' +
+            'Animate this size again and approve it.',
+        });
+      }
+
+      try {
+        const cld = new CloudinaryService();
+        cld.assertUsable();
+        const asset = await cld.uploadAnimation({
+          file: row.file,
+          folder: cld.finalFolder(project.client, project.campaignName, row.platform, row.conceptId),
+          publicId: `${slug(project.domain || project.client)}_${row.conceptId}_${row.size}_animated`,
+          tags: ['display_ads', 'animated', slug(project.client), row.size],
+          context: {
+            client: project.client,
+            campaign: project.campaignName,
+            size: row.size,
+            motion: row.kind,
+            frames: row.frames,
+            plays: row.loop,
+            seconds: Number((row.totalMs / 1000).toFixed(1)),
+          },
+        });
+        projects.noteAnimationUpload(project, key, {
+          publicId: asset.publicId, url: asset.secureUrl,
+        });
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size,
+          stored: true, simulated: Boolean(asset.simulated),
+          publicId: asset.publicId, url: asset.secureUrl,
+        });
+      } catch (e: any) {
+        // Approved and not stored. Said plainly rather than turned into a
+        // failure: the decision is recorded and is not lost, and pressing
+        // approve again retries only the half that did not happen.
+        return json(res, 200, {
+          approved: true, approvedAt: row.approvedAt, size: key.size, stored: false,
+          storeError: e?.message ?? 'Cloudinary would not take the file.',
+        });
+      }
+    }
+
+    // Build the files. Its own job on the same queue as a render, so it is
+    // watched, persisted and recovered exactly the way a render is -- and so
+    // it cannot make a render wait.
+    const animRun = url.pathname.match(/^\/api\/animate\/([\w-]+)$/);
+    if (animRun && req.method === 'POST') {
+      const requestId = animRun[1];
+      const file = path.join(OUT, 'campaigns', `${requestId}.json`);
+      if (!fs.existsSync(file)) {
+        return json(res, 409, {
+          error: 'There is no saved build for this set yet. Save the static ' +
+                 'design first — an animation is built from it.',
+        });
+      }
+      const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const campaign: Campaign | undefined = doc.campaign;
+      if (!campaign?.brand) return json(res, 409, { error: 'That saved build has no campaign in it.' });
+
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        conceptId?: string;
+        sizes?: string[];
+        animation?: AnimationSpec;
+      };
+
+      // A spec sent with the request is saved onto the concept first, so what
+      // renders is what is written down. Rendering from a body while the saved
+      // build says something else is how a delivered ad comes to differ from
+      // the one on screen.
+      if (body.animation && body.conceptId) {
+        const c = campaign.concepts.find((x) => x.conceptId === body.conceptId);
+        if (!c) return json(res, 404, { error: `No concept ${body.conceptId} on that build` });
+        c.animation = body.animation;
+        fs.writeFileSync(file, JSON.stringify(doc, null, 2));
+      }
+
+      const wanted = campaign.concepts.filter(
+        (c) => c.animation && c.animation.enabled !== false &&
+          (!body.conceptId || c.conceptId === body.conceptId),
+      );
+      if (!wanted.length) {
+        return json(res, 400, {
+          error: 'Nothing on this build has an animation set up on it yet.',
+        });
+      }
+
+      const platforms: string[] = Array.isArray(doc.platforms) && doc.platforms.length
+        ? doc.platforms : ['google'];
+      const job = enqueue({
+        campaign, platforms, upload: false, outDir: OUT, assetRoot: ROOT,
+        mode: 'animated',
+        conceptId: body.conceptId,
+        sizes: Array.isArray(body.sizes) && body.sizes.length
+          ? (body.sizes as SizeKey[]) : undefined,
+      });
+      if (!job.progress.total) {
+        return json(res, 422, {
+          error: 'None of the sizes asked for takes an animated file on this ' +
+                 'buy, so there is nothing to build.',
+        });
+      }
+      const forProject = projects.byRequest(requestId);
+      if (forProject) fileJobOntoProject(job.id, forProject.projectId);
+      return json(res, 202, {
+        jobId: job.id, status: job.status, total: job.progress.total,
+        poll: `/api/render/${job.id}`,
+      });
     }
 
     // Live preview for the editor. Returns a PNG so the browser can show it

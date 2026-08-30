@@ -7,6 +7,8 @@ delete is written to the Hub-wide activity log.
 
 The GHL Private Integration token stays server-side, exactly as before.
 """
+import hashlib
+import json
 import os
 import re
 import secrets
@@ -113,29 +115,135 @@ def send_error(err):
 
 
 # ---------------- Idempotency (double-submit protection) ----------------
+#
+# This guard creates GoHighLevel sub-accounts, so the thing it is protecting
+# against is a client ending up with two of them. It failed at that two ways,
+# and each was invisible: the caller got a clean 201 either time.
+#
+# **It was a dict in memory, and gunicorn runs two workers.** A resubmitted
+# key that landed on the worker which had not seen the first one found nothing
+# cached and created a second account — the `_state`-is-per-process trap
+# CLAUDE.md names for the scheduler, on the route where it costs a duplicate
+# client account. The claim is a file on the shared data disk now, so both
+# workers are looking at the same answer.
+#
+# **And it was written after the work, so it never covered a double-click at
+# all.** `idem_get` read at the top and `idem_set` wrote after the account
+# existed, so two requests arriving together both found nothing and both
+# created one — which is precisely the shape a double-submit is. The key is
+# **claimed before the work starts**, with O_EXCL so the claim is atomic
+# between workers, and filled in afterwards.
+#
+# Nothing in here may raise. A guard that breaks the thing it guards is worse
+# than none, so every path answers, and a store that cannot be read or written
+# degrades to the in-process dict rather than to no protection at all.
 IDEMPOTENCY_TTL = 5 * 60
 _idem: dict[str, dict] = {}
 _idem_lock = threading.Lock()
 
 
-def idem_get(key):
-    if not key:
-        return None
-    with _idem_lock:
-        rec = _idem.get(key)
-        if rec and rec["expires"] > time.time():
+def _idem_dir():
+    from hub import jsonstore
+    return Path(jsonstore.data_dir("suite_panel", "idempotency"))
+
+
+def _idem_path(key):
+    # The key is a caller's string; it never reaches the filesystem as itself.
+    return _idem_dir() / (hashlib.sha256(key.encode("utf-8")).hexdigest()[:40] + ".json")
+
+
+def _idem_read(key):
+    """The record for this key, from the shared disk, or None."""
+    try:
+        path = _idem_path(key)
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        if float(rec.get("expires") or 0) > time.time():
             return rec
-        _idem.pop(key, None)
+        path.unlink(missing_ok=True)
+    except (OSError, ValueError, TypeError):
+        pass
     return None
 
 
-def idem_set(key, status, body):
+def idem_claim(key):
+    """Claim a key before the work starts.
+
+    Returns ``(state, record)``: ``"free"`` when this request owns the key and
+    should do the work, ``"done"`` with the earlier answer to replay, or
+    ``"running"`` when another request holds the claim and has not finished.
+    An unusable key (none given) is ``"free"`` with no claim, which is the
+    behaviour a caller that sends no key has always had.
+    """
     if not key:
-        return
+        return "free", None
+    rec = _idem_read(key)
+    if rec:
+        return ("done", rec) if rec.get("done") else ("running", rec)
+    try:
+        path = _idem_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # O_EXCL is what makes this atomic between the two workers: exactly one
+        # of two simultaneous submits creates the file, and the other is told
+        # its twin is already running rather than creating a second account.
+        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"done": False, "expires": time.time() + IDEMPOTENCY_TTL}, fh)
+        return "free", None
+    except FileExistsError:
+        rec = _idem_read(key)
+        if rec:
+            return ("done", rec) if rec.get("done") else ("running", rec)
+        return "free", None
+    except OSError:
+        pass                        # no shared disk — fall back to memory
     with _idem_lock:
-        _idem[key] = {"status": status, "body": body, "expires": time.time() + IDEMPOTENCY_TTL}
+        rec = _idem.get(key)
+        if rec and rec["expires"] > time.time():
+            return ("done", rec) if rec.get("done") else ("running", rec)
+        _idem[key] = {"done": False, "expires": time.time() + IDEMPOTENCY_TTL}
         if len(_idem) > 2000:
             _idem.pop(next(iter(_idem)))
+    return "free", None
+
+
+def idem_set(key, status, body):
+    """Record the answer against a claim, so a resubmission replays it."""
+    if not key:
+        return
+    rec = {"done": True, "status": status, "body": body,
+           "expires": time.time() + IDEMPOTENCY_TTL}
+    try:
+        path = _idem_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rec), encoding="utf-8")
+        os.replace(str(tmp), str(path))
+        return
+    except (OSError, TypeError, ValueError):
+        pass
+    with _idem_lock:
+        _idem[key] = rec
+        if len(_idem) > 2000:
+            _idem.pop(next(iter(_idem)))
+
+
+def idem_release(key):
+    """Drop a claim whose work did not produce an answer to replay.
+
+    A create that failed must not leave the key claimed for five minutes: the
+    rep's next press is a new attempt, not a duplicate of one that never
+    happened.
+    """
+    if not key:
+        return
+    try:
+        _idem_path(key).unlink(missing_ok=True)
+    except OSError:
+        pass
+    with _idem_lock:
+        rec = _idem.get(key)
+        if rec and not rec.get("done"):
+            _idem.pop(key, None)
 
 
 # ---------------- Logo hosting ----------------
@@ -350,16 +458,39 @@ def api_location(loc_id):
 def api_create_location():
     b = request.get_json(silent=True) or {}
     idem_key = (b.get("idempotencyKey") or "")[:100] if isinstance(b.get("idempotencyKey"), str) else None
-    cached = idem_get(idem_key)
-    if cached:
-        return jsonify(cached["body"]), cached["status"]
+
+    name = (b.get("name") or "").strip()
+    if not name:
+        # Refused before the key is claimed: nothing happened, so the rep's
+        # next press with the same key is a first attempt rather than a replay.
+        return jsonify({"error": "Account name is required."}), 400
+
+    state, rec = idem_claim(idem_key)
+    if state == "done":
+        return jsonify(rec["body"]), rec["status"]
+    if state == "running":
+        # The twin of this request is mid-flight, most likely on the other
+        # worker. Answering 409 is the whole point: creating a second
+        # sub-account for one client is what this guard exists to prevent, and
+        # it is not undoable from this panel.
+        return jsonify({
+            "error": "in_progress",
+            "message": "That submission is already being processed. "
+                       "Give it a moment rather than sending it again.",
+        }), 409
 
     try:
-        name = (b.get("name") or "").strip()
-        if not name:
-            return jsonify({"error": "Account name is required."}), 400
-
-        if not b.get("confirmDuplicate"):
+        # "No duplicate" and "we could not look" are different answers, and
+        # only the first is a reason to go ahead without thinking about it.
+        # This used to log a warning and return a clean 201, so a rep whose
+        # check never ran could not tell that from a clear one -- and the
+        # confirm-and-resubmit path turns the check off entirely, so on the
+        # retry both guards are down at once.
+        duplicate_check = "clear"
+        duplicate_check_error = ""
+        if b.get("confirmDuplicate"):
+            duplicate_check = "skipped"
+        else:
             try:
                 dup = ghl("/locations/search", query={"companyId": _env("GHL_COMPANY_ID"), "limit": "5", "query": name})
                 matches = [
@@ -367,6 +498,7 @@ def api_create_location():
                     if str(loc.get("name") or "").strip().lower() == name.lower()
                 ]
                 if matches:
+                    idem_release(idem_key)
                     return jsonify({
                         "error": "duplicate",
                         "message": f'An account named "{name}" already exists.',
@@ -374,6 +506,8 @@ def api_create_location():
                     }), 409
             except Exception as dup_err:  # noqa: BLE001 — never block creation on a flaky check
                 app.logger.warning("duplicate check failed, proceeding: %s", dup_err)
+                duplicate_check = "not_measured"
+                duplicate_check_error = str(dup_err)
 
         payload = {"name": name, "companyId": _env("GHL_COMPANY_ID")}
         for k in ("phone", "address", "city", "state", "country", "postalCode", "website", "timezone", "snapshotId"):
@@ -450,10 +584,23 @@ def api_create_location():
                 except Exception as user_err:  # noqa: BLE001
                     result["userWarning"] = f"Account created, but creating the login user failed: {user_err}"
 
+        result["duplicateCheck"] = duplicate_check
+        if duplicate_check == "not_measured":
+            # Said in the answer, not only in a server log nobody is reading:
+            # the panel can offer the search again rather than the rep learning
+            # about the second account from the client.
+            result["duplicateCheckWarning"] = (
+                "The duplicate check could not run, so this account was created "
+                "without one" + (f" ({duplicate_check_error})" if duplicate_check_error else "")
+                + ". Check the account list for another of the same name.")
         idem_set(idem_key, 201, result)
-        audit.log("suite", "account_created", actor=actor_name(), name=name, locationId=new_id)
+        audit.log("suite", "account_created", actor=actor_name(), name=name,
+                  locationId=new_id, duplicateCheck=duplicate_check)
         return jsonify(result), 201
     except Exception as err:  # noqa: BLE001
+        # The claim goes with it: nothing was created, so the next press is a
+        # new attempt rather than a replay of one that never happened.
+        idem_release(idem_key)
         return send_error(err)
 
 
@@ -663,14 +810,47 @@ def api_oauth_disconnect():
 
 @app.route("/api/locations/<loc_id>", methods=["DELETE"])
 def api_delete_location(loc_id):
+    """Delete a sub-account, and write down which one.
+
+    This is the most destructive thing the Hub can do, it is not undoable from
+    here, and the activity entry is the only record that it happened. That
+    entry used to carry `?name=` from the query string — the name the *browser*
+    claimed, never checked against the account being deleted. Delete
+    `loc_9` while passing somebody else's name and that is what the log said;
+    omit the parameter and it recorded an empty one. A record of a deletion
+    that names the wrong account is worse than one that names none, because it
+    is the thing somebody reconstructs the incident from.
+
+    So the account is read first and **its own name** is what is recorded. A
+    read that fails does not stop the deletion — the rep asked for it and GHL
+    is the authority on whether it can happen — but then the claimed name is
+    recorded as *claimed*, never as fact, and the entry says the name was not
+    confirmed.
+    """
+    delete_twilio = str(request.args.get("deleteTwilioAccount")) == "true"
+    claimed = (request.args.get("name") or "")[:200]
+
+    confirmed_name, name_source = "", "not confirmed"
     try:
-        delete_twilio = str(request.args.get("deleteTwilioAccount")) == "true"
-        target_name = (request.args.get("name") or "")[:200]
+        current = ghl(f"/locations/{loc_id}") or {}
+        loc = current.get("location") if isinstance(current.get("location"), dict) else current
+        confirmed_name = str((loc or {}).get("name") or "")[:200]
+        if confirmed_name:
+            name_source = "confirmed"
+    except Exception as read_err:  # noqa: BLE001
+        app.logger.warning("could not read %s before deleting it: %s", loc_id, read_err)
+
+    try:
         data = ghl(f"/locations/{loc_id}", method="DELETE", query={"deleteTwilioAccount": str(delete_twilio).lower()})
-        audit.log("suite", "account_deleted", actor=actor_name(), name=target_name, locationId=loc_id)
-        return jsonify({"ok": True, "result": data})
     except Exception as err:  # noqa: BLE001
         return send_error(err)
+
+    audit.log("suite", "account_deleted", actor=actor_name(),
+              name=confirmed_name or None, claimedName=claimed or None,
+              nameSource=name_source, locationId=loc_id,
+              deleteTwilioAccount=delete_twilio or None)
+    return jsonify({"ok": True, "result": data, "name": confirmed_name,
+                    "nameSource": name_source})
 
 
 @app.route("/api/audit")

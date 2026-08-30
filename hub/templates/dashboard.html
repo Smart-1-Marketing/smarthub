@@ -168,6 +168,20 @@
        the failure it was built to undo, one step later -- the note
        hub/social_status.py makes about there being no mailer here, so the
        honest route is putting the number where people already look. #}
+    {# Your own book, above everybody else's queues. Client 360 answers what
+       we know about a client; this answers which of them needs an hour today,
+       and before this it was six reports somebody had to open one at a time
+       and read the whole book of. Every figure opens the rows behind it, and
+       each zero says which kind it is -- "nothing is outstanding" and "nobody
+       has assigned you a client" render identically as a nought and only the
+       second is somebody's to fix. #}
+    <div class="card">
+      <div class="card-h"><h3>My clients</h3><div class="right"><a class="open-link" href="/my-clients">Open the report &rarr;</a></div></div>
+      <div class="card-b">
+        <div id="myclients"><span class="muted">Reading your book&hellip; <span class="spin"></span></span></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-h"><h3>Prospects to chase</h3><div class="right"><a class="open-link" href="/qa/prospect-queue">Open the queue →</a></div></div>
       <div class="card-b">
@@ -188,6 +202,17 @@
         <div id="scoreboard"><span class="muted">Counting what is waiting… <span class="spin"></span></span></div>
       </div>
     </div>
+
+    {# Stale Creative, above System status for the reason the birthdays block
+       is: a key that is set is housekeeping and a client we have made nothing
+       for is work. The partial brings its own styles, loads its own data and
+       stays `hidden` until that answers, so a card that cannot read costs the
+       dashboard nothing. It was written for exactly this include and had none
+       — `stale_creative.py`'s own docstring calls it "for the dashboard" —
+       which `check_orphan_templates()` could not report, because the line
+       documenting the include is inside the partial and registered it as
+       rendered. #}
+    {% include "_scorecard_stale_creative.html" ignore missing %}
 
     <div class="card">
       <div class="card-h"><h3>System status {{ help_dot('hub.dashboard.version') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/status">Full status →</a></div></div>
@@ -388,6 +413,56 @@ fetch('/api/presence').then(r=>r.json()).then(d=>{
 }).catch(()=>{
   const host=$('presence');
   if(host) host.innerHTML='<span class="muted">Signed in now: not measured.</span>';
+});
+
+/* My clients. Reads the same run the report draws, never a second count:
+   two screens answering "what is on my desk" separately is how they come to
+   disagree in front of the same person. */
+fetch('/api/my-clients/scoreboard').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('myclients');
+  if(!box) return;
+  if(!d || d.measured===false){
+    box.innerHTML='<span class="muted">'+esc((d&&d.error)
+      ||'Not measured \u2014 this is not the same as nothing being outstanding.')
+      +'</span>';
+    return;
+  }
+  const stat=(label,value,href,warn)=>{
+    const color=warn&&value?'#dc2626':'var(--navy,#1a2e58)';
+    return '<a href="'+esc(href)+'" style="text-decoration:none;display:block">'
+      +'<div style="font-size:24px;font-weight:700;line-height:1.15;color:'+color+'">'
+      +(value||0)+'</div><div class="muted" style="font-size:11.5px">'+esc(label)
+      +'</div></a>';
+  };
+  const mine=(d.scope==='mine');
+  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+    + stat(mine?'Clients on your book':'Clients nobody owns',
+           mine?d.clients:d.unassigned,'/my-clients')
+    + stat('With something outstanding',d.with_issues,'/my-clients',true)
+    + stat('Things outstanding',d.issues,'/my-clients',true)
+    + '</div>';
+  if((d.top||[]).length){
+    h+='<div style="margin-top:11px;font-size:12.5px;line-height:1.7">'
+      + d.top.map(t=>'<div><a href="'+esc(t.url)+'">'+esc(t.client)+'</a>'
+        +' <span class="muted">'+t.issues+'</span></div>').join('')
+      +'</div>';
+  }
+  /* Which kind of empty. A nought here reads as "you are on top of it" and
+     it just as often means nobody has assigned you anything, which is
+     somebody else's press rather than a state to be pleased about. */
+  if(d.empty_reason==='no_clients')
+    h+='<div class="muted" style="margin-top:10px;font-size:12px">No clients are '
+      +'assigned to you yet \u2014 <a href="/qa/client-owners">assign some</a>.</div>';
+  else if(!d.issues)
+    h+='<div class="muted" style="margin-top:10px;font-size:12px">Nothing is '
+      +'outstanding on your clients right now.</div>';
+  if(d.cache && d.cache.line)
+    h+='<div class="muted" style="margin-top:8px;font-size:11px">'+esc(d.cache.line)+'</div>';
+  box.innerHTML=h;
+}).catch(()=>{
+  const box=document.getElementById('myclients');
+  if(box) box.innerHTML='<span class="muted">Your book could not be read. '
+    +'Nothing has been checked \u2014 this is not an empty list.</span>';
 });
 
 /* Prospects. The same three rules as every other count on this page: each
