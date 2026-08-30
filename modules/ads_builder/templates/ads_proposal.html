@@ -93,7 +93,7 @@
   <div class="s1d-tile"><div class="l">Keywords</div><div class="v">{{ p.keyword_count }}</div>
     <div class="f">{{ p.negative_count }} negatives</div></div>
   <div class="s1d-tile"><div class="l">Est. clicks / mo</div><div class="v">{{ '{:,.0f}'.format(est.estimatedMonthlyClicks or 0) }}</div>
-    <div class="f">${{ '%.2f'|format(est.avgCPC or 0) }} avg CPC <span class="est">({{ spec.CPC_NOTE }})</span></div></div>
+    <div class="f">${{ '%.2f'|format(cpc.value or est.avgCPC or 0) }} avg CPC <span class="est">({{ cpc.short }})</span></div></div>
   <div class="s1d-tile"><div class="l">Est. CPA</div>
     <div class="v">{% if est.estimatedCPA %}${{ '%.2f'|format(est.estimatedCPA) }}{% else %}—{% endif %}</div>
     <div class="f">{{ '{:,.0f}'.format(est.estimatedConversions or 0) }} conversions/mo</div></div>
@@ -222,6 +222,33 @@
     <button class="b-sm" onclick="analysePage(true)" id="pageBtn">Re-read the page</button>
   </div>
   <div id="pagePanel"><span class="spin" data-s1-think="scan"></span> Reading the page…</div>
+</div>
+
+{# ---------------------------------------------------------- measured CPC #}
+{# Behind a button, and one that says what it will cost: this is a handful of
+   operations against a daily cap the deploy also has to fit inside. It also
+   needs an account to run through, because the numbers are the ones that
+   account can see. #}
+<div class="card" data-tour="ads-cpc">
+  <div class="row" style="margin-bottom:10px">
+    <h3 style="margin:0">Cost per click {{ help_dot('ads_builder.proposal.cpc') if help_dot is defined else '' }}</h3>
+    <div class="spacer"></div>
+    <button class="b-sm" onclick="measureCpc()" id="cpcBtn">Ask Google</button>
+  </div>
+  <div id="cpcPanel">
+    {% if cpc.measured %}
+      <div class="note n-good"><b>{{ cpc.label }} — ${{ '%.2f'|format(cpc.value) }}</b>{{ cpc.long }}</div>
+      <div class="hint">Priced against {{ cpc.keywords_priced }} keywords
+        {%- if cpc.customer_id %} through {{ cpc.customer_id }}{% endif %}.
+        {%- if cpc.areas_unresolved %} Google could not place
+          {{ cpc.areas_unresolved|join(', ') }}, so that is not in the number.{% endif %}</div>
+    {% else %}
+      <div class="note n-info"><b>Using the sector benchmark</b>{{ spec.CPC_NOTE_LONG }}</div>
+      <div class="hint">Ask Google to price this campaign's own keywords in its own target areas.
+        Needs a developer token with <b>Basic</b> access &mdash; a new token gets Explorer, which
+        excludes keyword planning. Check the tier on Settings.</div>
+    {% endif %}
+  </div>
 </div>
 
 {# -------------------------------------------------------------- competitors #}
@@ -596,6 +623,7 @@ const MOUNT = {{ mount|tojson }};
 const PID = {{ p.id|tojson }};
 const SAVED_CID = {{ (p.google_customer_id or '')|tojson }};
 const CPC_NOTE = {{ spec.CPC_NOTE|tojson }};
+const CPC_NOTE_LONG = {{ spec.CPC_NOTE_LONG|tojson }};
 
 {% if status.deploy_ready and p.status != 'DEPLOYED' %}
 (async function loadAccounts() {
@@ -826,6 +854,46 @@ function drawPage(a, o) {
       a.campaignRecommendations.map(r => `<li>${esc(r)}</li>`).join('') + '</ul>';
   }
   box.innerHTML = html;
+}
+
+// Asks Google to price this campaign. A refusal for the access tier is an
+// ANSWER, not an error — it is the one that tells somebody to apply for Basic
+// access — so it comes back as guidance rather than a red failure box, and the
+// benchmark stays on screen labeled as the benchmark.
+async function measureCpc() {
+  const box = document.getElementById('cpcPanel');
+  const btn = document.getElementById('cpcBtn');
+  btn.disabled = true;
+  box.innerHTML = '<span class="spin"></span> Asking Google…';
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/measure-cpc`, {});
+    const m = d.measured || {};
+    const prov = d.provenance || {};
+    if (m.measured) {
+      let html = `<div class="note n-good"><b>${esc(prov.label)} — $${(prov.value || 0).toFixed(2)}</b>${esc(prov.long)}</div>`;
+      html += `<div class="hint">Priced against ${prov.keywords_priced} keywords` +
+              (prov.customer_id ? ` through ${esc(prov.customer_id)}` : '') + '.';
+      // Named, never counted: a CPC measured across three of five counties is
+      // not this campaign's CPC, and only the names make that checkable.
+      if ((prov.areas_unresolved || []).length) {
+        html += ` Google could not place ${esc(prov.areas_unresolved.join(', '))}, so that is not in the number.`;
+      }
+      html += '</div><div class="hint">The budget tiers have been re-costed on this number. Reload to see them.</div>';
+      box.innerHTML = html;
+      toast('good', `Measured: $${(prov.value || 0).toFixed(2)} per click.`);
+    } else {
+      const tierFix = m.tier_needed
+        ? '<div class="hint">This is the access tier, not the key — do not rotate it. ' +
+          'Apply for Basic access in the manager account under Tools &rarr; API Center.</div>'
+        : '';
+      box.innerHTML = `<div class="note n-warn"><b>Not measured</b>${esc(m.reason || 'Google returned nothing.')}</div>` +
+        tierFix +
+        `<div class="note n-info"><b>Still using the sector benchmark</b>${esc(CPC_NOTE_LONG)}</div>`;
+      toast('warn', 'Not measured — the estimate still shows the benchmark.');
+    }
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad"><b>The request failed</b>${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; }
 }
 
 async function analyseCompetitors(force) {

@@ -50,7 +50,15 @@ sys.path.insert(0, str(ROOT))
 TMP = tempfile.mkdtemp(prefix="s1gindex_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
+# Assigned, never setdefault: a fresh HUB_DATA_DIR is not
+# isolation on its own. jsonstore keys its mirror *relative to
+# the data root* by design -- so a production blob restores
+# into a dev checkout -- which means an inherited DATABASE_URL
+# (CI's Postgres, or a developer's own) refills this run's
+# empty directory with the last run's rows. Owning both is
+# what makes "throwaway" true, and what makes the file safe to
+# run twice; test_blog_publish.py is the same pattern.
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
 os.environ["TOKEN_DB_PATH"] = os.path.join(TMP, "google_tokens.db")
 os.environ["SESSION_FILE_DIR"] = os.path.join(TMP, "sessions")
 

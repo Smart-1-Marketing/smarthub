@@ -95,7 +95,7 @@
     </div>
 
     <label class="f">Landing page</label>
-    <div class="picks" id="pageList"></div>
+    <div class="picks" id="pageList" data-demo="la-page"></div>
     <div class="hint">A page with no live URL can't be read — set it once under
       <a href="#pages">Pages</a> and every future campaign uses it.</div>
 
@@ -137,7 +137,7 @@
       {% endfor %}
     </div>
     <div class="rowbar">
-      <button class="btn" onclick="generate()">Write the ads</button>
+      <button class="btn" data-demo="la-generate" onclick="generate()">Write the ads</button>
       <span class="msg" id="genMsg"></span>
     </div>
   </div>

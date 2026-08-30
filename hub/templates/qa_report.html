@@ -5,7 +5,7 @@
   <div>
     <div class="qa-crumb"><a href="/qa">QA Reports</a> / {{ title }}</div>
     <h2>{{ title }}</h2>
-    <p id="qaNote">Loading&hellip;</p>
+    <p id="qaNote" data-demo="qa-note">Loading&hellip;</p>
     <!-- When the report last ran. A cached figure with no date on it is read
          as today's, which is the whole way a cache comes to mislead. -->
     <p id="qaAge" class="qa-age"></p>
@@ -18,7 +18,7 @@
   </div>
 </div>
 <div class="card qa-card">
-  <div class="qa-tablewrap" id="qaWrap">
+  <div class="qa-tablewrap" id="qaWrap" data-demo="qa-rows">
     <div class="qa-loading" id="qaLoading" data-s1-thinking="scan">Running report&hellip;</div>
   </div>
 </div>

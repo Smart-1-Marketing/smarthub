@@ -166,31 +166,6 @@ def image(prompt: str, *, module: str, purpose: str, size: str = "1024x1024",
         raise AIUnavailable("Image generation failed.") from exc
 
 
-def usage_summary(days: int = 30) -> dict:
-    """Spend by module over a window — powers the provider-spend audit."""
-    from datetime import datetime, timedelta, timezone
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    by_module: dict[str, dict] = {}
-    for row in audit.read(limit=50000, module="ai"):
-        try:
-            when = datetime.fromisoformat(row.get("time", ""))
-        except ValueError:
-            continue
-        if when < cutoff:
-            continue
-        key = row.get("tool") or "unknown"
-        acc = by_module.setdefault(key, {"calls": 0, "tokens": 0, "cost": 0.0, "errors": 0})
-        acc["calls"] += 1
-        acc["tokens"] += int(row.get("tokens_in", 0)) + int(row.get("tokens_out", 0))
-        acc["cost"] += float(row.get("est_cost", 0) or 0)
-        if not row.get("ok"):
-            acc["errors"] += 1
-    for acc in by_module.values():
-        acc["cost"] = round(acc["cost"], 4)
-    return {"days": days, "by_module": by_module,
-            "total_cost": round(sum(a["cost"] for a in by_module.values()), 4)}
-
-
 def note_usage(module: str, response_json: dict, *, model: str = "",
                purpose: str = "", ok: bool = True, ms: int = 0) -> None:
     """Record spend for a call made outside this module's own client.

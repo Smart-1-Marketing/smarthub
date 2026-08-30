@@ -596,7 +596,11 @@ const PRODUCT_RENAME={
 rateCard.forEach(x=>{
  const origCat=x.category||"";
  const prKey=origCat+"|"+(x.product||"");
- if(PRODUCT_RENAME[prKey])x.product=PRODUCT_RENAME[prKey];
+ /* The rename is for the reader. Keep what the card actually calls the
+    product, or the proposal cannot be joined to the IO: a quote names the
+    card's own product name, and after this line no row answers to it.
+    cardLabelFor() matches both. */
+ if(PRODUCT_RENAME[prKey]){x.originalProduct=x.product;x.product=PRODUCT_RENAME[prKey];}
  if(CATEGORY_RENAME[origCat])x.category=CATEGORY_RENAME[origCat];
  x.label=x.category+" — "+x.product;
 });
@@ -3350,7 +3354,16 @@ function cardLabelFor(name,category){
  const c=String(category||"").trim().toLowerCase();
  let pool=rateCard;
  if(c){const narrowed=rateCard.filter(x=>eq(x.category)===c); if(narrowed.length)pool=narrowed;}
- const exact=pool.filter(x=>eq(x.product)===n||eq(x.label)===n);
+ /* `originalProduct` is what the card calls it where PRODUCT_RENAME has
+    given it a friendlier name for this screen. A proposal quotes the card,
+    so without it the renamed product joins to nothing: "Select Tactics -
+    Comes with Retargeting" is the go-to display product every awareness and
+    traffic goal recommends first, and it resolved to "" -- dropped as
+    unmatched on an uploaded proposal, and committed under a bare name that
+    is not a productConfig key (so no rate, no benchmark, no requirements) on
+    a converted one. */
+ const exact=pool.filter(x=>eq(x.product)===n||eq(x.label)===n
+                            ||eq(x.originalProduct)===n);
  let hit=exact.length===1?exact[0]:null;
  if(exact.length>1)return "";   // ambiguous by name — the caller must ask
  /* Contains in one direction only -- the card's product name may carry the
@@ -3364,7 +3377,8 @@ function cardLabelFor(name,category){
     the first left the IO billing the one nobody quoted. Same refusal as the
     server's rate_card.find(). */
  if(!hit&&n.length>3){
-  const loose=pool.filter(x=>eq(x.product).indexOf(n)>=0);
+  const loose=pool.filter(x=>eq(x.product).indexOf(n)>=0
+                             ||(x.originalProduct&&eq(x.originalProduct).indexOf(n)>=0));
   hit=loose.length===1?loose[0]:null;
  }
  return hit?hit.label:"";

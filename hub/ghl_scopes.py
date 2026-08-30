@@ -97,8 +97,13 @@ READ: tuple[Scope, ...] = (
 WRITE: tuple[Scope, ...] = (
     Scope("contacts.write", "Lead delivery — every Hub form writes a contact",
           ("hub/ghl_contacts.py", "hub/suite_opportunity.py"), True),
-    Scope("opportunities.write", "Filing a delivered proposal as an opportunity",
-          ("hub/suite_opportunity.py",), False),
+    # hub/qa.py joined this months after the table was written: the accounting
+    # QA report moves an opportunity's stage with PUT /opportunities/{id}/status.
+    # Nothing named it until the coverage check below started discovering call
+    # sites rather than re-reading a hand-written list.
+    Scope("opportunities.write", "Filing a delivered proposal as an opportunity, "
+          "and moving an accounting request's stage",
+          ("hub/suite_opportunity.py", "hub/qa.py"), False),
     Scope("medias.write", "Pushing a client's images into their Suite media library",
           ("modules/image_picker/ghl.py", "modules/suite_panel/app.py"), False),
 
@@ -122,8 +127,12 @@ WRITE: tuple[Scope, ...] = (
     # it; see modules/social_planner/app.py. Unverified, and deliberately asked
     # for anyway — the cost of a wrong string here is a line in the missing
     # report, and the cost of omitting it is another agency re-consent.
+    # suite_client.py is where the POST actually happens; app.py orchestrates.
+    # The table named only app.py while the pipe moved beneath it, which reads
+    # as coverage and is not.
     Scope("social-media-posting.write", "Social Planner publishing instead of exporting a CSV",
-          ("modules/social_planner/app.py",), False),
+          ("modules/social_planner/app.py",
+           "modules/social_planner/suite_client.py"), False),
     Scope("social-media-posting.readonly", "Reading back what Social Planner scheduled",
           ("modules/social_planner/app.py",), False),
 )
@@ -149,6 +158,122 @@ NOT_REQUESTED: tuple[tuple[str, str], ...] = (
      "read-only with no create path, so a scope buys visibility into "
      "automations nobody builds from here. Add it when something reads them."),
 )
+
+
+# --------------------------------------------------------------------------
+# Which files actually write to HighLevel
+#
+# `needed_by` above is documentation, and documentation drifts. Two entries had
+# already gone stale within a few months of this file being written: hub/qa.py
+# grew a `PUT /opportunities/{id}/status` that no scope named, and the Social
+# Planner's real posting pipe moved from app.py into suite_client.py while the
+# table went on naming app.py. Neither was caught, because the test enumerated
+# five known call sites by hand — so it could only ever re-confirm what
+# somebody had already thought of.
+#
+# The invariant below is deliberately the weak one: every file that performs a
+# GHL write must be named in *some* scope's `needed_by`. It does not try to
+# infer which scope a given endpoint needs — that inference is where the false
+# positives live, and a check people learn to ignore is worse than no check.
+# Being named is enough to guarantee somebody looked.
+# --------------------------------------------------------------------------
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Files that reach the API host but perform no scoped write, with the reason.
+# Named rather than silently skipped, for the same reason NOT_REQUESTED is.
+WRITE_EXEMPT: dict[str, str] = {
+    "hub/ghl_oauth.py":
+        "POSTs the OAuth token and locationToken endpoints, which authenticate "
+        "the app itself rather than acting on a sub-account. No scope governs "
+        "them — they are what issues the scopes.",
+    "hub/ghl_scopes.py":
+        "This file. It describes the scopes and calls nothing.",
+}
+
+_HOST_HINT = ("leadconnectorhq", "GHL_API_BASE")
+_WRITE_HINT = (
+    'method="POST"', "method='POST'", 'method="PUT"', "method='PUT'",
+    'method="PATCH"', "method='PATCH'", 'method="DELETE"', "method='DELETE'",
+    "requests.post(", "requests.put(", "requests.patch(", "requests.delete(",
+    "session.post(", "session.put(", "session.delete(",
+    # The dominant idiom in this codebase: requests.request(method, ...) with
+    # the verb in a variable. hub/suite_opportunity.py and
+    # modules/suite_panel/app.py both write that way, so a hint list without it
+    # misses the shape most likely to be copied into the next module — and a
+    # check blind to the common case gives false comfort rather than none.
+    # It over-matches a file that only ever passes "GET"; that file being named
+    # in the table costs one line and proves somebody looked.
+    "requests.request(",
+)
+
+
+def _tree_sources():
+    """Every module and hub source file, as (relative path, text).
+
+    Tests are skipped: they build fixtures and assert on payload shapes, so a
+    write verb in one is not a call site anybody has to hold a scope for.
+    """
+    for dirpath, dirnames, filenames in os.walk(_ROOT):
+        dirnames[:] = [d for d in dirnames
+                       if d not in ("_attic", "node_modules", "__pycache__", ".git")]
+        for name in filenames:
+            if not name.endswith(".py") or name.startswith("test_"):
+                continue
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, _ROOT).replace(os.sep, "/")
+            if not (rel.startswith("hub/") or rel.startswith("modules/")):
+                continue
+            try:
+                with open(full, encoding="utf-8", errors="ignore") as fh:
+                    yield rel, fh.read()
+            except OSError:
+                continue
+
+
+def write_call_sites() -> list[str]:
+    """Files that name the HighLevel API host and perform a write against it."""
+    found = []
+    for rel, text in _tree_sources():
+        if rel in WRITE_EXEMPT:
+            continue
+        if not any(h in text for h in _HOST_HINT):
+            continue
+        if not any(w in text for w in _WRITE_HINT):
+            continue
+        found.append(rel)
+    return sorted(found)
+
+
+def declared_files() -> set[str]:
+    """Every file named by any scope in the table."""
+    out: set[str] = set()
+    for s in REQUESTED:
+        out.update(s.needed_by)
+    return out
+
+
+def undeclared_writes() -> list[str]:
+    """GHL write call sites that no scope claims.
+
+    The failure this catches is silent by construction. The call runs on the
+    agency Private Integration Token today and works, so nothing is broken —
+    right up until it moves onto a location token, where the scope was never
+    consented to and it 401s looking exactly like a bad token, for every client
+    at once.
+    """
+    declared = declared_files()
+    return [f for f in write_call_sites() if f not in declared]
+
+
+def stale_declarations() -> list[str]:
+    """Files named in `needed_by` that no longer exist.
+
+    A renamed or deleted call site leaves an entry that reads as coverage and
+    is not, which is how social-media-posting.write came to name app.py after
+    the posting moved into suite_client.py.
+    """
+    return sorted(f for f in declared_files()
+                  if not os.path.exists(os.path.join(_ROOT, f)))
 
 
 # ------------------------------------------------------------------ requested

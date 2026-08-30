@@ -129,6 +129,9 @@
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
   .palette-note { margin-top: 9px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
+  .logopal { display: inline-flex; gap: 6px; margin-left: 7px; vertical-align: middle; }
+  .logosw { width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--line);
+            cursor: pointer; padding: 0; }
   .palette-note.warn { color: #8a5b00; background: #fff6e5; border: 1px solid #f0d9a8;
                        border-radius: 6px; padding: 7px 9px; }
   .swatch { text-align: center; }
@@ -222,6 +225,53 @@
   .askbox h4 { margin: 0 0 8px; font-size: 15px; font-family: Poppins, sans-serif; }
   .askbox p { margin: 0 0 15px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
   .askacts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* The animator.
+
+     Wider than an .askbox because it is not one question -- it is the motion,
+     the copy for each slide, what the timing comes to, and a moving preview of
+     the result, all of which have to be on screen together. Timing that is
+     computed and then hidden behind a click is timing nobody checks, and the
+     30-second rule is the one that gets an ad refused. */
+  .animbox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px; width: min(56rem, 100%); max-height: calc(100vh - 48px);
+    overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .animbox h4 { margin: 0 0 6px; font-size: 16px; font-family: Poppins, sans-serif; }
+  .animbox > p { margin: 0 0 16px; font-size: 13px; color: var(--ink-2); line-height: 1.5; max-width: 62ch; }
+  .animbox h5 { margin: 18px 0 8px; font-size: 12px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+  .anim-cols { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 22px; align-items: start; }
+  @media (max-width: 820px) { .anim-cols { grid-template-columns: minmax(0,1fr); } }
+  .anim-slide { border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; margin-bottom: 10px; }
+  .anim-slide.base { background: var(--bg); }
+  .anim-slide legend, .anim-slide .slide-t { font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+    text-transform: uppercase; letter-spacing: .05em; margin-bottom: 7px; display: block; }
+  .anim-slide label { display: block; font-size: 12px; margin-bottom: 7px; color: var(--ink-2); }
+  .anim-slide input[type=text] { width: 100%; margin-top: 3px; padding: 6px 8px; font: inherit;
+    font-size: 13px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--ink); }
+  .anim-slide .asis { font-size: 13px; color: var(--ink); margin: 0 0 4px; }
+  .anim-stage { border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+    background: var(--bg); text-align: center; min-height: 120px;
+    display: flex; align-items: center; justify-content: center; }
+  .anim-stage img { max-width: 100%; height: auto; }
+  /* A number that decides whether the ad is accepted, printed rather than
+     implied -- and colored only when it is actually a problem. */
+  .anim-facts { font-size: 12px; color: var(--ink-2); line-height: 1.6; margin: 10px 0 0; }
+  .anim-facts b { color: var(--ink); font-weight: 600; }
+  .anim-facts .bad { color: var(--fail); }
+  .anim-issues { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.5; }
+  .anim-issues li { padding: 4px 0 4px 16px; position: relative; color: var(--ink-2); }
+  .anim-issues li::before { content: '•'; position: absolute; left: 3px; }
+  .anim-issues li.fail { color: var(--fail); }
+  .anim-issues li.warn { color: var(--warn); }
+  .anim-sizes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .anim-sizes label { font-size: 12px; border: 1px solid var(--line); border-radius: 20px;
+    padding: 4px 10px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+  .anim-sizes label.off { opacity: .5; cursor: not-allowed; }
+  .anim-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12px;
+    color: var(--ink-2); }
+  .anim-row input[type=range] { width: 150px; }
 
   /* The scope of a copy edit, kept beside the field it governs so the answer
      stays visible and changeable rather than being asked once and forgotten. */
@@ -545,6 +595,14 @@
        an unsaved build would capture the previous version and every ad made
        from it afterwards would carry it -- the same reason Render and Attach
        wait for a save. -->
+  <!-- Motion is offered only once there is a saved static design to put it on,
+       which is both the honest gate and the operator's own rule: an animation
+       is built FROM the still ad, and asking about it during the first build
+       would slow down the eight sizes that get made every time to serve the
+       one that occasionally moves. Same gate as Render, for the same reason --
+       it acts on the saved build and not on what is on screen. -->
+  <button class="btn" id="animate" style="display:none"
+    title="Add motion to this set — up to three slides of changing text, or a pulsing button. Built from the saved static design and delivered beside it.">Animate…</button>
   <button class="btn" id="savePreset" style="display:none"
     title="Keep this client's brand, layout and design as a starting point, so the next ad for them is a form fill rather than a rebuild.">Save as preset…</button>
 </div>
@@ -705,6 +763,29 @@
      question it stood in for -- does the copy fit -- is answered per block by
      the overflow check in the rail, from real glyph measurements. */
 
+  /* The logo's own colors, offered where the palette is placeholder.
+   *
+   * A brand-new prospect has no Insites scan for the site-brand panel to read
+   * and no Brandfetch record either, so the warning above told a rep to set
+   * five swatches and gave them nothing to set them from. The logo is the one
+   * thing we do have.
+   *
+   * Copied, not applied -- the rule the site-brand panel works to. Which of
+   * the five roles a color should become is a judgment, and guessing it
+   * moves four other things.
+   */
+  function logoPaletteOffer() {
+    var pal = state.doc && state.doc.logoPalette;
+    if (!pal || !pal.length) return '';
+    return '<div class="palette-note">From the logo &mdash; click to copy, then paste into a swatch:'
+      + '<span class="logopal">'
+      + pal.map(function (hex) {
+          return '<button type="button" class="logosw" data-hex="' + esc(hex) + '"'
+            + ' style="background:' + esc(hex) + '" title="' + esc(hex) + '"></button>';
+        }).join('')
+      + '</span></div>';
+  }
+
   /* Where the palette came from.
    *
    * A row of swatches says nothing about whether anybody chose them. With no
@@ -734,7 +815,7 @@
     if (defaulted.length === known.length) {
       return '<div class="palette-note warn">No brand colors were discovered or supplied &mdash; '
         + 'every size is built in the placeholder palette, not the client\'s own. '
-        + 'Set these before sending a proof.</div>';
+        + 'Set these before sending a proof.</div>' + logoPaletteOffer();
     }
     var parts = [];
     if (defaulted.length) parts.push(esc(defaulted.join(', ')) + ' still placeholder');
@@ -945,6 +1026,28 @@
         state.doc.campaign.brand.colors[el.dataset.color] = el.value.toUpperCase();
         state.dirty = true;
         schedule();
+      });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-hex]'), function (el) {
+      el.addEventListener('click', function () {
+        var hex = el.dataset.hex;
+        // Copied, never applied: which of the five roles a logo color should
+        // become is a judgment, and guessing it moves four other things.
+        //
+        // And it only claims to have copied when it did. navigator.clipboard
+        // is absent on http and is allowed to refuse, and a button that says
+        // "copied" either way is the one CLAUDE.md names on the Smart 1 Ads
+        // estimate -- worse than one that asks.
+        var said = function (ok) {
+          el.title = ok ? hex + ' copied \u2014 paste it into a swatch'
+                        : hex + ' \u2014 could not copy, select and copy it by hand';
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(hex).then(function () { said(true); },
+                                                  function () { said(false); });
+        } else {
+          said(false);
+        }
       });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-font]'), function (el) {
@@ -3811,6 +3914,10 @@
     // Same gate as Render: it reads the saved build, not what is on screen.
     var presetBtn = $('savePreset');
     if (presetBtn) presetBtn.style.display = state.saved ? '' : 'none';
+    // Motion is built from the saved static design, so it appears at the same
+    // moment Render does and for the same reason.
+    var animBtn = $('animate');
+    if (animBtn) animBtn.style.display = state.saved ? '' : 'none';
     $('save').classList.toggle('primary', !state.saved);
     $('renderAll').classList.toggle('primary', state.saved);
     $('saveHint').style.display = state.saved ? 'none' : '';
@@ -4011,6 +4118,451 @@
     loadCampaign(pre && list.some(function (c) { return c.requestId === pre; }) ? pre : list[0].requestId);
   });
 })();
+
+  /* ======================================================== the animator ====
+
+     Motion, added after the static design exists.
+
+     Three things about the shape of this panel are deliberate.
+
+     IT ASKS THE MOTION FIRST. "Animate the button" and "animate the text" are
+     two different jobs -- one adds a message and the other adds attention --
+     and every control after that point depends on which. Offering both sets of
+     controls at once and letting the operator work out which apply is how the
+     slide fields get filled in on a button pulse that will never draw them.
+
+     THE TIMING IS PRINTED, NOT IMPLIED. Google refuses an animated ad that
+     runs faster than 5 frames a second or animates for more than 30 seconds,
+     and both are invisible on screen -- a GIF looping for ever plays perfectly
+     in every browser. So the arithmetic is on the panel, in words, next to the
+     preview, and it comes from the SERVER's plan rather than being recomputed
+     here: a second copy of that rule is a second answer to "is this legal",
+     and the two disagree the day either is edited.
+
+     THE PREVIEW IS THE REAL FILE. Not a mock-up of the frames -- the encoded
+     GIF, at the weight it will ship at, so the number under it is the number
+     that decides whether Google takes it. */
+
+  var anim = {
+    /** The spec being edited, per concept. Not written to the campaign until
+     *  Build is pressed, so closing the panel changes nothing. */
+    spec: null,
+    conceptId: null,
+    options: null,
+    sizes: [],
+    busy: false,
+    seq: 0,
+  };
+
+  function animDefaults(kind) {
+    var d = (anim.options && anim.options.defaults) || {};
+    return kind === 'button'
+      ? { kind: 'button', frameMs: d.buttonFrameMs || 320, frames: d.buttonFrames || 4 }
+      : { kind: 'text', frameMs: d.textFrameMs || 1800, slides: [{}, {}] };
+  }
+
+  /** Which copy blocks this family draws on the size being previewed. A slide
+   *  field for a block the layout does not draw is the proof-point mistake:
+   *  typed in, saved, word-counted and rendered nowhere. */
+  function animFields() {
+    var c = concept();
+    var t = (state.templates || []).filter(function (x) { return c && x.id === c.layoutFamily; })[0];
+    var drawn = (t && t.blocks && t.blocks[state.size]) || null;
+    var all = ['headline', 'support', 'offer', 'trust', 'cta'];
+    return drawn && drawn.length ? all.filter(function (r) { return drawn.indexOf(r) >= 0; }) : all;
+  }
+
+  var ANIM_LABEL = {
+    headline: 'Headline', support: 'Supporting line', offer: 'Offer',
+    trust: 'Proof point', cta: 'Call to action'
+  };
+
+  /* Slide copy is stored twice over, exactly as the static copy is: a default
+     that every size uses and an override for one canvas. Without the override
+     a headline written for the 300x600 is two lines on the 320x50 and the
+     whole set fails QA on copy nobody can shorten -- which is not a theory,
+     it is what the first run of this against a real campaign did. */
+  function animSlide(i) {
+    var per = anim.spec.sizeSlides && anim.spec.sizeSlides[state.size];
+    var base = (anim.spec.slides || [])[i] || {};
+    var over = (per || [])[i] || {};
+    var out = {};
+    Object.keys(base).forEach(function (k) { out[k] = base[k]; });
+    Object.keys(over).forEach(function (k) { out[k] = over[k]; });
+    return out;
+  }
+
+  function animSetSlide(i, field, value, thisSizeOnly) {
+    if (thisSizeOnly) {
+      anim.spec.sizeSlides = anim.spec.sizeSlides || {};
+      var list = anim.spec.sizeSlides[state.size] = anim.spec.sizeSlides[state.size] || [];
+      while (list.length <= i) list.push({});
+      list[i][field] = value;
+      return;
+    }
+    anim.spec.slides = anim.spec.slides || [];
+    while (anim.spec.slides.length <= i) anim.spec.slides.push({});
+    anim.spec.slides[i][field] = value;
+    /* The same rule the copy scope toggle follows: writing the default while
+       an override for this size still holds the old value looks exactly like
+       the edit not having worked. */
+    var per2 = anim.spec.sizeSlides && anim.spec.sizeSlides[state.size];
+    if (per2 && per2[i]) delete per2[i][field];
+  }
+
+  function openAnimator() {
+    var c = concept();
+    if (!c) return;
+    anim.conceptId = c.conceptId;
+    anim.spec = null;
+    anim.busy = false;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'ask';
+    wrap.innerHTML = '<div class="animbox" role="dialog" aria-modal="true">' +
+      '<div id="animBody">Reading the saved build…</div></div>';
+    function close() { document.removeEventListener('keydown', onKey); wrap.remove(); }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(wrap);
+    anim.close = close;
+
+    fetch('/api/animate/' + encodeURIComponent(state.requestId) + '/options')
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          $('animBody').innerHTML =
+            '<h4>Nothing to animate yet</h4><p>' + esc(res.j.error || 'That could not be read.') +
+            '</p><div class="askacts"><button type="button" class="btn" data-close>Close</button></div>';
+          wrap.querySelector('[data-close]').addEventListener('click', close);
+          return;
+        }
+        anim.options = res.j;
+        var row = (res.j.concepts || []).filter(function (x) { return x.conceptId === c.conceptId; })[0];
+        /* An animation already on the saved build is reopened rather than
+           replaced. Somebody coming back to shorten slide 2 must not find
+           slide 3 gone. */
+        anim.spec = (row && row.animation) || null;
+        drawAnimator();
+      })
+      .catch(function () {
+        $('animBody').innerHTML = '<h4>Nothing to animate yet</h4>' +
+          '<p>The renderer did not answer.</p>' +
+          '<div class="askacts"><button type="button" class="btn" data-close>Close</button></div>';
+        var b = wrap.querySelector('[data-close]'); if (b) b.addEventListener('click', close);
+      });
+  }
+
+  function animConceptRow() {
+    return ((anim.options && anim.options.concepts) || []).filter(function (x) {
+      return x.conceptId === anim.conceptId;
+    })[0];
+  }
+
+  function drawAnimator() {
+    var body = $('animBody');
+    if (!body) return;
+
+    /* The first question, and only the first question. Nothing else is on
+       screen until it is answered, because every control below depends on the
+       answer to it. */
+    if (!anim.spec) {
+      var motions = (anim.options && anim.options.motions) || [];
+      body.innerHTML =
+        '<h4>Animate this set</h4>' +
+        '<p>The static design is built and saved. This adds motion to it and ' +
+        'delivers the moving version <b>beside</b> the still one — the still ' +
+        'files still run everywhere an animated file is not accepted, which on ' +
+        'this buy is most placements.</p>' +
+        '<div class="nsacts" style="flex-direction:column">' +
+        motions.map(function (m) {
+          return '<button type="button" class="nsbtn" style="max-width:none" data-kind="' +
+            esc(m.kind) + '"><b>' + esc(m.label) + '</b><span>' + esc(m.detail) + '</span></button>';
+        }).join('') +
+        '</div><div class="askacts" style="margin-top:14px">' +
+        '<button type="button" class="btn" data-close>Cancel</button></div>';
+      Array.prototype.forEach.call(body.querySelectorAll('[data-kind]'), function (b) {
+        b.addEventListener('click', function () {
+          anim.spec = animDefaults(b.dataset.kind);
+          anim.sizes = [];
+          drawAnimator();
+          animPreview();
+        });
+      });
+      body.querySelector('[data-close]').addEventListener('click', anim.close);
+      return;
+    }
+
+    var row = animConceptRow() || { sizes: [] };
+    var supported = (row.sizes || []).filter(function (r) { return r.supported; });
+    if (!anim.sizes.length) anim.sizes = supported.map(function (r) { return r.size; });
+    var refused = (row.sizes || []).filter(function (r) { return !r.supported && r.reasons && r.reasons.length; });
+    var built = ((anim.options && anim.options.animations) || []).filter(function (a) {
+      return a.conceptId === anim.conceptId;
+    });
+
+    var isText = anim.spec.kind === 'text';
+    var fields = animFields();
+
+    var left = '';
+    if (isText) {
+      left += '<h5>What each slide says</h5>' +
+        '<div class="anim-slide base"><span class="slide-t">Slide 1 — the ad as built</span>' +
+        fields.map(function (f) {
+          var v = effective(f);
+          return v ? '<p class="asis"><b>' + esc(ANIM_LABEL[f]) + ':</b> ' + esc(v) + '</p>' : '';
+        }).join('') +
+        '<p style="margin:6px 0 0;font-size:11.5px;color:var(--ink-2)">Edit these on the ' +
+        'build screen behind this panel — slide 1 <em>is</em> the static ad, so the two ' +
+        'can never disagree.</p></div>';
+
+      for (var i = 0; i < 2; i++) {
+        var cur = animSlide(i);
+        left += '<div class="anim-slide"><span class="slide-t">Slide ' + (i + 2) +
+          (i === 1 ? ' <span style="text-transform:none;font-weight:400">(optional)</span>' : '') +
+          '</span>' +
+          fields.map(function (f) {
+            return '<label>' + esc(ANIM_LABEL[f]) +
+              '<input type="text" data-slide="' + i + '" data-field="' + f + '" value="' +
+              esc(cur[f] == null ? '' : cur[f]) + '" placeholder="' +
+              esc(f === 'headline' ? 'What this slide says' : 'unchanged from slide 1') +
+              '"></label>';
+          }).join('') +
+          '</div>';
+      }
+      left += '<div class="anim-row" style="margin:2px 0 0">' +
+        '<label><input type="checkbox" id="animThisSize"' +
+        (anim.thisSizeOnly ? ' checked' : '') + '> Write this slide copy for ' +
+        esc(state.size) + ' only</label>' +
+        '<span>Leave it off and the words apply to every size. Tick it to shorten a ' +
+        'slide that will not fit this canvas.</span></div>';
+    } else {
+      left += '<h5>The pulse</h5>' +
+        '<div class="anim-slide">' +
+        '<div class="anim-row"><label>Frames ' +
+        '<input type="range" id="animFrames" min="3" max="5" step="1" value="' +
+        esc(anim.spec.frames || 4) + '"> <b id="animFramesN">' + esc(anim.spec.frames || 4) +
+        '</b></label></div>' +
+        '<p style="margin:8px 0 0;font-size:12px;color:var(--ink-2)">The button\'s own ' +
+        'color brightens and comes back, so the loop joins to itself without a jump. ' +
+        'The color is computed from the fill on the ad — correct the client\'s accent ' +
+        'next month and the pulse follows it.</p></div>';
+    }
+
+    left += '<h5>Timing</h5><div class="anim-row">' +
+      '<label>Each frame holds <input type="range" id="animMs" min="200" max="' +
+      esc((anim.options.rules && anim.options.rules.maxFrameMs) || 4000) +
+      '" step="100" value="' + esc(anim.spec.frameMs) + '"> ' +
+      '<b id="animMsN">' + esc(anim.spec.frameMs) + 'ms</b></label>' +
+      '<span>200ms is the floor: Google requires 5 frames a second or slower.</span></div>';
+
+    left += '<h5>Sizes to build</h5><div class="anim-sizes">' +
+      supported.map(function (r) {
+        return '<label><input type="checkbox" data-size="' + esc(r.size) + '"' +
+          (anim.sizes.indexOf(r.size) >= 0 ? ' checked' : '') + '> ' + esc(r.size) + '</label>';
+      }).join('') + '</div>';
+    /* Sizes that will not take a GIF are NAMED and not simply absent. A panel
+       offering eight of eleven with nothing saying where the other three went
+       reads as a tool that lost them. */
+    if (refused.length) {
+      left += '<p style="margin:8px 0 0;font-size:11.5px;color:var(--ink-2)">' +
+        'Not offered, and shipping as the static ad: <b>' +
+        esc(refused.map(function (r) { return r.size; }).join(', ')) + '</b>. ' +
+        esc(refused[0].reasons[0]) + '</p>';
+    }
+    if (built.length) {
+      left += '<p style="margin:8px 0 0;font-size:11.5px;color:var(--ink-2)">Already built: <b>' +
+        esc(built.map(function (a) { return a.size; }).join(', ')) +
+        '</b>. Building again replaces those and leaves the rest alone.</p>';
+    }
+
+    body.innerHTML =
+      '<h4>' + esc(isText ? 'Animate the text' : 'Animate the button') + '</h4>' +
+      '<p>Previewing <b>' + esc(state.size) + '</b>. Change the size on the build screen ' +
+      'behind this panel to preview another one; what you build is the list below.</p>' +
+      '<div class="anim-cols"><div>' + left + '</div>' +
+      '<div><h5>Preview</h5><div class="anim-stage" id="animStage">' +
+      '<span style="font-size:12px;color:var(--ink-2)">Building…</span></div>' +
+      '<div class="anim-facts" id="animFacts"></div>' +
+      '<ul class="anim-issues" id="animIssues"></ul></div></div>' +
+      '<div class="askacts" style="margin-top:18px">' +
+      '<button type="button" class="btn primary" id="animBuild">Build the animation</button>' +
+      '<button type="button" class="btn" data-back>Choose a different motion</button>' +
+      '<button type="button" class="btn" data-close>Cancel</button></div>';
+
+    Array.prototype.forEach.call(body.querySelectorAll('input[data-slide]'), function (el) {
+      /* `change`, not `input`: this posts a render per edit, and a keystroke
+         per render is an encode per keystroke. */
+      el.addEventListener('change', function () {
+        animSetSlide(Number(el.dataset.slide), el.dataset.field, el.value, !!anim.thisSizeOnly);
+        animPreview();
+      });
+    });
+    var ts = $('animThisSize');
+    if (ts) ts.addEventListener('change', function () { anim.thisSizeOnly = ts.checked; });
+    var fr = $('animFrames');
+    if (fr) fr.addEventListener('input', function () {
+      anim.spec.frames = Number(fr.value);
+      $('animFramesN').textContent = fr.value;
+      animPreview();
+    });
+    var msEl = $('animMs');
+    msEl.addEventListener('input', function () {
+      anim.spec.frameMs = Number(msEl.value);
+      $('animMsN').textContent = msEl.value + 'ms';
+    });
+    msEl.addEventListener('change', animPreview);
+    Array.prototype.forEach.call(body.querySelectorAll('input[data-size]'), function (el) {
+      el.addEventListener('change', function () {
+        var v = el.dataset.size;
+        var at = anim.sizes.indexOf(v);
+        if (el.checked && at < 0) anim.sizes.push(v);
+        if (!el.checked && at >= 0) anim.sizes.splice(at, 1);
+      });
+    });
+    body.querySelector('[data-back]').addEventListener('click', function () {
+      anim.spec = null; drawAnimator();
+    });
+    body.querySelector('[data-close]').addEventListener('click', anim.close);
+    $('animBuild').addEventListener('click', animBuild);
+  }
+
+  /* The preview is the encoded file, at the weight it ships at.
+
+     Every answer it can give is a real answer and only one of them is an
+     error: a size that does not take a GIF comes back `supported: false` and
+     is SAID, not drawn red -- "this one ships as the static ad" is a correct
+     decision, and a red box over one of those is what teaches people to stop
+     reading the panel. */
+  function animPreview() {
+    var stage = $('animStage'); if (!stage || !anim.spec) return;
+    var seq = ++anim.seq;
+    stage.innerHTML = '<span style="font-size:12px;color:var(--ink-2)">Building…</span>';
+    $('animFacts').innerHTML = '';
+    $('animIssues').innerHTML = '';
+    post('/api/animate/preview', {
+      campaign: state.doc.campaign,
+      conceptId: anim.conceptId,
+      size: state.size,
+      platform: state.platform,
+      animation: anim.spec
+    }).then(function (r) {
+      if (seq !== anim.seq) return;                  // a later edit already won
+      if (!stage.isConnected) return;
+      if (r && r.error) {
+        stage.innerHTML = '<span style="font-size:12px;color:var(--ink-2)">' + esc(r.error) + '</span>';
+        return;
+      }
+      if (r && r.supported === false) {
+        stage.innerHTML = '<span style="font-size:12px;color:var(--ink-2)">' +
+          esc(r.reason || 'This size ships as the static ad.') + '</span>';
+        return;
+      }
+      stage.innerHTML = '<img alt="Animated preview" src="' + esc(r.image) + '">';
+
+      var kb = (r.bytes / 1024).toFixed(0);
+      var cap = (r.maxFileBytes / 1024).toFixed(0);
+      $('animFacts').innerHTML =
+        '<b>' + r.frames + ' frames</b> at ' + r.fps + ' a second · plays <b>' + r.loop +
+        (r.loop === 1 ? ' time' : ' times') + '</b> then stops · <b>' +
+        (r.totalMs / 1000).toFixed(1) + 's</b> in total<br>' +
+        '<span class="' + (r.overweight ? 'bad' : '') + '"><b>' + kb + ' KB</b> of the ' +
+        cap + ' KB this placement allows</span>' +
+        (r.settings ? ' <span style="opacity:.75">(' + esc(r.settings) + ')</span>' : '') +
+        (r.adjustments && r.adjustments.length
+          ? '<br><span class="bad">' + r.adjustments.map(esc).join('<br>') + '</span>'
+          : '');
+
+      $('animIssues').innerHTML = (r.qa || []).map(function (f) {
+        return '<li class="' + esc(f.status) + '">' + esc(f.detail) + '</li>';
+      }).join('');
+    }).catch(function () {
+      if (seq !== anim.seq || !stage.isConnected) return;
+      stage.innerHTML = '<span style="font-size:12px;color:var(--ink-2)">That preview failed.</span>';
+    });
+  }
+
+  function animBuild() {
+    if (anim.busy) return;
+    if (!anim.sizes.length) {
+      $('animFacts').innerHTML = '<span class="bad">Tick at least one size to build.</span>';
+      return;
+    }
+    anim.busy = true;
+    var btn = $('animBuild');
+    btn.disabled = true; btn.textContent = 'Building…';
+    post('/api/animate/' + encodeURIComponent(state.requestId), {
+      conceptId: anim.conceptId,
+      sizes: anim.sizes,
+      animation: anim.spec
+    }).then(function (r) {
+      if (r && r.error) throw new Error(r.error);
+      anim.close();
+      showNextSteps('Building ' + r.total + ' animated file(s). They are written ' +
+        'beside the static ones and go into the delivery ZIP under animated/.');
+      followAnimate(r.jobId);
+    }).catch(function (e) {
+      anim.busy = false;
+      btn.disabled = false; btn.textContent = 'Build the animation';
+      $('animFacts').innerHTML = '<span class="bad">' +
+        esc((e && e.message) || 'That could not be started.') + '</span>';
+    });
+  }
+
+  /* Same watcher shape as followRender, and separate from it on purpose: what
+     an animated job reports is not a render's count of files, and the sizes it
+     did NOT produce are the half worth saying out loud. */
+  function followAnimate(jobId) {
+    var tries = 0;
+    (function poll() {
+      if (++tries > 60) return;
+      fetch('/api/render/' + encodeURIComponent(jobId))
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || !j.status) return;
+          var prog = j.progress || {};
+          if (j.status === 'complete') {
+            var made = (j.animations || []).length;
+            var bad = (j.animations || []).filter(function (a) { return a.status === 'fail'; });
+            var msg = 'Animated ' + made + ' size' + (made === 1 ? '' : 's') + '.';
+            if (bad.length) {
+              /* Named, because a failing animation is WITHHELD from the
+                 delivery and the static file goes in its place -- a count that
+                 said 8 and a ZIP that held 6 is the gap this sentence closes. */
+              msg += ' ' + bad.length + ' did not pass its checks and will not be ' +
+                'delivered (' + bad.map(function (a) { return a.size; }).join(', ') +
+                ') — the still versions of those still ship.';
+            }
+            var skipped = j.animationSkipped || [];
+            if (skipped.length) {
+              msg += ' ' + skipped.length + ' size' + (skipped.length === 1 ? '' : 's') +
+                ' could not take one: ' + skipped[0].reason;
+            }
+            showNextSteps(msg, bad.length > 0);
+            refreshDeliver();
+            return;
+          }
+          if (j.status === 'failed') {
+            showNextSteps('That animation failed: ' + (j.error || 'no reason given') +
+              '. The static files are untouched.', true);
+            return;
+          }
+          if (prog.total) {
+            $('nsMsg').textContent = 'Animating ' + (prog.done || 0) + ' of ' + prog.total + '…';
+          }
+          setTimeout(poll, 2000);
+        })
+        .catch(function () { setTimeout(poll, 3000); });
+    })();
+  }
+
+  $('animate').addEventListener('click', function () {
+    /* It reads the SAVED build, so unsaved edits would animate the previous
+       version and report a clean success for doing it -- the same trap Render
+       and Attach were arranged around. */
+    leaveIfSafe('the animation panel', openAnimator);
+  });
 
   /* ---- health dot: quiet poll of diagnostics, click through when off ---- */
   (function () {
