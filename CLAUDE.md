@@ -1078,6 +1078,68 @@ creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
 
+**A tool that renders finished video and never asks what the rules require.**
+`testimonial` is a commercial type on the Start page and the offer field
+invites exactly the copy Truth in Lending triggers on — "$79 a month", "0%
+APR", "no money down" — and nothing anywhere asked. The first person to find
+out was whoever had to answer for the spot after it ran.
+`modules/commercial_builder/compliance_spec.py` holds five published regimes
+as data — Reg Z (12 CFR 1026.24), the FTC's endorsement guides (16 CFR 255),
+FINRA 2210, attorney advertising (ABA 7.1–7.3 as each state adopts it) and TTB
+(27 CFR 4/5/7) — each carrying the citation and the authority, the
+`abcd_service.py` rule for the same reason: a citation is an argument a client
+cannot talk a rep out of, and "our tool thinks you need a disclaimer" is not.
+
+**It never says a spot is compliant, and that is the whole design.** Whether
+an ad complies is a judgment about a specific spot in a specific state, made
+by somebody qualified — and a green tick over that question is worse than
+silence, because the tick is what somebody relies on. Every finding is phrased
+as *this engages X* and never as *this violates X*: the first is a fact about
+the copy and the second is a legal conclusion. `summary()` says "nothing in
+the copy engaged one of these rules", never "passed".
+
+**Nothing here blocks a render.** `QR_CODE_RULES` paid for that lesson — a
+check that refuses the correct thing is a check somebody switches off, and
+switching it off costs every finding it would have raised. What a finding does
+instead is require an **acknowledgment** before a rendered cut is *filed*: one
+explicit "I have read what these require", recorded against a name in
+`cb_compliance_acks`, the shape `hub/creative_needs.py` uses for a comp
+confirmation. A shared-password session cannot give one — "Shared login" is a
+true statement about the session and a useless one in a record whose entire
+value is the name on it, the `hub/ad_copy.py` refusal.
+
+**A sign-off is about the copy as it was.** `findings_key` fingerprints the
+rule ids and the quoted evidence, so rewriting the offer retires the
+acknowledgment and the panel says it was **superseded** rather than absent —
+"nobody has looked" and "somebody looked at a different script" are different
+situations and only the second has a name to go back to. It is keyed on the
+evidence rather than the whole payload deliberately: rewording a `requires`
+sentence in that file is our edit, not the client's copy changing, and must
+not silently invalidate every sign-off on the book.
+
+**An empty industry is not an unregulated client.** Three of the five regimes
+are decided by who the client is, and `cb_clients.industry` is free text that
+is often blank — so `industries_engaged()` returns `(regimes, known)` and a
+blank reads *not measured*, with the panel saying "that is not the same as
+them not applying". Reg Z is the opposite and is detected from the **copy**
+alone: a furniture shop advertising "$40 a month" engages it and a bank
+advertising its brand does not.
+
+**A rule that fires on every spot is a rule people stop reading**, which is
+the same note. "20% off everything" is the commonest line in retail copy and
+is not a rate of finance charge, so the credit word is *required* beside the
+percentage. Every pattern also carries its match through to the end: the first
+draft quoted `recovered $` and `$40 a mo`, and evidence a reader cannot find
+in the script is not evidence.
+
+**Two things are deliberately absent.** The **FTC CARS Rule** (16 CFR Part
+463) was vacated in its entirety by the Fifth Circuit in January 2025, so
+flagging it would raise a rule that does not exist — it is in `NOT_ENFORCED`
+with the reason, named rather than silently dropped so nobody adds it back
+from memory. And **fifty states** are not encoded: attorney advertising is
+genuinely state-by-state, so `state_bar` says which state's rules govern is
+the first question and does not pretend to answer it.
+
 **A rep approving a cut is not the client approving it.** Filing was a rep
 pressing Approve & file; the client saw the spot when somebody emailed an MP4,
 replied with three changes in the body of an email, and a person retyped them
@@ -5440,6 +5502,8 @@ python3 test_msa_embed.py          # the signing page: public, chrome-free, ours
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
+python3 test_commercial_compliance.py # which published rules a spot engages, whose
+                                   #   they are, and the acknowledgment before filing
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
                                    #   three answers, the strictest one wins, and a
                                    #   refusal that stops a delivery

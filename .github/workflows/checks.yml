@@ -208,6 +208,21 @@ jobs:
             echo "test_commercial_review.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder advertising-rule tests
+        # Which published rules a spot's copy engages, and the two ways the
+        # feature would be worse than absent: a tool that claims a spot is
+        # compliant, and a rule that fires on every spot. Also that nothing
+        # here blocks a render, that an empty industry reads as not measured
+        # rather than unregulated, and that rewriting the offer retires the
+        # sign-off. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_commercial_compliance.py ]; then
+            python test_commercial_compliance.py
+          else
+            echo "test_commercial_compliance.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
