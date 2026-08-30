@@ -647,6 +647,17 @@ def _google_coverage(name: str, g: dict) -> dict:
     }
 
 
+def prospect_queue() -> dict:
+    """Which prospect to call today, and why.
+
+    Every other report on this page is about a client. This one is about
+    somebody who is not one yet — the record `hub/prospect.py` built is worth
+    opening, and nothing said which to open.
+    """
+    from . import prospect_queue as pq
+    return pq.build()
+
+
 def sell_to_clients() -> dict:
     """What each active client's own website says we could sell them.
 
@@ -1990,6 +2001,15 @@ EXTRAS = [
 
 
 REPORTS = {
+    "prospect-queue": {
+        "title": "Prospects To Chase",
+        "desc": "Who to call, in the order the work has to happen — not in the "
+                "CRM, the same business twice, audited and unquoted, never "
+                "audited, then quoted and waiting.",
+        "ico": "&#128222;",
+        "fn": prospect_queue,
+        "group": "Sales",
+    },
     "active-clients": {
         "title": "Active Clients",
         "desc": "Every client with a live product or billing this month — partner, salesperson, live monthly and dashboard status.",
