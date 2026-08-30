@@ -1,0 +1,31 @@
+{% extends "_layout.html" %}
+{% block title %}Spot Library{% endblock %}
+{% block content %}
+
+<div class="cb-page-head"><div><h1>Spot Library</h1>
+<p>Every commercial that has been approved and filed, across every client.
+   A rendered cut is not a delivered one until somebody approves it, so this
+   is the shorter list — and the true one.</p></div></div>
+
+<div class="cb-card" style="margin-bottom:16px;">
+  <div class="cb-grid cb-grid-4">
+    <div class="cb-field"><label class="cb-label">Search</label>
+      <input type="search" id="lib-q" placeholder="Client or title…" autocomplete="off"></div>
+    <div class="cb-field"><label class="cb-label">Length</label>
+      <select id="lib-length"><option value="">Any</option></select></div>
+    <div class="cb-field"><label class="cb-label">Format</label>
+      <select id="lib-format"><option value="">Any</option></select></div>
+    <div class="cb-field"><label class="cb-label">Kind of spot</label>
+      <select id="lib-archetype"><option value="">Any</option>
+        {% for key, a in archetypes.items() %}
+          <option value="{{ key }}">{{ a.label }}</option>
+        {% endfor %}
+      </select></div>
+  </div>
+  <p class="cb-hint" id="lib-count" style="margin:0;"></p>
+</div>
+
+<div id="lib-rows"><div class="cb-empty">Loading…</div></div>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/library.js') }}"></script>{% endblock %}

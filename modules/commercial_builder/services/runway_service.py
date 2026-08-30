@@ -117,11 +117,29 @@ def generate_from_image(image_url, prompt, format_id="16:9", scene_seconds=5.0):
         r.raise_for_status()
         task_id = (r.json() or {}).get("id")
         if not task_id:
+            _meter(seconds, ok=False, detail="accepted with no task id")
             return dict(base, job_id=None, status="failed",
                         error="Runway accepted the request but returned no task id.")
+        _meter(seconds, detail=f"{format_id} · {seconds}s")
         return dict(base, job_id=task_id, status="processing")
     except Exception as e:  # noqa: BLE001 — provider errors are reported, not raised
+        _meter(seconds, ok=False, detail=str(e)[:80])
         return dict(base, job_id=None, status="failed", error=str(e))
+
+
+def _meter(seconds, *, ok=True, detail=""):
+    """Seconds of generated video, counted. Never raises.
+
+    Seconds and not requests: Runway bills by duration, so a :10 clip is twice
+    a :05 and counting requests would make them equal — the mistake counting
+    ElevenLabs renders rather than characters would have made.
+    """
+    try:
+        from hub import quotas as _q
+        _q.record_video("runway", module="commercial_builder",
+                        seconds=seconds, detail=detail, ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
 
 
 def check_status(job_id):

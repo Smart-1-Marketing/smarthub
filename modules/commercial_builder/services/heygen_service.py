@@ -186,11 +186,33 @@ def generate_spokesperson_clip(avatar_id, script_text, voice_id=None,
         r.raise_for_status()
         video_id = r.json().get("data", {}).get("video_id")
         if not video_id:
+            # Accepted and unusable. Still recorded: HeyGen took the request,
+            # and a row that is only written on success reports a low number
+            # in exactly the month somebody is asking why the bill is high.
+            _meter(ok=False, detail="accepted with no video id")
             return dict(base, job_id=None, status="failed",
                         error="HeyGen accepted the request but returned no video id.")
+        _meter(detail=f"{avatar_id or 'avatar'} · {width}x{height}")
         return dict(base, job_id=video_id, status="processing")
     except Exception as e:  # noqa: BLE001 — provider errors are reported, not raised
+        # A refused call spent nothing and is excluded from every billable
+        # total, but the row stays — a wall of them is what a spent allowance
+        # looks like from this side.
+        _meter(ok=False, detail=str(e)[:80])
         return dict(base, job_id=None, status="failed", error=str(e))
+
+
+def _meter(*, ok=True, detail=""):
+    """One clip, counted. Never raises: an indicator must not cost the render.
+
+    Counted per clip because that is how HeyGen bills — unlike Runway, whose
+    unit is the second.
+    """
+    try:
+        from hub import quotas as _q
+        _q.record_clip(module="commercial_builder", detail=detail, ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
 
 
 def check_status(job_id):

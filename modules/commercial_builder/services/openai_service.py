@@ -750,6 +750,12 @@ def generate_ai_stills(visual_description, client_profile, option_count=2):
         try:
             resp = client.images.generate(model=_IMAGE_MODEL, prompt=prompt,
                                           size="1536x1024", n=1)
+            # `hub/ai.note_sdk_usage()` records the text calls by reading
+            # `.usage`, which an images response does not carry — so this path
+            # was billed and counted nowhere while every chat call was
+            # tracked. Two options per press at image rates is the commonest
+            # single spend in this module.
+            _meter_image()
             url = _image_result_url(resp.data[0]) if resp.data else None
             if url:
                 options.append({"url": url, "prompt": prompt})
@@ -762,9 +768,22 @@ def generate_ai_stills(visual_description, client_profile, option_count=2):
                                           f"model is not enabled on the account, set "
                                           f"OPENAI_IMAGE_MODEL to one that is.")})
         except Exception as exc:  # noqa: BLE001
+            # A refused request spent nothing and is excluded from every
+            # billable total, but the row stays: a wall of them is what a
+            # spent allowance looks like from this side.
+            _meter_image(ok=False)
             options.append({"url": None, "prompt": prompt,
                             "error": f"Option {chr(65 + index)}: {exc}"})
     return options
+
+
+def _meter_image(ok=True):
+    """One generated still, counted. Never raises."""
+    try:
+        from hub import quotas as _q
+        _q.record_image(module="commercial_builder", model=_IMAGE_MODEL, ok=ok)
+    except Exception:                                    # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------
