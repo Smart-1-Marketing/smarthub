@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 
@@ -148,58 +149,18 @@ def by_category() -> dict[str, list[dict]]:
     return out
 
 
-def find(label: str, category: str = "") -> dict | None:
-    """One card product, by label or by product name.
+def _lookup(label: str, category: str = "") -> list[dict]:
+    """Every card product a lookup could have meant, strongest rule first.
 
-    Exact first, then the card's own name *starting with* what was asked for.
-    Several products carry their whole description in the product field --
-    "Connected TV - Targeted  - This is played on televisions only  *If you
-    require..." -- while every document written here stores the short name a
-    rep would recognise. Exact-only therefore missed them, and each miss
-    became a silent default: Connected TV took the $500 floor instead of
-    OTT's $1,500, and nothing on either document said a lookup had failed.
+    One reading of "what does this name match", so `find()` and `candidates()`
+    cannot come to disagree about it -- the first decides what to do with one
+    hit, the second is what a screen shows when there are several.
 
-    The match is one-directional and anchored, which is what keeps it honest.
-    A contains-match either way round would let the short generic product
-    "Category" swallow any longer phrase containing the word. The IO
-    template's `cardLabelFor` uses the same rule, so both ends of the
-    hand-off agree on what counts as a match.
-    """
-    want = (label or "").strip().lower()
-    if not want:
-        return None
-    # A category narrows first where the caller has one. Four categories carry
-    # a product called "Behavioral" and the name alone cannot say which -- so
-    # a caller that knows the heading is answered rather than asked.
-    rows = products()
-    cat = (category or "").strip().lower()
-    if cat:
-        narrowed = [p for p in rows if p["category"].lower() == cat]
-        rows = narrowed or rows
-    exact = [p for p in rows
-             if p["label"].lower() == want or p["product"].lower() == want]
-    if len(exact) == 1:
-        return exact[0]
-    if exact:
-        return None     # ambiguous by name; the caller needs candidates()
-    # An anchored match that could mean more than one product means none of
-    # them. "Google Grant" is a setup fee *and* a monthly management fee, and
-    # returning whichever the card lists first billed the one nobody quoted --
-    # the `client_key.resolve()` rule, wearing a rate. A caller handed None
-    # asks: `product_intake.classify()` names the candidates and commits to
-    # neither, which is the answer this question actually has.
-    if len(want) > 3:
-        hits = [p for p in rows if p["product"].lower().startswith(want)]
-        if len(hits) == 1:
-            return hits[0]
-    return None
-
-
-def candidates(label: str, category: str = "") -> list[dict]:
-    """Every card product an anchored lookup could have meant.
-
-    `find()` refuses an ambiguous name; this is what a screen shows instead of
-    the refusal, so "we could not tell which" never reads as "not on the card".
+    A category narrows before anything else where the caller has one: four
+    headings carry a product called "Behavioral" at four different rates, and
+    the name alone cannot say which. A category that matches nothing is
+    ignored rather than obeyed, or a heading renamed on the card would turn
+    every lookup under it into a miss.
     """
     want = (label or "").strip().lower()
     if not want:
@@ -212,9 +173,47 @@ def candidates(label: str, category: str = "") -> list[dict]:
              if p["label"].lower() == want or p["product"].lower() == want]
     if exact:
         return exact
+    # Anchored, and one-directional. Several products carry their whole
+    # description in the product field -- "Connected TV - Targeted  - This is
+    # played on televisions only  *If you require..." -- while every document
+    # written here stores the short name a rep would recognise. Exact-only
+    # therefore missed them, and each miss became a silent default: Connected
+    # TV took the $500 floor instead of OTT's $1,500, with nothing on either
+    # document saying a lookup had failed. A contains-match either way round
+    # would let the short generic product "Category" swallow any longer phrase
+    # containing the word.
     if len(want) <= 3:
         return []
     return [p for p in rows if p["product"].lower().startswith(want)]
+
+
+def find(label: str, category: str = "") -> dict | None:
+    """One card product, by label or by product name -- or None.
+
+    None means one of two things, and the caller wants `candidates()` for
+    both: nothing on the card matched, or **more than one did**. A name that
+    could mean more than one product means none of them -- "Google Grant" is
+    a $125 setup fee *and* a 15% monthly management fee, and returning
+    whichever the card listed first billed the one nobody quoted. That is the
+    `client_key.resolve()` rule wearing a rate.
+
+    `category` answers the names that cannot be resolved without it, so a
+    caller that knows the heading is answered rather than asked. The IO
+    template's `cardLabelFor(name, category)` takes the same two arguments
+    and applies the same rules, so both ends of the hand-off agree on what
+    counts as a match.
+    """
+    hits = _lookup(label, category)
+    return hits[0] if len(hits) == 1 else None
+
+
+def candidates(label: str, category: str = "") -> list[dict]:
+    """Every card product a lookup could have meant.
+
+    `find()` refuses an ambiguous name; this is what a screen shows instead of
+    the refusal, so "we could not tell which" never reads as "not on the card".
+    """
+    return _lookup(label, category)
 
 
 def search(term: str, limit: int = 20) -> list[dict]:
@@ -328,12 +327,10 @@ def check_drift(io_template: str | None = None) -> dict:
     # A duplicate label is therefore a finding in its own right.
     ours = {p["label"]: p["listed_rate"] for p in products()}
     theirs = {p.get("label", ""): p.get("listedRate", "") for p in embedded}
-    dupes = sorted({p["label"] for p in products()
-                    if sum(1 for q in products() if q["label"] == p["label"]) > 1})
-    dupes += sorted({p.get("label", "") for p in embedded
-                     if sum(1 for q in embedded
-                            if q.get("label", "") == p.get("label", "")) > 1}
-                    - set(dupes))
+    seen_ours = Counter(p["label"] for p in products())
+    seen_theirs = Counter(p.get("label", "") for p in embedded)
+    dupes = sorted({label for label, n in (seen_ours + seen_theirs).items() if n > 1
+                    and (seen_ours[label] > 1 or seen_theirs[label] > 1)})
     diffs = [k for k in set(ours) | set(theirs) if ours.get(k) != theirs.get(k)]
     notes = []
     if diffs:

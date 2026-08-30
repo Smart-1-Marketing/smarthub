@@ -1396,6 +1396,20 @@ check("the drift check reports duplicate labels rather than collapsing them",
       "duplicate_labels" in _drift and not _drift["duplicate_labels"], _drift)
 check("and the two copies of the card agree", _drift["in_sync"], _drift.get("note"))
 
+# A green check that cannot go red is not a check. Hand it a template that
+# plainly carries the collision and require it to say so -- this started life
+# green, which is the only way it was worth adding.
+_dupe_io = os.path.join(_TMP, "dupe_io.html")
+_dupe_rows = [dict(r) for r in _embedded[:2]]
+_dupe_rows[1]["label"] = _dupe_rows[0]["label"]
+open(_dupe_io, "w", encoding="utf-8").write(
+    "const rateCard=" + _json.dumps(_dupe_rows) + ";\n")
+_bit = rc.check_drift(_dupe_io)
+check("a template that carries a collision is reported, not collapsed",
+      _bit["duplicate_labels"] and not _bit["in_sync"], _bit)
+check("and the note says what a duplicate label costs the IO",
+      "dropped" in (_bit.get("note") or ""), _bit.get("note"))
+
 # The published rate card ships in this repo, so the naming can be held to it.
 _page = open(os.path.join(ROOT, "hub", "partner_pages",
                           "rate-card-universal.html"), encoding="utf-8").read()
