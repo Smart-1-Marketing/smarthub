@@ -2090,7 +2090,11 @@
             return;
           }
           bgGrid(d.images.map(function (i) {
-            return { url: i.url, label: i.label || '' };
+            // `thumb` is what the tile draws; `url` is what gets applied and
+            // what the magnifier opens. Only the Hub-fed gallery carries one
+            // -- stock, AI and a fresh upload pass none and fall back to the
+            // asset, exactly as they did before.
+            return { url: i.url, thumb: i.thumb || '', label: i.label || '' };
           }), 'gallery');
         })
         .catch(function () {
@@ -2677,7 +2681,7 @@
         return '<div class="bgtile">' +
           '<button type="button" class="bgthumb" data-pick="' + i + '"' +
           ' title="Use this picture">' +
-          '<img src="' + esc(it.url) + '" alt="" loading="lazy">' +
+          '<img src="' + esc(it.thumb || it.url) + '" alt="" loading="lazy">' +
           (it.label ? '<span>' + esc(it.label) + '</span>' : '') + '</button>' +
           // Judging a photograph at 126px wide is guessing. This opens it at
           // the size it will actually be looked at, without applying it.

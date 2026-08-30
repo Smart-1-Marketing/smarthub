@@ -5783,11 +5783,39 @@ omission — a screen silently missing from a completeness report is the same
 failure the report is about. Logos (small, one per page, as often observed off
 the client's own site as stored by us), the just-uploaded strip (that URL comes
 back from the Cloudinary widget in the browser and never passes through a row
-here, so previewing it would mean a copy of the rule in JavaScript), and one
-genuine gallery this change cannot reach: the Display Ad Builder's background
-picker is served by the Node renderer, whose rows never pass through
-`hub/storage.py`. `test_image_download.py` fails on a tile with no reason on
-file **and** on a reason whose line has gone, and it started green.
+here, so previewing it would mean a copy of the rule in JavaScript), and the
+lightbox, whose whole job is the full asset. `test_image_download.py` fails on
+a tile with no reason on file **and** on a reason whose line has gone, and it
+started green.
+
+**And that staleness half is what retired the one exemption that was wrong.**
+The Display Ad Builder's background grid went into that table as *the one
+gallery this cannot reach from Python* — the renderer is TypeScript and its
+rows do not pass through `hub/storage.py`. They pass through
+`hub/ad_builder_link.client_gallery()`, which is Python: the editor fetches
+`/_hub/gallery` precisely because **the renderer does not know who our clients
+are and must not learn**. So the preview is derived there, on the Hub side,
+rather than mirrored into the renderer — and the check reported its own
+exemption as stale the moment that was done, which is the whole reason it
+carries markers from the lines themselves rather than file names.
+
+**A tile and a picture are different things there.** The grid draws `thumb`;
+`applyBackground()` and the magnifier read `url`, because a 400px preview
+placed behind an ad is the wrong file in the creative, and "see it full size"
+means what it says. Only the gallery source carries a preview at all — stock,
+AI and a fresh upload pass none and fall back to the asset, so they draw
+exactly what they drew before.
+
+**And a fixture that does not look like the real thing leaves the rule
+untested.** `test_ads_module.py` seeded rows as
+`res.cloudinary.com/x/<id>.jpg` — no `/upload/` segment, so `preview_url()`
+correctly declined to touch them and the first version of the assertion passed
+against a preview that had never been computed. The fixture carries the real
+delivery shape now. The assertion that went with it was worse: `all(row.get
+("thumb"))` is true when `thumb` falls back to the asset, so it passed on the
+bug as well — it requires the cap now, and reads every field with `.get()`,
+because an assertion that raises on the missing field takes every check after
+it out of the run.
 
 `test_image_download.py` asserts all of it, including that the image picker
 still returns a zip now that it runs on the shared builder.
