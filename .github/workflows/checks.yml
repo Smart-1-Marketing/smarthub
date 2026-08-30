@@ -1243,3 +1243,74 @@ jobs:
       # their own copy of it.
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
+
+      # Declared and never wired is the failure this repo has paid for most
+      # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
+      # never existed, `storage.manifest()` feeding an audit nobody built,
+      # `check_limits()` written while the page that needed it 500'd. None of
+      # them errored: an uncalled function is indistinguishable from a working
+      # one until somebody goes looking for the feature it was half of. Every
+      # survivor carries the reason it is allowed to, and an entry naming a
+      # function that is gone -- or one something now calls -- fails.
+      - name: Nothing is declared and left unwired
+        run: python3 test_unwired.py
+
+      # `.spin` was defined nine times before hub-thinking.js. The script reaches
+      # the Hub three ways (base.html, HubBar, the hub app's own injector) and
+      # three client-facing pages inline their own copy, because a Hub script on
+      # a stranger's page is a new outbound dependency. This holds the four in
+      # step -- same paths, same speed, same reduced-motion rule -- so a prospect
+      # and a rep are not looking at two different features.
+      - name: One mark for a wait, in all four places it is drawn
+        run: python3 test_thinking.py
+
+      # The three index pages, and the crumb map held against the tiles rather
+      # than remembered. It has drifted twice: the creative tools moved onto
+      # /creative while their URLs stayed under /tools/, and six QA tools moved
+      # with their "back" still landing on Client Tools. Nothing reports that --
+      # the link resolves and the page renders, it simply lands where the tool
+      # is not. Lifts the resolution block out of the page and runs it in node.
+      - name: Every tool is tiled once, and the trail names it
+        run: python3 test_menu_layout.py
+
+      # The primitives four screens of one product share. It also walks the
+      # rendered HTML to assert the page wrapper still contains the page: one
+      # stray closing tag ends it early, after which every rule scoped to it
+      # silently stops applying -- valid markup, resolving links, passing
+      # pagecheck, and invisible in the diff.
+      - name: One description of the record-page look
+        run: python3 test_detail_ui.py
+
+      # Three places a model reads something the Hub already holds -- a project
+      # name, a client's photographs, a ticket's prose. The safety argument is
+      # that none of them writes by arriving, and this asserts it from the AST:
+      # the source of each carries no path to a write.
+      - name: The model proposes, the code decides, a person presses
+        run: python3 test_ai_proposals.py
+
+      # Its walkthrough described a wizard that no longer exists -- a Storyboard
+      # step the tool had replaced, lengths with no :06 in them, and a QR code
+      # called required where the rule is advisory. A rep believes a
+      # walkthrough, so this asserts against each of those by name.
+      - name: The Commercial Builder explains the tool it is
+        run: python3 test_commercial_explainer.py
+
+      # Every help key placed resolves, every tour step rings a card its own
+      # screen actually draws, and none of it reaches the two pages a prospect
+      # reads -- a staff note there is an internal note in front of a client.
+      - name: The prospect record and the audit explain themselves
+        run: python3 test_prospect_explainer.py
+
+      # Named in neither this workflow nor CLAUDE.md's list until now, which is
+      # the same gap one step further on: a check nobody runs and nobody has
+      # written down is one nothing would miss.
+      - name: Website block tests (the second file)
+        run: python3 test_site_blocks.py
+
+      # CLAUDE.md ends its list of checks by saying all of it runs on every
+      # pull request, and it did not: seven of the files that list names were
+      # run by nobody but a person who thought to type them -- and the file
+      # making the claim is the file listing them. This asserts it in both
+      # directions, so the next check added cannot be gated by nobody.
+      - name: The gate runs every check a person runs
+        run: python3 test_ci_gate.py

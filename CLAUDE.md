@@ -8256,6 +8256,8 @@ python3 test_thinking.py           # the mark that says a scan or a model is run
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
+python3 test_site_blocks.py        # the website blocks a page is built from
+python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 
 The test files need no pytest and no new dependencies; each runs against a
@@ -8266,6 +8268,29 @@ touches `/var/data` or the real one.
 the single gate. CI runs the same scripts a person runs, so a green run means
 the same thing in both places and no check exists only where nobody can
 reproduce it.
+
+**And that sentence was not true, in the file that makes it.** Seven of the
+files this list names were run by nobody but somebody who thought to type
+them: `test_unwired.py`, `test_thinking.py`, `test_menu_layout.py`,
+`test_detail_ui.py`, `test_ai_proposals.py` and the two explainer files. What
+they hold is not marginal — that nothing is declared and left unwired, that
+one tool is tiled once and its trail names it, that four copies of the wait
+mark agree, that the three places a model proposes carry no route to a write.
+An eighth, `test_site_blocks.py`, was in neither this list nor the workflow,
+which is the same gap one step further on. Every one of them passed; they were
+simply gated by nobody, and the list saying otherwise is what stopped anybody
+noticing — a sweep that has quietly stopped sweeping, reporting a clean bill of
+health about the part it still covers.
+
+The claim is **asserted** now rather than made. `test_ci_gate.py` reads the
+workflow and holds it to this list in **both** directions: a `test_*.py` in
+the repo that no step invokes, and a step naming a file that is not here —
+which runs nothing at all. Several steps are deliberately written
+`if [ -f x ]; then … else echo "not on this branch"`, so that second half
+reads the guard rather than the filename, or it would report the thing that
+keeps this workflow mergeable on an older branch. `EXEMPT` is the way out and
+carries its reason, and it is **empty**, which is the only way this was worth
+adding.
 
 Two workflows briefly existed: `checks.yml` and a `ci.yml` written in parallel
 on another branch, overlapping on `jscheck` and `linkcheck` and each carrying
