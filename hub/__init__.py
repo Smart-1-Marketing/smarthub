@@ -3293,33 +3293,71 @@ def create_hub_app() -> Flask:
     def api_client_request_triage():
         """Read the description and propose the choices it already answers.
 
-        One route for both objects, because `ticket_form_fields()` and
-        `campaign_form_fields()` hand back the same shape and two copies of
-        this would be two descriptions of what a suggestion is.
+        One route for all three objects, because `ticket_form_fields()`,
+        `campaign_form_fields()` and `ad_copy.form_fields()` hand back the
+        same shape and three copies of this would be three descriptions of
+        what a suggestion is. `hub/static/knack-form.js` draws the control
+        once for the same reason; the third form went a release without it
+        because only the browser half was shared and this half knew two
+        kinds.
 
         A POST, and only ever into the fields the caller says are **empty**: a
         value somebody chose is the better source and is never offered over,
         and the gate is here rather than in the browser because a rule the
         form keeps while the endpoint breaks it is not a rule. Nothing is
         written — the suggestion is drawn dotted and one press keeps it.
+
+        An unrecognised kind is **refused by name** rather than falling
+        through to whichever branch is last. It used to read `if ticket ...
+        else campaign`, so a typo in the caller answered with the campaign
+        change form's dropdowns against an ad copy request's prose — every
+        suggestion then either dropped for not being one of the field's
+        options or, worse, kept for a field of the same name on a different
+        object. Both look like a button that half works.
         """
         gate = _require_api()
         if gate:
             return gate
-        from . import knack_api, request_triage
+        from . import ad_copy, knack_api, request_triage
         body = request.get_json(silent=True) or {}
         kind = str(body.get("kind") or "ticket")
+        # The second half of each pair is the tag hub/ai.py bills the call
+        # under -- it rides in the `ai` log as `tool`, and spend_by_module()
+        # splits the provider-spend audit on it. Left at "tickets" for all
+        # three, every triage call this Hub ever makes reads as the ticket
+        # form's, which is a confident wrong answer on the one page that
+        # says what the models are costing us.
+        READERS = {
+            "ticket": (lambda: knack_api.ticket_form_fields("create"),
+                       "tickets"),
+            "support": (lambda: knack_api.campaign_form_fields("support"),
+                        "campaign_support"),
+            "change": (lambda: knack_api.campaign_form_fields("change"),
+                       "campaign_support"),
+            "adcopy": (ad_copy.form_fields, "ad_copy"),
+        }
+        if kind not in READERS:
+            return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                            "error": f"There is no form called {kind!r}.",
+                            "note": ""})
         if not knack_api.configured():
             return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
                             "error": "Knack is not configured, so the "
                                      "options a field accepts cannot be read.",
                             "note": ""})
+        if kind == "adcopy":
+            # Discovered from its field ids rather than pinned, and a
+            # discovery that failed already knows how to say so — better than
+            # reading an object with no fields and reporting nothing to
+            # suggest, which is what "we could not find the form" looks like
+            # from the outside.
+            _obj, why = ad_copy.resolve()
+            if not _obj:
+                return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                                "error": why, "note": ""})
+        reader, module = READERS[kind]
         try:
-            if kind == "ticket":
-                fields = knack_api.ticket_form_fields("create")
-            else:
-                fields = knack_api.campaign_form_fields(
-                    "support" if kind == "support" else "change")
+            fields = reader()
         except Exception as exc:                        # noqa: BLE001
             # Named, not answered with an empty list: "this field accepts
             # nothing" and "we could not read what it accepts" are different,
@@ -3329,7 +3367,7 @@ def create_hub_app() -> Flask:
                                      f"({type(exc).__name__}).", "note": ""})
         out = request_triage.suggest(
             body.get("text") or "", fields, body.get("empty") or [],
-            module=("tickets" if kind == "ticket" else "campaign_support"))
+            module=module)
         return jsonify(out)
 
     @app.route("/api/client/tickets/fields")

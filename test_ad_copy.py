@@ -486,6 +486,139 @@ ok("and the file field says where files actually go",
    "Knack" in (by_key["files"].get("hint") or ""),
    by_key["files"].get("hint") or "")
 
+# --------------------------------------------------------------------------
+# The control three forms share, and the one that went without it
+# --------------------------------------------------------------------------
+print("\nThe triage control, on all three forms")
+print("-" * 60)
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _read(rel):
+    with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+        return fh.read()
+
+
+KF = _read("hub/static/knack-form.js")
+ADJS = _read("hub/static/ad-copy.js")
+WTJS = _read("hub/static/web-ticket.js")
+CSJS = _read("hub/static/campaign-request.js")
+HUBPY = _read("hub/__init__.py")
+
+# knack-form.js draws the web ticket, campaign support and ad copy. The
+# control was written once precisely so a third form would get it without
+# being edited — and ad copy went a release without it, because only the
+# browser half was shared and the route knew two kinds.
+for name, src in (("web ticket", WTJS), ("campaign request", CSJS),
+                  ("ad copy", ADJS)):
+    ok(f"the {name} form draws the triage control", "triageButton(" in src)
+
+# Exercised rather than grepped for: the failure this closes is that the
+# browser half was shared and the route half knew two kinds, which reading
+# either file on its own cannot see.
+import tempfile
+os.environ.setdefault("SECRET_KEY", "ad-copy-test-key-0123456789")
+os.environ.setdefault("PANEL_PASSWORD", "x")
+os.environ.setdefault("HUB_DATA_DIR", tempfile.mkdtemp())
+os.environ.setdefault("DATABASE_URL", "sqlite:///" + tempfile.mkstemp()[1])
+
+import hub as _hub
+from hub import auth as _auth, request_triage as _triage
+
+_app = _hub.create_hub_app()
+_client = _app.test_client()
+_client.set_cookie(_auth.COOKIE_NAME, _auth.issue_cookie_value("Tester"),
+                   domain="localhost")
+
+_seen = {}
+
+
+def _stub_suggest(text, fields, empty_keys, *, module="tickets"):
+    _seen["module"] = module
+    _seen["fields"] = fields
+    _seen["text"] = text
+    return {"ok": True, "suggestions": {}, "unusable": 0, "error": "", "note": ""}
+
+
+_orig_suggest = _triage.suggest
+_orig_fields = ad_copy.form_fields
+_triage.suggest = _stub_suggest
+ad_copy.form_fields = lambda obj="": [{"key": "url_changing", "control": "boolean"}]
+# resolve() would otherwise walk a Knack that is not there.
+ad_copy._cache["object"] = ("object_99", "")
+
+
+def _post(kind, text="the landing page URL is changing to /summer"):
+    r = _client.post("/api/client/requests/triage",
+                     json={"kind": kind, "text": text, "empty": ["url_changing"]})
+    return r.status_code, r.get_json() or {}
+
+
+try:
+    _code, _body = _post("adcopy")
+    ok("the route answers for the ad copy form", _code == 200 and _body.get("ok"),
+       f"{_code} {_body.get('error')}")
+    check("and reads that object's own fields",
+          [f["key"] for f in _seen.get("fields", [])], ["url_changing"])
+    check("and bills the call to ad copy", _seen.get("module"), "ad_copy")
+
+    # It used to read `if ticket ... else campaign`, so any other spelling
+    # answered with the campaign change form's dropdowns against an ad copy
+    # request's prose -- a button that half works.
+    _seen.clear()
+    _code, _body = _post("adcopyy")
+    ok("a form it does not know is refused by name",
+       _code == 200 and not _body.get("ok")
+       and "adcopyy" in (_body.get("error") or ""),
+       _body.get("error") or "")
+    ok("and nothing was read for it", "module" not in _seen)
+finally:
+    _triage.suggest = _orig_suggest
+    ad_copy.form_fields = _orig_fields
+    ad_copy.forget()
+
+# The four control names were written out in two places: hub/request_triage's
+# CHOICE_CONTROLS and a bare list inside emptyChoiceKeys. A control added on
+# one side and not the other means the button offers a field the server will
+# not answer for, or the other way round, with nothing on screen saying so.
+from hub.request_triage import CHOICE_CONTROLS
+_js = re.search(r"var CHOICE_CONTROLS = \[([^\]]+)\]", KF)
+# Exactly one occurrence, and it is the declaration: a second is a function
+# carrying its own copy, which is what emptyChoiceKeys had.
+ok("the browser has one list of choice controls, not one per function",
+   bool(_js) and KF.count("['select', 'multi', 'boolean', 'radio']") == 1
+   and "var CHOICE_CONTROLS = ['select', 'multi', 'boolean', 'radio']" in KF)
+if _js:
+    _names = tuple(x.strip().strip("'\"") for x in _js.group(1).split(","))
+    check("and it agrees with the server's", _names, tuple(CHOICE_CONTROLS))
+
+# Its own comment has always said this. The code drew the button on every
+# form and only said "no" once somebody had pressed it.
+ok("the button is not drawn where there is no choice field to fill",
+   "if (!hasChoiceField(fields)) return;" in KF)
+ok("but stays drawn when the choice fields merely happen to be answered",
+   "emptyChoiceKeys" in KF and "already has one" in KF)
+
+# An ad copy request splits what is being asked for across two boxes, and
+# the deadline or the URL change is as likely to be in the second.
+ok("the ad copy form reads both of its free-text boxes",
+   "'change_for', 'anything_else'" in ADJS)
+ok("and the control accepts one key or several",
+   "Array.isArray(textKey)" in KF)
+# Those two keys have to be fields this object actually has, or the button
+# reads an element that is not there and sends an empty description.
+for _k in ("change_for", "anything_else"):
+    ok(f"{_k} is a real ad copy field", _k in ad_copy.AD_COPY_FIELDS)
+
+# The tag hub/ai.py bills the call under. Left at "tickets" for all three,
+# every triage call in this Hub reads as the ticket form's on the page that
+# says what the models cost.
+for _tag in ('"tickets"', '"campaign_support"', '"ad_copy"'):
+    ok(f"triage bills its own tool ({_tag.strip(chr(34))})",
+       _tag in HUBPY.split("READERS = {")[1].split("}")[0])
+
+
 print("\n" + ("-" * 60))
 if FAILURES:
     print(f"{len(FAILURES)} failure(s):")

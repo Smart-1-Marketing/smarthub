@@ -272,10 +272,23 @@ window.KnackForm = (function () {
   //     refuses the whole record over one bad choice, so a suggestion that
   //     could not be saved is worse than none.
 
+  /* The controls a triage suggestion can be offered into. The server's
+     hub/request_triage.CHOICE_CONTROLS is the same list; test_ad_copy.py
+     holds the two in step, because a control added on one side and not the
+     other means the button offers a field the server refuses to answer, or
+     the other way round, with nothing on the screen saying so. */
+  var CHOICE_CONTROLS = ['select', 'multi', 'boolean', 'radio'];
+
+  function hasChoiceField(fields) {
+    return (fields || []).some(function (f) {
+      return CHOICE_CONTROLS.indexOf(f.control) !== -1;
+    });
+  }
+
   function emptyChoiceKeys(fields, ctx) {
     var out = [];
     (fields || []).forEach(function (f) {
-      if (['select', 'multi', 'boolean', 'radio'].indexOf(f.control) === -1) return;
+      if (CHOICE_CONTROLS.indexOf(f.control) === -1) return;
       var v = read(f, ctx);
       if (Array.isArray(v) ? !v.length : !String(v || '').trim()) out.push(f.key);
     });
@@ -440,14 +453,32 @@ window.KnackForm = (function () {
       rejected.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>';
   }
 
-  // The control that offers it, drawn once so both forms get it and a third
-  // form added later gets it without being edited. Hidden entirely where
-  // there is nothing to suggest into — a button that can only ever say "no"
-  // is one people learn to skip past.
+  /* The control that offers it, drawn once so all three forms get it and a
+     fourth added later gets it without being edited.
+
+     Hidden entirely where there is nothing to suggest into — a button that
+     can only ever say "no" is one people learn to skip past. That sentence
+     was written here from the start and the code did not keep it: it drew
+     the button on every form and only said so once somebody had pressed it.
+     What is knowable before the press is whether this object publishes any
+     choice field **at all**, which is a fact about the form rather than
+     about what has been typed into it. A form with none can never have a
+     suggestion, so it gets no button.
+
+     Deliberately not hidden when every choice field simply happens to be
+     answered: those can be cleared, and a control that disappears while
+     somebody is filling the form in is worse than one that says "every
+     question with a set list of answers already has one".
+
+     `textKey` may be one field key or several. An ad copy request splits
+     what is being asked for across two boxes -- what is changing, and
+     anything else we should know -- and reading one of them would miss the
+     half the answer was actually written in. */
   function triageButton(host, fields, ctx, kindKey, textKey) {
     var el = (typeof host === 'string') ? document.getElementById(host) : host;
     if (!el) return;
     el.innerHTML = '';
+    if (!hasChoiceField(fields)) return;
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = 'Fill in the rest from what I typed';
@@ -463,9 +494,11 @@ window.KnackForm = (function () {
         note.textContent = 'Every question with a set list of answers already has one.';
         return;
       }
-      var text = '';
-      var box = document.getElementById(pfx(ctx) + textKey);
-      if (box) text = String(box.value || '');
+      var keys = Array.isArray(textKey) ? textKey : [textKey];
+      var text = keys.map(function (k) {
+        var box = document.getElementById(pfx(ctx) + k);
+        return box ? String(box.value || '') : '';
+      }).filter(function (t) { return t.trim(); }).join('\n\n');
       var busy = window.S1Think
         ? window.S1Think.busy(btn, {kind: 'ai', label: 'Reading what you typed…'})
         : (function () { btn.disabled = true;
