@@ -1815,6 +1815,41 @@ own failure — a page exempted from the login and not from the chrome is a
 client reading our staff nav, and the other way round is a login form in front
 of somebody who has no account and will be emailed the file instead.
 
+**And a dispatcher-mounted module fails it the other way: by declaring
+nothing at all.** Commercial Builder is a blueprint, so both halves had to be
+written out by hand. Fan Radio is mounted, so `_mount()` would have handed
+one list to *both* `AuthGuard` and `HubBar` — and it was called with no
+`public_prefixes` argument, so it handed them nothing. The module's own
+docstring had said since the day it was written that `/r/…`,
+`/api/public/…` and `/audio/…` are the customer's; `wsgi.py` had never been
+told. So the approval link a rep mails a client opened a **staff sign-in
+form** for an account they will never have, the page's `<audio>` element
+404'd behind the same redirect, and the approve button posted into it.
+Nothing errored at either end — a redirect is a perfectly correct answer to
+a question nobody had asked, and the rep who tested the link was signed in,
+which is the one state in which it works. The other half was armed and
+waiting the same way: with the list finally passed, `HubBar` is what keeps
+the sidebar, the help layer and live links to Client 360 and `/sales/leads`
+off a page a customer reads. `PUBLIC_PREFIXES` is declared in the module and
+read by `wsgi.py` with `getattr` now, the arrangement `modules/scans`,
+`modules/ads_builder` and `modules/sales_builder` already use, so the mount
+and the module cannot disagree about what is public.
+
+**Neither radio store read `HUB_DATA_DIR`.** Both carried their own copy of
+the six-line data-root expression — the thing `hub/jsonstore.data_root()`
+exists to be the single reader of — and neither consulted the variable at
+all. On this service it is unset, so they agreed with every other module by
+luck; on a deployment that sets it, every radio project would land outside
+the root the database mirror keys against and `/api/backup` reports on,
+while everything else moved. Both go through `jsonstore.data_dir()` now.
+`test_radio_builders.py` asserts all of it, and asserts the two speech
+passes' **divergence** rather than the identical reading `fan_radio/speech.py`
+used to claim: Radio Promo says numbers as words and spells a web address
+and an email out loud, and Fan Radio does neither, so a spot whose whole
+call to action is the website is handed to the voice raw. Named rather than
+quietly merged — one shared reader is what closes it, and it changes what a
+client hears.
+
 **Three answers, and the fourth state is not an answer.** Approve/reject
 forces "yes, but fix the phone number" into whichever end is nearest, the rule
 `modules/ads_builder/spec.py` arrived at for the paid-search estimate; the
@@ -7797,6 +7832,10 @@ python3 test_google_index.py       # the Google sweep: no request, and none vs c
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
+python3 test_radio_builders.py     # the two radio builders: the client's own
+                                   #   approval page public and chrome-free,
+                                   #   nobody's trademark leaving the building,
+                                   #   and a long read flagged rather than trimmed
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,

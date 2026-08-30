@@ -1203,3 +1203,19 @@ jobs:
       # could not give: overdue, a failure streak, and not-measured-here.
       - name: Background jobs report whether they are working
         run: python3 test_scheduler_health.py
+
+      # The two radio commercial builders. Neither had a test, and the
+      # customer-facing half of Fan Radio was behind the staff login: the
+      # module has said since it was written that /r/, /api/public/ and
+      # /audio/ are the customer's, and the mount passed AuthGuard no public
+      # prefixes at all, so mailing a client their approval link mailed them a
+      # sign-in form for an account they will never have -- and the audio
+      # player on the page was dead with it. Nothing errored; the redirect is
+      # a correct answer to a question nobody asked. This holds both halves of
+      # "public" (reachable, and no staff chrome on a page a client reads),
+      # that a link which is not live answers what an invented one answers,
+      # that the trademark guard refuses a render before a provider is called,
+      # and that both stores write under the shared data root rather than
+      # their own copy of it.
+      - name: Radio builders — the client's page, the marks, and the clock
+        run: python3 test_radio_builders.py

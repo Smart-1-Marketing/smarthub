@@ -32,12 +32,19 @@ _lock = threading.RLock()
 
 # ------------------------------------------------------------------ paths
 def data_dir() -> str:
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__)))), "data")
-    path = os.path.join(base, "fan_radio")
-    os.makedirs(os.path.join(path, "projects"), exist_ok=True)
-    os.makedirs(os.path.join(path, "audio"), exist_ok=True)
+    """Through jsonstore, which is the one place that decides where
+    persistent files live.
+
+    This was its own six-line copy of that expression and it did not read
+    HUB_DATA_DIR at all -- so on a deployment that sets it, every project
+    here landed outside the root the mirror keys against and the backup
+    sweep reports on, while every other module moved. They agreed on this
+    service only because the variable happens to be unset, which is the luck
+    rather than design jsonstore.data_root() was written to end.
+    """
+    path = jsonstore.data_dir("fan_radio")
+    jsonstore.data_dir("fan_radio", "projects")
+    jsonstore.data_dir("fan_radio", "audio")
     return path
 
 
