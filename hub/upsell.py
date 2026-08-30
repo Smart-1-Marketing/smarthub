@@ -124,11 +124,36 @@ def audits_for(domains: Iterable[str]) -> tuple[dict, str]:
                         "age": website_audit.staleness(when),
                         "findings": website_audit.opportunities(report),
                         "observed": _observed(report),
+                        "traffic": _traffic(report),
                     }
                     # The blob goes out of scope here on purpose.
     except Exception as exc:                                # noqa: BLE001
         return {}, f"{type(exc).__name__}: {exc}"[:300]
     return out, ""
+
+
+def _traffic(report: dict) -> dict:
+    """What the audit measured about how the site is doing.
+
+    Added to the shared reduction rather than to a second query of the same
+    table: `hub/client_health.py` asks the identical question of the identical
+    scan, and two readers of one audit is how the client record and the QA
+    report come to quote different numbers for one business.
+
+    Every figure is `None` where the plan did not run that check — never zero.
+    A zero here reads as "nobody visits this site", which is a claim about
+    somebody's business rather than about our audit.
+    """
+    from hub.website_audit import _get, _n                    # noqa: PLC2701
+    return {
+        "organic_monthly": _n(_get(report, "organic_search.average_monthly_traffic")),
+        "keywords": _n(_get(report, "organic_search.num_keywords_ranked_for")),
+        "paid_monthly_visits": _n(_get(report, "paid_search.average_adtraffic")),
+        "mobile_speed": _n(_get(report, "page_speed.mobile_speed_score")),
+        "review_rating": _n(_get(report, "google_business_profile.review_rating")),
+        "review_count": _n(_get(report, "google_business_profile.review_count")),
+        "broken_links": _n(_get(report, "broken_links.num_broken_links")),
+    }
 
 
 def _observed(report: dict) -> dict:

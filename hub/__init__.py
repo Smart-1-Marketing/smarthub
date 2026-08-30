@@ -61,6 +61,7 @@ _MOUNT_ACTIVE_HUB = {
     # Tools instead -- nav pointing at the wrong entry is a small lie the
     # reader corrects by ignoring the highlight.
     "/tools/website-audit": "website_audit",
+    "/my-clients": "myclients",
 }
 
 
@@ -5950,6 +5951,12 @@ def create_hub_app() -> Flask:
                        "sites-match": "sites_admin",
                        "domains": "sites_admin",
                        "google-match": "google_access",
+                       # /my-clients is deliberately absent: no walkthrough
+                       # is registered for it, and data-module is what floats
+                       # the "Walk me through this" button onto a page. A
+                       # button that offers a tour nobody wrote is the
+                       # silence Smart 1 Ads shipped on Settings and Live
+                       # campaigns.
                        "stale-creative": "qa", "qa": "qa"}.get(slug, "")
                 if mod:
                     body = re.sub(rb"<body\b",
@@ -6115,6 +6122,20 @@ def create_hub_app() -> Flask:
     except Exception as _pp_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _pp_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Client ownership and the health report ----------------
+    # Registered in a try of its own rather than beside the audits below: they
+    # answer different questions and a fault in one must not cost the other,
+    # which is the reason the Display Ad Builder's proxy and its client links
+    # are two registrations rather than one.
+    try:
+        from .client_health import register_client_health
+        register_client_health(app)
+    except Exception as _ch_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _ch_exc)
         except Exception:  # noqa: BLE001
             pass
 

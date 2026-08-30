@@ -163,14 +163,6 @@ ALLOW = {
     "hub/demo.py:sample_ai_names": "demo data, for a walkthrough on an empty deploy",
     "hub/demo.py:sample_billing": "demo data, for a walkthrough on an empty deploy",
 
-    # --- named, because it promises something it cannot currently do --------
-    "modules/sites_admin/seed_boot.py:seed_if_empty":
-        "REPAIR THIS OR REMOVE IT. Its docstring says a freshly-recreated "
-        "database 'repopulates itself on the next startup', and it is imported "
-        "by nothing and there is no seed/portfolio.json for it to read, so it "
-        "has never run and could not. Wiring it means a database write at boot "
-        "in two gunicorn workers and a seed file exported from the live "
-        "portfolio; neither is a decision this file should make quietly",
 }
 
 
