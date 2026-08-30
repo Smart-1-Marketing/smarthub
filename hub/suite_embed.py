@@ -117,6 +117,11 @@ EMBEDDABLE: tuple[str, ...] = (
     "/assets/",            # theme.css
     "/hub-",               # hub-help.js and friends
     "/static/",
+    # The client-facing SSO frame. It renders none of their data — its whole
+    # job is the handshake, after which it sends them to their own content
+    # link — but it is framed by HighLevel like the pages above and needs the
+    # same header. hub/suite_sso.py is the half that decides who is looking.
+    "/suite-app",
 )
 
 # Public tool pages, built to be framed on somebody else's site.

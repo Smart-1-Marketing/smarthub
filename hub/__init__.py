@@ -2914,6 +2914,63 @@ def create_hub_app() -> Flask:
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "social": social})
 
+    # ------------- the Smart 1 Suite app frame (a CLIENT, not a rep)
+    #
+    # The path is "/suite-app" and deliberately NOT "/suite/app": /suite is a
+    # dispatcher-mounted module, and a hub route under a mounted prefix never
+    # receives the request — it 404s with every template valid and every link
+    # resolving. This is the first trap CLAUDE.md names and it has bitten four
+    # times now; /api/integrity's high-severity check is what caught this one.
+    #
+    # hub/suite_embed.py solved the staff case: a rep already has a Hub session
+    # in that browser. A client has none and must never be given one, so
+    # identity comes from HighLevel's SSO handshake instead — the framed page
+    # asks its parent for the user payload, HighLevel replies encrypted under
+    # the app's SSO key, and hub/suite_sso.py decrypts it here to learn which
+    # sub-account this person is in.
+    #
+    # These two routes are deliberately the whole client-facing surface. They
+    # prove who is looking and then hand them their *existing* content link —
+    # the pages behind it are already client-facing, already scoped to one
+    # client and already tested, so no new place to see data is created here.
+    # Somewhere for one client to be shown another client's record is exactly
+    # what this handshake exists to prevent, and the smallest way to build it
+    # is not to build one.
+    @app.route("/suite-app")
+    def suite_app_frame():
+        from . import suite_sso
+        # Not configured is said in words rather than drawn as a broken frame.
+        # This page is only ever reached from inside Suite, so the reader is
+        # whoever configured the menu link.
+        return render_template("suite_app.html",
+                               configured=suite_sso.configured(),
+                               why_not=suite_sso.why_not())
+
+    @app.route("/suite-app/session", methods=["POST"])
+    def suite_app_session():
+        """Turn an SSO payload into somewhere this client may go.
+
+        No client name is taken from the request — the location id inside the
+        decrypted payload is the only thing identity comes from, which is the
+        whole security model and the reason this route accepts nothing else.
+        """
+        from . import suite_sso
+        body = request.get_json(silent=True) or {}
+        found = suite_sso.identify(str(body.get("payload") or ""))
+        if not found["ok"]:
+            # The four refusals are named for whoever has to fix one, and none
+            # of them says anything a prober could tune a guess against: an
+            # unreadable payload is unreadable whatever was wrong with it.
+            return jsonify({"ok": False, "state": found["state"],
+                            "error": found["detail"]}), 403
+        from modules.social_planner import links as social_links
+        target = social_links.link(found["client"], found.get("client_url", ""),
+                                   "approve", request.host_url)
+        audit.log("hub", "suite_sso_session", actor="suite",
+                  client=found["client"], location=found["location_id"],
+                  user=found["user"].get("email", ""))
+        return jsonify({"ok": True, "client": found["client"], "url": target})
+
     # ------------- social content: requests, ideas, the client's own link
     #
     # The Social Media card above is the client's profile URLs, which is a
@@ -5248,6 +5305,16 @@ def create_hub_app() -> Flask:
                   "/robots.txt", "/llms.txt",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
                   "/sales/landing/p/",
+                  # The Smart 1 Suite app frame. A *client* opens this inside
+                  # their own sub-account and has no Hub account at all, so
+                  # the staff sidebar, help layer and feedback tab must not be
+                  # injected into it — the same reason the landing pages above
+                  # are here, one audience further out.
+                  # NOT "/suite/…": that prefix is a mounted module, and a hub
+                  # route under a mount never receives the request. /api/integrity
+                  # has a high-severity check for exactly that, and it caught
+                  # this one before it shipped.
+                  "/suite-app",
                   # The display-ad proof. A client opens this to approve or
                   # send back a set of banners, so it must not arrive wearing
                   # the staff sidebar, the help layer and a feedback tab --
