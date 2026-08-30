@@ -500,8 +500,13 @@ jobs:
         #
         # test_dashboard_trends.py and test_google_index.py had the same
         # shape and were fixed the other way, by owning DATABASE_URL as well
-        # as HUB_DATA_DIR (the test_blog_publish.py pattern).
-        # test_jsonstore.py pins that so it cannot come back.
+        # as HUB_DATA_DIR (the test_blog_publish.py pattern), and so did
+        # test_io_records.py and test_sales_status.py -- which reached the
+        # identical state by setdefaulting BOTH, so the sweep that pins this
+        # could not see them: fresh directory, inherited mirror, whenever
+        # only the database is set in the environment. test_jsonstore.py
+        # reads either spelling now, and holds every file in the shape
+        # against a list of the ones actually re-run to prove they are safe.
         run: |
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py
