@@ -194,6 +194,71 @@ finally:
 check("and the Hub itself is clean", integrity.check_provider_key_drift(), [])
 
 
+# ------------------------------------------ 6b. A template nothing renders
+section("A page that exists is not a page anybody can reach")
+
+# The same shape as the drift check above and for the same reason: a check
+# that can be satisfied by an edit somewhere else is worse than no check, so
+# it is handed a template that is plainly unreachable and required to say so.
+#
+# What it cost before it existed: modules/sites_admin/templates/site_detail.html
+# was rendered by nothing and was restyled anyway in the sweep that made Sites
+# read like the rest of the Hub, and google_finder's reports.html was
+# byte-identical to gtm_logs.html apart from its <title>. Reading the
+# directory, all three looked like features.
+_orphan = ROOT / "hub" / "templates" / "_integrity_orphan_probe.html"
+_orphan.write_text("<p>nothing renders this</p>\n", encoding="utf-8")
+try:
+    found = integrity.check_orphan_templates()
+    hit = [f for f in found if f["file"].endswith("_integrity_orphan_probe.html")]
+    check("a template no route can produce is reported", len(hit), 1)
+    check("and the finding says why that is invisible otherwise",
+          "no request can produce it" in (hit[0]["detail"] if hit else ""), True)
+
+    # A name chosen in a conditional and passed in a variable is still a
+    # render. modules/scans does exactly this to pick between widget.html and
+    # widget_audit.html, and a check reading only the literal arguments of a
+    # render_template() call reports its two most client-facing pages as dead
+    # -- which is how somebody comes to delete a live page.
+    _caller = ROOT / "hub" / "_integrity_orphan_caller.py"
+    _caller.write_text(
+        "def pick(kind):\n"
+        '    return "_integrity_orphan_probe.html" if kind else "other.html"\n',
+        encoding="utf-8")
+    try:
+        found = integrity.check_orphan_templates()
+        check("a computed template name is not an orphan",
+              [f for f in found
+               if f["file"].endswith("_integrity_orphan_probe.html")], [])
+    finally:
+        _caller.unlink(missing_ok=True)
+
+    # Reached by {% include %} rather than by a route: a partial has no route
+    # of its own and must not be read as dead. modules/scans/_scan_mark.html
+    # is the real one -- three client-facing pages import it.
+    _includer = ROOT / "hub" / "templates" / "_integrity_orphan_host.html"
+    _includer.write_text(
+        '{% include "_integrity_orphan_probe.html" %}\n', encoding="utf-8")
+    try:
+        found = integrity.check_orphan_templates()
+        check("a partial reached by include is not an orphan",
+              [f for f in found
+               if f["file"].endswith("_integrity_orphan_probe.html")], [])
+        # ...and the host itself, which nothing renders, still is.
+        check("while the file that includes it, which nothing renders, is",
+              len([f for f in found
+                   if f["file"].endswith("_integrity_orphan_host.html")]), 1)
+    finally:
+        _includer.unlink(missing_ok=True)
+finally:
+    _orphan.unlink(missing_ok=True)
+
+# It started empty, which is the only way it was worth adding: the three it
+# found were deleted in the same change.
+check("and no template in the Hub is unreachable",
+      integrity.check_orphan_templates(), [])
+
+
 # ------------------------------------------------- 7. Cloudinary's two forms
 section("Cloudinary is configured either way it is published")
 
