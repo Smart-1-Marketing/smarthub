@@ -907,6 +907,35 @@ a comparison can come back without inventing anything.
 `test_dashboard_trends.py` holds both halves: the readings accumulate, and
 nothing on the page claims a comparison.
 
+**And eleven reports read that export without ever asking whether it could
+be read.** `knack_data._load()` swallows `OSError` and returns `None`, so a
+missing, unreadable or malformed `products.json` yields `[]` — and to a caller
+that is indistinguishable from a client base with nobody on it. Six client
+reports and both Scorecards rendered a clean empty table saying **every client
+has a dashboard, nobody has lapsed, nobody is missing Analytics and nobody
+churned**, and `report_cache.is_answer()` stored it as the day's answer, frozen
+until tomorrow, on a source that was never read. The three billing reports
+behind it were worse than quiet: an unreadable export makes every Suite
+sub-account look like one with no live product, which is
+`ghl_billing_no_products`' own finding, so it would have *invented* rows
+rather than merely missed them.
+
+`knack_data.products_error()` is the question, and it is a **sentence rather
+than a bool** so the report can print why it is not measured. It tells the two
+empties apart — the file could not be read, or it was read and holds no rows —
+because they are different things to do about it.
+
+**The sweep is what found the last three.** `test_qa_reports.py` reads the
+**AST** of `hub/qa.py`, takes the transitive closure of every report function's
+own calls, and asks which of them reach `_client_groups()` or `_month_rollup()`
+— so a report added next month is swept without anybody remembering. Written
+against the six that were obvious, it immediately named `invoice_off` and both
+Suite billing reports as well. And the assertion is **"never a green tick"
+rather than "always `measured: False`"**: two of the eleven reach a provider
+before they reach the export and say *that* first, which is a true statement
+about why they could not look — asserting the flag would pass or fail on which
+providers the environment happens to have configured.
+
 **And the two Scorecards were measuring "running" a third way, on the same
 page as the reports that do not.** `qa._active_in_month()` was written beside
 the scorecard rather than beside `is_running()`, and it tested `status in
