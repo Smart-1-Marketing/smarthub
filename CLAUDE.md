@@ -4825,13 +4825,13 @@ resolves to a unit that says what replaced it.** Deleting them would orphan the
 tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
-declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x` and
-`linkedin` today. The four still on the 2025 transcription are named in
-`_KIT_NAMES_PENDING` with what is known to have moved (TikTok's six names
-include none of our three; YouTube's *TrueView* is now *Skippable in-stream*),
-and `kit_coverage()` carries them. A backlog named rather than left as an
-absence — a check listing every platform on the day it is written is red on
-the day it is written, and gets switched off.
+declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
+`linkedin` and `tiktok` today. The three still on the 2025 transcription are
+named in `_KIT_NAMES_PENDING` with what is known to have moved (YouTube's
+*TrueView* is now *Skippable in-stream*), and `kit_coverage()` carries them. A
+backlog named rather than left as an absence — a check listing every platform
+on the day it is written is red on the day it is written, and gets switched
+off.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
@@ -4863,6 +4863,36 @@ and an Event ad pulls its 4:1 image off the LinkedIn Event page. Those are
 modeled as `kind: "other"` with no ceilings rather than left out, so a
 requirement can name them and `check()` is never handed one — the answer
 `x_polls` already gives.
+
+**And TikTok is the same finding with the cost the other way up.** Its 2025
+model named three formats to the kit's six and not one of the three was a
+format TikTok sells — found by the name pass, as X and LinkedIn were. What the
+names could not reach is that **two of the three refused creative the kit
+allows, and the third asked for a file that no longer exists.** The in-feed
+video was capped at **:60** against a published **10 minutes** and took two
+file types where the kit takes five; the image ad was pinned to **1200x628 at
+500 KB**, when the kit specs images by ratio now and says in as many words that
+1200x628 *"survives only as the horizontal carousel option"* — so a 720x1280
+vertical, the shape TikTok itself recommends, was refused outright. That is the
+LinkedIn ceiling failure one channel over, and the second time in two
+transcriptions that the numbers were worse than the names.
+
+**A format the kit stops selling is retired, never re-pointed.** `tiktok_image`
+and `tiktok_profile` are in `RETIRED_UNITS` — out of `UNITS`, so nothing asks a
+client for them, and still in `BY_ID`, so a row carrying `unit_tiktok_image`
+resolves to a unit saying what replaced it. Quietly aiming that id at the
+carousel instead would make a delivered 1200x628 read as one card of a
+two-to-thirty-five image set, which is a wrong answer wearing a fix. Profile
+Image goes for a reason that is not about pixels at all: Custom Identity is
+being retired, so from January 2026 the avatar is **inherited from the linked
+TikTok account** and there is nothing for a client to supply. `tiktok_video`
+keeps its id through its rename, the `billboard` rule.
+
+**A target is not a ceiling, and the carousel is where that bites next.** The
+kit publishes *"100 KB suggested per image"*, which is `target_bytes` and not
+`max_bytes` — carried as `min_bytes` once already, in DOOH, where a clean 30 KB
+billboard was refused against a number nobody published as a minimum. Read as a
+maximum here it would refuse a 140 KB card the kit is perfectly happy with.
 
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
