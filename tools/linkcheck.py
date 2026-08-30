@@ -281,10 +281,16 @@ def _rendered_templates():
 
     A url_for in a template nothing renders cannot 500 anybody today, and
     failing the build on one would have started this check red — which is how
-    a check gets switched off. Those are reported as a note instead. It is
-    still worth naming: modules/sites_admin/templates/site_detail.html is
-    exactly the shape project_detail.html was in, a form written against
-    routes that were never added.
+    a check gets switched off. Those are reported as a note instead.
+
+    What this note *cannot* say is that the template is unreachable at all:
+    it sees one only when it also finds a broken url_for inside, so an orphan
+    whose links happen to resolve is invisible here. That question belongs to
+    `integrity.check_orphan_templates()`, which asks it directly — and its
+    first three findings were deleted rather than reported, so this note now
+    has nothing standing behind it. Left as a live check because the next
+    template written against routes nobody added will land here first, the
+    way sites_admin's project_detail.html did.
     """
     # Whole-file, not line by line. sites_admin writes
     #     return render_template(

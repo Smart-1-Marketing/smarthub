@@ -6612,6 +6612,39 @@ and the dashboard went on offering four links and a promise. `partner.tiles()`
 draws the row from the files on disk now: a page filed here appears without a
 template edit, and one not yet filed greys out under its own name.
 
+**And the same thing one layer down: a template nothing renders.** That one
+at least had a caller waiting for it. A template has nothing at all to notice
+it — it is valid Jinja, `tools/pagecheck.py` never requests it because no
+route serves it, and `tools/linkcheck.py` names one only when it *also* finds
+a broken `url_for` inside, so an orphan whose links happen to resolve is
+invisible to every check here. What it costs is not disk. Three were found:
+`modules/sites_admin/templates/site_detail.html`, rendered by nothing and
+**restyled anyway** in the sweep that made Sites read like the rest of the
+Hub — real effort spent on a page no request can produce; and
+`modules/google_finder`'s `gtm_logs.html` and `reports.html`, which were
+**byte-identical apart from the `<title>`**, a copy-paste nobody finished,
+sitting in front of live `/api/reports/save` and `/api/reports/search` routes
+with no screen. Reading the directory, all three looked like features.
+
+`integrity.check_orphan_templates()` asks it directly, and two rules keep it
+from being worse than the gap. **A computed name is still a render**:
+`modules/scans` picks between `widget.html` and `widget_audit.html` in a
+conditional and passes the result, so a check reading only the literal
+arguments of a `render_template()` call reports the two most client-facing
+pages in that module as dead — which is how somebody deletes a live page. So
+a name is matched as a **string constant anywhere in the source**, looser
+than a call site on purpose: missing an orphan costs a file nobody deletes,
+and naming a live page costs the page. And **a test naming a template is not
+a route rendering it** — the drift check's "prose is not a call site" rule
+one step over, and not hypothetical, since the sweep that restyled the dead
+`site_detail.html` added a test naming it, which would have hidden it for
+ever. A partial reached by `{% include %}` and a layout reached by
+`{% extends %}` are read out of the templates themselves rather than assumed.
+
+It is **low** severity: an orphan breaks no page, it wastes the next person
+who edits it. And it started at zero, because the three it found were deleted
+in the change that added it.
+
 ### Who is signed in, and what that number is allowed to claim
 
 `hub/presence.py`, the top of the **System status** card on the dashboard, and
@@ -7115,6 +7148,8 @@ python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
                                    #   is public; and a walk that finds no mounts is
                                    #   a failure rather than an empty sweep
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
+                                   #   and a template nothing renders, which no
+                                   #   other check here can see
 python3 test_knack_websites_source.py # websites live where Knack answers, the
                                    #   export where it will not, and a failed
                                    #   pull that never empties a good one
