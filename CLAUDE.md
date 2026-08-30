@@ -285,6 +285,52 @@ added before that observer existed did not.
 **`audit.log()`'s first positional is `module`.** Passing `module=` in the
 extras raises `TypeError` and silently zeroes cost tracking. Use `tool=`.
 
+**And binding the logger is not calling it.** `/api/integrity`'s silent-module
+check asked whether the *string* `"for_module("` appeared in a module's source,
+which the binding alone satisfies. So seven modules — `calculators`,
+`google_finder`, `image_optimizer`, `page_image_optimizer`, `pdf_optimizer`,
+`sites_admin` and `tickets` — imported `hub.audit`, bound it to `_audit`,
+wrapped it in a no-op fallback for running standalone, wrote a comment above
+the import explaining exactly why attribution mattered there, and called it
+nowhere. The comments are the part worth reading: pdf_optimizer's said *"work
+that isn't logged is work nobody can point to later"*, and
+page_image_optimizer's and sites_admin's said *"an unattributable change to a
+client's account is one nobody can explain later"*. All three were true and
+none of them wrote a row, so **deleting a client's live website, connecting a
+domain, deploying a tag into somebody else's Tag Manager container and
+compressing a client's documents were the least attributable actions in this
+Hub** — behind a check reporting them clean. That is the declared-but-unwired
+integration point this file already counts in `RECORD_HOOK`, `io_creative`,
+`manifest()`, `thumb_url()`, `mark_pushed()` and `check_limits()`, wearing the
+activity log. The check reads a **call** now, through the AST — an import
+cannot satisfy it, and a docstring quoting `audit.log(` is not a call site,
+the rule `hub/config.py`'s drift check gives. A module whose work genuinely
+does not belong in the log is declared in `audit.NO_ACTIVITY` with the reason
+rather than left as a dangling import: `calculators` is the only one, because
+what a public estimate box produces is a **lead**, and leads go through
+`hub/leads.py`.
+
+**A module's own `log()` wrapper hid the same failure one step on.**
+`check_work_kinds()` counted only a direct `audit.log("mod", …, client=…)`,
+reasoning that a bare `log()` is a wrapper whose first argument is the event
+rather than the module. True, and it drops those modules entirely — the name is
+one level up, in whatever bound the wrapper (`log = audit.for_module("msa")`,
+or `def log(event, **extra): hub_audit.log("radio_promo", event, **extra)`).
+Four fell through, and **`radio_promo` is the one that shows the cost**:
+`fan_radio` has been in `WORK_KINDS` since it was written and its sibling was
+not, so a client who had a Fan Radio spot made appeared on their own record and
+a client who had a Radio Promo spot made did not — two tools writing, casting
+and recording a commercial for the same client, one of them invisible.
+`gpt_ads`, `landing_ads` and `msa` were the others; `hub/prospect.py` and
+`hub/stale_creative.py` surfaced with them and are the *other* answer, in
+`NOT_WORK`. **And the check's two halves each had their own copy of the walk** —
+`stale_work_exemptions()` asks what no longer logs, the same walk from the
+opposite end, so the moment one learned to resolve a wrapper and the other did
+not, every `NOT_WORK` entry added for a wrapper-shaped call site was reported
+stale. They read one `_client_log_modules()` now, the
+`/api/db/structure` versus `/api/integrity` rule. `test_activity_logging.py`
+asserts all of it, and both checks were reverted and confirmed red first.
+
 **A provider is not metered in calls just because you counted calls.**
 `hub/quotas.py` estimates six providers now, and only three of them bill per
 call. ElevenLabs bills the **character** of script, so counting renders makes
@@ -7832,6 +7878,10 @@ python3 test_google_index.py       # the Google sweep: no request, and none vs c
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
+python3 test_activity_logging.py   # every module's work is attributable: an
+                                   #   import is not a call, a module's own
+                                   #   log() wrapper is resolved, and the
+                                   #   remainder is declared with its reason
 python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,

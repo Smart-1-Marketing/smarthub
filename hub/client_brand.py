@@ -88,6 +88,25 @@ WORK_KINDS = {
     "brand":                ("Brand assets", "Brand"),
     # `hub/ghl_blog.py` publishing a post's llms.txt into the client's Suite.
     "suite":                ("Published to Suite", "Smart 1 Suite"),
+    # Four more, found once check_work_kinds() learned to resolve a module's
+    # own `log()` wrapper. The check read only a direct `audit.log("mod", …,
+    # client=…)`, and these four carry the module name one level up — in the
+    # wrapper that binds it — so none of them reached the test at all.
+    #
+    # radio_promo is the one that shows what the gap costs: `fan_radio` has
+    # been in this table since it was written and its sibling was not, so a
+    # client who had a Fan Radio spot made appeared on their own record and a
+    # client who had a Radio Promo spot made did not. Both tools write, cast
+    # and record a commercial for the same client.
+    "radio_promo":          ("Radio spot", "Radio Promo"),
+    "gpt_ads":              ("GPT ad pack", "GPT Ads Builder"),
+    "landing_ads":          ("Landing page ads", "Landing Page Ads"),
+    # A signed master service agreement is filed against the company that
+    # signed it, and it is the document every later deliverable hangs off. It
+    # is not something we produced *for* them in the way a spot is, which is
+    # the argument for NOT_WORK -- but a client record that cannot show when
+    # the agreement was signed is missing the first thing anybody looks for.
+    "msa":                  ("Agreement signed", "MSA"),
 }
 
 # The other side of the same question, written down rather than left as an
@@ -118,7 +137,139 @@ NOT_WORK = {
     # Hub housekeeping: a domain attached, an SEO task ticked. Same reason.
     "hub":          "housekeeping — a join or a status, not a deliverable",
     "qa":           "a report row acted on, not work produced",
+    # Both surfaced by the same wrapper-resolving pass that found the four
+    # added to WORK_KINDS above, and both are the other answer.
+    #
+    # hub/prospect.py logs `converted` with the client's name on it, which is
+    # the moment a prospect *becomes* a client. The row is about the lead, not
+    # about anything delivered — filing it as work would put "we did this for
+    # you" against a record whose whole point is that the work starts now.
+    "prospect":     "a lead converting to a client, not work delivered",
+    # hub/stale_creative.py logs somebody marking a campaign evergreen. That
+    # is a decision about a report row, the same shape as `qa` above.
+    "stale_creative": "a report row marked evergreen, not work produced",
 }
+
+
+def _logger_bindings(tree) -> dict:
+    """Names in this file that are the activity logger, and what they log as.
+
+    Two shapes, both in use here:
+
+        log = audit.for_module("msa")
+        def log(event, **extra):
+            hub_audit.log("radio_promo", event, actor=actor(), **extra)
+
+    Returns ``{"log": "msa"}`` / ``{"log": "radio_promo"}``. A wrapper whose
+    body names no module string is not a binding -- it may be a plain Python
+    logger, and attributing a client row to one would be worse than missing it.
+    """
+    import ast
+
+    # Module-level string constants, so a wrapper written
+    # `hub_audit.log(MODULE, event, ...)` resolves too -- gpt_ads is shaped
+    # that way, and reading only a literal there loses a module that logs ten
+    # different kinds of client work.
+    consts: dict[str, str] = {}
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    consts[t.id] = node.value.value
+
+    def _name_of(node):
+        """The module string an argument carries, literal or via a constant."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return consts.get(node.id)
+        return None
+
+    out: dict[str, str] = {}
+    for node in ast.walk(tree):
+        # log = audit.for_module("msa")
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            f = node.value.func
+            if (isinstance(f, ast.Attribute) and f.attr == "for_module"
+                    and node.value.args):
+                name = _name_of(node.value.args[0])
+                if name:
+                    for t in node.targets:
+                        if isinstance(t, ast.Name):
+                            out[t.id] = name
+        # def log(event, **extra): hub_audit.log("radio_promo", event, ...)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for inner in ast.walk(node):
+                if not isinstance(inner, ast.Call):
+                    continue
+                f = inner.func
+                if not (isinstance(f, ast.Attribute) and f.attr == "log"
+                        and isinstance(f.value, ast.Name)
+                        and f.value.id.endswith("audit") and inner.args):
+                    continue
+                name = _name_of(inner.args[0])
+                if name:
+                    out[node.name] = name
+                    break
+    return out
+
+
+def _client_log_modules(root=None) -> dict:
+    """``{module name: {files}}`` for every call that logs against a client.
+
+    One reader, because there are two callers -- check_work_kinds() asks what
+    it cannot name and stale_work_exemptions() asks what no longer logs, and
+    those are the same walk asked from opposite ends. They each had their own
+    copy of it, which is how the second one came to answer a narrower question
+    than the first: the moment check_work_kinds() learned to resolve a
+    module's `log()` wrapper, the other still could not, and every entry added
+    to NOT_WORK for a wrapper-shaped call site was immediately reported as
+    stale. Two checks asking one question will answer it differently, and both
+    answers end up on the same panel -- the failure
+    `jsonstore.unmirrored_json_writers()` exists to close.
+    """
+    import ast
+    import os
+
+    base = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    seen: dict[str, set] = {}
+    for folder in ("hub", "modules"):
+        for dirpath, dirnames, filenames in os.walk(os.path.join(base, folder)):
+            dirnames[:] = [d for d in dirnames
+                           if d not in ("_attic", "node_modules", ".git")]
+            for name in filenames:
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    with open(path, encoding="utf-8", errors="ignore") as fh:
+                        tree = ast.parse(fh.read())
+                except (OSError, SyntaxError):
+                    continue
+                bound = _logger_bindings(tree)
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    if not any(k.arg == "client" for k in node.keywords):
+                        continue
+                    f = node.func
+                    mod = None
+                    if (isinstance(f, ast.Attribute) and f.attr == "log"
+                            and isinstance(f.value, ast.Name)
+                            and f.value.id.endswith("audit")):
+                        first = node.args[0] if node.args else None
+                        if (isinstance(first, ast.Constant)
+                                and isinstance(first.value, str)):
+                            mod = first.value
+                    elif isinstance(f, ast.Name):
+                        # A bare log()/_log() whose module name is carried by
+                        # whatever bound it, one level up.
+                        mod = bound.get(f.id)
+                    if mod:
+                        seen.setdefault(mod, set()).add(
+                            os.path.relpath(path, base))
+    return seen
 
 
 def check_work_kinds(root=None) -> list[dict]:
@@ -133,52 +284,37 @@ def check_work_kinds(root=None) -> list[dict]:
     Reads `audit.log(...)` call sites through the AST rather than by matching
     text: three modules explain this failure in prose that quotes the call,
     and a check that reads the explanation of a fix as the defect is one
-    somebody switches off. Only an attribute call on a name ending in
-    `audit` counts — a bare `log()` is a module's own wrapper whose first
-    argument is the event rather than the module, and counting those made
-    four modules look misfiled.
-    """
-    import ast
-    import os
+    somebody switches off.
 
-    base = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out, seen = [], {}
-    for folder in ("hub", "modules"):
-        top = os.path.join(base, folder)
-        for dirpath, dirnames, filenames in os.walk(top):
-            dirnames[:] = [d for d in dirnames
-                           if d not in ("_attic", "node_modules", ".git")]
-            for name in filenames:
-                if not name.endswith(".py"):
-                    continue
-                path = os.path.join(dirpath, name)
-                try:
-                    with open(path, encoding="utf-8", errors="ignore") as fh:
-                        tree = ast.parse(fh.read())
-                except (OSError, SyntaxError):
-                    continue
-                for node in ast.walk(tree):
-                    if not isinstance(node, ast.Call):
-                        continue
-                    f = node.func
-                    if not (isinstance(f, ast.Attribute) and f.attr == "log"
-                            and isinstance(f.value, ast.Name)
-                            and f.value.id.endswith("audit")):
-                        continue
-                    if not any(k.arg == "client" for k in node.keywords):
-                        continue
-                    if not node.args:
-                        continue
-                    first = node.args[0]
-                    if not (isinstance(first, ast.Constant)
-                            and isinstance(first.value, str)):
-                        continue
-                    mod = first.value
-                    if mod in WORK_KINDS or mod in NOT_WORK:
-                        continue
-                    seen.setdefault(mod, set()).add(
-                        os.path.relpath(path, base))
+    **A bare `log()` is resolved, not skipped.** The first version counted only
+    an attribute call on a name ending in `audit`, on the reasoning that a bare
+    `log()` is a module's own wrapper whose first argument is the event rather
+    than the module — true, and the conclusion dropped those modules entirely.
+    The module name is not missing, it is one level up, in whatever bound the
+    wrapper:
+
+        log = audit.for_module("msa")           -> log(...)  is msa
+        def log(event, **extra):                -> log(...)  is radio_promo
+            hub_audit.log("radio_promo", event, actor=actor(), **extra)
+
+    Neither shape reaches the direct-call test, and the wrapper's own body
+    carries `**extra` rather than a literal `client=`, so it fails that test
+    too. Four modules fell straight through the gap — `radio_promo`,
+    `gpt_ads`, `landing_ads` and `msa` — each logging real client work under
+    a name this table could not name, which is the exact failure the check
+    was added to stop happening a sixth time. `fan_radio` was already in the
+    table and `radio_promo`, its sibling, was not; that asymmetry is what a
+    check is for, and this one could not see it.
+
+    Bindings are resolved per file, which is where every one of them is: a
+    module that binds its logger in one file and calls it from another is not
+    a shape in use here, and guessing across files would attribute a call to
+    whichever module happened to define a `log` first.
+    """
+    out, seen = [], _client_log_modules(root)
     for mod in sorted(seen):
+        if mod in WORK_KINDS or mod in NOT_WORK:
+            continue
         out.append({
             "file": sorted(seen[mod])[0],
             "module": mod,
@@ -199,36 +335,7 @@ def stale_work_exemptions(root=None) -> list[str]:
     written under that name next — the failure `check_stale_json_exemptions()`
     names, on a different shelf.
     """
-    import ast
-    import os
-
-    base = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    live = set()
-    for folder in ("hub", "modules"):
-        for dirpath, dirnames, filenames in os.walk(os.path.join(base, folder)):
-            dirnames[:] = [d for d in dirnames
-                           if d not in ("_attic", "node_modules", ".git")]
-            for name in filenames:
-                if not name.endswith(".py"):
-                    continue
-                try:
-                    with open(os.path.join(dirpath, name), encoding="utf-8",
-                              errors="ignore") as fh:
-                        tree = ast.parse(fh.read())
-                except (OSError, SyntaxError):
-                    continue
-                for node in ast.walk(tree):
-                    if (isinstance(node, ast.Call)
-                            and isinstance(node.func, ast.Attribute)
-                            and node.func.attr == "log"
-                            and isinstance(node.func.value, ast.Name)
-                            and node.func.value.id.endswith("audit")
-                            and node.args
-                            and isinstance(node.args[0], ast.Constant)
-                            and isinstance(node.args[0].value, str)
-                            and any(k.arg == "client" for k in node.keywords)):
-                        live.add(node.args[0].value)
-    return sorted(set(NOT_WORK) - live)
+    return sorted(set(NOT_WORK) - set(_client_log_modules(root)))
 
 
 def _norm(name: str) -> str:
