@@ -24,7 +24,8 @@ import tempfile
 
 _TMP = tempfile.mkdtemp(prefix="s1-site-blocks-")
 os.environ["HUB_DATA_DIR"] = _TMP
-os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
+os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.site_blocks import blocks as B    # noqa: E402

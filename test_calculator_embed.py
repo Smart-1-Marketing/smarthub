@@ -51,7 +51,7 @@ sys.path.insert(0, str(ROOT))
 
 TMP = tempfile.mkdtemp(prefix="s1calcembed_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
-os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
+os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
 os.environ.setdefault("SECRET_KEY", "calc-embed-test-secret")
 
 import flask  # noqa: E402

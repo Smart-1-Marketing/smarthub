@@ -45,7 +45,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 _TMP = tempfile.mkdtemp(prefix="s1-spec-")
-os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
+os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
 os.environ.setdefault("SECRET_KEY", "proposal-spec-test")
 os.environ.setdefault("PANEL_PASSWORD", "test")
 os.environ.setdefault("HUB_DATA_DIR", _TMP)
