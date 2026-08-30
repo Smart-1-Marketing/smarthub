@@ -6,13 +6,15 @@
  * which on a shared box means this service slowly eats the volume its
  * neighbours live on.
  *
- * Deliberately conservative: it only ever removes rendered output and cached
- * downloads, never project records, campaigns, manifests or requests. Those
- * are small and are the audit trail.
+ * Deliberately conservative: it only ever removes rendered output, generated
+ * drafts and cached downloads, never project records, campaigns, manifests,
+ * requests or delivered packs. Those are small, or somebody is holding a link
+ * to them.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { loadPlatforms } from './registry';
 
 export interface SweepOptions {
   outDir: string;
@@ -32,18 +34,52 @@ export interface SweepResult {
   details: string[];
 }
 
-/** Directories safe to prune, with their own retention windows. */
-const PRUNABLE = [
-  { sub: 'google', kind: 'render' as const },
-  { sub: 'amazon', kind: 'render' as const },
-  { sub: 'cache', kind: 'cache' as const },
-  // Completed/failed job records are debug history once terminal; queued or
-  // running ones are far younger than the retention window and untouched.
-  { sub: 'jobs', kind: 'cache' as const },
-];
+/**
+ * Directories safe to prune, with their own retention windows.
+ *
+ * The render directories are **read from the platform registry**, never typed
+ * out. `render.ts` writes to `<outDir>/<platform>/<concept>`, so a list
+ * spelled here is a second answer to which platforms exist -- and this module
+ * had `google` and `amazon` in it while `meta.json` sat in the registry being
+ * rendered. Nothing errored: Meta creative simply accumulated on the volume
+ * for ever, on the one module whose whole job is to stop that. That is the
+ * fourth copy of a hardcoded platform list this app has had, after the three
+ * `.filter(p => p === 'google' || p === 'amazon')` calls that dropped a Meta
+ * buy outright. A platform added next month is swept without anybody
+ * remembering.
+ */
+function prunable(): { sub: string; kind: 'render' | 'cache' }[] {
+  const platforms = [...loadPlatforms().keys()].map(
+    (sub) => ({ sub, kind: 'render' as const }),
+  );
+  return [
+    ...platforms,
+    { sub: 'cache', kind: 'cache' as const },
+    // Completed/failed job records are debug history once terminal; queued or
+    // running ones are far younger than the retention window and untouched.
+    { sub: 'jobs', kind: 'cache' as const },
+    // Generated pictures are drafts. `POST /api/imagery/keep` is the press
+    // that moves one to Cloudinary, and the reason that route exists at all
+    // is that the draft on this disk does not last -- so a gallery row
+    // pointing at it would open today and 404 after the sweep. That was the
+    // written contract and the sweep did not honour it: `imagery/` was in no
+    // list, so every generated hero stayed for ever. A rule the code does not
+    // keep is worse than no rule, because it is the rule people reason from.
+    { sub: 'imagery', kind: 'cache' as const },
+  ];
+}
 
-/** Never touched, whatever their age. */
-const PROTECTED = new Set(['projects', 'campaigns', 'requests', 'reports']);
+/**
+ * Never touched, whatever their age.
+ *
+ * `deliveries` is here rather than merely absent, and the difference matters:
+ * an omission reads as an oversight and gets 'fixed'. A delivered pack is the
+ * file behind the download button on the proof, which stays there however many
+ * times the client opens the page -- sweeping it turns a working link into a
+ * 404 for the one person the whole tool is for. It is bounded in practice
+ * because a campaign is delivered once.
+ */
+const PROTECTED = new Set(['projects', 'campaigns', 'requests', 'reports', 'deliveries']);
 
 function walk(dir: string, onFile: (f: string, stat: fs.Stats) => void): void {
   let entries: fs.Dirent[];
@@ -74,7 +110,7 @@ export function sweep(opts: SweepOptions): SweepResult {
   const now = Date.now();
   const result: SweepResult = { scanned: 0, removed: 0, bytesFreed: 0, dryRun, details: [] };
 
-  for (const { sub, kind } of PRUNABLE) {
+  for (const { sub, kind } of prunable()) {
     if (PROTECTED.has(sub)) continue;
     const dir = path.join(outDir, sub);
     if (!fs.existsSync(dir)) continue;
