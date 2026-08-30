@@ -54,7 +54,7 @@ TMP = tempfile.mkdtemp(prefix="s1apiusage_test_")
 LOG = os.path.join(TMP, "audit.jsonl")
 os.environ["AUDIT_LOG_PATH"] = LOG
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
 # The estimates read these; pin them so the assertions below are about the
 # arithmetic and not about whatever the environment happens to carry.
 os.environ["ELEVENLABS_USD_PER_1K_CREDITS"] = "0.22"
