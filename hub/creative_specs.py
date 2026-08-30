@@ -486,13 +486,87 @@ UNITS: list[dict[str, Any]] = [
      "notes": ["A single image under 401 px wide renders as a thumbnail."]},
 
     # ---- Snapchat --------------------------------------------------------
-    {"id": "snap_image", "channel": "snapchat", "name": "Single Image Ad",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (1080, 1920),
-     "max_bytes": 5 * MB, "text": {"brand_name": 25, "headline": 34}},
-    {"id": "snap_video", "channel": "snapchat", "name": "Video Ad",
-     "kind": "video", "formats": ["mp4", "mov"], "size": (1080, 1920),
-     "max_bytes": 1 * GB, "duration": (3, 30),
+    # ---- Snapchat --------------------------------------------------------
+    # Transcribed against the 2026 kit. The 2025 model held two formats to the
+    # kit's seven, and both of the two refused creative the kit allows -- the
+    # third transcription running that way, and the reason this list is worked
+    # down rather than waited on:
+    #
+    #   * video capped at :30 against a published :03 to 3:00. The kit's own
+    #     update note says "the 30-second cap is gone", so a :45 spot was
+    #     refused outright.
+    #   * both pinned to a fixed 1080x1920, when the kit publishes that as
+    #     what to *build at* and names 720x1280 as the minimum -- so a legal
+    #     720x1280 file failed on dimensions.
+    #
+    # That second one is the gpt_ads rule: a required 9:16 is a `ratios` entry
+    # and a fail, a recommended 1080x1920 is `min_size` and a warn (it runs, it
+    # just runs soft), and 720x1280 is the floor and fails. Collapsing the
+    # three into one number is what refused the file.
+    #
+    # Both ids are kept through their renames -- the kit pluralises the two
+    # names -- the rule `billboard` gives: tags_for() has written `unit_<id>`
+    # onto delivered creative.
+    {"id": "snap_image", "channel": "snapchat", "name": "Single Image Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 5 * MB, "text": {"brand_name": 25, "headline": 34},
+     "notes": ["Build at 1080x1920; 720x1280 is the stated minimum, not the "
+               "target.",
+               "The help center specifies a 25-character brand name and the "
+               "Marketing API allows 32 — 25 is what a creative brief "
+               "should carry."]},
+    {"id": "snap_video", "channel": "snapchat", "name": "Video Ads",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34},
+     "notes": ["Build at 1080x1920; 720x1280 is the stated minimum.",
+               "The :30 cap is gone — :03 to 3:00 across every video "
+               "format."]},
+    {"id": "snap_sponsored", "channel": "snapchat", "name": "Sponsored Snaps",
+     "kind": "video", "formats": ["mp4", "mov", "jpg", "jpeg", "png"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34, "chat_message": 500,
+              "auto_response": 500},
+     "notes": ["Under :10 is recommended.",
+               "25 to 28 characters of headline is what the kit recommends, "
+               "against a 34 maximum.",
+               "A still is accepted here as well as a video.",
+               "The branded chat background is optional and is its own "
+               "1080x1920 file."]},
+    {"id": "snap_story", "channel": "snapchat", "name": "Story Ads",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
      "text": {"brand_name": 25, "headline": 34}},
+    {"id": "snap_collection", "channel": "snapchat", "name": "Collection Ads",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34},
+     "notes": ["The product tiles are their own files, beside the "
+               "1080x1920 hero."]},
+    {"id": "snap_commercial", "channel": "snapchat", "name": "Commercials",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34},
+     "notes": ["H.264.",
+               "The first :06 is non-skippable — the argument has to be "
+               "made in it."]},
+    # One row on the kit, two shapes: a static PNG and a moving GIF, at
+    # different sizes. It stays one unit because "AR Filters" is the format
+    # Snapchat sells; splitting it would invent two names the kit does not
+    # publish, which is the drift kit_name_drift() exists to catch. No file
+    # weight is published for it, so none is invented -- the gpt_ads rule.
+    {"id": "snap_ar_filter", "channel": "snapchat", "name": "AR Filters",
+     "kind": "image", "formats": ["png", "gif"],
+     "sizes": [(945, 2048), (720, 1560)], "duration": (1, 3),
+     "notes": ["Static is a 945x2048 PNG; moving is a 720x1560 GIF.",
+               "A moving filter runs :01 to :03.",
+               "The kit publishes no file-weight ceiling for these."]},
 
     # ---- TikTok ----------------------------------------------------------
     # Transcribed against the 2026 kit. The 2025 model held three formats to
@@ -863,7 +937,7 @@ def _plain(fragment: str) -> str:
 
 
 _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
-                     "tiktok": "tiktok"}
+                     "tiktok": "tiktok", "snapchat": "snapchat"}
 
 # Transcribed against the 2025 kit and not yet re-checked against 2026, with
 # what is known to have moved. Not findings -- a backlog somebody works down,
@@ -871,7 +945,6 @@ _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
 # the build on them. Each is a client being asked for a format under a name
 # its platform has changed or dropped.
 _KIT_NAMES_PENDING = {
-    "snapchat": "the kit sells 7 formats against our 2",
     "youtube": "'TrueView' is retired branding for what the kit calls "
                "Skippable in-stream; the kit also sells Shorts and Masthead",
     "native_display": "the kit's asset list is per-platform (The Trade Desk "
