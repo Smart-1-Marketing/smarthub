@@ -1341,5 +1341,120 @@ def media_mix_recommendation():
         return jsonify({'ok': False, 'error': 'Media-mix recommendation failed', 'detail': detail or str(exc)}), 502
 
 
+
+# ---------------------------------------------------------------------------
+# Unfinished insertion orders
+#
+# The browser keeps its own copy in localStorage and always did; this is the
+# half that survives the browser. Somebody interrupted on their laptop and
+# picking the IO up on a different machine had no draft at all before this,
+# and -- worse -- nothing on the start screen said an unfinished one existed,
+# so it was simply started again from the top. See hub/drafts.py.
+#
+# Nothing in here may fail the form it is insuring: every route answers 200
+# with what happened in the body, so an autosave that could not write costs
+# the server copy and never the IO somebody is in the middle of.
+# ---------------------------------------------------------------------------
+
+def _signed_in_as():
+    """Who is using the builder, from the Hub session.
+
+    `AuthGuard` puts the display name on the WSGI environ before Flask sees
+    the request -- the only place it exists for a dispatcher-mounted module,
+    which has no Hub app context and no `flask.g` of its own. Empty is a real
+    answer (the module runs standalone in the tests, and behind the shared
+    password in an emergency) and reads as "not recorded" on the list rather
+    than as somebody's name.
+    """
+    try:
+        return str(request.environ.get("s1hub.user") or "").strip()[:160]
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
+def _drafts():
+    from hub import drafts
+    return drafts
+
+
+def _draft_title(state):
+    """What the row says, from whatever the rep has filled in so far.
+
+    An IO is identified by its client and its order number, and the ordinary
+    case for a draft is that neither is there yet -- so this degrades rather
+    than refusing, and an untitled draft still appears on the list. A row
+    somebody cannot recognize is still better than a draft nobody knows about.
+    """
+    if not isinstance(state, dict):
+        return ""
+    # The browser wraps its own state -- {state, index, currentProduct} -- so
+    # the answers are one level down. Unwrapped here rather than at the route,
+    # because the fallback has to work for whatever posts the draft, and a
+    # title read off the wrapper is "Untitled" on every row.
+    if isinstance(state.get("state"), dict):
+        state = state["state"]
+    client = str(state.get("client") or state.get("client_name") or "").strip()
+    order = str(state.get("orderNumber") or state.get("order_number") or "").strip()
+    if client and order:
+        return f"{client} - IO {order}"
+    return client or (f"IO {order}" if order else "")
+
+
+@app.post("/api/draft")
+def api_draft_save():
+    body = request.get_json(silent=True) or {}
+    try:
+        out = _drafts().save(
+            "io",
+            str(body.get("id") or ""),
+            owner=_signed_in_as(),
+            title=str(body.get("title") or "") or _draft_title(body.get("state")),
+            step=body.get("step") or 0,
+            state=body.get("state") or {},
+        )
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("IO draft save failed: %s", exc)
+        return jsonify({"ok": False, "id": "", "dropped": [],
+                        "error": "not saved on the server"}), 200
+    return jsonify(out), 200
+
+
+@app.get("/api/drafts")
+def api_draft_list():
+    try:
+        rows = _drafts().listing("io", owner=_signed_in_as())
+    except Exception as exc:                            # noqa: BLE001
+        # "nobody has an unfinished IO" and "we could not look" are different
+        # answers, and only the first means there is nothing to pick up.
+        return jsonify({"drafts": [], "measured": False,
+                        "error": f"{type(exc).__name__}"}), 200
+    return jsonify({"drafts": rows, "measured": True, "error": ""}), 200
+
+
+@app.get("/api/draft/<draft_id>")
+def api_draft_get(draft_id):
+    try:
+        row = _drafts().get(draft_id)
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}"}), 200
+    if not row or row.get("kind") != "io":
+        return jsonify({"ok": False, "error": "No such draft."}), 404
+    return jsonify({"ok": True, "draft": row}), 200
+
+
+@app.delete("/api/draft/<draft_id>")
+def api_draft_delete(draft_id):
+    try:
+        row = _drafts().get(draft_id)
+        if not row or row.get("kind") != "io":
+            # Deleted, never existed and belongs to the other builder all
+            # answer the same thing: there is nothing here to discard.
+            return jsonify({"ok": True, "deleted": False}), 200
+        return jsonify({"ok": True, "deleted": _drafts().delete(draft_id)}), 200
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"ok": False, "deleted": False,
+                        "error": f"{type(exc).__name__}"}), 200
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', '8000')), debug=False)

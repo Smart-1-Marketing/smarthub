@@ -1883,7 +1883,10 @@ def create_hub_app() -> Flask:
         items = (request.get_json(silent=True) or {}).get("items") or []
         lines, monthly = [], 0.0
         for i in items:
-            p = rc.find(str(i.get("product") or "")) or {}
+            # The line carries its own category, and it is what tells a
+            # "Behavioral" on location lookback from the one on mobile.
+            p = rc.find(str(i.get("product") or ""),
+                        str(i.get("category") or "")) or {}
             budget = float(i.get("monthly") or 0)
             monthly += budget
             lines.append({**i, "listed_rate": p.get("listed_rate", ""),
@@ -2910,6 +2913,44 @@ def create_hub_app() -> Flask:
         social = seo.set_social(client, body.get("social") or {})
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "social": social})
+
+    # ------------- social content: requests, ideas, the client's own link
+    #
+    # The Social Media card above is the client's profile URLs, which is a
+    # different question from "is anybody at this client asking us for
+    # anything". Before this the record said nothing at all about the work:
+    # a client could have three requests overdue, a link nobody had sent them
+    # and four posts sitting unanswered, and none of it was on the one screen
+    # a rep opens. hub/social_status.py answers it, and the dashboard
+    # scoreboard reads the same module so the two cannot disagree.
+    @app.route("/api/client/social-content")
+    def api_client_social_content():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        if not name:
+            return jsonify({"measured": False, "error": "No client was named."})
+        return jsonify(social_status.for_client(name, url,
+                                                request.host_url))
+
+    @app.route("/api/social/scoreboard")
+    def api_social_scoreboard():
+        """Who is waiting on us, for the dashboard.
+
+        Deliberately not behind `access.UTILITY_PREFIXES`: this is the
+        workload of the people reading the dashboard, and the presence
+        headcount already showed what happens when a figure everybody sees is
+        served by a path most accounts are refused — the panel rendered a
+        confident green nothing for eleven of fourteen people.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        return jsonify(social_status.scoreboard())
 
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
@@ -4958,7 +4999,15 @@ def create_hub_app() -> Flask:
         elif age > 48:
             add("Smart 1 Team data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
         else:
-            add("Smart 1 Team data", "ok", f"Refreshed {age:.0f}h ago · {len(knack_data.products())} product rows · {len(knack_data.websites())} sites.")
+            # The site count says which source answered. Products and websites
+            # each prefer the live Knack object and fall back to the committed
+            # export, and a count with no source on it reads as live whichever
+            # it was — which is the whole reason the export went unnoticed.
+            _wsrc = knack_data.websites_source()
+            add("Smart 1 Team data", "ok",
+                f"Refreshed {age:.0f}h ago · {len(knack_data.products())} "
+                f"product rows · {len(knack_data.websites())} sites "
+                f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
 
         # --- GHL ---
         token, company = _cfg.ghl_token, _cfg.ghl_company_id
@@ -5474,6 +5523,19 @@ def create_hub_app() -> Flask:
     except Exception as _sc_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _sc_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Prospect 360 ----------------
+    # The record a scanned business gets before it is a client. Blueprint, so
+    # the login gate sits on the blueprint itself -- every route here names a
+    # real person and their phone number.
+    try:
+        from .prospect_routes import register_prospect
+        register_prospect(app)
+    except Exception as _pr_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _pr_exc)
         except Exception:  # noqa: BLE001
             pass
 

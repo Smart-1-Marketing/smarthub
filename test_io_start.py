@@ -294,7 +294,13 @@ check("only a name the card holds survives", 'rc.find(picked)' in src, True)
 # insertion order that nothing downstream recognises.
 from hub import ai, rate_card                                   # noqa: E402
 _card_names = [p["product"] for p in rate_card.products()]
-_real, _fake = _card_names[3], "Totally Made Up Product"
+# Deliberately a product whose name identifies exactly one row. Several card
+# names do not -- "Demographic" is four products at four rates -- and those
+# resolve to candidates rather than to a suggestion, which is a different
+# behaviour asserted below. Picking one by index quietly picked one of those.
+_real = next(n for n in _card_names
+             if _card_names.count(n) == 1 and rate_card.find(n) is not None)
+_fake = "Totally Made Up Product"
 _prompt = {}
 
 
@@ -323,6 +329,33 @@ check("and is offered first, so confirming it is one keypress",
 check("but it is still only a suggestion", answered[0]["product"], "")
 check("an invented product is dropped, not shown",
       answered[1].get("suggested"), None)
+
+# A model answer that names a product the card carries more than once. It is
+# not an invention and it is not an answer either -- "Demographic" is four
+# products at four rates -- so the row keeps the real options rather than
+# being dropped or being given a rate nobody quoted.
+_ambiguous = next((n for n in _card_names
+                   if _card_names.count(n) > 1), "")
+
+
+def _stub_ambiguous(messages, **kw):
+    return {"matches": [{"quoted": "Audience targeting", "product": _ambiguous,
+                         "confidence": "high", "why": "audience segments"}]}
+
+
+ai.ready, ai.chat_json = (lambda: True), _stub_ambiguous
+try:
+    amb = product_intake.ai_match(product_intake.read_products(
+        [{"product": "Audience targeting", "monthly": 2500}], months=4))
+finally:
+    ai.ready, ai.chat_json = _saved
+
+check("an ambiguous card name is not suggested as though it were one product",
+      amb[0].get("suggested"), None)
+check("but the real options are offered rather than the row being dropped",
+      len(amb[0].get("candidates") or []) > 1, True)
+check("and every option offered is that same name at its own rate",
+      {c["product"] for c in amb[0]["candidates"]}, {_ambiguous})
 check("and its candidate list is the card's own, unchanged",
       _fake in [c["product"] for c in answered[1]["candidates"]], False)
 check("the model is given the card to choose from",

@@ -326,6 +326,10 @@
   <div id="view-proposals" style="display:none"></div>
   <div id="view-builder" style="display:none"><div class="bshell">
     <div style="display:flex;align-items:center;gap:12px"><span class="stepLabel" style="font-size:13px;color:var(--muted);font-weight:700" id="stepLabel"></span><span style="margin-left:auto" class="savestate" id="saveState"></span></div>
+    <!-- Says which step a reopened quote landed on, and offers the top.
+         A rep who is put on step 9 with no explanation reads it as the tool
+         having skipped ahead, and Back from there is eight presses. -->
+    <div id="resumeNote" class="note" style="display:none;margin:8px 0 0"></div>
     <div class="bprog"><i id="bar"></i></div>
     <div id="stage"></div>
   </div></div>
@@ -592,6 +596,11 @@ let _toastT=null;
 function toast(m){const t=document.getElementById('toastEl');t.textContent=m;t.style.display='block';clearTimeout(_toastT);_toastT=setTimeout(()=>t.style.display='none',5200);}
 function ago(iso){if(!iso)return"";const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return"Today";if(d<2)return"Yesterday";if(d<7)return Math.floor(d)+"d ago";return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 async function api(path,opts){const r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts));const d=await r.json().catch(()=>({}));if(!r.ok&&d&&d.error)throw new Error(d.error+(d.detail?": "+d.detail:""));if(!r.ok)throw new Error("HTTP "+r.status);return d;}
+/* How many steps the wizard has. The list is drawn in an earlier script
+   block than STEPS, so it cannot read STEPS.length -- test_drafts.py holds
+   the two in step rather than memory, the arrangement test_thinking.py uses
+   for the two halves of the thinking mark. */
+const STEP_COUNT=14;
 const badge=s=>({Draft:"b-draft",Sent:"b-sent",Approved:"b-approved",Converted:"b-converted",Lost:"b-lost",Expired:"b-expired"})[s]||"b-draft";
 function editRep(){const n=prompt("Salesperson name (appears on proposals):",REP_NAME||"");if(n===null)return;const e=prompt("Salesperson email:",REP_EMAIL||"");REP_NAME=(n||"").trim();REP_EMAIL=(e||"").trim();lsSet("s1_rep_name",REP_NAME);lsSet("s1_rep_email",REP_EMAIL);drawRep();}
 function drawRep(){document.getElementById('repName').textContent=REP_NAME||"Set your name";document.getElementById('repAv').textContent=(REP_NAME||"S 1").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();}
@@ -738,7 +747,8 @@ function rowHtml(x){
   <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
   <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
   <td>${byLine(x.created_by,"Built here")}</td>
-  <td><span class="badge ${badge(x.status)}">${x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}</td>
+  <td><span class="badge ${badge(x.status)}">${x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}
+   ${x.status==='Draft'&&x.step>0?`<small style="display:block;color:var(--muted);margin-top:3px">Left at step ${x.step+1} of ${STEP_COUNT}</small>`:""}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    <button class="ic" title="Edit proposal" onclick="editQuote(${x.id})">✏️</button>
    <button class="ic" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
@@ -1101,7 +1111,7 @@ function freshState(){return{
 };}
 async function startNewProposal(){
  S=freshState();QUOTE_ID=null;QUOTE_NUMBER="";step=0;_lastStep=-1;S._areaView=null;S._areaIx=0;
- nav('builder');renderStep();
+ nav('builder');clearResumeNote();renderStep();
  try{const d=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});
   QUOTE_ID=d.quote.id;QUOTE_NUMBER=d.quote.quote_number;drawQuoteTag("Saved as "+QUOTE_NUMBER);}
  catch(e){drawQuoteTag("⚠ Not saved — server unreachable");}
@@ -1109,8 +1119,19 @@ async function startNewProposal(){
 async function editQuote(id){
  try{const d=await api('/sales/builder/api/quotes/'+id);editLoaded(d.quote);}catch(e){toast(e.message);}
 }
+function resumeStep(){
+ /* The saved position, or the first step. Clamped, because the number was
+    written by whatever version of the wizard saved it and a step index that
+    is out of range would throw inside renderStep() -- a blank builder on a
+    quote whose answers are all perfectly intact. */
+ let n=0;
+ try{n=parseInt(S&&S._step,10);}catch(e){n=0;}
+ if(!(n>0))return 0;
+ return Math.min(n,STEPS.length-1);
+}
 function editLoaded(q){
- S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;step=0;_lastStep=-1;
+ S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;_lastStep=-1;
+ step=resumeStep();
  S._kpiPlan=q.kpi_framework||null;
  S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
@@ -1120,7 +1141,20 @@ function editLoaded(q){
  if(!(S.targetAreas||[]).length&&(q.target_areas||[]).length)S.targetAreas=q.target_areas;
  S._areaView=null;S._areaIx=0;
  nav('builder');renderStep();drawQuoteTag("Editing "+QUOTE_NUMBER+" · rev "+q.revision);
+ /* Landing on step 9 with no explanation reads as the tool having skipped
+    ahead, so it says which step it opened on and offers step one -- the
+    behavior everybody had before this. */
+ drawResumeNote();
 }
+function drawResumeNote(){
+ const el=document.getElementById('resumeNote');if(!el)return;
+ if(!(step>0)){el.style.display="none";el.innerHTML="";return;}
+ el.style.display="";
+ el.innerHTML="Reopened at step "+(step+1)+" of "+STEPS.length+", where this quote was left. "
+  +'<a onclick="restartWizard()" style="cursor:pointer;color:var(--blue);font-weight:700">Start at step 1</a>';
+}
+function clearResumeNote(){const el=document.getElementById('resumeNote');if(el){el.style.display="none";el.innerHTML="";}}
+function restartWizard(){step=0;clearResumeNote();renderStep();}
 function drawQuoteTag(t){const el=document.getElementById('quoteTag');if(el)el.textContent=t;}
 function saveSoon(){clearTimeout(_saveT);setSave("…");_saveT=setTimeout(saveNow,900);}
 async function saveNow(extra){
@@ -1128,6 +1162,14 @@ async function saveNow(extra){
  // Stamped on save so the IO payload, the PDF and the dashboard all read the
  // same sentence rather than each re-deriving it.
  try{S.creativeSummary=creativeSummary();}catch(e){}
+ /* Where the rep had got to, saved with the work. The quote's answers were
+    always kept -- what was lost on every interruption was the place: a rep
+    who was on the media plan reopened at step 1 of 14 and pressed Continue
+    until they found it again. It rides inside the quote's own data blob
+    rather than in a new column, because create_all() adds no column to an
+    existing table and one added here would be silently absent on the live
+    Postgres with every local test green. */
+ try{if(typeof step==="number")S._step=step;}catch(e){}
  setSave("Saving…");
  try{
   /* growth is computed by the server, not stored on the quote's data. Kept
@@ -1331,13 +1373,16 @@ const COMP_CONFIRM_UNDER=1500;
    $250 of design on the card, so comping it stops being sensible far lower
    down than a shoot does -- and a confirmation that fires on every plan is
    one nobody reads. */
-const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500};
+const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500,email:400};
 function confirmUnder(m){return COMP_CONFIRM_BY_MEDIUM[m]||COMP_CONFIRM_UNDER;}
-const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250};
+const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250,
+ email:150,dooh:250};
 const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
  audio:"Audio (digital radio, podcasts, streaming audio)",
  display:"Display (banners, native, IP targeted, geo-fenced)",
  retargeting:"Retargeting (the banners that bring them back)",
+ email:"Email (the creative that goes in the send)",
+ dooh:"Signage (digital out-of-home and indoor screens)",
  social:"Paid social",other:"Other"};
 /* Four programmatic VIDEO products sit under the same DISPLAY category as
    banner inventory and their names do not say so -- "Programmatic - Targeted"
@@ -1352,13 +1397,24 @@ const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video",
     buy, whose name lists retargeting as one of the tactics inside it. Read
     off the name alone it becomes a retargeting line and the display half of
     the plan never gets asked for banners at all. */
- "data targeted display":"display","programmatic campaign":"display"};
+ "data targeted display":"display","programmatic campaign":"display",
+ /* These three answered "other", which is not a medium -- it is the gate
+    never being asked. The spec kit has known what they are the whole time,
+    so the two halves of one question were disagreeing: one decides whether
+    we ask for creative, the other what we ask for. */
+ "mobile only":"display","email marketing":"email","smart 1 signage":"dooh"};
 function mediumOf(i){
  const cat=String((i&&i.category)||"").trim().toLowerCase();
  if(CATEGORY_MEDIUM[cat])return CATEGORY_MEDIUM[cat];
  const prod=String((i&&i.product)||"").trim().toLowerCase();
  if(EXPLICIT_MEDIUM[prod])return EXPLICIT_MEDIUM[prod];
- const t=[cat,prod,String((i&&i.label)||"")].join(" ").toLowerCase();
+ /* The label is deliberately left out. It is "<category heading> —
+    <product>", and a heading describes a section of the card rather than a
+    product: four IP-targeting products are filed under a heading called
+    "Display & Video", so "IP Targeted Display - New Movers" carried the word
+    video and the test below runs first. Category and product are both here
+    already, so the label added nothing but that. */
+ const t=[cat,prod,String((i&&i.description)||"")].join(" ").toLowerCase();
  if(/radio|podcast|audio|spotify|pandora|iheart/.test(t))return "audio";
  if(/video|ott|youtube|trueview|bumper|connected tv|advanced tv|ctv|pre-?roll|non-skippable/.test(t))return "video";
  if(/facebook|instagram|meta|tik ?tok|linkedin|snapchat|pinterest|twitter|social/.test(t))return "social";
@@ -1376,7 +1432,11 @@ function mediumSpend(m){
    Retargeting is asked separately because it is a different set of files:
    the same six sizes carrying the offer that brings somebody back, not the
    one that introduced the brand. */
-const GATED_MEDIA=["video","audio","display","retargeting"];
+/* Email and signage joined for the reason display did. Both sell creative
+   with published specs and neither was ever asked for, because every product
+   under EMAIL MARKETING and SMART 1 SIGNAGE answered "other" and an ungated
+   medium is one this step never mentions. */
+const GATED_MEDIA=["video","audio","display","retargeting","email","dooh"];
 function gatedMedia(){
  const present=new Set(S.items.map(mediumOf));
  return GATED_MEDIA.filter(m=>present.has(m));}
@@ -2937,11 +2997,13 @@ function nextStep(){
  // and returns to the list rather than advancing the wizard.
  if(d.onNext&&d.onNext()===true)return;
  saveNow();
+ clearResumeNote();
  if(step<STEPS.length-1){step++;renderStep();}
  else{toast("Saved. "+(QUOTE_NUMBER||"")+" is on the dashboard.");nav('dashboard');}}
 function prevStep(){
  const d=window._stepDesc||STEPS[step]();
  if(d.onBack&&d.onBack()===true)return;   // the step walked its own sub-flow
+ clearResumeNote();
  if(step>0){step--;renderStep();}}
 
 /* creative gate widgets */

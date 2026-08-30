@@ -185,6 +185,18 @@ CASES = [
     ("MOBILE ONLY", "Geo-Fence", cn.DISPLAY),
     ("LOCATION LOOKBACK", "Brand Affinity", cn.DISPLAY),
     ("IP TARGETS", "IP Targeted Video - List is supplied", cn.VIDEO),
+    # The card files IP targeting under a heading called "Display & Video",
+    # and that heading rides in every row's `label`. Read as words about the
+    # product it made all three display products video, which asks a client
+    # for a TV spot to run a banner buy.
+    ("IP TARGETS", "IP Targeted Display - New Movers", cn.DISPLAY),
+    ("IP TARGETS", "IP Targeted Display - Venue Replay", cn.DISPLAY),
+    # These three answered OTHER, and OTHER is not a medium -- it is the
+    # Creative step never mentioning the line at all.
+    ("MOBILE ONLY", "RON (Run of Network)", cn.DISPLAY),
+    ("MOBILE ONLY", "In-Store Visits", cn.DISPLAY),
+    ("EMAIL MARKETING", "List Provided Email", cn.EMAIL),
+    ("SMART 1 SIGNAGE", "Digital Outdoor & Indoor Signage", cn.DOOH),
 ]
 for category, product, want in CASES:
     got = cn.medium_of({"category": category, "product": product})
@@ -370,8 +382,18 @@ for token in ("const EXPLICIT_MEDIUM=", "const CATEGORY_MEDIUM=", "function medi
                         js_source.find("\n/*", i + 10)) if j > 0]
     extract += js_source[i:min(ends)] + "\n"
 
-harness = (extract + "\nconst C=" + json.dumps([{"category": c, "product": p}
-                                                for c, p, _ in CASES]) + ";\n"
+# Every product on the real card, not a fixture. A hand-written list proves
+# the halves agree about the rows somebody thought to write down, which is
+# exactly the set that was already right: the four the label bleed broke were
+# not in it. This is also self-maintaining -- a product added to the card is
+# covered without anybody remembering to add it here.
+from hub import rate_card as _rc_for_media                         # noqa: E402
+
+_ALL = [{"category": p["category"], "product": p["product"],
+         "description": p["description"], "label": p["label"]}
+        for p in _rc_for_media.products()] \
+    + [{"category": c, "product": p} for c, p, _ in CASES]
+harness = (extract + "\nconst C=" + json.dumps(_ALL) + ";\n"
            "console.log(JSON.stringify(C.map(mediumOf)));\n")
 js_path = os.path.join(_TMP, "medium.js")
 open(js_path, "w", encoding="utf-8").write(harness)
@@ -379,15 +401,66 @@ try:
     out = subprocess.run(["node", js_path], capture_output=True, text=True,
                          timeout=30, check=True).stdout
     js_media = json.loads(out)
-    py_media = [cn.medium_of({"category": c, "product": p}) for c, p, _ in CASES]
+    py_media = [cn.medium_of(row) for row in _ALL]
     check("the wizard classifies every rate-card product exactly as the server does",
           js_media == py_media,
-          [f"{c}/{p}: js={j} py={y}" for (c, p, _), j, y
-           in zip(CASES, js_media, py_media) if j != y])
+          [f"{r.get('category')}/{r.get('product')}: js={j} py={y}"
+           for r, j, y in zip(_ALL, js_media, py_media) if j != y][:8])
 except FileNotFoundError:
     print("  skip node is not installed — wizard/server agreement unchecked")
 except subprocess.CalledProcessError as exc:
     check("the wizard's creative helpers run", False, exc.stderr[:300])
+
+# ---------------------------------------------------------------------------
+section("the gate and the spec kit read the same product the same way")
+# ---------------------------------------------------------------------------
+# Two readings of one question -- whether to ask for creative, and what to ask
+# for -- disagreed on 25 of 90 products, in both directions, and silently:
+# each screen was internally consistent, so the rep was asked for one thing
+# and judged against another.
+from hub import creative_specs as cs                               # noqa: E402
+
+_dis = cn.spec_disagreements()
+check("the creative gate and the spec kit agree on every product",
+      _dis == [], [f"{d['category']}/{d['product'][:30]}: gate={d['gate']} kit={d['kit']}"
+                   for d in _dis][:8])
+
+# ...and the check can go red, or it is furniture. Read OTT as audio and the
+# two Connected TV products must be named.
+_saved_cat = dict(cn.CATEGORY_MEDIUM)
+try:
+    cn.CATEGORY_MEDIUM["ott"] = cn.AUDIO
+    _bit = cn.spec_disagreements()
+finally:
+    cn.CATEGORY_MEDIUM.clear()
+    cn.CATEGORY_MEDIUM.update(_saved_cat)
+check("and a wrong reading is reported rather than passing quietly",
+      any("Connected TV" in d["product"] for d in _bit), _bit[:3])
+check("with both sides of the disagreement named, not just the count",
+      bool(_bit) and {"gate", "kit"} <= set(_bit[0]), _bit[:1])
+
+# The four products whose names identify nothing must reach a *video* unit.
+# They are named in EXPLICIT_MEDIUM so the gate asks for a spot; the kit has
+# to agree, or the rep is asked for a spot and handed a list of banner sizes.
+for _name in cn.EXPLICIT_MEDIUM:
+    _row = next((p for p in _rc_for_media.products()
+                 if p["product"].lower() == _name), None)
+    if not _row:
+        continue
+    _units = cs.units_for_product(_row["product"], _row["category"])
+    check(f"{_row['product'][:34]!r} is asked for video, not banners",
+          bool(_units) and all(u.get("kind") == "video" for u in _units),
+          [u.get("name") for u in _units][:4])
+
+# The same product name under DIGITAL RADIO is the $18 CPM audio buy, and the
+# rule above must not have reached it.
+_radio = next((p for p in _rc_for_media.products()
+               if p["product"].lower().startswith("programmatic - targeted")
+               and p["category"] == "DIGITAL RADIO"), None)
+if _radio:
+    check("but its DIGITAL RADIO twin still asks for a spot",
+          cs.channels_for_product(_radio["product"], _radio["category"]) == ["digital_radio"],
+          cs.channels_for_product(_radio["product"], _radio["category"]))
 
 # ---------------------------------------------------------------------------
 section("one minimum rule, read by both documents")
@@ -1322,6 +1395,103 @@ api("put", f"/sales/builder/api/quotes/{tq['id']}", json={"data": with_targets})
 check("and a later save does not rewrite it",
       api("get", f"/sales/builder/api/quotes/{tq['id']}")["quote"]["created_by"]
       == "Harness")
+
+# ---------------------------------------------------------------------------
+section("one product, one name — on the card, in the proposal and in the IO")
+# ---------------------------------------------------------------------------
+# Two products were both called "Google Grant" (a $125 setup fee and a 15%
+# monthly management fee) and two more "Local Service Ads (LSA)". Three things
+# went wrong at once and none of them errored:
+#
+#   * find() returned whichever the card listed first, so a quote for
+#     management billed the setup fee;
+#   * the IO's productConfig is keyed on the label, so 90 card rows became 88
+#     and neither setup fee could be put on an insertion order at all;
+#   * check_drift() is keyed on the label too, so it could not have seen a
+#     difference between the pair it was collapsing.
+#
+# The published rate card had the answer already — it names them "(Setup)" and
+# "(Management)" — so both copies of the card were renamed to match it.
+import re as _re                                                   # noqa: E402
+import json as _json                                               # noqa: E402
+from hub import product_intake                                     # noqa: E402
+
+_labels = [p["label"] for p in rc.products()]
+check("every product on the shared card has a label of its own",
+      len(set(_labels)) == len(_labels),
+      sorted({l for l in _labels if _labels.count(l) > 1}))
+
+_io_src = open(os.path.join(ROOT, "modules", "io_builder", "templates",
+                            "index.html"), encoding="utf-8").read()
+_embedded = _json.loads(_re.search(r"const rateCard=(\[.*?\]);\n", _io_src, _re.S).group(1))
+_io_labels = [p.get("label", "") for p in _embedded]
+check("and so does every product the IO carries",
+      len(set(_io_labels)) == len(_io_labels),
+      sorted({l for l in _io_labels if _io_labels.count(l) > 1}))
+check("so the IO's product list is the whole card, not what survived a collision",
+      len(set(_io_labels)) == len(rc.products()),
+      f"io={len(set(_io_labels))} card={len(rc.products())}")
+
+check("the setup fee and the management fee are two quotable products",
+      (rc.find("Google Grant (Setup)") or {}).get("listed_rate") == "$125 One time set up fee"
+      and (rc.find("Google Grant (Management)") or {}).get("listed_rate") == "15% Mgmt fee monthly")
+check("...and the same for Local Service Ads",
+      (rc.find("Local Service Ads \u2014 LSA (Setup)") or {}).get("listed_rate")
+      == "$125 One time set up fee")
+
+# The refusal, which is the half that keeps a stored record honest. A quote
+# saved before the rename says "Google Grant", and that name is now a question
+# rather than an answer.
+check("a name that could mean two products resolves to neither",
+      rc.find("Google Grant") is None and rc.find("Behavioral") is None)
+check("and the candidates are named instead, so it never reads as 'not on the card'",
+      {c["product"] for c in rc.candidates("Google Grant")}
+      == {"Google Grant (Setup)", "Google Grant (Management)"},
+      [c["product"] for c in rc.candidates("Google Grant")])
+check("the intake asks rather than guessing",
+      product_intake.classify("Google Grant")["status"] == "near"
+      and product_intake.classify("Google Grant")["product"] == "")
+
+# A caller that knows the heading is answered rather than asked: four
+# categories carry a product called "Behavioral" and they are different rates.
+check("a category resolves a name that cannot resolve alone",
+      (rc.find("Behavioral", "MOBILE ONLY") or {}).get("listed_rate") == "$4.00 / CPM"
+      and (rc.find("Behavioral", "LOCATION LOOKBACK") or {}).get("listed_rate") == "$7.50 / CPM")
+check("and the intake matches on it",
+      product_intake.classify("Behavioral", "MOBILE ONLY")["category"] == "MOBILE ONLY")
+
+# The unambiguous anchored match this fallback was written for still works.
+check("a short name that can only mean one product still resolves",
+      (rc.find("Connected TV - Targeted") or {}).get("category") == "OTT")
+
+_drift = rc.check_drift()
+check("the drift check reports duplicate labels rather than collapsing them",
+      "duplicate_labels" in _drift and not _drift["duplicate_labels"], _drift)
+check("and the two copies of the card agree", _drift["in_sync"], _drift.get("note"))
+
+# A green check that cannot go red is not a check. Hand it a template that
+# plainly carries the collision and require it to say so -- this started life
+# green, which is the only way it was worth adding.
+_dupe_io = os.path.join(_TMP, "dupe_io.html")
+_dupe_rows = [dict(r) for r in _embedded[:2]]
+_dupe_rows[1]["label"] = _dupe_rows[0]["label"]
+open(_dupe_io, "w", encoding="utf-8").write(
+    "const rateCard=" + _json.dumps(_dupe_rows) + ";\n")
+_bit = rc.check_drift(_dupe_io)
+check("a template that carries a collision is reported, not collapsed",
+      _bit["duplicate_labels"] and not _bit["in_sync"], _bit)
+check("and the note says what a duplicate label costs the IO",
+      "dropped" in (_bit.get("note") or ""), _bit.get("note"))
+
+# The published rate card ships in this repo, so the naming can be held to it.
+_page = open(os.path.join(ROOT, "hub", "partner_pages",
+                          "rate-card-universal.html"), encoding="utf-8").read()
+_i = _page.index("const DATA = ")
+_data = _json.loads(_page[_i + len("const DATA = "):_page.index("\n", _i)].rstrip().rstrip(";"))
+_page_names = {it["p"] for s_ in _data for g in s_["groups"] for it in g["items"]}
+for _n in ("Google Grant (Setup)", "Google Grant (Management)"):
+    check(f"the card we publish and the card we quote from agree on {_n!r}",
+          _n in _page_names and rc.find(_n) is not None)
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)

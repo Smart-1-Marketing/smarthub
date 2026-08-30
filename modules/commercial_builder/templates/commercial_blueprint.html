@@ -78,6 +78,24 @@
   </details>
 </div>
 
+{# What the published advertising rules require of this copy.
+   On the Blueprint because this is where the script is written, and the
+   whole value of the check is that the conversation happens before a frame
+   exists rather than after the spot has run. It never says the spot is
+   compliant -- compliance_spec.py says at length why a tick over that
+   question is worse than nothing. #}
+<div class="cb-card" style="margin-bottom:16px;" id="compliance-card">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">What the rules require
+      {{ help_dot('commercial_builder.blueprint.compliance') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-hint" id="compliance-headline"></span>
+  </div>
+  <div id="compliance-rows"><div class="cb-empty">Reading the copy…</div></div>
+  <div id="compliance-ack"></div>
+  <p class="cb-hint" id="compliance-disclaimer" style="margin-bottom:0;"></p>
+</div>
+
 <div class="cb-card" style="margin-bottom:16px;">
   <div class="cb-flex-between" style="margin-bottom:6px;">
     <h3 style="margin:0;">Checks

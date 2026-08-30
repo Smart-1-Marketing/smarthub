@@ -418,6 +418,20 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
                                         "facebook_video", "facebook_carousel",
                                         "stories"]),
     (r"radio|podcast|audio", ["digital_radio"]),
+    # ...and only below it. Four programmatic *video* products are filed
+    # under the card's DISPLAY heading beside banner inventory, and three of
+    # their names contain no word that says so -- "Programmatic - Targeted"
+    # is $17.00 CPM video while "Category" next to it is $4.25 CPM display.
+    # Without this they fall to the generic `display|programmatic` pattern
+    # near the bottom and a video buy is told to deliver a 728x90 and a
+    # 300x250. It sits *under* the audio rule because "Programmatic -
+    # Targeted" is also the $18.00 CPM buy under DIGITAL RADIO, and that one
+    # needs a spot rather than a video. The same four are named in
+    # `creative_needs.EXPLICIT_MEDIUM` for the same reason, and the two lists
+    # are asserted to agree: a product renamed on the card must not silently
+    # revert to the guess in either of them.
+    (r"premium:\s*non-?skippable"
+     r"|programmatic\s*-\s*(targeted|ron\b|run of network)", ["standard_video"]),
     (r"signage|out of home|\bdooh\b|billboard", ["dooh"]),
     (r"e-?mail|admail", ["email"]),
     (r"online video|pre-?roll|\bvideo\b", ["standard_video"]),

@@ -217,6 +217,16 @@ def approve_render(project_id, job_id):
     # blocking it would teach people to answer "approved" to get past the
     # gate — and a project nobody ever sent for review is unchanged, because
     # an internal-only sign-off is still how most of these are built.
+    # Which published rules the copy engages, and whether anybody has said out
+    # loud that they were looked at. Asked BEFORE the client verdict, because
+    # a spot the client loves can still be one nobody checked Reg Z against —
+    # and filing is what makes it a deliverable.
+    compliance = _compliance_gate(project, client)
+    if compliance["blocks_filing"] and not data.get("acknowledge_compliance"):
+        return jsonify({"ok": False, "error": compliance["message"],
+                        "compliance": compliance,
+                        "needs_acknowledgment": True}), 409
+
     standing = _client_verdict(project)
     if standing["blocks_filing"] and not data.get("override"):
         return jsonify({"ok": False, "error": (
@@ -279,10 +289,70 @@ def approve_render(project_id, job_id):
                     # approved it" rather than only "filed". They are
                     # different sentences and only one of them is a sign-off.
                     "client_verdict": standing,
+                    "compliance": compliance,
                     "filed_over_client_objection": bool(standing["blocks_filing"]),
                     "remaining_formats": [f for f in (project.formats or [])
                                           if f not in done],
                     "next": _next_in_campaign(project)})
+
+
+def _compliance_gate(project, client):
+    """Whether the published-rule findings have been acknowledged for THIS copy.
+
+    Not a compliance verdict — `compliance_spec.py` says at length why this
+    tool must never produce one. What it gates on is narrower and checkable:
+    were the findings put in front of a named person, and were they the same
+    findings that stand now.
+
+    Rewriting the offer after somebody signed off retires that sign-off, which
+    is the `findings_key` and the rule `modules/ads_builder` applies when a
+    material edit supersedes an approved estimate. An acknowledgment of an
+    earlier cut is reported as superseded rather than accepted or ignored —
+    "nobody has looked" and "somebody looked at a different script" are
+    different situations and only the second has a name to go back to.
+
+    Never raises and never blocks on its own failure: a scanner that cannot
+    run must not stop a rep filing a commercial, so an error answers "nothing
+    to acknowledge", which is the honest degradation — it is the same answer
+    as a spot that genuinely engages no rule, and both mean there is no
+    finding on file.
+    """
+    try:
+        from .. import compliance_spec
+        from ..models import ComplianceAck
+        result = compliance_spec.scan(
+            script=project.script, brief=project.brief, cta=project.cta,
+            client=client.to_dict(), commercial_type=project.commercial_type or "")
+        if not compliance_spec.needs_acknowledgment(result):
+            return {"blocks_filing": False, "regimes": [], "superseded": False,
+                    "message": "", "acknowledged_by": ""}
+        key = compliance_spec.findings_key(result)
+        ack = (ComplianceAck.query.filter_by(project_id=project.id)
+               .order_by(ComplianceAck.id.desc()).first())
+        if ack and ack.findings_key == key:
+            return {"blocks_filing": False,
+                    "regimes": result.get("regimes", []), "superseded": False,
+                    "message": "", "acknowledged_by": ack.acknowledged_by or ""}
+        names = ", ".join(compliance_spec.REGIMES[r]["label"]
+                          for r in result.get("regimes", []))
+        superseded = bool(ack)
+        return {
+            "blocks_filing": True,
+            "regimes": result.get("regimes", []),
+            "superseded": superseded,
+            "acknowledged_by": (ack.acknowledged_by or "") if ack else "",
+            "message": (
+                (f"The copy has changed since {ack.acknowledged_by or 'somebody'} "
+                 f"acknowledged these findings, so that sign-off no longer covers "
+                 f"this cut. " if superseded else "")
+                + f"This spot engages published advertising rules ({names}). "
+                  "Read what they require on the Blueprint step and acknowledge "
+                  "them there before filing — that is a record of who checked, "
+                  "not a judgment that the spot complies."),
+        }
+    except Exception:  # noqa: BLE001
+        return {"blocks_filing": False, "regimes": [], "superseded": False,
+                "message": "", "acknowledged_by": ""}
 
 
 def _client_verdict(project):

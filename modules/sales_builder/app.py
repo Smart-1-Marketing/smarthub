@@ -446,6 +446,12 @@ def quote_json(q, include_data=False):
         # against a column that was silently absent in production.
         "client_key": _client_key(q.client, q.website),
         "revision": q.revision,
+        # How far into the wizard this quote was left. Read from the state
+        # blob rather than a column of its own: create_all() adds no column
+        # to an existing table, so one here would be silently absent on the
+        # live Postgres with every local test green. It is what lets the list
+        # say a draft is half-finished instead of only that it is a draft.
+        "step": (state.get("_step") if isinstance(state.get("_step"), int) else 0),
         "io_number": q.io_number,
         "io_client_pdf_url": q.io_client_pdf_url,
         "io_internal_pdf_url": q.io_internal_pdf_url,
@@ -2205,7 +2211,8 @@ def expected_results(state):
             line_campaign = round(monthly * term, 2)
             line_monthly = monthly
         totals["monthly"] += line_monthly
-        product = hub_rate_card.find(item.get("label") or item.get("product") or "")
+        product = hub_rate_card.find(item.get("label") or item.get("product") or "",
+                                     item.get("category") or "")
         if product is None:
             # Fall back to the rate the wizard carried, so an off-card product
             # a rep added by hand is still estimated rather than dropped.

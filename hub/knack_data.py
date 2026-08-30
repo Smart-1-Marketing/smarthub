@@ -54,8 +54,114 @@ def products() -> list[dict]:
     return _records(_load("products.json"))
 
 
-def websites() -> list[dict]:
+def export_websites() -> list[dict]:
+    """The committed websites export, exactly as it is on disk.
+
+    Kept under its own name because one caller genuinely wants *the export*
+    rather than the current truth: `summary()` measures the dashboard's
+    scorecard against the export's own period and its thisM / lastM flags, and
+    a live site list folded into that would compare two things measured
+    differently at the two ends — the failure the whole trends section is
+    written about. Everything else wants the live registry; see websites().
+    """
     return _records(_load("websites.json"))
+
+
+def _website_source() -> tuple[list[dict], str, str]:
+    """(rows, source, error) — the website records, live if we can get them.
+
+    The same argument `_product_source()` makes, one object later. The client
+    registry, the SEO page's website matching, Client 360's website cards and
+    the website search all read this, and all of them were reading a 610-row
+    JSON file committed to the repo and refreshed by hand — so a site added in
+    Knack last week was invisible to every client picker in the Hub, silently,
+    because a short list looks exactly like a complete one. Meanwhile
+    `hub/knack_websites.py` has been reading the same object live for the
+    domain record, the renewals calendar and the orphan list: the Hub held a
+    live answer and a stale one, and the load-bearing readers took the stale.
+
+    **The export stays as the fallback, and a failed pull never empties it.**
+    Stale beats empty: a client record showing no website reads as "they have
+    none" rather than "we could not reach Knack", which is the confident wrong
+    answer this codebase keeps having to undo.
+    """
+    try:
+        from hub import knack_websites
+    except Exception as exc:                            # noqa: BLE001
+        return export_websites(), "export", f"{type(exc).__name__}"
+    try:
+        live = knack_websites.rows()
+    except Exception as exc:                            # noqa: BLE001
+        return export_websites(), "export", f"{type(exc).__name__}"
+    if not live:
+        # Not configured, or the pull failed and knack_websites swallowed it.
+        # Either way it is named rather than passed off as an empty registry.
+        return export_websites(), "export", knack_websites.last_error()
+    return [website_row_from_live(r) for r in live], "knack", ""
+
+
+_WEB_CACHE: dict = {"rows": None, "source": "", "at": 0.0}
+_WEB_CACHE_SECONDS = 60
+
+
+def websites() -> list[dict]:
+    """Every website record, live where Knack will answer.
+
+    Mapped into the export's own field names so the eight call sites reading
+    `name` / `domain` / `liveUrl` / `platform` need no edit — one shape, so a
+    reader cannot tell which source answered and cannot come to depend on one.
+    `websites_source()` is how a *screen* says which it was.
+
+    Cached for a minute on top of `knack_websites`' own cache, because
+    `seo._client_websites()` calls this three times in one function and the
+    mapping is 600-odd dicts each time.
+    """
+    import time
+    now = time.time()
+    if _WEB_CACHE["rows"] is not None and now - _WEB_CACHE["at"] < _WEB_CACHE_SECONDS:
+        return _WEB_CACHE["rows"]
+    rows, source, _err = _website_source()
+    _WEB_CACHE.update({"rows": rows, "source": source, "at": now})
+    return rows
+
+
+def websites_source() -> str:
+    """"knack" or "export" — which answered the last read. For screens only."""
+    if _WEB_CACHE["rows"] is None:
+        websites()
+    return _WEB_CACHE["source"]
+
+
+def website_row_from_live(rec: dict, domain: str = "") -> dict:
+    """One live object_153 record in the export's field names.
+
+    The one mapping. It was written inside `_attachment_only_websites()` for
+    the attachment path and is read from both now — two descriptions of "the
+    same record in the other shape" is how one of them comes to carry a field
+    the other does not.
+
+    `active`, `hmFreq`, `notes`, `manager`, `created` and `domainCost` are
+    deliberately **absent** rather than invented: object_153 does not publish
+    them, and a False `active` here would read as a dead site on every row.
+    That is why `summary()` reads `export_websites()` — it is the only caller
+    that needs them, and it needs them measured the same way at both ends.
+    """
+    dom = str(domain or rec.get("domain") or "").strip().lower()
+    return {
+        "id": rec.get("id", ""),
+        "name": rec.get("client") or rec.get("client_name") or rec.get("organization") or dom,
+        "domain": dom,
+        "liveUrl": rec.get("production_url") or (("https://" + dom) if dom else ""),
+        "platform": rec.get("platform", ""),
+        "status": rec.get("client_status", ""),
+        "hm": rec.get("hm_fee", 0),
+        "hmMonthly": rec.get("hm_fee", 0),
+        "partner": rec.get("media_partner", ""),
+        "ga": rec.get("ga_account", ""),
+        "gtm": rec.get("gtm_account", ""),
+        "registrar": rec.get("registrar", ""),
+        "domainPurchased": rec.get("domain_bought", ""),
+    }
 
 
 def data_age_hours() -> float | None:
@@ -326,7 +432,14 @@ def export_state() -> dict:
 def summary() -> dict:
     raw = _load("products.json")
     prods = products()
-    webs = websites()
+    # The EXPORT, deliberately, not the live registry. Every figure below is
+    # measured against the export's own period and its thisM / lastM flags,
+    # and `_active()` reads an `active` field only the export carries. A live
+    # list folded in here would compare two things measured differently at the
+    # two ends and report 0 active websites and $0 of H&M billing on the
+    # dashboard — arithmetic no reader could reproduce, which is the failure
+    # the whole trends section of this file exists to undo.
+    webs = export_websites()
 
     live = [r for r in prods if _is_live(r)]
     live_clients = {str(r.get("client", "")).strip() for r in live if r.get("client")}
@@ -550,20 +663,14 @@ def _attachment_only_websites(client: str) -> list[dict]:
             extra = _kw.record_for_domain(d) or {}
         except Exception:                               # noqa: BLE001
             extra = {}
-        out.append({
-            "name": extra.get("client") or a.get("name") or d,
-            "domain": d,
-            "liveUrl": extra.get("production_url") or a.get("liveUrl")
-                       or ("https://" + d),
-            "platform": extra.get("platform", ""),
-            "status": extra.get("client_status", ""),
-            "hmMonthly": extra.get("hm_fee", 0),
-            "partner": extra.get("media_partner", ""), "manager": "",
-            "ga": extra.get("ga_account", ""), "gtm": extra.get("gtm_account", ""),
-            "registrar": extra.get("registrar", ""),
-            "domainPurchased": extra.get("domain_bought", ""),
-            "attached": True,
-        })
+        row = website_row_from_live(extra, d)
+        # What the attachment itself knows, where the live record does not.
+        row["name"] = extra.get("client") or a.get("name") or d
+        row["liveUrl"] = (extra.get("production_url") or a.get("liveUrl")
+                          or ("https://" + d))
+        row["manager"] = ""
+        row["attached"] = True
+        out.append(row)
     return out
 
 
@@ -889,4 +996,7 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
             f"Live from Knack, {product_age} min old." if product_source == "knack"
             else "From the committed export in clients_app/data — nothing "
                  "refreshes it, so this may be out of date.")
+        # The same for the website cards, which read the same two sources and
+        # were the half still on the export until now.
+        g["websites_source"] = websites_source()
     return out[:limit]
