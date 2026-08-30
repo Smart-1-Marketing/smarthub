@@ -93,7 +93,7 @@ test('a value that is not a hex color is refused rather than resolved', () => {
   assert.match(found[0].message, /not a hex color/);
 });
 
-test('light and dark being the same colour is its own error', () => {
+test('light and dark being the same color is its own error', () => {
   // Not a missing value -- both are present and both are valid. It is caught
   // because every contrast check downstream resolves ink against these two by
   // name, so identical values fail all of them for a reason no QA finding

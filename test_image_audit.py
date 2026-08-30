@@ -470,6 +470,45 @@ check("and the page offers the bulk bar and the account listing",
       True)
 
 
+# ---------------------------------------------------------------------------
+section("An attached orphan is filed the way its own tool files")
+# ---------------------------------------------------------------------------
+# `file_orphan()` ran two vocabularies through one door: it handed the
+# RECONCILE_KINDS *folder key* through as the provider, and looked the kind up
+# in `_KIND_FOR`, which is keyed on STORES names. Only `seo_images` is in both,
+# so eight of the nine fell through to "upload" -- which filing.SOURCE_LABELS
+# calls "Client upload". Attaching an orphaned commercial put it in the
+# client's gallery labelled as a file the client sent us, under a bare
+# `commercials` chip the gallery has no heading for, in the tier that claims
+# nothing. A sweep, not a list of the eight: the gallery must be able to name
+# whatever any folder key files under.
+from hub.image_audit import RECONCILE_KINDS, _FOLDER_FILING       # noqa: E402
+from modules.image_picker.filing import (                         # noqa: E402
+    SOURCE_LABELS, THEIRS, WE_MADE)
+
+_unnamed, _as_client_upload = [], []
+for _key, _label in RECONCILE_KINDS:
+    _kind, _provider = _FOLDER_FILING.get(_key, ("upload", "cloudinary"))
+    if _provider not in SOURCE_LABELS:
+        _unnamed.append(_key)
+    if SOURCE_LABELS.get(_provider) == "Client upload":
+        _as_client_upload.append(_key)
+
+check("every reconcilable folder files under a heading the gallery has",
+      _unnamed, [])
+check("and nothing we made is filed as a file the client sent",
+      _as_client_upload, [])
+check("a commercial is filed as commercial stills",
+      SOURCE_LABELS.get(_FOLDER_FILING["commercials"][1]), "Commercial stills")
+check("and a photo sent with a social request is theirs, not stock",
+      _FOLDER_FILING["social_requests"][1] in THEIRS, True)
+
+# The live producer writes this provider and the table never named it, so a
+# photograph a location manager sent in arrived as a bare key under no heading.
+check("the provider modules/social_planner actually files under is named",
+      SOURCE_LABELS.get("social_request"), "Sent with a social request")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

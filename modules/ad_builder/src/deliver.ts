@@ -15,11 +15,6 @@
  *     README.txt                           (what each file is, its delivered
  *                                           pixel size, weight, and where it
  *                                           is allowed to run)
- *     animated/<client>_300x250_animated.gif (present only when somebody built
- *                                           one after the static design was
- *                                           saved -- an EXTRA version of an ad
- *                                           already in the platform folders,
- *                                           never a replacement for it)
  *     campaign-manifest.json               (the same delivery for a machine:
  *                                           the ad ops person trafficking it
  *                                           was inferring platform and size
@@ -60,9 +55,10 @@ export interface DeliverResult {
   zipFile: string;          // absolute path
   zipUrl: string;           // /files/... path for the browser
   fileCount: number;
-  /** Animated versions riding along beside the static files. Counted apart
-   *  from fileCount, because "8 files delivered" about a pack containing five
-   *  ads and three GIFs is a sentence a client reads as eight ads. */
+  /** Animated versions this concept has, NAMED in the package and not in it.
+   *  Never added to fileCount: they are delivered one at a time, each after
+   *  its own approval, so a zip that counted them would be reporting files it
+   *  does not contain. */
   animatedCount: number;
   overrideCount: number;
   skipped: { size: string; reason: string }[];
@@ -109,17 +105,19 @@ function readme(
   }
   if (animated.length) {
     lines.push('');
-    lines.push('ANIMATED VERSIONS');
-    lines.push('-----------------');
-    lines.push('In animated/. These are the SAME ads with motion on them, not');
-    lines.push('replacements — upload the static file anywhere an animated one is');
-    lines.push('not accepted. Each runs at 5 frames a second or slower, stops');
-    lines.push('animating within 30 seconds, and is inside the placement\'s file');
-    lines.push('weight, which is what Google requires of an animated image ad.');
+    lines.push('ANIMATED VERSIONS — NOT IN THIS ZIP');
+    lines.push('-----------------------------------');
+    lines.push('Animated versions of these ads exist. They are delivered separately,');
+    lines.push('one file at a time, each after it has been approved on its own — so');
+    lines.push('they arrive in the asset library rather than in this package.');
+    lines.push('');
+    lines.push('This zip is the static set, and the static set is what runs on every');
+    lines.push('placement: most of them do not accept an animated file at all.');
     for (const a of animated) {
       lines.push(
         `${clientSlug}_${a.size}_animated.gif  ·  ${a.platform}  ·  ${a.frames} frames  ·  ` +
-        `plays ${a.loop}x, ${(a.totalMs / 1000).toFixed(1)}s in total  ·  ${human(a.bytes)}`,
+        `plays ${a.loop}x, ${(a.totalMs / 1000).toFixed(1)}s  ·  ${human(a.bytes)}  ·  ` +
+        `${a.approvedAt ? 'approved and delivered separately' : 'not approved yet, so not delivered'}`,
       );
     }
   }
@@ -234,7 +232,11 @@ function campaignManifest(
       // in, it would double the creative count on any sheet keyed on this
       // file, and an ops person would traffic the same placement twice.
       animated: animated.map((a) => ({
-        file: `${root}/animated/${clientSlug}_${a.size}_animated.gif`,
+        // Deliberately no `file`: these are NOT in this archive. An ops person
+        // reading a path out of a manifest and not finding it in the folder is
+        // worse than a row that says plainly where the file actually is.
+        inThisZip: false,
+        deliveredSeparately: Boolean(a.approvedAt),
         platform: a.platform,
         size: a.size,
         format: 'gif',
@@ -297,36 +299,22 @@ export async function deliverProject(
 
   if (!shipped.length) throw new Error('Nothing deliverable: every size was withheld or missing.');
 
-  /* Animated versions ride along, under the same two rules the static files
-     follow and for the same reasons.
+  /* Animated versions are NOT in this zip, and are read here only so the
+     package can say so.
 
-     A QA-FAILING ANIMATION IS WITHHELD. Delivering a GIF that is over the file
-     weight, or whose second slide is clipped, is worse than delivering the
-     static ad on its own -- the static one runs, and the client can see for
-     themselves that the animation is missing.
+     A zip is one act: it is built once, downloaded once, and every file in it
+     is delivered on the strength of the same decision. An animation is not
+     delivered on that decision -- each one is approved on its own and then
+     filed to the client on its own, as a single file. Bundling them here
+     would deliver an unapproved animation inside a package somebody approved
+     the static set of, which is the whole distinction the approval exists to
+     draw.
 
-     IT NEVER REPLACES ITS STATIC SIBLING. Most of this Hub's placements do not
-     take an animated file at all, so a folder holding only GIFs is a set that
-     cannot be trafficked. They sit in animated/ and the README says which is
-     which. */
-  const animated = (project.animations ?? []).filter((a) => {
-    if (a.conceptId !== concept) return false;
-    if (a.status === 'fail') {
-      skipped.push({
-        size: `${a.platform}/${a.size} (animated)`,
-        reason: 'the animated version did not pass creative checks and was withheld; the static file is included',
-      });
-      return false;
-    }
-    if (!fs.existsSync(a.file)) {
-      skipped.push({
-        size: `${a.platform}/${a.size} (animated)`,
-        reason: 'the animated file is no longer on disk — animate again and deliver',
-      });
-      return false;
-    }
-    return true;
-  });
+     They are still named in the README and the manifest, with whether each has
+     been approved, because a client who was shown an animated version and then
+     opens a package without one needs the package to account for it. Silence
+     reads as a file that was forgotten. */
+  const animated = (project.animations ?? []).filter((a) => a.conceptId === concept);
 
   const deliveriesDir = path.join(opts.outDir, 'deliveries');
   fs.mkdirSync(deliveriesDir, { recursive: true });
@@ -351,12 +339,6 @@ export async function deliverProject(
         data,
       });
     }
-  }
-  for (const a of animated) {
-    zipEntries.push({
-      name: `${root}/animated/${clientSlug}_${a.size}_animated.gif`,
-      data: fs.readFileSync(a.file),
-    });
   }
   zipEntries.push({
     name: `${root}/README.txt`,

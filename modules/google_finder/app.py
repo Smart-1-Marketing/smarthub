@@ -59,7 +59,23 @@ Session(app)
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 CACHE_SECONDS = int(os.environ.get("CACHE_SECONDS", "900"))
-TOKEN_DB_PATH = os.environ.get("TOKEN_DB_PATH", "/var/data/google_tokens.db")
+# TOKEN_DB_PATH still wins -- naming one file is more specific than naming a
+# root, and test_google_index.py sets it. Otherwise the token database lives
+# where every other persistent file does: hub/jsonstore.data_root(), which
+# reads HUB_DATA_DIR first and /var/data after. The hard-coded path skipped
+# HUB_DATA_DIR and had no local fallback at all, so on a machine with no
+# /var/data it named a directory nothing could create -- and these are OAuth
+# refresh tokens, which CLAUDE.md counts among the files whose disk copy is
+# the only copy.
+def _token_db_default() -> str:
+    try:
+        from hub import jsonstore
+        return os.path.join(jsonstore.data_root(), "google_tokens.db")
+    except Exception:  # noqa: BLE001 — standalone, or the Hub is not importable
+        return "/var/data/google_tokens.db"
+
+
+TOKEN_DB_PATH = os.environ.get("TOKEN_DB_PATH") or _token_db_default()
 TOKEN_ENCRYPTION_KEY = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
 
 ALLOWED_EMAILS = {
