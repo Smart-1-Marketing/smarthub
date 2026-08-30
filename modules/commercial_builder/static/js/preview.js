@@ -229,19 +229,32 @@
           ? " " + CB.escapeHtml(approval.filing_error) : ""}</p></div>`);
   }
 
-  async function approve(job, btn) {
+  async function approve(job, btn, override) {
     btn.disabled = true;
     btn.textContent = "Filing…";
     let data;
     try {
       data = await CB.api(`/api/projects/${projectId}/render-jobs/${job.id}/approve`,
-                          { method: "POST" });
+                          { method: "POST", body: { override: !!override } });
     } catch (e) {
       btn.disabled = false;
       btn.textContent = "Approve & file";
+      // The client asked for changes. That is a decision to put in front of
+      // somebody, not a failure to swallow into a three-second toast — and
+      // it is overridable, because a rep who has settled it on the phone
+      // must not be stuck behind a rule the client has already moved past.
+      if (/asked for changes/i.test(e.message || "")) {
+        const box = CB.el(`<div class="cb-note bad" style="margin-top:8px;">
+          <strong>Not filed</strong><p>${CB.escapeHtml(e.message)}</p></div>`);
+        const go = CB.el('<button class="cb-btn cb-btn-sm">File it anyway</button>');
+        go.addEventListener("click", () => { box.remove(); approve(job, btn, true); });
+        box.appendChild(go);
+        btn.parentNode.parentNode.appendChild(box);
+      }
       return;
     }
     await loadJobs();
+    loadReviews();
     handOff(data);
   }
 
@@ -306,6 +319,165 @@
   }
 
   loadJobs();
+
+  // ---------------------------------------------------------- the client
+  //
+  // A rendered cut is approved by a REP pressing Approve & file, and the
+  // client sees it when somebody emails an MP4. So nothing recorded which
+  // cut the client approved, who at the client approved it, or what they
+  // asked for on the round before — which is fine right up until a client
+  // says "we never signed off on that".
+  const OUTCOME_TONE = { approved: "good", approved_with_changes: "", changes_required: "bad" };
+
+  async function loadReviews() {
+    const state = document.getElementById("review-state");
+    if (!state) return;
+    let data;
+    try {
+      data = await CB.api(`/api/projects/${projectId}/reviews`);
+    } catch (e) {
+      state.innerHTML = '<div class="cb-empty">The review rounds could not be read.</div>';
+      return;
+    }
+    paintReview(data);
+  }
+
+  function paintReview(data) {
+    const state = document.getElementById("review-state");
+    const send = document.getElementById("review-send");
+    const linkBox = document.getElementById("review-link");
+    const answers = document.getElementById("review-answers");
+    const roundLabel = document.getElementById("review-round");
+    const current = data.current;
+
+    state.innerHTML = "";
+    linkBox.innerHTML = "";
+    answers.innerHTML = "";
+    roundLabel.textContent = current ? current.round_state.label : "";
+
+    // Nothing rendered means nothing to review, and saying so here beats a
+    // button that fails at the moment somebody presses it.
+    if (!(data.cuts || []).length) {
+      state.innerHTML = '<div class="cb-empty">Render a size first — a review link '
+        + "with no video on it is a page the client cannot answer.</div>";
+      send.style.display = "none";
+      return;
+    }
+
+    if (!current) {
+      state.innerHTML = '<p class="cb-hint" style="margin:0;">Nothing has been sent to '
+        + "the client for this spot yet.</p>";
+      send.style.display = "";
+      document.getElementById("review-send-btn").textContent = "Create a review link";
+      return;
+    }
+
+    // The live round: the link, whether it has been opened, and the answer.
+    const v = current.verdict;
+    const opened = current.opened_count
+      ? `Opened ${current.opened_count} time${current.opened_count === 1 ? "" : "s"}.`
+      : "Not opened yet.";
+    state.innerHTML = "";
+    state.appendChild(CB.el(`<p class="cb-hint" style="margin:0 0 8px;">`
+      + `${CB.escapeHtml(current.round_state.label)} · ${CB.escapeHtml(opened)}</p>`));
+
+    linkBox.style.display = "";
+    const row = CB.el('<div class="cb-flex-between" style="gap:8px;align-items:center;"></div>');
+    row.appendChild(CB.el(`<input type="text" readonly value="${CB.escapeHtml(current.url)}"
+      style="flex:1;font-size:12.5px;">`));
+    const copy = CB.el('<button class="cb-btn cb-btn-sm">Copy</button>');
+    copy.addEventListener("click", () => copyLink(current.url, copy));
+    row.appendChild(copy);
+    linkBox.appendChild(row);
+
+    // The answer, or the honest absence of one. "Not sent", "sent and
+    // ignored" and "they said no" are three situations and only the last is
+    // a rejection — so no answer draws gray rather than as a fourth kind of
+    // bad, the note modules/ads_builder/spec.py makes about its own hub.
+    if (!v.outcome) {
+      answers.appendChild(CB.el('<div class="cb-note"><strong>No answer yet</strong>'
+        + "<p>Nothing is blocked — this is what a link that has been sent looks like.</p></div>"));
+    } else {
+      const tone = OUTCOME_TONE[v.outcome] === undefined ? "" : OUTCOME_TONE[v.outcome];
+      answers.appendChild(CB.el(`<div class="cb-note ${tone}">`
+        + `<strong>${CB.escapeHtml(v.note)}</strong>`
+        + (v.by ? `<p>${CB.escapeHtml(v.by)} answered.` : "<p>")
+        + (v.conflicting
+            ? ` ${v.answered} people answered and they did not agree — the most `
+              + "restrictive answer is the one shown, and every reply is listed below."
+            : "")
+        + "</p></div>"));
+    }
+
+    (current.decisions || []).forEach((d) => {
+      answers.appendChild(CB.el(`<div class="cb-result">`
+        + `<strong>${CB.escapeHtml(d.reviewer_name || "Someone")}</strong>`
+        + `<div class="cb-result-sub">${CB.escapeHtml(d.outcome.replace(/_/g, " "))}`
+        + (d.note ? " — " + CB.escapeHtml(d.note) : "") + "</div></div>"));
+    });
+
+    (current.comments || []).forEach((c) => {
+      answers.appendChild(CB.el(`<div class="cb-result">`
+        + (c.timecode ? `<strong>${CB.escapeHtml(c.timecode)}</strong> ` : "")
+        + CB.escapeHtml(c.text)
+        + `<div class="cb-result-sub">${CB.escapeHtml(c.reviewer_name || "Someone")}`
+        + (c.format ? " · on the " + CB.escapeHtml(c.format) : "") + "</div></div>"));
+    });
+
+    // Another round is offered whatever they said: a client who approved may
+    // still get a re-cut for a reason nothing here knows about.
+    send.style.display = "";
+    const next = data.next_round;
+    document.getElementById("review-send-btn").textContent =
+      `Send ${next.label.toLowerCase()}`;
+    if (next.over) {
+      // Flagged, never refused. Stopping the rep here is what pushes the
+      // whole conversation back into email, where none of this is recorded.
+      send.appendChild(CB.el(`<div class="cb-note" style="margin-top:8px;">`
+        + "<strong>More rounds than usual</strong>"
+        + `<p>${CB.escapeHtml(next.note)}</p></div>`));
+    }
+  }
+
+  // navigator.clipboard is not available on http, and refusing is allowed.
+  // A button that reports a copy it never made is worse than one that asks.
+  function copyLink(url, btn) {
+    const done = () => { btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy"), 1600); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(() => fallback());
+      return;
+    }
+    fallback();
+    function fallback() {
+      const input = btn.parentNode.querySelector("input");
+      input.focus();
+      input.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      if (ok) done();
+      else btn.textContent = "Press Ctrl-C";
+    }
+  }
+
+  const sendBtn = document.getElementById("review-send-btn");
+  if (sendBtn) {
+    sendBtn.addEventListener("click", async () => {
+      sendBtn.disabled = true;
+      try {
+        await CB.api(`/api/projects/${projectId}/reviews`, {
+          method: "POST",
+          body: { message: document.getElementById("review-message").value.trim() },
+        });
+        document.getElementById("review-message").value = "";
+        CB.toast("Review link created — copy it and send it to the client.");
+        await loadReviews();
+      } finally {
+        sendBtn.disabled = false;
+      }
+    });
+  }
+
+  loadReviews();
 
   const varTypeSelect = document.getElementById("var-type");
   const varLabel = document.getElementById("var-input-label");

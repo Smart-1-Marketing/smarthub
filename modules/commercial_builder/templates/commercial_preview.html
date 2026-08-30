@@ -43,6 +43,36 @@
   </div>
 </div>
 
+{# The client's side of the sign-off.
+   Sits between the render panel and Create Variation because that is the
+   order of the work: render a size, show the client, then either approve it
+   or spin a variation off what they asked for. #}
+<div class="cb-card" id="review-card">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">Send it to the client
+      {{ help_dot('commercial_builder.preview.review') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-hint" id="review-round"></span>
+  </div>
+  <div id="review-state"><div class="cb-empty">Loading…</div></div>
+
+  <div id="review-send" style="display:none;margin-top:12px;">
+    <div class="cb-field">
+      <label class="cb-label">A note to send with it <span class="cb-muted"
+        style="font-weight:400;">(optional)</span></label>
+      <input type="text" id="review-message"
+             placeholder="Here is the :30 — the music is a placeholder for now.">
+    </div>
+    <button class="cb-btn cb-btn-primary" id="review-send-btn">Create a review link</button>
+    <p class="cb-hint">There is no mail sender in the Hub, so this makes the link
+      and you send it. Anyone holding it can watch the cut, leave notes against a
+      timestamp and answer — no login, nothing to install.</p>
+  </div>
+
+  <div id="review-link" style="display:none;margin-top:12px;"></div>
+  <div id="review-answers" style="margin-top:12px;"></div>
+</div>
+
 <div class="cb-card">
   <h3>Create Variation <span class="cb-muted" style="font-weight:400;">— regenerate only what changed, keep everything else</span></h3>
   <div class="cb-grid cb-grid-3">

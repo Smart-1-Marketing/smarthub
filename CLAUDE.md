@@ -1078,6 +1078,87 @@ creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
 
+**A rep approving a cut is not the client approving it.** Filing was a rep
+pressing Approve & file; the client saw the spot when somebody emailed an MP4,
+replied with three changes in the body of an email, and a person retyped them
+into the storyboard. So nothing recorded which cut the client approved, who at
+the client approved it, or what they asked for on the round before — which is
+fine right up until a client says "we never signed off on that".
+`modules/commercial_builder/review_spec.py` is that question and
+`routes/review.py` is the two doors onto it.
+
+**Both halves of "public" had to be written out, because this module is a
+blueprint.** `modules/ads_builder` and `modules/scans` declare
+`PUBLIC_PREFIXES` and `wsgi.py`'s `_mount()` hands it to *both* `AuthGuard`
+(so a client with no login can open the page) and `HubBar` (so the sidebar is
+not injected into it). Commercial Builder is registered as a blueprint on the
+hub app, so nothing in `wsgi.py` ever sees it: the login exemption is
+`review.PUBLIC_PATHS`, read by the guard in
+`modules/commercial_builder/__init__.py`, and the chrome exemption is a
+separate entry in `hub/__init__.py`'s `CHROMELESS`. Either one missing is its
+own failure — a page exempted from the login and not from the chrome is a
+client reading our staff nav, and the other way round is a login form in front
+of somebody who has no account and will be emailed the file instead.
+
+**Three answers, and the fourth state is not an answer.** Approve/reject
+forces "yes, but fix the phone number" into whichever end is nearest, the rule
+`modules/ads_builder/spec.py` arrived at for the paid-search estimate; the
+vocabulary here is the one every video proofing tool uses, so a client who has
+reviewed video before already knows what it means. *No answer yet* is grey and
+is deliberately not a decision — "not sent", "sent and ignored" and "they said
+no" are three situations and only the last is a rejection.
+
+**The most restrictive answer wins, because the link gets forwarded.** The
+marketing manager sends it to the owner and both reply. Taking the latest
+answer lets a colleague's "looks good" overwrite the compliance officer's "you
+cannot say that", after which the cut ships. `verdict()` resolves by
+precedence rather than recency, keeps every reply with the name against it,
+and says when they *disagreed* rather than merely how many answered — one
+person approving and three people answering with one refusal read identically
+once they have been collapsed into a single word.
+
+**A refusal blocks filing; an approval-with-changes does not.** Filing is what
+puts the video in the client's library and on their 360 record, so a cut they
+explicitly refused must not get there. Blocking the middle answer as well
+would teach people to answer "approved" to get past the gate. It is a 409 with
+an override rather than a wall — a rep who has settled it on the phone must
+not be stuck behind a rule the client has already moved past — and the
+override is written into the activity log *as* an override, because a record
+that does not say so is one nobody can reconstruct. A project nobody sent for
+review files exactly as it did before: an internal-only sign-off is still how
+most of these are built.
+
+**The round cap stops the agency, never the client.** Four rounds, drawn on
+the client's page as `Round 2 of 4` because somebody who can see they are on
+the last round asks for everything at once. A fifth is **flagged**, not
+refused: turning the client away from the page means the rep emails them the
+file, and every note, name and timestamp goes back to being untraceable. Same
+shape as `QR_CODE_RULES` — a check that refuses the correct thing is a check
+somebody switches off.
+
+**A new round is a new link.** A link that has been answered is the record of
+that answer, so reopening it for round two would overwrite round one's
+decision with no trace there had been one; the previous round is revoked so a
+client working from an old email cannot answer about a cut that has been
+replaced, and its answers stay on file. Revoked, deleted and never-existed all
+return the same 404, the rule `modules/ads_builder` settled for the estimate.
+
+**A comment carries a timecode, and no timecode is an answer.** "The phone
+number is wrong" and "the phone number at 0:12 is wrong" are different pieces
+of work, and only the second can be actioned without watching the spot again
+to find it. `at_seconds` is nullable on purpose: a note about the music is not
+at a timestamp, and storing it as `0.0` files every general comment at the
+first frame where the reader looks for something that is not there.
+
+**`review_spec.py`, not `review.py`.** `__init__.py` does `from .routes import
+(..., review)`, which binds the name `review` **on the package** — so a spec
+module of that name beside it is invisible to `from . import review` in any
+sibling. Nothing errors at import; the first call to a function that is not
+there is where it surfaces, and it cost the filing gate a 500 before the
+rename. `hub/proposal_spec.py` and `hub/blog_spec.py` carry the suffix for the
+same kind of reason. `test_commercial_review.py` asserts both names resolve to
+what they should.
+
 **Several lengths are built :30 first, not shortest first.**
 `config.BUILD_ORDER` is `[30, 15, 6, 5, 60]`. The :30 is the length the others are
 cut down from, so getting it approved first means every later cut starts from
@@ -4993,6 +5074,9 @@ python3 test_msa_embed.py          # the signing page: public, chrome-free, ours
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
+python3 test_commercial_review.py  # the client's review link: public and chrome-free,
+                                   #   three answers, the strictest one wins, and a
+                                   #   refusal that stops a delivery
 python3 test_commercial_wizard.py  # the seven steps, the client join, the spec check,
                                    #   the QR destination and who owns the scan; the :06,
                                    #   shots inside beats with their grammar, the published

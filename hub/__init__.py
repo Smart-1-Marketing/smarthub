@@ -5205,7 +5205,23 @@ def create_hub_app() -> Flask:
                   # the same reason the built landing pages above are here.
                   # The longer prefix, so the builder itself at
                   # /tools/display-ads keeps its chrome.
-                  "/tools/display-ads/proof/")
+                  "/tools/display-ads/proof/",
+                  # The commercial review link. A client opens this to approve
+                  # a finished cut or send it back, so it must not arrive
+                  # wearing the staff sidebar and a feedback tab — same reason
+                  # as the display-ad proof above, and the longer prefix again
+                  # so the builder at /tools/commercial-builder keeps its own.
+                  #
+                  # This is the second half of a pair: the first is the login
+                  # exemption in modules/commercial_builder/__init__.py. That
+                  # module is a BLUEPRINT on this app rather than a mounted
+                  # one, so wsgi.py's PUBLIC_PREFIXES — which does both halves
+                  # for ads_builder and scans — never sees it, and each half
+                  # has to be written out separately. A page exempted from the
+                  # login and not from the chrome is a client looking at our
+                  # nav; the other way round is a login form in front of
+                  # somebody with no account.
+                  "/tools/commercial-builder/review/")
 
     @app.after_request
     def _embed_policy(resp):

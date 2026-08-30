@@ -208,6 +208,25 @@ def approve_render(project_id, job_id):
             "nothing to file. That is what happens with no CREATOMATE_API_KEY "
             "set — the job is a mock.")}), 400
 
+    # What the client said, if they were asked. A cut they explicitly refused
+    # must not reach their library and their 360 record: filing is what makes
+    # it a deliverable, and "we sent it anyway" is the one outcome the whole
+    # review feature exists to make impossible.
+    #
+    # Only a refusal blocks. "Approved with changes" IS an approval, and
+    # blocking it would teach people to answer "approved" to get past the
+    # gate — and a project nobody ever sent for review is unchanged, because
+    # an internal-only sign-off is still how most of these are built.
+    standing = _client_verdict(project)
+    if standing["blocks_filing"] and not data.get("override"):
+        return jsonify({"ok": False, "error": (
+            "The client asked for changes on this spot"
+            + (f" ({standing['by']})" if standing["by"] else "")
+            + ", so it is not filed. Make the changes and send them a new "
+              "round, or file it anyway if you have settled it with them "
+              "another way."),
+            "client_verdict": standing, "can_override": True}), 409
+
     existing = RenderApproval.query.filter_by(render_job_id=job.id).first()
     if existing:
         return jsonify({"ok": True, "approval": existing.to_dict(),
@@ -228,9 +247,15 @@ def approve_render(project_id, job_id):
                                  or "The video could not be copied into the client's library.")
 
     try:
-        _cb_log("commercial_approved", client=client.name,
-                detail=f"{project.title or 'Commercial'} · "
-                       f":{project.length_seconds:02d} · {job.format}",
+        # An override is named in the log rather than filed as an ordinary
+        # approval. Somebody decided to ship a cut the client had refused, and
+        # a record that does not say so is one nobody can reconstruct later —
+        # which is the argument this whole review feature exists to settle.
+        detail = (f"{project.title or 'Commercial'} · "
+                  f":{project.length_seconds:02d} · {job.format}")
+        if standing["blocks_filing"]:
+            detail += " · filed despite the client asking for changes"
+        _cb_log("commercial_approved", client=client.name, detail=detail,
                 project=project.id, url=approval.stored_url or job.output_url)
         approval.filed_to_client = True
     except Exception as exc:  # noqa: BLE001
@@ -250,9 +275,36 @@ def approve_render(project_id, job_id):
 
     return jsonify({"ok": True, "approval": approval.to_dict(),
                     "project": project.to_dict(include_scenes=False),
+                    # Carried so the panel can say "filed, and the client had
+                    # approved it" rather than only "filed". They are
+                    # different sentences and only one of them is a sign-off.
+                    "client_verdict": standing,
+                    "filed_over_client_objection": bool(standing["blocks_filing"]),
                     "remaining_formats": [f for f in (project.formats or [])
                                           if f not in done],
                     "next": _next_in_campaign(project)})
+
+
+def _client_verdict(project):
+    """What the client answered on the live review round, resolved.
+
+    Never raises and never blocks on its own failure: a review table that
+    cannot be read must not stop a rep filing a commercial, so an error here
+    answers "nobody was asked", which is the same answer as a project that
+    genuinely never had a review — and that is the honest degradation,
+    because both mean there is no refusal on file.
+    """
+    try:
+        from .. import review_spec
+        from ..models import ReviewShare
+        live = (ReviewShare.query.filter_by(project_id=project.id, revoked=False)
+                .order_by(ReviewShare.round_no.desc()).first())
+        if not live:
+            return review_spec.verdict([])
+        return review_spec.verdict([d.to_dict() for d in live.decisions.all()])
+    except Exception:  # noqa: BLE001
+        from .. import review_spec
+        return review_spec.verdict([])
 
 
 def _actor():
