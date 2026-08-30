@@ -678,6 +678,33 @@ document.addEventListener('click', function(ev){
     return;
   }
 
+  /* Re-audit a client's website. `client` carries the domain rather than the
+     name here: the scan is keyed on the domain and this posts to the module
+     that owns scans, which has never heard of our client names. Nothing on
+     this page spends a credit without the confirmation the cell carries. */
+  if(action === 'upsell_rescan'){
+    b.disabled = true; b.textContent = 'Starting…';
+    fetch('/scans/api/scans', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url: client, force: true, source: 'upsell'})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d && d.error){
+          alert(d.error); b.disabled = false; b.textContent = 'Audit'; return;
+        }
+        /* The row is not removed. The audit takes minutes and this report is
+           held for the day, so a row that vanished would be claiming a result
+           that does not exist yet. */
+        b.textContent = 'Running…';
+      })
+      .catch(function(){
+        alert('The scanner could not be reached, so nothing was started — no '
+              + 'credit was spent.');
+        b.disabled = false; b.textContent = 'Audit';
+      });
+    return;
+  }
+
   if(action === 'form-summary'){
     /* Was a native alert(). Two problems with that: it is the one piece of UI
        we cannot style, and a browser that has been told "prevent this page

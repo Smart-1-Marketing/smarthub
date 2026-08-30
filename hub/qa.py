@@ -647,6 +647,18 @@ def _google_coverage(name: str, g: dict) -> dict:
     }
 
 
+def sell_to_clients() -> dict:
+    """What each active client's own website says we could sell them.
+
+    Deliberately *not* merged into the two reports below it. Those read what
+    we have on file — a property attached, a container linked — and this reads
+    what is on the page. A client can have both and still be missing the tag,
+    and that gap is the finding rather than something to reconcile away.
+    """
+    from . import upsell
+    return upsell.build()
+
+
 def no_analytics() -> dict:
     groups = _client_groups()
     rows, styles = [], []
@@ -2007,6 +2019,15 @@ REPORTS = {
         "ico": "&#128506;",
         "fn": google_accounts,
         "group": "Data Quality",
+    },
+    "sell-to-clients": {
+        "title": "What We Could Sell Each Client",
+        "desc": "Findings read off each active client's own website, out of "
+                "audits already paid for — with the never-audited and the "
+                "stale named rather than left off.",
+        "ico": "&#128176;",
+        "fn": sell_to_clients,
+        "group": "Clients",
     },
     "no-analytics": {
         "title": "Clients Without Analytics",

@@ -3577,6 +3577,62 @@ reads as a live prospect on every count that follows, the rule
 only, because `hub/leads.py` cleans and truncates every value and a nested one
 arrives in the Suite as the repr of a dict.
 
+### What we could sell each client, out of audits already paid for
+
+`hub/upsell.py` and **QA → Clients → What We Could Sell Each Client**.
+`hub/website_audit.py` turns one audit into findings that carry their own
+evidence, and it fired for a prospect and for one client at a time on the audit
+tool and for nobody else. Several hundred clients had been audited and nothing
+read the answer across the book, so the upsell conversation that data exists to
+start was had from memory or not at all.
+
+**Coverage is the honest half of the report.** A client nobody has audited is
+*not measured*, never a clean bill; one whose reading is over `STALE_DAYS` old
+is named as stale rather than counted as current; one with no website on file
+is its own band. Run against this deployment's own export that is **156 active
+clients, 88 of them never audited and 66 with no website on file** — without
+the coverage bands the report would have shown one client to sell to and read
+as a healthy book. A sales report that gets quieter the worse our coverage
+gets is failing in the one direction that matters.
+
+**Recorded and observed are different claims, and the disagreement is the
+finding.** The two reports beside it — *Clients Without Analytics* and *Clients
+Without GTM* — read `_google_coverage()`, which is what we have **attached**: a
+property on the website record, an account somebody linked. This reads what is
+**on the page**. A client can have a property attached and no tag on the site,
+or a tag we have never attached — and that second one is somebody else
+administering their analytics, which is worth knowing before the renewal. Both
+directions are reported, they are never folded together, and the comparison is
+tri-state: a check the plan did not run raises nothing at all, because "we did
+not look" printed as a disagreement is the confident wrong answer the whole
+report avoids. `_disagreements()` reads `has_ga` and `has_gtm` — the coverage
+helper's own spellings — and `test_upsell_report.py` asserts that against its
+source, because guessing the key reads every client as "no disagreement" and
+kills the comparison in silence, which is what a first pass here did.
+
+**The finding leads and the product follows.** "Their Google listing is
+unclaimed — anybody can edit the hours and the phone number" survives being
+read out to the client; "they should buy Local Listings" is what a rep gets
+argued with over. The cell carries the finding and the product it points at is
+on the tooltip.
+
+**One query per batch, not one per client.** `scan_facts` reads the newest
+audit for one domain, and asking it several hundred times is several hundred
+round trips and several hundred 440-field blobs held at once. `audits_for()`
+takes the newest complete scan for a chunk of domains in one statement, reduces
+each payload to the dozen facts the report needs, and lets the blob go.
+
+**Rows carry the rescan**, so the report is a queue rather than a list — the
+`hub/stale_creative.py` rule — and it confirms first, because it spends a
+credit. The row is *not* removed on success: the audit takes minutes and the
+report is held for the day, so a row that vanished would be claiming a result
+that does not exist yet.
+
+**And a run that could not look is never the day's answer.** `measured` is
+False when the scans table or the client list will not answer, which is what
+stops `hub/report_cache.py` freezing "we could not read the audits" into the
+shape of "there is nothing to sell" until tomorrow.
+
 ### A scanned business is a lead, and a lead needs somewhere to be worked
 
 `hub/prospect.py`, `hub/prospect_routes.py` and `/prospect/<lead id>`. The
@@ -5522,6 +5578,8 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_upsell_report.py      # what the audit says we could sell each client:
+                                   #   coverage named, recorded vs observed kept apart
 python3 test_prospect_record.py    # the record a scan produces: four kinds of empty on
                                    #   the Suite card, a timeline that names what it
                                    #   could not read, files, and converting
