@@ -253,15 +253,22 @@ def index_names(pairs) -> dict:
     return book
 
 
-def exact_matches(name: str, book: dict) -> list[dict]:
+def exact_matches(name: str, book: dict, extra=()) -> list[dict]:
     """Every client whose name *is* one of this project's candidate names.
 
     Exact on the normalised form — never a substring. A list, because more
     than one answer means the caller must not pick: two clients sharing a
     normalised name is exactly the ambiguity `client_key.resolve()` refuses.
+
+    `extra` is candidates derived somewhere else — today, a reading of the
+    project title from `hub/site_names_ai.py`. They are appended rather than
+    given a path of their own precisely so this rule stays the only one that
+    decides what a match is: a candidate is a candidate however it was
+    arrived at, and none of them can produce anything but an exact hit on the
+    real client book.
     """
     out: list[dict] = []
-    for cand in candidates(name):
+    for cand in list(candidates(name)) + list(extra or ()):
         for hit in book.get(cand["key"], ()):
             if any(o["client"] == hit["client"] for o in out):
                 continue
@@ -287,16 +294,16 @@ def _worth_comparing(a: str, b: str) -> bool:
 
 
 def near_matches(name: str, book: dict, threshold: float = 0.82,
-                 limit: int = 5) -> list[dict]:
+                 limit: int = 5, extra=()) -> list[dict]:
     """Clients whose name resembles one of this project's candidate names.
 
     A suggestion and nothing else: `sites_match` puts these behind a "Yes —
     this is them" button, because an automatic fuzzy match writes the wrong
     client onto a site and a wrong `internal_client_name` is worse than a
-    blank one.
+    blank one. `extra` is as in `exact_matches()`.
     """
     best: dict[str, dict] = {}
-    for cand in candidates(name):
+    for cand in list(candidates(name)) + list(extra or ()):
         key = cand["key"]
         for other, rows in book.items():
             if other == key or not _worth_comparing(key, other):

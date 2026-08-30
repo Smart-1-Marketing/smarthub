@@ -184,16 +184,27 @@ window.KnackForm = (function () {
     }
     if (f.control === 'connection') {
       if (!f.choices || !f.choices.length) {
+        // The server says which of the two empties this is — an object with
+        // no records and a read that failed are different answers, and only
+        // the first means the field is genuinely unanswerable. Without a
+        // reason from the server this stays the older, safer wording.
         return '<input id="' + id + '" value="' + esc(v) + '" placeholder="Knack record id" style="' + INPUT + '">' +
-          '<div class="muted" style="font-size:11.5px;margin-top:3px">This connection’s records could not be read — ' +
-          'a name will be refused, an id will be written.</div>';
+          '<div class="muted" style="font-size:11.5px;margin-top:3px">' +
+          esc(f.hint || 'This connection’s records could not be read.') + ' ' +
+          'A name will be refused, an id will be written.</div>';
       }
       var picked = Array.isArray(v) ? String(v[0] || '') : String(v);
+      // A truncated picker is drawn amber rather than in the muted style the
+      // other hints use: it is not a note about the field, it is a warning
+      // that the answer somebody wants may not be on the list.
+      var short = f.hint && /Showing /.test(f.hint)
+        ? '<div style="font-size:11.5px;margin-top:3px;color:#b45309">' + esc(f.hint) + '</div>'
+        : hint;
       return '<select id="' + id + '" style="' + INPUT + '">' + blank +
         f.choices.map(function (c) {
           return '<option value="' + esc(c.id) + '"' + (c.id === picked ? ' selected' : '') +
             '>' + esc(c.label) + '</option>';
-        }).join('') + '</select>' + hint;
+        }).join('') + '</select>' + short;
     }
     if (f.control === 'date') {
       // Left as text on purpose: Knack shows dates as MM/DD/YYYY and a date
@@ -236,6 +247,154 @@ window.KnackForm = (function () {
         .map(function (o) { return o.value; });
     }
     return String(el.value == null ? '' : el.value).trim();
+  }
+
+
+  // ------------------------------------------------------------- triage
+  // Read the description somebody typed and offer the choices it already
+  // answers. One implementation here rather than one per form, for the same
+  // reason the controls above are: the web ticket and the campaign support
+  // request are two objects asking one question, and a second copy of this is
+  // the drift this file exists to stop.
+  //
+  // Three rules, and all three are about not being confidently wrong on a
+  // form somebody sends without re-reading it:
+  //
+  //   - Only fields that are **empty** are asked about. A value somebody
+  //     chose is the better source and is never offered over. The endpoint
+  //     enforces the same thing, because a rule the form keeps while the
+  //     write breaks it is not a rule.
+  //   - Nothing is applied by arriving. A suggestion is drawn dotted with
+  //     the reason beside it and one press keeps it; Dismiss puts the field
+  //     back exactly as it was.
+  //   - A suggestion is one of Knack's own published choices or it is not
+  //     offered. The server drops anything else and counts it — Knack
+  //     refuses the whole record over one bad choice, so a suggestion that
+  //     could not be saved is worse than none.
+
+  function emptyChoiceKeys(fields, ctx) {
+    var out = [];
+    (fields || []).forEach(function (f) {
+      if (['select', 'multi', 'boolean', 'radio'].indexOf(f.control) === -1) return;
+      var v = read(f, ctx);
+      if (Array.isArray(v) ? !v.length : !String(v || '').trim()) out.push(f.key);
+    });
+    return out;
+  }
+
+  function markSuggested(target, why, onKeep, onDrop) {
+    var el = (typeof target === 'string') ? document.getElementById(target) : target;
+    if (!el || el._kfSuggested) return;
+    el._kfSuggested = true;
+    el.style.borderStyle = 'dashed';
+    el.style.background = '#f5f9ff';
+    var row = document.createElement('div');
+    row.style.cssText = 'margin-top:4px;font-size:11.5px;color:#475569;' +
+      'display:flex;gap:8px;align-items:baseline;flex-wrap:wrap';
+    row.innerHTML = '<span style="flex:1;min-width:140px">' + esc(why || 'Read from what you typed.') + '</span>';
+    var keep = document.createElement('button');
+    keep.type = 'button'; keep.textContent = 'Keep';
+    keep.style.cssText = 'border:1px solid #1769AA;background:#1769AA;color:#fff;' +
+      'border-radius:6px;padding:2px 9px;font-size:11.5px;cursor:pointer';
+    var drop = document.createElement('button');
+    drop.type = 'button'; drop.textContent = 'Dismiss';
+    drop.style.cssText = 'border:1px solid #cbd5e1;background:#fff;color:#475569;' +
+      'border-radius:6px;padding:2px 9px;font-size:11.5px;cursor:pointer';
+    function clear() {
+      el.style.borderStyle = ''; el.style.background = '';
+      el._kfSuggested = false;
+      if (row.parentNode) row.parentNode.removeChild(row);
+    }
+    keep.onclick = function () { clear(); if (onKeep) onKeep(); };
+    drop.onclick = function () { clear(); if (onDrop) onDrop(); };
+    row.appendChild(keep); row.appendChild(drop);
+    el.parentNode.appendChild(row);
+  }
+
+  // Put one value into whichever control the field is drawn as, and hand back
+  // the undo. Four shapes, not one: `control()` above draws a boolean as a
+  // pair of radios OR as a data-toggle button, and a `multi` as a
+  // <select multiple> — and on the last two, assigning `.value` does exactly
+  // nothing. That is the worst way for this to fail: the field is marked as
+  // suggested, the reason appears beside it, and `read()` still returns what
+  // was there before, so the form reads as filled in and sends the old value.
+  // Returns null when the control will not take it, which is what stops a
+  // suggestion being drawn over a field it did not change.
+  function setValue(f, id, value) {
+    var wanted = String(value == null ? '' : value);
+
+    // A pair of radios: addressed by name, because each input has its own id.
+    var radio = document.querySelector('input[name="' + id + '"][value="' +
+      wanted.replace(/["\\]/g, '\\$&') + '"]');
+    if (radio) {
+      var wasChecked = document.querySelector('input[name="' + id + '"]:checked');
+      radio.checked = true;
+      return { anchor: radio.parentNode,
+               undo: function () {
+                 radio.checked = false;
+                 if (wasChecked) wasChecked.checked = true;
+               } };
+    }
+
+    var el = document.getElementById(id);
+    if (!el) return null;
+
+    // The toggle carries its own state in data attributes and its label in
+    // its text, so both have to move or `read()` answers with the old one.
+    if (el.dataset && el.dataset.toggle) {
+      var yes = String(el.dataset.yes || '');
+      var isYes = wanted.toLowerCase() === yes.toLowerCase();
+      var wasOn = el.dataset.on;
+      var wasText = el.textContent;
+      var wasStyle = el.getAttribute('style');
+      el.dataset.on = isYes ? '1' : '0';
+      el.textContent = isYes ? el.dataset.onText : el.dataset.offText;
+      el.setAttribute('style', toggleStyle(isYes));
+      return { anchor: el,
+               undo: function () {
+                 el.dataset.on = wasOn;
+                 el.textContent = wasText;
+                 el.setAttribute('style', wasStyle);
+               } };
+    }
+
+    if (el.tagName === 'SELECT' && el.multiple) {
+      var wasSelected = Array.prototype.map.call(el.options, function (o) {
+        return o.selected; });
+      var hit = false;
+      Array.prototype.forEach.call(el.options, function (o) {
+        if (o.value === wanted) { o.selected = true; hit = true; }
+      });
+      if (!hit) return null;
+      return { anchor: id,
+               undo: function () {
+                 Array.prototype.forEach.call(el.options, function (o, i) {
+                   o.selected = wasSelected[i]; });
+               } };
+    }
+
+    var before = el.value;
+    el.value = wanted;
+    // A select that will not take the value is a value the schema does not
+    // publish. Put back rather than left showing a choice that cannot save.
+    if (el.tagName === 'SELECT' && el.value !== wanted) {
+      el.value = before;
+      return null;
+    }
+    return { anchor: id, undo: function () { el.value = before; } };
+  }
+
+  function applySuggestions(fields, suggestions, ctx) {
+    var applied = 0;
+    (fields || []).forEach(function (f) {
+      var sug = (suggestions || {})[f.key];
+      if (!sug) return;
+      var set = setValue(f, pfx(ctx) + f.key, sug.value);
+      if (!set) return;
+      markSuggested(set.anchor, sug.why, null, set.undo);
+      applied += 1;
+    });
+    return applied;
   }
 
   function form(fields, values, skip, ctx) {
@@ -281,9 +440,62 @@ window.KnackForm = (function () {
       rejected.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ul></div>';
   }
 
+  // The control that offers it, drawn once so both forms get it and a third
+  // form added later gets it without being edited. Hidden entirely where
+  // there is nothing to suggest into — a button that can only ever say "no"
+  // is one people learn to skip past.
+  function triageButton(host, fields, ctx, kindKey, textKey) {
+    var el = (typeof host === 'string') ? document.getElementById(host) : host;
+    if (!el) return;
+    el.innerHTML = '';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Fill in the rest from what I typed';
+    btn.style.cssText = 'border:1px solid #cbd5e1;background:#fff;color:#0d2340;' +
+      'border-radius:7px;padding:6px 12px;font-size:12.5px;cursor:pointer';
+    var note = document.createElement('div');
+    note.style.cssText = 'font-size:11.5px;color:#64748b;margin-top:5px';
+    el.appendChild(btn); el.appendChild(note);
+
+    btn.onclick = function () {
+      var empty = emptyChoiceKeys(fields, ctx);
+      if (!empty.length) {
+        note.textContent = 'Every question with a set list of answers already has one.';
+        return;
+      }
+      var text = '';
+      var box = document.getElementById(pfx(ctx) + textKey);
+      if (box) text = String(box.value || '');
+      var busy = window.S1Think
+        ? window.S1Think.busy(btn, {kind: 'ai', label: 'Reading what you typed…'})
+        : (function () { btn.disabled = true;
+                         return {done: function () { btn.disabled = false; }}; })();
+      note.textContent = '';
+      fetch('/api/client/requests/triage', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({kind: kindKey, text: text, empty: empty})
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        busy.done();
+        var n = applySuggestions(fields, d.suggestions, ctx);
+        // The count of what was applied, and the server's own note about what
+        // it discarded. Neither is collapsed into "done": a suggestion that
+        // was dropped for not being one of the field's options is the check
+        // working, and worth seeing.
+        note.textContent = (n ? n + ' filled in below — keep or dismiss each one. ' : '')
+          + (d.note || d.error || '');
+      }).catch(function (e) {
+        busy.done();
+        note.textContent = 'That could not be read: ' + e;
+      });
+    };
+  }
+
   return {
     INPUT: INPUT, esc: esc, same: same, modal: modal, yesNo: yesNo, radios: radios,
     toggle: toggle, control: control, read: read, form: form, wire: wire,
-    refusedHtml: refusedHtml
+    refusedHtml: refusedHtml,
+    emptyChoiceKeys: emptyChoiceKeys, applySuggestions: applySuggestions,
+    setValue: setValue, triageButton: triageButton
   };
 })();

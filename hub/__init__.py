@@ -789,6 +789,51 @@ def create_hub_app() -> Flask:
                       client=body.get("client", ""))
         return jsonify(out)
 
+    @app.route("/api/sites-match/read-names", methods=["POST"])
+    def api_sites_match_read_names():
+        """Read the unmatched project titles for the business inside them.
+
+        A POST, and a button, because the call is billed: a GET that spends
+        money is one a reload or a link preview fires without anybody asking —
+        the rule `hub/domain_purchase.py` settled for the domain calendar and
+        `hub/brand_lookup.py` for the brand card.
+
+        The model is shown project titles and nothing else. It never sees the
+        client book, so it cannot name a client; what it returns is a run of
+        words out of the title, which then goes through
+        `site_names.exact_matches()` against the real book exactly like a
+        candidate a rule derived. Reading changes no match on its own.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import site_names_ai
+        from .sites_match import suggest
+        body = request.get_json(silent=True) or {}
+        include = bool(body.get("include_inactive"))
+        data = suggest(active_only=not include)
+        titles = [r.get("site") or "" for key in
+                  ("unmatched", "no_domain", "suggested")
+                  for r in (data.get(key) or [])]
+        out = site_names_ai.read_missing(titles)
+        # The report is held for the day, and a reading changes what it would
+        # say — so it is dropped here rather than leaving the page showing the
+        # answer from before the button was pressed, which reads as a button
+        # that did nothing. The drop lives beside the write, per
+        # hub/report_cache.py.
+        try:
+            from . import report_cache
+            report_cache.invalidate("sites-match")
+        except Exception:                               # noqa: BLE001
+            pass
+        try:
+            audit.log("sites_match", "read_names", actor=current_user() or "",
+                      read=out.get("read", 0), stored=out.get("stored", 0),
+                      ungrounded=out.get("ungrounded", 0))
+        except Exception:                               # noqa: BLE001
+            pass
+        return jsonify(out)
+
     @app.route("/api/sites-match/apply", methods=["POST"])
     def api_sites_match_apply():
         """Write only the matches a human accepted."""
@@ -3165,6 +3210,49 @@ def create_hub_app() -> Flask:
                                  actor=current_user() or "")
             return jsonify({"configured": True, "tickets": [], "error": str(exc)})
 
+    @app.route("/api/client/requests/triage", methods=["POST"])
+    def api_client_request_triage():
+        """Read the description and propose the choices it already answers.
+
+        One route for both objects, because `ticket_form_fields()` and
+        `campaign_form_fields()` hand back the same shape and two copies of
+        this would be two descriptions of what a suggestion is.
+
+        A POST, and only ever into the fields the caller says are **empty**: a
+        value somebody chose is the better source and is never offered over,
+        and the gate is here rather than in the browser because a rule the
+        form keeps while the endpoint breaks it is not a rule. Nothing is
+        written — the suggestion is drawn dotted and one press keeps it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api, request_triage
+        body = request.get_json(silent=True) or {}
+        kind = str(body.get("kind") or "ticket")
+        if not knack_api.configured():
+            return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                            "error": "Knack is not configured, so the "
+                                     "options a field accepts cannot be read.",
+                            "note": ""})
+        try:
+            if kind == "ticket":
+                fields = knack_api.ticket_form_fields("create")
+            else:
+                fields = knack_api.campaign_form_fields(
+                    "support" if kind == "support" else "change")
+        except Exception as exc:                        # noqa: BLE001
+            # Named, not answered with an empty list: "this field accepts
+            # nothing" and "we could not read what it accepts" are different,
+            # and only the second is somebody's to fix.
+            return jsonify({"ok": False, "suggestions": {}, "unusable": 0,
+                            "error": f"The live object could not be read "
+                                     f"({type(exc).__name__}).", "note": ""})
+        out = request_triage.suggest(
+            body.get("text") or "", fields, body.get("empty") or [],
+            module=("tickets" if kind == "ticket" else "campaign_support"))
+        return jsonify(out)
+
     @app.route("/api/client/tickets/fields")
     def api_client_ticket_fields():
         """The controls a ticket form should draw, from the live object.
@@ -4606,9 +4694,20 @@ def create_hub_app() -> Flask:
         _admin = viewer_is_admin()
         with open(os.path.join(CLIENTS_APP, "index.html"), "rb") as fh:
             body = fh.read()
-        snippet = b'<link rel="stylesheet" href="/assets/theme.css">'
+        # Two stylesheets, both after the bundle's own <link> so equal rules
+        # here win. theme.css is the shared typography-and-colour layer every
+        # module gets; clients-theme.css is this page's alone, because the
+        # bundle carries the old near-black-and-lime identity in class names
+        # (.kpi, .badge, .tabs) too ordinary to restyle globally. It is scoped
+        # to the body class added below for the same reason.
+        snippet = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                   b'<link rel="stylesheet" href="/assets/clients-theme.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", snippet + b"</head>", 1)
+        # Not data-module: that is what hub-demo.js floats "Walk me through
+        # this" onto, and this page has no walkthrough written for it.
+        if b"<body>" in body:
+            body = body.replace(b"<body>", b'<body class="s1-clients">', 1)
         bar = render_sidebar("clients", is_admin=_admin)
         # Deep links from Client 360: /clients?q=<client> auto-fills and runs
         # the React app's search (native value setter so React sees the input).

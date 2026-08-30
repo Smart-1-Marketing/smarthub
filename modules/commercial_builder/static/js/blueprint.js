@@ -733,6 +733,7 @@
     creative_spec: "Published spec", social_hook: "Feed hook", sound_off: "Sound off",
     abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
     publisher_rules: "Publisher rules", compliance: "Advertising rules",
+    archetype_ready: "What this spot needs",
   };
 
   // Severity comes off the server now. It used to be an ADVISORY set kept by

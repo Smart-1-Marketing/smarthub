@@ -708,8 +708,16 @@ def blocks(text) -> list[dict]:
 # words nobody had generated. So the phrase is rewritten rather than
 # requested, and a price stays a quoted price rather than reading as a list
 # price somebody may have marked up.
+# Both orders, because the document said it the other way round. The rule was
+# written against "the rate card" and the media plan's own seeded copy said
+# "every rate is the Smart 1 card rate" -- which passed the check, named our
+# internal pricing on a client document, and was additionally false the day
+# sell_rate() started quoting CPM at 2x. A price a client reads is a quoted
+# price; where it sits against a sheet of ours is not their side of the
+# conversation.
 _RATE_CARD_RE = re.compile(
-    r"\b(?:the\s+|our\s+|a\s+)?(?:current\s+)?(?:Smart\s*1\s+)?rate[-\s]card\b",
+    r"\b(?:the\s+|our\s+|a\s+)?(?:current\s+)?(?:Smart\s*1\s+)?"
+    r"(?:rate[-\s]card|card[-\s]rates?)\b",
     re.I)
 
 

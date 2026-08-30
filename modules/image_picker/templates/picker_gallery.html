@@ -10,6 +10,16 @@
 </style>
 <style>
 .src-head td{background:var(--paper);border-top:1px solid var(--line);padding:9px 10px}
+/* An observation, drawn as one. Dotted and set apart from the alt text
+   above it, because "a model read this off the picture" and "somebody wrote
+   this" are different claims and a reader has to be able to tell which. */
+.seen{margin-top:5px;padding:5px 0 0;border-top:1px dotted var(--line);
+  color:var(--ink-3);font-size:.76rem;line-height:1.45;max-width:34ch}
+.seen-eye{color:var(--brand,#1769AA)}
+.seen-tags{margin-top:3px;display:flex;flex-wrap:wrap;gap:3px}
+.seen-tag{background:var(--paper,#f2f6fa);border:1px solid var(--line);
+  border-radius:999px;padding:1px 7px;font-size:.68rem}
+.seen-done{font-size:.7rem;font-style:italic}
 .src-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
   font-weight:700;text-transform:uppercase;letter-spacing:.5px;
   background:#e8eef4;color:#46586E}
@@ -41,6 +51,18 @@
 
   <section class="panel">
     <div class="panel-head"><h2>Library</h2><span class="hint" id="count"></span></div>
+    {#- A search box, because until now this gallery had none: a client who
+        sends forty photographs leaves forty thumbnails, and finding the one
+        of the storefront meant scrolling. It searches the alt text, the
+        filename, the folder AND what a vision model saw in the picture, which
+        is the half that makes it work on files nobody has captioned. -#}
+    <div class="selbar">
+      <input id="gSearch" type="search" placeholder="Search these files — a word in the picture, the alt text or the filename"
+             style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--line);border-radius:8px;font:inherit">
+      <button class="btn quiet small" id="gSearchGo" type="button">Search</button>
+      <button class="btn quiet small" id="gSearchClear" type="button" style="display:none">Clear</button>
+    </div>
+    <div class="note" id="visionNote" style="display:none;margin-bottom:10px"></div>
     <div class="selbar">
       <label><input type="checkbox" id="selAll"> Select all</label>
       <span class="hint" id="selCount">None selected</span>
@@ -160,6 +182,38 @@
   /* mm-dd-yy, the Hub's format everywhere. */
   function mdy(iso){ return S1Date.fmt(iso, ""); }
 
+  /* What a vision model saw in this photograph.
+
+     Drawn dotted and labeled as an observation, never merged into the alt
+     text on the row: a value somebody typed is the better source, so the
+     suggestion is *offered* into an empty field and kept on a press — the
+     overlay rule hub/client_urls.py works to. An image that already has alt
+     text shows the description as context and no button, because there is
+     nothing to press: accepting would overwrite what somebody wrote, and the
+     server refuses that anyway. */
+  function seenHtml(im){
+    var d = im.seen;
+    if (!d) return '';
+    if (d.state === 'given_up'){
+      return '<div class="seen">Could not be described' +
+        (d.last_error ? ' — ' + esc(d.last_error.slice(0,80)) : '') + '</div>';
+    }
+    if (!d.description) return '';
+    var tags = (d.tags || []).map(function(t){
+      return '<span class="seen-tag">' + esc(t) + '</span>'; }).join('');
+    var offer = '';
+    if (d.alt_suggestion && !im.alt_text){
+      offer = '<button class="btn quiet small useAlt" type="button">' +
+        'Use as alt text</button>';
+    } else if (d.accepted){
+      offer = '<span class="seen-done">alt text taken from this</span>';
+    }
+    return '<div class="seen"><span class="seen-eye" title="Read by a model, ' +
+      'not typed by anybody">&#10022;</span> ' + esc(d.description) +
+      (tags ? '<div class="seen-tags">' + tags + '</div>' : '') +
+      (offer ? '<div style="margin-top:4px">' + offer + '</div>' : '') + '</div>';
+  }
+
   function rowHtml(im){
     {
       var s = STATUS[im.ghl_status] || STATUS.pending;
@@ -175,7 +229,8 @@
             : '<img src="' + esc(im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
           '</a></td>' +
         '<td><strong>' + esc(im.filename) + '</strong><br>' +
-          '<span style="color:var(--ink-3);font-size:.8rem">' + esc(im.alt_text || "—") + '</span></td>' +
+          '<span style="color:var(--ink-3);font-size:.8rem">' + esc(im.alt_text || "—") + '</span>' +
+          seenHtml(im) + '</td>' +
         '<td>' + esc(im.collection_label || im.collection_kind || "—") +
           (im.spec_result
             ? '<br><span class="pill ' + SPEC[im.spec_result][0] + '" title="' +
@@ -256,17 +311,73 @@
       .catch(function(){ btn.disabled = false; note("bad", "Couldn't delete", ""); });
   });
 
+  var QUERY = "";
+
   function load(){
-    api("/api/saved?limit=200").then(function(d){
-      if (!d.ok){ note("bad", "Couldn't load the gallery", d.error || ""); return; }
-      render(d.images || []);
-    });
+    api("/api/saved?limit=200" + (QUERY ? "&q=" + encodeURIComponent(QUERY) : ""))
+      .then(function(d){
+        if (!d.ok){ note("bad", "Couldn't load the gallery", d.error || ""); return; }
+        render(d.images || []);
+        drawVision(d);
+      });
   }
+
+  /* Which kind of empty this gallery is. "Nothing has been described yet",
+     "everything has been", and "we could not read the store" are three
+     situations and only the first is somebody waiting on the sweep — the
+     tri-state answer this Hub gives everywhere it prints a count. */
+  function drawVision(d){
+    var box = document.getElementById("visionNote");
+    if (!box) return;
+    var v = d.vision;
+    if (!v){ box.style.display = "none"; return; }
+    box.style.display = "block";
+    if (!v.measured){
+      box.innerHTML = 'What is in these photographs is <b>not measured</b> — ' +
+        'the descriptions could not be read. ' + esc(v.error || "");
+      return;
+    }
+    if (!v.configured){
+      box.innerHTML = 'Describing uploads needs <code>OPENAI_API_KEY</code> on ' +
+        'the server. ' + v.described + ' of ' + v.images + ' already described.';
+      return;
+    }
+    box.innerHTML = '<b>' + v.described + '</b> of ' + v.images +
+      ' saved file(s) have been described, so you can search what is in them. ' +
+      (v.pending ? v.pending + ' still to go — the sweep does a batch an hour. '
+                 : 'Nothing left to describe. ') +
+      (v.given_up ? v.given_up + ' could not be read and were given up on.' : '');
+  }
+
+  function runSearch(){
+    QUERY = (document.getElementById("gSearch").value || "").trim();
+    document.getElementById("gSearchClear").style.display = QUERY ? "" : "none";
+    load();
+  }
+  document.getElementById("gSearchGo").addEventListener("click", runSearch);
+  document.getElementById("gSearch").addEventListener("keydown", function(e){
+    if (e.key === "Enter"){ e.preventDefault(); runSearch(); }
+  });
+  document.getElementById("gSearchClear").addEventListener("click", function(){
+    document.getElementById("gSearch").value = ""; runSearch();
+  });
 
   document.addEventListener("click", function(e){
     var row = e.target.closest("tr[data-id]");
     if (!row) return;
     var id = row.dataset.id;
+
+    if (e.target.classList.contains("useAlt")){
+      e.target.disabled = true;
+      api("/api/saved/" + id + "/alt-from-description", "POST").then(function(d){
+        if (d.ok) { note("ok", "Alt text saved", ""); load(); }
+        /* The refusal is shown rather than swallowed: "that image already has
+           alt text and it is not written over" is the rule working, and a
+           button that appears to do nothing is how somebody stops trusting it. */
+        else { note("bad", "Not written", d.error || ""); e.target.disabled = false; }
+      }).catch(function(){ e.target.disabled = false; });
+      return;
+    }
 
     if (e.target.classList.contains("retry")){
       e.target.disabled = true; e.target.textContent = "Sending…";

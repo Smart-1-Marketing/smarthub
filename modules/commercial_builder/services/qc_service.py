@@ -3,7 +3,7 @@ allowed to render. Each check returns {"passed": bool, "message": str} so
 the storyboard/review UI can render a simple pass/warn list."""
 
 from . import openai_service, abcd_service
-from .. import compliance_spec
+from .. import compliance_spec, library_spec
 from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
                       qr_eligible, qr_required, qr_default_on, is_social,
                       spec_channels, spec_channel_mode, publishers_refusing_qr,
@@ -41,6 +41,10 @@ ADVISORY_CHECKS = {
     # which is the note QR_CODE_RULES carries. What a finding here does
     # instead is require an acknowledgment before the cut is FILED.
     "compliance",
+    # An archetype nobody can supply is a launch date that moves, and saying
+    # so is worth a warning — but a rep may have the customer lined up and
+    # not have typed it here, so it asks rather than refuses.
+    "archetype_ready",
 }
 
 # The published creative specification. Imported defensively because this
@@ -80,6 +84,7 @@ def run_qc(project_dict, client_dict, scenes):
     checks["abcd_brand_window"] = _check_brand_window(project_dict, scenes)
     checks["publisher_rules"] = _check_publisher_rules(project_dict)
     checks["compliance"] = _check_compliance(project_dict, client_dict)
+    checks["archetype_ready"] = _check_archetype(project_dict)
 
     for key, result in checks.items():
         if key.startswith("_"):
@@ -106,6 +111,32 @@ def run_qc(project_dict, client_dict, scenes):
         cta=project_dict.get("cta"), client=client_dict,
         commercial_type=project_dict.get("commercial_type", ""))
     return checks
+
+
+def _check_archetype(project_dict):
+    """What the chosen archetype needs that the brief does not carry.
+
+    A before-and-after with no BEFORE is the commonest way this archetype gets
+    abandoned two weeks in — nobody photographs the before, because at the
+    time it was just a Tuesday. `hub/creative_needs.py` asks the same question
+    one medium earlier, and for the same reason: found here it is free to
+    change, and found at the shoot it is a launch date.
+    """
+    archetype, source = library_spec.archetype_for(
+        project_dict.get("brief"), project_dict.get("commercial_type", ""))
+    ready = library_spec.readiness(archetype, project_dict.get("brief"))
+    if ready["ready"]:
+        return {"passed": True, "level": LEVEL_PASS,
+                "message": f"{ready['label']}. {ready['note']}"}
+    asks = " ".join(g["question"] for g in ready["gaps"])
+    # An inferred archetype is a weaker claim than a chosen one, and the
+    # message says which rather than reporting a gap in something nobody
+    # actually picked.
+    lead = (f"This is being built as {ready['label']}"
+            + (" (inferred from the commercial type — pick one on the Brief "
+               "step if that is wrong)" if source != "chosen" else "")
+            + ". ")
+    return {"passed": False, "level": LEVEL_WARN, "message": lead + asks}
 
 
 def _check_compliance(project_dict, client_dict):

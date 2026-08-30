@@ -223,6 +223,21 @@ jobs:
             echo "test_commercial_compliance.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder archetype and category tests
+        # What a spot IS as distinct from how it gets made, the legacy
+        # commercial_type reading as the archetype it always was, pack ids
+        # matching hub/industries.py so one client cannot get two taxonomies,
+        # an unmatched category reading generic rather than wrong, and the
+        # check that names any field which changes nothing. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_library.py ]; then
+            python test_commercial_library.py
+          else
+            echo "test_commercial_library.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -393,6 +408,18 @@ jobs:
             python test_proposal_spec.py
           else
             echo "test_proposal_spec.py not on this branch — nothing to run."
+          fi
+
+      - name: Quote validity tests — the clock, and what Suite decides
+        # How long a sent proposal's pricing stands, the Expired status that
+        # nothing used to set, the Suite stage change that reaches the quote
+        # row, and the delivery figures back on the media plan. Guarded like
+        # the steps around it; nothing in it reaches a third party.
+        run: |
+          if [ -f test_quote_validity.py ]; then
+            python test_quote_validity.py
+          else
+            echo "test_quote_validity.py not on this branch — nothing to run."
           fi
 
       - name: Draft tests — unfinished IOs and proposals

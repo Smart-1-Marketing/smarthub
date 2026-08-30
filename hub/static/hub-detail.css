@@ -1,0 +1,261 @@
+/* Smart 1 Hub — the detail-page look, as one description.
+ *
+ * The SEO client page (hub/templates/seo_client.html) is the shape every
+ * record-like screen in this Hub should have: a crumb and a title with the
+ * actions beside them, white cards with a small navy heading and a control on
+ * the right, key/value rows that line up, muted secondary text, and one blue
+ * button. It was written as ~90 lines of `.seoc-*` rules inside that one
+ * template, so Sites Admin, the Suite panel and the client lookup each grew
+ * their own idea of what a card is — three brand palettes on four screens of
+ * the same product.
+ *
+ * The primitives are here now, under `s1d-`, and the `.seoc-*` names are
+ * declared *in the same rule* rather than copied into it. That is the whole
+ * point: a change to what a card looks like lands once, and the page the look
+ * came from cannot drift away from the pages that adopted it. seo_client.html
+ * keeps only the rules that are genuinely its own (the schema builder, the
+ * traffic tiles, the FAQ editor) — those are not a design system, they are
+ * that tool.
+ *
+ * Loaded two ways, because the Hub is two apps: hub/templates/base.html links
+ * it for the hub's own pages, and wsgi.py's HubBar injects it into every
+ * dispatcher-mounted module beside theme.css. A module that adopts these
+ * class names therefore needs no stylesheet of its own.
+ *
+ * Self-contained on purpose. `.card` in hub.css is a hub-page class and a
+ * mounted module never loads hub.css, so `.s1d-card` carries its own
+ * background, border and radius rather than assuming one underneath it.
+ */
+
+:root {
+  --s1d-navy: #1a2e58;
+  --s1d-brand: #2563eb;
+  --s1d-brand-dark: #1d4ed8;
+  --s1d-ink: #1e293b;
+  --s1d-muted: #64748b;
+  --s1d-line: #e2e8f0;
+  --s1d-line-soft: #eef2f7;
+  --s1d-wash: #f8fafc;
+  --s1d-bg: #f4f6fa;
+  --s1d-ok: #16a34a;
+  --s1d-warn: #b45309;
+  --s1d-bad: #dc2626;
+}
+
+/* ---------------- page head: crumb, title, actions ---------------- */
+
+.s1d-head, .seoc-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: 16px; flex-wrap: wrap;
+}
+/* Only .s1d-head. The SEO page's head is also a .page-head, which carries a
+   margin from hub.css already, and a second one opens a gap there. */
+.s1d-head { margin-bottom: 16px; }
+.s1d-head h1, .s1d-head h2 {
+  margin: 0; color: var(--s1d-navy); font-size: 23px; line-height: 1.2;
+}
+.s1d-head p { margin: 4px 0 0; color: var(--s1d-muted); font-size: 13px; }
+.s1d-crumb, .seoc-crumb {
+  font-size: 12.5px; color: var(--s1d-muted); margin-bottom: 4px;
+}
+.s1d-crumb a, .seoc-crumb a { color: var(--s1d-brand); text-decoration: none; }
+.s1d-actions, .seoc-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------------- buttons ---------------- */
+
+.s1d-btn, .seoc-btn {
+  border: 0; background: var(--s1d-brand); color: #fff;
+  font: 600 13px 'Segoe UI', system-ui, sans-serif;
+  padding: 9px 16px; border-radius: 8px; cursor: pointer;
+  text-decoration: none; display: inline-block; line-height: 1.3;
+}
+.s1d-btn:hover, .seoc-btn:hover { background: var(--s1d-brand-dark); }
+.s1d-btn.sec, .seoc-btn.seoc-sec {
+  background: #fff; color: var(--s1d-ink); border: 1px solid var(--s1d-line);
+}
+.s1d-btn.sec:hover, .seoc-btn.seoc-sec:hover { background: var(--s1d-wash); }
+.s1d-btn.small, .seoc-btn.seoc-small { padding: 6px 12px; font-size: 12.5px; }
+/* Destructive is quiet until it is hovered. A red button in a row of blue ones
+   reads as the primary action, which is the opposite of what it is. */
+.s1d-btn.danger { background: #fff1f0; color: #b42318; border: 1px solid #f3b8b3; }
+.s1d-btn.danger:hover { background: #b42318; color: #fff; border-color: #b42318; }
+.s1d-btn:disabled, .s1d-btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* ---------------- cards ---------------- */
+
+.s1d-card, .seoc-card { margin-bottom: 16px; }
+.s1d-card {
+  background: #fff; border: 1px solid var(--s1d-line);
+  border-radius: 12px; padding: 18px;
+}
+.s1d-card > h2, .s1d-card > h3, .s1d-card h3, .seoc-card h3 {
+  margin: 0 0 10px; font-size: 15px; color: var(--s1d-navy);
+}
+.s1d-cardhead, .seoc-cardhead {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.s1d-cardhead h2, .s1d-cardhead h3, .seoc-cardhead h3 { margin: 0; }
+.s1d-muted, .seoc-muted { color: var(--s1d-muted); font-size: 12.5px; }
+.s1d-hint { color: var(--s1d-muted); font-size: 12.5px; margin: 6px 0 0; }
+
+/* ---------------- key/value rows ---------------- */
+/* 150px label column, ruled between rows, value wrapping rather than
+   overflowing: a domain or an owner email is routinely longer than its cell. */
+
+.s1d-kv, .seoc-kv {
+  display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px;
+  align-items: start; padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9; font-size: 13.5px;
+}
+.s1d-kv:last-child, .seoc-kv:last-child { border-bottom: 0; }
+.s1d-kv b, .seoc-kv b { color: #475569; font-weight: 600; padding-top: 1px; }
+.s1d-kv span, .s1d-kv dd, .seoc-kv span { min-width: 0; overflow-wrap: anywhere; margin: 0; }
+.s1d-kv a, .seoc-kv a { color: var(--s1d-brand); text-decoration: none; font-weight: 600; }
+/* A <dl> is the right markup for this and needs no second class name. */
+.s1d-kvlist { margin: 0; }
+.s1d-kvlist dt {
+  color: #475569; font-weight: 600; font-size: 13.5px; padding: 8px 0 0;
+}
+.s1d-kvlist dd {
+  margin: 0 0 8px; padding: 0 0 8px; font-size: 13.5px;
+  border-bottom: 1px solid #f1f5f9; overflow-wrap: anywhere;
+}
+.s1d-kvlist dd:last-child { border-bottom: 0; }
+@media (min-width: 620px) {
+  .s1d-kvlist { display: grid; grid-template-columns: 150px 1fr; gap: 0 14px; }
+  .s1d-kvlist dt { padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+  .s1d-kvlist dd { padding: 8px 0; margin: 0; }
+  .s1d-kvlist dt:last-of-type, .s1d-kvlist dd:last-child { border-bottom: 0; }
+}
+
+/* ---------------- layout ---------------- */
+
+.s1d-grid, .seoc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.s1d-grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.s1d-row6040, .seoc-row6040 { display: grid; grid-template-columns: 6fr 4fr; gap: 16px; }
+@media (max-width: 1050px) { .s1d-grid3 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) {
+  .s1d-grid, .seoc-grid, .s1d-grid3,
+  .s1d-row6040, .seoc-row6040 { grid-template-columns: 1fr; }
+}
+
+/* ---------------- number tiles ---------------- */
+/* The label under the number, not over it, and the number in navy: a row of
+   these is read for the figures, and a row of gray uppercase labels first is
+   the reader doing the tool's work. */
+
+.s1d-tiles, .seoc-tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.s1d-tile, .seoc-tile {
+  background: var(--s1d-wash); border: 1px solid var(--s1d-line);
+  border-radius: 10px; padding: 12px 14px;
+}
+.s1d-tile .v, .seoc-tile .v { font-size: 22px; font-weight: 800; color: var(--s1d-navy); }
+.s1d-tile .l, .seoc-tile .l {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--s1d-muted); margin-top: 2px;
+}
+
+/* ---------------- tables ---------------- */
+
+table.s1d-t, table.seoc-t { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.s1d-t th, table.seoc-t th {
+  background: var(--s1d-wash); text-align: left; padding: 8px 10px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--s1d-muted); border-bottom: 1px solid var(--s1d-line);
+  white-space: nowrap;
+}
+table.s1d-t td, table.seoc-t td {
+  padding: 8px 10px; border-bottom: 1px solid var(--s1d-line-soft);
+  vertical-align: middle;
+}
+table.s1d-t tr:hover td, table.seoc-t tr:hover td { background: #fbfdff; }
+table.s1d-t a, table.seoc-t td a.u {
+  color: var(--s1d-brand); text-decoration: none; overflow-wrap: anywhere;
+}
+.s1d-tablehead, .seoc-tablehead {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 8px; padding-top: 14px; border-top: 1px solid var(--s1d-line-soft);
+}
+.s1d-tablehead b, .seoc-tablehead b { color: var(--s1d-navy); font-size: 13.5px; }
+.s1d-tableacts, .seoc-tableacts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.s1d-scroll { overflow-x: auto; }
+
+/* ---------------- state ---------------- */
+/* Four, not three. "We have not measured this" is its own answer everywhere
+   else in this codebase and it needs its own color here too — a gray pill is
+   how a page says so without a zero standing in for it. */
+
+.s1d-pill, .seoc-pill {
+  display: inline-block; border-radius: 999px; padding: 3px 10px;
+  font-size: 11.5px; font-weight: 700; background: #eef3f8; color: #68798c;
+  white-space: nowrap;
+}
+.s1d-pill.ok, .seoc-pill.ok { background: #ecfdf3; color: #12794b; }
+.s1d-pill.warn, .seoc-pill.warn { background: #fef7e7; color: #94620a; }
+.s1d-pill.bad, .seoc-pill.bad { background: #fdecec; color: #b01919; }
+.s1d-pill.info { background: #eef2ff; color: #3730a3; }
+.s1d-ok, .seoc-ok { color: var(--s1d-ok); font-weight: 700; }
+.s1d-warn, .seoc-warn { color: var(--s1d-warn); font-weight: 700; }
+.s1d-bad, .seoc-bad { color: var(--s1d-bad); font-weight: 700; }
+
+/* ---------------- forms ---------------- */
+
+.s1d-field { display: block; margin-bottom: 12px; }
+.s1d-field > span, .s1d-label {
+  display: block; font-size: 12px; font-weight: 700; color: #475569;
+  margin-bottom: 5px;
+}
+.s1d-card input[type=text], .s1d-card input[type=email], .s1d-card input[type=number],
+.s1d-card input[type=date], .s1d-card input[type=search], .s1d-card input:not([type]),
+.s1d-card select, .s1d-card textarea, .s1d-input {
+  width: 100%; box-sizing: border-box; padding: 8px 10px;
+  border: 1px solid var(--s1d-line); border-radius: 8px;
+  font: 13px 'Segoe UI', system-ui, sans-serif; background: #fff;
+  color: var(--s1d-ink);
+}
+.s1d-card input:focus, .s1d-card select:focus, .s1d-card textarea:focus {
+  outline: 2px solid rgba(37, 99, 235, .35); outline-offset: 0;
+  border-color: var(--s1d-brand);
+}
+.s1d-formgrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 12px;
+}
+.s1d-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---------------- the sub-nav a module still needs ---------------- */
+/* A mounted module with pages of its own (Sites has Accounts / Inventory /
+   Packages) genuinely needs a second level of navigation — what it does not
+   need is a second branded header bar beside the Hub's sidebar, which reads as
+   a different product. A light tab strip says the same thing and does not. */
+
+.s1d-subnav {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--s1d-line);
+}
+.s1d-subnav a, .s1d-subnav button {
+  color: var(--s1d-muted); text-decoration: none; font: 600 13px 'Segoe UI', system-ui, sans-serif;
+  padding: 7px 12px; border-radius: 8px; border: 0; background: none; cursor: pointer;
+}
+.s1d-subnav a:hover, .s1d-subnav button:hover { background: #eef2ff; color: var(--s1d-navy); }
+/* `.active` as well as `.on`, because the Suite panel's tab strip is driven by
+   JavaScript that has written `active` since it was an underline tab bar.
+   Renaming the class in the script to match the stylesheet would be the
+   stylesheet deciding what the page's state is called. */
+.s1d-subnav a.on, .s1d-subnav button.on,
+.s1d-subnav a.active, .s1d-subnav button.active { background: var(--s1d-navy); color: #fff; }
+.s1d-subnav .sp { margin-left: auto; }
+
+/* ---------------- notices ---------------- */
+
+.s1d-note {
+  border-radius: 10px; padding: 11px 14px; font-size: 13px; margin-bottom: 14px;
+  background: var(--s1d-wash); border: 1px solid var(--s1d-line); color: #475569;
+}
+.s1d-note.ok { background: #f0fdf4; border-color: #bbf7d0; color: #14532d; }
+.s1d-note.warn { background: #fffbeb; border-color: #fde68a; color: #78350f; }
+.s1d-note.bad { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
