@@ -65,6 +65,7 @@ Three more since:
      client who had just had a set of ads built read as one nobody had done
      any work for.
 """
+import json
 import os
 import shutil
 import sys
@@ -638,6 +639,49 @@ check("and it is named for the tool a rep opened, not the directory",
 # where the table gets keyed on the wrong one.
 check("every declared log name is one the work log can name",
       sorted(set(audit.LOG_NAMES.values()) - set(client_brand.WORK_KINDS)), [])
+
+# That assertion covers `audit.LOG_NAMES`, which has exactly one entry. The
+# failure it was written about has now happened five times -- display_ads,
+# ad_copy, website_audit, and then io_builder, landing_maker, stock_photos,
+# brand and suite -- each found by somebody opening one client's record and
+# noticing, which is not a way of finding the sixth. `check_work_kinds()`
+# asks the question of every call site instead.
+check("no module logs client work the record cannot name",
+      [f["module"] for f in client_brand.check_work_kinds()], [])
+# The insertion order is the worst one it found: hub/io_clients.py exists
+# because a client whose only trace is an IO was invisible on their own
+# record, so the IO was registering the client and then not appearing as
+# work for them.
+check("an insertion order is work on the client's record",
+      "io_builder" in client_brand.WORK_KINDS, True)
+for _m in ("landing_maker", "stock_photos", "brand", "suite"):
+    check(f"{_m} is too", _m in client_brand.WORK_KINDS, True)
+
+# The other side, written down rather than left as an absence: a landing
+# module files the *prospect's* own business name off the form, and putting a
+# lead on a client record would be the Hub inventing a relationship.
+check("a landing-page lead is excluded on purpose, with a reason",
+      all(client_brand.NOT_WORK.get(m) for m in ("leads", "boat", "tourism")),
+      True)
+check("and the two lists do not overlap",
+      sorted(set(client_brand.NOT_WORK) & set(client_brand.WORK_KINDS)), [])
+# An exemption that outlives its call site goes on covering whatever is
+# written under that name next.
+check("no exemption names a module that no longer logs",
+      client_brand.stale_work_exemptions(), [])
+
+# And the rows actually arrive: reading the table is not the same as the row
+# reaching the record, and work_log() is the function the failure lived in.
+_C = "Riverside HVAC Test Client"
+for _mod, _ev in (("io_builder", "io_submitted"), ("landing_maker", "created"),
+                  ("stock_photos", "photo_used"), ("brand", "logo_filed"),
+                  ("suite", "llms_txt_published"), ("boat", "boat_report")):
+    audit.log(_mod, _ev, client=_C, actor="Tester")
+_blob = json.dumps(client_brand.work_log(_C).get("items") or [])
+for _want in ("Insertion order", "Landing page", "Stock photo used",
+              "Brand assets", "Published to Suite"):
+    check(f"{_want} reaches the work log", _want in _blob, True)
+check("and a landing-page lead does not", "boat_report" in _blob, False)
 
 # =====================================================================
 section("A push that landed is remembered; one that did not is not")
