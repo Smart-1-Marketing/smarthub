@@ -184,6 +184,26 @@ CATEGORY_MEDIUM = {
     "mobile only": DISPLAY,
     "email marketing": EMAIL,
     "smart 1 signage": DOOH,
+    # ...and two headings that are not media buys at all, which the keyword
+    # pass below could not tell apart from one. Adding SOCIAL to the gate made
+    # the word "social" decisive, so `Social Media Ad Creation per platform` --
+    # the card's own $35 *production* line -- was gated as a social buy and
+    # asked whether the client already had the creative it exists to produce;
+    # and `Social Media Management`, a $199/month organic posting retainer
+    # that buys no advertising, was asked the same. Both then printed "the
+    # spec kit maps no unit for this" onto the client's creative section, and
+    # both counted their spend into the social medium, which is what decides
+    # whether a comped $35 line is questioned at all.
+    #
+    # Named by category rather than product, because the other four lines
+    # under CREATIVE / DESIGN SERVICES already answered OTHER by accident --
+    # they simply contain no medium keyword -- and the next production line
+    # added there must not depend on that luck. It is the reason
+    # `SPEC_AGREE_EXEMPT` already carries ("other", "email") in writing: a
+    # creative-production line item is not a media buy that needs creative
+    # supplied for it.
+    "creative / design services": OTHER,
+    "social media management": OTHER,
 }
 
 

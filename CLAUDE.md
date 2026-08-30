@@ -3892,6 +3892,27 @@ invented here — low enough that its comp confirmation is in practice never
 raised, which is the right outcome for a $35 line rather than a threshold
 nobody would act on.
 
+**And gating it made the word "social" decisive, which caught two things that
+are not media buys.** `Social Media Ad Creation per platform` is the card's own
+$35 **production** line, so the gate asked whether the client already had the
+creative that line exists to produce; and `Social Media Management` is a
+$199/month organic posting retainer that buys no advertising at all. Both then
+printed *"the spec kit maps no unit for this"* onto the client's creative
+section, and both counted their spend into the **social medium** — which is the
+figure the comp confirmation is measured against, so a production line sitting
+beside a Meta buy raised the number that decides whether comping it is
+questioned.
+
+They are named by **category** rather than by product, and that is the point:
+the other four lines under CREATIVE / DESIGN SERVICES answer OTHER only because
+they happen to contain no medium keyword, so the next production line added
+there would depend on that luck. It is also already written down —
+`SPEC_AGREE_EXEMPT` carries `("other", "email")` with the reason *a
+creative-production line item is not a media buy that needs creative supplied
+for it* — so this is that exemption's rule applied one heading up rather than a
+new judgment. `spec_disagreements()` cannot see any of it: the kit maps no unit
+for either product, and an empty kit is skipped.
+
 **One product runs the other way.** The card files
 `LinkedIn - Display & Text Ads` under a heading called **SOCIAL ADS - VIDEO**,
 and the heading is what the keyword pass reads — so a product whose own name
