@@ -273,6 +273,41 @@ client-facing tests that already fetch these pages each assert the mark
 reaches the **served** page — checking for the guard alone proves nothing,
 since every call site contains it whether the block was emitted or not.
 
+**Seven found by reading is how the eighth was missed.**
+`modules/fan_radio/templates/share.html` is the page a rep mails a client to
+approve a radio spot — `/r/<token>`, one of the three prefixes that module
+declares public — and approving said *"Sending…"* in a message line and
+grayed a button out, with nothing moving. It is the same defect as the seven
+above and it was not on the list, because the list was written by opening
+files. A list of the seven we fixed proves nothing about the ninth, so
+`test_thinking.py` asks the question of **every public route** instead: it
+reads each module's own `PUBLIC_PREFIXES` / `PUBLIC_PATHS`, finds the route
+functions under them, collects the templates those render, and requires any
+that runs a `fetch` or a `sendBeacon` to carry the mark or be named with a
+reason. `test_blueprint_guards.py`'s rule, wearing a spinner.
+
+Three things it has to get right. **A computed template name is still a
+render** — `modules/scans` picks between `widget.html` and
+`widget_audit.html` inside a helper and passes the result, so reading only
+the literal arguments would skip the two pages a prospect most often meets;
+the helper's own string constants are read, the looser reading
+`check_orphan_templates()` settled on for the same reason. **Finding nothing
+is a failure**, not a clean sweep — the count is asserted *and* four pages
+are named, because a set of the right size and the wrong contents is the same
+failure one step on. And **what it cannot reach is said rather than left
+implied**: the display-ad proof is served straight off the Node renderer, so
+no Flask route renders it and no Jinja global exists on it — the position
+`embed.html` is in, and the reason both carry their own inlined glyphs.
+
+The one exemption is the media calculator, named with its reason: it already
+draws a complete inline mark of its own — its own SVG, `role="status"`,
+`aria-live` and a reduced-motion rule, torn down in a `finally` — and it is
+framed on smart1marketing.com, where the shared block would be several
+kilobytes on a page whose whole job is to load, to replace six working lines.
+Converging what it *draws* with the Hub's own arc is separate work, and the
+check fails if the exemption ever outlives the page or the page gains the
+block anyway.
+
 **The screen with the longest waits in the Hub had no mark at all, and
 nothing could have found it.** The Display Ad Builder's build screen makes
 three billed calls — two image generations and a copy draft, each tens of
