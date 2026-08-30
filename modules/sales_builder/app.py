@@ -3500,9 +3500,12 @@ def api_target_map_status():
         # asks somebody to fix a DMA.
         "not_plotted": [r for r, is_kind in zip(placed["not_plotted"], drawn) if is_kind],
         "unfound": [r for r, is_kind in zip(placed["not_plotted"], drawn) if not is_kind],
-        "reason": "" if placed["points"] else
-                  "Nothing here can be placed on a map yet — an area needs a "
-                  "city or a ZIP Code.",
+        # Through hub_map's own reader rather than a sentence written here.
+        # This said "an area needs a city or a ZIP Code" whenever nothing was
+        # plotted, whichever of the four ways it went -- so it printed directly
+        # above the warnbox naming the city the area already carries, and told
+        # somebody to fix a DMA that is correctly not drawn.
+        "reason": "" if placed["points"] else hub_map.nothing_plotted_reason(placed),
         "attribution": hub_config.map_tile_attribution})
 
 
