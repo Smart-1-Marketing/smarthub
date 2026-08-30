@@ -176,9 +176,23 @@ section("Staff pages keep their chrome")
 # The other half of the same rule. A prefix wide enough to cover the public
 # routes would also strip the nav off the calculator index and the leads page,
 # which is how this fix goes wrong in the opposite direction.
+#
+# Signed in, and on a client of its own. These two are staff pages behind the
+# blueprint's login guard, so an anonymous request lands on /login -- which has
+# no sidebar and is not what this section means to be asking about. The client
+# above stays logged out on purpose: every assertion before this one is that a
+# prospect with no Hub account can reach the public routes.
+staff = Client(application)
+staff.post("/login", data={"password": os.environ["PANEL_PASSWORD"], "name": "CI"})
 for path in (f"{MOUNT}/", f"{MOUNT}/leads"):
-    body = client.get(path, headers={}, follow_redirects=True).get_data()
+    body = staff.get(path, follow_redirects=True).get_data()
     check(f"{path} still has the sidebar", SIDEBAR in body, True)
+
+# ...and the public routes stay chromeless even for somebody who *is* signed
+# in, or a rep checking the link sees a different page from the prospect.
+for path in (f"{MOUNT}/embed/trade", f"{MOUNT}/c/trade"):
+    body = staff.get(path, follow_redirects=True).get_data()
+    check(f"{path} has no staff chrome even when signed in", SIDEBAR in body, False)
 
 
 section("A hub page that is genuinely not embeddable is still refused")
