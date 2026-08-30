@@ -639,6 +639,105 @@ check("and it is named for the tool a rep opened, not the directory",
 check("every declared log name is one the work log can name",
       sorted(set(audit.LOG_NAMES.values()) - set(client_brand.WORK_KINDS)), [])
 
+# =====================================================================
+section("A push that landed is remembered; one that did not is not")
+# =====================================================================
+# `client_brand.mark_pushed()` was written, documented -- "Record that the
+# brand guide reached Suite" -- and had no caller at all. Nothing had ever
+# written `suite_brand_guide`, which is the field the card reads to decide
+# whether to draw the state or the button. The card's own comment says why
+# that matters: "Once the guide is in Suite the button is a trap: pressing it
+# again just overwrites what's there." The guard held for the life of one page
+# view -- pushBrand() swaps the button out in the browser -- and the button
+# came back on every reload, so a rep pushed the same guide again, and again,
+# with each press silently overwriting Suite and nothing anywhere saying it
+# had already been sent.
+
+import hub as _hub                                             # noqa: E402
+import requests as _requests                                   # noqa: E402
+
+_happ = _hub.create_hub_app()
+_hc = _happ.test_client()
+_hc.post("/login", data={"password": os.environ["PANEL_PASSWORD"]})
+
+_real_post = _requests.post
+_posts = []
+
+
+def _push(name="Fresh Co"):
+    return _hc.post("/api/client/brand/push-to-suite",
+                    json={"name": name}).get_json()
+
+
+def _recorded(name="Fresh Co"):
+    return client_brand.brand_kit(name, "").get("suite_brand_guide") or ""
+
+
+# A payload offered for somebody to paste by hand has not reached Suite.
+os.environ.pop("GHL_BRAND_WEBHOOK_URL", None)
+_r = _push()
+check("with no webhook, nothing is delivered", _r["delivered"], False)
+check("and it says which kind of nothing", _r["reason"], "not_configured")
+check("the payload still comes back to paste", bool(_r["payload"]["found"]), True)
+check("and nothing is recorded", _recorded(), "")
+
+os.environ["GHL_BRAND_WEBHOOK_URL"] = "https://suite.example/hook"
+
+# Suite refused it. Reported as a missing variable before this, which sends
+# somebody to set one that is already set -- the provider_check rule.
+_requests.post = lambda url, **kw: _Resp({}, 500)
+try:
+    _r = _push()
+finally:
+    _requests.post = _real_post
+check("a refusal is not delivered", _r["delivered"], False)
+check("it is named as a refusal", _r["reason"], "refused")
+check("and carries Suite's own status", "500" in _r["note"], True)
+check("a refused push records nothing", _recorded(), "")
+
+
+def _boom(url, **kw):
+    raise ConnectionError("no route to host")
+
+
+_requests.post = _boom
+try:
+    _r = _push()
+finally:
+    _requests.post = _real_post
+check("unreachable is its own answer", _r["reason"], "unreachable")
+check("named without the URL in it", "example" not in _r["note"], True)
+check("and it records nothing either", _recorded(), "")
+
+# And the one that actually landed.
+_requests.post = lambda url, **kw: _Resp({"ok": True}, 200)
+try:
+    _r = _push()
+finally:
+    _requests.post = _real_post
+check("a good push is delivered", _r["delivered"], True)
+check("it hands back the stamp it wrote", bool(_r["pushed_at"]), True)
+# The whole point: the next page load reads the same thing. Asserted as
+# "equal AND not empty", because two empty strings are equal -- and empty on
+# both sides is precisely the bug, so the obvious form of this check passes
+# on the code it was written to catch.
+check("and the record agrees with it",
+      (_recorded() == _r["pushed_at"], bool(_recorded())), (True, True))
+
+# Which is what makes the card show the state instead of the button.
+check("the card draws the state when the field is set",
+      "d.suite_brand_guide" in C360 and "Brand Guide setup in Suite" in C360, True)
+check("and offers the push only when it is not",
+      "'<a class=\"gbtn\" href=\"#\" onclick=\"pushBrand();return false\">"
+      "Send to Suite Brand Guide</a>'" in C360, True)
+
+# Three outcomes on screen, not two.
+check("the browser keeps not_configured apart",
+      "d.reason==='not_configured'" in C360, True)
+check("and reports a delivery failure in Suite's own words",
+      "d.note||" in C360, True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

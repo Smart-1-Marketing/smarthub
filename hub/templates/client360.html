@@ -2313,12 +2313,23 @@ function pushBrand(){
      if(d.error){alert(d.error);return;}
      if(d.delivered){
        // Replace the button rather than leaving it pressable — pressing it
-       // again would silently overwrite the guide already in Suite.
-       if(acts) acts.innerHTML='<span class="pill ok">Brand Guide setup in Suite</span>';
+       // again would silently overwrite the guide already in Suite. The
+       // server records the push now, so this survives a reload; before it
+       // did, the guard held for one page view and the button came back.
+       // The stamp is the server's own, so the pill says the same thing
+       // after F5 as it does now.
+       if(acts) acts.innerHTML='<span class="pill ok"'
+         + (d.pushed_at?' title="Pushed '+esc(d.pushed_at)+'"':'')
+         + '>Brand Guide setup in Suite</span>';
        alert('Brand guide sent to Smart 1 Suite.');
-     } else {
+     } else if(d.reason==='not_configured'){
        alert('No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. '+
              'The payload is ready in the response.');
+     } else {
+       // Suite refused it, or could not be reached. Reporting either as a
+       // missing variable sends somebody to set one that is already set.
+       alert((d.note||'The brand guide could not be delivered.')+
+             ' Nothing was recorded, so you can try again.');
      }
    }).catch(()=>alert('Could not send the brand guide.'));
 }
