@@ -2847,6 +2847,33 @@ rebuildable, and say in a comment what rebuilds it. `/api/integrity` flags any
 module still writing its own; `/api/backup` and `/diagnostics` say what is
 actually mirrored.
 
+**And two logs decided their own location.** `jsonstore.data_root()` says why
+it exists — *"every module had its own copy of this expression. They all
+agreed, which is luck rather than design: the moment one of them disagreed,
+its files would land somewhere the backup sweep never looks."* `hub/audit.py`
+and `hub/errors.py` were two such copies, and they did disagree: both
+preferred `/var/data` unconditionally and read **`HUB_DATA_DIR` not at all**,
+which is the first thing `data_root()` reads.
+
+Nothing moves on Render, where `HUB_DATA_DIR` is unset and the disk is
+mounted. What it cost was every test that sets it and then reads one of those
+logs — it was handed the **real, shared** one. `test_msa_embed.py` asserts
+that signing writes an activity entry carrying the client, and on a machine
+that had run the suite before, fourteen `msa` rows were already in
+`/var/data/hub-audit.log.jsonl`, `entries[0]` already carried *"Acme Marine,
+LLC"*, and **both assertions passed before the test ran a line**. Dropping
+`client=` from the route — the regression the test's own comment calls "the
+same as not logging" — left it green. It fails now.
+
+Both defer to `data_root()`, and the explicit `AUDIT_LOG_PATH` /
+`ERROR_LOG_PATH` overrides still win, because naming one file is the more
+specific answer than naming a root. Neither may raise: a log that can break a
+boot is worse than one in the wrong place, so both fall back to the
+expression they replaced. `test_jsonstore.py` asserts a named root moves both,
+that the overrides still beat it, and that neither file goes back to deciding
+for itself — beside the section already there about a fresh data directory not
+being isolation on its own, which is the same trap one layer up.
+
 **Deleting a mirrored file needs `jsonstore.delete_json`, not `os.remove`.**
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one
