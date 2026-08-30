@@ -5,8 +5,27 @@ engine reads "614-536-0768" as a number, "Rt. 4" as "arty four", and "$99"
 as "dollar ninety nine". This pass rewrites the copy for the ear and keeps
 the original for the page, so the client approves the words they'll hear.
 
-Same rules as Radio Promo, so a script moved between the two tools is read
-identically. Per-project overrides win over everything.
+Per-project overrides win over everything.
+
+**These are not Radio Promo's rules, and this file used to say they were.**
+They overlap and they are not the same pass, so a script moved between the
+two tools is *not* read identically -- the divergence is named here rather
+than left to be discovered from a render:
+
+* Radio Promo says numbers as words ("ninety-nine dollars", "twenty
+  percent", "one hundred Main Street"); this one leaves the digits in place
+  ("99 dollars", "20 percent", "100 Main Street") and lets the engine say
+  them. Both are read correctly; they do not sound the same.
+* Radio Promo spells a web address and an email out loud ("acme dot com",
+  "hello at acme dot com"). **This one does not touch either**, so a spot
+  whose whole call to action is the website is handed to the voice raw.
+  That is the gap worth closing, and closing it means one shared reader --
+  the arrangement hub/voice_casting.py already gives the casting step these
+  two tools also used to answer separately -- rather than a third copy of
+  these rules.
+
+test_radio_builders.py pins both halves, so the two can no longer drift
+further apart without a check saying so.
 """
 from __future__ import annotations
 
