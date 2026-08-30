@@ -361,6 +361,54 @@ check("and so does the empty-query one",
       _ic.brand_lookup("").get("error"), "Enter a company name or domain.")
 
 
+section("The Suite Panel stores what Brandfetch returned, not its own reshape")
+# This is the one that was losing data rather than money. Every other caller
+# stores the RAW Brandfetch payload, which is the shape hub/client_brand.py
+# walks -- `logos` as a list of objects each carrying `formats`. The Suite
+# Panel stored a bare `logo` URL string and no `logos` key at all, keyed on the
+# domain, so a lookup here overwrote a good payload with one the Client 360
+# brand card cannot read: colours, and no logo, silently.
+from hub import client_brand as _cb                            # noqa: E402
+import importlib as _il                                        # noqa: E402
+_sp = _il.import_module("modules.suite_panel.app")
+
+_RAW = {"name": "Icon Solar", "domain": "iconsolar.com",
+        "logos": [{"type": "logo", "theme": "light",
+                   "formats": [{"src": "http://x/l.png", "format": "png"}]}],
+        "colors": [{"hex": "#123456", "type": "primary"}]}
+_RESHAPED = {"name": "Icon Solar", "domain": "iconsolar.com",
+             "logo": "http://x/l.png", "icon": None,
+             "colors": [{"hex": "#123456", "type": "primary"}]}
+
+with _mock.patch("hub.seo.brand_for", return_value=_RAW):
+    check("the raw shape puts a logo on the client's card",
+          len(_cb.brand_kit("Icon Solar", "iconsolar.com").get("logos") or []), 1)
+with _mock.patch("hub.seo.brand_for", return_value=_RESHAPED):
+    _k = _cb.brand_kit("Icon Solar", "iconsolar.com")
+    check("the reshaped one puts none there — colors, and no logo",
+          (len(_k.get("logos") or []), len(_k.get("colors") or [])), (0, 1))
+
+_c = _sp.app.test_client()
+with _mock.patch.object(_bl, "lookup", return_value={"found": True, "payload": _RAW}), \
+     _mock.patch("hub.seo.save_brandfetch") as _save:
+    _r = _c.get("/api/brand?domain=iconsolar.com&client=Icon+Solar")
+    check("so the route saves nothing of its own", _save.called, False)
+    check("and still answers in its own format", _r.get_json().get("logo"), "http://x/l.png")
+
+# The status codes this panel's script branches on, each from the answer
+# lookup() actually gives. 429 keeps its own wording because "try again later"
+# is different advice from "the key was refused".
+for _name, _ret, _want in (
+    ({"found": False, "unconfigured": True}, None, 400),
+    ({"found": False, "note": "Nothing is published for iconsolar.com."}, None, 404),
+    ({"found": False, "note": "The brand lookup answered HTTP 429."}, None, 429),
+    ({"found": False, "refused": True, "note": "refused our key"}, None, 502),
+):
+    with _mock.patch.object(_bl, "lookup", return_value=_name):
+        check(f"status {_want} survives the move",
+              _c.get("/api/brand?domain=iconsolar.com").status_code, _want)
+
+
 section("The integrity page reports the same scan, from the same code")
 from hub import integrity                                # noqa: E402
 keys = [c[0] for c in integrity.CHECKS]
