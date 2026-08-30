@@ -153,6 +153,18 @@ def is_answer(payload) -> bool:
         return False
     if payload.get("measured") is False:
         return False
+    # `needs_qb` is the QuickBooks half of the same statement, and it was the
+    # one this module's own docstring named -- "what stops 'QuickBooks isn't
+    # connected yet' being cached for a day by whoever opened the report
+    # before anyone connected it" -- while `is_answer()` never asked. So the
+    # three billing reports stored it: somebody who connected QuickBooks at
+    # 09:10 got "QuickBooks isn't configured" and the Open System Status
+    # button for the rest of the day, on every one of them, and read it as
+    # the connection having failed. `serve()` already knows the shape -- its
+    # own comment three hundred lines down calls the connect call-to-action a
+    # payload that "ran and could not measure".
+    if payload.get("needs_qb"):
+        return False
     return True
 
 

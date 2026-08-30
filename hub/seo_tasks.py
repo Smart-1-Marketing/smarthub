@@ -167,7 +167,7 @@ def _ensure(client: str, kind: str, key: str, title: str, body: str,
                                "title": title, "created": _dt.date.today().isoformat()})
     seo.save_store(client, store)
 
-    audit.log("hub", "seo_task_created", actor=actor or "system", client=client,
+    audit.log("seo", "seo_task_created", actor=actor or "system", client=client,
               detail=f"{kind}: {title}", tool="seo_tasks")
     return result
 

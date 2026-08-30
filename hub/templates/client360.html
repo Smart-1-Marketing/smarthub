@@ -188,6 +188,18 @@ function render(g,q){
   } else html+='<div class="empty">No Smart 1 Team IOs matched.</div>';
   html+='</div></div>';
 
+  // ---------- Orders we have sent ----------
+  // Deliberately its own card rather than a row on Products & IOs. That card
+  // is Knack's answer to "what is running"; this is the Hub's answer to "what
+  // did we send", and the two exist at different moments: an order exists the
+  // day it goes out and the campaign appears when somebody sets it up. A
+  // client written up on their first IO has an empty record until then, which
+  // reads exactly like a name typed wrong.
+  window.__c360ioNums = new Set((g.products||[])
+    .map(p=>String(p.io||'').replace(/[^0-9a-z]+/gi,'').toLowerCase())
+    .filter(Boolean));
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Orders we have sent</h3><a class="open-link" href="/tools/io/">Open the IO Builder →</a></div><div class="card-b" id="c-orders"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
   // ---------- Creative Information (replaces the old website-record spot) ----------
   const cre=g.creative||[];
   window._galleryItems=cre;
@@ -2888,6 +2900,7 @@ function loadBrandAndWork(name){
   loadForms(name);
   loadGroup(name);
   loadOwner(name);
+  loadOrders(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
@@ -2900,6 +2913,82 @@ function loadBrandAndWork(name){
   loadBrand(name);
   fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(r=>r.json()).then(renderWork).catch(()=>{});
+}
+
+/* The insertion orders this Hub sent for a client.
+
+   Four empties, not one: nothing sent, the store could not be read, an order
+   Smart 1 Suite never took, and an order with no campaign in Knack against
+   its number. Only the first means there is nothing to look at, and the last
+   two are somebody's to act on.
+
+   Whether Knack has the campaign is read off `g.products`, which is already
+   on the page — a second reconciliation here would be a second answer to a
+   question `hub/io_reconcile.py` already answers, and the two would come to
+   disagree on one screen. */
+function loadOrders(name){
+  var box=document.getElementById('c-orders');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/orders?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-orders');
+      if(!box) return;
+      if(d && d.measured===false){
+        box.innerHTML='<div class="empty">The order records could not be read'
+          + (d.error?' &mdash; '+esc(d.error):'') + '. That is not the same as '
+          + 'no orders having been sent.</div>';
+        return;
+      }
+      var rows=(d&&d.orders)||[];
+      if(!rows.length){
+        box.innerHTML='<div class="empty">No insertion order has been sent for '
+          + 'this client from the IO Builder. Orders sent before the Hub began '
+          + 'keeping its own record are not here.</div>';
+        return;
+      }
+      /* Only claim "no campaign yet" when the products card actually
+         answered. An empty Set is a real answer — a client with no products
+         is exactly the case this card exists for — but a missing one means
+         we never looked, and absent data must not read as a finding. */
+      var known=(window.__c360ioNums instanceof Set)?window.__c360ioNums:null;
+      var h='<table><thead><tr><th>Order</th><th>Flight</th><th>Monthly</th>'
+        + '<th>Sent</th><th>Documents</th></tr></thead><tbody>';
+      rows.forEach(function(o){
+        var key=String(o.order||'').replace(/[^0-9a-z]+/gi,'').toLowerCase();
+        var flags='';
+        if(key && known && !known.has(key))
+          flags+=' <span class="pill warn" title="Nothing in Knack carries this '
+            + 'order number yet">no campaign yet</span>';
+        if(o.suite && o.suite.ever_delivered===false)
+          flags+=' <span class="pill bad" title="The order was built but Smart 1 '
+            + 'Suite never took it">not in Suite</span>';
+        if(o.resubmitted)
+          flags+=' <span class="pill neutral" title="This order was submitted '
+            + 'more than once">revised</span>';
+        var docs=[];
+        if(o.client_pdf) docs.push('<a href="'+esc(o.client_pdf)+'" target="_blank" rel="noopener">Client</a>');
+        if(o.internal_pdf) docs.push('<a href="'+esc(o.internal_pdf)+'" target="_blank" rel="noopener">Internal</a>');
+        h+='<tr><td><b>'+esc(o.order||'—')+'</b>'+flags
+          + (o.member&&o.member!==name?memberTag(o.member):'')
+          + (o.partner?'<div class="muted" style="font-size:12px">'+esc(o.partner)+'</div>':'')
+          + '</td><td class="muted" style="font-size:12.5px">'
+          + esc([o.start,o.end].filter(Boolean).join(' – ')||'—')+'</td><td>'
+          + money(o.monthly)+'</td><td class="muted" style="font-size:12.5px">'
+          + esc(String(o.submitted_at||'').slice(0,10)||'—')
+          + (o.submitted_by?'<div>'+esc(o.submitted_by)+'</div>':'')
+          + '</td><td>'+(docs.join(' &middot; ')||'<span class="muted">—</span>')
+          + '</td></tr>';
+      });
+      h+='</tbody></table>';
+      box.innerHTML=h;
+    })
+    .catch(function(){
+      var b=document.getElementById('c-orders');
+      if(b) b.innerHTML='<div class="empty">The order records could not be '
+        + 'read. That is not the same as no orders having been sent.</div>';
+    });
 }
 </script>
 

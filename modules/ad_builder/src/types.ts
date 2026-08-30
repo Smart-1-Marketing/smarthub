@@ -144,6 +144,16 @@ export interface CreativeConcept {
   hero: HeroSet;
   /** Use the reverse (white) logo — set when the panel behind it is dark. */
   useReverseLogo?: boolean;
+  /**
+   * Motion, added after the static ad exists.
+   *
+   * Deliberately optional and deliberately last: there is nothing to animate
+   * until the layout is built, and asking about motion during the first build
+   * would slow down the eight sizes that get made every time in order to serve
+   * the one that occasionally moves. Slide 1 is this concept's own copy, so an
+   * edit to the ad is an edit to the first slide -- see src/animation.ts.
+   */
+  animation?: import('./animation').AnimationSpec;
 }
 
 export interface Campaign {
@@ -320,6 +330,47 @@ export interface QaFinding {
   detail: string;
   /** Machine-readable hint the AI copy-shortener can act on. */
   fix?: { action: 'shorten'; role: BoxRole; maxWords?: number };
+}
+
+/**
+ * One animated size.
+ *
+ * Kept apart from RenderResult rather than folded into it with `format:
+ * 'gif'`, because everything downstream of a RenderResult -- the manifest, the
+ * proof grid, the delivery ZIP's platform folders -- is about the static pack
+ * a client is quoted and an ad ops person traffics. An animation is an extra
+ * file that rides alongside its static sibling and is never a replacement for
+ * it: the static one is what runs where GIF is not accepted, which is most of
+ * this Hub's placements.
+ */
+export interface AnimatedResult {
+  platform: string;
+  size: SizeKey;
+  conceptId: string;
+  file: string;
+  /**
+   * The /files/ path a browser reads.
+   *
+   * Filled in by the job, which is the only place that knows the render root
+   * the file sits under. Carried on the result rather than derived by each
+   * reader because the build screen needs it the moment the job completes, and
+   * filing onto the project is fire-and-forget -- a panel that waited for the
+   * project record would show an empty list for a second and a half after a
+   * render it had just watched finish.
+   */
+  url?: string;
+  format: 'gif';
+  width: number;
+  height: number;
+  bytes: number;
+  /** Frames, and how long the whole thing plays for. */
+  frames: number;
+  loop: number;
+  totalMs: number;
+  fps: number;
+  kind: 'text' | 'button';
+  qa: QaFinding[];
+  status: 'pass' | 'warn' | 'fail';
 }
 
 export interface RenderResult {

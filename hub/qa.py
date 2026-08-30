@@ -467,10 +467,17 @@ def stale_90() -> dict:
                     "Days since", "Last monthly"],
         "rows": rows,
         "row_styles": styles,
-        "note": (f"{total} clients with no live product whose last IO ended 90+ "
-                 f"days ago (up to 24 months back) — {_money(grand)}/mo of lapsed "
+        # "up to 24 months back" was never true: the loop above stops at 180
+        # days, deliberately and with its reason written beside it. So the one
+        # sentence on the page said two years while the table held six months,
+        # and a rep working the win-back list believed the 168 clients between
+        # six months and two years had been checked and were not lapsed.
+        "note": (f"{total} clients with no live product whose last IO ended "
+                 f"between 90 and 180 days ago — {_money(grand)}/mo of lapsed "
                  "billing, grouped by partner with subtotals; clients without a "
-                 "partner listed at the end."),
+                 "partner listed at the end. Anything quiet for longer than six "
+                 "months is a former client rather than one to chase, and is "
+                 "deliberately left off."),
     }
 
 
@@ -1503,10 +1510,15 @@ def uploads_not_in_suite() -> dict:
       sync is off         someone turned it off deliberately
       failed              it tried and Suite refused; the error is shown
     """
+    # `measured: False` on both refusals, because neither is an answer. Left
+    # off, the page reads no rows and draws "Nothing to report — all clear ✓"
+    # over the note, so a gallery database that would not open reported every
+    # client's uploads as safely in Suite — and `hub/report_cache.py` would
+    # have kept that as the day's answer.
     try:
         from modules.image_picker.models import PickerClient, SavedImage, session
     except Exception as exc:                            # noqa: BLE001
-        return {"columns": ["Client"], "rows": [],
+        return {"columns": ["Client"], "rows": [], "measured": False,
                 "note": f"Client Image Uploads isn't available here ({type(exc).__name__})."}
 
     try:
@@ -1514,7 +1526,7 @@ def uploads_not_in_suite() -> dict:
         rows_ = db.query(SavedImage, PickerClient).join(
             PickerClient, SavedImage.client_id == PickerClient.id).all()
     except Exception as exc:                            # noqa: BLE001
-        return {"columns": ["Client"], "rows": [],
+        return {"columns": ["Client"], "rows": [], "measured": False,
                 "note": f"Couldn't read the uploads database ({type(exc).__name__})."}
 
     by_client: dict = {}

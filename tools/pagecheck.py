@@ -132,6 +132,17 @@ HUB_PAGES = [
     # *rendering* if a field type gains an attribute the template does not
     # guard -- the failure /tools/image-picker/c/<id> already had.
     "/tools/calculators/internal/digital-audio",
+    # The largest template in the Hub (3,600+ lines) and the shape every
+    # record-like screen here is meant to take, drawn almost entirely from
+    # fetches. It needs ?name=, and WITHOUT one the route redirects to /seo --
+    # so a sweep of paths lands on the list page, reports it green, and this
+    # page goes unchecked while reading as covered. That is how it came to
+    # render a whole empty client record on a failed detail load with nothing
+    # on screen saying so.
+    "/seo/client?name=Pagecheck%20Client",
+    # Its sibling, and the one staff screen in the section with no help layer
+    # on it at all: a sortable table whose every number is drawn from a fetch.
+    "/seo/webmaster",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:

@@ -123,6 +123,12 @@ def status() -> dict:
 # named below is still recorded, under its own path.
 _ACTIONS = (
     (re.compile(r"^api/render/?$"), "ads_render_started", None),
+    # Motion added to a set that was already built. Its own action rather than
+    # folded into ads_render_started: it is a separate job on a separate day,
+    # it produces files the static render did not, and a client record that
+    # showed one entry for both could not say whether the animated versions on
+    # the delivery were ever built here.
+    (re.compile(r"^api/animate/([\w-]+)$"), "ads_animated", 1),
     (re.compile(r"^api/project/([\w.-]+)/deliver$"), "ads_delivered", 1),
     (re.compile(r"^api/project/([\w.-]+)/approve-size$"), "ads_size_approved", 1),
     (re.compile(r"^api/project/([\w.-]+)/override$"), "ads_override_saved", 1),
