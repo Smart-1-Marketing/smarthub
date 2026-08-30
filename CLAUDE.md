@@ -227,6 +227,56 @@ prospect who starts a scan on a client's site and a rep who starts one from
 Site Scans are waiting on the identical thing and it must not look like two
 features.
 
+**The screen with the longest waits in the Hub had no mark at all, and
+nothing could have found it.** The Display Ad Builder's build screen makes
+three billed calls — two image generations and a copy draft, each tens of
+seconds — and carried no spinner, no `.spin`, no class the upgrader could
+have caught: a sentence of text that did not change, which is the note this
+file already makes about the QA reports saying "Running report…" in two
+words with no sign they were still going. It is the one module that is not
+Python, so a sweep for `.spin` in templates and stylesheets went straight
+past it. `hub-thinking.js` was *there* the whole time —
+`hub/ad_builder_proxy.register` is a blueprint on the hub app, so the hub's
+own injector reaches it even though the response is streamed — and the page
+simply never asked.
+
+Six waits hang off one panel there and they are not alike, so `bgBusy(what,
+kind)` takes the kind rather than each call site being edited again the next
+time the mark changes: two are a model drawing, two are somebody else's
+server (the client's own landing page, the stock libraries) and two are our
+own storage. **Two of them change hands halfway** — the page is fetched and
+*then* a model writes from it — so `attach()`'s handle gained
+`stage(text, kind)`, which swaps the glyph and keeps the box. Two marks in
+sequence would say the same thing and would read as two waits rather than
+one that moved on, and each would restart the elapsed line, which on the
+longest wait on that screen is the number that matters. And the reading step
+is claimed **only when there is a page still to fetch**: `ensureLanding()`
+caches, so a second draft goes straight to the model and announcing a step
+that is not happening is the indicator claiming what it does not know.
+
+**And the customer-facing half of that tool is a fourth surface, not a
+fourth copy of the decision.** `modules/ad_builder/public/embed.html` is the
+intake form a client frames on their own marketing site, served straight off
+the renderer with `frame-ancestors` set — and it is not one of the proxy's
+`PUBLIC_PATTERNS`, so a prospect never reaches it through the Hub and
+`hub-thinking.js` is not on it and cannot be. Same answer as the three scan
+pages: the glyphs are inlined, the same paths at the same 1.9s, with the
+same reduced-motion rule, and `test_thinking.py` holds all three
+implementations in step. What it also carried was **its own third copy of
+the stage timer** — two captions alternating every 1.8 seconds, for ever,
+which past about four seconds is exactly what a hung page looks like: the
+words go round and nothing else changes. The caption is said once now and an
+elapsed line carries the rest, silent until six seconds and stopping itself
+when its box leaves the page, because half that form ends a wait by
+assigning `innerHTML` over whatever was there.
+
+Four escape sequences on that same form reached the customer as text. A JS
+string literal written `'\\u2026'` is a backslash followed by `u2026`, so
+somebody filling in the form read *"Creating your image\u2026"* and *"\u2713
+This photo will be used"* — on the page they were looking at while they
+waited, which is the only place they appear. Nothing in this repo could see
+it: the file parses, the page renders, and the English is correct.
+
 **Bubbles mount on late-rendered content.** Client 360, the SEO client page
 and Image Creator draw panels from a fetch. `hub-help.js` runs a debounced
 MutationObserver for this. A bubble added to a JS-rendered panel works; one
@@ -388,6 +438,20 @@ the three. `test_client_images.py` now asserts that **every name
 `audit.LOG_NAMES` declares is one the work log can name**: the declaration
 exists precisely because the directory and the log disagree, which makes it
 exactly the case where a second table gets keyed on the wrong one.
+
+**And a base read twice is a base with two answers.** `modules/sales_builder`
+read `IO_API_BASE` in two places with **different defaults**: `_io_api_base()`
+returned the `/tools/io` mount and carries a docstring explaining at length
+that the old external default made every conversion call 404 — while
+`/api/config` still returned that external default. `/api/config` is the read
+that counts, because `index.html` seeds `CFG` with the mount and then assigns
+this route's answer over the top. So `/health` reported the mount and looked
+healthy while every proposal-to-IO conversion — the order number, both PDFs,
+the Suite submit — posted to a **different Render service**: a cold start, a
+different login, and "The IO API did not return an order number." in the
+conversion log with nothing saying where the request had gone. It is one
+reader now, the rule this codebase applies to rate cards, client keys and
+gallery labels alike, and `test_io_start.py` fails if the two disagree.
 
 **A URL built by concatenation is a URL nothing checks.** `tools/linkcheck.py`
 only sees a path literal that sits directly inside `fetch("…")`. Written as
@@ -1020,6 +1084,50 @@ redirected to `/login`. The guard now sits on the blueprint
 the next route added must not have to remember. `hub/auth.py` names this
 failure in its own docstring; `test_commercial_heygen.py` asserts it.
 
+**And three more were still open, because each fix was written out again
+rather than shared.** Commercial Builder was fixed that way and so was
+`modules/calculators`, which is two copies of one `before_request` and no
+answer for the fourth blueprint. An anonymous sweep of the composed app found
+ten routes across three more modules answering **200 to anyone with the
+URL**: Web Tickets, its setup screen and its Knack field map; the Page Image
+Optimizer and its saved-job archive; and Video Search with the Cloudinary
+library, its search and its status. Every one of them is a staff tool sitting
+on the Client Tools page behind a tile that redirects to `/login`, and nothing
+anywhere reported the difference.
+
+`hub/blueprint_guard.py` is that gate, once. `install(bp, mount=…,
+public=…)` puts one `before_request` on the blueprint, so the route added
+next month is covered without anybody remembering, and `public` takes the
+same shape a dispatcher-mounted module's `PUBLIC_PREFIXES` has — a module
+that later becomes mounted needs no second spelling of what is public. It
+**never raises**: a module that cannot import `hub.auth` is one running
+standalone, and refusing to start it would be worse than a gate not applying
+where there is nothing to protect. And it redirects rather than answering
+403, because the reader is a member of staff who followed a bookmark, and
+`next` puts them back.
+
+**Exempting a path from the login is only half of "public".** The hub app's
+own `after_request` injects the sidebar, the help layer and the feedback tab
+into any HTML it returns, so a client-facing blueprint path needs an entry in
+`CHROMELESS` as well — the two halves `modules/commercial_builder`'s review
+routes already carry separately. Either one missing is its own failure, in
+opposite directions: login-exempt and chrome-bearing is a client reading our
+staff nav, chrome-exempt and guarded is a sign-in form in front of somebody
+who will never have an account.
+
+**The check is a sweep, not a list of the three we fixed.** A test naming
+those modules proves nothing about the next blueprint. `test_blueprint_guards.py`
+boots the composed app, requests **every** static GET route it serves with no
+session at all, and requires each one that answers 200 to be in an allowlist
+that says *why* it is public — the crawler files, the health probes, the
+chrome's own scripts, the help registry, the Suite SSO frame, the calculator
+embed. A new open route fails the run without anybody having thought to add
+an assertion for it. The allowlist is held to the rule
+`check_stale_json_exemptions()` works to: an entry naming a route that no
+longer exists, or one that is not actually reachable, fails too, because an
+exemption that outlives what it exempted goes on covering whatever is served
+at that path next.
+
 **A provider job is not done when the call that started it returns.** HeyGen
 renders a spokesperson clip in minutes, so `POST .../spokesperson` hands back
 a job id and nothing else. Nothing polled it, so the scene kept
@@ -1292,8 +1400,8 @@ longer logged as submitted work.
 
 **One size at a time, and approving is what files it.** Rendering every ticked
 format at once means the second and third are built from a storyboard nobody
-has watched — so a note on the first applies to two cuts already paid for. The
-render route takes one format and refuses more by name. And `check_render`
+has watched — so a note on the first applies to two cuts already paid for. And
+`check_render`
 used to copy the finished video into the client's Cloudinary library the
 moment Creatomate said "succeeded", before any human had seen it: a cut nobody
 has watched is not a deliverable, and one already sitting in the client's
@@ -1305,6 +1413,43 @@ Approval state is `cb_render_approvals`, its own **table**: `create_all()`
 creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
+
+**And that rule is about unwatched creative, not about batching.** It stops
+being true the moment a cut of the spot has been approved: the remaining
+formats then come off a storyboard somebody has signed off, which is exactly
+the condition one-at-a-time was protecting — so a rep with three sizes left
+was pressing the same button three times and waiting each time for no reason
+the rule could name. The gate is an **approval on the project**, not a count.
+Before one exists a second format is refused *by name*, with what would lift
+it, because a route that quietly rendered the first of three would be the old
+failure wearing a new response; and a size already approved inside a batch is
+refused rather than dropped from it, since a silent skip is how an approved
+cut is quietly replaced — or quietly not replaced — with the panel reporting
+the same success either way. Whether the batch is open is `can_batch` on
+`/render-jobs`, decided by the route that enforces it: `preview.js` kept an
+`ADVISORY` set of its own once already, and a second reading of a server rule
+is the copy that drifts.
+
+**A client answering a review reached the activity log and nothing else.** So
+the rep who sent the link found out by opening the spot and looking — the
+emailed-MP4 arrangement this whole feature replaced, minus the email. There is
+no mail sender in this Hub, so `review_spec.inbox()` is the
+`hub/social_content.py` answer: a card on the tool's own dashboard, above the
+provider row because a key that is set is housekeeping and a client waiting on
+a reply is work, with every figure opening the rows behind it rather than a
+screen the reader then has to filter. Four rules in it. **An answer is not
+only a decision** — a client who left four timecoded notes and pressed no
+button has answered, and dropping them because no `outcome` row exists loses
+exactly the reply somebody needed. **A round sent after a filing is a live
+question again**, so `_acted_on()` compares the approval's time against the
+round's rather than asking whether the project has *an* approval: reading it
+the other way drops the round somebody is waiting on, silently, from the one
+card that would have told them. **Rounds still out with the client are counted
+apart** — nobody here is holding those up. And **four empties, not one**:
+nothing waiting, nothing yet sent, everything acted on, and a table that could
+not be read are different situations, only two of them mean there is nothing
+to do, and `inbox_unmeasured()` is what a failed read answers with rather than
+a clean zero.
 
 **The module that spends the most was invisible on the usage page.** HeyGen,
 Runway and Creatomate all bill per generation, and none of them was recorded
@@ -3799,6 +3944,58 @@ at creation and never rewritten, so the column cannot quietly become "last
 touched by" while the heading says Created by; an uploaded proposal answers
 the same question with its own field, and a row from before it was recorded
 says *not recorded* rather than showing a blank somebody reads as nobody.
+
+### The pipeline was knowledge the Hub had and told nobody
+
+`hub/sales_status.py`, the **Proposals** card on the dashboard, and
+`/api/sales/scoreboard`. Three phases of work gave the Hub real knowledge
+about every proposal — who opened it and how many times, whether the pricing
+still stands, whether the client accepted, what the campaign costs — and all
+of it was readable only inside the Proposal Builder. The dashboard everybody
+opens carried eleven KPIs about *live* business (clients, live products, live
+budget, websites, billing) and **not one figure about pipeline**: nothing
+quoted, nothing waiting on a client, nothing won and not yet trafficked. There
+was no scheduled sweep either.
+
+That is the shape `hub/social_status.py` already answers next door, and its
+note applies word for word: there is no mailer in this Hub, so the honest
+route is putting it where people already look.
+
+**Five signals, kept apart.** *They have not opened it*, *they read it and
+said nothing*, *the price lapses this week*, *the price has lapsed* and *they
+said yes and nobody wrote the order* send somebody to five different actions,
+and one "needs attention" figure covering all five is a figure nobody can act
+on. A quote lands in exactly one of them.
+
+**It reads the open book and nothing else** — Draft, Sent and Approved. A
+Converted or Lost quote is finished, and walking every quote ever written on a
+page that loads on every visit is the cost that gets a number turned off.
+
+**A count is never a link to a page that cannot show it.** Each figure carries
+`?focus=<signal>`, and the builder narrows its list to exactly the ids that
+reading counted — not to a status tab that is nearly the same thing — saying
+what it is showing and how to leave it. An empty bucket leaves the whole list
+rather than an empty table that reads as a book with nothing in it.
+
+**Each zero says which kind of zero it is.** "Nothing is waiting on a client"
+and "no client link has ever been sent for any of these" render identically as
+a nought and only the second is somebody's to fix.
+
+**One reading, two screens.** The Proposal Builder's own dashboard is handed
+the same block by `/api/dashboard`, because two screens answering "what needs
+chasing" separately is how they come to disagree in front of the same rep —
+the `/api/db/structure` versus `/api/integrity` trap. And the route is
+deliberately **not** a Utilities path: the presence headcount already showed
+what happens when a figure everybody sees is served by a path most accounts
+are refused.
+
+**Nothing is written anywhere.** It does not touch a quote, it does not record
+having looked, and it deliberately sends nothing to Smart 1 Suite — a nudge
+onto a client's CRM record is a different decision from surfacing a number on
+our own dashboard. `test_sales_status.py` asserts that from the **AST** rather
+than the text, because the module's own docstring names `ghl_hooks.py` as the
+precedent it follows and a check that reads prose as a call site reports the
+explanation as the defect.
 
 ### One proposal, three monthly figures, and a fourth on the insertion order
 
@@ -6427,6 +6624,8 @@ python3 test_detail_ui.py          # one description of the record-page look, an
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
+                                   #   one reading, and counts that land on rows
 python3 test_campaign_cost.py      # one number for what the campaign costs: the
                                    #   cover, the plan, the summary and the IO
 python3 test_quote_validity.py     # how long a price stands, the Expired nothing
@@ -6489,9 +6688,11 @@ python3 test_commercial_library.py # what a spot is versus how it is made, the
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
                                    #   they are, and the acknowledgment before filing
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
-                                   #   three answers, the strictest one wins, and a
-                                   #   refusal that stops a delivery
-python3 test_commercial_wizard.py  # the seven steps, the client join, the spec check,
+                                   #   three answers, the strictest one wins, a
+                                   #   refusal that stops a delivery, and the
+                                   #   answers reaching the dashboard
+python3 test_commercial_wizard.py  # the seven steps, the batch an approval opens,
+                                   #   the client join, the spec check,
                                    #   the QR destination and who owns the scan; the :06,
                                    #   shots inside beats with their grammar, the published
                                    #   thresholds and whose each is, and the Amazon warning
@@ -6509,6 +6710,9 @@ python3 test_calculator_embed.py   # the media calculators framed on smart1marke
 python3 test_display_ads.py        # the display layouts, and the build screen's contracts
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
+python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
+                                   #   composed app serves, probed with no session,
+                                   #   against an allowlist that says why each is public
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
 python3 test_knack_websites_source.py # websites live where Knack answers, the
                                    #   export where it will not, and a failed
@@ -6524,7 +6728,8 @@ python3 test_ai_proposals.py       # the model proposes, the code decides, a per
                                    #   presses: project names, client photos, ticket type
 python3 test_thinking.py           # the mark that says a scan or a model is running:
                                    #   one implementation, three kinds, both halves
-                                   #   of the app, and nothing claiming a result
+                                   #   of the app, nothing claiming a result, and
+                                   #   the three inline copies held in step
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from

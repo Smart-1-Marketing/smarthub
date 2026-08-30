@@ -1959,8 +1959,35 @@
 
   function bgSay(html) { bgResults().innerHTML = html; }
 
-  function bgBusy(what) {
+  /* Six waits hang off this panel and they are not alike: two are a model
+     drawing (billed, tens of seconds), two are somebody else's server (the
+     client's own landing page, the stock library) and two are our own
+     storage. The Hub's one indicator draws a different glyph for each, so
+     the kind travels with the message rather than every call site being
+     edited again the next time the mark changes.
+
+     Before this the panel said a sentence and nothing else -- which is the
+     note CLAUDE.md already makes about the QA reports saying "Running
+     report..." in two words with no mark and no sign it was still going,
+     on the screen where the wait is longest and the call is billed.
+
+     Guarded on window.S1Think, so a page that failed to load the script
+     loses the mark and never the message. The handle is returned for a
+     caller that has a real transition to report; the rest end the wait by
+     writing over the panel, which the indicator's own isConnected check
+     already handles. */
+  function bgBusy(what, kind) {
+    if (window.S1Think) {
+      return window.S1Think.attach(bgResults(),
+        { kind: kind || 'wait', label: what });
+    }
     bgSay('<span class="bgmsg">' + esc(what) + '</span>');
+    return {
+      stage: function (text) {
+        if (text) bgSay('<span class="bgmsg">' + esc(text) + '</span>');
+      },
+      done: function () {}
+    };
   }
 
   function chooseBackground(mode, btn) {
@@ -1982,7 +2009,7 @@
     }
 
     if (mode === 'landing') {
-      bgBusy('Reading their landing page\u2026');
+      bgBusy('Reading their landing page\u2026', 'scan');
       post('/api/landing/images', { projectId: state.projectId || undefined,
                                     url: state.doc.landingPage || undefined })
         .then(function (d) {
@@ -2007,7 +2034,7 @@
               'there is no gallery to read.</span>');
         return;
       }
-      bgBusy('Reading ' + who + '\u2019s gallery\u2026');
+      bgBusy('Reading ' + who + '\u2019s gallery\u2026', 'wait');
       /* The Hub owns this one. The renderer does not know who our clients are
          and must not learn -- the basepath shim puts the mount prefix on the
          front, so standalone this correctly 404s rather than half-working. */
@@ -2048,13 +2075,31 @@
     }
 
     if (mode === 'ai') {
-      bgBusy('Drawing something \u2014 this takes a few seconds\u2026');
+      /* Two waits back to back, and only the second one is the model. The
+         page is fetched first (their server, the dish) and then the picture
+         is drawn (billed, the star), so the mark changes hands at the real
+         transition rather than on a timer -- the browser knows exactly when
+         the fetch came back, which is the one case where reporting a step
+         beats guessing at one.
+
+         The reading step is claimed only when there is a page still to
+         fetch: ensureLanding() caches on state.landing, so the second
+         generation has no such step and announcing one would be the
+         indicator claiming what it does not know. */
+      var hasPage = !!state.landingPage;
+      var reading = hasPage && !state.landing;
+      var think = bgBusy(
+        reading ? 'Reading ' + state.landingPage + '\u2026'
+                : 'Drawing something \u2014 this takes a few seconds\u2026',
+        reading ? 'scan' : 'ai');
       /* The client's own page is part of the brief. Without it the model is
          drawing from a headline and a business name, which is how a roofing
          company gets a stock-looking house it has never worked on -- the
          analysis was sitting on the project record the whole time and this
          call never asked for it. */
       ensureLanding().then(function (landing) {
+      think.stage('Drawing something \u2014 this takes a few seconds\u2026',
+                  'ai');
       post('/api/images/generate', {
         business: state.doc.campaign.client || '',
         promoting: effective('headline') || '',
@@ -2162,7 +2207,7 @@
     var run = function () {
       var instruction = box.value.trim();
       if (!instruction) return;
-      bgBusy('Redrawing \u2014 "' + instruction + '"\u2026');
+      bgBusy('Redrawing \u2014 "' + instruction + '"\u2026', 'ai');
       post('/api/images/generate', {
         business: state.doc.campaign.client || '',
         promoting: effective('headline') || '',
@@ -2205,8 +2250,11 @@
      says which phrase produced these -- including when it had to drop terms
      to find anything -- and the box above the results is the fix. */
   function stockSearch(phrase) {
+    /* The stock libraries are somebody else's server, so this is the dish
+       rather than the star -- nothing is being written and nothing is
+       billed per call here. */
     bgBusy(phrase ? 'Looking for "' + phrase + '"\u2026'
-                  : 'Finding photos that fit this campaign\u2026');
+                  : 'Finding photos that fit this campaign\u2026', 'scan');
     post('/api/images/search', {
       business: state.doc.campaign.client || '',
       promoting: effective('headline') || '',
@@ -2290,12 +2338,45 @@
     btn.addEventListener('click', function () {
       var note = $('draftNote');
       btn.disabled = true;
-      note.textContent = state.landing
+      /* The longest wait on this screen, and it was a sentence with no mark
+         on it -- press the button and the only sign anything is happening is
+         eleven words that do not change for half a minute. Past six seconds
+         the elapsed line is the only thing separating a slow answer from a
+         dead one, which is why it exists.
+
+         Two waits, two kinds: their page is fetched first (the dish) and
+         then the copy is written (billed, the star). The reading step is
+         claimed only when there is a page still to fetch, because
+         ensureLanding() caches -- a second draft goes straight to the model
+         and saying otherwise is the indicator claiming a step that is not
+         happening. */
+      /* Three states, not two. A campaign with no landing page on it never
+         reads one, so "writing from what their page says" is a claim about
+         a page that does not exist -- and it is the sentence a rep would
+         then quote back when the copy is wrong. The page is only named
+         where there is one. */
+      var hasPage = !!state.landingPage;
+      var reading = hasPage && !state.landing;
+      var writing = hasPage
         ? 'Writing from what their page says\u2026'
-        : 'Reading ' + (state.landingPage || 'their page') + '\u2026';
+        : 'Writing your ad copy\u2026';
+      var opening = reading
+        ? 'Reading ' + state.landingPage + '\u2026'
+        : writing;
+      var think = window.S1Think
+        ? window.S1Think.attach(note,
+            { kind: reading ? 'scan' : 'ai', label: opening })
+        : (function () {
+            note.textContent = opening;
+            return {
+              stage: function (text) { if (text) note.textContent = text; },
+              done: function () {}
+            };
+          })();
 
       ensureLanding()
         .then(function (landing) {
+          think.stage(writing, 'ai');
           return post('/api/copy/suggest', {
             business: clientName() || state.doc.campaign.brand.name,
             // The route requires something to promote. The campaign name is
@@ -2407,7 +2488,7 @@
         Math.round(file.size / 1048576) + 'MB. Pick one under 12MB.</span>');
       return;
     }
-    bgBusy('Uploading ' + file.name + '\u2026');
+    bgBusy('Uploading ' + file.name + '\u2026', 'wait');
     post('/api/assets/upload-signature', {
       client: clientName() || 'Smart 1 Marketing',
       campaign: (state.doc.campaign.campaignName || 'display ads'),

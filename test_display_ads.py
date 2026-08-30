@@ -381,6 +381,59 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
           "1200x628" in google and "1200x628" in meta)
 
 
+def test_a_ceiling_says_where_it_came_from_and_the_panel_derives_it():
+    """A file-weight limit nobody sourced reads exactly like one that was.
+
+    `source: 'doc'` is a rule's own claim that its numbers came off the
+    platform's spec sheet, and the diagnostics panel used to take that claim
+    as the whole answer -- it flagged a size only where somebody had typed
+    `source: 'verify'`, which nothing ever had. So the panel reported "all
+    limits sourced from documentation" across 23 rules of which 13 recorded
+    no source at all, and could not have said otherwise however many more
+    were added: it was answering about what somebody remembered to flag.
+
+    Both halves are here. Every rule now records what confirmed it, or says
+    it is unconfirmed; and the panel derives the doubt from that record
+    rather than from the claim, so a rule added next month with a ceiling and
+    no source is reported without anybody having to remember to mark it.
+
+    Getting this wrong is quiet in both directions and the directions are not
+    alike: a ceiling set too high ships a file the platform refuses at
+    delivery, and one set too low steps the quality ladder down to satisfy a
+    limit that does not exist -- which is the mistake meta.json made once
+    already, carrying Google's 150 KB on a Meta story frame.
+    """
+    cfg = MODULE / "src" / "config" / "platforms"
+    rules = [(f.stem, size, rule)
+             for f in sorted(cfg.glob("*.json"))
+             for size, rule in json.loads(f.read_text())["sizes"].items()]
+    check("there are platform rules to check at all", len(rules) >= 20,
+          f"found {len(rules)}")
+    unsourced = [f"{p}/{s}" for p, s, r in rules
+                 if not (r.get("_verifiedAgainst") or "").strip()
+                 and r.get("source") != "verify"]
+    check("every ceiling records what confirmed it, or says it is unconfirmed",
+          not unsourced, f"no source recorded: {unsourced}")
+
+    # The one that is genuinely open, named rather than dropped or guessed at.
+    amz = dict((s, r) for p, s, r in rules if p == "amazon")
+    check("the Amazon square is the one open question, and says so",
+          amz["250x250"]["source"] == "verify")
+    check("and it is left at the value it had rather than moved on a guess",
+          amz["250x250"]["maxFileBytes"] == 51200)
+
+    diag = (MODULE / "src" / "diagnostics.ts").read_text()
+    check("the panel derives the doubt rather than reading the claim",
+          "_verifiedAgainst" in diag and "export function ceilingDoubt" in diag)
+    check("and a rule declaring doc with nothing behind it is not confirmed",
+          "'no source recorded'" in diag)
+    check("while one somebody looked at and could not confirm says which",
+          "'marked for confirmation'" in diag)
+    check("so the clean answer is about the record, not about the claim",
+          "every limit records where it came from" in diag
+          and "all limits sourced from documentation" not in diag)
+
+
 def test_no_platform_picker_and_a_render_button_that_explains_itself():
     screen = BUILD_HTML.read_text()
     check("the toolbar no longer asks which platform", "platformPick" not in screen)

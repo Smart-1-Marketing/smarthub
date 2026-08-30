@@ -469,6 +469,48 @@ check("the numbers' real provenance is still recorded where they live",
       (ROOT / "hub" / "creative_specs.py").read_text(), True)
 
 
+# =====================================================================
+section("One reading of where the IO builder lives")
+# =====================================================================
+
+# This file read IO_API_BASE TWICE with different defaults. `_io_api_base()`
+# returned the mount and carries a docstring explaining that the old external
+# default made every conversion call 404; `/api/config` still returned that
+# external default -- and /api/config is the read that counts, because
+# index.html seeds CFG with the mount and then assigns this route's answer
+# over the top. So /health reported "/tools/io" and looked healthy while every
+# proposal-to-IO conversion posted to a different Render service: a cold
+# start, a different login, and "The IO API did not return an order number."
+# in the conversion log with nothing saying where the request had gone.
+from modules.sales_builder import app as sb                    # noqa: E402
+
+sb_client = sb.app.test_client()
+cfg = sb_client.get("/api/config").get_json()
+health = sb_client.get("/health").get_json()
+
+check("the config route answers with the mount", cfg["io_api_base"], "/tools/io")
+check("and health agrees with it", health["io_api_base"], cfg["io_api_base"])
+check("no external service is named by default",
+      "onrender.com" in str(cfg["io_api_base"]), False)
+
+# The override still works -- the IO moving back to its own service is the
+# case the variable exists for.
+os.environ["IO_API_BASE"] = "https://example.invalid/io/"
+try:
+    over = sb_client.get("/api/config").get_json()
+    over_health = sb_client.get("/health").get_json()
+finally:
+    os.environ.pop("IO_API_BASE", None)
+check("an override is honored", over["io_api_base"], "https://example.invalid/io")
+check("by both readers at once", over_health["io_api_base"], over["io_api_base"])
+
+# The browser overwrites its own default with whatever the route says, which
+# is why a wrong answer here is not caught by the sensible literal in the page.
+_page = (ROOT / "modules" / "sales_builder" / "templates" / "index.html").read_text()
+check("the page does assign the route's answer over its own default",
+      "CFG=Object.assign(CFG,c)" in _page.replace(" ", ""), True)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

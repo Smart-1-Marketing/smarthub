@@ -144,7 +144,8 @@
       ],
       "minFontPx": 12,
       "notes": "Square. Logo and CTA centered.",
-      "source": "doc"
+      "source": "verify",
+      "_verifiedAgainst": "NOT CONFIRMED. Every other size here was read off Amazon's desktop static spec sheet; this one never was, and two independent readings of Amazon's published DSP static list on 2026-08-30 enumerate 300x250, 728x90, 160x600, 300x600, 970x250, 320x50 and 414x125 and do not include 250x250 at all. So both halves are open: whether Amazon traffics this unit, and whether 50 KB is its ceiling when the published rule for standard desktop static units is 40 KB. Left exactly as it was rather than guessed at in either direction -- raising the ceiling ships a file Amazon may refuse, and lowering it steps the quality ladder down to satisfy a limit that may not exist, which is the mistake meta.json made with Google's 150 KB. Confirm against Amazon's own spec sheet before the next Amazon delivery."
     }
   }
 }
