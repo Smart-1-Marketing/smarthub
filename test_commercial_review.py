@@ -395,6 +395,103 @@ check("and it resolves to content",
       bool(hub_help.get("commercial_builder.preview.review")), True)
 
 
+section("An answer reaches somebody, because nothing here sends mail")
+# A client answering used to reach the activity log and nothing else, so the
+# rep found out by opening the spot and looking. `hub/social_content.py` made
+# the same call: put it where people already look.
+inbox = staff.get(f"{MOUNT}/api/reviews/waiting").get_json()
+check("the inbox answers", inbox["ok"], True)
+check("and says it measured something", inbox["measured"], True)
+# `pid`'s live round is the sixth and nobody has answered it, so it is out
+# with the client — and it is NOT read as handled by the earlier filing:
+# a round sent after a cut was filed is a live question again, and reading
+# it the other way drops exactly the round somebody is waiting on.
+check("a round sent after a filing is not read as handled",
+      pid in {r["project_id"] for r in inbox["out_with_clients"]}, True)
+anon.post(f"{MOUNT}/review/{fifth['token']}/decide",
+          json={"outcome": "changes_required", "name": "Eve",
+                "email": "eve@acme.test", "note": "One more thing"})
+inbox = staff.get(f"{MOUNT}/api/reviews/waiting").get_json()
+waiting_ids = {r["project_id"] for r in inbox["waiting"]}
+check("the spot the client answered is waiting", pid in waiting_ids, True)
+# `pid2` was approved and filed with nobody asked, so it is not in either
+# queue: it was never sent, and it has been acted on.
+check("a spot nobody sent is not in the queue", pid2 in waiting_ids, False)
+row = next(r for r in inbox["waiting"] if r["project_id"] == pid)
+check("it names the client", row["client"], "Acme Heating")
+check("and who to ring about it", row["by"], "Eve")
+check("and what they said", row["outcome"], "changes_required")
+check("and which round", row["round_no"] >= 1, True)
+check("and opens the spot rather than a screen to filter",
+      f"/project/{pid}/" in row["url"], True)
+check("every count comes with the line that says what it means",
+      bool(inbox["line"]), True)
+
+# A round that is out and silent is waiting on the CLIENT, and counting it
+# beside the answers is how a queue stops being read.
+pid3 = sj("/api/projects", {"client_id": client_row["id"], "lengths": [30],
+                            "formats": ["16:9"], "commercial_type": "stock_vo",
+                            "platform": "ctv"}).get_json()["projects"][0]["id"]
+with hub_app.app_context():
+    j3 = RenderJob(project_id=pid3, format="16:9", status="succeeded",
+                   output_url="https://example.test/third.mp4")
+    db.session.add(j3)
+    db.session.commit()
+    job3_id = j3.id
+sent3 = sj(f"/api/projects/{pid3}/reviews").get_json()["review"]
+inbox = staff.get(f"{MOUNT}/api/reviews/waiting").get_json()
+out_ids = {r["project_id"] for r in inbox["out_with_clients"]}
+check("a silent round is with the client, not with us", pid3 in out_ids, True)
+check("and not counted as an answer",
+      pid3 not in {r["project_id"] for r in inbox["waiting"]}, True)
+
+# A client who left notes and pressed no button has answered. Dropping them
+# because no decision row exists loses exactly the reply somebody needed.
+anon.post(f"{MOUNT}/review/{sent3['token']}/comment",
+          json={"text": "The logo is cropped", "name": "Dee"})
+inbox = staff.get(f"{MOUNT}/api/reviews/waiting").get_json()
+notes_row = next((r for r in inbox["waiting"] if r["project_id"] == pid3), None)
+check("notes with no decision still count as answered", bool(notes_row), True)
+check("and the note count is carried", notes_row["comments"], 1)
+check("with no outcome claimed for them", notes_row["outcome"], "")
+
+# Filing is acting on it. A spot that has been filed leaves the queue.
+staff.post(f"{MOUNT}/api/projects/{pid3}/render-jobs/{job3_id}/approve",
+           json={"override": True})
+inbox = staff.get(f"{MOUNT}/api/reviews/waiting").get_json()
+check("a filed spot leaves the queue",
+      pid3 in {r["project_id"] for r in inbox["waiting"]}, False)
+
+
+section("The four empties, and only one of them is somebody's to fix")
+check("nothing ever sent says so in words",
+      review_spec.inbox([])["state"], "never_sent")
+check("rather than reading as all quiet",
+      "sent to a client" in review_spec.inbox([])["line"], True)
+check("out with clients is its own state",
+      review_spec.inbox([{"answered": 0, "comments": 0}])["state"], "out_with_clients")
+check("and everything handled is another",
+      review_spec.inbox([{"answered": 1, "filed": True}])["state"], "all_handled")
+# "Nobody has answered" and "we could not look" are different answers and only
+# the first means there is nothing to do.
+unread = review_spec.inbox_unmeasured("the table would not answer")
+check("a failed read is not a clean zero", unread["measured"], False)
+check("and says what happened", "could not be read" in unread["line"], True)
+check("without claiming a queue", unread["waiting_count"], 0)
+
+
+section("The dashboard draws it, and the bubble resolves")
+dash = staff.get(MOUNT + "/").get_data(as_text=True)
+check("the card is on the dashboard", 'id="cb-review-inbox"' in dash, True)
+check("it reads the route that exists",
+      "/tools/commercial-builder/api/reviews/waiting" in dash, True)
+check("the bubble is placed", "commercial_builder.dashboard.reviews" in dash, True)
+check("and it resolves to content",
+      bool(__import__("hub.help", fromlist=["help"]).get(
+          "commercial_builder.dashboard.reviews")), True)
+check("the inbox is staff-only", anon.get(f"{MOUNT}/api/reviews/waiting").status_code, 401)
+
+
 section("The spec module is not shadowed by the route module")
 # `__init__.py` does `from .routes import (..., review)`, which binds the name
 # `review` ON THE PACKAGE. A spec module called `review.py` beside it is then

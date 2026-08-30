@@ -246,3 +246,96 @@ def decision_requires_name(outcome) -> bool:
     exactly the argument this whole module exists to be able to settle.
     """
     return is_outcome(outcome)
+
+
+# ---------------------------------------------------------------------------
+# Who is waiting on whom
+#
+# A client answering a review reached the activity log and nothing else. The
+# rep who sent the link finds out by opening the spot and looking — which is
+# the same arrangement as the emailed MP4 this whole feature replaced, minus
+# the email. There is no mail sender in this Hub, so the honest route is the
+# one `hub/social_content.py` took: put it where people already look, on the
+# dashboard of the tool, with every figure opening the rows behind it rather
+# than a screen the reader then has to filter.
+# ---------------------------------------------------------------------------
+
+#: A round that has been answered and whose spot is not filed yet is ours; one
+#: that is sent and silent is theirs. Named rather than inferred at each call
+#: site, because "waiting" reads as both and the two are different queues.
+WAITING_ON_US = "answered"
+WAITING_ON_THEM = "sent"
+
+
+def inbox(rows) -> dict:
+    """What has come back from clients, and what is still out with them.
+
+    `rows` is one dict per live review link — `answered`, `outcome`,
+    `comments`, `filed` and whatever the caller wants to carry through to a
+    screen. Pure arithmetic over what it is handed, so the route reads the
+    tables and this decides what the numbers mean.
+
+    Three rules, each a way a count of this shape goes quietly wrong.
+
+    **An answer is not only a decision.** A client who left four timecoded
+    notes and never pressed a button has answered, and dropping them because
+    no `outcome` row exists is exactly the reply somebody needed to see. A
+    round with comments counts as answered whatever the decision says.
+
+    **A filed spot is not waiting on anybody.** The answer came back, somebody
+    acted on it, and leaving it in the queue is how a queue stops being read.
+
+    **Nothing waiting and nothing ever sent are different empties**, and only
+    the second is somebody's to fix — the rule `hub/social_status.py` works to.
+    `state` says which, so no screen has to work it out from two zeroes.
+    """
+    rows = list(rows or [])
+    ours, theirs = [], []
+    for row in rows:
+        if row.get("filed"):
+            continue
+        answered = bool(row.get("answered")) or bool(row.get("comments"))
+        (ours if answered else theirs).append(row)
+
+    if ours:
+        state = "waiting"
+    elif theirs:
+        state = "out_with_clients"
+    elif rows:
+        state = "all_handled"
+    else:
+        state = "never_sent"
+    return {
+        "waiting": ours,
+        "out_with_clients": theirs,
+        "waiting_count": len(ours),
+        "out_count": len(theirs),
+        "state": state,
+        "line": INBOX_LINES[state],
+        "measured": True,
+    }
+
+
+INBOX_LINES = {
+    "waiting": "Clients have answered and these spots have not been filed.",
+    "out_with_clients": "Nothing has come back yet — these are with the client.",
+    "all_handled": "Every answer that has come back has been acted on.",
+    # The empty that is somebody's to fix, said in words rather than left as a
+    # zero a reader takes for "all quiet".
+    "never_sent": "No spot has been sent to a client for review yet, so there "
+                  "is nothing to wait for.",
+}
+
+
+def inbox_unmeasured(reason) -> dict:
+    """The answer when the review tables could not be read.
+
+    "Nobody has answered" and "we could not look" are different answers and
+    only the first means there is nothing to do — the rule
+    `connected_accounts_result()` gives in Google Finder. A card drawing a
+    clean zero over a failed read is the confident wrong answer this module
+    keeps refusing to produce.
+    """
+    return {"waiting": [], "out_with_clients": [], "waiting_count": 0,
+            "out_count": 0, "state": "not_measured", "measured": False,
+            "line": f"The review rounds could not be read: {reason}"}

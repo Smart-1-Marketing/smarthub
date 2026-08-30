@@ -1232,8 +1232,8 @@ longer logged as submitted work.
 
 **One size at a time, and approving is what files it.** Rendering every ticked
 format at once means the second and third are built from a storyboard nobody
-has watched — so a note on the first applies to two cuts already paid for. The
-render route takes one format and refuses more by name. And `check_render`
+has watched — so a note on the first applies to two cuts already paid for. And
+`check_render`
 used to copy the finished video into the client's Cloudinary library the
 moment Creatomate said "succeeded", before any human had seen it: a cut nobody
 has watched is not a deliverable, and one already sitting in the client's
@@ -1245,6 +1245,43 @@ Approval state is `cb_render_approvals`, its own **table**: `create_all()`
 creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
+
+**And that rule is about unwatched creative, not about batching.** It stops
+being true the moment a cut of the spot has been approved: the remaining
+formats then come off a storyboard somebody has signed off, which is exactly
+the condition one-at-a-time was protecting — so a rep with three sizes left
+was pressing the same button three times and waiting each time for no reason
+the rule could name. The gate is an **approval on the project**, not a count.
+Before one exists a second format is refused *by name*, with what would lift
+it, because a route that quietly rendered the first of three would be the old
+failure wearing a new response; and a size already approved inside a batch is
+refused rather than dropped from it, since a silent skip is how an approved
+cut is quietly replaced — or quietly not replaced — with the panel reporting
+the same success either way. Whether the batch is open is `can_batch` on
+`/render-jobs`, decided by the route that enforces it: `preview.js` kept an
+`ADVISORY` set of its own once already, and a second reading of a server rule
+is the copy that drifts.
+
+**A client answering a review reached the activity log and nothing else.** So
+the rep who sent the link found out by opening the spot and looking — the
+emailed-MP4 arrangement this whole feature replaced, minus the email. There is
+no mail sender in this Hub, so `review_spec.inbox()` is the
+`hub/social_content.py` answer: a card on the tool's own dashboard, above the
+provider row because a key that is set is housekeeping and a client waiting on
+a reply is work, with every figure opening the rows behind it rather than a
+screen the reader then has to filter. Four rules in it. **An answer is not
+only a decision** — a client who left four timecoded notes and pressed no
+button has answered, and dropping them because no `outcome` row exists loses
+exactly the reply somebody needed. **A round sent after a filing is a live
+question again**, so `_acted_on()` compares the approval's time against the
+round's rather than asking whether the project has *an* approval: reading it
+the other way drops the round somebody is waiting on, silently, from the one
+card that would have told them. **Rounds still out with the client are counted
+apart** — nobody here is holding those up. And **four empties, not one**:
+nothing waiting, nothing yet sent, everything acted on, and a table that could
+not be read are different situations, only two of them mean there is nothing
+to do, and `inbox_unmeasured()` is what a failed read answers with rather than
+a clean zero.
 
 **The module that spends the most was invisible on the usage page.** HeyGen,
 Runway and Creatomate all bill per generation, and none of them was recorded
@@ -6222,9 +6259,11 @@ python3 test_commercial_library.py # what a spot is versus how it is made, the
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
                                    #   they are, and the acknowledgment before filing
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
-                                   #   three answers, the strictest one wins, and a
-                                   #   refusal that stops a delivery
-python3 test_commercial_wizard.py  # the seven steps, the client join, the spec check,
+                                   #   three answers, the strictest one wins, a
+                                   #   refusal that stops a delivery, and the
+                                   #   answers reaching the dashboard
+python3 test_commercial_wizard.py  # the seven steps, the batch an approval opens,
+                                   #   the client join, the spec check,
                                    #   the QR destination and who owns the scan; the :06,
                                    #   shots inside beats with their grammar, the published
                                    #   thresholds and whose each is, and the Amazon warning
