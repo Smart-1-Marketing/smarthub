@@ -3477,6 +3477,53 @@ per input and performance reads **not measured** with the reason rather than
 zero. Nothing it raises is drawn red: a page of red is a page people scroll
 past.
 
+**Ideas are offered on a schedule, or the client's link opens on nothing.**
+`generate()` was reachable only from a button in the staff queue, so a client
+who opened their swipe link saw "Nothing to look at just yet" — for ever,
+unless a strategist had remembered that week. `ideas.sweep()` runs on
+`hub/scheduler.py`, hourly ticks deciding a weekly interval **per client from
+that client's own last sweep** rather than from the job's schedule, so a
+redeploy cannot offer two batches in a day — the `purchased_domains` shape,
+for the same reason. Bounded on both axes (eight clients, three minutes)
+because these are model calls sharing one scheduler thread and a call has no
+useful ceiling.
+
+Three gates on who is swept, each a way to spend a model call on nobody.
+**Somebody at the client must have swiped at least once** — the first batch is
+the strategist's to send, and a client who has never opened the link would
+otherwise accumulate ideas nobody reads at a call a week for ever. **Their
+deck must be nearly empty**, or the backlog grows faster than anyone answers
+it. And **not more often than weekly**. What was skipped is named rather than
+counted: "nobody was eligible" and "we could not read the client list" are
+different answers.
+
+**A client record that says nothing about the work is the failure this repo
+counts six of.** Client 360 already had a Social Media card — that is their
+profile URLs, a different question from whether anybody at this client is
+asking us for anything. A client could have three requests overdue, a link
+nobody had sent them and four posts sitting unanswered, and none of it was on
+the one screen a rep opens. `hub/social_status.py` answers it, and the
+dashboard scoreboard reads the same module so the two cannot disagree — the
+`/api/db/structure` versus `/api/integrity` trap, where two checks asking one
+question answered it differently on one panel.
+
+**Nothing told anybody a request had arrived.** A location manager submitted
+at four on a Friday and it sat in a queue only somebody who opened the tool
+would ever see. There is no mailer in this Hub, so the honest route is putting
+it where people already look: a scoreboard on the dashboard, above System
+status, where every figure opens the rows behind it rather than the tool the
+reader would then have to filter. It counts **requests only** — reading posts
+awaiting approval means opening every plan file for every client on the book,
+on a page that loads on every visit, and a number that costs a page load is a
+number somebody turns off. The per-client card can afford that; the dashboard
+cannot, and the split is stated rather than discovered.
+
+**An empty scoreboard says which kind of empty.** "Nothing waiting" and
+"nobody has been sent their link yet" render identically as a zero and only
+the second is somebody's to fix, so the line says so in words beside the
+figure. Same on the card: a client with no requests is told that the link may
+never have gone out.
+
 **The queue is linked from the planner, not tiled separately.** It is the
 other half of one tool; a second tile is two things to keep in step and only
 one of them ever gets updated. It carries `data-demo="off"` and no

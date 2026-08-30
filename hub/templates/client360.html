@@ -207,6 +207,14 @@ function render(g,q){
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
+  // ---------- Social content: what this client has asked us for ----------
+  // The Social Media card above is their profile URLs. This is the work:
+  // requests from their locations, the link those come in on, ideas they have
+  // swiped and posts sitting with them. All of it existed and none of it was
+  // on the record a rep opens, which is the "a link that exists and nobody
+  // can reach" failure this repo counts six of.
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social content requests</h3><a class="open-link" id="c-scq" href="/tools/social/requests">Open the queue →</a></div><div class="card-b" id="c-social-content"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
 
@@ -1642,6 +1650,86 @@ function render(g,q){
           });
       };
     }).catch(()=>{$('c-social').innerHTML='<div class="empty">Social links unavailable.</div>'});
+
+  // Social content — requests, ideas, their link and what is waiting on them
+  const scq=document.getElementById('c-scq');
+  if(scq) scq.href='/tools/social/requests?client='+encodeURIComponent(name);
+  fetch('/api/client/social-content?name='+encodeURIComponent(name)
+        +(web0&&web0.url?'&url='+encodeURIComponent(web0.url):''))
+    .then(r=>r.json()).then(d=>{ $('c-social-content').innerHTML=socialContentHtml(d,name); })
+    .catch(()=>{$('c-social-content').innerHTML=
+      '<div class="empty">The social content queue could not be read.</div>'});
+}
+
+function scStat(label,value,href,warn){
+  // A figure that opens the rows behind it. A count somebody cannot act on is
+  // the thing hub/housekeeping.py exists to stop putting on screens.
+  const v=`<div style="font-size:22px;font-weight:700;line-height:1.15;color:${warn&&value?'var(--bad,#dc2626)':'var(--navy,#1a2e58)'}">${value}</div>`;
+  const l=`<div class="muted" style="font-size:11.5px">${esc(label)}</div>`;
+  return href?`<a href="${esc(href)}" style="text-decoration:none;display:block">${v}${l}</a>`
+             :`<div>${v}${l}</div>`;
+}
+
+function socialContentHtml(d,name){
+  if(!d||d.measured===false)
+    return '<div class="empty">'+esc((d&&d.error)||'Not measured.')+'</div>';
+  const r=d.requests||{}, ideas=d.ideas||{}, posts=d.posts||{}, link=d.link||{};
+  let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:14px;margin-bottom:14px">';
+  if(r.measured===false){
+    h+='<div class="muted" style="grid-column:1 / -1">'+esc(r.error||'')+'</div>';
+  }else{
+    h+=scStat('Waiting on us',r.open||0,r.url);
+    h+=scStat('Past their date',r.overdue||0,r.url,true);
+    h+=scStat('Possible duplicates',r.duplicates||0,r.url);
+  }
+  if(posts.measured!==false){
+    h+=scStat('With the client',posts.waiting_on_client||0,posts.url);
+    h+=scStat('Changes asked for',posts.changes_requested||0,posts.url,true);
+  }
+  if(ideas.measured!==false) h+=scStat('Ideas unanswered',ideas.pending||0,null);
+  h+='</div>';
+
+  // The open requests themselves, because a count with no rows under it sends
+  // somebody to another screen to find out what it is about.
+  if((d.recent||[]).length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    d.recent.forEach(x=>{
+      h+=`<tr><td style="padding:6px 8px 6px 0">${esc(x.location)}</td>`
+        +`<td style="padding:6px 8px" class="muted">${esc(x.type)}</td>`
+        +`<td style="padding:6px 8px" class="muted">${esc(x.when)}</td>`
+        +`<td style="padding:6px 0;text-align:right">${x.overdue
+            ?'<b style="color:var(--bad,#dc2626)">Overdue</b>':esc(x.status)}</td></tr>`;
+    });
+    h+='</table>';
+  }else if(r.measured!==false && !(r.total)){
+    // "Nobody has asked" and "we could not look" read identically as an empty
+    // card, and only the first one has an action under it: send them the link.
+    h+='<div class="muted" style="font-size:12.5px">Nobody at this client has '
+      +'sent a request yet. If they have not been given their link, that is '
+      +'usually why.</div>';
+  }
+
+  if(ideas.measured!==false){
+    h+='<div class="muted" style="font-size:12px;margin-top:10px">'
+      +(ideas.answered
+        ? esc(ideas.answered+' idea(s) answered'
+              +(ideas.liked&&ideas.liked.length?'. Most liked: '+ideas.liked.join(', '):'.'))
+        : 'Nobody here has swiped on an idea yet.')
+      +'</div>';
+  }
+
+  // Their link, and whether it is on. Offered here because this is the screen
+  // somebody is on when they realize the client has sent us nothing.
+  if(link.pages&&link.pages.length){
+    const req=link.pages.filter(p=>p.page==='request')[0];
+    h+='<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      +'<span class="muted" style="font-size:12px">Their link:</span>'
+      +(link.revoked
+        ? '<b style="color:var(--bad,#dc2626);font-size:12.5px">turned off — none of their four pages will open</b>'
+        : `<code style="font-size:11.5px;background:var(--bg,#f8fafc);border:1px solid var(--line);border-radius:6px;padding:4px 7px;overflow-wrap:anywhere">${esc(req?req.url:'')}</code>`)
+      +'</div>';
+  }
+  return h;
 }
 
 // ---------- Creative gallery ----------

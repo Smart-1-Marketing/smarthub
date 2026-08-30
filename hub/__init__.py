@@ -2911,6 +2911,44 @@ def create_hub_app() -> Flask:
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "social": social})
 
+    # ------------- social content: requests, ideas, the client's own link
+    #
+    # The Social Media card above is the client's profile URLs, which is a
+    # different question from "is anybody at this client asking us for
+    # anything". Before this the record said nothing at all about the work:
+    # a client could have three requests overdue, a link nobody had sent them
+    # and four posts sitting unanswered, and none of it was on the one screen
+    # a rep opens. hub/social_status.py answers it, and the dashboard
+    # scoreboard reads the same module so the two cannot disagree.
+    @app.route("/api/client/social-content")
+    def api_client_social_content():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        if not name:
+            return jsonify({"measured": False, "error": "No client was named."})
+        return jsonify(social_status.for_client(name, url,
+                                                request.host_url))
+
+    @app.route("/api/social/scoreboard")
+    def api_social_scoreboard():
+        """Who is waiting on us, for the dashboard.
+
+        Deliberately not behind `access.UTILITY_PREFIXES`: this is the
+        workload of the people reading the dashboard, and the presence
+        headcount already showed what happens when a figure everybody sees is
+        served by a path most accounts are refused — the panel rendered a
+        confident green nothing for eleven of fourteen people.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import social_status
+        return jsonify(social_status.scoreboard())
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
