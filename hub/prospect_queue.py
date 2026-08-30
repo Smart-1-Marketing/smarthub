@@ -180,11 +180,83 @@ def build(days: int = DEFAULT_DAYS) -> dict:
         "rows": out_rows,
         "row_styles": styles,
         "measured": True,
+        # On the payload rather than recomputed by whoever wants a headline
+        # figure. The dashboard reads this run through the day cache, so the
+        # tile and the report cannot answer "how many are waiting" differently
+        # -- the `/api/db/structure` versus `/api/integrity` trap, where two
+        # checks asking one question contradicted each other on one panel.
+        "counts": {
+            "prospects": len(live),
+            "converted": len(converted),
+            "undelivered": len(undelivered),
+            "merge_first": len(merge_first),
+            "ready": len(ready),
+            "unaudited": len(unaudited),
+            "waiting": len(waiting),
+            "days": days,
+        },
         "note": _note(len(live), len(converted), len(undelivered),
                       len(merge_first), len(ready), len(unaudited),
                       len(waiting), days,
                       [e for e in (audit_error, quote_error, dupe_error) if e]),
     }
+
+
+def scoreboard() -> dict:
+    """The headline figures, for the dashboard.
+
+    Read from the **cached** report rather than rebuilt: the dashboard loads
+    on every visit, and this walk reads the lead store, a batch of audits, the
+    proposal store and the merge candidates. `hub/social_status.py` states the
+    same rule -- a number that costs a page load is a number somebody turns
+    off -- and reading the same run is also what stops the tile and the report
+    disagreeing about how many are waiting.
+
+    Never raises. A report that could not be built answers `measured: False`
+    with the reason, because "nobody to chase" and "we could not look" are
+    different answers and only the first is good news.
+    """
+    try:
+        from hub import qa
+        out = qa.run_cached("prospect-queue")
+    except Exception as exc:                                # noqa: BLE001
+        return {"measured": False,
+                "error": f"The prospect queue could not be read "
+                         f"({type(exc).__name__}).",
+                "counts": {}, "url": URL}
+    if not out.get("measured", True):
+        return {"measured": False, "error": out.get("note") or "Not measured.",
+                "counts": {}, "url": URL}
+    counts = out.get("counts") or {}
+    return {"measured": True, "error": "", "counts": counts, "url": URL,
+            "cache": out.get("cache") or {},
+            "line": _headline(counts)}
+
+
+URL = "/qa/prospect-queue"
+
+
+def _headline(c: dict) -> str:
+    """One sentence under the figures, and every zero says which kind it is.
+
+    "Nobody is waiting to be called" and "no lead has come in for three
+    months" render identically as a nought, and only the second is something
+    to do about the top of the funnel rather than the middle of it.
+    """
+    if not c.get("prospects"):
+        return (f"No prospect has come in in the last {c.get('days', DEFAULT_DAYS)} "
+                f"days — that is the top of the funnel, not the queue.")
+    parts = []
+    if c.get("ready"):
+        parts.append(f"{c['ready']} audited and unquoted")
+    if c.get("unaudited"):
+        parts.append(f"{c['unaudited']} never audited")
+    if c.get("undelivered"):
+        parts.append(f"{c['undelivered']} not in Smart 1 Suite")
+    if not parts:
+        return (f"{c['prospects']} prospects, all of them quoted and waiting — "
+                f"nothing needs starting, only chasing.")
+    return ", ".join(parts) + " — open the queue for the order to work them in."
 
 
 def _age(created) -> int | None:

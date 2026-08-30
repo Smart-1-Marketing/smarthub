@@ -74,7 +74,15 @@
   .wrapover{overflow-x:auto}
 </style>
 </head>
-<body data-screen="website_audit" data-module="website_audit">
+{# `data-screen` is what offers a tour, and this screen registers no steps.
+   hub-help.js already declines to offer an empty one, so naming it costs
+   nothing today -- but `tour()` falls back to the MODULE prefix, so the day
+   somebody registers a sibling screen's steps this would serve them over
+   elements that are not on this page. `has_tour` exists for exactly that,
+   and guarded `is defined` like every other helper, so a Jinja env that
+   never got install_template_helpers() loses the attribute rather than the
+   page. #}
+<body{% if has_tour is defined and has_tour("website_audit") %} data-screen="website_audit"{% endif %} data-module="website_audit">
 <div class="wrap">
   <h1>Website Audit {{ help_dot('hub.website_audit.intro') if help_dot is defined else '' }}</h1>
   <p class="sub">Everything one audit already knows about a business, starting

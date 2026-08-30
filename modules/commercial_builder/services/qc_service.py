@@ -6,6 +6,7 @@ from . import openai_service, abcd_service
 from .. import compliance_spec, library_spec
 from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
                       qr_eligible, qr_required, qr_default_on, is_social,
+                      logo_persistence_eligible, short_form_phrase,
                       spec_channels, spec_channel_mode, publishers_refusing_qr,
                       publisher_qr_note)
 
@@ -406,10 +407,21 @@ def _check_qr_code(project_dict, scenes):
 
 def _check_logo_persistence(project_dict):
     """Persistent/recurring logo bug so a CTV viewer who looks away mid-spot
-    still catches the brand — recommended (not hard-required) for 15/30/60s."""
+    still catches the brand — recommended, never hard-required.
+
+    Asks the LOGO table, not the QR one. This read `qr_eligible()` and was
+    right by coincidence: the two tables hold the same three lengths today,
+    and a change to where a QR code makes sense would have moved where a logo
+    bug is expected with nothing anywhere reporting it.
+    """
     length = project_dict.get("length_seconds")
-    if not qr_eligible(length):  # same eligibility window as QR (15/30/60)
-        return {"passed": True, "message": ":05 bumpers already run the logo full-treatment throughout."}
+    if not logo_persistence_eligible(length):
+        return {"passed": True,
+                # Named from the table rather than written out. This said
+                # ":05 bumpers" and went on saying it after the :06 arrived,
+                # describing two lengths while naming one.
+                "message": (f"{short_form_phrase()} bumpers already run the logo "
+                            "full-treatment throughout.")}
     cta = project_dict.get("cta") or {}
     ok = bool(cta.get("logo_persistent"))
     return {"passed": ok,

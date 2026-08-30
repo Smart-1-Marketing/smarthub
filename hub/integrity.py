@@ -34,6 +34,11 @@ import os
 import pathlib
 import re
 
+# The bubble audit lives in its own module rather than here: it is read by
+# /api/integrity and by test_help_layer.py, and two copies of "which keys
+# resolve" is the drift a second reader always becomes.
+from . import help_audit as _help_audit
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # Third-party code is not ours to fix, and a local virtualenv sits inside the
@@ -398,6 +403,120 @@ def check_template_collisions() -> list[dict]:
         })
     return out
 
+def check_orphan_templates() -> list[dict]:
+    """A template nothing renders.
+
+    A page that exists is not a page anybody can reach — this file already
+    makes that point about the partner tiles, where `partner.available()` sat
+    written with no caller while the dashboard offered four links and a
+    promise. A template is the same failure with nothing at all to notice it:
+    it is valid Jinja, `tools/pagecheck.py` never requests it because no route
+    serves it, and `tools/linkcheck.py` names one only when it *also* finds a
+    broken `url_for` inside — so an orphan whose links happen to resolve is
+    invisible to every check here.
+
+    What that costs is not disk. `modules/sites_admin/templates/site_detail.html`
+    was rendered by nothing and was restyled anyway in the sweep that made
+    Sites read like the rest of the Hub: real effort spent on a page no
+    request can produce. And `modules/google_finder/templates/reports.html`
+    was byte-identical to `gtm_logs.html` apart from its `<title>` — a
+    copy-paste nobody finished, sitting beside live `/api/reports/save` and
+    `/api/reports/search` routes with no screen in front of them. Reading the
+    directory, both looked like features.
+
+    **A computed name is still a render.** `modules/scans` picks between
+    `widget.html` and `widget_audit.html` with a conditional and hands the
+    result to `render_template`, so a check reading only the literal arguments
+    of a render call reports the two most client-facing pages in that module
+    as dead. Both are therefore matched as **string constants anywhere in the
+    source**, which is looser than a call site on purpose: the cost of missing
+    an orphan is a file nobody deletes, and the cost of naming a live page is
+    somebody deleting it.
+
+    A partial (`_scan_mark.html`) is reached by `include` rather than by a
+    route, and `base.html` by `extends`, so both are read out of the templates
+    themselves rather than assumed.
+
+    Only Jinja is in scope: `modules/ad_builder/src/templates` holds the ad
+    renderer's layout JSON, which is TypeScript's and never reaches
+    `render_template`, so it is not one of the folders walked.
+    """
+    import re
+
+    rendered: set[str] = set()
+    for py in ROOT.rglob("*.py"):
+        if any(d in py.parts for d in SKIP_DIRS) or "__pycache__" in py.parts:
+            continue
+        # A test naming a template is not a route rendering it. This is the
+        # rule check_provider_key_drift() works to one step over: a docstring
+        # explaining a fix is not a call site, and neither is an assertion
+        # about a file. Left in, a test that merely mentions an orphan keeps
+        # it hidden for ever -- which is not hypothetical, since the sweep
+        # that restyled the dead site_detail.html added a test naming it.
+        if py.name.startswith("test_"):
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        # Every string constant, not only a render_template() argument: the
+        # name may be chosen in a conditional and passed in a variable.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if node.value.endswith(".html"):
+                    rendered.add(node.value.split("/")[-1])
+
+    files: list[pathlib.Path] = []
+    for tpl in list(ROOT.glob("*/templates")) + list(ROOT.glob("modules/*/templates")):
+        if any(d in tpl.parts for d in SKIP_DIRS):
+            continue
+        files.extend(tpl.rglob("*.html"))
+
+    # A template reached by {% extends %}, {% include %}, {% import %} or
+    # {% from %} has no route of its own and is not an orphan. Read out of
+    # the templates rather than assumed, so a partial added tomorrow needs no
+    # entry anywhere.
+    #
+    # Any .html name appearing in a template or a script counts too, for the
+    # same reason the Python side reads every string constant: a page linked
+    # to by name, or fetched by one, is reached. Erring loose is deliberate —
+    # missing an orphan costs a file nobody deletes, and naming a live page
+    # costs the page.
+    for f in files:
+        src = f.read_text(encoding="utf-8", errors="ignore")
+        for ref in re.findall(r"{%-?\s*(?:extends|include|import|from)\s+[\'\"]([^\'\"]+)", src):
+            rendered.add(ref.split("/")[-1])
+        for ref in re.findall(r"[\w./-]+\.html", src):
+            if ref.split("/")[-1] != f.name:            # not its own name
+                rendered.add(ref.split("/")[-1])
+    for js in ROOT.rglob("*.js"):
+        if any(d in js.parts for d in SKIP_DIRS) or "node_modules" in js.parts:
+            continue
+        for ref in re.findall(r"[\w./-]+\.html",
+                              js.read_text(encoding="utf-8", errors="ignore")):
+            rendered.add(ref.split("/")[-1])
+
+    out = []
+    for f in sorted(files):
+        if f.name in rendered:
+            continue
+        rel = f.relative_to(ROOT).as_posix()
+        out.append({
+            "file": rel,
+            "module": rel.split("/")[1] if rel.startswith("modules/") else "hub",
+            "detail": f"{f.name} is named nowhere in this repository, so no "
+                      f"route can render it and no request can produce it. It "
+                      f"still reads as a feature in the directory, and it is "
+                      f"still edited by sweeps that touch every template in "
+                      f"the folder.",
+            "fix": "Delete it, or give it the route it was written for — and "
+                   "if a route was intended, check what the page actually "
+                   "contains first: one of these was a copy of the page next "
+                   "to it under a different title.",
+        })
+    return out
+
+
 def check_shared_services() -> list[dict]:
     """Modules still doing Cloudinary, image work or settings themselves.
 
@@ -729,6 +848,12 @@ CHECKS = [
      check_template_collisions),
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
     ("shared_services", "Not yet on shared services", "low", check_shared_services),
+    # Low: an orphan template costs nobody a broken page -- it costs the
+    # effort spent editing one, and the feature somebody thinks is there
+    # because the directory says so. It went in with three findings, which
+    # were deleted in the same change, so it starts empty.
+    ("orphan_templates", "A template nothing renders", "low",
+     check_orphan_templates),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
     ("stale_json_exemptions", "Unbacked-JSON exemption names a missing file",
      "medium", check_stale_json_exemptions),
@@ -749,6 +874,16 @@ CHECKS = [
     # build, and the fix is one line at the call site.
     ("provider_key_drift", "Provider key read under one spelling only", "high",
      check_provider_key_drift),
+    # Medium, and green the day it went in. A bubble whose key is not in the
+    # registry is removed client-side rather than left as a dead "?" -- right
+    # for the page, and exactly what makes the mistake invisible: the template
+    # reads as helped, the screen shows nothing, and nothing errors at either
+    # end. Three tools had one on their own title. Not high, because the page
+    # still works and nobody is waiting on output; not low, because the whole
+    # help layer is opt-in and a screen that opted in and got nothing is
+    # indistinguishable from one that never tried.
+    ("dead_help_bubbles", "A help bubble with no help behind it", "medium",
+     _help_audit.check_dead_bubbles),
 ]
 
 

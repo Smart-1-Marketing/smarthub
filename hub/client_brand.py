@@ -300,16 +300,30 @@ def _pushed_at(client: str) -> str:
         return ""
 
 
-def mark_pushed(client: str) -> None:
-    """Record that the brand guide reached Suite."""
+def mark_pushed(client: str) -> str:
+    """Record that the brand guide reached Suite, and return the stamp.
+
+    Called only where the delivery actually succeeded. A push that was
+    refused, that could not be reached, or that was merely offered for
+    somebody to paste by hand has not reached Suite, and a card that says it
+    has is the confident wrong answer this file spends its length avoiding.
+
+    Returns the timestamp it wrote so the route can hand back the same string
+    the next page load will read, rather than the browser inventing a second
+    idea of when this happened. Empty when nothing could be written -- the
+    push still landed, and refusing to report it because our own note failed
+    would be worse.
+    """
     from datetime import datetime, timezone
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         from hub import seo
         store = seo.load_store(client) or {}
-        store["suite_brand_guide"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        store["suite_brand_guide"] = stamp
         seo.save_store(client, store)
+        return stamp
     except Exception:  # noqa: BLE001
-        pass
+        return ""
 
 
 def brand_guide_payload(client: str, domain: str = "") -> dict:

@@ -287,6 +287,69 @@ finally:
 
 
 # =====================================================================
+section("The dashboard is told the queue has something in it")
+# =====================================================================
+
+# A queue nobody is told has anything in it is the failure it was built to
+# undo, one step later. There is no mailer here, so the number goes where
+# people already look -- the rule hub/social_status.py states.
+
+sb = prospect_queue.scoreboard()
+check("the scoreboard measures", sb["measured"], True)
+check("it links at the queue itself", sb["url"], "/qa/prospect-queue")
+check("and carries the bands, kept apart",
+      sorted(k for k in ("ready", "unaudited", "waiting", "undelivered",
+                         "merge_first") if k in sb["counts"]),
+      ["merge_first", "ready", "unaudited", "undelivered", "waiting"])
+
+# The tile and the report must be one reading. Two screens answering the same
+# question separately is how they come to disagree -- the /api/db/structure
+# versus /api/integrity trap.
+from hub import qa as _qa                                     # noqa: E402
+check("the tile reads the same run as the report",
+      _qa.run_cached("prospect-queue")["counts"], sb["counts"])
+check("and the age of that reading travels with it",
+      bool((sb.get("cache") or {}).get("line")), True)
+
+# Every zero says which kind of zero it is.
+head = prospect_queue._headline
+check("no prospects at all is named as the top of the funnel",
+      "top of the funnel" in head({"prospects": 0, "days": 90}), True)
+check("prospects with nothing to start is a different sentence",
+      "only chasing" in head({"prospects": 4, "waiting": 4}), True)
+check("and a queue with work in it names the bands",
+      "audited and unquoted" in head({"prospects": 3, "ready": 2}), True)
+
+_real_run = _qa.run_cached
+_qa.run_cached = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("cache gone"))
+try:
+    dead_sb = prospect_queue.scoreboard()
+    check("a queue that could not be read is not measured",
+          dead_sb["measured"], False)
+    check("and says so rather than drawing nobody waiting",
+          "could not be read" in dead_sb["error"], True)
+finally:
+    _qa.run_cached = _real_run
+
+_qa.run_cached = lambda *a, **k: {"measured": False, "note": "Knack refused."}
+try:
+    passthrough = prospect_queue.scoreboard()
+    check("an unmeasured report is not dressed up as a measured tile",
+          passthrough["measured"], False)
+    check("carrying the report's own reason", passthrough["error"], "Knack refused.")
+finally:
+    _qa.run_cached = _real_run
+
+dash = (ROOT / "hub" / "templates" / "dashboard.html").read_text()
+check("the dashboard has the card", 'id="prospectboard"' in dash, True)
+check("fetching the scoreboard", "'/api/sales/prospects'" in dash, True)
+check("above Proposals, because a prospect is the top of the funnel",
+      dash.find("prospectboard") < dash.find("salesboard"), True)
+check("and a failure reads as not measured, never as nobody waiting",
+      "not measured rather than nobody waiting" in dash, True)
+
+
+# =====================================================================
 section("It is on the QA page, in a group of its own")
 # =====================================================================
 
