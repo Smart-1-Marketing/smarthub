@@ -4673,6 +4673,21 @@ rather than carrying a second resolution that would disagree with the record
 page about which site a prospect has. The audits come back through
 `upsell.audits_for()` — one query per chunk, not one per prospect.
 
+**And a queue nobody is told has anything in it is the same failure one step
+later.** There is no mailer in this Hub, so the number goes where people
+already look: a **Prospects to chase** card on the dashboard, above Proposals
+because a quote is the middle of the funnel and a prospect nobody has called
+is the top of it. `scoreboard()` reads the **cached** report rather than
+rebuilding — the dashboard loads on every visit and this walk reads the lead
+store, a batch of audits, the proposal store and the merge candidates, which
+is the note `hub/social_status.py` makes about a number that costs a page load
+being a number somebody turns off. Reading the same run is also what stops the
+tile and the report answering "how many are waiting" differently, which is the
+`/api/db/structure` versus `/api/integrity` trap. The bands stay apart on the
+tile too, each figure opens the queue, the age of the reading is printed
+beside them, and a report that could not be built is **not measured** rather
+than a confident nought.
+
 ### What we could sell each client, out of audits already paid for
 
 `hub/upsell.py` and **QA → Clients → What We Could Sell Each Client**.
