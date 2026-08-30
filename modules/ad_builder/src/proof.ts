@@ -61,6 +61,28 @@ export interface ProofOptions {
 const esc = (v: unknown) =>
   String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
+/**
+ * A value on its way into an inline `<script>`, not into markup.
+ *
+ * `JSON.stringify` produces valid JavaScript and does not escape `</script>`,
+ * and an HTML parser ends a script block at that literal string wherever it
+ * appears -- inside a quoted string included. So a single `</script>` in the
+ * data closes the block early and everything after it is parsed as markup.
+ * The copy interpolated here is typed by a rep, and `meta.promoting` falls
+ * back to a summary read off the *client's own website*, which is nobody's to
+ * vouch for; this page is public, so it is read by whoever holds the link.
+ *
+ * Escaping `<` closes it (`\u003c` is the same character to `JSON.parse` and
+ * invisible to the HTML parser). U+2028 and U+2029 go with it: both are legal
+ * inside a JSON string and both are line terminators to a JavaScript parser,
+ * so either one unescaped is a syntax error that costs the whole page.
+ */
+const jsonScript = (v: unknown) =>
+  JSON.stringify(v ?? null)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
 const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
 
 /** Sizes in the order a reviewer should meet them: universal first. */
@@ -518,12 +540,12 @@ ${!editor ? '' : `<div class="size-editor" id="sizeEditor">
 </div>`}
 
 <script>
-window.PROOF_ENDPOINT = ${opts.actionBase ? JSON.stringify(opts.actionBase) : 'null'};
-window.PROOF_COPY = ${JSON.stringify(opts.initialCopy ?? {})};
-window.PROOF_COLORS = ${JSON.stringify(opts.initialColors ?? {})};
-window.PROOF_META = ${JSON.stringify(opts.meta ?? {})};
-window.PROOF_PERSIZE = ${JSON.stringify(opts.perSizeCopy ?? {})};
-window.PROOF_DELIVERED = ${JSON.stringify(opts.delivered ?? null)};
+window.PROOF_ENDPOINT = ${opts.actionBase ? jsonScript(opts.actionBase) : 'null'};
+window.PROOF_COPY = ${jsonScript(opts.initialCopy ?? {})};
+window.PROOF_COLORS = ${jsonScript(opts.initialColors ?? {})};
+window.PROOF_META = ${jsonScript(opts.meta ?? {})};
+window.PROOF_PERSIZE = ${jsonScript(opts.perSizeCopy ?? {})};
+window.PROOF_DELIVERED = ${jsonScript(opts.delivered ?? null)};
 (function () {
   'use strict';
   var body = document.body;
