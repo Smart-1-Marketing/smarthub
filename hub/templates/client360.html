@@ -136,12 +136,21 @@ function render(g,q){
       <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
       <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
       <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
+  // Knack's own Product # (field_2640), beside the name rather than in a
+  // column of its own: this card is half the grid, and the number is only
+  // ever there on the live source — the committed export has never carried
+  // one — so a column would be a wall of dashes on every export-backed
+  // record. It is labeled, because the pill next to it is the IO number and
+  // two bare #s side by side say nothing about which is which.
+  const anyProdNum=(g.products||[]).some(p=>String(p.product_num||'').trim());
   const prodRow=p=>{
     const live=String(p.status||'').toLowerCase()==='live';
+    const num=String(p.product_num||'').trim();
+    const numPill=num?` <span class="pill neutral" title="Product number in Knack">Product #${esc(num)}</span>`:'';
     const ioPill=p.io?(p.dash
-      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io)}</a>`
-      :` <span class="pill neutral">#${esc(p.io)}</span>`):'';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}${memberTag(p.member)}</td>`
+      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Insertion order — open Smart 1 Dashboard">IO #${esc(p.io)}</a>`
+      :` <span class="pill neutral" title="Insertion order">IO #${esc(p.io)}</span>`):'';
+    return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${memberTag(p.member)}</td>`
       + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
       + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
       + `<td>${money(p.monthly)}</td></tr>`;
@@ -159,9 +168,15 @@ function render(g,q){
       html+='<div class="muted" style="font-size:12px;margin-bottom:8px">Live from Knack'
         + (mins===0||mins ? ' &middot; '+esc(String(mins))+' min old' : '') + '</div>';
     }
+    if(!anyProdNum){
+      html+='<div class="muted" style="font-size:12px;margin-bottom:8px">No product numbers on these rows'
+        + (g.products_source==='export'
+           ? ' &mdash; the committed export does not carry them.'
+           : '.') + '</div>';
+    }
     html+='<table><thead><tr><th>Product</th><th>Campaign</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
     html+=liveProds.slice(0,15).map(prodRow).join('');
-    if(!liveProds.length)html+='<tr><td colspan="3" class="empty">No live products right now.</td></tr>';
+    if(!liveProds.length)html+='<tr><td colspan="4" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
     if(doneProds.length){
       html+=`<div style="padding:10px 14px;border-top:1px solid var(--line-soft)"><button class="btn-ghost" onclick="const el=document.getElementById('doneProds');const on=el.style.display==='none';el.style.display=on?'block':'none';this.textContent=on?'Hide completed / other (${doneProds.length})':'Show completed / other (${doneProds.length})'">Show completed / other (${doneProds.length})</button></div>`;

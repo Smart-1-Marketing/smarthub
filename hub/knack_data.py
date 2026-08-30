@@ -651,7 +651,9 @@ def _merge_group_members(g: dict, raw_rows: list[dict], product_rows: list[dict]
             merged["missing"].append(oname)
         before = len(g["products"])
         client_groups.merge_rows(
-            [{"product": r.get("product"), "campaign": r.get("campaign"),
+            [{"product": r.get("product"),
+              "product_num": r.get("product_num"),
+              "campaign": r.get("campaign"),
               "io": r.get("io"), "status": r.get("status"),
               "monthly": r.get("monthly"), "sales": r.get("sales"),
               "partner": r.get("partner"), "start": r.get("start"),
@@ -723,6 +725,12 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
         raw_by_group.setdefault(client.lower(), []).append(r)
         g["products"].append({
             "product": r.get("product"),
+            # Knack's own Product # (field_2640). It is what the campaign team
+            # names a line by, so a rep reading the record can quote it back
+            # without opening Knack. The committed export has never carried
+            # it, so on that source it is absent rather than blank — the two
+            # are told apart on the page, not here.
+            "product_num": r.get("product_num"),
             "campaign": r.get("campaign"),
             "io": r.get("io"),
             "status": r.get("status"),
