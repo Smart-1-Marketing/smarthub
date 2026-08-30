@@ -68,6 +68,16 @@ OTHER = "other"
 # video shoot does, so a comped set of banners is questioned at $500 rather
 # than at $1,500 -- a warning that fires on every plan is a warning nobody
 # reads, which is the note hub/qr_codes.py makes about QR on social.
+# Paid social joined last, and it was the largest hole of the three. A
+# Meta-only plan returned *nothing* from `gated_media()`: six real buys --
+# Awareness, Targeted, Programmatic Paid Social, Retargeting, Leads and
+# Boosted Posts -- each with three to seven units published in the spec kit,
+# and the Creative step never mentioned any of them. The tempting reading is
+# that paid social is usually a boosted post the client already has, and that
+# is exactly the assumption this module exists to stop making: the gate's job
+# is to ask, and "they probably have something" is what leaves a launch date
+# resting on nobody having checked.
+#
 # Email and digital out-of-home joined for the reason display did, one step
 # further on. Both sell creative with published specs -- the kit has an Email
 # Creative and an HTML package, and four billboard sizes -- and neither was
@@ -75,7 +85,7 @@ OTHER = "other"
 # EMAIL MARKETING and SMART 1 SIGNAGE and an ungated medium is one the
 # Creative step never mentions. A signage buy reached the insertion order with
 # nobody having established that artwork exists, exactly as a CTV buy used to.
-GATED = (VIDEO, AUDIO, DISPLAY, RETARGETING, EMAIL, DOOH)
+GATED = (VIDEO, AUDIO, DISPLAY, RETARGETING, EMAIL, DOOH, SOCIAL)
 
 MEDIUM_LABEL = {
     VIDEO: "Video (CTV, streaming, YouTube, pre-roll)",
@@ -99,14 +109,18 @@ COMP_CONFIRM_UNDER = 1500
 # Email creative is the card's own "Email Template Creation" at $150, so it is
 # questioned lower still. Signage artwork is a custom quote and is left at the
 # default rather than given a number nobody published.
-COMP_CONFIRM_BY_MEDIUM = {DISPLAY: 500, RETARGETING: 500, EMAIL: 400}
+# Social is the card's "Social Media Ad Creation per platform" at $35, so the
+# campaign at which comping it stops being sensible is lower again -- low
+# enough that the confirmation is in practice never raised, which is the right
+# outcome for a $35 line rather than a threshold nobody would act on.
+COMP_CONFIRM_BY_MEDIUM = {DISPLAY: 500, RETARGETING: 500, EMAIL: 400, SOCIAL: 100}
 
 # Starting points for production when Smart 1 builds it. Overridable on the
 # quote; a custom shoot is a custom quote. Display and retargeting are the
 # card's own "Standard Set of 6 Ad Creation" at $250 rather than a number
 # invented here -- the same rule the video figures follow, one step further.
 TYPICAL_PRODUCTION = {VIDEO: 750, AUDIO: 250, DISPLAY: 250, RETARGETING: 250,
-                      EMAIL: 150, DOOH: 250}
+                      EMAIL: 150, DOOH: 250, SOCIAL: 35}
 
 
 def confirm_under(medium: str) -> int:
@@ -137,6 +151,14 @@ EXPLICIT_MEDIUM = {
     "programmatic - targeted": VIDEO,                   # $17.00 CPM
     "premium: non-skippable": VIDEO,                    # $23.00 CPM
     "premium native video": VIDEO,                      # $26.00 CPM
+    # ...and one running the other way. The card files this under a heading
+    # called SOCIAL ADS - VIDEO, and the heading is what the keyword pass
+    # reads, so a product whose own name is "Display & Text Ads" was gated as
+    # video -- asking a client for a spot to run text ads. The other products
+    # under that heading are left alone: the heading is right about them, and
+    # reclassifying a generic "Paid Social Media Advertising" on our own
+    # reading of which platforms are video-first would be inventing.
+    "linkedin - display & text ads - budget based - no impression guarantee": SOCIAL,
 }
 
 # ...except under DIGITAL RADIO, where "Programmatic - Targeted" is the
