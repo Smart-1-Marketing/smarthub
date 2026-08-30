@@ -1656,6 +1656,40 @@ def test_one_animation_is_one_decision_and_one_file():
           "if (row.cloudinaryPublicId) {" in srv)
 
 
+def test_the_proof_says_what_the_approval_covers():
+    """A client is shown moving versions and given one button that is not about them.
+
+    The proof draws the animations, and "Approve concept A" on the same page
+    triggers deliverProject -- which no longer carries animations, because each
+    is approved and sent on its own. So a client who says yes to what they were
+    shown gets a package that accounts for the still set and reports a file
+    count that does not include the three GIFs they just watched.
+
+    Nothing errors, the download is correct, and only the sentence joining them
+    is missing -- which is the "Showing 1 of 7" failure this codebase names,
+    wearing a proof page.
+    """
+    src = (MODULE / "src" / "proof.ts").read_text()
+    raw = src[src.index("const movingBlock"):src.index("return `\n      <section")]
+    # Normalised, because this is wrapped markup: a sentence that reads on one
+    # line in the browser is split across three in the source, and an
+    # assertion pinned to where the line breaks fall fails the day somebody
+    # reflows the paragraph -- which is how a check gets deleted rather than
+    # fixed.
+    block = " ".join(raw.split())
+    check("the animated block says what the approve button covers",
+          "Approving below covers the still set" in block)
+    check("and that they arrive on their own instead",
+          "on its own, as its own file" in block)
+    check("and that the download from this page will not have them in it",
+          "will not contain them" in block)
+    # It must not invite a decision it cannot record: the client's answer to an
+    # animation is the notes box, because approving one is a staff act that
+    # sends the file.
+    check("it points at the notes rather than offering a button it has no route for",
+          "notes" in block and "data-approve" not in raw)
+
+
 def test_an_approved_animation_reaches_the_client_record():
     """Otherwise it is the failure this repo has counted six times.
 

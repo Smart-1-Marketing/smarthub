@@ -1921,6 +1921,11 @@ function guardrailsJs(){
     strictest of them blocked campaigns the IO would have written happily.
     Paid search is now $400 in one place and every document reads it there. */
  S.items.forEach(i=>{
+  /* A one-time build is not a monthly buy and has no monthly floor to be
+     under. Judged against one, a $349.50 website line reported that the IO
+     would refuse a perfectly ordinary website-only proposal -- and said so
+     as "$349.5/mo", the unformatted half of the same mistake. */
+  if((i.basis||"monthly")==="one_time")return;
   const min=minimumFor(i.product,i.category);
   if(i.dollars>0&&i.dollars<min)
    warns.push((i.product||i.category||"That product")+" at "+money(i.dollars)+"/mo is below its "+money(min)+" monthly minimum — the IO will not accept it.");
