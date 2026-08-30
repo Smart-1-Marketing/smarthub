@@ -78,7 +78,6 @@
       "conceptId": "C",
       "name": "Offer",
       "layoutFamily": "T04",
-      "useReverseLogo": true,
       "hero": {},
       "copy": {
         "default": {
