@@ -217,6 +217,78 @@ clients_registry.all_clients(refresh=True)
 
 
 # ---------------------------------------------------------------------------
+print("\nThe status row is about the data, not about the last deploy")
+# ---------------------------------------------------------------------------
+# /status used to read products.json's mtime and print it as "Refreshed Xh
+# ago", warning past 48 hours. In a Docker deploy every file is written at
+# image build time, so that measures time since the last *deploy* — wrong in
+# both directions: a months-old export reads as two hours old for two days
+# after any deploy, and a container left up for a week warns about data
+# nothing has touched. export_state() is the honest signal and is already
+# shared with the dashboard and hub/housekeeping.py.
+state = kd.export_state()
+check("the export knows which month it was generated for",
+      bool(state["period"]), state)
+check("and it is compared against the calendar, not a file timestamp",
+      state["current"] and "stale" in state, state)
+
+import hub as _hub                                                # noqa: E402
+import inspect as _inspect                                        # noqa: E402
+hub_src = _inspect.getsource(_hub.create_hub_app)
+row = hub_src[hub_src.index("--- Knack data ---"):][:2000]
+check("the status row reads export_state()", "export_state()" in row)
+check("and no longer prints the file age as a refresh time",
+      "Refreshed {age" not in row and "Last refreshed" not in row, row[:200])
+check("a stale export is a warning naming both months",
+      "state['label']" in row and "state['current_label']" in row)
+check("an export carrying no month at all is named rather than passed as fresh",
+      'not state["period"]' in row)
+
+signed = None
+try:
+    app = _hub.create_hub_app()
+    cli = app.test_client()
+    cli.post("/login", data={"password": os.environ["PANEL_PASSWORD"]},
+             follow_redirects=True)
+    rows = (cli.get("/api/status").get_json() or {}).get("checks") or []
+    signed = next((r for r in rows if "Smart 1 Team data" in r.get("name", "")), None)
+except Exception as exc:                                          # noqa: BLE001
+    check("the status page renders the row", False, exc)
+if signed:
+    check("the row renders", bool(signed.get("message")), signed)
+    check("and says which source the site count came from",
+          "export" in signed["message"] or "live from Knack" in signed["message"],
+          signed["message"])
+    check("without claiming a refresh time it cannot know",
+          "Refreshed" not in signed["message"], signed["message"])
+
+
+# ---------------------------------------------------------------------------
+print("\nThe dead exports are gone, and the live ones still load")
+# ---------------------------------------------------------------------------
+check("campaigns.json is gone", kd._load("campaigns.json") is None)     # noqa: SLF001
+check("live_products.json is gone", kd._load("live_products.json") is None)  # noqa: SLF001
+check("products.json still loads", len(kd.products()) > 0)
+check("websites.json still loads", len(kd.export_websites()) > 0)
+# The claim, not the string. The docstring still *quotes* the old wording in
+# order to correct it, and matching the text reports the explanation of the
+# fix as the defect — the reason tools/spellcheck.py reads the AST and
+# CLAUDE.md says "prose is not a call site". This asserts what it now says.
+doc = kd.__doc__ or ""
+check("knack_data says plainly that nothing refreshes the exports",
+      "Nothing refreshes them" in doc, doc[:160])
+check("and names them as a fallback rather than a source",
+      "fall" in doc.lower() and "cannot be reached" in doc)
+check("the two dead files are accounted for rather than silently dropped",
+      "campaigns.json" in doc and "live_products.json" in doc)
+import pathlib as _pl                                             # noqa: E402
+check("and there is genuinely no refresh workflow to point at",
+      [f.name for f in _pl.Path(ROOT, ".github", "workflows").glob("*.yml")]
+      == ["checks.yml"],
+      [f.name for f in _pl.Path(ROOT, ".github", "workflows").glob("*.yml")])
+
+
+# ---------------------------------------------------------------------------
 print("\nOne mapping, not two")
 # ---------------------------------------------------------------------------
 attach_src = inspect.getsource(kd._attachment_only_websites)      # noqa: SLF001

@@ -5150,11 +5150,40 @@ def create_hub_app() -> Flask:
             else "Not set — everyone is logged out on every restart/redeploy.")
 
         # --- Knack data ---
+        #
+        # This row used to read the *file's* mtime and print it as "Refreshed
+        # Xh ago", warning past 48 hours. `data_age_hours()`'s own docstring
+        # already said why that is wrong: in a Docker deploy every file is
+        # written at image build time, so it measures **time since the last
+        # deploy** and not since the last data refresh.
+        #
+        # That is wrong in both directions, which is what makes it worse than
+        # nothing. A months-old export reads as "refreshed 2h ago" for the
+        # first two days after any deploy; and a container simply left up for
+        # a week warns that the data needs refreshing when nothing about the
+        # data has changed. Either way the row is not about the data, and it
+        # is read as though it is.
+        #
+        # `export_state()` is the honest signal and is already shared with the
+        # dashboard and hub/housekeeping.py: the month the export was
+        # generated *for*, against the calendar.
+        state = knack_data.export_state()
         age = knack_data.data_age_hours()
         if age is None:
             add("Smart 1 Team data", "error", "clients_app/data/products.json not found.")
-        elif age > 48:
-            add("Smart 1 Team data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
+        elif state["stale"]:
+            add("Smart 1 Team data", "warn",
+                f"The committed products export is for {state['label']}, and "
+                f"it is now {state['current_label']}. It is only read when "
+                "Knack cannot be reached, but that is when it matters.")
+        elif not state["period"]:
+            # Neither stale nor current: it carries no month at all, so
+            # nothing can say how old it is. Named rather than passed off as
+            # fresh — the whole failure this row had.
+            add("Smart 1 Team data", "warn",
+                "The committed products export carries no month, so how old "
+                "it is cannot be measured. It is the fallback for when Knack "
+                "cannot be reached.")
         else:
             # The site count says which source answered. Products and websites
             # each prefer the live Knack object and fall back to the committed
@@ -5162,8 +5191,9 @@ def create_hub_app() -> Flask:
             # it was — which is the whole reason the export went unnoticed.
             _wsrc = knack_data.websites_source()
             add("Smart 1 Team data", "ok",
-                f"Refreshed {age:.0f}h ago · {len(knack_data.products())} "
-                f"product rows · {len(knack_data.websites())} sites "
+                f"Export is current ({state['label']}) · "
+                f"{len(knack_data.products())} product rows · "
+                f"{len(knack_data.websites())} sites "
                 f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
 
         # --- GHL ---
