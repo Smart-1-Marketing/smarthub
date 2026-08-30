@@ -47,7 +47,7 @@ sys.path.insert(0, str(ROOT))
 
 TMP = tempfile.mkdtemp(prefix="s1ghlscopes_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
 os.environ.pop("GHL_OAUTH_SCOPES", None)
 # hub/ghl_oauth.py reads these at import and status() short-circuits to
 # "not configured" without them, so they are pinned before the import
