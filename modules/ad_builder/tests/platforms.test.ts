@@ -11,6 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { acceptPlatforms, loadPlatforms, getPlatform } from '../src/registry';
+import { ceilingDoubt } from '../src/diagnostics';
 import { loadTemplates } from '../src/registry';
 
 test('a platform with a config file is a platform you can buy', () => {
@@ -85,4 +86,45 @@ test('every platform config on disk is loadable', () => {
     assert.equal(cfg.platform, id, 'the file names itself');
     assert.ok(Object.keys(cfg.sizes).length > 0, `${id} buys at least one size`);
   }
+});
+
+/*
+ * Where a ceiling came from.
+ *
+ * `source: 'doc'` is the rule's own claim, and the diagnostics panel read
+ * only that: it flagged a size where somebody had typed `source: 'verify'`,
+ * which nothing ever had. So it reported "all limits sourced from
+ * documentation" over 23 rules of which 13 recorded no source at all, and
+ * would have gone on doing so however many more were added. ceilingDoubt()
+ * derives it from the record instead.
+ */
+test('a ceiling with nothing behind it is not a sourced ceiling', () => {
+  assert.equal(ceilingDoubt({ source: 'doc', _verifiedAgainst: 'the spec sheet' }), null);
+  assert.equal(ceilingDoubt({ source: 'doc' }), 'no source recorded');
+  assert.equal(ceilingDoubt({ source: 'doc', _verifiedAgainst: '   ' }), 'no source recorded',
+    'whitespace is not a source');
+  assert.equal(ceilingDoubt({}), 'no source recorded', 'nor is declaring nothing at all');
+});
+
+test('and one somebody looked at and could not confirm says which it is', () => {
+  // Two different reasons on purpose: "nobody recorded where this came from"
+  // and "somebody looked and it did not check out" send you to different
+  // places, and a single word for both loses the difference.
+  assert.equal(ceilingDoubt({ source: 'verify', _verifiedAgainst: 'not in the published list' }),
+    'marked for confirmation');
+});
+
+test('every rule shipped today records its source, bar the one that says it does not', () => {
+  const open: string[] = [];
+  for (const [id, cfg] of loadPlatforms()) {
+    for (const [size, rule] of Object.entries(cfg.sizes)) {
+      const why = ceilingDoubt(rule as never);
+      if (why) open.push(`${id}/${size} ${why}`);
+    }
+  }
+  // Amazon's 250x250 is genuinely open -- it is not in Amazon's published
+  // desktop static list and its 50 KB was never checked -- so it is named
+  // rather than dropped or moved on a guess. Anything ELSE appearing here is
+  // a rule that arrived without provenance.
+  assert.deepEqual(open, ['amazon/250x250 marked for confirmation']);
 });
