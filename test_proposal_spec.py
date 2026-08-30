@@ -1324,6 +1324,103 @@ check("and a later save does not rewrite it",
       == "Harness")
 
 # ---------------------------------------------------------------------------
+section("one product, one name — on the card, in the proposal and in the IO")
+# ---------------------------------------------------------------------------
+# Two products were both called "Google Grant" (a $125 setup fee and a 15%
+# monthly management fee) and two more "Local Service Ads (LSA)". Three things
+# went wrong at once and none of them errored:
+#
+#   * find() returned whichever the card listed first, so a quote for
+#     management billed the setup fee;
+#   * the IO's productConfig is keyed on the label, so 90 card rows became 88
+#     and neither setup fee could be put on an insertion order at all;
+#   * check_drift() is keyed on the label too, so it could not have seen a
+#     difference between the pair it was collapsing.
+#
+# The published rate card had the answer already — it names them "(Setup)" and
+# "(Management)" — so both copies of the card were renamed to match it.
+import re as _re                                                   # noqa: E402
+import json as _json                                               # noqa: E402
+from hub import product_intake                                     # noqa: E402
+
+_labels = [p["label"] for p in rc.products()]
+check("every product on the shared card has a label of its own",
+      len(set(_labels)) == len(_labels),
+      sorted({l for l in _labels if _labels.count(l) > 1}))
+
+_io_src = open(os.path.join(ROOT, "modules", "io_builder", "templates",
+                            "index.html"), encoding="utf-8").read()
+_embedded = _json.loads(_re.search(r"const rateCard=(\[.*?\]);\n", _io_src, _re.S).group(1))
+_io_labels = [p.get("label", "") for p in _embedded]
+check("and so does every product the IO carries",
+      len(set(_io_labels)) == len(_io_labels),
+      sorted({l for l in _io_labels if _io_labels.count(l) > 1}))
+check("so the IO's product list is the whole card, not what survived a collision",
+      len(set(_io_labels)) == len(rc.products()),
+      f"io={len(set(_io_labels))} card={len(rc.products())}")
+
+check("the setup fee and the management fee are two quotable products",
+      (rc.find("Google Grant (Setup)") or {}).get("listed_rate") == "$125 One time set up fee"
+      and (rc.find("Google Grant (Management)") or {}).get("listed_rate") == "15% Mgmt fee monthly")
+check("...and the same for Local Service Ads",
+      (rc.find("Local Service Ads \u2014 LSA (Setup)") or {}).get("listed_rate")
+      == "$125 One time set up fee")
+
+# The refusal, which is the half that keeps a stored record honest. A quote
+# saved before the rename says "Google Grant", and that name is now a question
+# rather than an answer.
+check("a name that could mean two products resolves to neither",
+      rc.find("Google Grant") is None and rc.find("Behavioral") is None)
+check("and the candidates are named instead, so it never reads as 'not on the card'",
+      {c["product"] for c in rc.candidates("Google Grant")}
+      == {"Google Grant (Setup)", "Google Grant (Management)"},
+      [c["product"] for c in rc.candidates("Google Grant")])
+check("the intake asks rather than guessing",
+      product_intake.classify("Google Grant")["status"] == "near"
+      and product_intake.classify("Google Grant")["product"] == "")
+
+# A caller that knows the heading is answered rather than asked: four
+# categories carry a product called "Behavioral" and they are different rates.
+check("a category resolves a name that cannot resolve alone",
+      (rc.find("Behavioral", "MOBILE ONLY") or {}).get("listed_rate") == "$4.00 / CPM"
+      and (rc.find("Behavioral", "LOCATION LOOKBACK") or {}).get("listed_rate") == "$7.50 / CPM")
+check("and the intake matches on it",
+      product_intake.classify("Behavioral", "MOBILE ONLY")["category"] == "MOBILE ONLY")
+
+# The unambiguous anchored match this fallback was written for still works.
+check("a short name that can only mean one product still resolves",
+      (rc.find("Connected TV - Targeted") or {}).get("category") == "OTT")
+
+_drift = rc.check_drift()
+check("the drift check reports duplicate labels rather than collapsing them",
+      "duplicate_labels" in _drift and not _drift["duplicate_labels"], _drift)
+check("and the two copies of the card agree", _drift["in_sync"], _drift.get("note"))
+
+# A green check that cannot go red is not a check. Hand it a template that
+# plainly carries the collision and require it to say so -- this started life
+# green, which is the only way it was worth adding.
+_dupe_io = os.path.join(_TMP, "dupe_io.html")
+_dupe_rows = [dict(r) for r in _embedded[:2]]
+_dupe_rows[1]["label"] = _dupe_rows[0]["label"]
+open(_dupe_io, "w", encoding="utf-8").write(
+    "const rateCard=" + _json.dumps(_dupe_rows) + ";\n")
+_bit = rc.check_drift(_dupe_io)
+check("a template that carries a collision is reported, not collapsed",
+      _bit["duplicate_labels"] and not _bit["in_sync"], _bit)
+check("and the note says what a duplicate label costs the IO",
+      "dropped" in (_bit.get("note") or ""), _bit.get("note"))
+
+# The published rate card ships in this repo, so the naming can be held to it.
+_page = open(os.path.join(ROOT, "hub", "partner_pages",
+                          "rate-card-universal.html"), encoding="utf-8").read()
+_i = _page.index("const DATA = ")
+_data = _json.loads(_page[_i + len("const DATA = "):_page.index("\n", _i)].rstrip().rstrip(";"))
+_page_names = {it["p"] for s_ in _data for g in s_["groups"] for it in g["items"]}
+for _n in ("Google Grant (Setup)", "Google Grant (Management)"):
+    check(f"the card we publish and the card we quote from agree on {_n!r}",
+          _n in _page_names and rc.find(_n) is not None)
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

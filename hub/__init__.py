@@ -1883,7 +1883,10 @@ def create_hub_app() -> Flask:
         items = (request.get_json(silent=True) or {}).get("items") or []
         lines, monthly = [], 0.0
         for i in items:
-            p = rc.find(str(i.get("product") or "")) or {}
+            # The line carries its own category, and it is what tells a
+            # "Behavioral" on location lookback from the one on mobile.
+            p = rc.find(str(i.get("product") or ""),
+                        str(i.get("category") or "")) or {}
             budget = float(i.get("monthly") or 0)
             monthly += budget
             lines.append({**i, "listed_rate": p.get("listed_rate", ""),

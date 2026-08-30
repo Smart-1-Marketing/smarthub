@@ -2584,6 +2584,46 @@ a setting comes to be honoured by eleven of the twelve. An edited table is
 drawn in amber in the builder with the generated one one click away, and its
 badge says it no longer recomputes, which is exactly true.
 
+### One product, one name — or the IO quietly carries 88 of 90
+
+Two products were both called **Google Grant** — a $125 one-time setup fee and
+a 15% monthly management fee — and two more were both **Local Service Ads
+(LSA)**. The published rate card at `/partner/rate-card-universal` had already
+solved this, naming them *(Setup)* and *(Management)*; both copies of the card
+in this repo had not. Three things went wrong at once and not one of them
+errored:
+
+* `rate_card.find()` walked the list and returned the **first** match, so a
+  quote for management was costed against the setup fee;
+* the IO builder's `productConfig` is a dict **keyed on the label**, so the
+  second row overwrote the first — 90 card rows became **88 products**, and
+  neither setup fee could be put on an insertion order at all;
+* `check_drift()` is keyed on the label too, in *both* dicts, so the one check
+  that exists to notice the two copies disagreeing could not have seen a
+  difference between the pair it was collapsing.
+
+The two ends failed in **opposite directions on the same product** — the
+proposal quoted the setup fee, the IO could only bill management — which is
+the shape that survives review, because each screen is internally consistent.
+
+Both copies carry the published names now. The lookup is the other half:
+**a name that could mean more than one product resolves to none of them**, the
+`client_key.resolve()` rule wearing a rate, and `candidates()` is what a screen
+shows instead of the refusal so it never reads as *not on the card*.
+`product_intake.classify()` returns those candidates and commits to neither,
+which is what that function already said it did. **A category resolves what a
+name cannot** — four headings carry a product called *Behavioral* at four
+different rates — so `find(name, category)` and the IO's `cardLabelFor(name,
+category)` take one, and a line that recorded its heading is answered rather
+than asked. `ai_match` offers the candidates rather than dropping the row: a
+model that names an ambiguous product has not invented anything, and dropping
+it leaves the rep with nothing.
+
+`test_proposal_spec.py` asserts every label is unique in both copies, that the
+IO's product list is the whole card rather than what survived a collision, and
+that the names we publish are the names we quote from — the partner pages ship
+in this repo, so that last one is checkable rather than remembered.
+
 ### The listed rate is what Smart 1 pays; the quoted rate is what is sold
 
 Every rate on the card is the buy-side number and the builder was quoting it

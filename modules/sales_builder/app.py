@@ -2205,7 +2205,8 @@ def expected_results(state):
             line_campaign = round(monthly * term, 2)
             line_monthly = monthly
         totals["monthly"] += line_monthly
-        product = hub_rate_card.find(item.get("label") or item.get("product") or "")
+        product = hub_rate_card.find(item.get("label") or item.get("product") or "",
+                                     item.get("category") or "")
         if product is None:
             # Fall back to the rate the wizard carried, so an off-card product
             # a rep added by hand is still estimated rather than dropped.
