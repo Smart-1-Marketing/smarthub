@@ -5191,6 +5191,20 @@ a staff note in one is an internal note in front of a client — the rule
 every tour step rings something its own screen actually draws, and the two
 client-facing templates place none of it.
 
+**And a key concatenated outside an attribute's quotes read as a key nobody
+registered.** `hub/help_audit.py` already knew a key can be built at runtime —
+the Proposal Builder's reach panel writes `data-help="sales_builder.areas.${key}"`,
+where the interpolation is *between* the attribute's own quotes, so the
+captured key contains a `+` or a `${` and is named as unresolvable rather than
+guessed at. `card()` concatenates the other way round —
+`'<span data-help="hub.prospect.'+esc(key)+'"></span>'` — and the pattern stops
+at that inner quote, capturing `hub.prospect.`: a **prefix**, with nothing in it
+to mark it as built, reported as a dead bubble on a screen that had just been
+given nine live ones. The evidence is the character after the quote the match
+stopped at, so that is what is read. `test_help_layer.py` asserts the runtime
+prefixes as prefixes rather than as one hard-coded count, because a third screen
+building a key is a thing that file should keep working.
+
 ### The customer-facing half is a second kind of placement, not a second widget
 
 `modules/scans` owns placements, and a second table describing one would be a
