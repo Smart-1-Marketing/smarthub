@@ -410,6 +410,17 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Campaign cost tests — one number for what it costs
+        # The plan is the number: the cover, the media plan, the investment
+        # summary, the insertion order and the dashboard all read it. Guarded
+        # like the steps around it; nothing in it reaches a third party.
+        run: |
+          if [ -f test_campaign_cost.py ]; then
+            python test_campaign_cost.py
+          else
+            echo "test_campaign_cost.py not on this branch — nothing to run."
+          fi
+
       - name: Quote validity tests — the clock, and what Suite decides
         # How long a sent proposal's pricing stands, the Expired status that
         # nothing used to set, the Suite stage change that reaches the quote

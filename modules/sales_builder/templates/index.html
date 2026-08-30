@@ -1171,6 +1171,8 @@ function editLoaded(q){
     renderers of one table already, and a fourth answer to "what does this
     line buy" is the drift this codebase has paid for twice. */
  S._mediaPlan=q.media_plan||null;
+ S._cost=q.campaign_cost||null;
+ S._invest=q.investment||null;
  S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
  // geoType/geo/radius. The server already converted it (hub/target_areas
@@ -1232,6 +1234,11 @@ async function saveNow(extra){
    const before=JSON.stringify(S._mediaPlan||null);
    S._mediaPlan=saved.quote.media_plan;
    if(before!==JSON.stringify(S._mediaPlan))repaint=true;
+  }
+  if(saved&&saved.quote&&saved.quote.investment){
+   const before=JSON.stringify(S._invest||null);
+   S._invest=saved.quote.investment;S._cost=saved.quote.campaign_cost||S._cost;
+   if(before!==JSON.stringify(S._invest))repaint=true;
   }
   if(saved&&saved.quote&&saved.quote.kpi_framework){
    const before=JSON.stringify(S._kpiPlan||null);
@@ -1471,9 +1478,18 @@ function mediumOf(i){
  if(/display|banner|geo-?fence|outreach|native|location lookback|ip target|select tactics/.test(t))return "display";
  return "other";}
 function mediumSpend(m){
+ /* Per line, by its own basis and term. Multiplying every line by the flight
+    read a $1,500 one-time production as $9,000 — printed on the client's
+    creative section, and it switches the comp confirmation off, since that
+    question is only asked where the spend is BELOW the threshold. Mirrors
+    hub/creative_needs.medium_spend(); test_proposal_spec.py holds them in
+    step. */
  const months=Math.max(1,+S.months||1);
- return Math.round(S.items.filter(i=>mediumOf(i)===m)
-  .reduce((sum,i)=>sum+(+i.dollars||0),0)*months);}
+ return Math.round(S.items.filter(i=>mediumOf(i)===m).reduce((sum,i)=>{
+  const d=+i.dollars||0;
+  if((i.basis||"monthly")==="one_time")return sum+d;
+  const term=Math.max(1,Math.min(months,+i.termMonths||months));
+  return sum+d*term;},0));}
 /* Display and retargeting joined video and audio here. A display plan reached
    the insertion order with the creative box empty exactly as often as a CTV
    one did -- it simply cost $250 and a week rather than a shoot, so it was
@@ -1747,11 +1763,37 @@ function itemDelivery(i,dollars){
  return productDelivery(sellRateOf(i),i&&i.rate,dollars);}
 function applySeeds(){const seed=S.items.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
  S.items.forEach(i=>{i.dollars=Math.round(S.budget*(i.pctSeed/seed)/50)*50;});}
+/* What the plan costs every month: the recurring lines only. A one-time
+   production is not a monthly cost, and the copy of this that used to live in
+   investmentTable() summed every line — so a $1,500 shoot read as $1,500 a
+   month. Mirrors campaign_cost() server-side; test_campaign_cost.py holds the
+   two in step. */
+function planRecurring(){
+ return (S.items||[]).filter(i=>(i.basis||"monthly")!=="one_time")
+   .reduce((a,b)=>a+(+b.dollars||0),0);}
+/* The budget follows the plan. Editing a line used to leave S.budget at the
+   figure the client asked for, and the cover, the packages, the investment
+   summary and the dashboard all read that — so a plan edited from $8,000 to
+   $5,750 produced a document quoting one number and an insertion order
+   billing another. What the client asked for is kept as budgetAsked, because
+   losing it loses the only record of the conversation the tiers were sized
+   against. */
+function syncBudgetToPlan(){
+ if(!(S.items||[]).length)return;
+ if(S.budgetAsked===undefined||S.budgetAsked===null)S.budgetAsked=+S.budget||0;
+ const total=planRecurring();
+ if(total>0)S.budget=total;}
 function buildPackages(){
  const tiers=[{k:"Essential",mult:.7},{k:"Recommended",mult:1,rec:true},{k:"Accelerated",mult:1.5}];
  const seed=S.items.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
  S.packages=tiers.map(t=>{
-  const monthly=Math.round(S.budget*t.mult/250)*250;
+  /* Recommended is the plan exactly, not the plan rounded to the nearest
+     $250: it is the option the rest of the document is costed at, and a
+     package table saying $5,750 beside a media plan saying $5,730 is the
+     disagreement this whole change exists to end. The other two tiers are
+     genuinely proposals, so they round. */
+  const monthly=t.mult===1?(planRecurring()||S.budget)
+                          :Math.round(S.budget*t.mult/250)*250;
   const lines=S.items.map(i=>{const dollars=Math.round(monthly*(i.pctSeed/seed)/50)*50;
    const d=itemDelivery(i,dollars*S.months);
    return{name:itemLabel(i),cat:i.category,amt:dollars,unit:d.unit,val:d.val};});
@@ -2105,7 +2147,25 @@ function pill(kind,v){const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};
  if(!m[kind])return;toggle(m[kind],v);saveSoon();renderStep();}
 function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
 function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
-function setBudget(v){S.budget=+v||0;S.configured=false;applySeeds();saveSoon();renderStep();}
+function budgetDriftNote(){
+ /* The plan moves the working budget, so this step has to say when the two
+    have parted company -- otherwise a rep who set $8,000, built a $5,750
+    plan and came back here reads $5,750 with no explanation and assumes the
+    tool lost their answer. What the client asked for is a fact about the
+    conversation and is never overwritten. */
+ const asked=+S.budgetAsked||0,plan=planRecurring();
+ if(!asked||!plan||Math.abs(asked-plan)<1)return '';
+ return `<div class="note" style="margin-top:10px">The plan now totals
+  <b>${money(plan)}</b> a month, so that is what the proposal, the packages and
+  the insertion order are costed at. ${esc(S.client||"The client")} asked for
+  <b>${money(asked)}</b> — that is kept on the quote and is not overwritten.
+  <a onclick="setBudget(${asked})" style="cursor:pointer;color:var(--blue);font-weight:700">Re-seed the plan at ${money(asked)}</a>.</div>`;}
+function setBudget(v){
+ /* Both: the number the client asked for, kept as a fact about the
+    conversation, and the working budget the plan is seeded from. The plan
+    then moves the working figure and never this one. */
+ S.budget=+v||0;S.budgetAsked=+v||0;
+ S.configured=false;applySeeds();saveSoon();renderStep();}
 
 /* ============================================================
    THE COVERAGE MAP
@@ -2589,8 +2649,8 @@ function generatedTable(sec,e){
  if(k==="reach")return dgrid([["Est. population",e.measured?fmt(e.pop):"—"],["Addressable audience",e.measured?fmt(e.aud):"—"],["Households",e.measured?fmt(e.hh):"—"],["Devices",e.measured?fmt(e.dev):"—"]]);
  if(k==="friction"){const picks=suggestions();if(!picks.length)return '';
   return dtable(["We suggest they should","Why"],picks.map(pk=>[esc(pk.title),esc(pk.detail)]));}
- if(k==="channels"){if(!S.items.length)return '';
-  return dtable(["Channel","Role in the funnel","Primary KPI"],S.items.map(it=>{const r=channelRole(it);return [esc(itemLabel(it)),esc(r[0]),esc(r[1])];}));}
+ if(k==="channels"){const chan=channelLines();if(!chan.length)return '';
+  return dtable(["Channel","Role in the funnel","Primary KPI"],chan.map(it=>{const r=channelRole(it);return [esc(itemLabel(it)),esc(r[0]),esc(r[1])];}));}
  if(k==="creative"){const rows=creativeRows();if(!rows.length)return '';
   return dtable(["Medium","Campaign spend","Creative","What we need"],rows.map(r=>[
    esc(r.label),money(r.spend),esc(creativePhrase(r)),
@@ -2691,6 +2751,14 @@ const TIMELINE_PHASES=[
  ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
  ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
  ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimization, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
+/* The lines that are actually channels. A production line and a management
+   fee are not, and listing them put "Video Production — top of funnel, builds
+   awareness and trust on the screens the household already watches" in a
+   table headed Recommended Channel Strategy on a document a client reads.
+   Mirrors channel_lines() server-side. */
+function channelLines(){
+ return (S.items||[]).filter(i=>(i.basis||"monthly")!=="one_time"
+   && !(sellRateOf(i)==null && mediumOf(i)==="other"));}
 function channelRole(it){
  const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
  if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
@@ -2731,13 +2799,16 @@ function mediaPlanEditor(){
   +S.items.map((it,ix)=>{const pr=planRowFor(ix);return `<tr>
     <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
     <td>${pr?esc(pr.rate):esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
-    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)"></td>
-    <td style="text-align:right">${money((it.dollars||0)*months)}</td>
+    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)">${(it.basis||"monthly")==="one_time"?'<small class="tiny" style="display:block">one-time</small>':''}</td>
+    <td style="text-align:right">${pr?money(pr.campaign):'<span style="opacity:.6">…</span>'}</td>
     <td class="tiny">${pr?esc(pr.delivery):'<span style="opacity:.6">recalculating…</span>'}</td>
     <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`}).join('')
+  /* The server's totals, not a local sum of every line multiplied by the
+     flight: that counted a one-time production as monthly and ignored a line
+     bought for part of the campaign. */
   +`<tr class="dtot"><td colspan="3">Campaign total</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0))}</td>
-     <td style="text-align:right">${money(S.items.reduce((a,b)=>a+(+b.dollars||0),0)*months)}</td><td colspan="2"></td></tr>`
+     <td style="text-align:right">${S._mediaPlan?money(S._mediaPlan.monthly_total):'…'}</td>
+     <td style="text-align:right">${S._mediaPlan?money(S._mediaPlan.campaign_total):'…'}</td><td colspan="2"></td></tr>`
   +`</tbody></table>`
   +(note?`<div class="note" style="margin-top:6px">${esc(note)}</div>`:'')
   +`
@@ -2749,16 +2820,17 @@ function previewSetDollars(ix,v){
  S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
  const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
  S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
+ syncBudgetToPlan();
  buildPackages();S.aiEst=S.aiEst;saveSoon();drawPreview();}
 function previewRemoveItem(ix){
  const it=S.items[ix];
  if(!confirm('Remove "'+(it.product||'this product')+'" from the media plan?'))return;
- S.items.splice(ix,1);applySeeds();buildPackages();saveSoon();drawPreview();}
+ S.items.splice(ix,1);applySeeds();syncBudgetToPlan();buildPackages();saveSoon();drawPreview();}
 function previewAddItem(){
  const cat=document.getElementById('pvAddCat').value,p=findProduct(cat)||{};
  if(S.items.some(i=>i.category===cat)){toast("That category is already in the mix.");return;}
  S.items.push({label:p.label,category:cat,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,pctSeed:15,dollars:0});
- applySeeds();buildPackages();saveSoon();drawPreview();
+ applySeeds();syncBudgetToPlan();buildPackages();saveSoon();drawPreview();
  toast("Added — set its monthly budget.");}
 function previewGuards(){
  const g=guardrailsJs(),need=creativeUnresolved();
@@ -2768,16 +2840,18 @@ function previewGuards(){
   +need.map(m=>esc(MEDIUM_LABEL[m].split(" (")[0])+" is in the plan and nobody has been named to supply the "+(m==="display"||m==="retargeting"?"banners":"spot")+".").join("<br>")+`</div>`;
  return h;}
 function investmentTable(){
- const st=suiteState();
- const media=S.items.reduce((a,b)=>a+(+b.dollars||0),0)||+((S.selectedPackage||{}).monthly||S.budget||0);
- const fees=creativeFees(),months=Math.max(1,+S.months||1);
- const suite=st.include?st.monthly:0;
- const recur=suite+media,rows=[];
- if(st.include)rows.push(["Smart 1 Suite — "+st.name,money(suite),"Monthly"]);
- rows.push(["Media spend",money(media),"Monthly"]);
- if(fees)rows.push(["Creative production",money(fees),"One-time"]);
- rows.push(["Total first month",money(recur+fees),""]);
- rows.push(["Total campaign ("+months+" mo)",money(recur*months+fees),""]);
+ /* The server's own summary, not a fourth copy of the arithmetic. The copy
+    that lived here summed every line as if it recurred, so a $1,500 one-time
+    production added $1,500 to the monthly figure and $9,000 to a six-month
+    campaign — a number on the document the client signs. */
+ const months=Math.max(1,+S.months||1),inv=S._invest;
+ if(!inv||!inv.lines){
+  return `<div class="note">Recalculating the investment summary — it is computed
+   from the plan on the server, and this quote has not saved since it changed.</div>`;}
+ const rows=inv.lines.map(l=>[l.label,money(l.amount),l.recurs]);
+ rows.push(["Total first month",money(inv.first_month),""]);
+ rows.push(["Total campaign ("+months+" mo, including licensing)",
+            money(inv.campaign_total),""]);
  let html=dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));
  /* All three tiers, on the document. The PDF has printed them for as long as
     it has existed and the preview showed only the selected one, so a rep read
@@ -2973,7 +3047,8 @@ const STEPS=[
    (S.budgetMode==="range"
      ? '<div class="cards c3" style="margin-top:14px">'+[[1750,"$1k–2.5k","Entry / very local"],[3500,"$2.5k–5k","Testing a market"],[8000,"$5k–10k","Steady local growth"],[15000,"$10k–20k","Aggressive share gain"],[28000,"$20k–40k","Multi-market push"],[50000,"$40k+","Regional dominance"]].map(b=>card("💰",b[1],b[2],S.budget===b[0],`setBudget(${b[0]})`)).join('')+'</div>'
      : `<div class="fld" style="margin-top:14px"><label>Exact monthly budget ($)</label><input type="number" value="${S.budget}" oninput="setBudget(+this.value)" placeholder="e.g. 6500" style="max-width:260px"></div>`)+
-   `<div class="fld"><label>Campaign length (months)</label><input type="number" min="1" value="${S.months}" oninput="S.months=Math.max(1,+this.value);S.configured=false;saveSoon()" style="max-width:200px"></div>`,
+   `<div class="fld"><label>Campaign length (months)</label><input type="number" min="1" value="${S.months}" oninput="S.months=Math.max(1,+this.value);S.configured=false;saveSoon()" style="max-width:200px"></div>`
+   +budgetDriftNote(),
    valid:()=>S.budget>0}),
 
  ()=>{ if(S.items.length===0)recommendItems(); return{eyebrow:"The Media Mix",title:"Products & pricing",sub:"From your goals, using real catalog products & rates. Edit the monthly $ per product, add or remove products — guardrails recheck as you go.",
@@ -3490,6 +3565,9 @@ function basisRow(i,ix){
 function setBasis(ix,basis){
  S.items[ix].basis=basis;
  if(basis==="one_time")S.items[ix].termMonths=1;
+ /* Whether a line recurs decides whether it is in the monthly figure at
+    all, so this moves the budget exactly as editing its dollars does. */
+ syncBudgetToPlan();buildPackages();
  flagDirty();saveSoon();drawItems();drawGuards();}
 function setTerm(ix,n){
  const months=Math.max(1,+S.months||1);
@@ -3498,6 +3576,9 @@ function setTerm(ix,n){
 function setItemDollars(ix,v){S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
  const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
  S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
+ /* Both editors move the budget, or the number depends on which screen the
+    rep happened to edit the plan from. */
+ syncBudgetToPlan();buildPackages();
  flagDirty();drawItems();drawGuards();saveSoon();}
 function drawRoi(){const h=document.getElementById('roiTags');if(!h)return;h.innerHTML=S.items.map(i=>`<span class="pill on" style="margin:0;cursor:default">${em(i.category)} ${esc(i.category)}: ${esc(CATEGORY_ROI[i.category]||'—')}</span>`).join('');}
 function drawGuards(){const w=document.getElementById('guardWrap');if(!w)return;const g=guardrailsJs();
@@ -3511,7 +3592,8 @@ function addItem(){const cat=document.getElementById('addCat').value;const p=fin
  if(S.items.some(i=>i.category===real)){toast("That category is already in the mix.");return;}
  S.items.push({label:p.label,category:real,product:p.product||cat,rate:p.rateType,rateValue:p.rateValue,
                sellRate:startingRate(p.rateValue,p.rateType),pctSeed:15,dollars:0});
- applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+ applySeeds();syncBudgetToPlan();buildPackages();
+ flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
 /* Every product on the card, so a rep can put the exact line they want on the
    plan -- including the add-ons a goal will never choose for them. Grouped by
    category and labeled the way the quote will read, because "Demographic"
@@ -3782,17 +3864,20 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
   ${row('Featured package',esc(sel.name||'—')+' · '+money(sel.monthly||0)+'/mo')}
   ${row('Creative',esc(creativeSummary()||'Display and social only — nothing to confirm'))}
   ${row('Smart 1 Suite',esc(chosenTier().name)+' · '+money(chosenTier().monthly)+'/mo')}
-  ${row('Campaign total',money(sel.total||0)+' over '+S.months+' months')}
+  ${row('Campaign total',(S._cost?money(S._cost.campaign):'…')+' over '+S.months+' months')}
   ${row('KPIs',esc(S.kpis.join(', ')||'—'))}</ul></div>
-  ${(()=>{const t=chosenTier(),media=+((S.selectedPackage||{}).monthly||S.budget||0),fees=creativeFees();
-    const recur=t.monthly+media, first=recur+fees, campaign=recur*S.months+fees;
+  ${(()=>{const inv=S._invest;
+    /* The server's summary, the same one the document prints. This panel had
+       its own copy of the arithmetic and read the *selected package* as the
+       media figure, so a rep who picked Essential saw a review costed at
+       Essential beside a proposal costed at the plan. */
+    if(!inv||!inv.lines)return `<div class="bpanel"><div class="ttl">💵 Investment</div>
+      <div class="note">Recalculating from the plan — this quote has not saved since it changed.</div></div>`;
     return `<div class="bpanel"><div class="ttl">💵 Investment — what recurs and what does not</div>
      <ul style="list-style:none;padding:0;margin:8px 0 0">
-      ${row('Smart 1 Suite — '+esc(t.name),money(t.monthly)+'/mo')}
-      ${row('Media spend',money(media)+'/mo')}
-      ${fees?row('Creative production (one-time)',money(fees)):''}
-      ${row('First month',money(first))}
-      ${row('Campaign total ('+S.months+' mo)',money(campaign))}
+      ${inv.lines.map(l=>row(esc(l.label),money(l.amount)+(l.recurs==="Monthly"?"/mo":" one-time"))).join('')}
+      ${row('First month',money(inv.first_month))}
+      ${row('Campaign total ('+S.months+' mo, including licensing)',money(inv.campaign_total))}
      </ul>
      <div class="note" style="margin-top:8px">Platform licensing is separate from media so it is clear what stops if the media pauses.</div></div>`;})()}
   ${g.length?`<div class="warnbox"><b>🛡 Guardrails to note</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:""}
@@ -3868,7 +3953,12 @@ function lineForIO(i,months,withRate){
   campaignBudget:lineCampaign(i,months),
   basis:i.basis||"monthly",
   termMonths:i.basis==="one_time"?1:Math.max(1,Math.min(Math.max(1,+months||1),+i.termMonths||Math.max(1,+months||1)))};
- if(withRate)row.listedRate=i.rate?(i.rate+" "+(i.rateValue||"")):"Managed/flat";
+ /* The QUOTED rate. This sent the card's own rate, so an insertion order
+    read "CPM 4.25" for a line the client had been quoted at $8.50 — the
+    buy-side number on the document that bills the campaign. sellRateOf() is
+    the one reading of it, mirrored by _sell_rate() server-side. */
+ if(withRate){const sr=sellRateOf(i);
+  row.listedRate=i.rate?(i.rate+" $"+(sr!=null?sr.toFixed(2):(i.rateValue||""))):"Managed/flat";}
  if(i.basis==="one_time")row.note="One-time cost of "+money(+i.dollars||0)+".";
  return row;}
 
@@ -3916,7 +4006,7 @@ function drawConvert(){
    <div class="two">${convFld("Primary conversion","primaryConversion","text","Form submission / phone call")}${convFld("GA4 installed?","ga4",null,null,["Yes","No","Unknown"])}</div>
    <div class="two">${convFld("Call tracking required?","callTracking",null,null,["Yes","No","Unknown"])}${convFld("Who verifies tracking?","verifier","text","Smart 1 / client webmaster")}</div>
    <div class="dsec">Final details</div>
-   <div class="two">${convFld("Final landing page URL","landingUrl","text","client.com/offer")}${convFld("Management fee confirmed?","managementFeeAck",null,null,["Yes — per rate card","Custom (note in IO)"])}</div>
+   <div class="two">${convFld("Final landing page URL","landingUrl","text","client.com/offer")}${convFld("Management fee confirmed?","managementFeeAck",null,null,["Yes — as quoted on the plan","Custom (note in IO)"])}</div>
    <div class="two">${convFld("Smart 1 sales contact","salesContact","text","Your name")}${convFld("Sales contact email","salesEmail","email","you@smart1marketing.com")}</div>`;
   foot.innerHTML=`<button class="btn btn-back" onclick="convClose()">Cancel</button>
    <button class="btn btn-primary" onclick="convToReview()">Review IO →</button>`;
@@ -3969,6 +4059,18 @@ function convToReview(){
  if(need.length){toast("Still needed before the IO: "+need.join(", ")+".");return;}
  CONV.step=1;drawConvert();
 }
+function managementFeeForIO(){
+ /* What the plan actually charges in fees, per month. A line with no CPM or
+    CPV is a management or flat fee -- the rate card's own definition -- so
+    the fee is the sum of those recurring lines. NONE where there are none,
+    which is a real answer and the word the IO expects, rather than a blank
+    that reads as somebody forgetting to ask. */
+ const fees=(S_CONV_ITEMS()||[]).filter(i=>(i.basis||"monthly")!=="one_time"
+                                        && sellRateOf(i)==null)
+   .reduce((a,b)=>a+(+b.dollars||0),0);
+ if(!fees)return "NONE";
+ return money(fees)+" per month (on the plan)";}
+function S_CONV_ITEMS(){return ((CONV.quote||{}).data||{}).items||[];}
 function ioDataPayload(){
  const st=CONV.quote.data||{},a=CONV.answers,q=CONV.quote;
  const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,true));
@@ -4007,7 +4109,12 @@ function ioDataPayload(){
   // has to go back to the rep weeks later to find out whose.
   targetsOfInterest:targetsReady(),
   ages:st.ages||[],ageRange:st.ageRange||null,incomeRange:st.incomeRange||null,
-  creativeSource:a.creativeSource,creativeFee:a.creativeFee,managementFee:a.managementFeeAck,
+  creativeSource:a.creativeSource,creativeFee:a.creativeFee,
+  /* The IO's own field asks for "an amount, percentage, INCLUDED, or NONE"
+     and this used to hand it "Yes — per rate card": not an amount, and a
+     sentence naming our pricing sheet on a document that reaches a client.
+     The plan already carries the fee lines, so the amount is read off them. */
+  managementFee:managementFeeForIO(),
   // What the creative gate decided, per medium, so trafficking knows which
   // spots to expect and who agreed to pay for them.
   creativePlan:st.creativePlan||{},creativeSummary:(st.creativeSummary||""),

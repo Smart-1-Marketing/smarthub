@@ -573,6 +573,12 @@ def quote_json(q, include_data=False, sent_at=_UNSET):
         # draw this table, and computing it per row there is work nothing
         # reads.
         out["media_plan"] = media_plan_rows(state)
+        # What the campaign costs, and the investment summary as the PDF and
+        # the Word export draw it. Shipped for the same reason the media plan
+        # is: the preview had its own copy of this arithmetic, which summed
+        # every line including a one-time production as though it recurred.
+        out["campaign_cost"] = campaign_cost(state)
+        out["investment"] = investment_lines(state, q)
     return out
 
 
@@ -631,9 +637,21 @@ def summarize_into(q, state):
     q.industry = str(state.get("industry") or "")[:100]
     q.salesperson = str(state.get("salesContact") or "")[:120]
     q.months = int(state.get("months") or 1)
+    # The plan is the number. This used to read the selected package or the
+    # budget the rep typed on the Budget step -- what the client *asked for* --
+    # so a plan edited down to $5,750 still put $8,000 on the cover, in the
+    # investment summary and on the dashboard's pipeline, while the media mix
+    # table and the insertion order both said $5,750. See campaign_cost().
+    cost = campaign_cost(state)
     sel = state.get("selectedPackage") or {}
-    q.monthly_budget = int(sel.get("monthly") or state.get("budget") or 0)
-    q.total_budget = int(sel.get("total") or (q.monthly_budget * q.months))
+    if cost["has_plan"]:
+        q.monthly_budget = int(round(cost["recurring"]))
+        q.total_budget = int(round(cost["campaign"]))
+    else:
+        # No plan yet: the ask is the only figure there is, and a quote at the
+        # Budget step still has to read sensibly on the list.
+        q.monthly_budget = int(sel.get("monthly") or state.get("budget") or 0)
+        q.total_budget = int(sel.get("total") or (q.monthly_budget * q.months))
     q.package = str(sel.get("name") or "")[:40]
     items = state.get("items") or []
     q.products_summary = " · ".join([str(i.get("product") or "") for i in items])[:500]
@@ -1391,8 +1409,13 @@ def investment_lines(state, q):
     """
     state = state or {}
     months = max(1, int(getattr(q, "months", 0) or state.get("months") or 1))
-    monthly_media = float(getattr(q, "monthly_budget", 0) or 0) or \
-        sum(float(i.get("dollars") or 0) for i in state.get("items") or [])
+    # From the plan, not from the quote's summary column and not from a naked
+    # sum of every line: that sum counted a one-time production line as if it
+    # were charged every month, so a $1,500 shoot added $1,500 to the monthly
+    # figure and $9,000 to a six-month campaign.
+    cost = campaign_cost(state)
+    monthly_media = cost["recurring"] if cost["has_plan"] else \
+        float(getattr(q, "monthly_budget", 0) or 0)
 
     lines = []
     suite = state.get("suiteTier") or {}
@@ -1420,8 +1443,16 @@ def investment_lines(state, q):
                       # is a discount nobody can renew.
                       "listed": float(listed.get("monthly") or 0),
                       "adjusted": abs(quoted - float(listed.get("monthly") or 0)) > 0.001})
-    lines.append({"label": "Media spend", "amount": round(monthly_media, 2),
+    lines.append({"label": "Campaign media & services",
+                  "amount": round(monthly_media, 2),
                   "recurs": "Monthly", "kind": "media"})
+    # One-time lines on the plan are their own rows rather than being folded
+    # into a monthly figure. Named individually, because "$3,250 one-time" on
+    # a document a client signs is a number they are entitled to see the
+    # parts of.
+    for row in cost["one_time_lines"]:
+        lines.append({"label": row["label"], "amount": row["amount"],
+                      "recurs": "One-time", "kind": "setup"})
 
     creative = hub_creative.evaluate(state)
     for row in creative["media"]:
@@ -1439,10 +1470,22 @@ def investment_lines(state, q):
 
     recurring = sum(l["amount"] for l in lines if l["recurs"] == "Monthly")
     one_time = sum(l["amount"] for l in lines if l["recurs"] == "One-time")
+    # The campaign total is the plan's own arithmetic plus what sits beside
+    # it, never `recurring * months`: a line bought for three months of a
+    # six-month flight is not charged for six, and the plan's one-time rows
+    # are already counted inside cost["campaign"], so adding them again from
+    # `lines` would bill a video shoot twice.
+    plan_one_time = sum(r["amount"] for r in cost["one_time_lines"])
+    campaign_media = (cost["campaign"] if cost["has_plan"]
+                      else monthly_media * months)
+    suite_monthly = sum(l["amount"] for l in lines
+                        if l["recurs"] == "Monthly" and l["kind"] == "saas")
+    campaign_total = (campaign_media + suite_monthly * months
+                      + (one_time - plan_one_time))
     return {"lines": lines, "recurring_monthly": round(recurring, 2),
             "one_time": round(one_time, 2),
             "first_month": round(recurring + one_time, 2),
-            "campaign_total": round(recurring * months + one_time, 2),
+            "campaign_total": round(campaign_total, 2),
             "months": months}
 
 
@@ -1479,6 +1522,27 @@ _CHANNEL_ROLE = {
                            "Click-through rate and cost per action"),
     hub_creative.OTHER: ("Supports the campaign", "Cost per action"),
 }
+
+
+def channel_lines(state) -> list:
+    """The plan's lines that are actually channels.
+
+    A production line and a management fee are not channels, and listing them
+    here put "Video Production — top of funnel, builds awareness and trust on
+    the screens the household already watches" and "Management Fee — supports
+    the campaign" in a table headed Recommended Channel Strategy, on a
+    document a client reads. A one-time line is a cost of making the creative;
+    a line with no rate and no gated medium is a fee. Neither runs anywhere.
+    """
+    out = []
+    for item in state.get("items") or []:
+        if str(item.get("basis") or "monthly") == "one_time":
+            continue
+        if (_sell_rate(item) is None
+                and hub_creative.medium_of(item) == hub_creative.OTHER):
+            continue
+        out.append(item)
+    return out
 
 
 def _channel_role(item):
@@ -1598,8 +1662,15 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
             ["Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
              "\n".join(hub_areas.names(areas)) or q.geo_summary or ""],
             ["Term", f"{q.months} months"],
-            ["Monthly Investment", _money(sel.get("monthly") or q.monthly_budget)],
-            ["Total Investment", _money(sel.get("total") or q.total_budget)]]
+            # The plan's own figures, labelled with their scope. These used
+            # to read the selected package first, so the cover quoted the
+            # budget the client asked for while the media mix five pages
+            # later totalled what was actually being bought. The licence and
+            # any one-time production are added in the Investment Summary,
+            # which says so; the two same-scope figures now agree exactly.
+            ["Monthly campaign investment", _money(q.monthly_budget)],
+            [f"Total campaign investment ({q.months} months)",
+             _money(q.total_budget)]]
     meta = [[row[0], _p(row[1], st_body)] for row in meta]
     t = Table(meta, colWidths=[1.55 * inch, 5.85 * inch])
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, -1), SOFT), ("TEXTCOLOR", (0, 0), (0, -1), NAVY),
@@ -1718,8 +1789,16 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                     rows.append([_p(r["product"], st_small),
                                  _p(r["category"], st_small),
                                  _p(r["rate"], st_small),
-                                 _money(r["monthly"]), _money(r["campaign"]),
+                                 (r["monthly_label"] if r["monthly_label"]
+                                  else _money(r["monthly"])),
+                                 _money(r["campaign"]),
                                  _p(r["delivery"], st_small)])
+                # The totals a client adds up themselves if they are not
+                # printed, and gets a different answer from the investment
+                # summary when a one-time line is in the plan.
+                rows.append(["Campaign total", "", "",
+                             _money(plan["monthly_total"]),
+                             _money(plan["campaign_total"]), ""])
                 mt = Table(rows, colWidths=[1.85 * inch, 1.35 * inch, 1.0 * inch,
                                             0.95 * inch, 1.0 * inch, 1.25 * inch],
                            repeatRows=1)
@@ -1727,6 +1806,8 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                                         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8),
                                         ("GRID", (0, 0), (-1, -1), 0.4, LINE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                                         ("ALIGN", (3, 1), (4, -1), "RIGHT"), ("TOPPADDING", (0, 0), (-1, -1), 5),
+                                        ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), SOFT),
+                                        ("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1), "Helvetica-Bold"),
                                         ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
                 story.append(mt)
                 # An estimate printed with no words around it reads as a
@@ -1743,7 +1824,9 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                 rows.append([_p(line["label"], st_small), _money(line["amount"]),
                              _p(line["recurs"], st_small)])
             rows.append(["Total first month", _money(invest["first_month"]), ""])
-            rows.append([f"Total campaign ({q.months} mo)",
+            # Named as including the licence, because the cover and the media
+            # plan both print a campaign total that deliberately does not.
+            rows.append([f"Total campaign ({q.months} mo, including licensing)",
                          _money(invest["campaign_total"]), ""])
             it = Table(rows, colWidths=[4.2 * inch, 1.6 * inch, 1.6 * inch], repeatRows=1)
             style = _head_style_rows()
@@ -1805,7 +1888,7 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
             # Every channel with its role in the funnel and its KPI. The
             # specification forbids listing channels without that mapping.
             rows = [["Channel", "Role in the funnel", "Primary KPI"]]
-            for item in state.get("items") or []:
+            for item in channel_lines(state):
                 role, kpi = _channel_role(item)
                 rows.append([_p(item.get("product") or "", st_small),
                              _p(role, st_small), _p(kpi, st_small)])
@@ -2046,8 +2129,9 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                        ("Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
                         "\n".join(hub_areas.names(areas)) or q.geo_summary),
                        ("Term", f"{q.months} months"),
-                       ("Monthly Investment", _money(sel.get("monthly") or q.monthly_budget)),
-                       ("Total Investment", _money(sel.get("total") or q.total_budget))]:
+                       ("Monthly campaign investment", _money(q.monthly_budget)),
+                       (f"Total campaign investment ({q.months} months)",
+                        _money(q.total_budget))]:
         row = table.add_row().cells
         row[0].text = label
         row[1].text = str(val or "")
@@ -2126,9 +2210,13 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                 row[0].text = r["product"]
                 row[1].text = r["category"]
                 row[2].text = r["rate"]
-                row[3].text = _money(r["monthly"])
+                row[3].text = r["monthly_label"] or _money(r["monthly"])
                 row[4].text = _money(r["campaign"])
                 row[5].text = r["delivery"]
+            total_row = t2.add_row().cells
+            total_row[0].text = "Campaign total"
+            total_row[3].text = _money(plan["monthly_total"])
+            total_row[4].text = _money(plan["campaign_total"])
             if plan["note"]:
                 d.add_paragraph(plan["note"])
         elif kind == "packages" and state.get("packages"):
@@ -2158,7 +2246,7 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                 d.add_paragraph(f"We suggest they should {pick['title'][0].lower()}"
                                 f"{pick['title'][1:]} — {pick['detail']}")
         elif kind == "channels":
-            for item in state.get("items") or []:
+            for item in channel_lines(state):
                 role, kpi = _channel_role(item)
                 d.add_paragraph(f"{item.get('product') or ''} — {role}. Measured on: {kpi}.")
         elif kind == "creative":
@@ -2429,6 +2517,93 @@ MEDIA_PLAN_COLUMNS = ("Product", "Category", "Rate", "Monthly", "Total",
                       "Delivery / mo")
 
 
+def campaign_cost(state) -> dict:
+    """What this campaign costs, once, for every screen that prints a number.
+
+    ## Why this exists
+
+    One proposal used to carry three different monthly figures and hand a
+    fourth to the insertion order. `summarize_into()` took `monthly_budget`
+    from the selected package or from `state["budget"]` -- the number the rep
+    typed on the Budget step, which is what the *client asked for* -- while
+    the media plan table totalled the lines that are actually being bought
+    and `ioDataPayload()` billed those same lines. So a plan edited down from
+    $8,000 to $5,750 produced a cover reading "$8,000 / mo", a media mix
+    totalling $5,750, an investment summary quoting $8,000 of media, and an
+    insertion order for $5,750: a client signing a document $2,250 a month
+    away from the order that bills them, with every screen internally
+    consistent and nothing erroring anywhere.
+
+    **The plan is the number.** Once there are line items they are what is
+    being bought, and every other figure is derived from them.
+
+    ## The rules
+
+      * **Recurring and one-time are never added together.** A $1,500 video
+        shoot is not $1,500 a month, and folding it into the monthly figure
+        overstates every month of the campaign -- which is exactly what the
+        old `sum(i["dollars"])` fallback did.
+      * **A line runs for its own term.** `expected_results()` already reads
+        `termMonths`; the same reading is used here rather than a second one.
+      * **The Suite licence is not campaign cost.** It is a separate product
+        with its own line in the investment summary, and blending it is how a
+        client comes to believe the platform stops costing money when they
+        pause the media -- the rule `hub/proposal_spec.py` states.
+      * **A quote with no plan yet still answers.** `stated` carries what the
+        client asked for, so a proposal at the Budget step reads sensibly and
+        nothing has to branch on "are there items".
+    """
+    state = state or {}
+    months = max(1, int(state.get("months") or 1))
+    recurring = one_time = campaign = 0.0
+    monthly_lines, one_time_lines = [], []
+    for item in state.get("items") or []:
+        try:
+            dollars = float(item.get("dollars") or 0)
+        except (TypeError, ValueError):
+            dollars = 0.0
+        label = hub_rate_card.quote_label(item.get("product"),
+                                          item.get("category"))
+        if str(item.get("basis") or "monthly") == "one_time":
+            one_time += dollars
+            campaign += dollars
+            one_time_lines.append({"label": label, "amount": round(dollars, 2)})
+            continue
+        try:
+            term = int(item.get("termMonths") or months)
+        except (TypeError, ValueError):
+            term = months
+        term = max(1, min(months, term))
+        recurring += dollars
+        campaign += dollars * term
+        monthly_lines.append({"label": label, "amount": round(dollars, 2),
+                              "term_months": term})
+
+    try:
+        stated = float(state.get("budgetAsked") or state.get("budget") or 0)
+    except (TypeError, ValueError):
+        stated = 0.0
+    has_plan = bool(monthly_lines or one_time_lines)
+    return {
+        "months": months,
+        "has_plan": has_plan,
+        # The recurring campaign cost: media and the services bought beside
+        # it, which is what a rep means by "the campaign" and what the
+        # insertion order bills every month.
+        "recurring": round(recurring, 2),
+        "one_time": round(one_time, 2),
+        "campaign": round(campaign, 2),
+        "monthly_lines": monthly_lines,
+        "one_time_lines": one_time_lines,
+        # What the client asked for, kept whatever the plan became. Losing it
+        # would lose the only record of the conversation the tiers were sized
+        # against.
+        "stated": round(stated, 2),
+        "differs_from_stated": bool(has_plan and stated
+                                    and abs(stated - recurring) >= 1),
+    }
+
+
 def media_plan_rows(state) -> dict:
     """The media plan as every renderer draws it, computed once.
 
@@ -2463,22 +2638,35 @@ def media_plan_rows(state) -> dict:
             # The column's own heading carries "per month"; repeating it on
             # every row makes the narrowest column the widest.
             delivery = f"{units:,} {unit}"
+        one_time = (r.get("basis") or "monthly") == "one_time"
         rows.append({
             "product": r["product"], "category": r["category"],
             "rate": r["rate"] or "Managed",
-            "monthly": r["monthly"], "campaign": r["campaign"],
+            # `expected_results()` spreads a one-time cost across the flight,
+            # which is right for its own arithmetic and wrong in a column
+            # headed Monthly: a $1,500 shoot shown as $250 a month made the
+            # media plan's monthly total $5,750 where the investment summary
+            # said $5,500 recurring plus $1,500 once. The row says which it
+            # is and the Monthly column carries only what recurs.
+            "monthly": None if one_time else r["monthly"],
+            "monthly_label": "One-time" if one_time else None,
+            "campaign": r["campaign"],
             "units": units, "unit_label": label, "delivery": delivery,
             "basis": r.get("basis") or "monthly",
         })
-    totals = est["totals"]
+    # The totals are campaign_cost()'s, so this table, the cover, the
+    # investment summary, the insertion order and the dashboard all print one
+    # number for what the campaign costs.
+    cost = campaign_cost(state)
     return {
         "columns": list(MEDIA_PLAN_COLUMNS),
         "months": months,
         "rows": rows,
-        "monthly_total": round(totals.get("monthly") or 0, 2),
-        "campaign_total": round(totals.get("campaign") or 0, 2),
-        "impressions": totals.get("impressions") or 0,
-        "views": totals.get("views") or 0,
+        "monthly_total": cost["recurring"],
+        "campaign_total": cost["campaign"],
+        "one_time_total": cost["one_time"],
+        "impressions": (est["totals"].get("impressions") or 0),
+        "views": (est["totals"].get("views") or 0),
         # Named, so the table can say which lines are not in the delivery
         # column rather than quietly under-reporting the campaign.
         "unpriced": est.get("unpriced") or [],

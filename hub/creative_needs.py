@@ -331,7 +331,17 @@ def _months(state) -> int:
 
 
 def medium_spend(state, medium: str) -> float:
-    """What this campaign spends on one medium, across the whole flight."""
+    """What this campaign spends on one medium, across the whole flight.
+
+    Every line read its own basis and term, because this figure decides two
+    things and was wrong for both. It multiplied *every* line by the flight,
+    so a $1,500 one-time production read as $9,000 of campaign spend and a
+    line bought for three months of six read as double -- an inflated number
+    printed on the client's creative section, and, worse, one that quietly
+    switches the comp confirmation off: `evaluate()` asks for a confirmation
+    only where the spend is *below* the threshold, which is exactly the small
+    campaign the question exists for.
+    """
     state = state or {}
     months = _months(state)
     total = 0.0
@@ -339,10 +349,18 @@ def medium_spend(state, medium: str) -> float:
         if medium_of(item) != medium:
             continue
         try:
-            total += float(item.get("dollars") or 0)
+            dollars = float(item.get("dollars") or 0)
         except (TypeError, ValueError):
             continue
-    return round(total * months, 2)
+        if str(item.get("basis") or "monthly") == "one_time":
+            total += dollars
+            continue
+        try:
+            term = int(item.get("termMonths") or months)
+        except (TypeError, ValueError):
+            term = months
+        total += dollars * max(1, min(months, term))
+    return round(total, 2)
 
 
 def gated_media(state) -> list[str]:
