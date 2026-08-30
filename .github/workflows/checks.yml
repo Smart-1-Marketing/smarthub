@@ -451,15 +451,23 @@ jobs:
         # Guarded like the step above, so this workflow stays mergeable on a
         # branch that predates the file.
         #
-        # RUN THIS FILE EXACTLY ONCE. It calls os.environ.setdefault for
-        # DATABASE_URL, so it uses its throwaway SQLite only when nothing else
-        # has set one -- and this job sets DATABASE_URL to the Postgres service
-        # above, which persists across steps. Each run also gets a fresh
-        # HUB_DATA_DIR, and jsonstore restores the previous run's writes into
-        # that empty directory, so a second invocation sees the first one's
-        # rows and fails "files one document, not three" with 3. Two lineages
-        # each added a target-areas step and git merged both cleanly, which is
-        # exactly how the duplicate got in.
+        # This file used to be unsafe to run twice, and no longer is. It
+        # still setdefaults DATABASE_URL -- so it inherits the Postgres
+        # service above, which persists across steps -- but it now empties
+        # the client's shelf at the start rather than assuming an empty one,
+        # and re-runs clean (82 passed, twice, against one database).
+        #
+        # The hazard it records is real and worth keeping in mind: jsonstore
+        # keys its mirror relative to the data root by design, so a fresh
+        # HUB_DATA_DIR in front of an inherited database is refilled with the
+        # last run's rows. That is how a duplicated step failed "files one
+        # document, not three" with 3 -- two lineages each added a
+        # target-areas step and git merged both cleanly.
+        #
+        # test_dashboard_trends.py and test_google_index.py had the same
+        # shape and were fixed the other way, by owning DATABASE_URL as well
+        # as HUB_DATA_DIR (the test_blog_publish.py pattern).
+        # test_jsonstore.py pins that so it cannot come back.
         run: |
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py
