@@ -356,6 +356,43 @@ rather than left as a dangling import: `calculators` is the only one, because
 what a public estimate box produces is a **lead**, and leads go through
 `hub/leads.py`.
 
+**An exception is not a message, and both file tools handed one over.** The
+Image Optimizer answered an unreadable upload with Pillow's own text —
+*"cannot identify image file `<_io.BytesIO object at 0x7f…>`"*, a Python repr
+with a memory address in it, printed where "that file is not an image we can
+read" belongs and reading to whoever uploaded it like the tool had crashed
+rather than like their file was wrong. The PDF Optimizer was worse: `_run()`
+raises carrying **the last 2000 characters of Ghostscript's stderr**, and the
+500 handler interpolated it straight into the response — absolute
+temp-directory paths and the uploader's own filename, handed to a browser.
+That is the rule `modules/fan_radio.fail()` states, in the two modules nobody
+had tested. Both say something actionable now and log the cause; **our own
+validation text is the one exception message that belongs on screen**, so
+`ValueError` is caught apart from the provider's, or the fix would swallow
+"Width must be a whole number" with it. A missing binary is separated again
+and answers **503** pointing at `/status`, because that is a broken deployment
+rather than a bad document and `[Errno 2] No such file or directory: 'gs'`
+tells the person holding the PDF nothing.
+
+**And its `/health` said `ok` while it could not work at all.** The PDF
+Optimizer is a wrapper around `gs` and `qpdf`; with either missing every
+optimize fails, and the probe went on answering `{"status": "ok"}`. The Hub's
+own `/status` has reported *Ghostscript / qPDF* as an error the whole time, so
+the module and the status page were two answers to one question and the
+module's was the confident wrong one — the `/api/db/structure` versus
+`/api/integrity` trap, one tool further out. It reads the same fact now.
+
+**Those binaries were in the Dockerfile and in no check anywhere**, so the
+compression the tool exists for ran in production and nowhere else. CI
+installs them now. `test_image_pdf_optimizers.py` still passes without them
+and **says so out loud** rather than reporting an unrun path as a clean run.
+It also asserts its own animated fixture is animated before using it: a first
+pass reported that animation was being flattened, and the fixture was what had
+flattened it — four frames of one flat colour, collapsed by Pillow before the
+module ever saw them. What is **reported rather than fixed** is that a PNG
+target the 160px floor cannot reach comes back several times the size asked
+for, `200 OK`, with nothing saying so.
+
 **A module's own `log()` wrapper hid the same failure one step on.**
 `check_work_kinds()` counted only a direct `audit.log("mod", …, client=…)`,
 reasoning that a bare `log()` is a wrapper whose first argument is the event
@@ -8921,6 +8958,10 @@ python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, and SEO
                                    #   work reaching the client's own page
+python3 test_image_pdf_optimizers.py  # the two file tools: what they refuse,
+                                   #   animation that survives a resize, and
+                                   #   no Pillow repr or Ghostscript stderr
+                                   #   reaching the person who uploaded
 python3 test_image_download.py     # image downloads, the shared zip builder, and the
                                    #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,
