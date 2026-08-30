@@ -4688,14 +4688,44 @@ resolves to a unit that says what replaced it.** Deleting them would orphan the
 tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
-declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x` today.
-The five still on the 2025 transcription are named in `_KIT_NAMES_PENDING` with
-what is known to have moved (LinkedIn sells 11 formats to our 5 and calls
-Sponsored InMail *Message Ads*; TikTok's six names include none of our three;
-YouTube's *TrueView* is now *Skippable in-stream*), and `kit_coverage()`
-carries them. A backlog named rather than left as an absence — a check listing
-every platform on the day it is written is red on the day it is written, and
-gets switched off.
+declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x` and
+`linkedin` today. The four still on the 2025 transcription are named in
+`_KIT_NAMES_PENDING` with what is known to have moved (TikTok's six names
+include none of our three; YouTube's *TrueView* is now *Skippable in-stream*),
+and `kit_coverage()` carries them. A backlog named rather than left as an
+absence — a check listing every platform on the day it is written is red on
+the day it is written, and gets switched off.
+
+**And a name check cannot see a number, which is how LinkedIn was refusing
+files the kit told the client to send.** Its 2025 model held five formats to
+the kit's eleven and `Sponsored InMail` named a category LinkedIn has split
+into *Message Ads* and *Conversation Ads* — the X failure, found the same way.
+What the name pass could not reach is three ceilings that had each moved
+**upward**: Message Ads at 40 KB against a published **2 MB**, Sponsored
+Content video at 200 MB against **500 MB**, and that video carrying a
+`max_width` of 1080 while the kit publishes 1920. A ceiling that is too low
+fails in the direction nobody checks — the upload manager refuses a file that
+is *correct*, the client is told to send it again smaller, and every screen
+reads as working. That is the Half Page failure `kit_drift()` exists for, and
+`kit_drift()` cannot see this one either: it reads the three Unit / Dimensions
+/ weight sections and LinkedIn's table is Format / Intro / Headline / Media /
+File size. Only transcribing it finds these, which is the whole argument for
+working the `_KIT_NAMES_PENDING` list down rather than waiting for a check to
+raise its hand.
+
+**A size the kit publishes exactly is a size we judge exactly.** The old model
+carried `1200x627` and the kit publishes `1200x628`, so that one pixel now
+fails — named, with the four accepted sizes in the refusal, rather than
+absorbed by a tolerance. Inventing a ±1 would be house guidance wearing the
+kit's name, the thing `HOUSE_LEGIBILITY` is kept out of `THRESHOLDS` to avoid;
+1200x628 is what the client is asked for on the requirement line, so it is
+what the file is held to. **Six formats are new** — Document, Thought Leader,
+Event, Connected TV, Click to Message and Conversation Ads — and two of them
+have **no file to judge at all**: a Thought Leader ad runs an author's own post
+and an Event ad pulls its 4:1 image off the LinkedIn Event page. Those are
+modeled as `kind: "other"` with no ceilings rather than left out, so a
+requirement can name them and `check()` is never handed one — the answer
+`x_polls` already gives.
 
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
