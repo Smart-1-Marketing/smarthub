@@ -33,12 +33,17 @@ def slugify(value: str, fallback: str = "spec") -> str:
 
 
 def data_dir() -> str:
-    base = "/var/data" if os.path.isdir("/var/data") else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "data")
-    path = os.path.join(base, "radio_promo")
-    os.makedirs(path, exist_ok=True)
-    return path
+    """Through jsonstore, which is the one place that decides where
+    persistent files live.
+
+    This was its own six-line copy of that expression and it did not read
+    HUB_DATA_DIR at all -- so on a deployment that sets it, every project
+    here landed outside the root the mirror keys against and the backup
+    sweep reports on, while every other module moved. They agreed on this
+    service only because the variable happens to be unset, which is the luck
+    rather than design jsonstore.data_root() was written to end.
+    """
+    return jsonstore.data_dir("radio_promo")
 
 
 def _path() -> str:
