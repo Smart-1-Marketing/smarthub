@@ -49,7 +49,16 @@ Every failure below is one where a screen would go on looking healthy:
      its own empty state. A client with months of work behind them, drawn as a
      client with none.
 
-  6. **SEO work has to reach the client's record.** Every route in the section
+  6. **An editor rebuilt underneath somebody keeps what was typed.** The
+     alt-text list and the FAQ draft are both redrawn with `innerHTML` by a
+     *sibling row's* button and by a fetch landing tens of seconds later. The
+     FAQ inputs carried no change handler at all, so half-writing an answer on
+     one question and pressing Approve on another discarded it in silence.
+     Only a field somebody typed in is read back — harvesting on a difference
+     against the model would revert a page of AI-written alt text to what the
+     boxes held before the write.
+
+  7. **SEO work has to reach the client's record.** Every route in the section
      logged under module `"hub"`, which `client_brand.NOT_WORK` calls
      housekeeping — so `work_log()` dropped all of it and a client who had
      just had schema, blogs and FAQs built read as a client nobody had done
@@ -248,7 +257,138 @@ check("no SEO event is logged under a module the record cannot name",
       strays, [])
 
 # ------------------------------------------------------------------------
-section("7. The two pages pagecheck could not reach")
+section("7. An editor rebuilt underneath somebody keeps what was typed")
+
+# Both editors are a container of live inputs redrawn with innerHTML -- by a
+# *sibling row's* button, and by a fetch that lands tens of seconds later.
+# The logic that reads them back is lifted out and driven in node against a
+# stub DOM, the arrangement test_menu_layout.py uses on hub-crumbs.js: a copy
+# restated here would be a third thing to keep in step.
+import json                                                    # noqa: E402
+import subprocess                                              # noqa: E402
+
+
+def lift(marker):
+    a = REC.find("/* ---- %s (lifted" % marker)
+    b = REC.find("/* ---- end %s ----" % marker)
+    return (REC[a:b] if a > 0 and b > a else "")
+
+
+FAQ_SRC, ALT_SRC = lift("faq harvest"), lift("alt harvest")
+check("the faq harvest block is still marked for lifting", bool(FAQ_SRC))
+check("and the alt harvest block too", bool(ALT_SRC))
+
+# A stub of only what the two blocks touch: querySelectorAll over a flat list
+# of fields, `dataset`, `value`, `tagName`. Nothing here models a browser --
+# it models the four things the harvest reads.
+STUB = """
+function El(tag, data, value){
+  this.tagName=tag; this.dataset=data||{}; this.value=value;
+  this.className=(tag==='INPUT'?'qedit':'altNew'); this.isConnected=true;
+}
+function Box(fields){ this.fields=fields; }
+Box.prototype.querySelectorAll=function(sel){
+  var wantInput=sel.indexOf('input')>=0, wantArea=sel.indexOf('textarea')>=0;
+  var wantAlt=sel.indexOf('.altNew')>=0;
+  return this.fields.filter(function(f){
+    if(wantAlt) return f.className==='altNew';
+    if(f.tagName==='INPUT') return wantInput;
+    return wantArea;
+  });
+};
+var POSTED=[];
+function post(u,b){ POSTED.push(b); return Promise.resolve({image:{new_alt:b.alt,decorative:false}}); }
+function alert(){}
+var CLIENT='Acme';
+var BOX=null;
+function $(id){ return BOX; }
+"""
+
+_driver = STUB + FAQ_SRC + ALT_SRC + """
+var out={};
+
+// --- FAQ: half-write row 0's answer, then press Approve on row 2.
+var draft={items:[{question:'Q1',answer:'A1'},{question:'Q2',answer:'A2'},
+                  {question:'Q3',answer:'A3'}]};
+BOX=new Box([new El('TEXTAREA',{i:'0',dirty:'1'},'half written answer')]);
+faqHarvest(-1);
+out.approve_kept=draft.items[0].answer;
+
+// --- FAQ: Cancel on the row being edited must discard it, not keep it.
+draft={items:[{question:'Q1',answer:'A1'}]};
+BOX=new Box([new El('TEXTAREA',{i:'0',dirty:'1'},'typed then cancelled')]);
+faqHarvest(0);
+out.cancel_discarded=draft.items[0].answer;
+
+// --- FAQ: a field nobody typed in is never harvested, so a fetch that
+// replaces the model is not reverted by stale markup.
+draft={items:[{question:'Q1',answer:'FRESH FROM THE MODEL'}]};
+BOX=new Box([new El('TEXTAREA',{i:'0'},'stale markup')]);
+faqHarvest(-1);
+out.clean_not_reverted=draft.items[0].answer;
+
+// --- FAQ: clearing a box does not delete the question.
+draft={items:[{question:'Q1',answer:'A1'}]};
+BOX=new Box([new El('INPUT',{i:'0',dirty:'1'},'   ')]);
+faqHarvest(-1);
+out.empty_keeps=draft.items[0].question;
+
+// --- ALT: typing, then the AI write lands and rebuilds the list.
+altPages=[{url:'/p',images:[{src:'a.jpg',new_alt:''}]}];
+BOX=new Box([new El('TEXTAREA',{url:'/p',src:'a.jpg',dirty:'1'},'a red van')]);
+altHarvest();
+out.alt_kept=altPages[0].images[0].new_alt;
+out.alt_posted=POSTED.length;
+
+// --- ALT: an untouched box is not written back, so a page of AI-written alt
+// text is not reverted to what the boxes held before the write.
+POSTED=[];
+altPages=[{url:'/p',images:[{src:'a.jpg',new_alt:'AI WROTE THIS'}]}];
+BOX=new Box([new El('TEXTAREA',{url:'/p',src:'a.jpg'},'')]);
+altHarvest();
+out.alt_clean_kept=altPages[0].images[0].new_alt;
+out.alt_clean_posted=POSTED.length;
+
+console.log(JSON.stringify(out));
+"""
+
+_r = subprocess.run(["node", "-e", _driver], capture_output=True, text=True)
+check("the lifted blocks run on their own", _r.returncode, 0)
+if _r.returncode:
+    print("   " + (_r.stderr or "").strip()[:500])
+    OUT = {}
+else:
+    OUT = json.loads(_r.stdout)
+
+check("a half-written FAQ answer survives Approve on another row",
+      OUT.get("approve_kept"), "half written answer")
+check("but Cancel still discards the row it is cancelling",
+      OUT.get("cancel_discarded"), "A1")
+check("a box nobody typed in never overwrites a freshly fetched answer",
+      OUT.get("clean_not_reverted"), "FRESH FROM THE MODEL")
+check("and clearing a box does not delete the question",
+      OUT.get("empty_keeps"), "Q1")
+check("alt text typed during the AI write survives the rebuild",
+      OUT.get("alt_kept"), "a red van")
+check("and reaches the server rather than only the model",
+      OUT.get("alt_posted"), 1)
+check("an untouched alt box never reverts what the AI just wrote",
+      OUT.get("alt_clean_kept"), "AI WROTE THIS")
+check("and writes nothing", OUT.get("alt_clean_posted"), 0)
+
+# The wiring the blocks above depend on.
+check("the alt editor marks its fields dirty on input", "dirty(t);" in REC)
+check("and the FAQ editor marks its own", "{ dirty(el); }" in REC)
+check("the redraw goes through the harvest, not straight to innerHTML",
+      "faqHarvest(typeof skip==='number'" in REC and "altHarvest();" in REC)
+check("Cancel passes its row so the harvest skips it",
+      "renderDraft(i); return; }" in REC)
+check("and the caret is put back after a rebuild",
+      REC.count("keepCaret(") >= 2)
+
+
+# ------------------------------------------------------------------------
+section("8. The two pages pagecheck could not reach")
 
 PC = (ROOT / "tools" / "pagecheck.py").read_text(encoding="utf-8")
 check("the client record is named in pagecheck, with a ?name=",

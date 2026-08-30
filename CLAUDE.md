@@ -1261,6 +1261,35 @@ The three helper modules beside them (`schema_questions`, `blog_images`,
 `llms_txt`) had been logging under `seo` the whole time, so the section was
 filing half its output as a deliverable and half as housekeeping.
 
+**An editor rebuilt underneath somebody loses what they typed.** Two on the
+SEO client record: the alt-text list and the FAQ draft. Both are a container
+of live inputs redrawn with `innerHTML` — and the trigger is not the typing,
+which is what makes it a different bug from the Smart 1 Ads target-area rows.
+It is a **sibling row's** button and a **fetch that lands tens of seconds
+later**. The FAQ half was the worse of the two: those inputs carry no change
+handler at all, so half-writing an answer on question 3 and pressing Approve
+on question 5 discarded question 3 immediately, in silence. Removing a focused
+field does not fire `change`, so the alt half went the same way whenever the
+AI write finished while somebody was typing in another box.
+
+`faqHarvest()` and `altHarvest()` read the open editors back into the model
+before any redraw, so a redraw cannot destroy what nothing has read yet.
+Three rules on them. **Only a field somebody typed in is harvested** — a
+`dirty` flag set on `input`, never a comparison against the model, because a
+fetch response makes *every* field differ at once and harvesting on
+difference would revert a whole page of freshly AI-written alt text to what
+the boxes held before the write, which is worse than the loss it fixes.
+**Cancel skips its own row**, or the harvest would keep the text that button
+exists to throw away. And **an empty box is not an edit**: clearing a
+question keeps it, the rule `savedit` already worked to, so a cleared field
+cannot delete the answer behind it. `altSave()` sets `new_alt` from the typed
+value *before* the request goes out, so a redraw mid-flight shows what was
+typed and the harvest then sees nothing to write twice. `keepCaret()` puts
+the cursor back, and costs the caret rather than the page when it cannot.
+`test_seo_page.py` lifts both blocks and drives them in **node**, the
+arrangement `test_menu_layout.py` uses on `hub-crumbs.js` — a copy restated
+in the test would be a third thing to keep in step.
+
 **None of it was checked, because the page redirects.** `tools/pagecheck.py`
 names parameterized pages like `/prospect/none` explicitly, and `/seo/client`
 was on no list: without a `?name=` the route **redirects to `/seo`**, so a
