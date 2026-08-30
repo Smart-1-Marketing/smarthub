@@ -96,6 +96,11 @@ PATTERNS = [
     ("xhr", re.compile(
         r"""\.open\s*\(\s*["'][A-Z]+["']\s*,\s*["'`](/[^"'`?#\s]*)""")),
     ("redirect", re.compile(r"""\bredirect\s*\(\s*["'](/[^"'?#\s]*)["']""")),
+    # A request this tool never saw. CLAUDE.md spends a paragraph on how
+    # invisible it is -- it returns a boolean nobody reads and fires on
+    # pagehide, so a wrong path there fails in total silence, which is how six
+    # landing modules lost their abandoned-form leads.
+    ("beacon", re.compile(r"""sendBeacon\s*\(\s*["'`](/[^"'`?#\s]*)""")),
 ]
 
 # URLs assembled at runtime -- fetch(BASE + "/api/thing"). The path fragment is
@@ -112,7 +117,67 @@ PATTERNS = [
 UNCHECKED = [
     ("concat-fetch", re.compile(
         r"""\bfetch\s*\(\s*[A-Za-z_$][\w.$]*\s*\+\s*["'`](/[^"'`?#\s${]*)""")),
+    # The same shape with no leading slash: fetch(base + "api/gallery?…").
+    # It resolves against the *document's directory*, so it is not even a path
+    # this tool could match against a rule -- and without this it matched
+    # neither PATTERNS nor the rule above, so it was invisible rather than
+    # unverified. hub/templates/seo_client.html builds its SEO-image gallery
+    # links that way.
+    ("concat-relative", re.compile(
+        r"""\bfetch\s*\(\s*[A-Za-z_$][\w.$]*\s*\+\s*["'`]([A-Za-z][^"'`?#\s${]*)""")),
 ]
+
+# A module's own request helper is invisible to the patterns above: the URL is
+# a literal, but it sits in `post(...)` rather than in `fetch(...)`. On the SEO
+# client record alone that hid twenty-seven paths, which is most of what the
+# page does.
+#
+# The helpers are NOT alike, and that is why this is a table rather than a list
+# of names. Some hand the URL straight to fetch(); others do fetch(BASE + path),
+# where the literal is a fragment and resolving it as a root-absolute path
+# would report a break that is not there -- the crying wolf UNCHECKED exists to
+# avoid. `post` is pass-through in seo_client.html and prefixed in
+# ads_estimate.html; `api` is pass-through in the Suite panel and prefixed in
+# the Commercial Builder. A name alone cannot tell them apart.
+#
+# Keyed on the file, because a bare `post(` matched `app.post(` and
+# `client.post(` in Python and reported 292 breaks that were route decorators
+# and test clients. Only spellings actually in use go in, the rule
+# hub/config.py's ALIASES table gives: a speculative name costs nothing to
+# resolve and a great deal to police.
+HELPERS_PASS_THROUGH = {
+    "hub/templates/seo_client.html": ("post",),
+    "hub/templates/client_owners.html": ("send",),
+    "modules/suite_panel/public/index.html": ("api",),
+    "modules/gpt_ads/templates/index.html": ("get",),
+}
+
+# Declared so their literals are *counted as unverified* rather than silently
+# invisible -- naming them is what stops somebody adding the name to the table
+# above and getting a page of false breaks.
+HELPERS_PREFIXED = {
+    "modules/ads_builder/templates/ads_estimate.html": ("post",),
+    "modules/commercial_builder/static/js/common.js": ("api",),
+    "modules/stadium/public/index.html": ("apiUrl",),
+}
+
+
+# `sendBeacon` and a relative concat are browser calls. A match in a .py file
+# is therefore not a call site -- it is prose, and reporting the explanation of
+# a fix as the defect is the mistake hub/config.py's drift check and
+# tools/spellcheck.py both had to be taught to stop making. It is not a
+# hypothetical here: the first run of the beacon pattern reported
+# test_landing_embeds.py:263, a comment that reads "The bug this section exists
+# for: sendBeacon('/api/partial-lead')" -- the note describing the very trap,
+# flagged as the trap.
+FRONT_EXTS = ("html", "js", "ts", "tsx", "jsx")
+BROWSER_ONLY = ("beacon", "concat-relative")
+
+
+def _helper_rx(name):
+    """A bare call to `name`, never `.name(` -- see the note above."""
+    return re.compile(r"""(?<![.\w$])""" + re.escape(name)
+                      + r"""\s*\(\s*["'`](/[^"'`?#\s${]*)""")
 
 
 def _unwrap(app):
@@ -197,8 +262,23 @@ def literals(patterns=None):
                             errors="ignore").read()
             except OSError:
                 continue
+            # A file's own request helper, if it has one declared. Which
+            # table it is in decides whether the URL is resolved or merely
+            # counted: pass-through hands it to fetch() unchanged, prefixed
+            # makes it a fragment of a URL this tool cannot assemble.
+            rel_key = rel.replace(os.sep, "/")
+            extra = []
+            if patterns is PATTERNS:
+                extra = [("helper", _helper_rx(h))
+                         for h in HELPERS_PASS_THROUGH.get(rel_key, ())]
+            elif patterns is UNCHECKED:
+                extra = [("helper-prefixed", _helper_rx(h))
+                         for h in HELPERS_PREFIXED.get(rel_key, ())]
+            is_front = name.rsplit(".", 1)[-1].lower() in FRONT_EXTS
             for n, line in enumerate(text.splitlines(), 1):
-                for kind, rx in patterns:
+                for kind, rx in list(patterns) + extra:
+                    if kind in BROWSER_ONLY and not is_front:
+                        continue
                     for m in rx.finditer(line):
                         found[m.group(1)].append((rel, n, kind))
     return found
