@@ -627,6 +627,68 @@ for _w, _h, _fmt, _want in ((1200, 628, "jpg", "Sponsored Content — Single Ima
 
 
 # ---------------------------------------------------------------------------
+section("TikTok is judged at the lengths and shapes the kit publishes")
+# ---------------------------------------------------------------------------
+# The 2025 model named three formats to the kit's six, and none of the three
+# was a format TikTok sells. Two of them refused creative the kit allows: the
+# in-feed video capped at :60 against a published 10 minutes, and the image ad
+# pinned to 1200x628 when the kit specs images by ratio.
+_tt = {u["id"]: u for u in cs.UNITS if u["channel"] == "tiktok"}
+check("TikTok carries the six formats the kit publishes", len(_tt) == 6,
+      sorted(u["name"] for u in _tt.values()))
+check("and the in-feed video is called Auction In-Feed",
+      _tt["tiktok_video"]["name"] == "Auction In-Feed",
+      _tt["tiktok_video"]["name"])
+check("...keeping its id, because tags_for() has written it onto creative",
+      "tiktok_video" in cs.BY_ID)
+
+check("a 90-second in-feed spot is accepted, against a published 10 minutes",
+      cs.check(unit_id="tiktok_video", width=1080, height=1920, fmt="mp4",
+               size_bytes=80 * _MB, duration=90)["result"] == "pass",
+      cs.check(unit_id="tiktok_video", width=1080, height=1920, fmt="mp4",
+               size_bytes=80 * _MB, duration=90)["summary"])
+check("...and an .avi, one of the five file types the kit takes",
+      cs.check(unit_id="tiktok_video", width=1080, height=1920, fmt="avi",
+               size_bytes=80 * _MB, duration=30)["result"] == "pass")
+check("a 720x1280 vertical image is accepted — the shape TikTok recommends",
+      cs.check(unit_id="tiktok_gab_image", width=720, height=1280, fmt="jpg",
+               size_bytes=2 * _MB)["result"] == "pass")
+
+# The ceilings that are real still refuse, or raising the others would have
+# been a loosening rather than a correction.
+check("but 11 minutes is still refused",
+      cs.check(unit_id="tiktok_video", width=1080, height=1920, fmt="mp4",
+               size_bytes=80 * _MB, duration=700)["result"] == "fail")
+check("and a 400px-wide spot is under every published minimum",
+      cs.check(unit_id="tiktok_video", width=400, height=711, fmt="mp4",
+               size_bytes=8 * _MB, duration=20)["result"] == "fail")
+
+# The two formats the kit no longer sells are retired rather than re-pointed:
+# out of UNITS so nothing asks a client for one, still in BY_ID so a row
+# carrying the tag resolves to a unit that says what replaced it.
+for _gone in ("tiktok_image", "tiktok_profile"):
+    check(f"{_gone!r} is retired rather than asked for",
+          _gone not in _tt and _gone in cs.BY_ID
+          and cs.BY_ID[_gone].get("retired"),
+          cs.BY_ID.get(_gone, {}).get("retired"))
+
+# Every one of the six reaches the requirement line. An image unit with no
+# size of its own has to be named rather than folded into the run of sizes --
+# folded in it contributes nothing and vanishes, which is this function's own
+# recorded failure.
+_tt_line = cn.units_line(
+    {"items": [{"product": "Tik Tok - Paid Social Media Advertising",
+                "category": "SOCIAL ADS - VIDEO", "dollars": 3000}]}, "video")
+for _name in (u["name"] for u in _tt.values()):
+    if _name == "Carousel Ads":
+        check("the carousel reaches the line as its three sizes",
+              "1200x628" in _tt_line and "720x1280" in _tt_line, _tt_line)
+    else:
+        check(f"{_name!r} is named on the requirement line",
+              _name in _tt_line, _tt_line)
+
+
+# ---------------------------------------------------------------------------
 section("the gate and the spec kit read the same product the same way")
 # ---------------------------------------------------------------------------
 # Two readings of one question -- whether to ask for creative, and what to ask

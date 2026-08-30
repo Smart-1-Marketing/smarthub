@@ -1540,3 +1540,16 @@ jobs:
       # and every optimize was failing, contradicting the Hub's own /status.
       - name: The image and PDF optimizers
         run: python3 test_image_pdf_optimizers.py
+
+      # /api/integrity's silent-module check reads a call rather than an
+      # import now, and the seven modules that had bound hub.audit and never
+      # used it were fixed. That sweep wired a handful of call sites per
+      # module and stopped, and nothing could see the remainder: the check one
+      # level up is satisfied by ONE call site. Sites Admin recorded deleting
+      # a client's website and not creating one; Google Finder recorded
+      # deploying a tag and not deploying a pixel into the same container,
+      # which is the very action CLAUDE.md names. One walk, in hub/audit.py,
+      # holds both -- and each module declares the writes that deliberately
+      # record nothing, so a silent one is a decision rather than an oversight.
+      - name: Every write into a client's own account has a name on it
+        run: python3 test_write_attribution.py
