@@ -11,19 +11,20 @@
   *{box-sizing:border-box}
   body{margin:0;font-family:'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45}
   a{color:var(--blue)}
-  .topbar{position:sticky;top:0;z-index:60;background:var(--navy);color:#fff}
-  .topbar .wrap{max-width:1240px;margin:0 auto;padding:13px 22px;display:flex;align-items:center;gap:16px}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:16px;cursor:pointer}
-  .brand .dot{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--blue2),#6da8ee);display:grid;place-items:center;font-size:13px;font-weight:800}
-  .brand small{display:block;font-weight:600;font-size:10.5px;color:#9fb6d8;letter-spacing:1.5px;text-transform:uppercase}
-  .topnav{display:flex;gap:4px;margin-left:26px}
-  .topnav a{color:#c9d8ee;text-decoration:none;font-weight:700;font-size:13.5px;padding:8px 14px;border-radius:9px;cursor:pointer}
-  .topnav a.on{background:rgba(255,255,255,.14);color:#fff}
-  .topnav a:hover{background:rgba(255,255,255,.09)}
-  .userchip{margin-left:auto;display:flex;align-items:center;gap:9px;font-size:13px;color:#c9d8ee;cursor:pointer}
-  .userchip .av{width:30px;height:30px;border-radius:50%;background:var(--accent);color:#3a2600;font-weight:800;display:grid;place-items:center;font-size:12px}
   .shell{max-width:1240px;margin:0 auto;padding:24px 22px 80px}
   h1{font-size:22px;color:var(--navy);margin:0}
+  /* The rep's name, in the sub-nav rather than a chip on a branded bar. It is
+     the attribution written onto every proposal built here, so "Set your name"
+     has to be readable as unset rather than decoration. */
+  .repchip{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+  .repchip .av{width:24px;height:24px;border-radius:50%;background:var(--accent);
+    color:#3a2600;font-weight:800;display:grid;place-items:center;font-size:11px}
+  /* The tile is the Hub's; only the category stripe is this page's -- gold for
+     money, blue for count, green for won. */
+  .s1d-tile{position:relative}
+  .s1d-tile.gold{border-top:3px solid var(--accent)}
+  .s1d-tile.blue{border-top:3px solid var(--blue)}
+  .s1d-tile.green{border-top:3px solid var(--good)}
   .pgsub{color:var(--muted);font-size:13.5px;margin-top:3px}
   .headrow{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:18px}
   .headrow .grow{flex:1;min-width:240px}
@@ -37,14 +38,8 @@
   .btn:hover{filter:brightness(1.04)}
   .btn:disabled{opacity:.5;cursor:not-allowed}
   .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:20px}
-  .stat{background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px 16px;box-shadow:var(--shadow)}
-  .stat .lab{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
-  .stat b{display:block;font-size:24px;color:var(--navy);margin-top:4px}
-  .stat .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
-  .stat .sub.up{color:var(--good);font-weight:700}
-  .stat.gold{border-top:3px solid var(--accent)}
-  .stat.blue{border-top:3px solid var(--blue)}
-  .stat.green{border-top:3px solid var(--good)}
+  .s1d-tile .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .s1d-tile .sub.up{color:var(--good);font-weight:700}
   .cols{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start}
   .panel{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
   .panel .phead{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -310,18 +305,42 @@
 </style>
 </head>
 <body data-module="sales_builder" data-s1hub-collapse="1">
-<div class="topbar"><div class="wrap">
-  <div class="brand" onclick="nav('dashboard')"><span class="dot">S1</span><span>SMART 1 SALES BUILDER<small>Proposals &amp; Insertion Orders</small></span></div>
-  <nav class="topnav" id="topnav">
-    <a data-v="dashboard" class="on" onclick="nav('dashboard')">Dashboard</a>
-    <a data-v="proposals" onclick="nav('proposals')">Proposals</a>
-    <a data-v="io" onclick="nav('io')">Insertion Orders</a>
-    <a data-v="clients" onclick="nav('clients')">Clients</a>
-  </nav>
-  <div class="userchip" onclick="editRep()"><span id="repName">Set your name</span><span class="av" id="repAv">S1</span></div>
-</div></div>
+<!--
+  No branded topbar. This module is mounted inside the Hub, so the page already
+  carries the Hub's sidebar; a sticky navy bar reading "SMART 1 SALES BUILDER"
+  above it was chrome twice, and it is what made the Proposal Builder read as a
+  separate product standing next to Client 360.
 
+  What it genuinely needs survives: the four views are a second level of
+  navigation, and the rep's name is a real control -- it is the attribution
+  written onto every proposal, so it belongs where somebody can see it is unset.
+  The `topnav` id and the `on` class are kept because nav() selects on both;
+  renaming them to suit a stylesheet would be the stylesheet deciding what the
+  page's state is called.
+
+  What the shell deliberately does NOT take is `s1d-page`, the shared sheet's
+  element layer. This module has a complete button vocabulary of its own --
+  btn-primary, btn-gold, btn-line, btn-ghost, btn-good, btn-back -- and every
+  one of those is a single class, while `.s1d-page button` carries three
+  :not()s and outranks all of them: taking the layer would have rendered the
+  entire wizard's back, cancel and secondary buttons as solid brand blue, on a
+  page where "Back" and "Convert to IO" would then look like the same offer.
+  The primitives are taken by name instead. That is what makes the shared sheet
+  adoptable at all -- `s1d-subnav` and `s1d-tile` are asked for one at a time,
+  and the element layer is for a page with no vocabulary to lose.
+-->
 <div class="shell">
+<nav class="topnav s1d-subnav" id="topnav">
+  <a data-v="dashboard" class="on" onclick="nav('dashboard')">Dashboard</a>
+  <a data-v="proposals" onclick="nav('proposals')">Proposals</a>
+  <a data-v="io" onclick="nav('io')">Insertion Orders</a>
+  <a data-v="clients" onclick="nav('clients')">Clients</a>
+  <span class="sp"></span>
+  <button type="button" class="repchip" onclick="editRep()"
+          title="The name written onto every proposal you build">
+    <span class="av" id="repAv">S1</span><span id="repName">Set your name</span>
+  </button>
+</nav>
   <div id="view-dashboard"></div>
   <div id="view-proposals" style="display:none"></div>
   <div id="view-builder" style="display:none"><div class="bshell">
@@ -685,11 +704,11 @@ async function drawDashboard(){
    <button class="btn btn-primary" onclick="nav('io')">＋ New Insertion Order</button>
    <button class="btn btn-line" onclick="nav('proposals')">🔍 Lookup</button></div>
   <div class="stats">
-   <div class="stat blue"><div class="lab">Open Proposals</div><b>${s.open_count}</b><div class="sub">${money(s.open_monthly)}/mo proposed</div></div>
-   <div class="stat gold"><div class="lab">Awaiting Client</div><b>${s.awaiting_count}</b><div class="sub">avg. ${s.awaiting_avg_days} days out</div></div>
-   <div class="stat green"><div class="lab">Approved — Convert</div><b>${s.approved_count}</b><div class="sub ${s.approved_count?'up':''}">${s.approved_count?"ready for IO ↗":"none waiting"}</div></div>
-   <div class="stat"><div class="lab">IOs This Month</div><b>${s.converted_month_count}</b><div class="sub">${money(s.converted_month_monthly)}/mo booked</div></div>
-   <div class="stat"><div class="lab">Win Rate (90d)</div><b>${s.win_rate_90d}%</b><div class="sub">approved + converted</div></div>
+   <div class="s1d-tile blue"><div class="lab">Open Proposals</div><b>${s.open_count}</b><div class="sub">${money(s.open_monthly)}/mo proposed</div></div>
+   <div class="s1d-tile gold"><div class="lab">Awaiting Client</div><b>${s.awaiting_count}</b><div class="sub">avg. ${s.awaiting_avg_days} days out</div></div>
+   <div class="s1d-tile green"><div class="lab">Approved — Convert</div><b>${s.approved_count}</b><div class="sub ${s.approved_count?'up':''}">${s.approved_count?"ready for IO ↗":"none waiting"}</div></div>
+   <div class="s1d-tile"><div class="lab">IOs This Month</div><b>${s.converted_month_count}</b><div class="sub">${money(s.converted_month_monthly)}/mo booked</div></div>
+   <div class="s1d-tile"><div class="lab">Win Rate (90d)</div><b>${s.win_rate_90d}%</b><div class="sub">approved + converted</div></div>
   </div>
   ${pipelinePanel(DASH.pipeline)}
   <div class="cols"><div>

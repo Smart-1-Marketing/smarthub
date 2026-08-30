@@ -6718,6 +6718,42 @@ gated calculators and the Google Access connect flow are served to somebody
 with no Hub account, and a staff look is not what they should arrive wearing.
 `test_detail_ui.py` asserts both directions.
 
+**Adopting the primitives and adopting the element layer are two decisions,
+and the Proposal Builder takes only the first.** `s1d-subnav` and `s1d-tile`
+are asked for one at a time by name; `s1d-page` turns on a layer of bare
+element rules, and `.s1d-page button` carries three `:not()`s, which makes it
+(0,5,1) — above every one of that module's six single-class button names.
+Taking the layer there would have drawn `btn-gold`, `btn-line`, `btn-ghost`
+and `btn-back` as solid brand blue, so *Back* and *Convert to IO* would have
+looked like the same offer, on the wizard where the difference is a signed
+insertion order. The element layer is for a page with no vocabulary to lose —
+Image Creator's project list, which had four local rules and now has none.
+Both directions are asserted, and the layer check reads the **class
+attributes** rather than the file's text: the reason the Proposal Builder
+declines it is written in a comment in that template, and a check a file's own
+explanation of itself can fail is one somebody deletes.
+
+**What the Proposal Builder did have to lose is the second branded bar.** A
+sticky navy strip reading SMART 1 SALES BUILDER sat above the Hub's own
+sidebar — chrome twice, and what made the tool read as a separate product
+standing next to Client 360. Its four views are a real second level of
+navigation and survive as the shared strip, `id="topnav"` and the `on` class
+kept because `nav()` selects on both; the rep's name survives as a control in
+that strip rather than a chip on the bar, because it is the attribution
+written onto every proposal built here and "Set your name" has to be legible
+as unset. A sub-nav button is *excluded* from the page button rule rather than
+out-specified — three `:not()`s make that rule hard to beat, and an exclusion
+does not depend on winning a race.
+
+**A gallery tile is not a card.** Image Creator's project list called its
+thumbnail `.card`, which is the name the shared layer uses for a record card,
+so adopting the layer would have put a record card's padding and border round
+a photograph. Renamed `.proj`, and the collision is the ordinary way a shared
+element layer bites: the class was correct in isolation and wrong the moment
+somebody else meant something by it. The editor itself takes none of this — it
+is a full-height canvas workbench with its own toolbar and tool rail, which is
+the shape the Hub collapses its sidebar for.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.

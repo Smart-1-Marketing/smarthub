@@ -5,34 +5,35 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Image projects — Smart 1 Hub</title>
 <style>
+/* The page head, buttons and form controls come from hub/static/hub-detail.css
+   via `s1d-page` on the wrapper below. What is left is the gallery: a tile is
+   a thumbnail with a name under it, which is a different thing from the card
+   the rest of the Hub means, and is named `.proj` now so the two cannot be
+   confused for each other. The editor itself (index.html) deliberately does
+   not adopt any of this -- it is a full-height canvas workbench with its own
+   toolbar and tool rail, which is what the Hub collapses its sidebar for. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1180px;margin:0 auto;padding:26px 22px 60px}
-  h1{color:var(--navy);font-size:23px;margin:0 0 3px}
-  .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
-  .back{color:var(--blue);text-decoration:none;font-size:13px}
   .bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
   .bar input{flex:1;min-width:220px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit}
-  .btn{border:0;background:var(--blue);color:#fff;font:600 13px inherit;padding:9px 15px;
-       border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
-  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:15px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:11px;overflow:hidden;
+  .proj{background:#fff;border:1px solid var(--line);border-radius:11px;overflow:hidden;
         display:flex;flex-direction:column}
-  .card .ph{aspect-ratio:4/3;background:var(--soft);display:flex;align-items:center;
+  .proj .ph{aspect-ratio:4/3;background:var(--soft);display:flex;align-items:center;
             justify-content:center;overflow:hidden}
-  .card .ph img{width:100%;height:100%;object-fit:contain;background:
+  .proj .ph img{width:100%;height:100%;object-fit:contain;background:
     linear-gradient(45deg,#eceff4 25%,transparent 25%),linear-gradient(-45deg,#eceff4 25%,transparent 25%),
     linear-gradient(45deg,transparent 75%,#eceff4 75%),linear-gradient(-45deg,transparent 75%,#eceff4 75%);
     background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0}
-  .card .ph .none{color:#cbd5e1;font-size:12px}
-  .card .b{padding:11px 13px;flex:1;display:flex;flex-direction:column;gap:3px}
-  .card .nm{font-weight:700;color:var(--navy);font-size:13.5px;overflow-wrap:anywhere}
-  .card .meta{font-size:11.5px;color:var(--muted)}
-  .card .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+  .proj .ph .none{color:#cbd5e1;font-size:12px}
+  .proj .b{padding:11px 13px;flex:1;display:flex;flex-direction:column;gap:3px}
+  .proj .nm{font-weight:700;color:var(--navy);font-size:13.5px;overflow-wrap:anywhere}
+  .proj .meta{font-size:11.5px;color:var(--muted)}
+  .proj .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
   .tag{background:#eef2ff;color:#3730a3;border-radius:20px;padding:1px 8px;font-size:10.5px;font-weight:700}
-  .card .acts{display:flex;gap:6px;padding:0 13px 12px}
+  .proj .acts{display:flex;gap:6px;padding:0 13px 12px}
   .lnk{color:var(--blue);text-decoration:none;cursor:pointer;font-size:12.5px}
   .lnk:hover{text-decoration:underline}
   .empty{text-align:center;color:var(--muted);padding:44px;background:#fff;
@@ -44,14 +45,20 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <a class="back" href="./">&larr; Image Creator</a>
-  <h1>Image projects</h1>
-  <p class="sub" id="sub">Saved as editable canvases — reopen one and every layer is still there.</p>
+<div class="wrap s1d-page">
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb"><a href="./">Image Creator</a> / Image projects</div>
+      <h1>Image projects</h1>
+      <p id="sub">Saved as editable canvases &mdash; reopen one and every layer is still there.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn" href="./">+ New image</a>
+    </div>
+  </div>
 
   <div class="bar">
     <input type="search" id="q" placeholder="Search by project name, client or tag…">
-    <a class="btn" href="./">+ New image</a>
   </div>
   <div id="body"><div class="empty">Loading…</div></div>
   <div class="verfoot">Smart 1 Hub &middot; Image projects &middot; <b>{{ version }}</b></div>
@@ -74,13 +81,13 @@ async function load(){
 function render(rows){
   if(!rows.length){
     $('body').innerHTML = '<div class="empty">No saved projects'+(($('q').value.trim())?' match that search':' yet')
-      +'.<br><br><a class="btn" href="./">Create your first image</a></div>';
+      +'.<br><br><a class="s1d-btn" href="./">Create your first image</a></div>';
     return;
   }
   $('sub').textContent = rows.length + ' project' + (rows.length>1?'s':'')
     + ' — reopen one and every layer is still editable.';
   $('body').innerHTML = '<div class="grid">' + rows.map(p => `
-    <div class="card">
+    <div class="proj">
       <a class="ph" href="./?project=${encodeURIComponent(p.id)}">
         ${p.preview_url ? `<img src="${esc(p.preview_url)}" alt="" loading="lazy">`
                         : '<span class="none">No preview</span>'}</a>

@@ -356,6 +356,75 @@ check("the page layer excludes the help, tour and demo controls",
       all(t in SHEET for t in ('s1-help', 's1-tour', 's1-demo')), True)
 
 
+# ------------------------------- 7. adopting by name, where the layer is wrong
+section("A module with a vocabulary of its own takes the primitives, not the layer")
+
+SALES = (ROOT / "modules/sales_builder/templates/index.html").read_text(encoding="utf-8")
+
+# The finding was chrome twice: this module is mounted inside the Hub, so the
+# page already carries the Hub's sidebar, and a sticky navy bar reading
+# SMART 1 SALES BUILDER above it is what made the Proposal Builder read as a
+# separate product standing beside Client 360.
+check("the Proposal Builder no longer ships a branded topbar",
+      ".topbar{" in SALES, False)
+check("...nor the brand lockup that sat on it", 'class="brand"' in SALES, False)
+
+# What it genuinely needs survives: four views are a second level of navigation.
+check("the four views are the shared tab strip", "topnav s1d-subnav" in SALES, True)
+# nav() selects on the id and writes the class, so both are the page's to name.
+check('...keeping the id nav() selects on', 'id="topnav"' in SALES, True)
+check("...and the class nav() writes", "'on'" in SALES or '"on"' in SALES, True)
+check("the strip answers to that class", ".s1d-subnav a.on" in SHEET, True)
+
+# The rep's name is the attribution written onto every proposal built here, so
+# it is a control rather than decoration -- and it sits in the strip, which is
+# why the page button rule has to leave a sub-nav button alone.
+check("the rep chip is a control in the strip", 'class="repchip"' in SALES, True)
+check("and a sub-nav button is not styled as a page button",
+      ".s1d-subnav *" in SHEET, True)
+
+# The stat row is the Hub's tile. Only the category stripe stays local.
+check("the dashboard numbers are the shared tile", "s1d-tile" in SALES, True)
+check("...and the module's own stat card is gone", ".stat{" in SALES, False)
+# The Proposal Builder writes the label above the number rather than under it.
+check("the tile takes a label written above the number",
+      ".s1d-tile .lab" in SHEET, True)
+
+# And what it deliberately does NOT take. `.s1d-page button` carries three
+# :not()s, so it outranks every one of this module's six single-class button
+# names: taking the element layer would have rendered Back, Cancel and every
+# secondary button as solid brand blue, on a page where "Back" and "Convert to
+# IO" would then look like the same offer.
+# Asked of the class attributes rather than of the text: the reason it is not
+# taken is written in a comment in that template, and a check a file's own
+# explanation of itself can fail is one somebody deletes.
+def _wears(html, cls):
+    return any(cls in a.split() for a in _re.findall(r'class="([^"]*)"', html))
+
+
+check("it does not take the page element layer", _wears(SALES, "s1d-page"), False)
+for name in ("btn-primary", "btn-gold", "btn-line", "btn-ghost", "btn-good", "btn-back"):
+    check(f"...so .{name} still means what the page says it means",
+          "." + name + "{" in SALES, True)
+
+# The other half: a page with no vocabulary to lose takes the layer happily.
+PROJ = (ROOT / "modules/image_creator/templates/projects.html").read_text(encoding="utf-8")
+check("the image projects list takes the layer", "s1d-page" in PROJ, True)
+check("...and the shared page head", "s1d-head" in PROJ, True)
+check("...and the shared button", "s1d-btn" in PROJ, True)
+check("...and no longer styles its own", ".btn{" in PROJ, False)
+# A gallery tile is a thumbnail with a name under it, which is a different
+# thing from the card the rest of the Hub means by that word -- and `.card` is
+# in the shared page layer, so the two would have collided.
+check("the gallery tile is renamed, not left to collide with the shared card",
+      ".proj{" in PROJ and 'class="card"' not in PROJ, True)
+
+# The editor is a full-height canvas workbench with its own toolbar and tool
+# rail -- the shape the Hub collapses its sidebar for. It adopts none of this.
+EDITOR = (ROOT / "modules/image_creator/templates/index.html").read_text(encoding="utf-8")
+check("the canvas editor is left alone", _wears(EDITOR, "s1d-page"), False)
+
+
 # ------------------------------------------ the failure markup cannot show
 section("The wrapper still contains the page")
 
