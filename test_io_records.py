@@ -180,27 +180,6 @@ check("and a number that is a path fragment cannot escape the store",
       io_records.key_for("../../etc/passwd"))
 
 # ---------------------------------------------------------------------------
-section("A number handed out is not an order")
-
-io_records.note_allocated("10500", "Todd")
-io_records.note_allocated("10412", "Todd")
-unused = [r["order"] for r in io_records.unused_allocations()]
-# Scoped to the numbers this file handed out, never to the length of the list.
-# `jsonstore` keys its mirror *relative to the data root*, so
-# `io_orders/_allocations.json` is one key however many temporary data
-# directories there are — and CI runs every suite against one shared Postgres.
-# An allocation another file made (test_target_areas.py posts to
-# /api/next-order-number) is restored into this one and is a perfectly real
-# unused number. That is the mirror doing its job; a test that read the whole
-# list as its own was the thing that was wrong.
-check("a number that never became an order is answerable — otherwise the gap "
-      "in the numbering is unexplainable", "10500" in unused, unused)
-check("and one that did is not reported as a gap", "10412" not in unused)
-check("an allocation is a note, never a row in the order list — a listing "
-      "that mixed them would report work nobody sent",
-      "10500" not in [r["order"] for r in io_records.listing()["rows"]])
-
-# ---------------------------------------------------------------------------
 section("Bookkeeping never fails the thing it is bookkeeping for")
 
 src = open(os.path.join(ROOT, "modules", "io_builder", "app.py"),
@@ -272,10 +251,12 @@ check("and the note stops claiming the activity log is the horizon once the "
 check("an order Suite never took is named as reaching neither system",
       data["not_delivered"] >= 1
       and "reached neither system" in io_reconcile.note(data))
-check("and the numbers handed out and never used are explained rather than "
-      "left as unexplainable gaps",
-      data["unused_numbers"] >= 1
-      and "the numbering has gaps" in io_reconcile.note(data))
+check("a number handed out that never became an order is deliberately not "
+      "tracked — nobody here asks about gaps in the numbering, and machinery "
+      "kept alive for a question nobody puts is machinery to maintain",
+      not hasattr(io_records, "note_allocated")
+      and not hasattr(io_records, "unused_allocations")
+      and "unused_numbers" not in data)
 
 # ---------------------------------------------------------------------------
 section("The client's own record answers it")

@@ -5631,12 +5631,13 @@ the row is capped, and a row too large drops its **lines** rather than being
 refused — who and how much are what it exists for, and a record refused for
 size is an order with no trace at all.
 
-**And a number handed out is not an order.** The sequence issues one at the
-*start* of the wizard, so an abandoned IO burns a number and leaves a gap in
-the numbering somebody in accounting eventually asks about.
-`note_allocated()` is the only thing that makes that answerable, and it stays a
-**note** rather than a row: an allocation is not an order, and a listing that
-mixed them would report work nobody sent.
+**And a number handed out that never became an order is deliberately not
+tracked.** The sequence issues one at the *start* of the wizard, so an
+abandoned IO burns a number and leaves a gap in the numbering — and nobody
+here asks about those. A note recording them was built and then removed:
+machinery kept alive for a question nobody puts is machinery to maintain, and
+this file already counts five integration points that were declared and never
+wired. This store records orders that were sent.
 
 **The reconciliation reads the durable half now**, so its note stops saying the
 activity log is the horizon — that sentence was true and would have gone on

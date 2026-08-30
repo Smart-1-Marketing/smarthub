@@ -413,15 +413,6 @@ def report(now=None) -> dict:
                 "has_records": bool(sent.get("records"))}
 
     io_only = _io_only_orders()
-    # Numbers the sequence handed out that never became an order. Not a
-    # finding — a rep who starts an IO and thinks better of it is doing
-    # nothing wrong — but it is the only answer there is to "why is there no
-    # order 10407", and the gap is otherwise unexplainable.
-    try:
-        from hub import io_records
-        unused = len(io_records.unused_allocations())
-    except Exception:                                   # noqa: BLE001
-        unused = 0
     marks = settled()
     grace = timedelta(days=GRACE_DAYS)
     read_at = knack.get("read_at")
@@ -484,7 +475,6 @@ def report(now=None) -> dict:
         "log_oldest": sent["log_oldest"],
         "has_records": bool(sent.get("records")),
         "not_delivered": undelivered,
-        "unused_numbers": unused,
         "error": "",
     }
 
@@ -768,12 +758,6 @@ def note(data: dict) -> str:
         bits.append(f"{n} of {'them' if n > 1 else 'those'} "
                     f"{'was' if n == 1 else 'were'} never taken by Smart 1 "
                     "Suite either, so the order reached neither system")
-    if data.get("unused_numbers"):
-        u = data["unused_numbers"]
-        bits.append(f"{u} order number{'' if u == 1 else 's'} "
-                    f"{'was' if u == 1 else 'were'} handed out and never "
-                    "became an order, which is why the numbering has gaps in "
-                    "it")
     oldest = data.get("log_oldest")
     if oldest and not data.get("has_records"):
         # Only said while the activity log is genuinely the horizon. Once the
