@@ -74,6 +74,34 @@ def products() -> list[dict]:
     return _records(_load("products.json"))
 
 
+def products_error() -> str:
+    """Why `products()` came back empty, or "" if it answered.
+
+    An empty product list is not an answer this Hub can have: the export is
+    ten thousand rows and every client report on `/qa` is built by grouping
+    them. `_load()` swallows `OSError` and returns None, so a missing,
+    unreadable or malformed export yields `[]` — indistinguishable, to a
+    caller, from a book with nobody on it. Six reports then rendered a clean
+    empty table and `hub/report_cache.py` stored it as the day's answer:
+    "every client has a dashboard, nobody has lapsed, nobody is missing
+    Analytics, nobody churned", frozen until tomorrow, on a source that was
+    never read.
+
+    Told apart from a genuinely empty file because they are different things
+    to do about it, and returned as a sentence rather than a bool so the
+    report can print the reason it is not measured.
+    """
+    if _load("products.json") is None:
+        return ("the products export could not be read, so this is not "
+                "measured — which is not the same as there being nothing "
+                "to report")
+    if not products():
+        return ("the products export was read and holds no rows at all, "
+                "which is a source this report cannot use rather than a "
+                "book with nobody on it")
+    return ""
+
+
 def export_websites() -> list[dict]:
     """The committed websites export, exactly as it is on disk.
 

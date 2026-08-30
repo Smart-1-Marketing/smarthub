@@ -524,10 +524,61 @@ else:
     check("AUDIT_LOG_PATH still wins", _p["audit_named"], "/tmp/named-audit.jsonl")
     check("ERROR_LOG_PATH still wins", _p["errors_named"], "/tmp/named-errors.jsonl")
 
-# And neither may go back to deciding for itself.
-for _rel in ("hub/audit.py", "hub/errors.py"):
+# And none of them may go back to deciding for itself.
+for _rel in ("hub/audit.py", "hub/errors.py", "hub/leads.py", "hub/extensions.py",
+             "hub/scheduler.py", "modules/landing_ads/store.py",
+             "modules/google_finder/app.py"):
     _src = (ROOT / _rel).read_text(encoding="utf-8")
-    check(f"{_rel} defers to the one root", "jsonstore.data_root()" in _src, True)
+    check(f"{_rel} defers to the one root",
+          "jsonstore.data_root()" in _src or "jsonstore.data_dir(" in _src, True)
+
+
+section("...and every store follows it, not just the two logs")
+# =====================================================================
+# Seven files carried the same expression. They agreed, which is the luck
+# data_root() names -- and five of them also agreed on skipping HUB_DATA_DIR,
+# so a named root moved the jsonstore files and left the lead book, the
+# SQLite fallback, the scheduler's leader lock, the saved landing ads and the
+# Google refresh tokens on the shared disk. hub/scheduler.py had a fifth
+# spelling of its own: it fell back to "." , the current working directory,
+# which is the one answer that depends on where somebody started the process.
+
+_stores = """
+import os, sys, json, tempfile
+root = tempfile.mkdtemp(prefix="storecheck_")
+os.environ["HUB_DATA_DIR"] = root
+for k in ("HUB_LEADS_FILE", "DATABASE_URL", "TOKEN_DB_PATH", "AUDIT_LOG_PATH",
+          "ERROR_LOG_PATH"):
+    os.environ.pop(k, None)
+sys.path.insert(0, %r)
+from hub import jsonstore, leads, extensions, scheduler
+from modules.landing_ads import store as landing_ads
+import modules.google_finder.app as gfinder
+out = {"root": jsonstore.data_root(),
+       "leads": leads._path(),
+       "sqlite": extensions.database_url().replace("sqlite:///", ""),
+       "lock": scheduler._lock_path(),
+       "landing_ads": landing_ads.data_dir(),
+       "tokens": gfinder.TOKEN_DB_PATH}
+os.environ["HUB_LEADS_FILE"] = "/tmp/named-leads.jsonl"
+import importlib; importlib.reload(leads)
+out["leads_named"] = leads._path()
+print(json.dumps(out))
+""" % str(ROOT)
+
+_r2 = _sp.run([sys.executable, "-c", _stores], capture_output=True, text=True)
+check("the store probe runs", _r2.returncode, 0)
+if _r2.returncode:
+    print("   " + (_r2.stderr or "").strip()[-400:])
+else:
+    _q = json.loads(_r2.stdout.strip().splitlines()[-1])
+    for _name in ("leads", "sqlite", "lock", "landing_ads", "tokens"):
+        check(f"{_name} follows HUB_DATA_DIR",
+              _q[_name].startswith(_q["root"]), True)
+        if not _q[_name].startswith(_q["root"]):
+            print(f"          {_q[_name]}")
+    # Naming one file is still more specific than naming a root.
+    check("HUB_LEADS_FILE still wins", _q["leads_named"], "/tmp/named-leads.jsonl")
 
 
 
