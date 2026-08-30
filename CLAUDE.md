@@ -2245,6 +2245,47 @@ every other helper, so a Jinja environment that never got
 rule the check enforces is not *never name an empty screen* — a guarded
 declaration is correct whether or not the tour exists yet.
 
+**And the walkthrough returned in silence, which is the third layer of the
+same failure.** `hub/demos.py` drives a tool's *real* screen — filling its
+real fields, clicking its real buttons — so every step names the element to
+act on. A step whose element is not there hid its ring and, on **Do it for
+me**, `perform()` did `if (!node) return;`: the learner presses a button that
+promises to fill a field in and nothing at all happens, with no message. This
+file already named that failure for Smart 1 Ads' one scenario; what was fixed
+then was *offering* a walkthrough on a screen it was not written for, and
+never *running* one. The step says so now, in amber rather than red — the
+narration above it is still correct and still worth reading, and only the
+driving cannot happen — and the button that could only do nothing is not
+drawn, because a button pressed once with no effect makes the whole
+walkthrough read as broken rather than one step of it.
+
+**Fifty-five of the 165 steps that name an element name one that is in no
+template**, across eighteen of the twenty-eight scenarios; five drive nothing
+at all. That is a **backlog, not a regression**, and it is deliberately not an
+integrity finding: a check switched on red is a check somebody turns off, and
+it would take the bubble check down with it. `help_audit.demo_targets()`
+gathers it and the **help layer** panel on `/diagnostics` lists it, so the
+scenarios written against a screen that has since been rebuilt are a list
+somebody works down rather than something a learner meets one step at a time.
+Placing the hooks is separate work and needs whoever knows each tool.
+
+It asks whether the element exists **anywhere**, not on the scenario's own
+page — a walkthrough drives a screen whose markup half a dozen scripts write,
+so tying a target to one template would report a hook drawn at runtime as
+missing. A target in no file at all is missing beyond argument; one that
+appears somewhere is *not verified*, and the panel says which rather than
+implying it surveyed the pages.
+
+The step is repainted on a **debounced `MutationObserver`**, the arrangement
+`hub-help.js` already uses to mount bubbles on late-rendered content: half
+this Hub draws its panels from a fetch, so a target routinely arrives a
+second after its step was painted, and without this the amber line would
+stand and the button stay hidden on a step about to become perfectly
+workable — a worse answer than the silence it replaced. It **filters its own
+writes**, because `paint()` writes into the panel and moves the ring, and an
+unfiltered observer would repaint every 150ms for as long as a walkthrough is
+open.
+
 **A tour that opens itself is a dialog in front of somebody doing a job.**
 `data-screen` used to *start* the tour on a screen's first visit — modal, over
 the form, before anyone had asked for anything. It **offers** it now, in a
@@ -7133,8 +7174,9 @@ python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the cl
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
 python3 test_help_layer.py         # every bubble placed has help behind it, both
-                                   #   ways one is placed, and a key built at
-                                   #   runtime is named rather than guessed at
+                                   #   ways one is placed, a key built at runtime
+                                   #   named rather than guessed at, and the
+                                   #   walkthrough saying which step it cannot run
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete

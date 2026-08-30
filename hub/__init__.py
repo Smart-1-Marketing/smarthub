@@ -5198,6 +5198,44 @@ def create_hub_app() -> Flask:
         from . import housekeeping
         return jsonify(housekeeping.findings())
 
+    @app.route("/api/help-audit")
+    def api_help_audit():
+        """Which bubbles resolve, and which walkthrough steps can still drive.
+
+        The bubble half is a defect and is on `/api/integrity` at medium; it
+        is here as well because this is where the walkthrough half belongs and
+        splitting one question across two panels is how two screens come to
+        answer it differently — the trap `jsonstore.unmirrored_json_writers()`
+        exists to close.
+
+        The walkthrough half is deliberately **not** an integrity finding.
+        Fifty-five steps across eighteen scenarios name a hook that is in no
+        template, which is a backlog rather than a regression: a check
+        switched on red is one somebody turns off, and it would take the
+        bubble check down with it. `hub-demo.js` says which step it cannot run
+        at the moment somebody meets it, and this is the same list gathered so
+        it can be worked down rather than discovered one step at a time.
+
+        A Utilities path, like the panel it draws.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import help_audit
+        try:
+            bubbles = help_audit.audit()
+        except Exception as exc:                        # noqa: BLE001
+            bubbles = {"measured": False,
+                       "error": f"{type(exc).__name__}: {exc}"}
+        try:
+            demo = help_audit.demo_targets()
+        except Exception as exc:                        # noqa: BLE001
+            # Named, not answered with an empty list: "every step is anchored"
+            # and "we could not look" read identically as zero.
+            demo = {"measured": False,
+                    "error": f"{type(exc).__name__}: {exc}"}
+        return jsonify({"bubbles": bubbles, "walkthroughs": demo})
+
     @app.route("/api/celebrations")
     def api_celebrations():
         """Whose birthday and whose work anniversary, this month and today.

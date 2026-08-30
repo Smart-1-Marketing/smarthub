@@ -188,6 +188,103 @@ ok("has_tour is a template global on both halves of the app",
    "has_tour" in _help_routes_src and _help_routes_src.count("has_tour") >= 3)
 
 
+print("\nThe walkthrough says which step it cannot run")
+print("-" * 62)
+
+# hub/demos.py drives a tool's real screen -- filling its real fields,
+# clicking its real buttons -- and every step names the element to act on.
+# A step whose element is not there used to be silent in both halves: the
+# ring hid itself, and "Do it for me" returned without doing or saying
+# anything. That is the failure CLAUDE.md names about Smart 1 Ads' scenario,
+# fixed for OFFERING a walkthrough on a screen it was not written for and
+# never for RUNNING one.
+with open(os.path.join(ROOT, "hub", "static", "hub-demo.js"),
+          encoding="utf-8") as _fh:
+    DEMOJS = _fh.read()
+with open(os.path.join(ROOT, "hub", "static", "hub-help.css"),
+          encoding="utf-8") as _fh:
+    HELPCSS = _fh.read()
+
+ok("a step whose target is missing says so",
+   "s1-demo-gone" in DEMOJS and "cannot be shown or filled in for you" in DEMOJS)
+ok("and the button that could only do nothing is not drawn",
+   "|| gone;" in DEMOJS.replace(" ", " "))
+ok("perform() no longer returns in silence",
+   "target-missing" in DEMOJS)
+# A target drawn by a fetch arrives after the step is painted. Without a
+# repaint the amber line would stand and the button stay hidden on a step
+# about to become perfectly workable — a worse answer than the silence it
+# replaced. Same debounced observer hub-help.js uses to mount bubbles on
+# late-rendered content.
+ok("a target that arrives late brings the button back",
+   "MutationObserver" in DEMOJS)
+# And the observer must not see paint()'s own work: paint writes into the
+# panel and moves the ring, so unfiltered it would repaint every 150ms for as
+# long as a walkthrough is open.
+_obs = DEMOJS[DEMOJS.index("var repaint = null;"):
+              DEMOJS.index('window.addEventListener("resize"')]
+ok("and it does not repaint on its own writes",
+   "ours(records[i].target)" in _obs
+   and '"s1-demo-panel"' in _obs and '"s1-demo-ring"' in _obs)
+ok("only while a walkthrough is open", "if (!S" in _obs)
+ok("the line is styled, or it is invisible",
+   ".s1-demo-gone{" in HELPCSS)
+# Amber, not red: the narration above it is still correct and still worth
+# reading — only the driving cannot happen.
+ok("and drawn amber rather than red",
+   "#c08a2e" in HELPCSS or "#6b4a12" in HELPCSS)
+
+DEMO = help_audit.demo_targets()
+ok("the walkthroughs were measured", DEMO.get("measured") is True)
+ok("and every scenario was looked at",
+   DEMO["scenarios"] >= 20, str(DEMO["scenarios"]))
+ok("steps that name an element were counted",
+   DEMO["steps"] > 100, str(DEMO["steps"]))
+# Deliberately not asserted to be zero. Fifty-five steps across eighteen
+# scenarios name a hook that is in no template; that is a backlog, and a
+# check switched on red is a check somebody turns off -- it would take the
+# bubble check down with it. What is asserted is that the number is *known*.
+ok("the unanchored ones are named rather than counted",
+   all(r.get("unanchored") for r in DEMO["rows"]))
+ok("and a scenario that drives none of its steps is marked apart",
+   all(isinstance(r.get("dead"), bool) for r in DEMO["rows"]))
+ok("a fully anchored scenario is not in the list",
+   set(DEMO["clean"]).isdisjoint({r["key"] for r in DEMO["rows"]}))
+
+# Fed a scenario whose target plainly exists, it must not be reported.
+_anchored = [r for r in DEMO["clean"]]
+ok("some walkthroughs are clean, so this is not reporting everything",
+   len(_anchored) >= 5, str(len(_anchored)))
+
+
+print("\nThe panel that shows it")
+print("-" * 62)
+
+with open(os.path.join(ROOT, "hub", "templates", "diagnostics.html"),
+          encoding="utf-8") as _fh:
+    DIAG = _fh.read()
+with open(os.path.join(ROOT, "hub", "access.py"), encoding="utf-8") as _fh:
+    ACCESS = _fh.read()
+
+ok("Diagnostics draws the help layer", 'id="diag-help-audit"' in DIAG)
+ok("and asks the route for it", '"/api/help-audit"' in DIAG)
+ok("the route is behind Utilities", '"/api/help-audit"' in ACCESS)
+# One panel, because they are one question asked of two mechanisms.
+ok("both halves are on the one panel",
+   "renderHelpAudit" in DIAG and "walkthroughs" in DIAG and "bubbles" in DIAG)
+# A runtime-built key gets the pill this panel already has for exactly this
+# state. The class is composed by row(), so the literal never appears inside
+# the renderer -- what is asserted is the state it passes, and that the pill
+# it names is one the stylesheet defines.
+_render = DIAG[DIAG.index("function renderHelpAudit"):DIAG.index("function loadAll")]
+ok("a key built at runtime is drawn as unverified, not as a fault",
+   'row("unverified"' in _render and ".p-unverified{" in DIAG)
+# And it is never drawn as a warning, which would make a thing nobody can act
+# on look like a thing somebody must.
+ok("and never as a warning",
+   'row("warn"' not in _render.split("Built at runtime")[0].rsplit("row(", 1)[-1])
+
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} failure(s):")
