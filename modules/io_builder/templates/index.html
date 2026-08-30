@@ -2947,7 +2947,7 @@ async function loadClientGallery(){
    const isImg=(i.resource_type||"image")==="image";
    const dims=(i.width&&i.height)?`${i.width}x${i.height}`:"";
    const badge=i.spec_result?`<span class="${specClass(i.spec_result)}">${specLabel(i.spec_result)}</span>`:"";
-   return `<div class="gallery-item">${isImg?`<img src="${esc(i.url)}" alt="">`:`<div class="gallery-file">${esc((i.filename||"file").split('.').pop().toUpperCase())}</div>`}
+   return `<div class="gallery-item">${isImg?`<img src="${esc(i.thumb||i.url)}" alt="">`:`<div class="gallery-file">${esc((i.filename||"file").split('.').pop().toUpperCase())}</div>`}
     <div class="tiny">${esc(i.filename||"")}</div><div class="tiny">${esc(dims)} ${badge}</div>
     <button class="upload-secondary" onclick="attachFromGallery('${esc(String(i.id))}')">Attach to IO</button></div>`;
   }).join("")+'</div>';

@@ -5173,6 +5173,69 @@ the Image Optimizer's save path wrote rows without it: those images appeared in
 the archive and then ignored every button on their row. `load_archive()`
 backfills once on the first read that finds one missing.
 
+**And a gallery drew the original into a box a fraction of its size.** Every
+tile in this Hub was `<img src="{the full asset}">` — the client gallery's
+64x48 row thumb, Client 360's 120px tiles, the picker's grid, the SEO archive.
+A client uploads forty photographs off a phone and the staff gallery delivers
+something like a hundred and sixty megabytes to draw forty small boxes.
+Nothing errors and the pictures are right; the cost is a slow page and a
+Cloudinary bill, which is charged in **credits, one of which is a gigabyte
+delivered** — so this is the line item, not what we upload.
+`hub/storage.thumb_url()` had been written for exactly this, docstring and
+all — *"Galleries must never request the full asset"* — and had **no caller**,
+the fourth declared-but-unwired integration point in this corner after
+`RECORD_HOOK`, `io_creative` and `manifest()`. The one place the rule was
+being applied was Google Drive, whose thumbnails are asked for at `sz=w400`,
+because that one is not ours and somebody had to think about it.
+
+`preview_url()` is the sibling that takes a stored delivery URL, and four
+rules keep it from turning a working tile into a broken one. **Anything not
+ours comes back unchanged** — a stock CDN, a Drive link, a `data:` URI — the
+answer `attachment_url()` already gives, since rewriting a URL we do not own
+produces a 404 where there was a picture. **Only an image**: Cloudinary keeps
+images, raw files and video in separate namespaces, so an image
+transformation on a PDF is "not found", the lesson `cloudinary_sink.destroy()`
+paid for; the row's own `resource_type` is believed first and the URL's own
+segment decides when the row says nothing. **Idempotent**, so a row rewritten
+here and handed to a caller that rewrites again does not chain two. And
+**`c_limit`, never `c_fill` or a bare width** — it caps without upscaling or
+cropping, so a 180px logo stays 180px rather than being blown up and
+re-encoded.
+
+**One derived size for the whole Hub, and deliberately not one per box.**
+Cloudinary bills a credit per thousand transformations and caches each
+derivative separately, so a 64px row, a 120px tile and a 300px cell asked for
+at their own sizes is three derivatives of every image in the account to save
+bytes nobody would notice.
+
+**It is derived on the row, never stored and never mirrored into JavaScript.**
+`SavedImage.to_dict()` and `seo_images.load_archive()` add a `thumb` beside
+the `url`, and `image_audit._read()` does it in the one funnel all six store
+readers pass through — deriving it per reader is six chances for the seventh
+store to draw full assets and for nobody to notice. Stored, it would outlive
+the size it was computed at and be *restored* from the jsonstore mirror rather
+than recomputed, the `client_key` rule. Written into the twelve templates that
+draw a tile, it would be the drift `hub/storage.py` exists to stop. Each tile
+reads `thumb || url`, so a row from a producer nothing has wired yet draws
+exactly what it drew before.
+
+**And the two places it must not happen are the deliverables.** The gallery's
+copy button and the CSV export hand out `<img>` markup that goes onto the
+client's own website; a 400px gallery thumbnail pasted there is the wrong file
+on their page for ever. Those keep the original, as does the lightbox, whose
+whole job is the full asset.
+
+**What is still full-size is a table with a reason against each row**, not an
+omission — a screen silently missing from a completeness report is the same
+failure the report is about. Logos (small, one per page, as often observed off
+the client's own site as stored by us), the just-uploaded strip (that URL comes
+back from the Cloudinary widget in the browser and never passes through a row
+here, so previewing it would mean a copy of the rule in JavaScript), and one
+genuine gallery this change cannot reach: the Display Ad Builder's background
+picker is served by the Node renderer, whose rows never pass through
+`hub/storage.py`. `test_image_download.py` fails on a tile with no reason on
+file **and** on a reason whose line has gone, and it started green.
+
 `test_image_download.py` asserts all of it, including that the image picker
 still returns a zip now that it runs on the shared builder.
 
@@ -6620,7 +6683,8 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
-python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_image_download.py     # image downloads, the shared zip builder, and the
+                                   #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   and a gallery you can search
 python3 test_client_images.py      # deleting a client image, the count, the one brand

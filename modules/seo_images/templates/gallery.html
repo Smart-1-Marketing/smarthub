@@ -148,7 +148,7 @@ function render(rows){
       COMPANY ? '' : ' · ' + esc(list[0].company || '')}</span></div>
     <div class="tiles">${list.map(r => `
       <div class="tile">
-        <a class="ph" href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"></a>
+        <a class="ph" href="${esc(r.url)}" target="_blank" rel="noopener"><img src="${esc(r.thumb||r.url)}" alt="${esc(r.alt_text)}" loading="lazy"></a>
         <div class="b">
           <div class="fn">${esc(r.filename)}</div>
           <div class="alt" data-alt="${esc(r.id)}">${esc(r.alt_text)}</div>

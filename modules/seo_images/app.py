@@ -137,6 +137,21 @@ def load_archive() -> list[dict]:
             save_archive(data)
         except Exception:                 # noqa: BLE001
             pass          # the ids are still right for this request
+
+    # What a tile draws, derived on read and never stored. The full asset
+    # stays on `url` for the link, the copy button and the download -- the
+    # SEO filename is the deliverable and a thumbnail is not it. Derived
+    # rather than written into the row for the reason `client_key` gives at
+    # length: a stored preview outlives the size it was computed at, and this
+    # index is mirrored into the database, so a bad one would be restored
+    # rather than recomputed.
+    from hub import storage           # imported here as everywhere else in this file
+    for row in data:
+        if isinstance(row, dict):
+            try:
+                row["thumb"] = storage.preview_url(row.get("url", ""))
+            except Exception:             # noqa: BLE001
+                row["thumb"] = row.get("url", "")
     return data
 
 

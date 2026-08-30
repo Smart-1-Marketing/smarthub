@@ -570,7 +570,7 @@
       grid.innerHTML = d.images.map(function(im){
         return '<a class="tile" href="' + esc(im.url) + '" target="_blank" rel="noopener" ' +
           'aria-label="' + esc(im.alt_text || im.filename) + '">' +
-          '<img src="' + esc(im.url) + '" alt="" loading="lazy">' +
+          '<img src="' + esc(im.thumb || im.url) + '" alt="" loading="lazy">' +
           '<span class="credit">' + esc(im.filename) + '</span></a>';
       }).join("");
       $("more").hidden = true;
