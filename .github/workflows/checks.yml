@@ -223,6 +223,21 @@ jobs:
             echo "test_commercial_compliance.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder archetype and category tests
+        # What a spot IS as distinct from how it gets made, the legacy
+        # commercial_type reading as the archetype it always was, pack ids
+        # matching hub/industries.py so one client cannot get two taxonomies,
+        # an unmatched category reading generic rather than wrong, and the
+        # check that names any field which changes nothing. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_library.py ]; then
+            python test_commercial_library.py
+          else
+            echo "test_commercial_library.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.

@@ -707,6 +707,24 @@ REGISTRY: list[Help] = [
        "the stock searches and the end card\u2019s offer. Write the offer as a client "
        "would say it \u2014 \u201c$79 air conditioning tune-up before August 31\u201d "
        "rather than \u201cHVAC services\u201d."),
+    _h("commercial_builder.brief.archetype", "What the spot is, not how it gets made",
+       "The commercial type on the Start page answers a different question \u2014 "
+       "stock footage or an AI spokesperson is how it gets BUILT. This is what "
+       "it IS: the narrative the viewer actually watches. They were one field "
+       "for a while, which meant picking \u201cAI spokesperson\u201d said "
+       "nothing about the story and picking \u201cTestimonial\u201d said nothing "
+       "about the method, and the writer was told half of what had been decided. "
+       "Each one names what it is good at, what it is bad at, and \u2014 the part "
+       "worth reading \u2014 what it needs from the client. A testimonial needs a "
+       "real customer who has agreed. A before-and-after needs the BEFORE, which "
+       "nobody photographs because at the time it was just a Tuesday. That "
+       "question appears the moment you pick one, and an unanswered one shows on "
+       "the Blueprint as something to sort out while it is still free to change. "
+       "Where the client's industry is on file, the ones that usually work in "
+       "that category are named \u2014 as a suggestion, never a filter, because an "
+       "unusual choice is often the reason a spot works. Nothing picked yet "
+       "means the tool has inferred one from the commercial type, and it says "
+       "so rather than drawing a selection you never made."),
     _h("commercial_builder.brief.landing", "The landing page becomes the QR code",
        "Where there is one, this is what the QR code on the end card points at, "
        "with tracking added so scans report as their own source rather than as "
