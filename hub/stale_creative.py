@@ -841,6 +841,61 @@ def scorecard():
     }
 
 
+def by_client() -> tuple[dict, str]:
+    """`({matched key: row}, error)` — this audit, one row per client.
+
+    The client-health report needs to ask "how long since we made anything for
+    *this* client", which is what the whole audit already answers; walking the
+    six sources a second time there would be the mirror this codebase has paid
+    for twice. So the report reads this, keyed on the audit's **own** match key
+    so the two cannot disagree about what counts as one client.
+
+    The evergreen overlay has already been applied by `_cached()`, and its
+    group is deliberately included: a client whose creative is fixed for the
+    campaign is not a gap, and the row carries `evergreen` so the reader can
+    say so rather than counting it as one.
+
+    A pair rather than a bare dict, for the reason `connected_accounts_result`
+    gives in Google Finder: *nobody is overdue* and *the audit would not run*
+    are different answers.
+    """
+    try:
+        data = _cached()
+    except Exception as exc:                            # noqa: BLE001
+        return {}, f"{type(exc).__name__}: {exc}"[:200]
+    out: dict = {}
+    for group in data.get("groups") or ():
+        for row in group.get("clients") or ():
+            key = row.get("key")
+            if not key:
+                continue
+            out[key] = {
+                "client": row.get("client") or "",
+                "days_since": row.get("days_since"),
+                "last_upload": row.get("last_upload") or "",
+                "last_source": row.get("last_source") or "",
+                "total_creatives": int(row.get("total_creatives") or 0),
+                "last_12_months": int(row.get("last_12_months") or 0),
+                "group": group.get("key") or "",
+                "group_label": group.get("label") or "",
+                "evergreen": row.get("evergreen") or None,
+            }
+    return out, ""
+
+
+def match_key(name: str) -> str:
+    """The key this audit files a client under. Handed out rather than copied.
+
+    `hub/creative_evergreen.by_key()` already takes the matcher as an argument
+    for the same reason: a second normaliser somewhere else is a mark filed
+    against a client the audit does not think it is about.
+    """
+    try:
+        return _client_matcher()(name) or ""
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
 def _audit_log(event, **extra):
     """hub/audit.py exposes log(module, type_, actor=..., **extra).
     The Scans module called a record() that never existed and every event was

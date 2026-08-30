@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Clients — Smart 1 Hub</title>
+<style>
+  /* Deliberately short. The look is hub/static/hub-detail.css, which the hub
+     app injects into every blueprint page after this block — so a rule here
+     that restates a card, a button or a table is one that will drift away
+     from every other record screen the first time that file is edited. What
+     is left is this page's own vocabulary and nothing else. */
+  body{margin:0;background:#f6f8fb}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 18px 72px}
+  .ch-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px}
+  .ch-toolbar .sp{margin-left:auto}
+  .ch-row{cursor:pointer}
+  .ch-row td{vertical-align:top}
+  .ch-count{display:inline-block;min-width:26px;text-align:center;border-radius:999px;
+            padding:3px 9px;font-weight:700;font-size:12px}
+  .ch-c0{background:#ecfdf3;color:#12794b}
+  .ch-c1{background:#fef7e7;color:#94620a}
+  .ch-c2{background:#fdecec;color:#b01919}
+  .ch-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+  .ch-chip{font-size:11px;border-radius:999px;padding:2px 8px;background:#eef2ff;color:#3730a3}
+  .ch-detail{background:#fbfdff}
+  .ch-detail td{padding:0 10px 16px}
+  .ch-issue{border:1px solid #e2e8f0;border-radius:10px;background:#fff;
+            padding:11px 13px;margin:8px 0}
+  .ch-issue.done{background:#f8fafc;opacity:.85}
+  .ch-issue h4{margin:0 0 3px;font-size:13.5px;color:#0a2240}
+  .ch-issue p{margin:0;font-size:12.5px;color:#475569}
+  .ch-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;align-items:center}
+  .ch-figs{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+           margin:6px 0 4px}
+  .ch-fig{border:1px solid #e2e8f0;border-radius:9px;background:#fff;padding:9px 11px}
+  .ch-fig b{display:block;font-size:17px;color:#0a2240}
+  .ch-fig span{font-size:11.5px;color:#68798c}
+  .ch-note{border-left:3px solid #cbd5e1;padding:4px 0 4px 10px;margin:8px 0;font-size:12.5px}
+  .ch-note .who{color:#68798c;font-size:11.5px}
+  .ch-cols{display:grid;gap:16px;grid-template-columns:3fr 2fr}
+  @media (max-width:900px){.ch-cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body class="s1d-page" data-s1hub-collapse="1">
+<div class="wrap">
+
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb"><a href="/">Dashboard</a> › My Clients</div>
+      <h1>My Clients {{ help_dot('client_health.report') if help_dot is defined else '' }}</h1>
+      <p class="sub">Everything outstanding on the clients assigned to you, the
+        one with the most first. Every row is read from the systems that
+        already hold it — nothing here is typed in, so nothing here can go
+        stale by being forgotten.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/qa/client-owners">Assign clients</a>
+      <button id="refresh" class="sec" type="button">Run it again</button>
+    </div>
+  </div>
+
+  <div id="viewer-note"></div>
+
+  <div class="s1d-subnav" id="scopes">
+    <button type="button" data-scope="mine" class="on">Mine</button>
+    <button type="button" data-scope="all">Everyone</button>
+    <button type="button" data-scope="unassigned">Nobody's</button>
+    <span class="sp"></span>
+    <label style="display:flex;gap:6px;align-items:center;margin:0">
+      <input id="who" type="search" list="owners" placeholder="Look at someone else's book…"
+             style="min-width:230px">
+    </label>
+    <datalist id="owners"></datalist>
+    <input id="q" type="search" placeholder="Search client, domain or partner…"
+           style="min-width:200px">
+  </div>
+
+  <p class="s1d-muted" id="age"></p>
+  <div id="sources"></div>
+
+  <div class="s1d-tiles" id="tiles"></div>
+
+  <div class="card">
+    <div class="s1d-tablehead"><b>Clients {{ help_dot('client_health.marks') if help_dot is defined else '' }}</b>
+      <span class="s1d-muted" id="shown"></span></div>
+    <div class="s1d-scroll">
+      <table>
+        <thead><tr>
+          <th style="width:34px"></th>
+          <th>Client</th><th>Owner</th><th>Outstanding</th>
+          <th>Traffic health</th><th class="s1d-muted">Live</th>
+        </tr></thead>
+        <tbody id="rows"><tr><td colspan="6">Reading your book… <span class="spin"></span></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var DATA = null, OPEN = {}, KINDS = {};
+
+  function esc(s){ return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;"); }
+  function el(id){ return document.getElementById(id); }
+  function money(n){ return "$" + Number(n || 0).toLocaleString(undefined,
+    {minimumFractionDigits:0, maximumFractionDigits:0}); }
+
+  function params(extra){
+    var p = new URLSearchParams();
+    var scope = document.querySelector('#scopes button.on');
+    p.set("scope", scope ? scope.getAttribute("data-scope") : "mine");
+    var who = el("who").value.trim();
+    if(who) p.set("owner", who);
+    var q = el("q").value.trim();
+    if(q) p.set("q", q);
+    if(extra) p.set(extra, "1");
+    return p.toString();
+  }
+
+  function load(force){
+    var url = "/api/my-clients" + (force ? "/refresh" : "") + "?" + params();
+    var box = el("rows");
+    box.innerHTML = '<tr><td colspan="6">Reading your book… <span class="spin"></span></td></tr>';
+    fetch(url, {method: force ? "POST" : "GET", credentials:"same-origin"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ DATA = d; KINDS = d.kinds || {}; draw(); })
+      /* A report that could not be read has to say so. Drawing an empty table
+         would be indistinguishable from a book with nothing outstanding in
+         it, which is the one answer this page must never give by accident. */
+      .catch(function(err){
+        box.innerHTML = '<tr><td colspan="6">This report could not be read ('
+          + esc(err && err.message ? err.message : "no answer from the Hub")
+          + '). Nothing on your book has been checked — this is not an empty '
+          + 'list.</td></tr>';
+      });
+  }
+
+  function drawViewer(){
+    var me = (DATA && DATA.me) || {};
+    var box = el("viewer-note");
+    if(me.shared){
+      box.innerHTML = '<div class="s1d-note warn">You are signed in with the '
+        + 'shared password, so this session has no account behind it and there '
+        + 'is nobody to show a book for. Everybody’s clients are below — '
+        + 'sign in with your own account, or pick a name above, to narrow it.</div>';
+    } else if(me.error){
+      box.innerHTML = '<div class="s1d-note warn">' + esc(me.error) + '</div>';
+    } else { box.innerHTML = ""; }
+  }
+
+  function drawSources(){
+    var src = (DATA && DATA.sources) || {};
+    var blind = Object.keys(src).filter(function(k){ return !src[k].measured; });
+    var box = el("sources");
+    if(!blind.length){ box.innerHTML = ""; return; }
+    box.innerHTML = '<div class="s1d-note warn"><b>Not measured this run.</b> '
+      + blind.map(function(k){
+          return esc(k.replace(/_/g," ")) + ' &mdash; ' + esc(src[k].error || "no reason given");
+        }).join("<br>")
+      + '<br>Anything those would have raised is <b>missing from every row</b>, '
+      + 'not absent from it.</div>';
+  }
+
+  function drawTiles(){
+    var c = (DATA && DATA.counts) || {};
+    el("tiles").innerHTML = [
+      ['<span class="lab">Clients on this view</span><b>' + (c.clients_shown||0) + '</b>'],
+      ['<span class="lab">With something outstanding</span><b>' + (c.clients_with_issues||0) + '</b>'],
+      ['<span class="lab">Things outstanding</span><b>' + (c.issues||0) + '</b>'],
+      ['<span class="lab">Ignored or done</span><b>' + (c.handled||0) + '</b>'],
+      ['<span class="lab">Clients nobody owns</span><b>' + (c.unassigned||0) + '</b>']
+    ].map(function(t){ return '<div class="s1d-tile">' + t[0] + '</div>'; }).join("");
+    el("shown").textContent = (c.clients_shown||0) + " of " + (c.clients_total||0)
+      + " clients";
+  }
+
+  function countClass(n){ return n === 0 ? "ch-c0" : (n < 3 ? "ch-c1" : "ch-c2"); }
+
+  function trafficCell(t){
+    if(!t) return '<span class="s1d-muted">not measured</span>';
+    if(t.state === "never")
+      return '<span class="s1d-pill">never audited</span>';
+    var figs = (t.figures || []);
+    var lead = figs.length ? figs[0] : null;
+    var pill = t.stale ? '<span class="s1d-pill warn">read '
+        + esc(t.age_days) + 'd ago</span>'
+      : '<span class="s1d-pill ok">current</span>';
+    return pill + (lead ? '<div class="s1d-muted">' + esc(lead.label) + ': '
+      + esc(lead.value) + '</div>' : '');
+  }
+
+  function ownerCell(o){
+    if(!o || !o.email) return '<span class="s1d-muted">nobody</span>';
+    if(!o.known) return '<span class="s1d-pill warn">' + esc(o.email)
+      + ' &mdash; no account</span>';
+    return esc(o.name);
+  }
+
+  function draw(){
+    drawViewer(); drawSources(); drawTiles();
+    var cache = (DATA && DATA.cache) || {};
+    el("age").textContent = cache.line || "";
+    var rows = (DATA && DATA.rows) || [];
+    var box = el("rows");
+    if(!rows.length){
+      /* Which kind of empty. "Nothing is outstanding" and "nobody has
+         assigned you a client" render identically as a blank table and only
+         the second is somebody's to fix. */
+      var reason = (DATA && DATA.empty_reason) || "";
+      var msg = reason === "no_clients"
+        ? 'No clients are assigned to you yet. <a href="/qa/client-owners">Assign '
+          + 'some</a>, or switch to <b>Everyone</b> above.'
+        : 'Nothing is outstanding on these clients right now.';
+      box.innerHTML = '<tr><td colspan="6">' + msg + '</td></tr>';
+      return;
+    }
+    var html = "";
+    rows.forEach(function(r, i){
+      var open = !!OPEN[r.key];
+      html += '<tr class="ch-row" data-i="' + i + '">'
+        + '<td>' + (open ? "&#9662;" : "&#9656;") + '</td>'
+        + '<td><b>' + esc(r.client) + '</b>'
+        + (r.partner ? '<div class="s1d-muted">' + esc(r.partner) + '</div>' : "")
+        + (r.domain ? '<div class="s1d-muted">' + esc(r.domain) + '</div>' : "")
+        + '</td>'
+        + '<td>' + ownerCell(r.owner) + '</td>'
+        + '<td><span class="ch-count ' + countClass(r.issue_count) + '">'
+        + r.issue_count + '</span>'
+        + '<div class="ch-chips">' + (r.issues || []).slice(0,4).map(function(is){
+            return '<span class="ch-chip">' + esc((KINDS[is.kind]||{}).label || is.kind)
+              + '</span>'; }).join("")
+        + ((r.issues||[]).length > 4 ? '<span class="ch-chip">+'
+            + ((r.issues||[]).length - 4) + ' more</span>' : "")
+        + '</div></td>'
+        + '<td>' + trafficCell(r.traffic) + '</td>'
+        + '<td class="s1d-muted">' + (r.live_products || 0)
+        + (r.monthly ? '<div>' + esc(money(r.monthly)) + '/mo</div>' : "") + '</td>'
+        + '</tr>';
+      if(open) html += '<tr class="ch-detail"><td colspan="6">'
+        + detail(r, i) + '</td></tr>';
+    });
+    box.innerHTML = html;
+    wire();
+  }
+
+  function issueCard(r, is, i, done){
+    var mark = is.mark || {};
+    var acts = done
+      ? '<button class="sec small" data-act="open" data-i="' + i + '" data-key="'
+        + esc(is.key) + '">Put back</button>'
+        + '<span class="s1d-muted">' + esc(mark.state === "done" ? "Done" : "Ignored")
+        + (mark.by ? " by " + esc(mark.by) : "")
+        + (mark.at ? " on " + esc(String(mark.at).slice(0,10)) : "") + '</span>'
+      : '<button class="small" data-act="done" data-i="' + i + '" data-key="'
+        + esc(is.key) + '" data-seen="' + esc(is.fingerprint) + '">Done</button>'
+        + '<button class="sec small" data-act="ignored" data-i="' + i
+        + '" data-key="' + esc(is.key) + '" data-seen="' + esc(is.fingerprint)
+        + '">Ignore</button>'
+        + (is.link ? '<a class="s1d-btn sec small" href="' + esc(is.link) + '">'
+            + esc(is.where || "Open") + ' &rarr;</a>' : "");
+    var superseded = (mark && mark.superseded)
+      ? '<div class="s1d-note warn" style="margin:8px 0 0">This was marked '
+        + esc(mark.state) + ' by ' + esc(mark.by || "somebody")
+        + ', and what it says has changed since. It is open again rather than '
+        + 'standing over something nobody has read.</div>'
+      : "";
+    return '<div class="ch-issue' + (done ? " done" : "") + '">'
+      + '<h4>' + esc((KINDS[is.kind]||{}).label || is.kind) + ' &mdash; '
+      + esc(is.title) + '</h4>'
+      + '<p>' + esc(is.detail) + '</p>'
+      + (mark.note ? '<p class="s1d-muted">Note: ' + esc(mark.note) + '</p>' : "")
+      + superseded
+      + '<div class="ch-acts">' + acts + '</div>'
+      + '</div>';
+  }
+
+  function detail(r, i){
+    var t = r.traffic || {};
+    var figs = (t.figures || []).map(function(f){
+      return '<div class="ch-fig"><b>' + esc(f.value) + '</b><span>'
+        + esc(f.label) + (f.note ? " &mdash; " + esc(f.note) : "") + '</span></div>';
+    }).join("");
+    var e = r.engagement || {};
+    var left = '<div class="card"><h3>Outstanding</h3>'
+      + ((r.issues || []).length
+          ? r.issues.map(function(is){ return issueCard(r, is, i, false); }).join("")
+          : '<p class="s1d-muted">Nothing outstanding on this client.</p>')
+      + ((r.handled || []).length
+          ? '<h3 style="margin-top:14px">Ignored or done ('
+            + r.handled.length + ')</h3>'
+            + r.handled.map(function(is){ return issueCard(r, is, i, true); }).join("")
+          : "")
+      + '</div>';
+    var right = '<div class="card"><h3>Traffic health</h3>'
+      + (t.measured
+          ? (figs ? '<div class="ch-figs">' + figs + '</div>' : "")
+            + '<p class="s1d-muted">' + esc(t.note || "") + '</p>'
+            + (t.scan_url ? '<a class="s1d-btn sec small" href="' + esc(t.scan_url)
+                + '">Open the audit &rarr;</a>' : "")
+          : '<p class="s1d-muted">' + esc(t.note || "Not measured.") + '</p>')
+      + '<h3 style="margin-top:14px">How they are engaging</h3>'
+      + (e.measured
+          ? '<div class="s1d-kv"><b>Proposals open</b><span>' + (e.open_proposals||0)
+            + '</span></div>'
+            + '<div class="s1d-kv"><b>Proposal views</b><span>' + (e.proposal_opens||0)
+            + '</span></div>'
+            + '<div class="s1d-kv"><b>Proof rounds answered</b><span>'
+            + (e.proof_rounds_answered||0) + '</span></div>'
+            + '<div class="s1d-kv"><b>Proof rounds still with them</b><span>'
+            + (e.proof_rounds_out||0) + '</span></div>'
+          : '<p class="s1d-muted">The proposal store did not answer, so how '
+            + 'they are engaging is not measured &mdash; not nothing.</p>')
+      + '<h3 style="margin-top:14px">Notes</h3>'
+      + (r.notes || []).map(function(n){
+          return '<div class="ch-note">' + esc(n.text)
+            + '<div class="who">' + esc(n.by || "somebody") + ' &middot; '
+            + esc(String(n.at || "").slice(0,10))
+            + ' <a href="#" data-act="delnote" data-id="' + esc(n.id)
+            + '" data-i="' + i + '">remove</a></div></div>';
+        }).join("")
+      + '<div class="ch-acts"><input class="ch-notebox" data-i="' + i + '" '
+      + 'type="text" placeholder="Add a note about this client…" style="flex:1 1 200px">'
+      + '<button class="sec small" data-act="note" data-i="' + i + '">Add</button></div>'
+      + '<p class="s1d-muted"><a href="' + esc(r.c360) + '">Open the full record &rarr;</a></p>'
+      + '</div>';
+    return '<div class="ch-cols">' + left + right + '</div>';
+  }
+
+  function post(url, body){
+    return fetch(url, {method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})
+      .then(function(r){ return r.json().then(function(j){
+        if(!r.ok || j.ok === false) throw new Error(j.error || "That did not save.");
+        return j; }); });
+  }
+
+  function wire(){
+    document.querySelectorAll(".ch-row").forEach(function(tr){
+      tr.onclick = function(ev){
+        if(ev.target.closest("a,button,input")) return;
+        var r = DATA.rows[Number(tr.getAttribute("data-i"))];
+        OPEN[r.key] = !OPEN[r.key];
+        draw();
+      };
+    });
+    document.querySelectorAll("[data-act]").forEach(function(node){
+      node.onclick = function(ev){
+        ev.preventDefault();
+        var act = node.getAttribute("data-act");
+        var row = DATA.rows[Number(node.getAttribute("data-i"))];
+        if(!row) return;
+        node.disabled = true;
+        var done;
+        if(act === "note"){
+          var box = document.querySelector('.ch-notebox[data-i="'
+            + node.getAttribute("data-i") + '"]');
+          var text = box ? box.value.trim() : "";
+          if(!text){ node.disabled = false; return; }
+          done = post("/api/my-clients/note", {client: row.client, text: text});
+        } else if(act === "delnote"){
+          done = post("/api/my-clients/note/delete",
+                      {id: node.getAttribute("data-id")});
+        } else {
+          done = post("/api/my-clients/mark", {
+            client: row.client, issue: node.getAttribute("data-key"),
+            state: act, seen: node.getAttribute("data-seen") || ""});
+        }
+        /* Reloaded rather than patched in the browser: a mark moves the row
+           between two lists and changes the count it is sorted on, and a
+           screen that edits one of those three by hand is a screen that
+           disagrees with the next reload. */
+        done.then(function(){ load(false); })
+            .catch(function(err){
+              node.disabled = false;
+              alert(err.message || "That did not save.");
+            });
+      };
+    });
+  }
+
+  el("refresh").onclick = function(){ load(true); };
+  document.querySelectorAll("#scopes button[data-scope]").forEach(function(b){
+    b.onclick = function(){
+      document.querySelectorAll("#scopes button[data-scope]")
+        .forEach(function(x){ x.classList.remove("on"); });
+      b.classList.add("on");
+      load(false);
+    };
+  });
+  var timer = null;
+  ["q","who"].forEach(function(id){
+    el(id).oninput = function(){
+      clearTimeout(timer);
+      timer = setTimeout(function(){ load(false); }, 300);
+    };
+  });
+
+  /* The owner list, so looking at somebody else's book is a name rather than
+     a typed address. Fetched once; a failure costs the datalist and never the
+     report. */
+  fetch("/api/client-owners", {credentials:"same-origin"})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      el("owners").innerHTML = (d.users || []).map(function(u){
+        return '<option value="' + esc(u.email) + '">' + esc(u.name) + '</option>';
+      }).join("");
+    })
+    .catch(function(){});
+
+  load(false);
+})();
+</script>
+</body>
+</html>

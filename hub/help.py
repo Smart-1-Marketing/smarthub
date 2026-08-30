@@ -62,6 +62,32 @@ REGISTRY: list[Help] = [
        "its own scoped stylesheet, so nothing it defines can reach the rest "
        "of the page \u2014 which is what makes it safe to paste into a page "
        "somebody else built."),
+    _h("client_health.report", "What is outstanding, per client",
+       "Everything on this page is read from the systems that already hold it "
+       "\u2014 the insertion orders in Knack, the creative audit, the proposal "
+       "store, the review rounds and the last website reading. Nothing is "
+       "typed in, so nothing here can go stale by being forgotten. Clients "
+       "are ordered by how much is outstanding rather than by name, because "
+       "the question is which one needs an hour today. A source that could "
+       "not be read is named at the top: anything it would have raised is "
+       "missing from every row rather than absent from it, and a quiet page "
+       "over a failed read is the one answer this report must never give."),
+    _h("client_health.marks", "Ignore, Done, and what happens next",
+       "Ignoring an issue says it is not something we are going to act on; "
+       "Done says it has been dealt with. Neither deletes anything \u2014 both "
+       "move the row into its own list under the client with your name and "
+       "the date on it, and one press puts it back. A Done mark is about the "
+       "issue as it stood: if what it says changes, the mark is reported as "
+       "superseded and the row is open again, because \u201cnobody has looked\u201d "
+       "and \u201csomebody looked at a different ask\u201d are different situations."),
+    _h("client_owner.assign", "Who owns which client",
+       "An assignment is a Hub overlay and is never written to the client "
+       "record \u2014 taking one off leaves everything exactly as it was. What it "
+       "changes is My Clients, which is where the person you assign sees the "
+       "work. Picking a media partner ticks the clients it carries today and "
+       "is not stored as a standing rule: a rule would quietly claim next "
+       "year\u2019s clients for whoever was on this screen this year, including "
+       "somebody who has since left, with nothing on any record saying so."),
     _h("social.planner", "A month of posts in one pass",
        "Builds a client's organic month from what the Hub already knows about "
        "them, so the calendar starts full rather than empty. It stops at a "

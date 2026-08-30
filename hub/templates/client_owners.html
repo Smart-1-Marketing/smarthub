@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assign Clients — Smart 1 Hub</title>
+<style>
+  /* The look is hub/static/hub-detail.css, injected after this block. Only
+     this page's own vocabulary lives here. */
+  body{margin:0;background:#f6f8fb}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 18px 72px}
+  .co-cols{display:grid;gap:16px;grid-template-columns:2fr 3fr}
+  @media (max-width:980px){.co-cols{grid-template-columns:1fr}}
+  .co-list{max-height:60vh;overflow:auto;border:1px solid #e2e8f0;border-radius:10px}
+  .co-list label{display:flex;gap:9px;align-items:baseline;padding:7px 11px;
+                 border-bottom:1px solid #eef2f7;font-weight:400;font-size:13px;margin:0}
+  .co-list label:last-child{border-bottom:0}
+  .co-list label:hover{background:#f8fafc}
+  .co-who{margin-left:auto;color:#68798c;font-size:12px;white-space:nowrap}
+  .co-partner{display:flex;gap:8px;align-items:center;padding:6px 0;
+              border-bottom:1px solid #eef2f7;font-size:13px}
+  .co-partner:last-child{border-bottom:0}
+  .co-partner .n{margin-left:auto;color:#68798c;font-size:12px}
+  .co-results{max-height:240px;overflow:auto;font-size:12.5px}
+  .co-results div{padding:3px 0;border-bottom:1px solid #f1f5f9}
+</style>
+</head>
+<body class="s1d-page" data-s1hub-collapse="1">
+<div class="wrap">
+
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb"><a href="/qa">QA Reports</a> › Assign Clients</div>
+      <h1>Assign Clients {{ help_dot('client_owner.assign') if help_dot is defined else '' }}</h1>
+      <p class="sub">Who owns which client. Assignments are a Hub overlay and
+        are never written to the client record — taking one off leaves
+        everything exactly as it was. What it changes is
+        <a href="/my-clients">My Clients</a>, which is where the person you
+        assign will see the work.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/my-clients">Open My Clients</a>
+    </div>
+  </div>
+
+  <div id="notes"></div>
+  <div class="s1d-tiles" id="tiles"></div>
+
+  <div class="co-cols">
+    <div class="card">
+      <h3>1 &middot; Pick the clients</h3>
+
+      <label for="partner">Everything of one media partner</label>
+      <div id="partners" class="co-results" style="max-height:190px;margin-bottom:12px">
+        <span class="s1d-muted">Reading the partners… <span class="spin"></span></span>
+      </div>
+      <p class="s1d-hint">Picking a partner ticks the clients it has
+        <em>today</em>. It is not stored as a standing rule: a rule would
+        quietly claim next year's clients for whoever was on this screen this
+        year — including somebody who has since left — and nothing on any
+        record would say so. When a partner gains a client, come back and tick
+        it again.</p>
+
+      <label for="filter" style="margin-top:14px">Or pick them by hand</label>
+      <input id="filter" type="search" placeholder="Search clients…" style="width:100%">
+      <div class="s1d-inline" style="margin:8px 0">
+        <button type="button" class="sec small" id="all">Tick everything shown</button>
+        <button type="button" class="sec small" id="none">Clear</button>
+        <span class="s1d-muted" id="picked">0 picked</span>
+      </div>
+      <div class="co-list" id="clients">
+        <span class="s1d-muted" style="display:block;padding:11px">Reading the client
+          list… <span class="spin"></span></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>2 &middot; Pick the person</h3>
+      <label for="email">Assign to</label>
+      <select id="email" style="width:100%"></select>
+      <p class="s1d-hint" id="user-note"></p>
+
+      <label for="note" style="margin-top:12px">Why (optional, kept on the record)</label>
+      <input id="note" type="text" placeholder="Handover from…" style="width:100%">
+
+      <div class="ch-acts s1d-inline" style="margin-top:14px">
+        <button type="button" id="assign">Assign the picked clients</button>
+        <button type="button" class="danger" id="clear">Take them off whoever holds them</button>
+      </div>
+
+      <div id="result" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="s1d-tablehead"><b>Who owns what</b>
+      <span class="s1d-muted" id="owned-count"></span></div>
+    <div class="s1d-scroll">
+      <table>
+        <thead><tr><th>Owner</th><th>Clients</th></tr></thead>
+        <tbody id="owned"><tr><td colspan="2">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var DATA = null, PICKED = {};
+
+  function esc(s){ return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;"); }
+  function el(id){ return document.getElementById(id); }
+
+  function load(){
+    fetch("/api/client-owners", {credentials:"same-origin"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ DATA = d; draw(); })
+      /* A list that could not be read must not draw as an empty book: every
+         client would read as unassigned and somebody would assign the lot a
+         second time. */
+      .catch(function(err){
+        el("notes").innerHTML = '<div class="s1d-note bad">The client list could '
+          + 'not be read (' + esc(err && err.message ? err.message : "no answer")
+          + '). Nothing below is a complete picture — do not assign from it.</div>';
+        el("clients").innerHTML = "";
+      });
+  }
+
+  function drawNotes(){
+    var out = "";
+    if(!DATA.measured || DATA.error)
+      out += '<div class="s1d-note bad">The client list could not be read'
+        + (DATA.error ? ' (' + esc(DATA.error) + ')' : "")
+        + '. Every client will read as unassigned here, which is not the same '
+        + 'as nobody owning them.</div>';
+    if(DATA.user_error)
+      out += '<div class="s1d-note warn">' + esc(DATA.user_error) + '</div>';
+    if(DATA.partner_error)
+      out += '<div class="s1d-note warn">The media partners could not be read ('
+        + esc(DATA.partner_error) + '), so only the by-hand list below is '
+        + 'complete.</div>';
+    if((DATA.unknown_owners || []).length)
+      out += '<div class="s1d-note warn"><b>'
+        + DATA.unknown_owners.length + ' client'
+        + (DATA.unknown_owners.length === 1 ? " is" : "s are")
+        + ' assigned to an address with no Hub account behind it:</b> '
+        + DATA.unknown_owners.map(esc).join(", ")
+        + '. Those clients have somebody’s name on them and nobody behind '
+        + 'them &mdash; they need a handover, not a first assignment.</div>';
+    el("notes").innerHTML = out;
+  }
+
+  function drawTiles(){
+    var c = DATA.counts || {};
+    el("tiles").innerHTML = [
+      ["Clients", c.clients || 0],
+      ["Assigned", c.assigned || 0],
+      ["Nobody owns", c.unassigned || 0],
+      ["People with a book", c.owners || 0]
+    ].map(function(t){
+      return '<div class="s1d-tile"><span class="lab">' + esc(t[0])
+        + '</span><b>' + t[1] + '</b></div>';
+    }).join("");
+  }
+
+  function drawUsers(){
+    var sel = el("email");
+    sel.innerHTML = '<option value="">— pick somebody —</option>'
+      + (DATA.users || []).map(function(u){
+          return '<option value="' + esc(u.email) + '">' + esc(u.name)
+            + (u.active ? "" : " (" + esc(u.status || "not active") + ")")
+            + '</option>';
+        }).join("");
+    var src = ((DATA.users || [])[0] || {}).source;
+    el("user-note").textContent = src === "roster"
+      ? "This is the staff roster rather than the account list."
+      : "";
+  }
+
+  function drawPartners(){
+    var parts = DATA.partners || [];
+    if(!parts.length){ el("partners").innerHTML =
+      '<span class="s1d-muted">No media partners on the products on file.</span>';
+      return; }
+    el("partners").innerHTML = parts.map(function(p, i){
+      return '<div class="co-partner"><button type="button" class="sec small" '
+        + 'data-partner="' + i + '">Tick these</button> '
+        + '<span>' + esc(p.partner || "— no partner recorded —") + '</span>'
+        + '<span class="n">' + p.count + '</span></div>';
+    }).join("");
+    el("partners").querySelectorAll("[data-partner]").forEach(function(b){
+      b.onclick = function(){
+        var p = parts[Number(b.getAttribute("data-partner"))];
+        (p.clients || []).forEach(function(n){ PICKED[n] = true; });
+        drawClients();
+      };
+    });
+  }
+
+  function shownRows(){
+    var q = el("filter").value.trim().toLowerCase();
+    return (DATA.rows || []).filter(function(r){
+      return !q || r.client.toLowerCase().indexOf(q) >= 0
+        || (r.owner || "").toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function drawClients(){
+    var rows = shownRows();
+    el("clients").innerHTML = rows.length ? rows.map(function(r){
+      return '<label><input type="checkbox" data-client="' + esc(r.client) + '"'
+        + (PICKED[r.client] ? " checked" : "") + '>'
+        + '<span>' + esc(r.client) + '</span>'
+        + '<span class="co-who">' + (r.email
+            ? esc(r.owner) + (r.known ? "" : " (no account)")
+            : "nobody") + '</span></label>';
+    }).join("") : '<span class="s1d-muted" style="display:block;padding:11px">'
+      + 'No client matches that.</span>';
+    el("clients").querySelectorAll("input[data-client]").forEach(function(cb){
+      cb.onchange = function(){
+        var name = cb.getAttribute("data-client");
+        if(cb.checked) PICKED[name] = true; else delete PICKED[name];
+        countPicked();
+      };
+    });
+    countPicked();
+  }
+
+  function countPicked(){
+    var n = Object.keys(PICKED).length;
+    /* Ticking a partner can pick clients the search box is currently hiding,
+       so the count says how many are picked in total and how many of those
+       are on screen. A control reporting only what is visible is the
+       select-all that calls 25 rows "all 400". */
+    var shown = shownRows().filter(function(r){ return PICKED[r.client]; }).length;
+    el("picked").textContent = n + " picked"
+      + (n !== shown ? " (" + shown + " shown here)" : "");
+  }
+
+  function drawOwned(){
+    var by = DATA.by_owner || {};
+    var emails = Object.keys(by).sort();
+    el("owned-count").textContent = emails.length + " with a book";
+    el("owned").innerHTML = emails.length ? emails.map(function(e){
+      var name = ((DATA.users || []).filter(function(u){ return u.email === e; })[0]
+                  || {}).name || e;
+      return '<tr><td><b>' + esc(name) + '</b><div class="s1d-muted">' + esc(e)
+        + '</div></td><td>' + by[e].length + ' &mdash; '
+        + by[e].map(esc).join(", ") + '</td></tr>';
+    }).join("") : '<tr><td colspan="2" class="s1d-muted">Nobody has been '
+      + 'assigned a client yet.</td></tr>';
+  }
+
+  function draw(){
+    drawNotes(); drawTiles(); drawUsers(); drawPartners();
+    drawClients(); drawOwned();
+  }
+
+  function send(url, body){
+    var box = el("result");
+    box.innerHTML = '<span class="s1d-muted">Saving… <span class="spin"></span></span>';
+    fetch(url, {method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.ok === false){
+          box.innerHTML = '<div class="s1d-note bad">' + esc(d.error
+            || "Nothing was saved.") + '</div>';
+          return;
+        }
+        /* Every row's own outcome, never one number: a bulk action that
+           answers with a total hides the two that failed. */
+        var rows = d.results || [];
+        var bad = rows.filter(function(r){ return !r.ok; });
+        box.innerHTML = '<div class="s1d-note ' + (bad.length ? "warn" : "ok") + '">'
+          + '<b>' + (d.assigned != null ? d.assigned : d.cleared) + ' saved'
+          + (bad.length ? ", " + bad.length + " refused" : "") + '.</b>'
+          + (bad.length ? '<div class="co-results">' + bad.map(function(r){
+              return '<div>' + esc(r.client) + " &mdash; " + esc(r.error) + '</div>';
+            }).join("") + '</div>' : "")
+          + '</div>';
+        PICKED = {};
+        load();
+      })
+      .catch(function(err){
+        box.innerHTML = '<div class="s1d-note bad">Nothing was saved ('
+          + esc(err && err.message ? err.message : "no answer from the Hub")
+          + ').</div>';
+      });
+  }
+
+  el("assign").onclick = function(){
+    var clients = Object.keys(PICKED);
+    if(!clients.length){ el("result").innerHTML =
+      '<div class="s1d-note warn">Pick at least one client first.</div>'; return; }
+    var email = el("email").value;
+    if(!email){ el("result").innerHTML =
+      '<div class="s1d-note warn">Pick somebody to assign them to.</div>'; return; }
+    send("/api/client-owners/assign",
+         {clients: clients, email: email, note: el("note").value});
+  };
+
+  el("clear").onclick = function(){
+    var clients = Object.keys(PICKED);
+    if(!clients.length){ el("result").innerHTML =
+      '<div class="s1d-note warn">Pick at least one client first.</div>'; return; }
+    if(!window.confirm("Take " + clients.length + " client"
+        + (clients.length === 1 ? "" : "s") + " off whoever holds them? "
+        + "Nothing on the client record changes.")) return;
+    send("/api/client-owners/unassign", {clients: clients});
+  };
+
+  el("all").onclick = function(){
+    shownRows().forEach(function(r){ PICKED[r.client] = true; });
+    drawClients();
+  };
+  el("none").onclick = function(){ PICKED = {}; drawClients(); };
+  var timer = null;
+  el("filter").oninput = function(){
+    clearTimeout(timer);
+    timer = setTimeout(drawClients, 200);
+  };
+
+  load();
+})();
+</script>
+</body>
+</html>

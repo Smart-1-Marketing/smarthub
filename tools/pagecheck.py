@@ -80,6 +80,12 @@ HUB_PAGES = [
     "/", "/client360", "/tools", "/creative", "/qa", "/seo", "/activity",
     "/diagnostics", "/clients", "/status", "/sales/leads",
     "/tools/commercial-builder/",
+    # Two blueprint pages, so no mount enumeration reaches them, and both
+    # render their whole table from JavaScript into chrome the hub app
+    # injects afterwards -- which is exactly the pair of things this checker
+    # exists to look at together.
+    "/my-clients",
+    "/qa/client-owners",
     # A hub route under /tools, which is the shape CLAUDE.md's first trap
     # takes; it also renders two panels' worth of JavaScript that no mount
     # enumeration would reach.
