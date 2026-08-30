@@ -75,12 +75,12 @@ code{display:block;background:#0f2747;color:#dbe8ff;padding:12px;border-radius:9
   {% endif %}
 
   <div class="bar">
-    <a class="btn" href="{{ mount }}/leads">View leads</a>
+    <a class="btn" data-demo="calc-leads" href="{{ mount }}/leads">View leads</a>
     <a class="btn ghost" href="{{ mount }}/leads.csv">Download CSV</a>
     <button class="btn ghost" onclick="retry()">Retry failed sends</button>
   </div>
 
-  <div class="cards">
+  <div class="cards" data-demo="calc-list">
     {% for c in calcs %}
       {% set s = stats.get(c.slug, {}) %}
       <div class="card">

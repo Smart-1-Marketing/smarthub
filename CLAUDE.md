@@ -2764,6 +2764,39 @@ driving cannot happen — and the button that could only do nothing is not
 drawn, because a button pressed once with no effect makes the whole
 walkthrough read as broken rather than one step of it.
 
+**And the audit was crediting a word rather than an attribute.** `_found()`
+tested `name in everything` — a bare substring against every template and
+script in the repo — so `data-demo='unmatched'` read as anchored because the
+word *unmatched* appears in another tool's prose, and
+`data-demo='client-name'` because something, somewhere, has a class of that
+name. Twenty-two steps that drive nothing read as anchored, and **two whole
+walkthroughs read as working while every driving step in them resolved to no
+element at all**: Image Creator's and the UTM builder's, which is the Smart 1
+Ads failure the floor below exists to catch, hiding inside the check that
+would have caught it. `_spellings()` is what the audit looks for now — the
+attribute in either quoting — and a selector kind it cannot look for asks for
+nothing rather than matching everything.
+
+Both are anchored now, along with the PDF optimizer, the calculators and the
+two radio builders: twenty-one hooks, seven of them in
+`modules/image_creator/static/editor.js`, because that tool's panels are drawn
+by script when the rail is clicked and `hub-demo.js` repaints on a debounced
+`MutationObserver` for exactly that shape. Two more scenarios drive controls
+that are **not there to anchor** — Background Remover's walkthrough offers a
+free "remove white background" option beside the paid one and the tool has a
+single button, and its step 4 asks for a preview it never draws. That is the
+Web Tickets *"Sort by age"* case: a walkthrough describing a tool that does
+not exist is worse than one describing none, so those want rewriting rather
+than a hook pointed at the nearest thing.
+
+**`elsewhere` is the third answer.** Asking whether the element exists
+*anywhere* is deliberate and stays — a walkthrough drives a screen whose
+markup half a dozen scripts write — but *anywhere* also credits a step whose
+only match is in a different tool, and that step drives nothing when the
+walkthrough runs. Those are named rather than counted as missing, since the
+element may still be drawn at runtime, the way a target accepted on a prefix
+already is.
+
 **Fifty-five of the 165 steps that name an element named one that is in no
 template**, across eighteen of the twenty-eight scenarios. That is a
 **backlog, not a regression**, and it is deliberately not an integrity
