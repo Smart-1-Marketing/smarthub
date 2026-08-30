@@ -113,8 +113,21 @@ def load_links() -> list[dict]:
     return rows if isinstance(rows, list) else []
 
 
-def save_links(rows: list[dict]):
-    _write(_links_path(), rows[:8000])
+MAX_LINKS = 8000
+
+
+def save_links(rows: list[dict]) -> int:
+    """Write the book, and say how many rows fell off the end of it.
+
+    The cap has always been here and has always been silent. New rows go on
+    the front, so a save past the cap drops the *oldest* tracked URLs -- which
+    is precisely the thing this module exists to prevent, a tagged URL nobody
+    can trace back to a campaign, arriving as a save that reported success.
+    Bounded, and never in silence: the rule hub/drafts.py works to.
+    """
+    dropped = max(0, len(rows) - MAX_LINKS)
+    _write(_links_path(), rows[:MAX_LINKS])
+    return dropped
 
 
 # ------------------------------------------------------------------ helpers
@@ -237,24 +250,50 @@ def api_build():
     return jsonify({"links": links, "count": len(links)})
 
 
-@app.route("/api/links", methods=["GET"])
-def api_links():
-    q = (request.args.get("q") or "").strip().lower()
-    client = (request.args.get("client") or "").strip().lower()
-    rows = load_links()
+# What a search matches, decided once. The screen and the CSV button beside
+# it are two readings of one question, and they had two answers: this list,
+# and a shorter one inside api_export that knew about five of these eleven
+# fields. `label` and `created_by` are on neither the tagged URL nor the
+# shorter list, so searching for a flyer's name or a colleague's narrowed the
+# table to the rows you wanted and then handed you a CSV containing a header
+# row and nothing at all -- a valid spreadsheet saying there were none, on the
+# same press, contradicting the table it was downloaded from.
+SEARCH_FIELDS = ("url", "base_url", "client", "product", "utm_campaign",
+                 "utm_source", "utm_medium", "utm_content", "utm_term",
+                 "label", "created_by")
+
+
+def filter_links(rows: list[dict], q: str = "", client: str = "") -> list[dict]:
+    """The rows a search and a client filter select, for every reader of them."""
+    q = (q or "").strip().lower()
+    client = (client or "").strip().lower()
     if client:
         rows = [r for r in rows if str(r.get("client", "")).lower() == client]
     if q:
         rows = [r for r in rows if any(
-            q in str(r.get(k, "")).lower()
-            for k in ("url", "base_url", "client", "product", "utm_campaign",
-                      "utm_source", "utm_medium", "utm_content", "utm_term",
-                      "label", "created_by"))]
+            q in str(r.get(k, "")).lower() for k in SEARCH_FIELDS)]
+    return rows
+
+
+@app.route("/api/links", methods=["GET"])
+def api_links():
+    all_rows = load_links()
+    rows = filter_links(all_rows, request.args.get("q"),
+                        request.args.get("client"))
     try:
-        limit = max(1, max(1, min(2000, int(request.args.get("limit") or 300))))
+        limit = max(1, min(2000, int(request.args.get("limit") or 300)))
     except (TypeError, ValueError):
         limit = 300
-    return jsonify({"links": rows[:limit], "total": len(load_links())})
+    # Three numbers, because they answer three questions and the page was
+    # printing the first as though it were the second. `links` is the page,
+    # `matched` is the whole filtered list and `total` is the archive: a search
+    # matching 450 of 900 read "300 of 900", which is the page reporting its
+    # own length as the match count -- the failure google_links.orphans() names
+    # ("a page reporting its own length as the total is how somebody concludes
+    # there are 25 orphans"), and it is internally consistent on screen,
+    # because the table really does hold the 300 rows it drew.
+    return jsonify({"links": rows[:limit], "matched": len(rows),
+                    "shown": len(rows[:limit]), "total": len(all_rows)})
 
 
 @app.route("/api/links", methods=["POST"])
@@ -298,8 +337,9 @@ def api_save_links():
             record[f] = str(link.get(f) or "")
         saved.append(record)
 
+    dropped = 0
     if saved:
-        save_links(saved + rows)
+        dropped = save_links(saved + rows)
         # `client=`, not `detail=`. work_log() reads the client from one of
         # five keys -- client, client_name, company, business_name,
         # tool_client -- and `detail` is not one of them, so every batch of
@@ -313,6 +353,7 @@ def api_save_links():
         _log("links_saved", client=client or None, count=len(saved),
              campaign=saved[0].get("utm_campaign", ""))
     return jsonify({"ok": True, "saved": len(saved), "skipped": skipped,
+                    "dropped": dropped, "max_links": MAX_LINKS,
                     "links": load_links()[:300]})
 
 
@@ -332,15 +373,10 @@ def api_delete_links():
 
 @app.route("/api/links/export")
 def api_export():
-    q = (request.args.get("q") or "").strip().lower()
-    client = (request.args.get("client") or "").strip().lower()
-    rows = load_links()
-    if client:
-        rows = [r for r in rows if str(r.get("client", "")).lower() == client]
-    if q:
-        rows = [r for r in rows if any(
-            q in str(r.get(k, "")).lower()
-            for k in ("url", "client", "product", "utm_campaign", "utm_source"))]
+    # The same reading the table uses. Anything else and the download is about
+    # a different question from the one on screen.
+    rows = filter_links(load_links(), request.args.get("q"),
+                        request.args.get("client"))
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Client", "Product", "Label", "Campaign", "Source", "Medium",

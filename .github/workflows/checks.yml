@@ -1551,3 +1551,16 @@ jobs:
       # finer question of every write route, with the remainder declared.
       - name: Sites Admin — every write on a client's site has a name on it
         run: python3 test_sites_admin.py
+      # The last two modules no test named except in passing. Each carried a
+      # failure no screen could report: UTM Builder printed the length of its
+      # own page as the match count ("300 of 900" for a search matching 450),
+      # and the CSV button beside it searched five of the eleven fields the
+      # table searched — so a search on a label or a colleague's name handed
+      # back a header row and nothing else, contradicting the table above it.
+      # Background Remover filed every cut-out into a client's gallery with no
+      # dimensions, having measured them two functions earlier; kept its
+      # credit cache in a per-process dict on a paid API across two gunicorn
+      # workers; and set Flask to refuse at 40 MB a batch its own screen
+      # offers at 120, as an HTML 413 the page could only report as "Failed".
+      - name: UTM Builder and Background Remover
+        run: python3 test_utm_bg_tools.py

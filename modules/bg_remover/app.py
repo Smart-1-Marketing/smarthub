@@ -36,10 +36,27 @@ except Exception:                                     # noqa: BLE001
 
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
-app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
 
 MAX_FILES = 10
 MAX_BYTES = 12 * 1024 * 1024
+
+# Two caps that contradicted each other, and only one of them was on screen.
+# The tool offers ten images at twelve megabytes each -- which is 120 MB, and
+# Flask was set to refuse the request body at 40. So a batch inside every rule
+# the page states was refused by the framework before the view ran, and
+# MAX_CONTENT_LENGTH raises before any of this module's own carefully worded
+# per-file messages can be reached: what came back was Werkzeug's HTML 413
+# page, which `.then(r => r.json())` cannot parse, so the page reported
+# "Failed: SyntaxError" and said nothing about sending fewer at a time.
+#
+# It is derived from the two numbers the tool actually offers rather than
+# typed again, with room for the multipart boundaries and the form fields, so
+# the framework cannot go back to refusing what the screen invites. And the
+# handler below answers in the same JSON shape every other refusal here uses,
+# because a limit reached from any other direction must still arrive as a
+# sentence rather than as a parse error.
+MAX_BATCH_BYTES = MAX_FILES * MAX_BYTES
+app.config["MAX_CONTENT_LENGTH"] = MAX_BATCH_BYTES + 2 * 1024 * 1024
 ALLOWED = {"image/jpeg", "image/png", "image/webp"}
 API = "https://api.remove.bg/v1.0/removebg"
 
@@ -52,9 +69,122 @@ SIZE_PRESETS = {
 }
 
 # content-hash -> (timestamp, png bytes). Keeps retries from costing a credit.
+#
+# In memory AND on the shared data disk, because this one is per process and
+# gunicorn runs two workers. The docstring above promises that re-running the
+# same image -- a double-click, a retry after a resize tweak -- is free, and
+# on this deployment it was free about half the time: the second request lands
+# on whichever worker the load balancer picks, that worker's dict is empty,
+# and remove.bg is asked again and charges again. Every screen reports a clean
+# success either way, and the only evidence is a credit balance that falls
+# faster than the number of cut-outs anybody made.
+#
+# This is the `_state`-is-per-process trap the scheduler panel, the client
+# registry's two-minute cache and suite_panel's double-submit claim have each
+# had to undo, on the one module whose own docstring opens by saying it is
+# deliberately careful with credits -- so here it costs money rather than a
+# confusing panel. suite_panel moved its claim to a file on the shared disk;
+# so does this.
+#
+# The disk copy is a cache and nothing else: there is nothing to restore, a
+# wiped disk costs a credit on the next retry and no data at all -- so it is
+# written as plain files rather than through hub/jsonstore.py, which mirrors
+# into the database and is for state whose loss matters. It is bounded on
+# total size as well as on age, because an unbounded cache on the 5 GB disk
+# takes the whole Hub with it.
 _results: dict[str, tuple[float, bytes]] = {}
 _lock = threading.Lock()
 _TTL = 45 * 60
+_CACHE_MAX_BYTES = 200 * 1024 * 1024
+
+
+def _cache_dir() -> str | None:
+    """Where the shared copy lives, or None if we cannot have one.
+
+    Never raises. A cache that can break the tool it accelerates is worse than
+    no cache, so every failure here costs a credit on a retry and nothing else.
+    """
+    try:
+        from hub import jsonstore
+        path = os.path.join(jsonstore.data_dir("bg_remover"), "cache")
+        os.makedirs(path, exist_ok=True)
+        return path
+    except Exception:                                 # noqa: BLE001
+        return None
+
+
+def _cache_get(digest: str) -> bytes | None:
+    with _lock:
+        hit = _results.get(digest)
+    if hit and hit[0] > time.time() - _TTL:
+        return hit[1]
+    folder = _cache_dir()
+    if not folder:
+        return None
+    path = os.path.join(folder, digest + ".png")
+    try:
+        if os.path.getmtime(path) <= time.time() - _TTL:
+            return None
+        with open(path, "rb") as fh:
+            png = fh.read()
+    except OSError:
+        return None
+    if not png:
+        return None
+    with _lock:                       # warm this worker, so the next is local
+        _results[digest] = (time.time(), png)
+    return png
+
+
+def _cache_put(digest: str, png: bytes) -> None:
+    with _lock:
+        _results[digest] = (time.time(), png)
+    folder = _cache_dir()
+    if not folder:
+        return
+    tmp = os.path.join(folder, digest + ".tmp")
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(png)
+        os.replace(tmp, os.path.join(folder, digest + ".png"))
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _disk_sweep(cutoff: float) -> None:
+    """Drop what has expired, then the oldest until the cache is under its cap."""
+    folder = _cache_dir()
+    if not folder:
+        return
+    try:
+        entries = []
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if st.st_mtime < cutoff or name.endswith(".tmp"):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+                continue
+            entries.append((st.st_mtime, st.st_size, path))
+        total = sum(e[1] for e in entries)
+        for _, size, path in sorted(entries):
+            if total <= _CACHE_MAX_BYTES:
+                break
+            try:
+                os.unlink(path)
+                total -= size
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 # Through hub.config, which also composes the URL from CLOUDINARY_CLOUD_NAME /
 # CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET when only those are set.
@@ -125,11 +255,28 @@ def _slug(v: str, fallback: str = "cutout") -> str:
     return s[:80] or fallback
 
 
+def _dimensions(data: bytes) -> tuple[int | None, int | None]:
+    """How big an image is, or (None, None) where it cannot be read.
+
+    One reading, because two call sites want it and only one of them had it:
+    the result panel measured every cut-out and the save path asked a
+    StoredAsset for a `width` it does not carry. Never raises -- a size we
+    could not read is an absent size, and absent must not read as zero.
+    """
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as im:
+            return int(im.size[0]), int(im.size[1])
+    except Exception:                                 # noqa: BLE001
+        return None, None
+
+
 def _sweep():
     cutoff = time.time() - _TTL
     with _lock:
         for k in [k for k, v in _results.items() if v[0] < cutoff]:
             _results.pop(k, None)
+    _disk_sweep(cutoff)
 
 
 def resize_max_edge(data: bytes, max_edge: int) -> tuple[bytes, dict]:
@@ -219,10 +366,22 @@ def index():
                            client=request.args.get("client", ""))
 
 
+@app.errorhandler(413)
+def _too_large(_exc):
+    """A refusal the page can read, in the words somebody can act on."""
+    return jsonify({"error": (
+        f"That batch is larger than the {MAX_BATCH_BYTES // (1024 * 1024)} MB "
+        f"this tool takes at once. Send fewer images, or up to "
+        f"{MAX_FILES} of {MAX_BYTES // (1024 * 1024)} MB each.")}), 413
+
+
 @app.route("/health")
 def health():
     return jsonify({"ok": True, "configured": configured(),
-                    "cloudinary": CLOUD_READY, "version": _version()})
+                    "cloudinary": CLOUD_READY, "version": _version(),
+                    "max_files": MAX_FILES,
+                    "max_file_mb": MAX_BYTES // (1024 * 1024),
+                    "max_batch_mb": MAX_BATCH_BYTES // (1024 * 1024)})
 
 
 @app.route("/api/account")
@@ -288,10 +447,9 @@ def api_remove():
         sized, pre_info = resize_max_edge(raw, pre_edge)
         digest = hashlib.sha256(sized + rb_size.encode()).hexdigest()
 
-        with _lock:
-            cached = _results.get(digest)
-        if cached and cached[0] > time.time() - _TTL:
-            png, billed = cached[1], False
+        cached = _cache_get(digest)
+        if cached:
+            png, billed = cached, False
         else:
             try:
                 png = call_remove_bg(sized, rb_size)
@@ -300,18 +458,12 @@ def api_remove():
             except Exception as exc:                  # noqa: BLE001
                 errors.append(f"{up.filename}: {exc}")
                 continue
-            with _lock:
-                _results[digest] = (time.time(), png)
+            _cache_put(digest, png)
 
         out = _post_resize(png, post_edge)
         import base64
-        dims = None
-        try:
-            from PIL import Image
-            with Image.open(io.BytesIO(out)) as im:
-                dims = list(im.size)
-        except Exception:                             # noqa: BLE001
-            pass
+        w, h = _dimensions(out)
+        dims = [w, h] if w else None
 
         results.append({
             "id": digest[:16],
@@ -350,6 +502,15 @@ def api_save():
 
     client = str(body.get("client") or "").strip()[:200]
     name = _slug(body.get("name") or "cutout", "cutout")
+    # Measured here, from the bytes about to be stored, because the row this
+    # files into the client's gallery carries a width and a height and every
+    # cut-out this tool has ever filed carried neither. The call below asked a
+    # StoredAsset for a width, which it has no field for and never has -- so
+    # both were None on every save, silently, while api_remove measured the
+    # identical bytes two functions earlier and threw the answer away. Not
+    # read back from the browser: what is stored is what should be described,
+    # and a dimension the page supplies is one the page can be wrong about.
+    width, height = _dimensions(raw)
     try:
         # Through hub.storage. The .png on the name is what carries the
         # "keep the alpha" intent now — the shared derivation reads the
@@ -388,7 +549,7 @@ def api_save():
                 filename=f"{name}.png",
                 alt=f"{name.replace('-', ' ')} cut-out for {client}",
                 provider="bg_remover", saved_by=actor_name(),
-                width=res.get("width"), height=res.get("height"),
+                width=width, height=height,
                 size_bytes=res.get("bytes"))
         except Exception as exc:                      # noqa: BLE001
             gallery = {"ok": False, "error": str(exc)}
@@ -396,7 +557,7 @@ def api_save():
                     "filed": bool(gallery.get("ok")),
                     "gallery_url": gallery.get("gallery_url", ""),
                     "public_id": res.get("public_id", ""),
-                    "width": res.get("width"), "height": res.get("height"),
+                    "width": width, "height": height,
                     "bytes": res.get("bytes")})
 
 
