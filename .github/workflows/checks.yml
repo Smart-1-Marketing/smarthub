@@ -1432,3 +1432,17 @@ jobs:
       # directions, so the next check added cannot be gated by nobody.
       - name: The gate runs every check a person runs
         run: python3 test_ci_gate.py
+
+      # The IO Builder had no test of its own, and booting it and pressing its
+      # buttons found every AI button in the tool dead: this module carried a
+      # second copy of the OpenAI Responses call, and the copy attached the
+      # hosted web_search tool to every request — the failure CLAUDE.md
+      # records against the Proposal Builder, whose copy was fixed while this
+      # one was never touched. There is one reader now and both read it. It
+      # also holds the two answers that were reported as successes -- a
+      # truncated answer reaching the internal PDF as an empty landing-page
+      # review, and a media mix with every field blank -- the landing review
+      # that now reads the page rather than asking a model to visit it, and
+      # where the line falls between an order and an attempt on submit.
+      - name: IO Builder — the model calls, and the landing page it now reads
+        run: python3 test_io_builder.py
