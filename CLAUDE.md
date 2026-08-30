@@ -227,6 +227,52 @@ prospect who starts a scan on a client's site and a rep who starts one from
 Site Scans are waiting on the identical thing and it must not look like two
 features.
 
+**And the pages a *client* opens were chrome-free, which switched the mark off
+with the chrome.** Every client-facing surface here is deliberately outside
+the injector — `CHROMELESS` in `hub/__init__.py`, and the `PUBLIC_PREFIXES`
+each mounted module declares — because the staff sidebar, the help layer and
+a feedback tab have no business on a document a client reads.
+`hub-thinking.js` rides in with that chrome, so the exemption took the mark
+with it and nothing anywhere said so. A client approving a finished TV cut
+pressed a button that grayed out and said nothing at all; a client asking for
+a change to an estimate got the same; and a client swiping an idea on a phone
+got **no visible change whatever** — the double-tap guard, which is correct,
+then met the second tap by returning, which is a button that reads as broken.
+Where they did say something they each said it in their own words, four ways,
+which is the drift `hub/storage.py` exists to stop one audience further out.
+
+`hub/thinking.py` is the block those seven pages carry instead, and it is a
+**Jinja global** rather than a macro because they are spread across four apps
+with four separate environments — the first trap this file names. It is
+registered by `install_template_helpers()` for every mounted module and by
+`register_help()` for the hub app, where the blueprint-registered Commercial
+Builder renders, and **both halves are needed**: three of the seven are
+mounted and the review link is not. Every call site is written
+`{{ s1_wait_assets() if s1_wait_assets is defined else '' }}`, the `help_dot`
+guard, so an environment that never got the registration loses the mark
+rather than the page.
+
+It is `window.S1Wait` and deliberately not a second `S1Think`. It draws the
+glyph, swaps a button's label and fills a status line; it has no stage timer,
+no elapsed line and no observer upgrading existing spinners. Reusing the name
+would make one name mean two different sets of promises depending on which
+page you were reading, and somebody would eventually call `.stage()` on the
+half that has none — and the elapsed line would be wrong here anyway, since
+these are single short POSTs and a stopwatch on one is the noise
+`hub-thinking.js`'s own note warns about. `.done()` puts the control back
+exactly as it was and writes no "Done" and no tick, because whether the call
+succeeded is the caller's answer.
+
+There are now **three** server-side drawings of these glyphs — this module,
+`_scan_mark.html` and the ad builder's `embed.html` — and that is a decision
+rather than neglect. The scan pages are self-contained today and must not
+gain a runtime dependency on a global to save a duplicate; the embed is
+served straight off the Node renderer where no Jinja global exists at all.
+`test_thinking.py` holds all four implementations in step, and the four
+client-facing tests that already fetch these pages each assert the mark
+reaches the **served** page — checking for the guard alone proves nothing,
+since every call site contains it whether the block was emitted or not.
+
 **The screen with the longest waits in the Hub had no mark at all, and
 nothing could have found it.** The Display Ad Builder's build screen makes
 three billed calls — two image generations and a copy draft, each tens of

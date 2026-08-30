@@ -67,6 +67,13 @@
   @media print { .noprint { display:none !important } body { background:#fff } .wrap { padding:0 } }
 </style>
 {% include "_estimate_style.html" %}
+{# The mark that says something is running. PUBLIC_PREFIXES puts /estimate/
+   outside AuthGuard *and* outside HubBar — deliberately, since this document
+   is read by a prospect — so hub-thinking.js is not on the page and cannot
+   be. Without this, asking for a change grayed the button out and said
+   nothing at all. Guarded, so a Jinja environment without the global loses
+   the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
 </head>
 <body>
 {% set c = p.campaign %}
@@ -258,7 +265,10 @@ async function sendChange() {
     email: document.getElementById('cEmail').value.trim()
   };
   msg.innerHTML = '';
-  btn.disabled = true;
+  const w = window.S1Wait
+    ? S1Wait.busy(btn, {kind: 'wait', label: 'Sending your request\u2026'})
+    : {done() { btn.disabled = false; }};
+  if (!window.S1Wait) btn.disabled = true;
   try {
     const d = await post('/change', body);
     remember();
@@ -267,7 +277,7 @@ async function sendChange() {
   } catch (err) {
     msg.innerHTML = '<div class="note n-bad">' + esc(err.message) + '</div>';
   } finally {
-    btn.disabled = false;
+    w.done();
   }
 }
 
@@ -298,7 +308,11 @@ async function respond() {
     msg.innerHTML = '<div class="note n-bad">Choose one of the three options first.</div>';
     return;
   }
-  btn.disabled = true;
+  let sent = false;
+  const w = window.S1Wait
+    ? S1Wait.busy(btn, {kind: 'wait', label: 'Sending your answer\u2026'})
+    : {done() { btn.disabled = false; }};
+  if (!window.S1Wait) btn.disabled = true;
   try {
     const d = await post('/respond', {
       outcome: picked.value,
@@ -309,11 +323,15 @@ async function respond() {
     remember();
     msg.innerHTML = '<div class="note n-good"><b>Thank you — that has been sent</b>' +
       esc(d.label) + '. Your Smart 1 contact has it now.</div>';
-    btn.textContent = 'Update my answer';
+    sent = true;
   } catch (err) {
     msg.innerHTML = '<div class="note n-bad">' + esc(err.message) + '</div>';
   } finally {
-    btn.disabled = false;
+    // done() puts the button back exactly as it was, which is why the label
+    // change has to come after it: written before, it would be the thing
+    // done() restores over.
+    w.done();
+    if (sent) btn.textContent = 'Update my answer';
   }
 }
 

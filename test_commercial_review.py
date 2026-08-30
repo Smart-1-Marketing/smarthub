@@ -224,6 +224,13 @@ check("it opens with no session at all", page.status_code, 200)
 # page the client cannot use or should not see.
 check("no staff sidebar", "s1hub-sb" in body, False)
 check("no help layer", "hub-help.js" in body, False)
+# And the consequence of being chrome-free, which had to be answered rather
+# than accepted: hub-thinking.js rides in with that chrome, so a client
+# pressing Approve on a finished cut watched the button gray out and say
+# nothing. hub/thinking.py inlines the mark instead; test_thinking.py owns
+# the rules, and this asserts it actually reaches the served page.
+check("but the mark that says something is running does reach it",
+      ".s1w-mark{" in body and "window.S1Wait = {" in body, True)
 check("no feedback tab", "s1hub-feedback" in body, False)
 check("the cut is on it", "spot.mp4" in body, True)
 check("and the round is said out loud", "Round 1 of 4" in body, True)

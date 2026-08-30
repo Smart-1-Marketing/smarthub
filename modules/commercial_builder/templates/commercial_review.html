@@ -80,6 +80,12 @@
     .tc{background:#22303d;}
   }
 </style>
+{# The mark that says something is running. This page is in CHROMELESS, so the
+   hub app's injector puts no chrome on it and hub-thinking.js rides in with
+   that chrome — which left a client approving a finished cut pressing a button
+   that grayed out and said nothing. Guarded, so a Jinja environment without
+   the global loses the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
 </head>
 <body>
 <div class="wrap">
@@ -280,13 +286,16 @@
       var name = document.getElementById("c-name").value.trim();
       if (!text) { alert("Type your note first."); return; }
       if (!name) { alert("Please add your name so we know who to come back to."); return; }
-      send.disabled = true;
+      var w = window.S1Wait
+        ? S1Wait.busy(send, {kind: "wait", label: "Sending your note\u2026"})
+        : {done: function () { send.disabled = false; }};
+      if (!window.S1Wait) { send.disabled = true; }
       post("/comment", {
         text: text, name: name,
         email: document.getElementById("c-email").value.trim(),
         at_seconds: atSeconds, format: currentFormat
       }).then(function (data) {
-        send.disabled = false;
+        w.done();
         if (!data.ok) { alert(data.error || "That did not save."); return; }
         var li = document.createElement("li");
         li.innerHTML = (data.comment.timecode
@@ -323,16 +332,23 @@
       var email = document.getElementById("d-email").value.trim();
       if (!chosen) { alert("Pick one of the three answers."); return; }
       if (!name || !email) { alert("Please add your name and email."); return; }
-      decide.disabled = true;
+      var w = window.S1Wait
+        ? S1Wait.busy(decide, {kind: "wait", label: "Recording your answer\u2026"})
+        : {done: function () { decide.disabled = false; }};
+      if (!window.S1Wait) { decide.disabled = true; }
       post("/decide", {
         outcome: chosen, name: name, email: email,
         note: document.getElementById("d-note").value.trim()
       }).then(function (data) {
+        w.done();
         if (!data.ok) {
-          decide.disabled = false;
           alert(data.error || "That did not send.");
           return;
         }
+        // Put back and then held: the answer is recorded, and the box below
+        // says what it was. Leaving the button live would invite a second
+        // decision on a link the client is very likely to forward.
+        decide.disabled = true;
         // Says what was recorded rather than a bare "Thanks". The client is
         // being told what we will now do, which is the only part of this that
         // matters to them.
