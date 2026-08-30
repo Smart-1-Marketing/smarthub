@@ -281,8 +281,17 @@ check("a refused call still spent its quota", g["measured"]["calls"], 12_101)
 # ------------------------------------------------------------ 11. blind spots
 section("A call site that spends without recording is named, not missed")
 blind = quotas.untracked_provider_calls(force=True)
+# Pinned deliberately. A provider that quietly leaves this list is a spend
+# nothing counts any more, and the whole point of the scanner is that the gap
+# is named rather than silent — so growing it is an edit somebody makes on
+# purpose, which is what this assertion forces.
+#
+# The last three arrived together: HeyGen, Runway and Creatomate all bill per
+# generation, were recorded nowhere, and had no marker here — so no check
+# could ever have named them, which is why it stood.
 check("every provider is scanned", sorted(blind),
-      ["brandfetch", "cloudinary", "elevenlabs", "google"])
+      ["brandfetch", "cloudinary", "creatomate", "elevenlabs", "google",
+       "heygen", "runway"])
 # This is the point of the check: the repository is expected to be clean, and
 # the moment a new module calls one of these without recording it, this fails
 # here and on /api/integrity rather than quietly understating the bill.
@@ -316,6 +325,50 @@ check("a module on hub/brand_lookup.py is clear",
 check("a key-validity probe is not a client lookup",
       _bf["calls"]("requests.get('https://api.brandfetch.io/v2/brands/brandfetch.com')"),
       False)
+
+section("Image Creator asks what is stored before it spends a call")
+# It used to fetch FIRST and consult the Hub's stored brand data only if the
+# fetch came back empty -- so the store was a fallback for a failed call, and
+# every search for a client already on file spent one of the plan's hundred
+# monthly lookups on an answer the Hub was already holding.
+from unittest import mock as _mock                            # noqa: E402
+from hub import brand_lookup as _bl                           # noqa: E402
+from modules.image_creator import assets as _ic               # noqa: E402
+
+_PAYLOAD = {"name": "Icon Solar", "domain": "iconsolar.com",
+            "logos": [{"type": "logo",
+                       "formats": [{"src": "http://x/l.svg", "format": "svg"}]}],
+            "colors": [{"hex": "#123456"}]}
+
+with _mock.patch.object(_bl, "requests") as _rq, \
+     _mock.patch("hub.seo.brand_for", return_value=_PAYLOAD):
+    _out = _ic.brand_lookup("iconsolar.com", client="Icon Solar")
+    check("a stored answer costs no call", _rq.get.call_count, 0)
+    check("and is still the answer", _out.get("name"), "Icon Solar")
+    check("with its logos", len(_out.get("logos") or []), 1)
+
+_resp = _mock.Mock(status_code=200, ok=True)
+_resp.json.return_value = dict(_PAYLOAD)
+with _mock.patch.object(_bl, "requests") as _rq, \
+     _mock.patch("hub.seo.brand_for", return_value=None), \
+     _mock.patch("hub.seo.save_brandfetch") as _save, \
+     _mock.patch.object(_bl, "_key", return_value="k"):
+    _rq.get.return_value = _resp
+    _rq.RequestException = Exception
+    _ic.brand_lookup("iconsolar.com", client="Icon Solar")
+    check("a miss goes to Brandfetch, once", _rq.get.call_count, 1)
+    check("and what it paid for is kept against the client",
+          _save.called and _save.call_args.kwargs.get("client"), "Icon Solar")
+
+# A cache hit answers with no key at all, which this function has always
+# promised, so "not configured" is only right when nothing was stored either.
+with _mock.patch.object(_bl, "configured", return_value=False), \
+     _mock.patch("hub.seo.brand_for", return_value=None):
+    check("the unconfigured wording survives the move",
+          "nothing is cached" in (_ic.brand_lookup("iconsolar.com").get("error") or ""), True)
+check("and so does the empty-query one",
+      _ic.brand_lookup("").get("error"), "Enter a company name or domain.")
+
 
 section("The integrity page reports the same scan, from the same code")
 from hub import integrity                                # noqa: E402

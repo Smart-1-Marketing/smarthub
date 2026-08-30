@@ -145,6 +145,29 @@ def save_archive(rows: list[dict]):
         jsonstore.write_json(_INDEX_PATH, rows, indent=1)
 
 
+def add_archive_record(**fields) -> str:
+    """Add one row to the archive from another tool, and return its id.
+
+    The Page Image Optimizer produces exactly what this table holds — a client
+    image, renamed, resized and put back on a page — and had no way to write
+    here. It carried three guessed function names, none of which had ever
+    existed, so it fell back to a private JSON file nothing reads and every
+    image it saved was missing from the gallery that is supposed to be the
+    complete list. This is the name it now calls.
+
+    Deliberately additive and id-stamped: every row needs an id or the
+    gallery's own buttons cannot address it, which is the backfill
+    `load_archive()` had to grow for rows written without one.
+    """
+    row = {k: v for k, v in fields.items() if v is not None}
+    row.setdefault("id", secrets.token_hex(8))
+    row.setdefault("saved_at", _dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    rows = load_archive()
+    rows.insert(0, row)
+    save_archive(rows)
+    return row["id"]
+
+
 # --------------------------------------------------- in-flight batch storage
 # Analysed images wait here between "analyse" and "save" so the bytes never
 # travel back through the browser. Batches are small, short-lived, and swept

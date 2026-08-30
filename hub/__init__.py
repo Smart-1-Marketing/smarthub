@@ -175,6 +175,7 @@ def create_hub_app() -> Flask:
         path = (request.path or "/").rstrip("/") or "/"
         mapping = {"/": "hub", "/client360": "hub", "/seo": "seo",
                    "/qa": "qa", "/qa/stale-creative": "qa",
+                   "/qa/unattached-images": "qa",
                    "/tools": "hub", "/diagnostics": "hub"}
         return {"hub_demo_module": mapping.get(path, "")}
 
@@ -5149,11 +5150,40 @@ def create_hub_app() -> Flask:
             else "Not set — everyone is logged out on every restart/redeploy.")
 
         # --- Knack data ---
+        #
+        # This row used to read the *file's* mtime and print it as "Refreshed
+        # Xh ago", warning past 48 hours. `data_age_hours()`'s own docstring
+        # already said why that is wrong: in a Docker deploy every file is
+        # written at image build time, so it measures **time since the last
+        # deploy** and not since the last data refresh.
+        #
+        # That is wrong in both directions, which is what makes it worse than
+        # nothing. A months-old export reads as "refreshed 2h ago" for the
+        # first two days after any deploy; and a container simply left up for
+        # a week warns that the data needs refreshing when nothing about the
+        # data has changed. Either way the row is not about the data, and it
+        # is read as though it is.
+        #
+        # `export_state()` is the honest signal and is already shared with the
+        # dashboard and hub/housekeeping.py: the month the export was
+        # generated *for*, against the calendar.
+        state = knack_data.export_state()
         age = knack_data.data_age_hours()
         if age is None:
             add("Smart 1 Team data", "error", "clients_app/data/products.json not found.")
-        elif age > 48:
-            add("Smart 1 Team data", "warn", f"Last refreshed {age / 24:.1f} days ago — run the refresh workflow.")
+        elif state["stale"]:
+            add("Smart 1 Team data", "warn",
+                f"The committed products export is for {state['label']}, and "
+                f"it is now {state['current_label']}. It is only read when "
+                "Knack cannot be reached, but that is when it matters.")
+        elif not state["period"]:
+            # Neither stale nor current: it carries no month at all, so
+            # nothing can say how old it is. Named rather than passed off as
+            # fresh — the whole failure this row had.
+            add("Smart 1 Team data", "warn",
+                "The committed products export carries no month, so how old "
+                "it is cannot be measured. It is the fallback for when Knack "
+                "cannot be reached.")
         else:
             # The site count says which source answered. Products and websites
             # each prefer the live Knack object and fall back to the committed
@@ -5161,8 +5191,9 @@ def create_hub_app() -> Flask:
             # it was — which is the whole reason the export went unnoticed.
             _wsrc = knack_data.websites_source()
             add("Smart 1 Team data", "ok",
-                f"Refreshed {age:.0f}h ago · {len(knack_data.products())} "
-                f"product rows · {len(knack_data.websites())} sites "
+                f"Export is current ({state['label']}) · "
+                f"{len(knack_data.products())} product rows · "
+                f"{len(knack_data.websites())} sites "
                 f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
 
         # --- GHL ---
@@ -5374,6 +5405,31 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---- The hub app's own prospect-facing pages -------------------------
+    #
+    # A blueprint-registered module is not a dispatcher-mounted one, and the
+    # two are protected by different code. `bare_prefixes` in wsgi.py keeps
+    # the chrome off a mounted module's public routes and `hub/embed.py`
+    # gives it the marketing-site frame-ancestors; a blueprint on the hub app
+    # passes through neither. The Media Calculators are exactly that: the
+    # pages behind smart1marketing.com/ims and the four calculator pages are
+    # blueprint routes, so every rule written for /land/<tool>/embed missed
+    # them and BOTH halves failed at once --- the staff sidebar was injected
+    # into a page a prospect reads, and `_embed_policy` below answered the
+    # marketing site's iframe with the Smart 1 Suite refusal, in plain text,
+    # 403. A prospect saw "This Hub page is not available inside Smart 1
+    # Suite." where the calculator should be, and nothing errored at either
+    # end.
+    #
+    # Read from the module's own declaration rather than restated here, for
+    # the reason modules/ads_builder gives wsgi.py: the mount and the module
+    # must not be able to disagree about what is public.
+    try:
+        from modules.calculators import public_paths as _calc_public_paths
+        PUBLIC_EMBED_PREFIXES = tuple(_calc_public_paths())
+    except Exception:  # noqa: BLE001 -- a module that will not import must
+        PUBLIC_EMBED_PREFIXES = ()      # not take the hub's chrome with it
+
     # ---------------- sidebar for blueprint-registered pages ----------------
     # Modules mounted through DispatcherMiddleware get the sidebar injected by
     # HubBar in wsgi.py. Modules registered as blueprints on this app do not,
@@ -5436,7 +5492,7 @@ def create_hub_app() -> Flask:
                   # login and not from the chrome is a client looking at our
                   # nav; the other way round is a login form in front of
                   # somebody with no account.
-                  "/tools/commercial-builder/review/")
+                  "/tools/commercial-builder/review/") + PUBLIC_EMBED_PREFIXES
 
     @app.after_request
     def _embed_policy(resp):
@@ -5456,6 +5512,16 @@ def create_hub_app() -> Flask:
             if not embed.is_embedded(request.environ):
                 return resp
             path = request.path or "/"
+            # A public page of ours, framed on the marketing site. This is not
+            # the Suite question at all: `is_embedded()` is true for ANY
+            # framer, so without this the marketing site's iframe is answered
+            # with the Suite refusal -- and the answer to "who may frame the
+            # calculators" is hub/embed.py's allowlist, the same one every
+            # /land/<tool>/embed already carries. Checked before `embeddable`
+            # so the refusal below can never reach a prospect.
+            if path.startswith(PUBLIC_EMBED_PREFIXES):
+                from . import embed as _site_embed
+                return _site_embed.framable(resp)
             if not embed.embeddable(path):
                 # Refuse in words. A blank frame gets reported as a broken
                 # integration; a named path gets fixed by whoever configured
@@ -5686,6 +5752,9 @@ def create_hub_app() -> Flask:
     try:
         from .stale_creative import register_stale_creative
         register_stale_creative(app)
+
+        from .image_audit import register_image_audit
+        register_image_audit(app)
     except Exception as _sc_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _sc_exc)

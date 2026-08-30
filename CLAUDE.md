@@ -548,6 +548,45 @@ those. `docs/smart1marketing-embeds.md` is the line to paste, per page.
 resolves against the *directory* of the current URL, so `/embed/` is a 404 the
 prospect does not meet until they press submit.
 
+**Every rule above was written for a dispatcher-mounted module, and the
+calculators are a blueprint.** Five marketing-site pages frame a Hub media
+calculator — `/ims` frames the IMS Advertising Trade Calculator, and
+`/ctv-ott-calculator`, `/digital-audio-calculator` and `/dooh-calculator` frame
+the other three. `modules/calculators` registers on the hub app, so it passes
+through neither `bare_prefixes` in `wsgi.py` nor `hub/embed.py`'s `install()`,
+and **both halves failed at once**.
+
+`suite_embed.is_embedded()` reads `Sec-Fetch-Dest`, which a browser sends
+whoever owns the outer page — so it is true for the marketing site exactly as
+it is for Smart 1 Suite. The hub app's `_embed_policy` then refused every
+calculator path as not being in `EMBEDDABLE`, and a prospect on
+smart1marketing.com/ims got **"This Hub page is not available inside Smart 1
+Suite." in plain text, 403**, where the calculator should have been. The same
+403 answered the `/api/<slug>/estimate` POST, so a frame that did render could
+not compute either. Nothing errored at either end: the Hub was answering
+correctly, to a question nobody had asked it. And `/tools/calculators/` was not
+in `CHROMELESS`, so `/c/<slug>` — the standalone link an ad can point at —
+arrived carrying the staff sidebar, live links to `/client360`, `/sales/leads`
+and `/qa` among them, plus the help layer and the feedback tab.
+
+`_embed_policy` now answers a **public prefix of the hub app's own** with
+`hub/embed.py`'s marketing-site allowlist, checked *before* the Suite refusal so
+that refusal can never reach a prospect, and `CHROMELESS` extends itself from
+the same list. The list is read from `modules.calculators.public_paths()`
+rather than restated — the rule `modules/ads_builder` gives `wsgi.py`: the mount
+and the module must not be able to disagree about what is public. Nothing else
+we run catches this. linkcheck resolves the URL, the template is valid, and the
+page returns 200 to a member of staff opening it in a tab; it breaks only for
+the one visitor it exists for. `test_calculator_embeds.py` asserts every half,
+and asserts the staff index and leads pages keep their chrome — a prefix wide
+enough to fix this goes wrong in the other direction just as quietly.
+
+**A page on the marketing site is not a calculator in the Hub.**
+`/paid-search-calculator` is live and there is no paid-search calculator here;
+`female-18-34` is a working calculator with no page. `test_calculator_embeds.py`
+names both as known absences rather than leaving them implicit, so building one
+makes the assertion the reminder to point the page at it.
+
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
 check said yes. `hub/config.py` detects the known placeholders. Render also
@@ -815,6 +854,81 @@ test is therefore asked exactly once per client. A registry that could not be
 read counts as **known**, because refusing to register beats inventing a
 duplicate of a client Knack holds and was briefly unable to answer for.
 `test_client_uploads.py` asserts all of it.
+
+**Twelve tools make an image and six of them recorded nobody.** Each wrote to
+Cloudinary and filed a record of its own, and the question anybody actually
+asks — *what have we made for this client?* — was answerable only from the
+ones that named a client. `hub/image_audit.py` and **QA → Unattached Images**
+audit both halves, and the second half is why a row count alone misleads.
+
+**The stores** are counted and split into filed, unfiled and *not measured*.
+**The producers** — the code paths that create, upload or let somebody choose
+an image — are checked for whether they reach a client gallery at all: a tool
+that has never filed anything has no unfiled rows to count, so it is invisible
+to a data audit and reads as the cleanest tool in the building.
+
+Two of the six were invisible in the worst way. **Page Image Optimizer**
+shipped an ">>> INTEGRATION POINT <<<" naming three candidate writers —
+`modules.seo_images.store.add_record` and two more — and not one of those names
+has ever existed, so `_resolve_hook()` returned `None` from the day it was
+written and every image it saved went to a private JSON file nothing reads,
+with `archive_backend()` reporting *local* to a screen nobody read it on.
+`modules/seo_images.add_archive_record` is the real name now. And
+**`io_creative`** sat in `filing.KIND_LABELS` with no writer at all — the
+`display_ads` failure this file already describes, one tool later.
+
+The producer check reads the **AST**, not the text: several files here explain
+this trap by naming `file_asset` in prose, and a text match reports the
+explanation as the defect — the rule `hub/config.py`'s drift check gives at
+length. It also accepts filing done **over the route**, because the IO Builder
+uploads straight from the browser and files through
+`/tools/image-picker/api/staff/file`; an AST-only check called the one tool
+that does file its worst offender, and the module that *defines* `file_asset`
+its second.
+
+**A stock photo chosen for a client is copied, not linked.** A gallery row
+pointing at somebody else's CDN empties itself the day that provider
+reorganises, with nothing saying why — so `modules/stock_photos` stores the
+file first and files the stored copy. Our own library is already in Cloudinary
+and is filed as it stands.
+
+**A video is not filed into an image gallery.** `SavedImage` models an image or
+a raw file, so the Commercial Builder files stills and logos and deliberately
+leaves the commercial, the spokesperson clip and the voice track in the
+client's Cloudinary tree: a row whose thumbnail can never render is worse than
+an absent one. And it files by client **name**, never by that module's own
+slug — resolving a slug back to a client is a guess, and filing one client's
+creative into another's gallery is the single mistake here that cannot be
+undone by editing a row. No name, no filing, and the audit reports it.
+
+**"A client or a lead" is two right answers, not one.** A client's work goes
+to a gallery through `filing.file_asset`; a prospect's goes to that prospect's
+own record through `hub/prospect.add_asset`, keyed on the lead id. A producer
+check that demanded `file_asset` of everything would report the lead half as
+unfiled — which is the exact thing this audit exists to find — so the filing
+call is per producer. The `prospect` heading is in `SOURCE_LABELS` even though
+those files sit outside a gallery today, because a conversion carries them
+across and they would otherwise arrive in the new client's gallery as a bare
+key under nothing.
+
+**A report that cannot fix the row it names is a signpost.** Each unattached
+image carries a client picker and one press writes both the tool's own record
+and the gallery — reported **separately**, because "attached" and "attached in
+one of two places" are different outcomes and one tick for both is how
+somebody learns not to trust the tick.
+
+**And the gallery's labels are a table, read by whatever renders one.** The
+gallery template kept its own hand-typed copy, so a kind added since arrived
+in a client's gallery as a bare key under no heading, sorted in with stock.
+`filing.SOURCE_LABELS` and `source_tiers()` are the one source now; the page
+gained a search and per-group chips with counts, and a filtered view says *N
+of M shown* rather than reporting the whole as the part.
+
+**A QA report is named for its finding, not its process.** "Image Audit" tied
+with Image Creator on the bare query `image` and took the top slot off it —
+`search_index` breaks an equal score alphabetically, so a name is a ranking
+decision. It is **Unattached Images**, beside "No Dashboards" and "Stale
+Creative". `test_image_audit.py` asserts all of it.
 
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
@@ -1131,6 +1245,53 @@ Approval state is `cb_render_approvals`, its own **table**: `create_all()`
 creates missing tables and never adds a column to an existing one, so an
 `approved_by` on `cb_render_jobs` would be silently absent on the live
 Postgres with every local test green.
+
+**The module that spends the most was invisible on the usage page.** HeyGen,
+Runway and Creatomate all bill per generation, and none of them was recorded
+anywhere — while `quotas._PROVIDER_MARKERS` knew four providers and none of
+these three, so there was no check that could ever have named the gap. That
+is why it stood: the thing that would have caught it had nothing to catch it
+with. The OpenAI **image** path was the same story one level down —
+`hub/ai.note_sdk_usage()` records the text calls by reading `.usage`, which an
+images response does not carry, so two billed options per press went uncounted
+while every chat call was tracked.
+
+All four record now, and all three have markers, so `untracked_provider_calls()`
+and `test_api_usage.py` fail on the next one rather than understating the bill.
+Three rules on the new rows. **Runway is counted in seconds**, because it bills
+by duration — counting requests would make a :10 clip cost the same as a :05,
+which is the mistake counting ElevenLabs renders rather than characters would
+have made. **A refused call keeps its row** with `ok=False`: it spent nothing
+and is out of every billable total, but a wall of them is what a spent
+allowance looks like from this side. And **no ceiling is invented** — none of
+the three publishes a plan figure this deployment can cite, so each row reads
+*not measured* against a limit and still says what was spent.
+
+**A price nobody published is a price this tool would be inventing.**
+`modules/commercial_builder/cost_spec.py` answers what a spot will consume
+*before* it is built — the decision that moves the number is three lengths or
+one, AI video or stock, and it is made on the Start page, where nothing said
+anything. Every figure is a count in the provider's own unit, and a dollar
+figure appears **only** where the Hub already holds a published rate, which
+today is OpenAI's image price and nothing else, read from
+`hub/quotas.IMAGE_PRICING` rather than restated. A total that quietly covered
+two of five rows would be the same confident low number, so the unpriced rows
+are **named** beside it. The shot count comes from `abcd_service.shot_targets()`
+— the same table the Blueprint scores against — so the estimate and the thing
+it estimates cannot drift. It is what the tools consume and never what a client
+pays; `hub/rate_card.py` is the other thing, and the caveat says so on every
+render of it.
+
+**A rendered cut is not a delivered one.** The dashboard lists the 25 most
+recently touched projects, which answers *what was I working on*; the Spot
+Library answers *what have we actually made*, and those are different rows
+sorted on different things. It reads `RenderApproval` rather than a succeeded
+`RenderJob`, because a render that succeeded is a file nobody has watched —
+the distinction `approve_render` already draws, read from the other end. It
+filters server-side and reports **both** numbers, since a filtered list quoting
+an unfiltered total is the wrong answer with two right ones either side of it
+(the SEO gallery's "Showing 1 of 7"). A spot whose Cloudinary copy is missing
+says so rather than offering a link to a provider URL that expires.
 
 **One field held two questions, and answered neither.** `COMMERCIAL_TYPES` is
 a single-select mixing how a spot gets **made** (`stock_vo`,
@@ -1807,7 +1968,7 @@ where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
 |---|---|---|
 | Knack products (IOs) | live API, `hub/knack_products.py` (object_135), export as fallback | current |
 | Knack websites | live API via `hub/knack_websites.py` (object_153), export as fallback | current |
-| Knack campaigns | static JSON in `clients_app/data/campaigns.json` | **stale — and read by nothing** |
+
 | Knack object_153 (website registry) | live API, `hub/knack_websites.py` | current |
 | Knack tickets | live API, `hub/knack_api.py` | current |
 | Insites scans | own SQLite/Postgres tables | current |
@@ -1856,10 +2017,30 @@ Client 360 and `/status` say which source answered, exactly as the products
 card already does — a stale export looks identical to live data on screen,
 which is the whole reason this went unnoticed.
 
-**`campaigns.json` is a different case: 7,854 rows, 2.1 MB, and nothing in the
-repo references it** — no `.py`, no `.html`, no `campaigns()` reader in
-`knack_data`. It is not stale, it is dead, and the row above says so rather
-than implying a refresh would fix anything.
+**`campaigns.json` and `live_products.json` are gone.** 7,854 rows and 2.1 MB
+of the first, 96 KB of the second, and not one reference to either anywhere in
+the repo — no reader, and for campaigns not even a `campaigns()` function.
+They were described here as *stale*, which implies a refresh would fix them;
+nothing would. `clients_app/data/` is `products.json` and `websites.json` now,
+both fallbacks rather than sources.
+
+**And nothing refreshes those two.** `hub/knack_data.py`'s header used to say
+they were kept current by "the existing `npm run refresh` flow / GitHub
+Action". There is no such workflow — `.github/workflows/` holds one file and
+it runs the checks. They are a hand-committed snapshot, which is survivable
+only because neither is the primary source any more.
+
+**A staleness check measured against the wrong clock is worse than none.**
+`/status` read `products.json`'s mtime and printed it as "Refreshed Xh ago",
+warning past 48 hours — and `data_age_hours()`'s own docstring already said
+why that is wrong: in a Docker deploy every file is written at image build
+time, so it measures **time since the last deploy**. Wrong in both directions.
+A months-old export reads as "refreshed 2h ago" for two days after any
+deploy, and a container simply left up for a week warns that data nothing has
+touched needs refreshing. The row is not about the data and is read as though
+it is. It reads `export_state()` now — the month the export was generated
+*for*, against the calendar — which is the signal the dashboard and
+`hub/housekeeping.py` already share, so the three cannot disagree.
 
 **The URL is the join key, not the name.** Eleven field names hold a URL
 across this codebase (`url`, `domain`, `website`, `web_url`, `site_url`…).
@@ -6011,6 +6192,8 @@ python3 test_celebrations.py       # birthdays and anniversaries: what is still 
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
 python3 test_image_download.py     # image downloads, the shared zip builder
+python3 test_image_audit.py        # every image attached to a client or a lead,
+                                   #   and a gallery you can search
 python3 test_client_images.py      # deleting a client image, the count, the one brand
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
@@ -6029,8 +6212,11 @@ python3 test_google_access.py      # the paused Ads flow, and who an invite is f
 python3 test_google_index.py       # the Google sweep: no request, and none vs cannot look
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
+python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
+python3 test_commercial_meter.py   # every billed call records, no invented price,
+                                   #   and a library of what was actually delivered
 python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose

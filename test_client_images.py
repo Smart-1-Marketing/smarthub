@@ -375,9 +375,18 @@ check("and the refresh does not answer out of the cache",
       "use_cache=False" in HUB, True)
 
 # The modules that were throwing their lookups away.
+#
+# Asserted as the outcome rather than as one spelling of it: a module keeps
+# what it paid for either by calling save_brandfetch itself or by going
+# through hub/brand_lookup.py, which saves on its way past. Image Creator did
+# the first and now does the second -- and the second is stronger, because
+# lookup() also asks what is stored BEFORE it spends anything. Pinning the
+# literal would have failed an improvement while a module that quietly went
+# back to a bare fetch, saving nothing, still passed.
 for mod in ("modules/image_creator/assets.py", "modules/ads_builder/logo.py"):
     src = (ROOT / mod).read_text()
-    check(f"{mod} saves what it fetched", "save_brandfetch" in src, True)
+    check(f"{mod} keeps what it paid for",
+          "save_brandfetch" in src or "brand_lookup" in src, True)
 
 
 # =====================================================================

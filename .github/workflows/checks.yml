@@ -269,6 +269,20 @@ jobs:
             echo "test_commercial_library.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder metering and spot library tests
+        # That every billed call site records, that the scanner has a marker
+        # for each of them so the gap cannot go quiet again, that no price is
+        # invented where none is published, and that the library counts what
+        # was approved rather than what merely rendered. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_meter.py ]; then
+            python test_commercial_meter.py
+          else
+            echo "test_commercial_meter.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -301,6 +315,21 @@ jobs:
             python test_landing_embeds.py
           else
             echo "test_landing_embeds.py not on this branch — nothing to run."
+          fi
+
+      - name: Calculator embed tests
+        # The same rules as the step above, on the path they did not cover.
+        # The calculators are a blueprint on the hub app and every gameplan
+        # tool is dispatcher-mounted, so nothing written for /land/<tool>/embed
+        # was in force on /tools/calculators — and both halves failed at once:
+        # the hub's embed policy answered the marketing site's iframe with the
+        # Smart 1 Suite refusal (403, plain text, in front of a prospect), and
+        # the staff sidebar was injected into the calculator pages themselves.
+        run: |
+          if [ -f test_calculator_embeds.py ]; then
+            python test_calculator_embeds.py
+          else
+            echo "test_calculator_embeds.py not on this branch — nothing to run."
           fi
 
       - name: IO Builder start-screen tests
@@ -685,6 +714,19 @@ jobs:
             python test_client_uploads.py
           else
             echo "test_client_uploads.py not on this branch — nothing to run."
+          fi
+
+      - name: Image attribution audit, and the gallery that reads it
+        # Every tool that creates, uploads or lets somebody choose an image
+        # files it against a client or a lead; the audit reports the ones that
+        # do not; and the gallery reads one label table rather than a second
+        # hand-typed copy. Guarded like the steps above so this workflow stays
+        # mergeable on a branch that predates the file. Needs no network.
+        run: |
+          if [ -f test_image_audit.py ]; then
+            python test_image_audit.py
+          else
+            echo "test_image_audit.py not on this branch — nothing to run."
           fi
 
       - name: Alt text and Claude-in-Chrome publish prompts

@@ -24,6 +24,14 @@
   font-weight:700;text-transform:uppercase;letter-spacing:.5px;
   background:#e8eef4;color:#46586E}
 .src-pill.theirs{background:#E8F3EE;color:#1B6E52}
+.galbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:4px 2px 8px}
+.galbar input[type=search]{flex:1;min-width:230px;padding:9px 11px;
+  border:1px solid var(--line);border-radius:8px;font:14px inherit}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 2px 10px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;
+  padding:4px 12px;font-size:12px;cursor:pointer;color:#46586E}
+.chip[aria-pressed="true"]{background:#0a2240;border-color:#0a2240;color:#fff}
+.chip .n{opacity:.65;margin-left:5px}
 </style>
 <header class="top">
   <div class="wrap">
@@ -55,14 +63,21 @@
         sends forty photographs leaves forty thumbnails, and finding the one
         of the storefront meant scrolling. It searches the alt text, the
         filename, the folder AND what a vision model saw in the picture, which
-        is the half that makes it work on files nobody has captioned. -#}
+        is the half that makes it work on files nobody has captioned.
+
+        Server-side on purpose. A filter over the rows this page happens to
+        have loaded is a filter that quietly answers about part of the
+        library, and it could never see the vision descriptions at all. The
+        group chips below filter what comes back. -#}
     <div class="selbar">
       <input id="gSearch" type="search" placeholder="Search these files — a word in the picture, the alt text or the filename"
              style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--line);border-radius:8px;font:inherit">
       <button class="btn quiet small" id="gSearchGo" type="button">Search</button>
       <button class="btn quiet small" id="gSearchClear" type="button" style="display:none">Clear</button>
+      <span class="hint" id="filterMsg"></span>
     </div>
     <div class="note" id="visionNote" style="display:none;margin-bottom:10px"></div>
+    <div class="chips" id="chips"></div>
     <div class="selbar">
       <label><input type="checkbox" id="selAll"> Select all</label>
       <span class="hint" id="selCount">None selected</span>
@@ -90,6 +105,12 @@
   "use strict";
   var BASE = {{ url_for('image_picker.admin')|tojson }}.replace(/\/$/,"");
   var CLIENT_ID = {{ client.id|tojson }};
+  /* The label table comes from modules/image_picker/filing.py. A second copy
+     here is how a kind added last month showed up in a client's gallery as a
+     bare key under no heading at all. */
+  var SOURCES = {{ (gallery_sources or {"labels": {}, "theirs": [], "we_made": []})|tojson }};
+  var ALL = [];                 /* everything loaded, before search or chips */
+  var GROUP = "";               /* "" = every group */
 
   function esc(s){
     return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
@@ -113,33 +134,75 @@
     error:   ['err',  'Failed']
   };
 
+  /* What is on screen right now. The words are matched by the SERVER -- it
+     is the only half that can see the vision descriptions, and the only one
+     that searches the whole library rather than the rows this page loaded --
+     so all that is left here is the group chip. One reading, because two
+     drift and a count that disagrees with the rows under it is how somebody
+     stops believing the count. */
+  function visible(){
+    if (!GROUP) return ALL;
+    return ALL.filter(function(im){ return (im.provider || "other") === GROUP; });
+  }
+  function LABELS_OF(k){ return (SOURCES.labels || {})[k] || k; }
+
+  function drawChips(){
+    var counts = {}, order = [];
+    ALL.forEach(function(im){
+      var k = im.provider || "other";
+      if (counts[k] === undefined) { counts[k] = 0; order.push(k); }
+      counts[k]++;
+    });
+    order.sort(function(a,b){ return tierOf(a) - tierOf(b) || a.localeCompare(b); });
+    var html = '<button type="button" class="chip" data-g="" aria-pressed="'
+      + (GROUP === "" ) + '">All<span class="n">' + ALL.length + '</span></button>';
+    html += order.map(function(k){
+      return '<button type="button" class="chip" data-g="' + esc(k) + '" aria-pressed="'
+        + (GROUP === k) + '">' + esc(LABELS_OF(k)) + '<span class="n">'
+        + counts[k] + '</span></button>';
+    }).join("");
+    var box = document.getElementById("chips");
+    box.innerHTML = ALL.length ? html : "";
+    Array.prototype.forEach.call(box.querySelectorAll(".chip"), function(b){
+      b.onclick = function(){ GROUP = b.dataset.g; redraw(); };
+    });
+  }
+
+  function tierOf(k){
+    if ((SOURCES.theirs || []).indexOf(k) !== -1) return 0;
+    if ((SOURCES.we_made || []).indexOf(k) !== -1) return 1;
+    return 2;
+  }
+
+  function redraw(){
+    var rows = visible();
+    drawChips();
+    render(rows);
+    var msg = document.getElementById("filterMsg");
+    /* A filtered list that reports an unfiltered total is a wrong answer with
+       two right ones either side of it -- the trap CLAUDE.md names. */
+    msg.textContent = (rows.length === ALL.length)
+      ? "" : rows.length + " of " + ALL.length + " shown";
+  }
+
   function render(images){
-    document.getElementById("count").textContent = images.length + " saved";
+    document.getElementById("count").textContent =
+      ALL.length + " saved" + (images.length === ALL.length ? "" : " · " + images.length + " shown");
     if (!images.length){
-      document.getElementById("rows").innerHTML =
-        '<tr><td colspan="7"><div class="empty"><strong>Nothing saved yet</strong>' +
-        'Send this client their picker link and their choices land here.</div></td></tr>';
+      document.getElementById("rows").innerHTML = ALL.length
+        ? '<tr><td colspan="8"><div class="empty"><strong>Nothing matches</strong>' +
+          'Clear the search or pick a different group.</div></td></tr>'
+        : '<tr><td colspan="8"><div class="empty"><strong>Nothing saved yet</strong>' +
+          'Send this client their picker link and their choices land here.</div></td></tr>';
       return;
     }
     /* Grouped by where each file came from. A gallery that mixes a client's
        own phone photos with stock we found reads as one undifferentiated pile,
        and the first question anyone asks of it is "which of these are theirs?"
        Source answers that, so it is the grouping rather than a column. */
-    var LABELS = {
-      local: "Uploaded from their device", url: "Added by web address",
-      camera: "Taken with a camera", google_drive: "From Google Drive",
-      dropbox: "From Dropbox", instagram: "From Instagram",
-      facebook: "From Facebook", image_search: "From image search",
-      shutterstock: "Shutterstock", getty: "Getty", istock: "iStock",
-      unsplash: "Unsplash", pexels: "Pexels", pixabay: "Pixabay",
-      /* Work Smart 1 produced for this client, filed here automatically by the
-         pipeline that made it rather than left in a Cloudinary folder. */
-      io_creative: "Creative for their insertion orders",
-      blog: "Blog images", seo_image: "SEO images"
-    };
-    var CLIENT_SENT = ["local","camera","google_drive","dropbox","instagram",
-                       "facebook","url"];
-    var WE_MADE = ["io_creative","blog","seo_image"];
+    var LABELS = SOURCES.labels || {};
+    var CLIENT_SENT = SOURCES.theirs || [];
+    var WE_MADE = SOURCES.we_made || [];
     var order = [], buckets = {};
     images.forEach(function(im){
       var k = im.provider || "other";
@@ -314,11 +377,15 @@
   var QUERY = "";
 
   function load(){
-    api("/api/saved?limit=200" + (QUERY ? "&q=" + encodeURIComponent(QUERY) : ""))
+    api("/api/saved?limit=500" + (QUERY ? "&q=" + encodeURIComponent(QUERY) : ""))
       .then(function(d){
         if (!d.ok){ note("bad", "Couldn't load the gallery", d.error || ""); return; }
-        render(d.images || []);
+        ALL = d.images || [];
         drawVision(d);
+        /* Through redraw, not straight to render: the chips are counted off
+           whatever the search returned, so they describe the list on screen
+           rather than a library the page is no longer showing. */
+        redraw();
       });
   }
 
@@ -352,6 +419,10 @@
   function runSearch(){
     QUERY = (document.getElementById("gSearch").value || "").trim();
     document.getElementById("gSearchClear").style.display = QUERY ? "" : "none";
+    /* A new search is a new list, so the group chip from the old one is not
+       necessarily in it -- keeping it would show an empty gallery with no
+       sign of why. */
+    GROUP = "";
     load();
   }
   document.getElementById("gSearchGo").addEventListener("click", runSearch);

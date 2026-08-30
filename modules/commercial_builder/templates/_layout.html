@@ -27,6 +27,8 @@
     </a>
     <nav class="cb-topnav">
       <a href="{{ url_for('commercial_builder.cb_pages.dashboard') }}">Dashboard</a>
+      {# A tool with no link is invisible — CLAUDE.md counts six that were. #}
+      <a href="{{ url_for('commercial_builder.cb_pages.library') }}">Spot Library</a>
       {% if screen %}
       {# The way back to a tour once it has been dismissed. Without this the
          offer is a one-shot and there is no second chance at it. #}
