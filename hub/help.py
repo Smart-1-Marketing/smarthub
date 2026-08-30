@@ -46,6 +46,69 @@ def _h(*a, **kw) -> Help:
 
 REGISTRY: list[Help] = [
 
+    # ---------------- Social content requests ----------------
+    # This screen shipped with no explanation on it at all, which is exactly
+    # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
+    # all working, and nothing on the page opting into any of it. Every key
+    # below is placed by modules/social_planner/templates/staff_requests.html;
+    # test_social_content.py asserts the two stay in step, because a bubble
+    # whose key is not in this registry is removed client-side and reads as
+    # helped from the template while showing nothing on the page.
+    _h("social.requests.queue", "One queue, every location",
+       "A client account is one social presence and often several shops. "
+       "Everybody at the client opens the same link, says which location they "
+       "are, and their request lands here — instead of in whichever inbox "
+       "they happened to know. The location is how you sort it, not where it "
+       "gets posted: one shared page is what the client has."),
+    _h("social.requests.overdue", "Overdue, and what it is not",
+       "The day the client asked for has passed and the request still is not "
+       "scheduled. A request that said \u201cas soon as you can\u201d is never "
+       "overdue — it named no day, and treating that as today would turn "
+       "every one of them red by tomorrow. Declined and duplicate requests "
+       "drop out too: they have been answered."),
+    _h("social.requests.duplicate", "Possible duplicate",
+       "Another open request from this same client wants something live in "
+       "an overlapping window. It is a flag and nothing else — as often two "
+       "locations legitimately both wanting that week as it is one ask sent "
+       "twice, and nothing here can tell them apart. Nothing is merged or "
+       "declined automatically; you confirm it or clear it. It never pairs "
+       "across clients: two businesses wanting the same Friday is a Friday."),
+    _h("social.requests.link", "Their link",
+       "One signed link per client account, not one per location — a link "
+       "each would be the inbox-per-shop arrangement this replaces. It is "
+       "derived from the client's name rather than stored, so it is the same "
+       "string every time and there is nothing to lose. Turning it off stops "
+       "all four of their pages at once, including any copy already pasted "
+       "on their intranet."),
+    _h("social.requests.turnaround", "The turnaround line",
+       "What the client's confirmation screen is allowed to promise. It is "
+       "measured from requests actually triaged, and until there are a few "
+       "it says so rather than quoting a number nobody has checked — a "
+       "figure invented here is a commitment made on the client's behalf."),
+    _h("social.requests.promote", "Promote into a plan",
+       "Turns the request into a slot on that client's month, carrying its "
+       "copy, its photographs and its date across, and joins the two so the "
+       "post says which request it came from. It will not invent a plan: "
+       "with no month built it refuses and names the step, because the "
+       "channels and the post mix belong to the plan rather than to one "
+       "request. What the client typed also becomes authorized text, so "
+       "their own offer is not flagged as invented."),
+    _h("social.requests.ideas", "Ideas and the weighting",
+       "One-line ideas the client swipes Like or Pass on. The weighting is "
+       "liked \u00f7 (liked + passed + 1), which you can check against the two "
+       "counts beside it, and it only ever decides which kinds of post get "
+       "offered next — never the words of anything. A share of each batch "
+       "goes to kinds nobody has answered on, or the mix converges on "
+       "whatever they liked first and stops learning."),
+    _h("social.requests.suite", "Pushing to Smart 1 Suite",
+       "Posting from here needs the social-media-posting.write scope on the "
+       "Suite app, and HighLevel grants what it recognizes at consent "
+       "without saying anything about the rest — so it is checked before a "
+       "push rather than discovered by one. Until the agency re-consents, "
+       "the CSV export loads the same plan into Social Planner's Bulk "
+       "Upload; the line here says which of the two you are being offered."),
+
+
     # ---------------- Proposal Builder: the reach panel ----------------
     # Four numbers sat above a target area with nothing saying what any of
     # them counted, so "addressable audience" got read as "people who will

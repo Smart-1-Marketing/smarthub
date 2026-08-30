@@ -3524,6 +3524,45 @@ the second is somebody's to fix, so the line says so in words beside the
 figure. Same on the card: a client with no requests is told that the link may
 never have gone out.
 
+**A photograph the client sends reaches Cloudinary and not the gallery.**
+That is the half of the asset pipeline that was actually missing.
+`storage.put()` stores the bytes; every screen that offers "the client's own
+assets first" — the planner's own image assignment, Image Creator — reads
+`client_context.gallery_images()`, which reads the image picker's gallery. So
+a photograph a location manager sent in was invisible to the tool built to
+prefer it, while the client had been told it arrived, and nothing errored at
+either end. `_file_into_gallery()` files it, labelled with the shop it came
+from, and the two writes are **reported apart** — the `hub/domain_links.py`
+rule, since "stored" and "stored in one of two places" are different
+outcomes. Nothing branches on the gallery write: the client is watching and
+their upload has already succeeded, so a gallery that will not answer costs
+the composer a picture and never costs them the photograph.
+
+The gallery row is **created** where a client has none, which is a deliberate
+exception to `provisioning.py`'s "creating is asked for, not assumed" — there
+the question is whether a link should exist, and here there are already bytes
+from a named client on a link we sent them. It is not pushed to the Suite
+media library: this is a photograph somebody sent us to consider, not
+approved work.
+
+**The canvas presets were already there.** 1080x1080, 1080x1920 and 1200x630
+have been in `modules/image_creator.CANVAS_PRESETS` all along, under Social.
+Worth writing down, because the obvious reading of the spec is that they need
+adding and adding them again is how one tool comes to offer two Instagram
+Posts of different sizes.
+
+**The queue shipped with no explanation on it, which is how Smart 1 Ads
+shipped.** `hub/help.py`, `hub-help.js` and the tour machinery all working,
+and nothing on the page opting into any of it. Eight bubbles now, every one
+guarded `if help_dot is defined` so a module whose Jinja environment never
+got `install_template_helpers()` loses the icon rather than the page. There
+is deliberately **no `data-screen`**: a tour is offered only where one is
+registered, and naming one that does not exist is the same silence one step
+earlier. `test_social_content.py` reads the template and requires every key
+it places to resolve in the registry — a bubble whose key is missing is
+removed client-side, so the template reads as helped and the page shows
+nothing, and nothing anywhere reports it.
+
 **The queue is linked from the planner, not tiled separately.** It is the
 other half of one tool; a second tile is two things to keep in step and only
 one of them ever gets updated. It carries `data-demo="off"` and no

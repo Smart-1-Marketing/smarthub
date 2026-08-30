@@ -702,6 +702,89 @@ check("the scoreboard never opens a plan file",
 
 
 # ---------------------------------------------------------------------------
+print("\nA photograph the client sends reaches the gallery, not only Cloudinary")
+# ---------------------------------------------------------------------------
+# The half of the spec's §5 that was actually missing. Image Creator already
+# had the three social canvas presets; what nothing did was put a client's own
+# photograph anywhere the composer could see it. storage.put() stores bytes;
+# every "the client's own assets first" screen reads the image picker gallery.
+class _Asset:
+    public_id = "smart1-social-requests/riverstone/van"
+    url = "https://res.cloudinary.com/demo/image/upload/van.jpg"
+    resource_type = "image"
+
+
+filed = mod._file_into_gallery(CLIENT, _Asset(), "van.jpg", "Westside")  # noqa: SLF001
+check("the upload is filed into the client's gallery", filed is True)
+
+from hub.client_context import gallery_images                     # noqa: E402
+pics, note = gallery_images(CLIENT)
+check("and the composer can now see it",
+      any(p.get("public_id") == _Asset.public_id for p in pics), note)
+
+check("a client nobody named files nothing rather than raising",
+      mod._file_into_gallery("", _Asset(), "x.jpg", "") is False)   # noqa: SLF001
+
+
+class _Broken:
+    public_id = ""
+    url = ""
+
+
+check("an asset with no stored URL is refused, not filed as one",
+      mod._file_into_gallery(CLIENT, _Broken(), "x.jpg", "") is False)  # noqa: SLF001
+
+# Reported separately from the upload, the hub/domain_links.py rule: "stored"
+# and "stored in one of two places" are different outcomes.
+import inspect                                                    # noqa: E402
+upload_src = inspect.getsource(mod.api_client_upload)
+check("the upload route reports the two writes apart",
+      "unfiled" in upload_src, upload_src[-200:])
+# The client is watching and their photograph did arrive. `unfiled` is
+# recorded and nothing branches on it, so a gallery that would not answer
+# costs the composer a picture and never costs the client their upload.
+check("nothing branches on the gallery write",
+      "if unfiled" not in upload_src and "if not unfiled" not in upload_src)
+check("and the gallery helper swallows its own failures",
+      "except Exception" in inspect.getsource(mod._file_into_gallery))  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+print("\nThe queue explains itself, and every bubble resolves")
+# ---------------------------------------------------------------------------
+import re as _re                                                  # noqa: E402
+from hub import help as hub_help                                  # noqa: E402
+
+_QUEUE_TPL = os.path.join(ROOT, "modules", "social_planner", "templates",
+                          "staff_requests.html")
+with open(_QUEUE_TPL, encoding="utf-8") as fh:
+    _queue_html = fh.read()
+placed = sorted(set(_re.findall(r"help_dot\(\s*'([^']+)'", _queue_html)))
+check("the queue places help bubbles at all", len(placed) >= 5, placed)
+missing = [k for k in placed if hub_help.get(k) is None]
+# A bubble whose key is not in the registry is removed client-side, so the
+# template reads as helped and the page shows nothing. Nothing reports that.
+check("every key it places resolves in the registry", not missing, missing)
+check("every one of them is guarded with `if help_dot is defined`",
+      _queue_html.count("if help_dot is defined")
+      == _queue_html.count("help_dot("), "an unguarded call 500s the page "
+      "wherever install_template_helpers did not run")
+for key in placed:
+    entry = hub_help.get(key)
+    check(f"  {key} says something worth reading",
+          entry and len(entry.body) > 80 and entry.title, key)
+
+# The body tag itself, not the file: the comment above it explains why there
+# is no data-screen, and matching the whole file would read the explanation
+# as the defect — the AST-vs-full-text lesson tools/spellcheck.py learned.
+_body_tag = _re.search(r"<body[^>]*>", _queue_html).group(0)
+check("the queue offers no tour, because none is registered for it",
+      "data-screen" not in _body_tag, _body_tag)
+check("and it opts out of the walkthrough written for another screen",
+      'data-demo="off"' in _queue_html)
+
+
+# ---------------------------------------------------------------------------
 print("\nStorage goes through the mirror")
 # ---------------------------------------------------------------------------
 from hub import jsonstore                                         # noqa: E402
