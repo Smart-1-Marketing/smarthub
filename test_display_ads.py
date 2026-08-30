@@ -1153,6 +1153,59 @@ def test_the_preset_screen_is_linked_rather_than_tiled_twice():
           f"{creative.count('/tools/display-ads/')} tiles")
 
 
+def test_the_scan_shows_the_site_as_well_as_its_palette():
+    """The screenshot was fetched, returned, and drawn nowhere.
+
+    An operator judging brand colour on a dark canvas had to open the client's
+    website in another tab to remember what they were matching, and mostly did
+    not -- which is how an ad comes back "not really them" with nobody able to
+    say why.
+    """
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    screen = BUILD_HTML.read_text()
+
+    check("the route carries both devices",
+          '"screenshot": desktop,' in link and '"screenshotMobile": mobile,' in link)
+    check("because half a package runs on a phone",
+          "half the sizes in a display package run on a" in link)
+    check("a scan with only a screenshot still counts as something",
+          'bool(colors or logo.get("logo_url") or desktop)' in link)
+    check("the screen draws it", "function siteShotMarkup" in screen)
+    check("and does not give up when the palette is empty",
+          "if (!entries.length && !d.screenshot) return;" in screen)
+    check("mobile is a toggle, not a second thumbnail", 'data-shot="mobile"' in screen)
+
+    # The one that would be wrong to get wrong: a screenshot of somebody's
+    # website is reference, and offering to put it behind their ad is offering
+    # something a few people would press.
+    check("the lightbox's use button is optional",
+          "function lightbox(url, onUse, caption)" in screen and
+          "(onUse ? '<button" in screen)
+    check("and the screenshot opens without one", "lightbox(img.src, null," in screen)
+    check("it says so on the panel too", "Reference only" in screen)
+
+
+def test_the_font_signal_says_only_what_it_measured():
+    """`has_google_font_api` is a boolean about loading, never about which
+    face. A note implying otherwise is worse than no note."""
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    screen = BUILD_HTML.read_text()
+
+    check("the route reads it", 'gdpr.get("has_google_font_api")' in link)
+    check("and it is tri-state, because absent is not no",
+          "if not isinstance(google_fonts, bool):\n            google_fonts = None" in link)
+    check("the route says what it will not claim",
+          "never says *which* face" in link)
+    check("the screen says nothing when it was not measured",
+          "if (uses === null || uses === undefined) return;" in screen)
+    check("a true is stated as the weak signal it is",
+          "The scan does not say which one." in screen)
+    check("and a false is the actionable direction",
+          "nothing here will match it by accident" in screen)
+    check("it sits in the Type panel, where the decision is",
+          "'<div id=\"siteType\"></div>' +" in screen)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()
