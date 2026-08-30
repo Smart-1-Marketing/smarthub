@@ -136,6 +136,22 @@ jobs:
             echo "test_ads_estimate.py not on this branch — nothing to run."
           fi
 
+      - name: Measured CPC, access tier and deploy preflight tests
+        # Google is stubbed throughout, deliberately: what is worth asserting
+        # is what the module does when Google says NO, and that is unreachable
+        # from a deployment where Google says yes. A top-of-page bid must never
+        # be printed as a cost per click, a DEVELOPER_TOKEN_NOT_APPROVED must
+        # read as the access tier rather than a bad key, and an area Google
+        # could not place must be named rather than widened. Guarded like the
+        # steps above so this workflow stays mergeable on a branch that
+        # predates the file. No database, no network.
+        run: |
+          if [ -f test_ads_keyword_plan.py ]; then
+            python test_ads_keyword_plan.py
+          else
+            echo "test_ads_keyword_plan.py not on this branch — nothing to run."
+          fi
+
       - name: JSON store tests
         run: python test_jsonstore.py
 

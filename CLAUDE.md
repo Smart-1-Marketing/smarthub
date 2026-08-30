@@ -470,6 +470,62 @@ it alongside the numbers so no screen can render a CPC without having been
 handed the words for it, and `test_ads_estimate.py` asserts each template
 carries it.
 
+**A developer token is not one thing, and the tier is what decides.** Google
+grants a new token **Explorer** access automatically — production accounts,
+2,880 operations a day, and the keyword planning services **excluded**. So
+`generateKeywordIdeas` answers `DEVELOPER_TOKEN_NOT_APPROVED` on a token that
+is entirely healthy, and read as a bad key it sends somebody to rotate a
+credential that was fine. Basic access is the first tier that can measure
+anything, and it is applied for and reviewed rather than granted.
+`keyword_plan.PlanningUnavailable` carries `tier_needed` so a page says *apply
+for Basic access* rather than printing an error code at a rep who cannot act on
+one, and the refusal is **saved onto the campaign** — "we asked Google and the
+tier does not allow it" is a fact the estimate should carry, and dropping it
+leaves the benchmark on screen with nothing saying the measured number was
+tried for. Google publishes the tier nowhere an API can read it, so
+`api_readiness.tier()` treats `GOOGLE_ADS_ACCESS_LEVEL` and the stored setting
+as **claims** and lets an actual probe outrank both.
+
+**A top-of-page bid is not a cost per click.** Google's two planning services
+return two different numbers: `generateKeywordIdeas` gives the bid you would
+need to show at the top of the page (20th/80th percentile), and
+`generateKeywordForecastMetrics` gives a forecast `averageCpcMicros`. Only the
+second is what you pay, and the first is always the larger — so printing it
+under the word "cost" overstates every estimate this tool produces, by a margin
+that grows with the sector, and looks exactly like a better number than the
+benchmark it replaced. `spec.CPC_SOURCES` holds all three provenances with the
+caveat each must appear beside, `keyword_plan.py` imports that rather than
+restating it, and the estimate reads `spec.cpc_provenance()` so a label cannot
+drift from the call that produced the number under it. The forecast is
+preferred, the bid range is the labelled fallback, and the sector benchmark is
+what you get when neither answered. Measuring also **re-costs the tiers** —
+`campaign_ai.retier()`, recomputed and never re-asked, so wording a rep edited
+survives — because a measured headline over tiers costed at the sector rate
+shows a client two different campaigns on one page. An area Google could not
+place is **named on the client document**, never widened to the state it sits
+in: a CPC measured across three of a client's five counties is not this
+campaign's CPC.
+
+**"Not ready" is useless; "the client has not accepted the link invitation" is
+a phone call.** Reaching a client's Google Ads account is a separate act from
+authorising ours — there is no "add this email" call, so we send a manager link
+invitation and *they* accept it, and until they do the API reports an empty
+customer list rather than an error. `api_readiness.preflight()` asks every
+question in the order it bites and returns a **named checklist**: credentials,
+authorisation, tier, account reachability, then the Hub's own three approval
+rungs. `api_deploy` refuses on that checklist and returns the whole thing, so a
+rep who fixes the status is not then told the account is unreachable — one
+press, every blocker. Three rules in it: a check that could not run is *not
+measured* and never a red cross (an unreachable Google is not a bad key); the
+client's own answer is shown but does not block, because a rep may have an
+approval by phone and "never sent", "asked to talk first" and "said yes" are
+three different situations; and the **dry run is never gated**, because
+validating is how somebody finds out what is wrong and gating the diagnostic
+behind the conditions it diagnoses makes it unavailable exactly when it is
+needed. `docs/google-ads-api-integration.md` is the rollout order.
+`test_ads_keyword_plan.py` asserts all of it with Google stubbed, because what
+is worth asserting is what the module does when Google says no.
+
 **A budget nobody has named is the ordinary case.** Refusing to build anything
 until a client picks a number is how the conversation stops before it starts,
 so the budget is optional and the model sizes Good/Better/Best — asked for
@@ -1805,6 +1861,7 @@ python tools/integritycheck.py     # known defect patterns
 python3 test_jsonstore.py          # the database mirror really restores
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
+python3 test_ads_keyword_plan.py   # measured CPC, the access tier, the deploy preflight
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math

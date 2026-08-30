@@ -139,6 +139,64 @@
   </p>
 </div>
 
+{# The access tier. Google publishes it nowhere an API can read, so this panel
+   is deliberately three claims of different weight: what somebody typed, what
+   a probe observed, and — where neither exists — "not recorded", which is not
+   the same as "broken". The probe is a button because it costs an operation
+   against a daily cap the deploy also has to fit inside. #}
+<div class="card">
+  <div class="row" style="margin-bottom:12px">
+    <h3 style="margin:0">Developer token access tier</h3>
+    <div class="spacer"></div>
+    <button class="btn b-sm" id="planbtn" onclick="checkPlanning()">Check keyword planning</button>
+  </div>
+
+  <div class="grid g3" style="margin-bottom:12px">
+    <div class="stat">
+      <div class="l">Tier</div>
+      <div class="v" style="font-size:17px" id="tierlabel">{{ tier.label }}</div>
+      <div class="f" id="tiersource">
+        {% if tier.source == 'observed' %}observed by a planning check{% elif tier.source == 'none' %}not recorded{% else %}recorded in {{ tier.source }} &mdash; a claim, not a check{% endif %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="l">Measured cost per click</div>
+      <div class="v" style="font-size:17px" id="planstate">
+        {% if tier.measured and tier.tier in ('basic', 'standard') %}Available{% elif tier.measured %}Not at this tier{% else %}Not measured{% endif %}
+      </div>
+      <div class="f">Needs Basic access. Deploying does not.</div>
+    </div>
+    <div class="stat">
+      <div class="l">Daily operations</div>
+      <div class="v" style="font-size:17px">
+        {% if tier.tier == 'explorer' %}2,880{% elif tier.tier in ('basic', 'test') %}15,000{% elif tier.tier == 'standard' %}No cap{% else %}&mdash;{% endif %}
+      </div>
+      <div class="f">Resets midnight Pacific</div>
+    </div>
+  </div>
+
+  <div class="note n-info" id="tiernote">{{ tier.note }}</div>
+
+  <table style="margin-top:12px">
+    <thead><tr><th>Tier</th><th>What it allows</th></tr></thead>
+    <tbody>
+      {% for t in tiers %}
+        <tr{% if t.key == tier.tier %} style="font-weight:600"{% endif %}>
+          <td>{{ t.label }}</td><td>{{ t.note }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="hint">
+    A new developer token is granted <b>Explorer</b> access automatically, and Explorer excludes
+    keyword planning &mdash; so a perfectly healthy token answers
+    <span class="mono">DEVELOPER_TOKEN_NOT_APPROVED</span> to a CPC request. That is the tier, not the
+    key: do not rotate it. Apply for Basic access in the manager account under Tools &rarr; API Center.
+    Full rollout order is in <span class="mono">docs/google-ads-api-integration.md</span>.
+  </div>
+</div>
+
 <div class="card">
   <h3>Environment reference</h3>
   <table>
@@ -175,6 +233,35 @@ async function disconnect() {
     toast('good', d.note || 'Disconnected.');
     setTimeout(() => window.location.reload(), 1200);
   } catch (err) { toast('bad', err.message); }
+}
+
+// One call, behind this button. Never on load: it costs an operation against
+// the same daily cap a deploy needs, and a page that spent it on rendering
+// would be a page that cannot deploy at 4pm.
+async function checkPlanning() {
+  const btn = document.getElementById('planbtn');
+  btn.disabled = true;
+  btn.textContent = 'Asking Google…';
+  try {
+    const d = await api('POST', MOUNT + '/api/planning-check');
+    const t = d.tier || {};
+    const p = d.planning || {};
+    document.getElementById('tierlabel').textContent = t.label || 'Not recorded';
+    document.getElementById('tiersource').textContent =
+      t.source === 'observed' ? 'observed by a planning check' : 'not recorded';
+    document.getElementById('planstate').textContent =
+      p.available ? 'Available' : (p.state === 'tier_too_low' ? 'Not at this tier' : 'Not measured');
+    document.getElementById('tiernote').textContent = p.detail || t.note || '';
+    // A refusal is an answer, not a failure — it is the one that tells you to
+    // apply for Basic access, so it must not come back looking like an error.
+    toast(p.available ? 'good' : (p.state === 'tier_too_low' ? 'warn' : 'bad'),
+          p.detail || 'Checked.');
+  } catch (err) {
+    toast('bad', err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Check keyword planning';
+  }
 }
 </script>
 {% endblock %}

@@ -57,17 +57,27 @@
         <div class="n">{{ '{:,.0f}'.format(est.estimatedConversions or 0) }}</div>
         <div class="l">Estimated enquiries / month</div>
       </div>
+      {# The CPC and the words beside it come from one place. `cpc` says which of
+         the three this number is — our sector benchmark, Google's top-of-page
+         bid, or Google's forecast — and carries the caveat that belongs to it.
+         Reporting a top-of-page bid under the word "cost" would overstate the
+         whole estimate and look like a better number than the one it replaced. #}
+      {% set cpc = cpc if cpc is defined else spec.cpc_provenance(c) %}
       <div>
-        <div class="n">{% if est.avgCPC %}${{ '%.2f'|format(est.avgCPC) }}{% else %}&mdash;{% endif %}</div>
-        {# Never the bare number: this is a sector benchmark, not this account's
-           measured cost, and it sits on a document somebody spends money from. #}
-        <div class="l">Avg. cost per click <span class="est">({{ spec.CPC_NOTE }})</span></div>
+        <div class="n">{% if cpc.value %}${{ '%.2f'|format(cpc.value) }}{% elif est.avgCPC %}${{ '%.2f'|format(est.avgCPC) }}{% else %}&mdash;{% endif %}</div>
+        <div class="l">Avg. cost per click <span class="est">({{ cpc.short }})</span></div>
       </div>
     </div>
     {% if (c.budgetSource or {}).stated is defined and not (c.budgetSource or {}).stated %}
       <p class="caveat">{{ (c.budgetSource or {}).note }}</p>
     {% endif %}
-    <p class="caveat">{{ spec.CPC_NOTE_LONG }}</p>
+    <p class="caveat">{{ cpc.long }}</p>
+    {% if cpc.measured %}
+      <p class="caveat">Priced against {{ cpc.keywords_priced }} of this campaign's
+        keywords{% if cpc.areas_unresolved %}, but Google could not place
+        {{ cpc.areas_unresolved|join(', ') }}, so {% if cpc.areas_unresolved|length == 1 %}that area is{% else %}those areas are{% endif %}
+        not reflected in it{% endif %}.</p>
+    {% endif %}
   </div>
 
   <!-- --------------------------------------------------------------- overview -->
@@ -230,7 +240,7 @@
         <div class="tname">{{ t.label }}{% if t.recommended %} <span class="pill">Recommended</span>{% endif %}</div>
         <div class="tmoney">${{ '{:,.0f}'.format(t.monthly) }}<span>/mo</span></div>
         <div class="muted small">~{{ '{:,.0f}'.format(t.estimatedClicks) }} clicks/mo
-          <span class="est">({{ spec.CPC_NOTE }})</span></div>
+          <span class="est">({{ (c.budgetTiers or {}).cpcSource and spec.CPC_SOURCES[(c.budgetTiers or {}).cpcSource].short or spec.CPC_NOTE }})</span></div>
         {% if t.buys %}<p class="small">{{ t.buys }}</p>{% endif %}
         {% if t.givesUp %}<p class="small muted">Trade-off: {{ t.givesUp }}</p>{% endif %}
         {% if t.belowFloor %}

@@ -476,8 +476,22 @@ def run():
     check("the comment is stamped with the Hub user",
           r.json()["proposal"]["comments"][0]["author"] == "todd@smart1marketing.com")
 
+    # The refusal names every unmet condition at once rather than one per
+    # press. A rep who fixes the status only to be told the account is
+    # unreachable has been round the loop twice for something one screen could
+    # have said, so the assertion is on the checklist, not just the rejection.
     r = p(f"{BASE}/api/deploy", json={"proposal_id": pid, "customer_id": "1234567890"}, timeout=10)
-    check("a draft proposal cannot deploy", r.status_code == 400 and r.json()["code"] == "NOT_APPROVED")
+    check("a draft proposal cannot deploy",
+          r.status_code == 400 and r.json()["code"] == "PREFLIGHT_FAILED", r.text[:160])
+    blocked = r.json().get("preflight", {}).get("blocked", [])
+    check("...and the refusal names the approval as a blocker",
+          any("approved for build" in b.lower() for b in blocked), blocked)
+    check("...and names the missing credentials in the same answer",
+          any("credential" in b.lower() for b in blocked), blocked)
+    states = {c["key"]: c["state"] for c in r.json()["preflight"]["checks"]}
+    check("a check that could not run is 'not measured', never a failure",
+          states.get("account") == "not_measured" and states.get("tier") == "not_measured",
+          states)
 
     r = p(f"{BASE}/api/deploy", json={"proposal_id": pid}, timeout=10)
     check("deploy without an account is rejected", r.status_code == 400)
@@ -490,7 +504,20 @@ def run():
 
     r = p(f"{BASE}/api/deploy", json={"proposal_id": pid, "customer_id": "1234567890"}, timeout=10)
     check("an approved proposal still needs a live connection",
-          r.status_code >= 400 and "GOOGLE_ADS" in r.json().get("error", ""), r.text[:160])
+          r.status_code >= 400 and r.json().get("code") == "PREFLIGHT_FAILED", r.text[:160])
+    checks = {c["key"]: c for c in r.json()["preflight"]["checks"]}
+    check("...and the approval itself now passes",
+          checks["status"]["state"] == "ok", checks["status"])
+    check("...so what is left is the credentials, named as the fix",
+          checks["credentials"]["state"] == "blocked"
+          and "GOOGLE_ADS" in checks["credentials"]["detail"], checks["credentials"])
+
+    # Validating is how somebody finds out what is wrong, so it must not be
+    # gated behind the same conditions it exists to diagnose.
+    r = p(f"{BASE}/api/deploy", json={"proposal_id": pid, "customer_id": "1234567890",
+                                      "validate_only": True}, timeout=10)
+    check("the dry run is not blocked by the preflight",
+          r.json().get("code") != "PREFLIGHT_FAILED", r.text[:160])
 
     r = g(f"{BASE}/api/bing/campaigns", timeout=10)
     check("Bing endpoints answer 501", r.status_code == 501)

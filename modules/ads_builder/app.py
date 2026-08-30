@@ -53,8 +53,8 @@ from flask import (Flask, jsonify, make_response, redirect, render_template,
 from . import VERSION, VERSION_DATE
 from hub import target_areas
 
-from . import (campaign_ai, client_link, export, google_ads, landing_page,
-               logo as logo_lookup, spec, store)
+from . import (api_readiness, campaign_ai, client_link, export, google_ads,
+               keyword_plan, landing_page, logo as logo_lookup, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 
@@ -172,6 +172,7 @@ def page_proposal(public_id):
                  "colour": spec.outcome_colour(r["outcome"])}
                 for r in store.shares_for(public_id)],
         review=store.review_state(public_id),
+        cpc=spec.cpc_provenance(campaign),
         needs_recheck=any(e.get("material") and not e.get("rechecked")
                           for e in campaign.get("editLog") or []),
     )
@@ -192,6 +193,7 @@ def page_client_proposal(public_id):
         areas=target_areas.normalize(campaign.get("targetAreas") or []),
         area_label=target_areas.label,
         area_population=target_areas.estimated_population,
+        cpc=spec.cpc_provenance(campaign),
         today=f"{today:%B} {today.day}, {today.year}",  # platform-safe, no %-d
     )
 
@@ -299,6 +301,7 @@ def page_client_estimate(token):
         area_label=target_areas.label,
         area_population=target_areas.estimated_population,
         mount=MOUNT,
+        cpc=spec.cpc_provenance(proposal["campaign"]),
         outcomes=spec.OUTCOMES,
         today=f"{today:%B} {today.day}, {today.year}",
     )
@@ -374,6 +377,11 @@ def page_settings():
     return render_template(
         "ads_settings.html",
         status=google_ads.connection_status(store),
+        # Read, never probed: the probe costs an operation, and a page that
+        # spent one on rendering is a page that cannot deploy at 4pm. What is
+        # shown is the last answer, stamped, and the button re-asks.
+        tier=api_readiness.tier(store),
+        tiers=[{"key": k, "label": l, "note": n} for k, l, n in keyword_plan.ACCESS_TIERS],
         openai_configured=bool(campaign_ai.openai_key()),
         openai_model=campaign_ai.openai_model(),
         expected_redirect=(os.environ.get("PUBLIC_BASE_URL", "").rstrip("/") + MOUNT
@@ -759,6 +767,87 @@ def api_analyse_tiers(public_id):
     campaign["budgetTiers"] = tiers
     _save(public_id, campaign)
     return jsonify({"tiers": tiers})
+
+
+# --------------------------------------------------- measured cost per click
+@app.post("/api/proposals/<public_id>/measure-cpc")
+def api_measure_cpc(public_id):
+    """Ask Google what these keywords cost in these areas.
+
+    Behind a button, never on load: this is a handful of operations against a
+    daily cap the deploy also has to fit inside, and a CPC that re-fetched
+    itself would change under a client mid-conversation.
+
+    A refusal is saved as well as a success. "We asked Google and the token's
+    access tier does not allow it" is a fact the estimate should carry, and
+    dropping it would leave the page showing the benchmark with nothing saying
+    the measured number had been tried for.
+    """
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    customer_id = (request.get_json(silent=True) or {}).get("customer_id") \
+        or proposal.get("google_customer_id")
+    if not customer_id:
+        return jsonify({
+            "error": "Pick the Google Ads account to price this against. "
+                     "Keyword planning is run through an account, and the "
+                     "numbers are the ones that account can see.",
+            "code": "NO_CUSTOMER_ID",
+        }), 400
+
+    campaign = proposal["campaign"]
+    measured = keyword_plan.measure(customer_id, campaign, store=store)
+    campaign["cpcMeasured"] = measured
+    # A measured CPC that left the tiers costed at the sector rate would show a
+    # client two different campaigns on one page. Recomputed, never re-asked:
+    # the wording a rep edited and a client may already have read survives.
+    campaign["budgetTiers"] = campaign_ai.retier(campaign)
+    _save(public_id, campaign)
+    store.log_event("CPC_MEASURED", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    detail=(f"Measured {measured.get('cpc')} via "
+                            f"{measured.get('source')}" if measured.get("measured")
+                            else f"Not measured: {measured.get('reason', '')[:120]}"),
+                    source=measured.get("source"), ok=measured.get("measured"))
+    return jsonify({"measured": measured,
+                    "provenance": spec.cpc_provenance(campaign)})
+
+
+@app.get("/api/proposals/<public_id>/preflight")
+def api_preflight(public_id):
+    """Everything that must be true before this campaign can be deployed."""
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    proposal = {**proposal, "review": store.review_state(public_id)}
+    return jsonify(api_readiness.preflight(
+        store=store,
+        customer_id=request.args.get("customer_id") or proposal.get("google_customer_id"),
+        proposal=proposal))
+
+
+@app.post("/api/planning-check")
+def api_planning_check():
+    """Does this developer token's access tier allow keyword planning?
+
+    One cheap call, behind a button on Settings. Google publishes the access
+    tier nowhere an API can read it, so the only way to know is to make a
+    planning call and read the refusal — which is what this does.
+    """
+    result = api_readiness.check_planning(store)
+    store.log_event("PLANNING_CHECK", current_user(),
+                    detail=result.get("detail", "")[:200],
+                    state=result.get("state"), ok=result.get("available"))
+    return jsonify({"planning": result, "tier": api_readiness.tier(store)})
+
+
+@app.get("/api/access-tier")
+def api_access_tier():
+    return jsonify({"tier": api_readiness.tier(store),
+                    "tiers": [{"key": k, "label": l, "note": n}
+                              for k, l, n in keyword_plan.ACCESS_TIERS],
+                    "probe": api_readiness.last_probe(store)})
 
 
 @app.post("/api/proposals/<public_id>/recheck")
@@ -1208,13 +1297,28 @@ def api_deploy():
         return jsonify({"error": "Proposal not found."}), 404
     if not customer_id:
         return jsonify({"error": "Pick a Google Ads account first."}), 400
-    if not validate_only and proposal["status"] != "APPROVED":
-        return jsonify({
-            "error": "Only approved proposals can deploy. Approve it in the Approval Hub first.",
-            "code": "NOT_APPROVED",
-        }), 400
-    if not validate_only and proposal["status"] == "DEPLOYED":
-        return jsonify({"error": "This proposal has already been deployed."}), 400
+    # The preflight is the refusal, not a second opinion after it. It names
+    # every unmet condition at once rather than one per press: a rep who fixes
+    # the status only to be told the account is unreachable has been sent round
+    # the loop twice for something one screen could have said.
+    #
+    # The dry run deliberately skips it. Validating is how somebody finds out
+    # what is wrong, so gating it behind the same conditions would make the
+    # diagnostic unavailable exactly when it is needed.
+    if not validate_only:
+        checks = api_readiness.preflight(
+            store=store, customer_id=customer_id,
+            proposal={**proposal, "review": store.review_state(public_id)})
+        if not checks["ready"]:
+            store.log_event("DEPLOY_BLOCKED", current_user(),
+                            proposal=public_id, client=proposal["client_name"],
+                            detail="; ".join(checks["blocked"])[:200])
+            return jsonify({
+                "error": "This campaign is not ready to deploy: "
+                         + "; ".join(checks["blocked"]) + ".",
+                "code": "PREFLIGHT_FAILED",
+                "preflight": checks,
+            }), 400
 
     result = google_ads.deploy_proposal(
         customer_id, proposal["campaign"], store=store,
