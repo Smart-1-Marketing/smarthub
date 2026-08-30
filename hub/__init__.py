@@ -632,7 +632,7 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from .client_brand import brand_guide_payload
+        from .client_brand import brand_guide_payload, mark_pushed
         body = request.get_json(silent=True) or {}
         client = str(body.get("name") or "")
         payload = brand_guide_payload(client, str(body.get("domain") or ""))
@@ -642,20 +642,47 @@ def create_hub_app() -> Flask:
         target = (os.environ.get("GHL_BRAND_WEBHOOK_URL") or "").strip()
         if not target:
             # Return the payload anyway so it's copy-pasteable. A missing
-            # webhook shouldn't mean the work is unavailable.
+            # webhook shouldn't mean the work is unavailable. Nothing is
+            # recorded: a payload offered for somebody to paste by hand has
+            # not reached Suite, and marking it would put a green pill over
+            # work nobody has done.
             return jsonify({"ok": False, "delivered": False, "payload": payload,
+                            "reason": "not_configured",
                             "note": "Set GHL_BRAND_WEBHOOK_URL to deliver this "
                                     "automatically. The payload above is ready "
                                     "to paste into a Suite workflow meanwhile."})
+        # Three outcomes, not two. "The variable is not set", "Suite refused
+        # it" and "we could not reach Suite" send somebody to three different
+        # places, and the browser used to report all of them as the first --
+        # telling a rep to set a variable that is already set, the rule
+        # `services/provider_check.py` works to. The refusal carries the
+        # status line, because `raise_for_status()` discarding the provider's
+        # own sentence is how every button came to report its own invented
+        # diagnosis of one shared failure.
+        reason, note = "", ""
         try:
             import requests as _rq
             r = _rq.post(target, json=payload, timeout=15)
             ok = r.ok
-        except Exception:  # noqa: BLE001
+            if not ok:
+                reason = "refused"
+                note = f"Smart 1 Suite answered {r.status_code}."
+        except Exception as exc:  # noqa: BLE001
             ok = False
+            reason = "unreachable"
+            note = f"Smart 1 Suite could not be reached ({type(exc).__name__})."
+        # Recorded only where it actually landed. Client 360 draws the state
+        # from this and hides the button, because "pressing it again just
+        # overwrites what's there" -- and until this call existed nothing had
+        # ever written the field, so the guard held for the life of one page
+        # view and the button came back on every reload. The stamp travels
+        # back so the card shows what the next load will read rather than a
+        # second idea of when this happened.
+        pushed_at = mark_pushed(client) if ok else ""
         audit.log("brand", "pushed_to_suite", actor=current_user(),
-                  client=client, ok=ok)
-        return jsonify({"ok": ok, "delivered": ok, "payload": payload})
+                  client=client, ok=ok, reason=reason)
+        return jsonify({"ok": ok, "delivered": ok, "payload": payload,
+                        "pushed_at": pushed_at, "reason": reason, "note": note})
 
     @app.route("/api/search")
     def api_search():

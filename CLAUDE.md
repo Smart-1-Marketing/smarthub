@@ -783,6 +783,35 @@ press, and they read identically before this. A refused key (401) and an
 unreachable service are kept apart for the reason `services/provider_check.py`
 gives: calling the second one a bad key sends somebody to rotate a good one.
 
+**And the push out of that card was remembered by nobody.**
+`client_brand.mark_pushed()` was written, was documented — *"Record that the
+brand guide reached Suite"* — and had **no caller**, so nothing had ever
+written `suite_brand_guide`. That field is what the card reads to decide
+between drawing the state and drawing the button, and the card's own comment
+says why it matters: *"Once the guide is in Suite the button is a trap:
+pressing it again just overwrites what's there."* The guard was real and it
+held for the life of **one page view** — `pushBrand()` swaps the button out in
+the browser — so a reload brought the button back and the trap the comment
+describes is what actually happened: the same guide pushed again and again,
+each press silently overwriting Suite, with the toast saying success every
+time. Invisible from either end.
+
+`mark_pushed()` **returns the stamp it wrote** now, so the route hands back the
+string the next page load will read rather than the browser inventing a second
+idea of when this happened — and it is called **only where the delivery
+actually succeeded**. A push that was refused, that could not be reached, or
+that was merely offered for somebody to paste by hand has not reached Suite,
+and a green pill over any of those is the confident wrong answer this corner
+keeps having to undo.
+
+**Three outcomes on that button, not two.** "The variable is not set", "Suite
+refused it" and "we could not reach Suite" send somebody to three different
+places, and all three were reported as the first — telling a rep to set
+`GHL_BRAND_WEBHOOK_URL` when it was already set, the
+`services/provider_check.py` rule one card along. The refusal carries Suite's
+own status line, because discarding a provider's own sentence is how every
+button comes to report its own invented diagnosis of one shared failure.
+
 **An Insites audit carries 440 fields and Client 360 read four of them.**
 The score, the broken-link count, the image count and the speed band — while
 the logo, the brand colours, the Google Business Profile and review standing,
