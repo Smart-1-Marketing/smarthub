@@ -1482,6 +1482,30 @@ def billing_comparison() -> dict:
     }
 
 
+def _resembling_clients(norm: str, by_norm: dict) -> list:
+    """Client names a normalised string merely resembles — never a match.
+
+    `hub/client_key.py` gives the rule at length: match on an exact normalised
+    name or on nothing, and offer a near match only when exactly one client
+    can possibly be meant. Here even one is offered rather than used, because
+    this report has no confirmation step to settle it with — the same answer
+    `sites_billing` and `domain_renewals` arrived at, where a resemblance is
+    printed and still counted as unmatched.
+    """
+    if not norm:
+        return []
+    return sorted({kn for other, (kn, _g) in by_norm.items()
+                   if other and (other in norm or norm in other)})
+
+
+def _join_names(names, cap: int = 3) -> str:
+    """Up to `cap` names, then how many more — a row is not a list."""
+    shown = list(names)[:cap]
+    rest = len(names) - len(shown)
+    out = ", ".join(f"“{n}”" for n in shown)
+    return out + (f" and {rest} more" if rest > 0 else "")
+
+
 def invoice_off() -> dict:
     qb, err = _qb_state()
     columns = ["Customer", "Invoiced this month", "Active products / mo",
@@ -1508,19 +1532,45 @@ def invoice_off() -> dict:
         if n:
             knack_by_norm.setdefault(n, (name, g))
 
-    rows = []
+    rows, styles = [], []
     matched_norms = set()
+    resembled = 0
     for cust in sorted(data, key=str.lower):
         if cust in assigned:            # resolved to a partner — never show again
             continue
         rec = data[cust]
         invoiced = rec["months"].get(this_key, 0.0)
         n = _norm_name(cust)
+        cust_cell = ({"text": cust, "href": qb.customer_link(rec["id"])}
+                     if rec.get("id") else cust)
         hit = knack_by_norm.get(n)
-        if not hit:      # try containment both ways for near-matches
-            hit = next(((kn, kg) for norm, (kn, kg) in knack_by_norm.items()
-                        if norm and n and (norm in n or n in norm)), None)
         if not hit:
+            # Exact or nothing. This used to fall through to `next(... if norm
+            # in n or n in norm)` -- an unbounded substring, both directions,
+            # first out of a dict ordered by the export. That is the rule
+            # `hub/client_key.py` exists to refuse, and it is live: 32 of the
+            # 547 client names here contain or are contained by another, and
+            # "cirilla s" alone matches 18. So a QuickBooks customer named
+            # "Cirilla's" was compared against whichever of eighteen came
+            # first, and the variance printed with no sign a guess had been
+            # made.
+            near = _resembling_clients(n, knack_by_norm)
+            if near:
+                # Printed, and still counted as unmatched -- the rule
+                # `sites_billing` and `domain_renewals` both work to. The row
+                # is visible so somebody can settle it, and carries no
+                # difference, because there is no client we can stand behind
+                # to compute one against.
+                resembled += 1
+                rows.append((invoiced, [
+                    cust_cell,
+                    _money(invoiced),
+                    "—",
+                    "resembles " + _join_names(near) + " — not matched",
+                    "",
+                    {"assign": cust},
+                ]))
+                styles.append("sub")
             continue     # QB customer with no Smart 1 Team client — skip
         kname, g = hit
         matched_norms.add(_norm_name(kname))
@@ -1528,8 +1578,6 @@ def invoice_off() -> dict:
         diff = round(invoiced - expected, 2)
         if abs(diff) < 0.5:
             continue
-        cust_cell = ({"text": cust, "href": qb.customer_link(rec["id"])}
-                     if rec.get("id") else cust)
         rows.append((abs(diff), [
             cust_cell,
             _money(invoiced),
@@ -1538,6 +1586,7 @@ def invoice_off() -> dict:
             len(g["live"]),
             {"assign": cust},
         ]))
+        styles.append(None)
     # active Knack clients with NO invoice at all this month
     for name, g in groups.items():
         if not _is_active(g) or g["live_total"] < 0.5:
@@ -1547,25 +1596,52 @@ def invoice_off() -> dict:
         if _norm_name(name) in matched_norms:
             continue
         n = _norm_name(name)
-        in_qb = any(n and (_norm_name(c) == n or n in _norm_name(c) or _norm_name(c) in n)
-                    for c in data)
-        if in_qb:
+        # Exact, and this direction is the one that *hid* findings. It used to
+        # accept containment either way, so an active client with live billing
+        # and no invoice at all dropped off the report the moment any
+        # QuickBooks customer name merely contained theirs -- which for the
+        # eight "N2 Advertising - Cirilla's <city>" rows is a customer called
+        # "Cirilla's". Nine clients carrying $22,091/mo of live billing sit in
+        # that shape on this deployment's own book.
+        if any(n and _norm_name(c) == n for c in data):
             continue
+        # A resembling customer is named on the row rather than used to
+        # silence it: "no invoice found" and "no invoice under this exact
+        # name, but QuickBooks has one that looks like it" send somebody to
+        # two different places, and only the first is a billing gap.
+        near = sorted({c for c in data if n and _norm_name(c)
+                       and (n in _norm_name(c) or _norm_name(c) in n)})
+        note = ("no invoice found" if not near else
+                "no invoice under this name; QuickBooks has "
+                + _join_names(near))
         rows.append((g["live_total"], [
             _c360_link(name), _money(0), _money(g["live_total"]),
-            "▼ " + _money(g["live_total"]) + " (no invoice found)",
+            "▼ " + _money(g["live_total"]) + f" ({note})",
             len(g["live"]),
             {"assign": name},
         ]))
-    rows.sort(key=lambda t: -t[0])
+        styles.append(None if not near else "sub")
+    order = sorted(range(len(rows)), key=lambda i: -rows[i][0])
+    rows = [rows[i] for i in order]
+    styles = [styles[i] for i in order]
     return {
         "columns": columns,
         "rows": [r for _, r in rows],
+        "row_styles": styles,
         "partners": partner_list(),
+        "resembled": resembled,
         "note": (f"{len(rows)} customers whose QuickBooks invoices this month "
-                 "don't match their active-product monthly total (matched by "
-                 "business name; biggest gap first). ▼ = invoiced less than "
-                 "active products, ▲ = invoiced more. Use \"Add to partner\" to "
+                 "don't match their active-product monthly total, biggest gap "
+                 "first. ▼ = invoiced less than active products, ▲ = "
+                 "invoiced more. Names are matched exactly and never on a "
+                 "partial. "
+                 + (f"{resembled} QuickBooks customer(s) only resemble a "
+                    "client and are listed with no difference, because "
+                    "there is no client we can stand behind to compute one "
+                    "against. " if resembled else "")
+                 + "A client invoiced under a similar but different name "
+                 "is listed with that name on the row — a different thing "
+                 "to chase from no invoice at all. Use \"Add to partner\" to "
                  "mark a record as handled by a partner — it's remembered and "
                  "won't show here again (nothing changes anywhere else)."),
     }

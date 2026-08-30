@@ -364,22 +364,49 @@ def compute_gaps(state):
 
 # Guardrails (subset of the IO builder's rules, checked server-side too)
 def compute_guardrails(state):
+    """What is wrong with this plan, in the words the wizard already uses.
+
+    The minimum is the **card's own, per product**, through
+    `rate_card.minimum_for()`. This held every SEARCH ENGINE MARKETING line to
+    a flat $1,500, and the card sells paid search from $400 — so it warned
+    about perfectly valid $500 and $1,000 search buys, quoting a figure that
+    is not that product's minimum, while saying nothing at all about a $500
+    Connected TV line whose real floor is $1,500 and which the IO refuses.
+    Wrong in both directions, each screen internally consistent.
+
+    `guardrailsJs()` in the wizard was fixed for exactly this and its comment
+    says "paid search is now $400 in one place and every document reads it
+    there" — which was true of the screen a rep edits on and false of this,
+    the reading that rides on the quote payload into the proposals list, the
+    dashboard nudges and `ioDataPayload()`'s `guardrailWarnings`. So the
+    insertion order carried the stale answer while the wizard showed the
+    right one. The two halves produce identical strings now, and
+    test_campaign_cost.py runs them against each other.
+    """
     warns = []
     s = state or {}
     items = s.get("items") or []
     budget = float(s.get("budget") or 0)
     months = int(s.get("months") or 1)
     for it in items:
-        cat = (it.get("category") or "").upper()
         dollars = float(it.get("dollars") or 0)
-        if "SEARCH ENGINE MARKETING" in cat and 0 < dollars < 1500:
-            warns.append(f"Search budget ${dollars:,.0f}/mo is below the $1,500 monthly minimum.")
+        # A one-time build is not a monthly buy and has no monthly floor to be
+        # under -- judging it against one blocks a website-only proposal.
+        if (it.get("basis") or "monthly") == "one_time":
+            continue
+        minimum = hub_rate_card.minimum_for(it.get("product") or "",
+                                            it.get("category") or "")
+        if 0 < dollars < minimum:
+            name = it.get("product") or it.get("category") or "That product"
+            warns.append(f"{name} at {_money(dollars)}/mo is below its "
+                         f"{_money(minimum)} monthly minimum — the IO will "
+                         f"not accept it.")
     if budget > 0 and len(items) > 4 and budget / max(len(items), 1) < 750:
         warns.append("Budget is split across many products — consider fewer products for impact.")
     if months < 3:
         warns.append("Campaign term under 3 months — most Smart 1 programs need 3+ months to optimize.")
     if (s.get("creativeSource") or "").lower().startswith("smart 1") and not s.get("creativeFee"):
-        warns.append("Smart 1 is building creative but no creative fee is included.")
+        warns.append("Smart 1 is building creative but no creative fee is set.")
     return warns
 
 

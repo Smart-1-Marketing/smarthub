@@ -84,6 +84,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # The PDF Optimizer is a wrapper around these two, and they were in the
+      # Dockerfile and nowhere else -- so the compression the tool exists for
+      # ran in production and in no check anywhere. Same two packages the
+      # Dockerfile installs, not a secret and not a service, so the "runs from
+      # a clean checkout" rule above is intact. Without them
+      # test_image_pdf_optimizers.py still passes: it says out loud that the
+      # path was not covered rather than reporting an unrun path as a clean
+      # run, which is the thing it is guarding against.
+      - name: Install Ghostscript and qPDF (the PDF optimizer's binaries)
+        run: sudo apt-get update -qq
+             && sudo apt-get install -y -qq --no-install-recommends ghostscript qpdf
+
       - name: Python syntax
         run: |
           python -c "import ast, pathlib, sys; \
@@ -835,6 +847,18 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: linkcheck helper and sendBeacon coverage tests
+        # The helper tables linkcheck resolves URLs through, and that a
+        # browser-only pattern never reads Python prose as a call site.
+        # Guarded like the steps around it so this workflow stays mergeable
+        # on a branch that predates the file. Needs no network or database.
+        run: |
+          if [ -f test_linkcheck_helpers.py ]; then
+            python test_linkcheck_helpers.py
+          else
+            echo "test_linkcheck_helpers.py not on this branch — nothing to run."
+          fi
+
       - name: SEO client list and record tests
         # The four status pills, the empty client name that matched the whole
         # website registry, the failed record load that rendered as an empty
@@ -1504,3 +1528,26 @@ jobs:
       # the browser claimed rather than the one GHL held. This holds all three.
       - name: Suite Panel — the guard on creating, the record of deleting
         run: python3 test_suite_panel.py
+
+      # The last two modules named by no test at all. Both take a file a
+      # client sent us and hand it back, and both handed the user a raw
+      # internal exception instead of a message: Pillow's "cannot identify
+      # image file <_io.BytesIO object at 0x7f...>", and -- worse -- the last
+      # 2000 characters of Ghostscript's stderr, absolute temp paths and the
+      # uploader's filename included, interpolated straight into a 500. The
+      # PDF tool's /health also answered "ok" while Ghostscript was missing
+      # and every optimize was failing, contradicting the Hub's own /status.
+      - name: The image and PDF optimizers
+        run: python3 test_image_pdf_optimizers.py
+
+      # CLAUDE.md records that `_audit` was bound at the top of Sites Admin and
+      # called nowhere, so deleting a client's live website and connecting a
+      # domain were among the least attributable actions in the Hub. The sweep
+      # that fixed it wired four call sites and stopped: creating a site,
+      # writing brand colors onto a client's live pages, setting what they are
+      # billed, and opening a builder session into their site all stayed
+      # silent. test_activity_logging.py cannot see that — it asks whether a
+      # module logs *at all*, and one call site satisfies it. This asks the
+      # finer question of every write route, with the remainder declared.
+      - name: Sites Admin — every write on a client's site has a name on it
+        run: python3 test_sites_admin.py
