@@ -362,6 +362,17 @@ jobs:
             echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
+      - name: Prospect queue tests
+        # Who to call, in the order the work has to happen. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_prospect_queue.py ]; then
+            python test_prospect_queue.py
+          else
+            echo "test_prospect_queue.py not on this branch — nothing to run."
+          fi
+
       - name: Upsell report tests
         # What we could sell each client, out of audits already paid for:
         # coverage named rather than left off, recorded-vs-observed kept

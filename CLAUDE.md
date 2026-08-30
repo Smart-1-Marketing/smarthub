@@ -4459,6 +4459,51 @@ reads as a live prospect on every count that follows, the rule
 only, because `hub/leads.py` cleans and truncates every value and a nested one
 arrives in the Suite as the repr of a dict.
 
+### A record nobody is told to open is a record nobody opens
+
+`hub/prospect_queue.py` and **QA → Sales → Prospects To Chase**. The prospect
+record was worth opening and nothing said *which* one: the Leads panel is
+sorted by date and its five figures are all about **delivery** — confirmed in
+Suite, not yet in Suite, needs attention — with none about whether anybody is
+working the lead, and every other report on the QA page is about a client. That
+is `hub/stale_creative.py`'s lesson one step later: a list that can only be
+read is a list nobody works.
+
+**The bands are the work, in the order it has to happen — not a score.** A
+ranking number nobody can reproduce is a ranking nobody trusts, so each row
+sits in a named band and the order is fixed: *not in Smart 1 Suite* (invisible
+to every follow-up that lives there, so nothing else about them matters yet),
+*two rows one business* (working one of a pair wastes the call and files the
+answer against the row nobody opens), *audited and nothing quoted* (the band
+the whole audit pipeline exists to fill), *never audited* (a credit each, and
+not a verdict on them), then *quoted and waiting*, oldest first.
+
+**Smart 1 Suite is deliberately not read here.** The stage would cost one HTTP
+call per prospect, and a report that makes several hundred outbound calls on
+its first open of the day is one somebody turns off — the note
+`services/provider_check.py` makes about eight calls on a page load, several
+hundred times over. The queue ranks on what the Hub already holds for nothing;
+`hub/prospect.py` reads the stage for one prospect at a time, and the note says
+so rather than leaving a rep to wonder where the pipeline is.
+
+**A converted prospect is a client and leaves the queue — counted, not
+dropped.** A queue that silently gets shorter cannot be told from one that
+failed to read, which is why the note carries the number that went to Client
+360.
+
+**A source that fails is named and never empties the queue.** A proposal store
+that will not answer would otherwise move every quoted prospect into "nothing
+quoted" in silence, sending a rep to re-quote somebody who already has one;
+the error rides in the note and the rows stay. And `leads.listing()` failing
+outright is `measured: False`, which is what stops `hub/report_cache.py`
+freezing an empty pipeline into the day's answer.
+
+**Nothing here re-derives a lead's domain.** Six landing pages and two widgets
+each name the website differently, so the queue calls `prospect._lead_domain`
+rather than carrying a second resolution that would disagree with the record
+page about which site a prospect has. The audits come back through
+`upsell.audits_for()` — one query per chunk, not one per prospect.
+
 ### What we could sell each client, out of audits already paid for
 
 `hub/upsell.py` and **QA → Clients → What We Could Sell Each Client**.
@@ -6669,6 +6714,7 @@ python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkt
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_prospect_queue.py     # who to call, in the order the work has to happen
 python3 test_upsell_report.py      # what the audit says we could sell each client:
                                    #   coverage named, recorded vs observed kept apart
 python3 test_prospect_record.py    # the record a scan produces: four kinds of empty on
