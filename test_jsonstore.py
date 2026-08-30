@@ -336,6 +336,252 @@ levels = {r["level"] for r in report["risks"]}
 check("nothing above low is outstanding", levels - {"low"}, set())
 
 
+# =====================================================================
+section("A fresh data directory is not isolation on its own")
+# =====================================================================
+# The harness-level version of the trap above. A test file that assigns its
+# own HUB_DATA_DIR looks isolated and is not, if it merely *setdefault*s
+# DATABASE_URL: `key_for()` keys the mirror relative to the data root by
+# design -- that is what lets a production blob restore into a dev checkout --
+# so an inherited database (CI's Postgres, or a developer's own) refills the
+# new empty directory with the last run's rows.
+#
+# This is not hypothetical and it is not new. checks.yml carries a paragraph
+# headed "RUN THIS FILE EXACTLY ONCE" recording that two lineages each added
+# a target-areas step, git merged both cleanly, and the duplicate run failed
+# on the first run's rows. That mitigation is a comment asking people to
+# remember; this is the same rule as a property of the files.
+#
+# The rule is narrow on purpose. Setting neither is fine (the file inherits
+# both and is consistent). Setting both is the pattern test_blog_publish.py
+# uses. Only "own directory, inherited database" is wrong, because only that
+# pair gives you an empty disk in front of a full mirror.
+#
+# And the first version of this sweep asked for that pair by the SPELLING
+# rather than by what the file ends up with: `HUB_DATA_DIR` assigned and
+# `DATABASE_URL` not. A file that setdefaults *both* reaches the identical
+# state whenever only the database is set in the environment -- fresh
+# directory, inherited mirror -- and was invisible to the check written for
+# it. Two were: test_io_records.py and test_sales_status.py, each passing on
+# the first run against a database and failing on every run after, which is
+# why CI never saw either (a CI run gets a new Postgres) and why nobody
+# else did until a session-start hook began exporting DATABASE_URL for a
+# whole session. Both are read now.
+
+import ast as _ast                                                # noqa: E402
+
+def _env_writes(tree):
+    """{name: "assign" | "setdefault"} for os.environ at module level."""
+    out = {}
+    for node in _ast.walk(tree):
+        if (isinstance(node, _ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], _ast.Subscript)
+                and _ast.unparse(node.targets[0].value) == "os.environ"
+                and isinstance(node.targets[0].slice, _ast.Constant)):
+            out.setdefault(node.targets[0].slice.value, "assign")
+        if (isinstance(node, _ast.Call)
+                and isinstance(node.func, _ast.Attribute)
+                and node.func.attr == "setdefault"
+                and _ast.unparse(node.func.value) == "os.environ"
+                and node.args and isinstance(node.args[0], _ast.Constant)):
+            out.setdefault(node.args[0].value, "setdefault")
+    return out
+
+_ROOT = Path(__file__).parent
+_offenders, _checked = [], 0
+for _f in sorted(_ROOT.glob("test_*.py")):
+    try:
+        _w = _env_writes(_ast.parse(_f.read_text(errors="ignore")))
+    except SyntaxError:
+        continue
+    # Either spelling gives this run its own directory when HUB_DATA_DIR is
+    # unset, which is the ordinary case; only assigning DATABASE_URL gives it
+    # its own mirror.
+    if _w.get("HUB_DATA_DIR") not in ("assign", "setdefault"):
+        continue
+    _checked += 1
+    if _w.get("DATABASE_URL") != "assign":
+        _offenders.append(_f.name)
+
+# Being in the shape is not the same as breaking, and a check that failed on
+# every file in it would land with two dozen findings nobody can safely act
+# on -- the one people learn to skip past, which is the note
+# `provider_key_drift` already carries about going in red. Several of these
+# boot the composed app, and CI runs Postgres precisely because Sites Admin
+# refuses to start on SQLite and drops out of every check that boots it, so
+# "fixing" them by pinning SQLite would make the gate quietly cover less.
+#
+# So the shape is held against a list of files that were *run twice against
+# one database* and came back identical -- they write nothing durable, or
+# overwrite what they read before reading it. That is the whole verification,
+# and it is the reason the list can be trusted rather than assumed: the note
+# this replaces asserted the same thing about thirteen files and was wrong
+# about two of them, because nobody had run them twice.
+#
+# A file in the shape and not on this list fails. Own DATABASE_URL as well
+# (the test_blog_publish.py pattern), or run the suite twice against one
+# database, confirm it is identical, and add it here.
+_RERUNS_CLEAN = (
+    "test_ad_copy.py", "test_api_usage.py", "test_calculator_embed.py",
+    "test_campaign_assets.py", "test_campaign_cost.py", "test_client_logos.py",
+    "test_client_prefill.py", "test_detail_ui.py", "test_drafts.py",
+    "test_env_config.py", "test_ghl_scopes.py", "test_io_reconcile.py",
+    "test_menu_layout.py", "test_proposal_share.py", "test_proposal_spec.py",
+    "test_proposal_targeting.py", "test_prospect_explainer.py",
+    "test_quote_validity.py", "test_search.py", "test_site_blocks.py",
+    "test_social_plan.py", "test_suite_embed.py", "test_target_areas.py",
+)
+
+check("no test file is in the shape without having been re-run to prove it is safe",
+      sorted(set(_offenders) - set(_RERUNS_CLEAN)), [])
+
+# The other side, the rule check_stale_json_exemptions() works to: an entry
+# that outlives what it exempted goes on covering whatever is written at that
+# path next. A file that has since started owning its database, or that is
+# gone, is named rather than left standing.
+_stale = [n for n in _RERUNS_CLEAN
+          if not (_ROOT / n).exists() or n not in _offenders]
+check("and no exemption outlives the file or the shape it was written for",
+      sorted(_stale), [])
+
+# The four that were fixed rather than exempted, named so the failure is a
+# record rather than a number: each wrote durable rows, so each passed on the
+# first run against a database and failed on every run after.
+_REGRESSION = ("test_dashboard_trends.py", "test_google_index.py",
+               "test_io_records.py", "test_sales_status.py")
+for _name in _REGRESSION:
+    _w = _env_writes(_ast.parse((_ROOT / _name).read_text()))
+    check(f"{_name} owns its database, not just its directory",
+          (_w.get("HUB_DATA_DIR"), _w.get("DATABASE_URL")), ("assign", "assign"))
+
+check("the sweep looked at something rather than passing vacuously",
+      _checked >= len(_RERUNS_CLEAN), True)
+
+# And the pattern is read from the repo rather than asserted from memory:
+# the file CI's own comment calls safe to re-run is the one assigning both.
+_blog = _env_writes(_ast.parse((_ROOT / "test_blog_publish.py").read_text()))
+check("test_blog_publish.py assigns both, as CI says it does",
+      (_blog.get("HUB_DATA_DIR"), _blog.get("DATABASE_URL")), ("assign", "assign"))
+
+
+section("Every log follows the one root, not its own copy of the rule")
+# =====================================================================
+# data_root() says why it exists: "every module had its own copy of this
+# expression. They all agreed, which is luck rather than design: the moment
+# one of them disagreed, its files would land somewhere the backup sweep never
+# looks." hub/audit.py and hub/errors.py were two such copies, and they did
+# disagree -- on HUB_DATA_DIR, which data_root() reads first and neither read
+# at all. Both preferred /var/data unconditionally.
+#
+# Nothing moved on Render, where HUB_DATA_DIR is unset and /var/data is
+# mounted. What it cost was every test that sets HUB_DATA_DIR and then reads
+# one of those logs: it was handed the real shared one. test_msa_embed.py
+# asserts that signing writes an entry carrying the client -- and on this
+# machine fourteen `msa` rows were already there, entries[0] already carried
+# "Acme Marine, LLC", and both assertions passed before the test ran a line.
+# Dropping client= from the route left it green.
+#
+# So: a log answers to the root, and the explicit per-file override still
+# wins, because naming one file is the more specific answer.
+
+import subprocess as _sp                                          # noqa: E402
+
+_probe = """
+import os, sys, json, tempfile
+root = tempfile.mkdtemp(prefix="rootcheck_")
+os.environ["HUB_DATA_DIR"] = root
+os.environ.pop("AUDIT_LOG_PATH", None)
+os.environ.pop("ERROR_LOG_PATH", None)
+sys.path.insert(0, %r)
+from hub import audit, errors, jsonstore
+out = {"root": jsonstore.data_root(), "audit": audit._path(),
+       "errors": errors._path()}
+os.environ["AUDIT_LOG_PATH"] = "/tmp/named-audit.jsonl"
+os.environ["ERROR_LOG_PATH"] = "/tmp/named-errors.jsonl"
+import importlib
+importlib.reload(audit); importlib.reload(errors)
+out["audit_named"] = audit._path()
+out["errors_named"] = errors._path()
+print(json.dumps(out))
+""" % str(ROOT)
+
+# A subprocess, because both modules read the environment at call time and
+# this file has already set HUB_DATA_DIR for its own run.
+_r = _sp.run([sys.executable, "-c", _probe], capture_output=True, text=True)
+check("the probe runs", _r.returncode, 0)
+if _r.returncode:
+    print("   " + (_r.stderr or "").strip()[-300:])
+else:
+    _p = json.loads(_r.stdout.strip().splitlines()[-1])
+    check("the activity log follows HUB_DATA_DIR",
+          _p["audit"].startswith(_p["root"]), True)
+    check("the error log follows HUB_DATA_DIR",
+          _p["errors"].startswith(_p["root"]), True)
+    # Neither may fall back to the shared disk while a root is named.
+    check("...and neither falls back to /var/data",
+          [x for x in (_p["audit"], _p["errors"]) if x.startswith("/var/data")], [])
+    # Naming one file is more specific than naming a root.
+    check("AUDIT_LOG_PATH still wins", _p["audit_named"], "/tmp/named-audit.jsonl")
+    check("ERROR_LOG_PATH still wins", _p["errors_named"], "/tmp/named-errors.jsonl")
+
+# And none of them may go back to deciding for itself.
+for _rel in ("hub/audit.py", "hub/errors.py", "hub/leads.py", "hub/extensions.py",
+             "hub/scheduler.py", "modules/landing_ads/store.py",
+             "modules/google_finder/app.py"):
+    _src = (ROOT / _rel).read_text(encoding="utf-8")
+    check(f"{_rel} defers to the one root",
+          "jsonstore.data_root()" in _src or "jsonstore.data_dir(" in _src, True)
+
+
+section("...and every store follows it, not just the two logs")
+# =====================================================================
+# Seven files carried the same expression. They agreed, which is the luck
+# data_root() names -- and five of them also agreed on skipping HUB_DATA_DIR,
+# so a named root moved the jsonstore files and left the lead book, the
+# SQLite fallback, the scheduler's leader lock, the saved landing ads and the
+# Google refresh tokens on the shared disk. hub/scheduler.py had a fifth
+# spelling of its own: it fell back to "." , the current working directory,
+# which is the one answer that depends on where somebody started the process.
+
+_stores = """
+import os, sys, json, tempfile
+root = tempfile.mkdtemp(prefix="storecheck_")
+os.environ["HUB_DATA_DIR"] = root
+for k in ("HUB_LEADS_FILE", "DATABASE_URL", "TOKEN_DB_PATH", "AUDIT_LOG_PATH",
+          "ERROR_LOG_PATH"):
+    os.environ.pop(k, None)
+sys.path.insert(0, %r)
+from hub import jsonstore, leads, extensions, scheduler
+from modules.landing_ads import store as landing_ads
+import modules.google_finder.app as gfinder
+out = {"root": jsonstore.data_root(),
+       "leads": leads._path(),
+       "sqlite": extensions.database_url().replace("sqlite:///", ""),
+       "lock": scheduler._lock_path(),
+       "landing_ads": landing_ads.data_dir(),
+       "tokens": gfinder.TOKEN_DB_PATH}
+os.environ["HUB_LEADS_FILE"] = "/tmp/named-leads.jsonl"
+import importlib; importlib.reload(leads)
+out["leads_named"] = leads._path()
+print(json.dumps(out))
+""" % str(ROOT)
+
+_r2 = _sp.run([sys.executable, "-c", _stores], capture_output=True, text=True)
+check("the store probe runs", _r2.returncode, 0)
+if _r2.returncode:
+    print("   " + (_r2.stderr or "").strip()[-400:])
+else:
+    _q = json.loads(_r2.stdout.strip().splitlines()[-1])
+    for _name in ("leads", "sqlite", "lock", "landing_ads", "tokens"):
+        check(f"{_name} follows HUB_DATA_DIR",
+              _q[_name].startswith(_q["root"]), True)
+        if not _q[_name].startswith(_q["root"]):
+            print(f"          {_q[_name]}")
+    # Naming one file is still more specific than naming a root.
+    check("HUB_LEADS_FILE still wins", _q["leads_named"], "/tmp/named-leads.jsonl")
+
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

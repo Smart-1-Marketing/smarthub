@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import pathlib
+import html as _html
 import re
 from typing import Any
 
@@ -323,60 +324,166 @@ UNITS: list[dict[str, Any]] = [
                "A 1080x1080 image ad can run in essentially any ad format."]},
 
     # ---- X (formerly Twitter) -------------------------------------------
-    {"id": "x_image_website_card", "channel": "x", "name": "Image Website Card",
+    # Transcribed against the 2026 kit. The 2025 model was eight units and not
+    # one of its names is a format X still sells: "Website Card" and "Direct
+    # Message Card" are retired, and the mobile/desktop pairs modelled a split
+    # the page says in as many words is gone -- "the mobile-versus-desktop
+    # creative split is gone. one asset set serves both." So a client was
+    # being asked to supply four things that do not exist and two of them
+    # twice, on the requirement line the client document prints.
+    #
+    # Ids are kept wherever the format survives in substance, because
+    # `tags_for()` has written `unit_<id>` onto delivered creative in
+    # Cloudinary and a gallery filters on it -- the rule this file already
+    # works to for `billboard`, which kept its id when the IAB retired the
+    # Rising Stars name. The four with no 2026 equivalent are in
+    # RETIRED_UNITS below rather than deleted, for the same reason.
+    {"id": "x_image_website_card", "channel": "x", "name": "Image Ads",
      "kind": "image", "formats": ["jpg", "jpeg", "png"],
-     "sizes": [(800, 418), (800, 800)], "max_bytes": 3 * MB,
-     "text": {"total": 280, "final": 256}},
-    {"id": "x_multi_image_mobile", "channel": "x", "name": "Multi Image Tweet — Mobile",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (600, 335),
-     "max_bytes": 1048 * KB, "text": {"total": 280}},
-    {"id": "x_multi_image_desktop", "channel": "x", "name": "Multi Image Tweet — Desktop",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (600, 600),
-     "max_bytes": 1048 * KB, "text": {"total": 280}},
-    {"id": "x_video_website_card", "channel": "x", "name": "Video Website Card",
-     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9), (1, 1)],
-     "max_bytes": 1 * GB, "text": {"total": 280}},
-    {"id": "x_conversational", "channel": "x", "name": "Conversational Ad",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (800, 320),
-     "max_bytes": 3 * MB,
-     "text": {"total": 256, "hashtag": 21, "pre_populated_tweet": 256,
-              "headline": 23, "thank_you": 23}},
-    {"id": "x_direct_message", "channel": "x", "name": "Direct Message Card",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "min_width": 800,
-     "max_bytes": 3 * MB, "text": {"total": 256, "cta_button": 24},
-     "notes": ["Emoji are supported in the call-to-action button text."]},
-    {"id": "x_single_image_mobile", "channel": "x", "name": "Single Image Tweet — Mobile",
-     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
-     "size": (1200, 675), "max_bytes": 3 * MB, "text": {"total": 280}},
-    {"id": "x_single_image_desktop", "channel": "x", "name": "Single Image Tweet — Desktop",
-     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
-     "min_width": 600, "max_bytes": 3 * MB, "text": {"total": 280}},
-
-    # ---- LinkedIn --------------------------------------------------------
-    {"id": "li_single_image", "channel": "linkedin",
-     "name": "Sponsored Content — Single Image", "kind": "image",
-     "formats": ["jpg", "jpeg", "png"], "size": (1200, 627),
+     "sizes": [(1080, 1080), (2064, 1080), (1920, 1080),
+               (1440, 1800), (1080, 1620), (1080, 1920)],
      "max_bytes": 5 * MB,
-     "text": {"intro": 150, "headline": 70, "description": 100}},
-    {"id": "li_video", "channel": "linkedin", "name": "Sponsored Content — Video",
-     "kind": "video", "formats": ["mp4"], "max_width": 1080,
-     "min_bytes": 75 * KB, "max_bytes": 200 * MB, "duration": (3, 1800),
-     "text": {"intro": 600, "headline": 70}},
+     # 280 with no deduction: the page says media no longer consumes
+     # characters, which retires the old `final: 256`.
+     "text": {"total": 280, "headline": 70}},
+    {"id": "x_video_website_card", "channel": "x", "name": "Video Ads",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "max_bytes": 1 * GB, "duration": (0, 140),
+     "text": {"total": 280, "headline": 70},
+     "notes": ["Up to 2:20; :15 recommended.",
+               "29.97 or 30 fps; 60 fps accepted. H.264 with AAC LC.",
+               "Under 30 MB recommended."]},
+    {"id": "x_vertical_video", "channel": "x", "name": "Vertical Video Ads",
+     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(9, 16)],
+     "min_width": 720, "max_bytes": 1 * GB, "duration": (0, 140),
+     "text": {"total": 280},
+     "notes": ["720x1280 minimum to 1080x1920 maximum.",
+               "Under :15 recommended. 60 fps maximum.",
+               "5-10 Mbps target, 25 Mbps maximum."]},
+    # The multi-image pair is one carousel now. The mobile id carries it: a
+    # carousel is the multi-image format, and keeping one of the two ids is
+    # what stops the tag orphaning.
+    {"id": "x_multi_image_mobile", "channel": "x", "name": "Carousel Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "sizes": [(800, 418), (800, 800)], "max_bytes": 5 * MB,
+     "text": {"total": 280},
+     "notes": ["2 to 6 slides. The file size is per slide."]},
+    {"id": "x_conversational", "channel": "x", "name": "Conversation Button",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "sizes": [(1080, 1080), (1920, 1080)], "max_bytes": 5 * MB,
+     "text": {"total": 280, "hashtag": 21, "pre_populated_tweet": 256,
+              "headline": 23, "thank_you": 23},
+     "notes": ["Up to 4 buttons; emoji supported.",
+               "Media follows the standard image specs."]},
+    {"id": "x_amplify_preroll", "channel": "x", "name": "Amplify Pre-roll",
+     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(1, 1)],
+     "min_width": 600, "max_bytes": 1 * GB, "duration": (0, 140),
+     "text": {"total": 280},
+     "notes": [":15 recommended, 2:20 maximum.",
+               "1:1 recommended; 600x600 minimum, 1200x1200 recommended."]},
+    {"id": "x_spotlight_takeover", "channel": "x", "name": "Spotlight Takeover",
+     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
+     "size": (1280, 720), "max_bytes": 5 * MB,
+     "text": {"trend_name": 20, "description": 30},
+     "notes": ["3 to 6 companion ads at 16:9.",
+               "5 MB for an image, 15 MB for a GIF."]},
+    # No media and no file of any kind -- it is copy and a duration. Modelled
+    # so the requirement can name it; there is nothing here to judge a file
+    # against, and `check()` is never handed one.
+    {"id": "x_polls", "channel": "x", "name": "Polls",
+     "kind": "other", "formats": [],
+     "text": {"total": 280, "option": 25},
+     "notes": ["2 to 4 options, 25 characters each.",
+               "Runs 5 minutes to 7 days."]},
+    # ---- LinkedIn --------------------------------------------------------
+    # Transcribed against the 2026 kit. The 2025 model held five formats to
+    # the kit's eleven, and three of its numbers refused files the kit itself
+    # allows: Message Ads were capped at 40 KB against a published 2 MB,
+    # Sponsored Content video at 200 MB against 500 MB, and that video carried
+    # a `max_width` of 1080 while the kit publishes 1920. Each is the Half Page
+    # failure this file already records -- creative refused that the client was
+    # told to send.
+    #
+    # "Sponsored InMail" is what LinkedIn used to call Message Ads, and the id
+    # is kept through the rename for the reason `billboard` already gives:
+    # tags_for() has written `unit_li_inmail` onto delivered creative and a
+    # gallery filters on it.
+    {"id": "li_single_image", "channel": "linkedin",
+     "name": "Sponsored Content \u2014 Single Image",
+     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
+     "sizes": [(1200, 628), (1200, 1200), (600, 900), (720, 900)],
+     "max_bytes": 5 * MB,
+     "text": {"intro": 150, "headline": 70, "description": 70},
+     "notes": ["600x900 and 720x900 are mobile-only.",
+               "The 70-character description shows on the LinkedIn Audience "
+               "Network only."]},
+    {"id": "li_video", "channel": "linkedin", "name": "Sponsored Content \u2014 Video",
+     "kind": "video", "formats": ["mp4"],
+     "ratios": [(9, 16), (1, 1), (16, 9), (4, 5)],
+     "min_width": 360, "min_bytes": 75 * KB, "max_bytes": 500 * MB,
+     "duration": (3, 1800),
+     "text": {"intro": 600, "headline": 200},
+     "notes": ["9:16 to 1080x1920, 1:1 to 1920x1920, 16:9 to 1920x1080, "
+               "4:5 to 1080x1350.",
+               "150 characters of intro and a 70-character headline are "
+               "recommended; 200 is the headline maximum.",
+               "Length across Sponsored Content is :03 to 30 minutes."]},
     {"id": "li_carousel", "channel": "linkedin",
-     "name": "Sponsored Content — Carousel", "kind": "image",
-     "formats": ["jpg", "jpeg", "png"], "size": (1080, 1080),
-     "max_bytes": 10 * MB,
-     "text": {"intro": 150, "headline": 45, "description": 30},
-     "notes": ["2 to 10 cards. Headline links to a URL, description to a form."]},
+     "name": "Sponsored Content \u2014 Carousel",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (1080, 1080), "max_bytes": 10 * MB,
+     "text": {"intro": 255, "headline": 45},
+     "notes": ["2 to 10 cards, 1:1, 1080x1080 minimum.",
+               "Video is not supported in a carousel."]},
     {"id": "li_text_ad", "channel": "linkedin", "name": "Text Ad",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (100, 100),
-     "max_bytes": 2 * MB, "text": {"headline": 25, "description": 75}},
-    {"id": "li_inmail", "channel": "linkedin", "name": "Sponsored InMail",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (300, 250),
-     "max_bytes": 40 * KB,
-     "text": {"subject": 60, "message": 1500, "custom_terms": 2500,
-              "call_to_action": 20},
-     "notes": ["Up to 3 click links."]},
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (100, 100), "max_bytes": 2 * MB,
+     "text": {"headline": 25, "description": 75}},
+    {"id": "li_inmail", "channel": "linkedin", "name": "Message Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (300, 250), "max_bytes": 2 * MB,
+     "text": {"subject": 60, "message": 8000, "footer": 20000,
+              "call_to_action": 25},
+     "notes": ["The 300x250 banner is desktop only.",
+               "Sponsored messaging delivers in the EU only to members who "
+               "have opted in \u2014 plan for reduced reach."]},
+    {"id": "li_conversation", "channel": "linkedin", "name": "Conversation Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "size": (300, 250), "max_bytes": 2 * MB,
+     "text": {"subject": 60, "message": 8000, "footer": 20000,
+              "call_to_action": 25}},
+    {"id": "li_document", "channel": "linkedin", "name": "Document Ads",
+     "kind": "raw", "formats": ["pdf", "doc", "docx", "ppt", "pptx"],
+     "max_bytes": 100 * MB,
+     "text": {"intro": 150, "headline": 70},
+     "notes": ["Under 10 pages recommended; 300 maximum."]},
+    # The client supplies no file for these two: one runs an author's own post
+    # and the other pulls its image off the LinkedIn Event page. They are
+    # modeled so a requirement can name them; there is nothing here to judge a
+    # file against, which is the honest answer rather than an invented ceiling.
+    {"id": "li_thought_leader", "channel": "linkedin",
+     "name": "Thought Leader Ads", "kind": "other", "formats": [],
+     "notes": ["Runs an author's post verbatim; no separate creative.",
+               "Single image or single video posts only.",
+               "The file is whatever the source post carries."]},
+    {"id": "li_event", "channel": "linkedin", "name": "Event Ads",
+     "kind": "other", "formats": [],
+     "text": {"intro": 600, "event_name": 255},
+     "notes": ["The 4:1 image is pulled from the LinkedIn Event page "
+               "automatically."]},
+    {"id": "li_ctv", "channel": "linkedin", "name": "Connected TV Ads",
+     "kind": "video", "formats": ["mp4"], "ratios": [(16, 9)],
+     "min_width": 1280, "max_bytes": 500 * MB, "duration": (6, 60),
+     "notes": ["1920x1080 recommended, 1280x720 minimum.",
+               "H.264, 23.98-30 fps CFR, 15-40 Mbps.",
+               "Audio -23 LUFS, 192 kbps minimum, 48 kHz."]},
+    {"id": "li_click_to_message", "channel": "linkedin",
+     "name": "Click to Message Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png", "gif"],
+     "min_width": 401, "max_bytes": 5 * MB,
+     "text": {"intro": 600, "message": 8000, "response": 8000,
+              "footer": 20000},
+     "notes": ["A single image under 401 px wide renders as a thumbnail."]},
 
     # ---- Snapchat --------------------------------------------------------
     {"id": "snap_image", "channel": "snapchat", "name": "Single Image Ad",
@@ -432,7 +539,34 @@ UNITS: list[dict[str, Any]] = [
                "nothing is gained by being first to try one."]},
 ]
 
+# Units a platform has retired. Kept out of UNITS -- so nothing asks a client
+# to supply one, and no requirement line names one -- and kept resolvable by
+# id, because `tags_for()` has written `unit_<id>` onto creative already
+# delivered and a gallery filtering on that tag must still find a unit rather
+# than nothing. `hub/audit.LOG_NAMES`' rule: a name already written down is
+# not renamed to make a check happy, it is declared.
+#
+# Each says what replaced it, so a row carrying the tag can be read.
+RETIRED_UNITS = [
+    {"id": "x_direct_message", "channel": "x", "name": "Direct Message Card",
+     "kind": "image", "retired": "X retired the format; there is no 2026 "
+                                 "equivalent on the kit."},
+    {"id": "x_multi_image_desktop", "channel": "x",
+     "name": "Multi Image Tweet — Desktop", "kind": "image",
+     "retired": "The mobile/desktop creative split is gone — one asset set "
+                "serves both. Superseded by Carousel Ads."},
+    {"id": "x_single_image_mobile", "channel": "x",
+     "name": "Single Image Tweet — Mobile", "kind": "image",
+     "retired": "The mobile/desktop creative split is gone. Superseded by "
+                "Image Ads."},
+    {"id": "x_single_image_desktop", "channel": "x",
+     "name": "Single Image Tweet — Desktop", "kind": "image",
+     "retired": "The mobile/desktop creative split is gone. Superseded by "
+                "Image Ads."},
+]
+
 BY_ID = {u["id"]: u for u in UNITS}
+BY_ID.update({u["id"]: u for u in RETIRED_UNITS if u["id"] not in BY_ID})
 
 CHANNEL_LABELS = {
     "desktop_display": "Desktop Display",
@@ -640,6 +774,99 @@ _KIT_NOT_MODELLED = (
 )
 
 
+# Sections whose table's first column is a format name, for channels this
+# module has been transcribed against the **2026** kit. `kit_drift()` cannot
+# read these tables -- their columns are Format / Copy / Media / File Size,
+# not Unit / Dimensions / weight -- but the first column is a name, and a name
+# is what a client is asked to supply. X is here because its 2025 model named
+# eight formats and not one of them was a format X still sells.
+#
+# A platform joins this list when its units are transcribed, not before: a
+# check listing every platform on the day it is written is red on the day it
+# is written, and gets switched off. What is still on 2025 is named below
+# rather than left as an absence.
+def _plain(fragment: str) -> str:
+    """One table cell as a person reads it: no markup, no entities."""
+    return _html.unescape(
+        re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment or ""))).strip()
+
+
+_KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin"}
+
+# Transcribed against the 2025 kit and not yet re-checked against 2026, with
+# what is known to have moved. Not findings -- a backlog somebody works down,
+# the way `help_audit.demo_targets()` lists its 55 steps rather than failing
+# the build on them. Each is a client being asked for a format under a name
+# its platform has changed or dropped.
+_KIT_NAMES_PENDING = {
+    "tiktok": "the kit sells 6 formats and none of our 3 names is among "
+              "them (Auction In-Feed, Spark Ads, Reservation In-Feed...)",
+    "snapchat": "the kit sells 7 formats against our 2",
+    "youtube": "'TrueView' is retired branding for what the kit calls "
+               "Skippable in-stream; the kit also sells Shorts and Masthead",
+    "native_display": "the kit's asset list is per-platform (The Trade Desk "
+                      "and Google Demand Gen) and names 8 assets to our 2",
+}
+
+
+def _kit_section_names(section_id: str) -> tuple[list[str], str]:
+    """The format names in a section's first column, as published."""
+    try:
+        html = _KIT_PAGE.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return [], f"the published kit could not be read ({exc})"
+    m = re.search(rf'<section class="section" id="{section_id}"(.*?)</section>',
+                  html, re.S)
+    if not m:
+        return [], f"the published kit has no {section_id} section"
+    table = re.search(r"<table>(.*?)</table>", m.group(1), re.S)
+    if not table:
+        return [], f"the {section_id} section publishes no table"
+    out = []
+    for row in re.findall(r"<tr>(.*?)</tr>", table.group(1), re.S)[1:]:
+        cells = re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", row, re.S)
+        if cells:
+            out.append(_plain(cells[0]))
+    return [n for n in out if n], ""
+
+
+def _name_key(name: str) -> str:
+    """Loose enough for a plural and a dash, strict enough to mean something."""
+    n = (name or "").lower().replace("\u2014", "-").replace("\u2013", "-")
+    n = re.sub(r"[^a-z0-9]+", " ", n).strip()
+    return n[:-1] if n.endswith("s") else n
+
+
+def kit_name_drift() -> list[dict]:
+    """Unit names we ask a client for that the published kit no longer sells.
+
+    Only for the channels declared in `_KIT_NAME_CHECKED`. A name is what the
+    requirement line prints, so a unit named after a format the platform has
+    retired asks a client to supply something that does not exist -- which is
+    silent from both ends: the name is a real format's name, it was right once,
+    and nothing errors.
+    """
+    out = []
+    for section_id, channel in _KIT_NAME_CHECKED.items():
+        published, error = _kit_section_names(section_id)
+        if error:
+            # A section that cannot be read is not a section with nothing
+            # wrong in it.
+            out.append({"unit": "", "detail": f"Not measured — {error}."})
+            continue
+        known = {_name_key(n) for n in published}
+        for unit in UNITS:
+            if unit.get("channel") != channel:
+                continue
+            if _name_key(unit.get("name", "")) not in known:
+                out.append({
+                    "unit": unit["id"],
+                    "detail": f"\"{unit['name']}\" is not a format the "
+                              f"published kit sells. A client is asked for it "
+                              f"by name on the requirement line."})
+    return out
+
+
 def _kit_section_ids() -> tuple[list[str], str]:
     """Every section id the published page carries, in page order."""
     try:
@@ -683,6 +910,11 @@ def kit_coverage() -> dict:
         # works to: a declaration that outlives the section it described goes
         # on excusing whatever is published under that id next.
         "stale": sorted(d for d in declared if d not in set(ids)),
+        # Which channels' *names* are held to the 2026 page, and which are
+        # still on the 2025 transcription. A backlog, named rather than left
+        # as an absence.
+        "names_checked": sorted(_KIT_NAME_CHECKED.values()),
+        "names_pending": dict(sorted(_KIT_NAMES_PENDING.items())),
     }
 
 

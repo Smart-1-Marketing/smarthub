@@ -13,13 +13,34 @@ _lock = threading.Lock()
 
 
 def _path() -> str:
+    """Where the activity log lives.
+
+    `AUDIT_LOG_PATH` still wins -- it names one file rather than a root, so it
+    is the more specific answer. Everything else defers to
+    `jsonstore.data_root()`, which is *the* place that decides where persistent
+    files live and whose own docstring names this failure: "every module had
+    its own copy of this expression. They all agreed, which is luck rather
+    than design: the moment one of them disagreed, its files would land
+    somewhere the backup sweep never looks."
+
+    This was that copy, and it did disagree -- on `HUB_DATA_DIR`, which
+    data_root() reads first and this did not read at all. Nothing moves on
+    Render, where HUB_DATA_DIR is unset and /var/data is mounted; what changes
+    is a test that sets it, which used to be handed the real shared log.
+
+    Never raises: this is the log, and a log that can break a boot is worse
+    than one in the wrong place.
+    """
     p = os.environ.get("AUDIT_LOG_PATH")
     if p:
         return p
-    # Prefer the persistent disk when mounted, fall back to local ./data.
-    if os.path.isdir("/var/data"):
-        return "/var/data/hub-audit.log.jsonl"
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hub-audit.log.jsonl")
+    try:
+        from . import jsonstore
+        return os.path.join(jsonstore.data_root(), "hub-audit.log.jsonl")
+    except Exception:  # noqa: BLE001 — fall back to the expression it replaced
+        if os.path.isdir("/var/data"):
+            return "/var/data/hub-audit.log.jsonl"
+        return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hub-audit.log.jsonl")
 
 
 def log(module: str, type_: str, actor: str | None = None, **extra) -> None:
@@ -120,6 +141,43 @@ def for_module(name: str, actor_fn=None):
 # hub/integrity.py's silent-module check reads this, so a module listed here is
 # looked for by the name it actually logs under, anywhere in the tree.
 LOG_NAMES: dict[str, str] = {"ad_builder": "display_ads"}
+
+# A module that deliberately writes no activity row, and why.
+#
+# This exists because of the way the silent-module check used to be satisfied.
+# It asked whether the *string* "for_module(" appeared in a module's source --
+# so seven modules that imported a logger, bound it to a name, wrapped it in a
+# no-op fallback and then called it nowhere all read as modules that log.
+# Every one of them had a comment above the import saying why logging mattered
+# there. pdf_optimizer's said "work that isn't logged is work nobody can point
+# to later"; page_image_optimizer's and sites_admin's said "an unattributable
+# change to a client's account is one nobody can explain later". All three
+# were true, and none of them wrote a row. That is the declared-but-unwired
+# integration point this codebase has now found in RECORD_HOOK, io_creative,
+# manifest(), thumb_url(), mark_pushed() and check_limits() -- wearing the
+# activity log.
+#
+# The check reads a CALL now, through the AST, so an import can no longer
+# silence it. Which leaves the honest remainder: a module whose work genuinely
+# does not belong in the activity log. That is a decision, so it is written
+# down here with its reason rather than left as a dangling import that
+# happens to keep a check quiet -- and integrity.py fails on an entry naming a
+# module that no longer exists, the rule check_stale_json_exemptions() works
+# to, because an exemption that outlives what it exempted goes on covering
+# whatever is written at that path next.
+NO_ACTIVITY: dict[str, str] = {
+    "calculators": (
+        "What this module produces is a LEAD, not client work: a stranger on "
+        "somebody else's website types into a public estimate box. Those go "
+        "through hub/leads.py, which is the one store, delivery and panel for "
+        "a prospect -- the rule modules/scans/leads.py gives at length. An "
+        "activity row per public estimate would file hundreds of strangers "
+        "into a log whose whole purpose is what we did for a CLIENT, and "
+        "would put a prospect on a client 360 record they belong to no part "
+        "of. The staff-facing internal calculator deliberately stores nothing "
+        "at all, so there is nothing there to attribute either."
+    ),
+}
 
 
 def registered_modules() -> list[str]:

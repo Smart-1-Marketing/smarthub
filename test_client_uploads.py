@@ -263,10 +263,37 @@ check("a row can be dropped again", io_clients.forget("Brand New Roofing Supply"
 check("and dropping one that is not there is not an error",
       io_clients.forget("Nobody At All"), False)
 
-# Submitting must never fail over its own bookkeeping.
+# Submitting must never fail over its own bookkeeping. Asked of the code
+# rather than of a line of it: this used to match the comment beside the call,
+# so moving the call one function along broke the check while the property it
+# is about held perfectly well — the "prose is not a call site" rule, running
+# the other way.
+import ast as _ast
+
+
+def _register_is_guarded(src: str) -> bool:
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Try):
+            continue
+        calls = [n for n in _ast.walk(node)
+                 if isinstance(n, _ast.Call)
+                 and isinstance(n.func, _ast.Attribute)
+                 and n.func.attr == "register_from_io"]
+        if not calls:
+            continue
+        # Every handler must swallow: a bare `raise` or a re-raise would put
+        # the bookkeeping back in front of the submit.
+        for handler in node.handlers:
+            if any(isinstance(n, _ast.Raise) for n in _ast.walk(handler)):
+                return False
+        if node.handlers:
+            return True
+    return False
+
+
 check("the IO submit path cannot be broken by this",
-      "except Exception:  # noqa: BLE001\n        pass           # an IO must "
-      "never fail to submit over its own bookkeeping" in IOAPP, True)
+      _register_is_guarded(IOAPP), True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")

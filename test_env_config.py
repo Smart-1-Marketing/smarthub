@@ -249,6 +249,22 @@ try:
                    if f["file"].endswith("_integrity_orphan_host.html")]), 1)
     finally:
         _includer.unlink(missing_ok=True)
+
+    # ...but a file that documents its own include line is not rendered by
+    # saying so. The include pass had no "not its own name" guard -- the one
+    # the bare-.html pass beside it has always had -- so a template whose
+    # header comment reads `drop {% include "me.html" %} into the dashboard`
+    # registered itself as rendered and was invisible to this check.
+    # `_scorecard_stale_creative.html` did exactly that and sat there included
+    # by nothing, with the check reporting no orphans at all.
+    _orphan.write_text(
+        '{# drop {% include "_integrity_orphan_probe.html" %} '
+        'into the dashboard #}\n<p>still nothing renders this</p>\n',
+        encoding="utf-8")
+    found = integrity.check_orphan_templates()
+    check("a template that quotes its own include line is still an orphan",
+          len([f for f in found
+               if f["file"].endswith("_integrity_orphan_probe.html")]), 1)
 finally:
     _orphan.unlink(missing_ok=True)
 

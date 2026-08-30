@@ -1921,6 +1921,11 @@ function guardrailsJs(){
     strictest of them blocked campaigns the IO would have written happily.
     Paid search is now $400 in one place and every document reads it there. */
  S.items.forEach(i=>{
+  /* A one-time build is not a monthly buy and has no monthly floor to be
+     under. Judged against one, a $349.50 website line reported that the IO
+     would refuse a perfectly ordinary website-only proposal -- and said so
+     as "$349.5/mo", the unformatted half of the same mistake. */
+  if((i.basis||"monthly")==="one_time")return;
   const min=minimumFor(i.product,i.category);
   if(i.dollars>0&&i.dollars<min)
    warns.push((i.product||i.category||"That product")+" at "+money(i.dollars)+"/mo is below its "+money(min)+" monthly minimum — the IO will not accept it.");
@@ -2507,7 +2512,7 @@ function areaEditorStep(){
 function areaListStep(){
  const rows=S.targetAreas||[];
  const e=estimates();
- return{eyebrow:"Target Areas",
+ return{eyebrow:"Target Areas",help:"sales_builder.areas.list",
   title:rows.length===1?"One target area so far — add another?":rows.length+" target areas — add another?",
   sub:"Add every location this campaign needs to reach. Each one carries its own geography, ZIP list and notes all the way to the insertion order.",
   html:`<div class="arealist">${rows.map((a,i)=>{
@@ -3021,11 +3026,11 @@ async function rewriteSecById(id){
    BUILDER STEPS
    ============================================================ */
 const STEPS=[
- ()=>({eyebrow:"The Goal",title:"What are we trying to accomplish?",sub:"Pick one or more. This drives the recommended products, KPIs, and audience — using the real Smart 1 catalog.",
+ ()=>({eyebrow:"The Goal",title:"What are we trying to accomplish?",help:"sales_builder.goal.pick",sub:"Pick one or more. This drives the recommended products, KPIs, and audience — using the real Smart 1 catalog.",
    html:'<div class="cards">'+Object.keys(objectiveKPIs).map(k=>card(GOAL_META[k].em,k,GOAL_META[k].d,S.objectives.includes(k),`goal('${k}')`)).join('')+'</div>',
    valid:()=>S.objectives.length>0}),
 
- ()=>({eyebrow:"Customer & Industry",title:"Tell us about the customer",sub:"Smart 1 builds the business description from the website automatically.",
+ ()=>({eyebrow:"Customer & Industry",title:"Tell us about the customer",help:"sales_builder.customer.audit",sub:"Smart 1 builds the business description from the website automatically.",
    html:`<div class="cards" style="margin-bottom:4px">
     ${card("🔎","An existing client","Search the client list and attach this proposal to their record",S.clientMode!=="new",`setClientMode('existing')`)}
     ${card("✨","A new client","Someone we do not have on file yet",S.clientMode==="new",`setClientMode('new')`)}
@@ -3057,7 +3062,7 @@ const STEPS=[
    after:()=>{if(S.clientMode!=="new"&&!S.clientKey&&(S._clientQ||"").trim())drawClientHits();}}),
 
  ()=>{ if(!S.landing)S.landing=landingRec();
-   return{eyebrow:"Landing Page",title:"Where does the traffic land?",sub:"Enter the landing page early so Smart 1 can review it before you price the campaign.",
+   return{eyebrow:"Landing Page",title:"Where does the traffic land?",help:"sales_builder.landing.url",sub:"Enter the landing page early so Smart 1 can review it before you price the campaign.",
    html:`<div class="two"><div class="fld"><label>Landing mode</label><select onchange="S.landingMode=this.value;saveSoon()">${opt(["One landing page","Multiple landing pages by product"],S.landingMode)}</select></div>
    <div class="fld"><label>Landing page URL</label><input value="${esc(S.landingUrl)}" oninput="S.landingUrl=this.value;S.landingReview='';saveSoon()" placeholder="riverstonedental.com/new-patients"></div></div>
    <div class="bpanel"><div class="ttl">🔍 Smart 1 landing page review</div>
@@ -3069,7 +3074,7 @@ const STEPS=[
  /* Discovery. Every answer here changes something downstream: the gaps drive
     the "We suggest they should" list, and the traditional-media answer sets
     the proposal's whole posture toward the budget they already spend. */
- ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",
+ ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",help:"sales_builder.marketing.answers",
    sub:"Every answer changes the recommendation. Unknown is a real answer — it means we have not confirmed it.",
    html:`<div class="bpanel"><div class="ttl">📋 What's running today</div>
     <div class="note" style="margin-top:2px">All twelve need an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
@@ -3096,7 +3101,7 @@ const STEPS=[
    ${suggestBlock()}`,
    valid:()=>discoveryReady()}),
 
- ()=>({eyebrow:"Guardrails",title:"Anything to avoid?",sub:"Flag exclusions, negative keywords, or restricted audiences up front (feeds the IO's exclusions field).",
+ ()=>({eyebrow:"Guardrails",title:"Anything to avoid?",help:"sales_builder.guardrails.exclusions",sub:"Flag exclusions, negative keywords, or restricted audiences up front (feeds the IO's exclusions field).",
    html:'<div class="bpanel"><div class="ttl">🚫 Exclusions / things to avoid</div>'+
      pillRow(["Exclude current customers","Exclude competitor staff","No off-hours delivery","Brand-safety sensitive","Avoid certain keywords","Sensitive category (health/legal)","Competitor conquesting OK"],S.exclusions,'exc','c3')+
      '<div class="addpill"><input id="excIn" placeholder="Add an exclusion…" onkeydown="if(event.key===\'Enter\'){addCustom(\'exc\',\'excIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'exc\',\'excIn\')">+ Add</button></div></div>',
@@ -3125,13 +3130,13 @@ const STEPS=[
     to come after the plan was already priced, where it could only describe
     what had been chosen. */
  ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
-   return{eyebrow:"Measurement",title:"How will this be judged?",sub:"Set this before the products: what counts as success decides which products belong on the plan.",
+   return{eyebrow:"Measurement",title:"How will this be judged?",help:"sales_builder.measurement.kpi",sub:"Set this before the products: what counts as success decides which products belong on the plan.",
    html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
      '<div class="addpill"><input id="kpiIn" placeholder="Add a KPI…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>'
      +'<div class="note">These travel onto the insertion order and into the proposal\'s Measurement &amp; Reporting section.</div>',
    valid:()=>S.kpis.length>0};},
 
- ()=>({eyebrow:"Audience Strategy",title:"Who we target",sub:"Pulled from the industry audience library — then the part only the client knows: whose customers we want.",
+ ()=>({eyebrow:"Audience Strategy",title:"Who we target",help:"sales_builder.audience.competitors",sub:"Pulled from the industry audience library — then the part only the client knows: whose customers we want.",
    html:(()=>{const key=INDUSTRY_KEYS[S.industry]||'general';const lib=industryIdeas[key]||industryIdeas.general;
     const list=[...(lib.behavioral||[]),...(lib.contextual||[]),"Website retargeting","Lookalike / CRM match","Competitor physical locations","Competitor conquesting"];
     return '<div class="bpanel"><div class="ttl">🎯 Recommended audience layers — '+esc(key)+'</div>'+pillRow(list,S.audiences,'aud')+
@@ -3139,7 +3144,7 @@ const STEPS=[
     +competitorPanel();})(),
    valid:()=>true,after:drawCompetitors}),
 
- ()=>({eyebrow:"Budget",title:"What's the working budget?",sub:"Monthly media budget. Three packages build around it and reconfigure if you change it.",
+ ()=>({eyebrow:"Budget",title:"What's the working budget?",help:"sales_builder.budget.working",sub:"Monthly media budget. Three packages build around it and reconfigure if you change it.",
    html:'<div class="cards">'+
      card("🧭","Help me choose","Show budget ranges by goal",S.budgetMode==="range",`S.budgetMode='range';renderStep()`)+
      card("✍️","I know the budget","Enter an exact monthly amount",S.budgetMode==="exact",`S.budgetMode='exact';renderStep()`)+'</div>'+
@@ -3150,7 +3155,7 @@ const STEPS=[
    +budgetDriftNote(),
    valid:()=>S.budget>0}),
 
- ()=>{ if(S.items.length===0)recommendItems(); return{eyebrow:"The Media Mix",title:"Products & pricing",sub:"From your goals, using real catalog products & rates. Edit the monthly $ per product, add or remove products — guardrails recheck as you go.",
+ ()=>{ if(S.items.length===0)recommendItems(); return{eyebrow:"The Media Mix",title:"Products & pricing",help:"sales_builder.mix.rates",sub:"From your goals, using real catalog products & rates. Edit the monthly $ per product, add or remove products — guardrails recheck as you go.",
    html:'<div id="prodList"></div>'+
     '<div class="addrow"><select id="addCat">'+productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')+'</select><button class="btn btn-ghost" onclick="addItem()">+ Add category</button></div>'+
     '<div class="addrow"><select id="addProd">'+productPickerHtml()+'</select><button class="btn btn-ghost" onclick="addSpecificItem(document.getElementById(\'addProd\').value)">+ Add a specific product</button></div>'+
@@ -3171,7 +3176,7 @@ const STEPS=[
     +'Add display, retargeting, Connected TV, streaming audio, YouTube or podcasts to the media mix '
     +'and Smart 1 will ask who is supplying the files — and name the sizes — before pricing it.</div></div>',
    valid:()=>true};
-  return{eyebrow:"Creative",title:"Do they have the files for this?",
+  return{eyebrow:"Creative",title:"Do they have the files for this?",help:"sales_builder.creative.gate",
    sub:"Every medium on this plan needs creative before it can run — banners as much as spots. Answer it now and it travels onto the insertion order with the sizes attached.",
    html:rows.map(creativeCard).join('')
     +'<div class="note" style="margin-top:12px">A comp gets one confirmation when the campaign is under the point where production pays for itself — '
@@ -3180,7 +3185,7 @@ const STEPS=[
    valid:()=>creativeUnresolved().length===0};
  },
 
- ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. All three go on the quote; pick the one it recommends.",
+ ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",help:"sales_builder.packages.investment",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. All three go on the quote; pick the one it recommends.",
    html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. All three are printed on the proposal — the one you pick is marked as our recommendation. Change the budget or products and these rebuild.</div>'
     +'<div id="suiteWrap"></div>',
    valid:()=>true,after:()=>{drawPkgs();drawSuite();}};},
@@ -3193,7 +3198,7 @@ const STEPS=[
  ()=>{ if(!S.sections)S.sections=defaultSections(); S.estimates=estimates();
    if(S._docView!=="list")S._docView="preview";
    const preview=S._docView==="preview";
-   return{eyebrow:"Proposal Document",
+   return{eyebrow:"Proposal Document",help:"sales_builder.document.sections",
    title:preview?"Read it before you send it":"Sections, in order",
    sub:preview?"This is the document. Edit any section in place, have the AI rewrite it, or hide it — and change the media plan without leaving the page."
               :"Rename, reorder, hide or add sections. The required ones stay.",
@@ -3208,7 +3213,7 @@ const STEPS=[
       : '<div id="secList"></div><div class="addrow"><button class="btn btn-ghost" onclick="addSection()">+ Add a custom section</button><button class="btn btn-line" onclick="S.sections=defaultSections();saveSoon();renderStep()">↺ Reset to defaults</button></div>'),
    valid:()=>true,after:()=>{preview?drawPreview():drawSections();}};},
 
- ()=>{ buildPackages();S.estimates=estimates(); return{eyebrow:"Review & Save",title:"Ready to deliver",sub:"Everything is saved under "+(QUOTE_NUMBER||"a new quote number")+". Generate the branded PDF, export Word, and mark it Sent when it goes to the client.",
+ ()=>{ buildPackages();S.estimates=estimates(); return{eyebrow:"Review & Save",help:"sales_builder.review.deliver",title:"Ready to deliver",sub:"Everything is saved under "+(QUOTE_NUMBER||"a new quote number")+". Generate the branded PDF, export Word, and mark it Sent when it goes to the client.",
    html:reviewHtml(),valid:()=>true,isLast:true};}
 ];
 
@@ -3217,7 +3222,18 @@ function renderStep(){
  const d=STEPS[step]();window._entering=(_lastStep!==step);_lastStep=step;
  window._stepDesc=d;
  const st=document.getElementById('stage');
- st.innerHTML=`<div class="eyebrow">${d.eyebrow}</div><h1 class="q">${d.title}</h1><div class="sub">${d.sub}</div>${d.html}`;
+ /* One bubble per step, drawn beside the heading. help_dot() is a Jinja
+    global and these steps are built in JavaScript, so the same markup is
+    emitted here -- hub-help.js mounts on a debounced MutationObserver, so a
+    dot written by renderStep() is upgraded like any other. A step with no
+    key gets nothing rather than a dead "?".
+
+    Deliberately no data-screen: a tour is anchored by selector and this is
+    one page whose markup is replaced on every step, so a tour written for
+    it could not drive past the step it started on -- which is the silence
+    hub-demo.js was just fixed to stop. */
+ const _dot=k=>k?`<span data-help="${k}"></span>`:'';
+ st.innerHTML=`<div class="eyebrow">${d.eyebrow}</div><h1 class="q">${d.title} ${_dot(d.help)}</h1><div class="sub">${d.sub}</div>${d.html}`;
  document.getElementById('stepLabel').textContent='Step '+(step+1)+' of '+STEPS.length;
  document.getElementById('bar').style.width=((step+1)/STEPS.length*100)+'%';
  // Back stays available inside a sub-flow even on step 0 of the wizard,

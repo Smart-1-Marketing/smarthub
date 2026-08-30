@@ -218,7 +218,7 @@ test('copy generation respects the tight canvases', () => {
 
 /* -------------------------------------------------------------- brandfetch */
 
-test('domains are normalised before lookup', () => {
+test('domains are normalized before lookup', () => {
   assert.equal(normalizeDomain('https://www.Example.com/path?x=1'), 'example.com');
   assert.equal(normalizeDomain('EXAMPLE.CO.UK'), 'example.co.uk');
 });

@@ -77,6 +77,11 @@
     "tickets": "Web Tickets", "bulk": "Scan All Clients",
     "sites-match": "Match Sites to Clients", "google-match": "Match Google Accounts",
     "campaign-assets": "Campaign Assets Needed", "domains": "Domain Renewals",
+    // Named rather than left to the slug: title-casing gives "Client Owners"
+    // and "My Clients", and the first is not what the tile says. A crumb that
+    // disagrees with the tile somebody clicked is a small lie the reader
+    // corrects by ignoring the trail.
+    "client-owners": "Assign Clients", "my-clients": "My Clients",
     "users": "Users"
   };
 
@@ -100,6 +105,12 @@
     "tickets": ["/qa", "QA Reports"], "bulk": ["/qa", "QA Reports"],
     "sites-match": ["/qa", "QA Reports"], "google-match": ["/qa", "QA Reports"],
     "campaign-assets": ["/qa", "QA Reports"], "domains": ["/qa", "QA Reports"],
+    "client-owners": ["/qa", "QA Reports"],
+    // /my-clients is in the nav *and* tiled on QA Reports. Back goes to the
+    // index it is listed on rather than nowhere: a page whose trail ends at
+    // the Dashboard offers no way to the list it came from, which is the
+    // whole job of the crumb.
+    "my-clients": ["/qa", "QA Reports"],
     // Tiled on Tools.
     "calculators": ["/tools", "Tools"], "google-access": ["/tools", "Tools"],
     "builder": ["/tools", "Tools"], "landing": ["/tools", "Tools"],

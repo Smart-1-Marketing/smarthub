@@ -6,6 +6,7 @@
     <div class="seoc-crumb"><a href="/seo">SEO Clients</a> / {{ client }}</div>
     <h2>{{ client }}</h2>
     <p id="seocSub">Loading&hellip;</p>
+    <p id="seocSrc" class="seoc-muted" style="margin:-6px 0 0;font-size:12px"></p>
   </div>
   <div class="seoc-actions">
     <button class="seoc-btn" id="btnSetup">&#9881; Client Setup</button>
@@ -18,7 +19,7 @@
     <label class="seoc-check"><input type="checkbox" id="ck_setup"> Setup complete</label>
     <label class="seoc-check"><input type="checkbox" id="ck_schema"> Schema updated</label>
     <label class="seoc-check"><input type="checkbox" id="ck_listings"> Listings complete</label>
-    <span class="seoc-check seoc-check-ro" id="ck_blogs_wrap"><span id="ck_blogs_dot" class="seoc-dot"></span> Blogs current <span class="seoc-muted" style="font-weight:400">(from the posted checkboxes below)</span></span>
+    <span class="seoc-check seoc-check-ro" id="ck_blogs_wrap"><span id="ck_blogs_dot" class="seoc-dot"></span> Blogs <span class="seoc-muted" style="font-weight:400">&mdash; <span id="ck_blogs_label">&mdash;</span></span></span>
     <span id="ckMsg" class="seoc-muted"></span>
   </div>
 </div>
@@ -111,10 +112,11 @@
 <div class="card seoc-card" id="cardBuilder" style="display:none">
   <div class="seoc-cardhead"><h3>Schema Builder {{ help_dot('seo.schema.known_first') if help_dot is defined else '' }}</h3><div id="buildProgress" class="seoc-muted"></div></div>
 
-  <div id="bizPanel" class="seoc-biz">
+  <div id="bizPanel" class="seoc-biz" data-demo="schema-known">
     <div class="seoc-biz-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <span>Business information <span class="seoc-muted">(used in every schema — fill what you know, the AI will ask for the rest)</span></span>
-      <button class="seoc-btn seoc-small" id="btnBrandSearch">&#128269; Search client info</button>
+      <button class="seoc-btn seoc-small" id="btnBrandSearch"
+              data-demo="schema-lookup">&#128269; Search client info</button>
     </div>
     <div class="seoc-biz-grid">
       <input id="bi_name" placeholder="Business name">
@@ -190,7 +192,8 @@
     <p style="margin:2px 0 10px;font-size:13.5px">Enter a page URL. The AI reads that page and the rest of the
       site, then drafts the questions real customers ask &mdash; with answers written to earn FAQ rich results.</p>
     <div class="seoc-faqbar">
-      <input id="faqUrl" placeholder="https://clientsite.com/services/ac-repair">
+      <input id="faqUrl" data-demo="faq-url"
+             placeholder="https://clientsite.com/services/ac-repair">
       <select id="faqCount">
         <option value="5">5 questions</option>
         <option value="6" selected>6 questions</option>
@@ -208,7 +211,7 @@
       <button class="seoc-btn seoc-sec seoc-small" id="btnFaqCancel">Start over</button>
     </div>
     <p id="faqPaletteNote" class="seoc-muted" style="font-size:11.5px;margin:0 0 8px"></p>
-    <div id="faqList"></div>
+    <div id="faqList" data-demo="faq-review"></div>
     <div id="faqSavePrompt" class="seoc-next" style="display:none">
       <b>Every question has been handled. Save this page to this account?</b>
       <div class="seoc-saverow">
@@ -216,7 +219,8 @@
           <input type="date" id="faqAddedDate">
           <span class="seoc-muted">(leave blank until it goes live)</span></label>
       </div>
-      <button class="seoc-btn seoc-small" id="btnFaqSave">Save this page</button>
+      <button class="seoc-btn seoc-small" id="btnFaqSave"
+              data-demo="faq-save">Save this page</button>
       <button class="seoc-btn seoc-sec seoc-small" id="btnFaqSaveLater">Not yet</button>
       <span id="faqSaveMsg" class="seoc-muted"></span>
     </div>
@@ -237,7 +241,7 @@
     <div style="overflow-x:auto">
       <table class="seoc-t"><thead><tr>
         <th style="width:28px"><input type="checkbox" id="faqSelAll" title="Select all"></th>
-        <th>Date created</th><th>Date added to site</th><th>Site URL</th>
+        <th>Date created</th><th data-demo="faq-date">Date added to site</th><th>Site URL</th>
         <th style="text-align:center">Questions</th><th style="text-align:right">Actions</th>
       </tr></thead><tbody id="faqRows"></tbody></table>
     </div>
@@ -730,8 +734,15 @@ table.seoc-blogt input[type=checkbox]{width:auto}
 .seoc-check{display:flex;gap:7px;align-items:center;font-size:13.5px;font-weight:600;color:#1e293b;cursor:pointer}
 .seoc-check input{width:16px;height:16px;accent-color:#16a34a;cursor:pointer}
 .seoc-check-ro{cursor:default}
+.seoc-stale{color:#854d0e;font-weight:600}
 .seoc-dot{width:12px;height:12px;border-radius:50%;display:inline-block;background:#dc2626}
 .seoc-dot.on{background:#16a34a}
+/* The four blogs states. `not_sold` is gray rather than red: a client who
+   does not buy blogs is not a client who is behind on them. */
+.seoc-dot.current{background:#16a34a}
+.seoc-dot.behind{background:#dc2626}
+.seoc-dot.none{background:#d97706}
+.seoc-dot.not_sold{background:#cbd5e1}
 .seoc-socialgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
 .seoc-socialgrid .srow{display:flex;gap:6px;align-items:center}
 .seoc-socialgrid .srow b{width:76px;font-size:12px;color:#475569;text-transform:capitalize;flex:none}
@@ -873,12 +884,31 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;padding:11px;
       border:1px solid #cfd7df;border-radius:8px" placeholder="Click Build to draft one."></textarea>
     <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
-      <button class="seoc-btn" onclick="saveLlms()">Save &amp; publish</button>
+      <button class="seoc-btn" onclick="saveLlms()">Save draft</button>
+      <button class="seoc-btn" onclick="publishLive()">Publish live</button>
       <button class="seoc-btn" onclick="copyLlms()">Copy</button>
       <button class="seoc-btn" onclick="publishLlms()">Publish to Smart 1 Suite</button>
-      <a class="seoc-btn" id="llmsPublic" href="#" target="_blank" style="display:none">View public file &#8599;</a>
       <a class="seoc-btn" id="llmsSuite" href="#" target="_blank" style="display:none">View on Suite &#8599;</a>
       <span id="llmsMsg" class="muted" style="font-size:12px"></span>
+    </div>
+
+    <!-- Hosting, the redirect and the check. Saving and publishing are
+         deliberately two buttons: a half-written file must never be live. -->
+    <div id="llmsHost" style="margin-top:16px;border-top:1px solid #e6ebf0;padding-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <b style="font-size:13px">Hosting &amp; verification</b>
+        <span id="llmsVerdict" style="display:none;padding:2px 9px;
+              border-radius:999px;font-size:11.5px;font-weight:600"></span>
+        <span id="llmsChecked" class="muted" style="font-size:12px"></span>
+        <div class="right" style="margin-left:auto;display:flex;gap:8px">
+          <button class="seoc-btn" onclick="verifyLlms()">Verify now</button>
+          <button class="seoc-btn" id="llmsOffBtn" onclick="unpublishLlms()"
+                  style="display:none">Take off the air</button>
+        </div>
+      </div>
+      <div id="llmsHostBody" class="muted" style="font-size:12.5px;margin-top:10px">
+        Loading&hellip;
+      </div>
     </div>
   </div>
 </div>
@@ -945,6 +975,46 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   function $(id){return document.getElementById(id);}
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
   function post(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(function(r){return r.json();});}
+
+  /* ---- editors that get rebuilt underneath somebody -------------------
+     The alt-text list and the FAQ draft are both a container of live inputs
+     that is redrawn with innerHTML — by a *sibling row's* button, and by a
+     fetch that lands tens of seconds later. That is the trap CLAUDE.md names
+     for the Smart 1 Ads target-area rows, with a different trigger: there the
+     redraw came from the typing itself and was fixed by never redrawing an
+     input, and here the list genuinely changes shape, so the rule has to be
+     that a redraw cannot destroy what has not been read yet.
+
+     Two halves. `dirty()` marks a field the moment somebody types in it, and
+     only a dirty field is ever harvested — a field is *not* dirty just because
+     its value differs from the model, which is what a fetch response makes
+     true of every field at once. Harvesting on difference alone would revert a
+     whole page of AI-written alt text to the boxes' pre-write contents, which
+     is worse than the loss it fixes. And `keepCaret()` puts the cursor back:
+     text that survives while the caret jumps out of the sentence is a fix
+     somebody notices only slightly less. */
+  function dirty(el){ el.addEventListener('input', function(){ el.dataset.dirty='1'; }); }
+
+  function keepCaret(box, redraw){
+    /* Nothing in here may cost the redraw. Putting a cursor back is a
+       courtesy; the rebuild is the feature, so a missing container or a
+       browser that will not take a selection range loses the caret and never
+       the page -- the rule hub-thinking.js works to. */
+    if(!box){ redraw(); return; }
+    var a=document.activeElement, mark=null;
+    if(a && box.contains(a) && ('selectionStart' in a)){
+      mark={tag:a.tagName, i:a.dataset.i, url:a.dataset.url, src:a.dataset.src,
+            cls:a.className, s:a.selectionStart, e:a.selectionEnd};
+    }
+    redraw();
+    if(!mark) return;
+    var sel=Array.prototype.slice.call(box.querySelectorAll(mark.tag)).filter(function(n){
+      return n.dataset.i===mark.i && n.dataset.url===mark.url
+          && n.dataset.src===mark.src && n.className===mark.cls;
+    })[0];
+    if(!sel) return;
+    try{ sel.focus(); sel.setSelectionRange(mark.s, mark.e); }catch(err){}
+  }
   function kv(k,v){return '<div class="seoc-kv"><b>'+k+'</b><span>'+v+'</span></div>';}
 
   // ---------------- load detail ----------------
@@ -955,8 +1025,27 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     catch(err){ console.error('[seo_client] '+label+' failed:', err); }
   }
   fetch('/api/seo/detail?name='+encodeURIComponent(CLIENT)+'&full=1').then(function(r){return r.json();}).then(function(d){
+    /* A failed build comes back as a body with `error` on it, and fetch()
+       resolves for 4xx and 5xx alike -- so the .catch() below never sees it.
+       Read straight past this and every card renders its own empty state:
+       "no site on file", no business info, no schema pages. That is a client
+       with months of work behind them drawn as a client with none, which is
+       the confident wrong answer this codebase treats as worse than an error. */
+    if(d&&d.error){
+      var em='<span class="seoc-bad">Could not load this client &mdash; '+esc(d.error)+'</span>';
+      ['accBody','siteBody','socialBody'].forEach(function(id){ if($(id)) $(id).innerHTML=em; });
+      return;
+    }
     detail=d; slug=d.slug||''; siteUrl=d.url||'';
     $('seocSub').textContent=(d.products||[]).join(' · ')+(d.billing?'  —  $'+Number(d.billing).toLocaleString()+'/mo':'');
+    /* Where the products and the billing above came from. The record read the
+       committed export while Client 360 read the same object live, so the two
+       screens could quote a client different products and nothing said why. */
+    var sn=$('seocSrc');
+    if(sn){
+      sn.textContent=d.products_note||'';
+      sn.className='seoc-muted'+(d.products_source==='export'?' seoc-stale':'');
+    }
     if(siteUrl){var b=$('btnSite');b.href=siteUrl;b.style.display='inline-block';}
 
     safe('accounts', function(){ renderAccounts(d); });
@@ -1227,7 +1316,16 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('ck_setup').checked=!!st.setup;
     $('ck_schema').checked=!!st.schema;
     $('ck_listings').checked=!!st.listings;
-    $('ck_blogs_dot').className='seoc-dot'+(st.blogs?' on':'');
+    /* Four answers, not two. The dot was red for a client who does not buy
+       blogs exactly as it was for one whose posts are overdue -- and this
+       page already knew the difference (blogsVisible / blogOffNote) and drew
+       the dot without it. The state is the server's, so this record and the
+       SEO client list cannot disagree about who is behind. */
+    var bs=String(st.blogs||'none');
+    $('ck_blogs_dot').className='seoc-dot '+bs;
+    $('ck_blogs_wrap').title='Blogs: '+(st.blogs_label||bs);
+    var lbl=$('ck_blogs_label');
+    if(lbl) lbl.textContent=st.blogs_label||bs;
   }
   ['ck_setup','ck_schema','ck_listings'].forEach(function(id){
     $(id).onchange=function(){
@@ -2200,7 +2298,49 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('altSelAll').checked=false;
     renderAltDetail();
   }
+  /* ---- alt harvest (lifted and driven in node by test_seo_page.py) ---- */
+  function altImage(url, src){
+    var p=altPages.find(function(x){return x.url===url;});
+    return p&&(p.images||[]).find(function(x){return x.src===src;});
+  }
+  /* One save path, used by the blur and by the harvest below. `new_alt` is set
+     from the typed value BEFORE the request goes out, so a redraw that lands
+     while it is in flight shows what was typed rather than the pre-edit value
+     — and the harvest then sees no difference and cannot fire a second write
+     for the same edit. The server's answer replaces it on the way back,
+     because it clamps the length and strips "image of". */
+  function altSave(t){
+    var im=altImage(t.dataset.url, t.dataset.src);
+    if(im) im.new_alt=t.value;
+    delete t.dataset.dirty;
+    return post('/api/seo/alt/update',
+                {client:CLIENT,url:t.dataset.url,src:t.dataset.src,alt:t.value})
+      .then(function(d){
+        if(d.error){ alert(d.error); return; }
+        var im2=altImage(t.dataset.url, t.dataset.src);
+        if(im2){ im2.new_alt=d.image.new_alt; im2.decorative=d.image.decorative; }
+        if(t.isConnected && t.dataset.dirty!=='1') t.value=d.image.new_alt||'';
+      });
+  }
+  /* Anything typed and not yet blurred lives only in the DOM, and the AI
+     write takes tens of seconds — long enough to type in another box while it
+     runs. Removing a focused field does not fire `change`, so without this the
+     text goes silently when the response lands. */
+  function altHarvest(){
+    var box=$('altDetail'); if(!box) return;
+    box.querySelectorAll('.altNew').forEach(function(t){
+      if(t.dataset.dirty!=='1') return;
+      var im=altImage(t.dataset.url, t.dataset.src);
+      if(!im || t.value===(im.new_alt||'')){ delete t.dataset.dirty; return; }
+      altSave(t);
+    });
+  }
+  /* ---- end alt harvest ---- */
   function renderAltDetail(){
+    altHarvest();
+    keepCaret($('altDetail'), function(){ drawAltDetail(); });
+  }
+  function drawAltDetail(){
     var open=altPages.filter(function(p){return altOpen[p.url];});
     if(!open.length){ $('altDetail').innerHTML=''; return; }
     $('altDetail').innerHTML=open.map(function(p){
@@ -2225,18 +2365,8 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         +'</div></div></div>';
     }).join('');
     $('altDetail').querySelectorAll('.altNew').forEach(function(t){
-      t.onchange=function(){
-        post('/api/seo/alt/update',{client:CLIENT,url:t.dataset.url,src:t.dataset.src,alt:t.value})
-          .then(function(d){
-            if(d.error){ alert(d.error); return; }
-            /* The server clamps length and strips "image of", so show what was
-               stored rather than what was typed. */
-            t.value=d.image.new_alt||'';
-            var p=altPages.find(function(x){return x.url===t.dataset.url;});
-            var im=p&&(p.images||[]).find(function(x){return x.src===t.dataset.src;});
-            if(im){ im.new_alt=d.image.new_alt; im.decorative=d.image.decorative; }
-          });
-      };
+      dirty(t);
+      t.onchange=function(){ altSave(t); };
     });
   }
   $('btnAltScan').onclick=function(){
@@ -2695,7 +2825,34 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     return {pending:pending,approved:ok,skipped:sk};
   }
 
-  function renderDraft(){
+  /* An open editor's question and answer live ONLY in the DOM until Save
+     answer is pressed for that row -- these inputs carry no change handler at
+     all -- and every one of Approve, Skip, Edit, Cancel and Another rebuilds
+     the whole list from `draft.items`. So half-writing an answer on row 3 and
+     pressing Approve on row 5 discarded row 3, immediately and in silence.
+     `skip` is the row whose edit is being deliberately thrown away, which is
+     the one case where not reading it back is the point: harvesting on Cancel
+     would keep the text the button exists to discard.
+     Empty is not an edit -- a cleared box keeps what was there, the rule
+     `savedit` already worked to, so clearing a question cannot delete it. */
+  /* ---- faq harvest (lifted and driven in node by test_seo_page.py) ---- */
+  function faqHarvest(skip){
+    var list=$('faqList'); if(!list) return;
+    list.querySelectorAll('input.qedit[data-i], textarea[data-i]').forEach(function(el){
+      if(el.dataset.dirty!=='1') return;
+      var i=Number(el.dataset.i);
+      if(i===skip) return;
+      var it=draft.items[i]; if(!it) return;
+      var v=el.value.trim(); if(!v) return;
+      if(el.tagName==='INPUT') it.question=v; else it.answer=v;
+    });
+  }
+  /* ---- end faq harvest ---- */
+  function renderDraft(skip){
+    faqHarvest(typeof skip==='number'?skip:-1);
+    keepCaret($('faqList'), function(){ drawDraft(); });
+  }
+  function drawDraft(){
     var c=faqCounts();
     $('faqProgress').textContent=draft.items.length
       ? c.approved+' approved · '+c.skipped+' skipped · '+c.pending+' left to review' : '';
@@ -2721,6 +2878,8 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('faqList').querySelectorAll('[data-act]').forEach(function(b){
       b.onclick=function(){ faqAction(b.dataset.act, Number(b.dataset.i), b); };
     });
+    $('faqList').querySelectorAll('input.qedit[data-i], textarea[data-i]')
+      .forEach(function(el){ dirty(el); });
     $('faqSavePrompt').style.display=(draft.items.length && !c.pending) ? 'block' : 'none';
     if(draft.items.length && !c.pending && !c.approved){
       $('faqSavePrompt').style.display='none';
@@ -2734,7 +2893,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     if(act==='approve'){ it.state='approved'; it.editing=false; renderDraft(); return; }
     if(act==='skip'){ it.state='skipped'; it.editing=false; renderDraft(); return; }
     if(act==='edit'){ it.editing=true; renderDraft(); return; }
-    if(act==='canceledit'){ it.editing=false; renderDraft(); return; }
+    if(act==='canceledit'){ it.editing=false; renderDraft(i); return; }
     if(act==='savedit'){
       var box=$('faqList').querySelector('.seoc-faqq:nth-of-type('+(i+1)+')');
       var qi=$('faqList').querySelector('input.qedit[data-i="'+i+'"]');
@@ -2756,8 +2915,13 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         if(!fresh){ faqBusy.done();
           $('faqMsg').textContent='No new question came back — try again.'; return; }
         faqBusy.done();
+        /* Read every other open editor back before this row is replaced, then
+           render with this row skipped: the reply arrives tens of seconds
+           after the press, and the row it replaces must not be re-harvested
+           out of markup that is about to be thrown away. */
+        faqHarvest(i);
         draft.items[i]={question:fresh.question,answer:fresh.answer,state:'pending',editing:false};
-        renderDraft();
+        renderDraft(i);
       }).catch(function(){ faqBusy.done();
         $('faqMsg').textContent='That did not come back — try again.'; });
     }
@@ -2835,7 +2999,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         +'<td style="text-align:center"><span class="seoc-pill">'+(r.count||0)+'</span></td>'
         +'<td style="text-align:right;white-space:nowrap">'
         +'<button class="seoc-icon fview" data-url="'+esc(r.url)+'" title="Display, edit and re-save the questions">&#128065;</button>'
-        +'<a class="seoc-icon" href="/seo/faq/'+esc(slug)+'/download.html?urls='+u+'" title="Download the accordion code block for the site">&#60;/&#62;</a>'
+        +'<a class="seoc-icon" data-demo="faq-export" href="/seo/faq/'+esc(slug)+'/download.html?urls='+u+'" title="Download the accordion code block for the site">&#60;/&#62;</a>'
         +'<a class="seoc-icon" href="/seo/faq/'+esc(slug)+'/download.doc?urls='+u+'" title="Download the customer review document">&#8681;</a>'
         +'<button class="seoc-icon danger fdel" data-url="'+esc(r.url)+'" title="Delete this FAQ page">&#128465;</button>'
         +'</td></tr>';
@@ -3292,6 +3456,12 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
      buttons in the cards above that call loadSchemaQ / buildLlms / imgAction
      were calling functions that did not exist. -->
 <script>
+/* Set from the server rather than left to the fallback below. Parsing the
+   client's name out of the browser tab worked for as long as the <title>
+   happened to be "<client> — …"; every fetch on this card is keyed on that
+   string, so an em dash in a business name quietly asked about a different
+   client. */
+window.CURRENT_SEO_CLIENT = window.CURRENT_SEO_CLIENT || {{ client|tojson }};
 function llmsClient(){ return (window.CURRENT_SEO_CLIENT || document.title.split(" — ")[0] || "").trim(); }
 function buildLlms(){
   var st=document.getElementById('llmsStatus'); st.textContent='Building from client record, last scan and brand data…';
@@ -3313,11 +3483,214 @@ function saveLlms(){
     body:JSON.stringify({client:llmsClient(),text:t})})
    .then(function(r){return r.json();}).then(function(d){
      if(d.error){ m.textContent=d.error; m.style.color='#b42318'; return; }
-     m.style.color='#147d52'; m.textContent='Saved ('+d.bytes+' bytes).';
-     var slug=llmsClient().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-     var a=document.getElementById('llmsPublic');
-     a.href='/llms/'+slug+'.txt'; a.style.display='inline-block';
+     m.style.color='#147d52';
+     m.textContent='Draft saved ('+d.bytes+' bytes). It is not live until you publish.';
+     loadLlmsHost();
    }).catch(function(){ m.textContent='Could not save.'; });
+}
+
+/* ---------------- hosting, the redirect and the check ----------------
+   The URL is never built here. An earlier version slugified the client name
+   in the browser, which is a second reading of a rule the server owns -- and
+   this particular string ends up inside a redirect rule on the client's own
+   website, so the two disagreeing takes the file off the air with this screen
+   still reporting a clean save. Everything below renders what the server
+   hands back. */
+var LLMS_HOST = null;
+
+function llmsPill(v){
+  var m={pass:['#e7f6ef','#11633f','Pass'], warn:['#fff4d7','#a06a00','Warn'],
+         fail:['#feeceb','#b42318','Fail'],
+         not_measured:['#eef1f4','#5b6b7b','Not measured']};
+  return m[v] || m.not_measured;
+}
+function esc(v){ return String(v==null?'':v)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;'); }
+
+function loadLlmsHost(){
+  fetch('/api/seo/llms-txt/status?client='+encodeURIComponent(llmsClient()),
+        {credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.error){ throw new Error(d.error); }
+                       LLMS_HOST=d; drawLlmsHost(); })
+    .catch(function(){
+      document.getElementById('llmsHostBody').textContent =
+        'Could not read the hosting status, which is not the same as nothing '+
+        'being published.';
+    });
+}
+
+function drawLlmsHost(){
+  var d=LLMS_HOST; if(!d) return;
+  var body=document.getElementById('llmsHostBody');
+  var pill=document.getElementById('llmsVerdict');
+  var chk=document.getElementById('llmsChecked');
+  var off=document.getElementById('llmsOffBtn');
+
+  /* "Not checked yet" and "checked and fine" must never render alike -- the
+     pill is only drawn once something has actually been asked. */
+  if(d.checked_at){
+    var p=llmsPill(d.verdict);
+    pill.style.display='inline-block';
+    pill.style.background=p[0]; pill.style.color=p[1];
+    pill.textContent=p[2];
+    chk.textContent='checked '+esc(d.checked_at);
+  } else {
+    pill.style.display='none';
+    chk.textContent = d.published ? 'never checked' : '';
+  }
+  off.style.display = d.published ? 'inline-block' : 'none';
+
+  var h='';
+  if(!d.published){
+    h += '<div style="padding:9px 12px;border-radius:8px;background:#eef1f4;'+
+         'color:#3d4b59">Nothing is live for this client. '+
+         (d.has_draft ? 'There is a saved draft — press <b>Publish live</b> '+
+                        'to put it on the air.'
+                      : 'Build and save a draft first.')+'</div>';
+  } else {
+    h += '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      row('Served at', d.public_url
+          ? '<a href="'+esc(d.public_url)+'" target="_blank"><code>'+
+            esc(d.public_url)+'</code></a>' : '<i>no address recorded</i>')+
+      row('Reached from', d.client_url
+          ? '<a href="'+esc(d.client_url)+'" target="_blank"><code>'+
+            esc(d.client_url)+'</code></a>'
+          : '<i>this client has no website on file, so there is nowhere to '+
+            'redirect from</i>')+
+      row('Published', esc(d.published_at||'—')+
+          (d.adopted_from_draft
+            ? ' <span class="muted">(adopted from the saved draft, which was '+
+              'already being served)</span>' : ''))+
+      '</table>';
+  }
+
+  var c=d.last_check;
+  if(c){
+    if(c.measured===false){
+      h += '<div style="margin-top:10px;padding:9px 12px;border-radius:8px;'+
+           'background:#eef1f4;color:#3d4b59"><b>Not measured.</b> '+
+           esc((c.notes||[]).join(' '))+' That is not the same as the file '+
+           'being wrong.</div>';
+    }
+    if((c.fails||[]).length){
+      h += list('What is broken', c.fails, '#feeceb', '#b42318');
+    }
+    if((c.warns||[]).length){
+      /* Amber, not red. A page of red is a page people scroll past, and a
+         302 that works today is a different job from a 404. */
+      h += list('What will cost reach', c.warns, '#fff4d7', '#7a4f00');
+    }
+    if((c.notes||[]).length){
+      h += list('Worth knowing', c.notes, '#f4f7fa', '#3d4b59');
+    }
+    if((c.hops||[]).length){
+      h += '<details style="margin-top:10px"><summary class="muted" '+
+           'style="cursor:pointer">The status chain '+
+           '('+esc(c.hop_count!=null?c.hop_count:'?')+' hop(s))</summary>'+
+           '<table style="width:100%;border-collapse:collapse;font-size:12px;'+
+           'margin-top:6px">';
+      c.hops.forEach(function(hp){
+        h += '<tr><td style="padding:3px 8px 3px 0;white-space:nowrap"><b>'+
+             esc(hp.status==null?(hp.error||'no answer'):hp.status)+
+             '</b></td><td style="padding:3px 0;word-break:break-all">'+
+             '<code>'+esc(hp.url)+'</code>'+
+             (hp.location?' <span class="muted">&rarr; '+esc(hp.location)+
+                          '</span>':'')+'</td></tr>';
+      });
+      h += '</table></details>';
+    }
+  }
+
+  if(d.runbook && d.runbook.length){
+    h += '<details style="margin-top:10px"><summary class="muted" '+
+         'style="cursor:pointer">How to point the client\'s domain at this'+
+         '</summary><ol style="margin:8px 0 0 18px;padding:0;line-height:1.7">';
+    d.runbook.forEach(function(step){ h += '<li>'+esc(step)+'</li>'; });
+    h += '</ol></details>';
+  }
+  if(d.caveat){
+    h += '<p class="muted" style="font-size:12px;margin:12px 0 0;'+
+         'line-height:1.6"><b>Worth saying out loud:</b> '+esc(d.caveat)+'</p>';
+  }
+  body.innerHTML=h;
+
+  function row(k,v){
+    return '<tr><td style="padding:3px 12px 3px 0;white-space:nowrap;'+
+           'color:#5b6b7b">'+esc(k)+'</td><td style="padding:3px 0;'+
+           'word-break:break-all">'+v+'</td></tr>';
+  }
+  function list(title, items, bg, fg){
+    var out='<div style="margin-top:10px;padding:9px 12px;border-radius:8px;'+
+            'background:'+bg+';color:'+fg+'"><b>'+esc(title)+'</b>'+
+            '<ul style="margin:6px 0 0 16px;padding:0;line-height:1.6">';
+    items.forEach(function(i){ out += '<li>'+esc(i)+'</li>'; });
+    return out+'</ul></div>';
+  }
+}
+
+function publishLive(){
+  var m=document.getElementById('llmsMsg');
+  m.style.color=''; m.textContent='Publishing…';
+  fetch('/api/seo/llms-txt/publish',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),
+                         text:document.getElementById('llmsTxt').value})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(d.error){ m.style.color='#b42318'; m.textContent=d.error; return; }
+     /* Two writes, reported apart: storing the file and recording the address
+        it is served at can succeed separately, and one tick over both is how
+        somebody learns not to trust the tick. */
+     m.style.color = d.slug_recorded ? '#147d52' : '#a06a00';
+     m.textContent = d.slug_recorded
+       ? 'Live ('+d.bytes+' bytes).'
+       : 'The file is stored, but its address could not be recorded'+
+         (d.slug_error?' ('+d.slug_error+')':'')+' — so it is not '+
+         'reachable yet. Try again.';
+     if(d.status){ LLMS_HOST=d.status; drawLlmsHost(); } else { loadLlmsHost(); }
+   }).catch(function(){ m.style.color='#b42318';
+                        m.textContent='Could not publish.'; });
+}
+
+function unpublishLlms(){
+  if(!confirm('Take this client\'s llms.txt off the air?\n\nAnything '+
+              'redirecting to it — including the rule on their own '+
+              'website — will start answering 404. The draft and the '+
+              'address are kept, so republishing re-uses the same URL.')) return;
+  var m=document.getElementById('llmsMsg');
+  m.style.color=''; m.textContent='Taking it off…';
+  fetch('/api/seo/llms-txt/publish',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient(),unpublish:true})})
+   .then(function(r){return r.json();}).then(function(d){
+     m.textContent=d.note||'Off the air.'; loadLlmsHost();
+   }).catch(function(){ m.style.color='#b42318';
+                        m.textContent='Could not take it off.'; });
+}
+
+function verifyLlms(){
+  var body=document.getElementById('llmsHostBody');
+  var t=(window.S1Think && window.S1Think.attach)
+        ? window.S1Think.attach(body,{kind:'scan',
+            stages:['Following the redirect from their domain…',
+                    'Reading robots.txt at both ends…',
+                    'Comparing what is served against what we published…']})
+        : null;
+  fetch('/api/seo/llms-txt/verify',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:llmsClient()})})
+   .then(function(r){return r.json();}).then(function(c){
+     if(t&&t.done) t.done();
+     if(!LLMS_HOST) LLMS_HOST={};
+     LLMS_HOST.last_check=c; LLMS_HOST.verdict=c.verdict;
+     LLMS_HOST.checked_at=c.checked_at;
+     drawLlmsHost();
+   }).catch(function(){
+     if(t&&t.done) t.done();
+     document.getElementById('llmsMsg').style.color='#b42318';
+     document.getElementById('llmsMsg').textContent='The check could not run.';
+   });
 }
 function publishLlms(){
   var m=document.getElementById('llmsMsg');
@@ -3332,6 +3705,8 @@ function publishLlms(){
      if(d.url){ var a=document.getElementById('llmsSuite'); a.href=d.url; a.style.display='inline-block'; }
    }).catch(function(){ m.style.color='#b42318'; m.textContent='Could not publish.'; });
 }
+
+document.addEventListener('DOMContentLoaded', loadLlmsHost);
 
 function copyLlms(){
   var t=document.getElementById('llmsTxt');

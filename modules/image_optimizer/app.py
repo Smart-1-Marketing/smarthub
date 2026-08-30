@@ -271,6 +271,17 @@ def process_image():
         filename = f"{stem}.{extension}"
         mime = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif"}[output_format]
 
+        # The row this module never wrote: _audit was imported, wrapped in a
+        # no-op fallback and called nowhere, so every image it has resized was
+        # work nobody could point to. Written here, after the bytes exist, so
+        # an upload that failed Pillow is not filed as delivered work -- and
+        # every value is a plain read rather than an expression, because
+        # audit.log swallows what it is given and cannot save a caller that
+        # raises while building its own arguments.
+        _audit("image_optimized", output_format=output_format,
+               width=size[0], height=size[1], optimized=optimize,
+               output_bytes=len(result), animated=animated)
+
         return send_file(
             io.BytesIO(result),
             mimetype=mime,
@@ -279,8 +290,23 @@ def process_image():
             max_age=0,
         )
 
-    except (ValueError, UnidentifiedImageError, OSError) as exc:
+    except ValueError as exc:
+        # Our own validation messages, written to be read: "Width must be a
+        # whole number", "The crop area extends beyond the image". These are
+        # the one kind of exception text that belongs on screen.
         return jsonify(error=str(exc) or "The image could not be processed."), 400
+    except (UnidentifiedImageError, OSError) as exc:
+        # Pillow's, and not fit to show anybody. UnidentifiedImageError
+        # stringifies as "cannot identify image file <_io.BytesIO object at
+        # 0x7f...>" -- a Python repr with a memory address in it, printed
+        # where "that file is not an image we can read" belongs, and reading
+        # to whoever uploaded it like the tool crashed rather than like their
+        # file was wrong. The rule modules/fan_radio.fail() states: no
+        # provider bodies and no tracebacks on a screen. The cause still goes
+        # to the log, where it is diagnosable.
+        app.logger.warning("Unreadable upload: %s", exc)
+        return jsonify(error="That file could not be read as an image. PNG, "
+                             "JPG and GIF are supported."), 400
     except Exception:
         app.logger.exception("Image processing failed")
         return jsonify(error="The image could not be processed. Try a smaller file or different format."), 500
@@ -288,7 +314,33 @@ def process_image():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Whether this tool can actually do its one job.
+
+    Pillow is a hard import at the top of this module, so if it were missing
+    the module would not load at all and wsgi.py would serve its fallback --
+    which makes an unconditional "ok" very nearly true here, unlike in
+    pdf_optimizer next door, where it was not. What it still cannot say is
+    which formats this build of Pillow can actually write: a Pillow compiled
+    without libjpeg accepts a JPEG request and fails at save() time, on the
+    press, with the file already uploaded. Cheap to ask, so it is asked.
+    """
+    formats = {}
+    for name in sorted(ALLOWED_FORMATS):
+        try:
+            buf = io.BytesIO()
+            Image.new("RGB", (2, 2), (0, 0, 0)).save(buf, name)
+            formats[name] = True
+        except Exception:                                    # noqa: BLE001
+            formats[name] = False
+    missing = sorted(n for n, ok in formats.items() if not ok)
+    return {
+        "status": "ok" if not missing else "degraded",
+        "ready": not missing,
+        "formats": formats,
+        "detail": "Image optimizer ready."
+        if not missing else
+        "This build of Pillow cannot write: " + ", ".join(missing) + ".",
+    }
 
 
 if __name__ == "__main__":

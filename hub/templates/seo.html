@@ -19,6 +19,8 @@
   white-space:nowrap;margin-top:4px}
 .seo-wm-btn:hover{background:#24406f}
 .seo-loading{padding:34px;text-align:center;color:#64748b}
+.seo-srcnote{padding:8px 14px;font-size:12px;color:#64748b;border-bottom:1px solid #eef2f7}
+.seo-srcnote.warn{background:#fef9c3;color:#854d0e;font-weight:600}
 table.seo-t{width:100%;border-collapse:collapse;font-size:13.5px}
 table.seo-t th{background:#f8fafc;text-align:left;padding:10px 14px;font-size:11.5px;text-transform:uppercase;
   letter-spacing:.6px;color:#64748b;border-bottom:1px solid #e2e8f0;white-space:nowrap}
@@ -32,6 +34,10 @@ table.seo-t tr:hover td{background:#f4f6fa}
 .seo-pill.ok{background:#dcfce7;color:#166534}
 .seo-pill.warn{background:#fef9c3;color:#854d0e}
 .seo-pill.bad{background:#fee2e2;color:#b91c1c}
+/* Not sold, so not a queue this client is in. Gray rather than red, the rule
+   sites_admin.status_class() arrived at: a status we have never been asked
+   for is not a bad status. */
+.seo-pill.off{background:#f1f5f9;color:#94a3b8}
 .seo-billing{font-weight:700;white-space:nowrap}
 /* The four status pills, stacked 2x2 so the column stays narrow. Each pill
    fills its half, so the four read as one block rather than a ragged line. */
@@ -52,22 +58,50 @@ table.seo-t tr:hover td{background:#f4f6fa}
 (function(){
   var wrap=document.getElementById('seoWrap');
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+  function $src(d){
+    if(d.products_source==='export'){
+      return '<div class="seo-srcnote warn">Committed export &mdash; nothing refreshes it, '
+           + 'so this may be out of date</div>';
+    }
+    if(d.products_source==='knack'){
+      var m=d.products_age_minutes;
+      return '<div class="seo-srcnote">Live from Knack'
+           + ((m===0||m) ? ' &middot; '+esc(String(m))+' min old' : '')+'</div>';
+    }
+    return '';                       /* not measured -- say nothing, not "live" */
+  }
   function statusDots(st){
     /* Two by two rather than one nowrap row. Four pills on one line held the
        Status column at 288px — wider than the client name beside it — and the
        space came out of every other column: "Riverside HVAC & Air Conditioning
        LLC" wrapped over four lines and "Website SEO - Premium" broke in two.
        Stacked, the column is 160px and the rows are a third shorter. */
-    var items=[['setup','Setup'],['schema','Schema'],['listings','Listings'],['blogs','Blogs']];
-    return '<div class="seo-status">'+items.map(function(it){
+    var items=[['setup','Setup'],['schema','Schema'],['listings','Listings']];
+    var h=items.map(function(it){
       var on=!!st[it[0]];
       return '<span class="seo-pill '+(on?'ok':'bad')+'" title="'+it[1]+': '+(on?'done':'not yet')+'">'+it[1]+'</span>';
-    }).join('')+'</div>';
+    }).join('');
+    /* Blogs is the one pill with more than two answers, and it is the server
+       that decides which -- the same client_status() the client record reads,
+       so the two screens cannot disagree. A client who does not buy blogs is
+       drawn muted rather than red: they were 16 of this deployment's 21 rows,
+       permanently red for a product they have never bought, in the column
+       that says what to act on. `off` is deliberately not `bad`. */
+    var BL={current:'ok', behind:'bad', none:'warn', not_sold:'off'};
+    var bs=String(st.blogs||'none');
+    h+='<span class="seo-pill '+(BL[bs]||'warn')+'" title="Blogs: '
+      +esc(st.blogs_label||bs)+'">Blogs</span>';
+    return '<div class="seo-status">'+h+'</div>';
   }
   fetch('/api/seo/clients').then(function(r){return r.json();}).then(function(d){
     if(d.error){wrap.innerHTML='<div class="seo-loading">'+esc(d.error)+'</div>';return;}
     var rows=d.clients||[];
-    if(!rows.length){wrap.innerHTML='<div class="seo-loading">No clients with a live SEO product.</div>';return;}
+    /* Say which source answered. This list decides who is on the SEO book at
+       all, and it read the committed export while Client 360 read the same
+       object live -- a stale export looks exactly like live data on screen,
+       which is the whole reason that went unnoticed. */
+    var note=$src(d);
+    if(!rows.length){wrap.innerHTML='<div class="seo-loading">No clients with a live SEO product.</div>'+note;return;}
     var totBill=0, totBlogs=0;
     rows.forEach(function(c){totBill+=Number(c.billing||0);if(c.blogs)totBlogs++;});
     document.getElementById('seoSummary').style.display='grid';
@@ -86,7 +120,7 @@ table.seo-t tr:hover td{background:#f4f6fa}
         +'</tr>';
     });
     h+='</tbody></table>';
-    wrap.innerHTML=h;
+    wrap.innerHTML=note+h;
     wrap.querySelectorAll('tr[data-name]').forEach(function(tr){
       tr.onclick=function(){location.href='/seo/client?name='+encodeURIComponent(tr.dataset.name);};
     });

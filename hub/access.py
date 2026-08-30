@@ -129,11 +129,6 @@ def is_utility(path: str) -> bool:
     return path_matches(path, UTILITY_PREFIXES)
 
 
-def may_view(path: str, is_admin: bool) -> bool:
-    """The whole access rule, in one expression that both call sites read."""
-    return bool(is_admin) or not is_utility(path)
-
-
 def wants_json(path: str, accept: str = "") -> bool:
     """Does this request want a JSON refusal rather than a page?
 

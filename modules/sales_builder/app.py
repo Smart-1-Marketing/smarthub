@@ -364,22 +364,49 @@ def compute_gaps(state):
 
 # Guardrails (subset of the IO builder's rules, checked server-side too)
 def compute_guardrails(state):
+    """What is wrong with this plan, in the words the wizard already uses.
+
+    The minimum is the **card's own, per product**, through
+    `rate_card.minimum_for()`. This held every SEARCH ENGINE MARKETING line to
+    a flat $1,500, and the card sells paid search from $400 — so it warned
+    about perfectly valid $500 and $1,000 search buys, quoting a figure that
+    is not that product's minimum, while saying nothing at all about a $500
+    Connected TV line whose real floor is $1,500 and which the IO refuses.
+    Wrong in both directions, each screen internally consistent.
+
+    `guardrailsJs()` in the wizard was fixed for exactly this and its comment
+    says "paid search is now $400 in one place and every document reads it
+    there" — which was true of the screen a rep edits on and false of this,
+    the reading that rides on the quote payload into the proposals list, the
+    dashboard nudges and `ioDataPayload()`'s `guardrailWarnings`. So the
+    insertion order carried the stale answer while the wizard showed the
+    right one. The two halves produce identical strings now, and
+    test_campaign_cost.py runs them against each other.
+    """
     warns = []
     s = state or {}
     items = s.get("items") or []
     budget = float(s.get("budget") or 0)
     months = int(s.get("months") or 1)
     for it in items:
-        cat = (it.get("category") or "").upper()
         dollars = float(it.get("dollars") or 0)
-        if "SEARCH ENGINE MARKETING" in cat and 0 < dollars < 1500:
-            warns.append(f"Search budget ${dollars:,.0f}/mo is below the $1,500 monthly minimum.")
+        # A one-time build is not a monthly buy and has no monthly floor to be
+        # under -- judging it against one blocks a website-only proposal.
+        if (it.get("basis") or "monthly") == "one_time":
+            continue
+        minimum = hub_rate_card.minimum_for(it.get("product") or "",
+                                            it.get("category") or "")
+        if 0 < dollars < minimum:
+            name = it.get("product") or it.get("category") or "That product"
+            warns.append(f"{name} at {_money(dollars)}/mo is below its "
+                         f"{_money(minimum)} monthly minimum — the IO will "
+                         f"not accept it.")
     if budget > 0 and len(items) > 4 and budget / max(len(items), 1) < 750:
         warns.append("Budget is split across many products — consider fewer products for impact.")
     if months < 3:
         warns.append("Campaign term under 3 months — most Smart 1 programs need 3+ months to optimize.")
     if (s.get("creativeSource") or "").lower().startswith("smart 1") and not s.get("creativeFee"):
-        warns.append("Smart 1 is building creative but no creative fee is included.")
+        warns.append("Smart 1 is building creative but no creative fee is set.")
     return warns
 
 
@@ -2890,95 +2917,30 @@ def _creative_section_body(state):
 # =====================================================================
 # AI routes (optional — need OPENAI_API_KEY; same pattern as the IO app)
 # =====================================================================
-def _openai_error(resp):
-    """What the API actually said, rather than the status line.
-
-    ``raise_for_status()`` raises "400 Client Error: Bad Request for url:
-    https://api.openai.com/v1/responses", which names neither the model nor
-    the thing it refused -- so every button in this module reported a
-    different invented diagnosis of one shared failure, and none of them was
-    checkable. The body carries the sentence somebody can act on.
-    """
-    try:
-        detail = (resp.json().get("error") or {}).get("message") or ""
-    except (ValueError, AttributeError):
-        detail = ""
-    if not detail:
-        detail = (resp.text or "")[:400].strip()
-    return f"OpenAI returned HTTP {resp.status_code}" + (f": {detail}" if detail else ".")
+from hub import openai_responses as _responses
 
 
 def _openai_call(payload, api_key):
-    return requests.post("https://api.openai.com/v1/responses",
-                         headers={"Authorization": f"Bearer {api_key}",
-                                  "Content-Type": "application/json"},
-                         json=payload, timeout=120)
+    """The transport, kept as this module's own name so a test can stand in
+    front of it. The reading itself is `hub/openai_responses.py` — the IO
+    Builder carried a second copy of it, and the copy was the bug: the hosted
+    web-search tool rode on every call there too, and the fix that landed here
+    never reached it."""
+    return _responses.post(payload, api_key)
 
 
 def _openai_response(prompt, max_output_tokens=6000, search=False):
     """One call to the Responses API, with three ways of failing named.
 
-    ``search`` is opt-in. The hosted web-search tool used to ride on **every**
-    call in this module, including the rewrites and the JSON drafts that have
-    nothing to look up -- and whether a hosted tool is available depends on
-    the model, which is ``OPENAI_MODEL`` and is set to a 4o-class model on
-    this deployment rather than the ``gpt-5-mini`` default written here. A
-    model that refuses the tool refuses the whole request, so the tool that
-    was meant to help the ZIP lookup was what stopped it, and stopped the
-    other seven buttons with it. Where a caller genuinely wants live search
-    we ask for it and **fall back without it** rather than losing the answer:
-    a list assembled without a live lookup is worth having and is labelled;
-    no list at all is a button that does nothing.
-
-    An **incomplete** response is named too. Reasoning and tool tokens count
-    against ``max_output_tokens``, so a truncated answer arrives with an empty
-    text body -- which every caller here read as its own kind of nothing
-    ("the AI returned no description", "No ZIP Codes were returned") and none
-    of them as the one thing it was.
+    ``search`` is opt-in, a refusal of the hosted tool falls back without it,
+    a refusal carries the API's own sentence and an answer cut short is said
+    to be that. All four rules, and why each exists, are in
+    `hub/openai_responses.py`.
     """
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("OpenAI is not configured. Add OPENAI_API_KEY.")
-    payload = {"model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "input": prompt,
-               "max_output_tokens": max_output_tokens}
-    if search:
-        payload["tools"] = [{"type": "web_search"}]
+    return _responses.ask(prompt, module="sales_builder", purpose="quote",
+                          max_output_tokens=max_output_tokens, search=search,
+                          call=_openai_call)
 
-    r = _openai_call(payload, api_key)
-    if r.status_code == 400 and search:
-        # The model would not take the tool. The question is still answerable.
-        # Only on a 400: that is "this request is not something I can accept",
-        # which is the tool refusal. A 401 is a key, a 429 is a rate limit and
-        # a 5xx is theirs -- asking the identical question again costs a second
-        # call and cannot change any of those answers.
-        payload.pop("tools", None)
-        r = _openai_call(payload, api_key)
-    if r.status_code >= 400:
-        raise RuntimeError(_openai_error(r))
-
-    try:
-        data = r.json()
-    except ValueError:
-        raise RuntimeError(
-            "OpenAI returned a response that could not be read as JSON.") from None
-    try:  # record spend so /diagnostics doesn't under-report
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("sales_builder", data, purpose="quote")
-    except Exception:  # noqa: BLE001
-        pass
-
-    parts = []
-    for item in data.get("output") or []:
-        for content in item.get("content") or []:
-            if content.get("type") in ("output_text", "text") and content.get("text"):
-                parts.append(content["text"])
-    text = "\n".join(parts).strip()
-    if not text and data.get("status") == "incomplete":
-        why = ((data.get("incomplete_details") or {}).get("reason") or "").replace("_", " ")
-        raise RuntimeError("The model stopped before it answered"
-                           + (f" ({why})" if why else "")
-                           + ". Nothing was returned to show.")
-    return text
 
 
 def _json_from_ai(text):
@@ -3284,21 +3246,11 @@ def api_business_description():
 
 
 def _headings_line(observed):
-    """The page's headings as one line, each with the level it was set at.
-
-    ``landing_page.observe`` returns ``{"level": "h1", "text": ...}`` rows, and
-    the level is half the fact: one h1 and nine h2s is a different page from
-    nine h1s, and "is the headline clear" cannot be judged without knowing
-    which of them is the headline.
-    """
-    out = []
-    for h in (observed or {}).get("headings") or []:
-        text = str(h.get("text") or "").strip() if isinstance(h, dict) else str(h).strip()
-        if not text:
-            continue
-        level = str(h.get("level") or "").strip() if isinstance(h, dict) else ""
-        out.append(f"{level}: {text}" if level else text)
-    return " | ".join(out)
+    """Read from `modules/ads_builder/landing_page.py`, which is where the
+    shape it describes comes from. The IO Builder's landing review needs the
+    same line, and a second copy of it drifts the day either end changes."""
+    from modules.ads_builder.landing_page import headings_line
+    return headings_line(observed)
 
 
 @app.post("/api/review-landing-page")

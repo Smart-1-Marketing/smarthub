@@ -258,9 +258,15 @@ check("the note counts it", "settled as never expected" in io_reconcile.note(aft
 check("and a book with nothing outstanding but something settled does not "
       "claim every order has a campaign — a settle mark is the opposite of "
       "one",
-      "either" in io_reconcile.note({"measured": True, "checked": 1,
-                                     "outstanding": [],
-                                     "settled": [{"order": "1"}]}))
+      io_reconcile.note({"measured": True, "checked": 1, "outstanding": [],
+                         "settled": [{"order": "1"}]}
+                        ).startswith("Nothing outstanding"))
+check("nor does a book whose only orders are still inside the grace period",
+      io_reconcile.note({"measured": True, "checked": 1, "outstanding": [],
+                         "waiting": 1}).startswith("Nothing outstanding"))
+check("but a book where every order really did land says so plainly",
+      "has a campaign in Knack" in
+      io_reconcile.note({"measured": True, "checked": 4, "outstanding": []}))
 
 check("putting it back works", io_reconcile.unsettle("10403") is True
       and "10403" in orders_in(io_reconcile.report()))
@@ -338,6 +344,37 @@ check("it records who pressed it", "current_user()" in route)
 check("and it drops the day's stored copy of the report, or the row is still "
       "there on the next open and the button reads as having done nothing",
       'qa.forget("io-not-in-knack")' in route)
+
+# ---------------------------------------------------------------------------
+section("An order whose products run their own dates still has a flight start")
+# ---------------------------------------------------------------------------
+# `_summary()` stores the *shared* campaign start, and the wizard clears it the
+# moment one product is given its own term ("Because at least one product runs
+# its own dates, I'll ask for dates product by product"). So `start` is "" on
+# every multi-product IO, `started` could never be true for one, and the
+# report's own headline urgency -- "it should be running now and nothing is
+# trafficked" -- was silently blind to a whole class of orders.
+from hub import io_records                                        # noqa: E402
+
+for _label, _rec, _want in [
+    ("a shared campaign start is used as it stands",
+     {"start": "2026-07-01", "lines": [{"start": "2026-08-01"}]}, "2026-07-01"),
+    ("per-product dates fall back to the earliest line",
+     {"start": "", "lines": [{"start": "2026-09-01"}, {"start": "2026-07-15"}]},
+     "2026-07-15"),
+    ("lines carrying no dates invent nothing",
+     {"start": "", "lines": [{"start": ""}, {}]}, ""),
+    ("nor does an order with no lines at all", {"start": ""}, ""),
+]:
+    _got = io_records.flight_start(_rec)
+    check(_label, _got == _want, f"got {_got!r}, wanted {_want!r}")
+
+# The report has to read it, not the bare field.
+with open(os.path.join(ROOT, "hub", "io_reconcile.py")) as _fh:
+    _src = _fh.read()
+check("the report asks for the flight start rather than the stored field",
+      "io_records.flight_start(rec)" in _src, "io_reconcile.py")
+
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)

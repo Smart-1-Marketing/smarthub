@@ -78,16 +78,27 @@ function answer(response){
   // unanswered.
   if (busy || at >= queue.length) { return; }
   busy = true;
+  // The guard above is right and, on its own, silent: a second tap was met by
+  // a function that returned, so the card sat there and the button read as
+  // broken. The tap that counted is marked, and the other choice is held
+  // until the answer lands — guarded on window.S1Wait, so a page that failed
+  // to run the inline block costs the mark and never the swipe.
+  var pressed = el(response === "liked" ? "like" : "pass");
+  var other = el(response === "liked" ? "pass" : "like");
+  var w = window.S1Wait ? S1Wait.busy(pressed, {kind:"wait", label:"Saving…"})
+                        : {done:function(){}};
+  if (other) { other.disabled = true; }
+  function released(){ w.done(); if (other) { other.disabled = false; } busy = false; }
   var idea = queue[at];
   fetch("ideas/" + encodeURIComponent(idea.id) + "/respond",
         {method:"POST", headers:{"Content-Type":"application/json"},
          body:JSON.stringify({response:response})})
     .then(function(r){ return r.json(); })
-    .then(function(){ busy = false; at += 1; draw(); })
+    .then(function(){ released(); at += 1; draw(); })
     .catch(function(){
       // The answer did not land. Staying on the card is the honest outcome —
       // advancing would lose the swipe and say nothing about it.
-      busy = false;
+      released();
       el("count").textContent = "That didn't save — tap again.";
     });
 }

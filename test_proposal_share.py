@@ -158,6 +158,11 @@ check("the Hub's own chrome is not injected into a document a client reads",
       "hub-sidebar" not in body and "s1hub" not in body,
       [ln for ln in body.splitlines() if "s1hub" in ln][:2])
 check("and it asks search engines not to index it", "noindex" in body)
+# Being chrome-free also left hub-thinking.js off the page, so Accept grayed
+# out and said one word with no mark beside it. hub/thinking.py inlines the
+# mark; test_thinking.py holds it in step with the Hub's own.
+check("the mark that says something is running is inlined instead",
+      ".s1w-mark{" in body and "window.S1Wait = {" in body)
 
 pdf = visitor.get(f"/sales/builder/p/{token}.pdf")
 check("the document itself is served to the client",

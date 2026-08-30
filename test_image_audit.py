@@ -470,6 +470,97 @@ check("and the page offers the bulk bar and the account listing",
       True)
 
 
+# ---------------------------------------------------------------------------
+section("An attached orphan is filed the way its own tool files")
+# ---------------------------------------------------------------------------
+# `file_orphan()` ran two vocabularies through one door: it handed the
+# RECONCILE_KINDS *folder key* through as the provider, and looked the kind up
+# in `_KIND_FOR`, which is keyed on STORES names. Only `seo_images` is in both,
+# so eight of the nine fell through to "upload" -- which filing.SOURCE_LABELS
+# calls "Client upload". Attaching an orphaned commercial put it in the
+# client's gallery labelled as a file the client sent us, under a bare
+# `commercials` chip the gallery has no heading for, in the tier that claims
+# nothing. A sweep, not a list of the eight: the gallery must be able to name
+# whatever any folder key files under.
+from hub.image_audit import RECONCILE_KINDS, _FOLDER_FILING       # noqa: E402
+from modules.image_picker.filing import (                         # noqa: E402
+    SOURCE_LABELS, THEIRS, WE_MADE)
+
+_unnamed, _as_client_upload = [], []
+for _key, _label in RECONCILE_KINDS:
+    _kind, _provider = _FOLDER_FILING.get(_key, ("upload", "cloudinary"))
+    if _provider not in SOURCE_LABELS:
+        _unnamed.append(_key)
+    if SOURCE_LABELS.get(_provider) == "Client upload":
+        _as_client_upload.append(_key)
+
+check("every reconcilable folder files under a heading the gallery has",
+      _unnamed, [])
+check("and nothing we made is filed as a file the client sent",
+      _as_client_upload, [])
+check("a commercial is filed as commercial stills",
+      SOURCE_LABELS.get(_FOLDER_FILING["commercials"][1]), "Commercial stills")
+check("and a photo sent with a social request is theirs, not stock",
+      _FOLDER_FILING["social_requests"][1] in THEIRS, True)
+
+# The live producer writes this provider and the table never named it, so a
+# photograph a location manager sent in arrived as a bare key under no heading.
+check("the provider modules/social_planner actually files under is named",
+      SOURCE_LABELS.get("social_request"), "Sent with a social request")
+
+# ---------------------------------------------------------------------------
+# ...and the direction that assertion cannot cover.
+#
+# Every check above runs from the TABLE outwards: what PRODUCERS declares must
+# have a heading. That catches a label somebody forgot to write. It cannot
+# catch a value somebody forgot to declare -- and those are different
+# failures, of which only the second is silent, because the file is filed and
+# every count on every screen stays correct while the gallery draws it under a
+# bare key.
+#
+# It has happened twice. `social_request` was found by somebody opening a
+# client's gallery, and is recorded above as one assertion about one string;
+# `animated_ad` arrived the same way one release later. A list of the two we
+# fixed proves nothing about the third, so this asks every producer module.
+check("nothing files under a provider this table never declared",
+      image_audit.undeclared_providers(), [])
+
+# The Display Ad Builder is the one that found it: it files stills and, since
+# animations are delivered one approved file at a time, animated versions too.
+check("the animated provider is declared on the tool that writes it",
+      "animated_ad" in dict((p["key"], p["provider"])
+                            for p in image_audit.PRODUCERS)["display_ads"], True)
+check("and the gallery can name it", SOURCE_LABELS.get("animated_ad"),
+      "Animated display ads")
+
+# A value decided at runtime is NAMED as unknowable rather than guessed at --
+# the rule tools/linkcheck.py applies to a URL built by concatenation. What is
+# knowable is a literal, and a module-level constant holding one, which is how
+# hub/ad_builder_link.py actually writes it.
+_written = image_audit.written_providers("hub/ad_builder_link.py")
+check("a module constant used as provider= is resolved",
+      "animated_ad" in _written, True)
+check("and so is a literal", "display_ad" in _written, True)
+
+# ...and the check bites. Take the declaration away and the finding comes
+# back, naming the tool and the value -- a check that reads green either way
+# is one nobody can trust.
+_row = next(p for p in image_audit.PRODUCERS if p["key"] == "display_ads")
+_keep = _row["provider"]
+_row["provider"] = [v for v in _keep if v != "animated_ad"]
+try:
+    _found = image_audit.undeclared_providers()
+finally:
+    _row["provider"] = _keep
+check("undeclaring one brings the finding back",
+      [(f["producer"], f["provider"]) for f in _found],
+      [("display_ads", "animated_ad")])
+check("and it says what it costs",
+      "bare key" in (_found[0]["cost"] if _found else ""), True)
+check("with the declaration restored, it is green again",
+      image_audit.undeclared_providers(), [])
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

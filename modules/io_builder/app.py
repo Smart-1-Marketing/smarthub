@@ -1,5 +1,4 @@
 import time
-import tempfile
 import json
 import re
 import threading
@@ -260,42 +259,28 @@ def brandfetch_lookup():
 
 
 
-def _extract_response_text(result):
-    parts = []
-    for item in result.get("output") or []:
-        for content in item.get("content") or []:
-            if content.get("type") in ("output_text", "text") and content.get("text"):
-                parts.append(content["text"])
-    return "\n".join(parts).strip()
+def _openai_response(prompt, max_output_tokens=6000, search=False,
+                     purpose="io_builder"):
+    """One call to the Responses API, through the Hub's single reader.
 
-def _openai_response(prompt, max_output_tokens=6000):
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("OpenAI is not configured. Add OPENAI_API_KEY in Render.")
-    payload = {
-        "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-        "input": prompt,
-        "tools": [{"type": "web_search"}],
-        "max_output_tokens": max_output_tokens,
-    }
-    response = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=120,
-    )
-    response.raise_for_status()
-    # Record the spend so it shows in the Hub's cost tracking. Migrated on the
-    # way past, per the rule in CLAUDE.md — this module was already being
-    # edited, so it moves onto the shared plumbing rather than staying
-    # invisible.
-    try:
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("io_builder", response.json(),
-                           purpose="business_description")
-    except Exception:  # noqa: BLE001
-        pass
-    return _extract_response_text(response.json())
+    This module carried its own copy of that call, and the copy was the bug.
+    Every one of the four AI buttons here -- the ZIP-radius lookup, the
+    business description, the landing-page review and the media-mix
+    recommendation -- attached the hosted ``web_search`` tool to a request
+    that mostly had nothing to look up, and a model that refuses the tool
+    refuses the whole request. On this deployment's ``OPENAI_MODEL`` that is
+    every model call in the IO Builder failing, each with its own invented
+    diagnosis of one shared cause. The Proposal Builder was found doing the
+    identical thing and fixed; the fix landed in one of the two copies, which
+    is the drift `hub/storage.py` exists to stop.
+
+    ``purpose`` is what the spend is filed under. It was the string
+    "business_description" on every call in this module, so the usage page
+    could not tell a billed ZIP lookup from a billed landing-page review.
+    """
+    from hub import openai_responses as _responses
+    return _responses.ask(prompt, module="io_builder", purpose=purpose,
+                          max_output_tokens=max_output_tokens, search=search)
 
 @app.post('/api/generate-business-description')
 @_rate_limited(_AI_RATE_MAX, _AI_RATE_WINDOW)
@@ -318,7 +303,8 @@ def generate_business_description():
                               areas=areas, brandfetch=brand,
                               geo=str(data.get('geo') or '').strip())
     try:
-        description = _openai_response(prompt, max_output_tokens=5000)
+        description = _openai_response(prompt, max_output_tokens=5000,
+                                       purpose='business_description')
         if not description:
             return jsonify({'error': 'OpenAI returned no description'}), 502
         return jsonify({'description': description,
@@ -441,24 +427,17 @@ def _write_cloudinary_order_counter(number):
         "last_order_number": int(number),
         "updated_at": datetime.now(timezone.utc).isoformat()
     })
-    with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as handle:
-        handle.write(payload)
-        temp_path = handle.name
-    try:
-        # Through hub.storage. Same public_id, context and tags — this is the
-        # order-number counter, so where it lives must not change. The
-        # temporary file is no longer needed: put() takes bytes.
-        from hub import storage
-        storage.put("io_builder", f"{public_id}.json",
-                    payload.encode("utf-8"),
-                    public_id=public_id, overwrite=True,
-                    context={"last_order_number": str(int(number))},
-                    tags=["smart1_system", "smart1_order_counter"])
-    finally:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
+    # Through hub.storage. Same public_id, context and tags — this is the
+    # order-number counter, so where it lives must not change. put() takes
+    # bytes, so the temporary file this used to write on the way past (and
+    # then never read) is gone with it.
+    from hub import storage
+    storage.put("io_builder", f"{public_id}.json",
+                payload.encode("utf-8"),
+                public_id=public_id, overwrite=True,
+                context={"last_order_number": str(int(number))},
+                tags=["smart1_system", "smart1_order_counter"])
+
 
 def _temporary_counter_path():
     return Path(os.environ.get(
@@ -694,6 +673,15 @@ def api_client_upload_link():
 def next_order_number():
     try:
         order_number, storage, warning = _next_order_number()
+        # The sequence hands a number out at the start of the wizard, so an
+        # abandoned IO burns one and leaves a gap in the numbering that
+        # nobody can explain months later. Recording the allocation is the
+        # only thing that makes that answerable; it is a note, not an order.
+        try:
+            from hub import io_records
+            io_records.note_allocated(order_number)
+        except Exception:  # noqa: BLE001
+            pass           # allocation must never fail over its own note
         return jsonify({
             "ok": True,
             "order_number": order_number,
@@ -1092,70 +1080,107 @@ def handle_unexpected_error(exc):
 @app.post("/api/submit-io")
 def submit_io():
     """Send a completed IO record to Smart 1 Suite / GoHighLevel."""
-    # Record it against the client so the IO shows in "Work for this client".
-    try:
-        from hub import audit
-        _body = request.get_json(silent=True) or {}
-        # The browser posts the wizard's own state, whose key is
-        # `orderNumber`. Reading `order_number` alone wrote an empty order on
-        # every entry this route has ever logged -- while the
-        # `client_registered` entry written a few lines below, through
-        # `io_clients.register_from_io`, read the real key and got it right.
-        # Two readers of one payload, and the wrong one is the record a
-        # reconciliation depends on.
-        def _num(v):
-            try:
-                return float(v or 0)
-            except (TypeError, ValueError):
-                return 0.0
-        audit.log(
-            "io_builder", "io_submitted",
-            actor=str(_body.get("salesContact")
-                      or _body.get("sales_contact") or "") or None,
-            client=str(_body.get("client") or _body.get("client_name") or ""),
-            order=str(_body.get("orderNumber")
-                      or _body.get("order_number") or ""),
-            # What a chase list needs beside the number: who to ask, and
-            # whether the flight has already begun. An order whose start date
-            # has passed with no campaign in Knack is running in nobody's
-            # system, which is a different urgency from one starting next
-            # month -- and neither is knowable from the number alone.
-            partner=str(_body.get("partner") or "") or None,
-            start=str(_body.get("start") or "") or None,
-            monthly=round(sum(_num(i.get("budget"))
-                              for i in (_body.get("items") or [])
-                              if isinstance(i, dict)), 2) or None)
-    except Exception:  # noqa: BLE001
-        pass
-
-    # An IO for a business nobody has a record of leaves them invisible on
-    # Client 360 -- the page reads Knack products and website records, and a
-    # brand-new client has neither until the campaign is set up. So the order
-    # registers them, and ONLY when they are genuinely new: an IO for a client
-    # who already resolves writes nothing, because a second row under a name
-    # that already exists is how one company becomes two on every report keyed
-    # on a client. Hub-side overlay, never a write to Knack -- the day the real
-    # record appears it wins. See hub/io_clients.py.
-    try:
-        from hub import io_clients
-        _b = request.get_json(silent=True) or {}
-        io_clients.register_from_io(_b)
-    except Exception:  # noqa: BLE001
-        pass           # an IO must never fail to submit over its own bookkeeping
-
-    webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
-    if not webhook_url:
-        return jsonify({"ok": False, "error": "GHL_WEBHOOK_URL is not configured on the server."}), 500
-
+    # The request is validated before the deployment's configuration is: an
+    # order missing its documents is something the rep can fix, and telling
+    # them about an environment variable they cannot set is the wrong first
+    # answer. Both still return before anything is sent.
     data = request.get_json(silent=True) or {}
     client_pdf_url = str(data.get("client_pdf_url") or "").strip()
     internal_pdf_url = str(data.get("internal_pdf_url") or "").strip()
 
     if not client_pdf_url or not internal_pdf_url:
+        # Nothing was built and nothing went, so there is no order to record.
         return jsonify({
             "ok": False,
             "error": "Both the client PDF URL and internal PDF URL are required before the IO can be submitted."
         }), 400
+
+    def _keep(delivered=False, error="", status=None):
+        """Everything the Hub writes down about an order that went out.
+
+        One place, reached at every exit past this point, because these three
+        used to be written at the top of the route — *before* the request was
+        validated — so a submit refused for missing documents still wrote an
+        `io_submitted` entry and still registered the client. The activity log
+        then held orders that never left the building, and
+        `hub/io_reconcile.py` reads that log: it would have reported them as
+        campaigns nobody set up, which is a finding about a submit that never
+        happened.
+
+        Past this point the two documents exist and the client has an order,
+        whatever Smart 1 Suite goes on to do with it — and "delivered" and
+        "built, and Suite refused it" are different states that send somebody
+        to different places. Recording only the successes is how the orders
+        that need chasing become the ones nobody can see.
+
+        Nothing in here may raise: an IO must never fail to submit over its
+        own bookkeeping.
+        """
+        actor = str(data.get("salesContact") or data.get("sales_contact") or "")
+
+        def _num(v):
+            try:
+                return float(v or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        # The Hub's own record of the order. See hub/io_records.py.
+        try:
+            from hub import io_records
+            io_records.record(data, delivered=delivered, error=error,
+                              status=status, actor=actor)
+        except Exception:  # noqa: BLE001
+            pass
+
+        # The activity log, so the order shows in "Work for this client".
+        try:
+            from hub import audit
+            # The browser posts the wizard's own state, whose key is
+            # `orderNumber`. Reading `order_number` alone wrote an empty order
+            # on every entry this route had ever logged — while the
+            # `client_registered` entry beside it, through
+            # `io_clients.register_from_io`, read the real key and got it
+            # right. Two readers of one payload, and the wrong one is the
+            # record a reconciliation depends on.
+            audit.log(
+                "io_builder", "io_submitted", actor=actor or None,
+                client=str(data.get("client") or data.get("client_name") or ""),
+                order=str(data.get("orderNumber")
+                          or data.get("order_number") or ""),
+                # What a chase list needs beside the number: who to ask, and
+                # whether the flight has already begun. An order whose start
+                # date has passed with no campaign in Knack is running in
+                # nobody's system, which is a different urgency from one
+                # starting next month — and neither is knowable from the
+                # number alone.
+                partner=str(data.get("partner") or "") or None,
+                start=str(data.get("start") or "") or None,
+                delivered=delivered,
+                monthly=round(sum(_num(i.get("budget"))
+                                  for i in (data.get("items") or [])
+                                  if isinstance(i, dict)), 2) or None)
+        except Exception:  # noqa: BLE001
+            pass
+
+        # An IO for a business nobody has a record of leaves them invisible on
+        # Client 360 — the page reads Knack products and website records, and a
+        # brand-new client has neither until the campaign is set up. So the
+        # order registers them, and ONLY when they are genuinely new: an IO for
+        # a client who already resolves writes nothing, because a second row
+        # under a name that already exists is how one company becomes two on
+        # every report keyed on a client. Hub-side overlay, never a write to
+        # Knack — the day the real record appears it wins. See hub/io_clients.py.
+        try:
+            from hub import io_clients
+            io_clients.register_from_io(data)
+        except Exception:  # noqa: BLE001
+            pass
+
+    webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        _keep(error="GHL_WEBHOOK_URL is not configured on the server, so the "
+                    "order was never sent to Smart 1 Suite.")
+        return jsonify({"ok": False, "error": "GHL_WEBHOOK_URL is not configured on the server."}), 500
 
     # Compute opportunity-friendly summary fields so GoHighLevel can map an
     # Opportunity Name and Lead Value without digging into nested campaign_data.
@@ -1237,9 +1262,12 @@ def submit_io():
     try:
         response = requests.post(webhook_url, json=payload, timeout=30)
     except requests.RequestException as exc:
+        _keep(error=f"Smart 1 Suite could not be reached: {exc}")
         return jsonify({"ok": False, "error": f"Webhook request failed: {exc}"}), 502
 
     if response.status_code >= 400:
+        _keep(error="Smart 1 Suite refused the order: " + response.text[:200],
+              status=response.status_code)
         return jsonify({
             "ok": False,
             "error": "Smart 1 Suite webhook returned an error.",
@@ -1247,6 +1275,7 @@ def submit_io():
             "response": response.text[:1000]
         }), 502
 
+    _keep(delivered=True, status=response.status_code)
     return jsonify({
         "ok": True,
         "status_code": response.status_code,
@@ -1282,7 +1311,12 @@ def zipcodes_in_radius():
         'Be exhaustive and do not intentionally omit any matching ZIP Code. If the exact boundary cannot be verified, include plausible boundary-touching ZIP Codes rather than omitting them.'
     )
     try:
-        text = _openai_response(prompt, max_output_tokens=12000)
+        # The one call here that genuinely has something to look up, and
+        # the only one that asks for live search -- which it now falls
+        # back without rather than losing the list to a model that will
+        # not take the tool.
+        text = _openai_response(prompt, max_output_tokens=12000,
+                                search=True, purpose='zip_radius')
         zips = sorted(set(re.findall(r'\b\d{5}\b', text)))
         if not zips:
             return jsonify({'error': 'No ZIP Codes were returned'}), 502
@@ -1300,6 +1334,24 @@ def zipcodes_in_radius():
 @app.post('/api/review-landing-page')
 @_rate_limited(_AI_RATE_MAX, _AI_RATE_WINDOW)
 def review_landing_page():
+    """Conversion review of a campaign landing page, for the trafficking note.
+
+    **The page is fetched.** It used to be a URL handed to a model with the
+    word "Visit", which no model here can do -- so the answer was either a
+    confident review of a page nobody had looked at, or, once the model was
+    honest about it, the criteria it *would* have used followed by a sentence
+    about not being able to reach the site. The first is worse than broken:
+    this review is printed on the internal PDF under "Landing Page Review --
+    Internal Needs", which is what whoever traffics the campaign reads.
+
+    ``modules.ads_builder.landing_page`` already does this properly for Smart
+    1 Ads -- it requests the page and counts the conversion points off the
+    markup, each carrying the evidence found -- and the Proposal Builder reads
+    it for the same reason. It is read here rather than copied.
+
+    The observed half is fact and the model is asked only for judgment, and
+    the two are kept apart in the response so a screen can say which is which.
+    """
     data = request.get_json(force=True) or {}
     url = str(data.get('url') or '').strip()
     client = str(data.get('client') or '').strip()
@@ -1307,23 +1359,65 @@ def review_landing_page():
     objectives = data.get('objectives') or []
     if not url:
         return jsonify({'error': 'Landing-page URL is required'}), 400
+
+    try:
+        from modules.ads_builder import landing_page as _lp
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({'error': 'The page reader is unavailable',
+                        'detail': str(exc)}), 502
+
+    observed = _lp.observe(url)
+    if not observed.get('measured'):
+        # A page we could not fetch is reported as a page we could not fetch.
+        # Asking the model anyway is how a review of a 404 gets written onto
+        # a trafficking document.
+        return jsonify({'error': 'That page could not be read.',
+                        'detail': observed.get('error') or 'The site did not answer.',
+                        'url': url, 'product': product,
+                        'observed': observed}), 502
+
+    points = observed.get('conversion_points') or []
+    facts = "\n".join(f"- {p['label']}: {p['evidence']}" for p in points[:25]) \
+        or "- none found on the page"
     prompt = (
-        f'Review this campaign landing page: {url}\n'
-        f'Client: {client}\nProduct or use: {product}\nCampaign goals: {", ".join(map(str, objectives))}\n'
-        'Visit the page and evaluate it as a conversion-focused landing page. Determine whether it has a clear primary call to action above the fold and throughout the page. '
-        'Review message match, headline clarity, offer clarity, forms, phone calls, buttons, mobile usability, page speed signals, trust indicators, testimonials, privacy language, '
-        'tracking readiness, distractions, and whether the conversion action is easy to complete. '
-        'Return a concise internal trafficking note with these headings: CTA Status, Strengths, Required Fixes Before Launch, Recommended Improvements, Tracking Checks. '
-        'Be specific and practical. If the page cannot be accessed, say so clearly.'
+        'Review a campaign landing page as a conversion-focused page. Everything below was read '
+        'off the live page just now -- treat it as fact, do not contradict it, and do not describe '
+        'anything that is not in it.\n\n'
+        f"URL: {observed.get('url') or url}\n"
+        f'Client: {client}\nProduct or use: {product}\n'
+        f"Campaign goals: {', '.join(map(str, objectives))}\n"
+        f"Page title: {observed.get('title') or '(none)'}\n"
+        f"Meta description: {observed.get('meta_description') or '(none)'}\n"
+        'Declares a mobile viewport: '
+        f"{'yes' if observed.get('mobile_viewport') else 'no' if observed.get('mobile_viewport') is False else 'not measured'}\n"
+        f"Headings, in order: {_lp.headings_line(observed) or '(none)'}\n"
+        f'Conversion points found on the page:\n{facts}\n\n'
+        f"Page text:\n{observed.get('text') or '(no readable text)'}\n\n"
+        'Return a concise internal trafficking note with these headings: CTA Status, Strengths, '
+        'Required Fixes Before Launch, Recommended Improvements, Tracking Checks. Be specific and '
+        'practical, and quote what is actually on the page. Page speed and anything else not listed '
+        'above was not measured -- say so rather than estimating it.'
     )
     try:
-        review = _openai_response(prompt, max_output_tokens=5000)
-        return jsonify({'review': review, 'url': url, 'product': product})
+        review = _openai_response(prompt, max_output_tokens=5000,
+                                  purpose='landing_review')
     except Exception as exc:
-        detail = ''
-        if getattr(exc, 'response', None) is not None:
-            detail = (exc.response.text or '')[:500]
-        return jsonify({'error': 'Landing-page review failed', 'detail': detail or str(exc)}), 502
+        # The reading survives the model failing: what was found on the page
+        # is the checkable half and is worth showing on its own.
+        return jsonify({'error': 'The page was read, but the AI review failed',
+                        'detail': str(exc), 'url': url, 'product': product,
+                        'observed': observed,
+                        'summary': _lp.summary_line(observed)}), 502
+    if not review.strip():
+        # An empty review stored as a success is a heading with nothing under
+        # it on the internal PDF, which reads as a page nobody had anything to
+        # say about rather than as a review that never happened.
+        return jsonify({'error': 'The AI review came back empty',
+                        'url': url, 'product': product, 'observed': observed,
+                        'summary': _lp.summary_line(observed)}), 502
+    return jsonify({'review': review, 'url': observed.get('url') or url,
+                    'product': product, 'observed': observed,
+                    'summary': _lp.summary_line(observed)})
 
 
 
@@ -1342,7 +1436,8 @@ def media_mix_recommendation():
         + json.dumps(data, ensure_ascii=False)
     )
     try:
-        text = _openai_response(prompt, max_output_tokens=6000)
+        text = _openai_response(prompt, max_output_tokens=6000,
+                                purpose='media_mix')
         cleaned = text.strip()
         if cleaned.startswith("```"):
             cleaned = re.sub(r'^```(?:json)?\s*|\s*```$', '', cleaned, flags=re.I|re.S)

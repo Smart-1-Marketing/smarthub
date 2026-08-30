@@ -48,6 +48,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _TMP = tempfile.mkdtemp(prefix="hub-trends-")
 os.environ["HUB_DATA_DIR"] = _TMP
+# Assigned, never setdefault: a fresh HUB_DATA_DIR is not
+# isolation on its own. jsonstore keys its mirror *relative to
+# the data root* by design -- so a production blob restores
+# into a dev checkout -- which means an inherited DATABASE_URL
+# (CI's Postgres, or a developer's own) refills this run's
+# empty directory with the last run's rows. Owning both is
+# what makes "throwaway" true, and what makes the file safe to
+# run twice; test_blog_publish.py is the same pattern.
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ.setdefault("SECRET_KEY", "test-not-a-secret")
 

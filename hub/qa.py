@@ -83,8 +83,40 @@ def _client_groups() -> dict:
     return groups
 
 
+def _unmeasured(columns: list, note: str) -> dict:
+    """A report that could not read the products it is built from.
+
+    `measured: False` is what keeps it out of the day's cache and what
+    `qa_report.html` draws as "Not measured" rather than as a green tick --
+    the rule the whole page works to, applied to the source these reports
+    share. Without it, an export that could not be read rendered as "every
+    client has a dashboard, nobody has lapsed, nobody is missing Analytics,
+    nobody churned", stored until tomorrow.
+    """
+    return {"columns": columns, "rows": [], "row_styles": [],
+            "measured": False, "note": note}
+
+
 def _is_active(g: dict) -> bool:
     return bool(g["live"]) or g["thisM"]
+
+
+def client_groups() -> dict:
+    """The products on file, grouped by client. The public form of the above.
+
+    `hub/client_health.py` needs exactly what every report on this page needs
+    — the live lines, the partner, the rep, whether a dashboard is on file and
+    when the last flight ends — and a second copy of that grouping would be
+    the drift `hub/storage.py` exists to stop, one table along. Kept a thin
+    alias rather than a rename: every report here reads `_client_groups()` and
+    renaming it would touch a dozen call sites to make one import look tidy.
+    """
+    return _client_groups()
+
+
+def is_active(g: dict) -> bool:
+    """Whether a group is a client we are working for now. Public form."""
+    return _is_active(g)
 
 
 def _join(vals) -> str:
@@ -242,6 +274,10 @@ def _end_bucket(end) -> str:
 
 
 def active_clients() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Client", "Partner", "Live products", "Live monthly",
+         "Ends", "Dashboard"], _why)
     groups = _client_groups()
     buckets = {"Ending this month": [], "Ending next month": [], "Other": []}
     skipped_empty = 0
@@ -335,6 +371,10 @@ def active_clients() -> dict:
 
 
 def no_dashboards() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Partner", "Client", "Live products",
+         "Products", "Monthly"], _why)
     groups = _client_groups()
     by_partner: dict[str, list] = {}
     total = 0
@@ -394,6 +434,10 @@ def no_dashboards() -> dict:
 
 
 def stale_90() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Partner", "Client", "Salesperson", "Last product ended",
+         "Days since", "Last monthly"], _why)
     groups = _client_groups()
     today = _dt.date.today()
     by_partner: dict[str, list] = {}
@@ -449,14 +493,24 @@ def stale_90() -> dict:
                     "Days since", "Last monthly"],
         "rows": rows,
         "row_styles": styles,
-        "note": (f"{total} clients with no live product whose last IO ended 90+ "
-                 f"days ago (up to 24 months back) — {_money(grand)}/mo of lapsed "
+        # "up to 24 months back" was never true: the loop above stops at 180
+        # days, deliberately and with its reason written beside it. So the one
+        # sentence on the page said two years while the table held six months,
+        # and a rep working the win-back list believed the 168 clients between
+        # six months and two years had been checked and were not lapsed.
+        "note": (f"{total} clients with no live product whose last IO ended "
+                 f"between 90 and 180 days ago — {_money(grand)}/mo of lapsed "
                  "billing, grouped by partner with subtotals; clients without a "
-                 "partner listed at the end."),
+                 "partner listed at the end. Anything quiet for longer than six "
+                 "months is a former client rather than one to chase, and is "
+                 "deliberately left off."),
     }
 
 
 def lost_by_partner() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Partner", "Client", "Salesperson", "Billing last month"], _why)
     groups = _client_groups()
     rows = []
     for name, g in groups.items():
@@ -493,20 +547,29 @@ def _month_bounds(ym: str):
     return _dt.date(y, m, 1), _dt.date(y, m, calendar.monthrange(y, m)[1])
 
 
+from hub.knack_data import ran_in_month as _knack_ran_in_month
+
+
 def _active_in_month(r: dict, mstart, mend) -> bool:
-    """An IO counts for a month when its date range covers any of it and it
-    actually ran (Live or Complete — cancelled/pending never count)."""
-    status = str(r.get("status", "")).strip().lower()
-    if status not in ("live", "complete"):
-        return False
-    s, e = _parse_date(r.get("start")), _parse_date(r.get("end"))
-    if s and s > mend:
-        return False
-    if e and e < mstart:
-        return False
-    if not s and not e:          # undated: only trust currently-live rows
-        return status == "live"
-    return True
+    """Did this IO deliver during the month? `knack_data.ran_in_month()`.
+
+    It used to be `status in ("live", "complete")` plus a date overlap, written
+    here rather than beside `is_running()` — and it is the narrow test that
+    function's own docstring says "missed about a third of the work actually
+    running". So the two Scorecards counted Live and Complete while every other
+    report on this page counted the union: 147 rows and $140,439 a month hidden
+    from August, and two salespeople with live work — Debi Greenfield and Kim
+    Marshall — absent from the Scorecard entirely, each of whom appears on
+    Active Clients three rows up. Nothing said the two were measured
+    differently, which is what makes it the `/api/db/structure` versus
+    `/api/integrity` trap rather than a disagreement somebody could notice.
+
+    The rule is a neighbour of `is_running()` now rather than a second reading
+    of it, and the reasons the two must still differ — Complete is a pass here,
+    Live does not override the dates, a row with no dates is in no month — are
+    written there, once, where both can be read together.
+    """
+    return _knack_ran_in_month(r, mstart, mend)
 
 
 def _month_rollup(field: str, ym: str) -> dict:
@@ -537,6 +600,16 @@ def _scorecard(field: str, month: str = "") -> dict:
     """Salesperson / partner scorecard for any of the last 12 months.
     Rows with zero active clients are hidden; each row is colored by the
     person's revenue vs the previous month (green up / yellow flat / red down)."""
+    # `_month_rollup()` groups `knack_data.products()` directly rather than
+    # through `_client_groups()`, so it needs the same guard: an export that
+    # could not be read makes every salesperson and every partner disappear,
+    # which renders as a scorecard nobody is on rather than as a source that
+    # would not answer.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(
+            [("Salesperson" if field == "sales" else "Partner"),
+             "Active clients", "Active products", "Monthly revenue"], why)
     months = _last_12_months()
     ym = month if month in {m["ym"] for m in months} else months[0]["ym"]
     cur = _month_rollup(field, ym)
@@ -671,6 +744,10 @@ def sell_to_clients() -> dict:
 
 
 def no_analytics() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Client", "Partner", "Salesperson", "Website",
+         "Monthly", "Analytics account"], _why)
     groups = _client_groups()
     rows, styles = [], []
     for name in sorted(groups, key=str.lower):
@@ -730,6 +807,9 @@ def _gtm_from_scan(domain: str) -> str:
 
 
 def no_gtm() -> dict:
+    _why = knack_data.products_error()
+    if _why:
+        return _unmeasured(["Client", "Partner", "Live products", "Monthly", "GTM container"], _why)
     groups = _client_groups()
     priority, suggested = [], []
     found_on_site = 0
@@ -1171,6 +1251,14 @@ def ghl_billing_no_products() -> dict:
     between what GHL is charging and what Knack has on file."""
     columns = ["Client", "GHL sub-account", "Plan", "Monthly", "Billing status",
                "Matched in Knack"]
+
+    # The Knack side of the join. An unreadable export makes every
+    # sub-account look like one with no live product, which is this
+    # report's own finding -- so it would invent them rather than
+    # merely miss them.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(columns, why)
     try:
         rows_raw = _ghl_billing_rows()
     except RuntimeError as exc:
@@ -1215,6 +1303,14 @@ def ghl_billing_this_month() -> dict:
     simplified to client / plan / monthly price / status — no Stripe or
     customer IDs, biggest bill first."""
     columns = ["Client", "GHL sub-account", "Plan", "Monthly", "Billing status"]
+
+    # The Knack side of the join. An unreadable export makes every
+    # sub-account look like one with no live product, which is this
+    # report's own finding -- so it would invent them rather than
+    # merely miss them.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(columns, why)
     try:
         rows_raw = _ghl_billing_rows()
     except RuntimeError as exc:
@@ -1386,12 +1482,45 @@ def billing_comparison() -> dict:
     }
 
 
+def _resembling_clients(norm: str, by_norm: dict) -> list:
+    """Client names a normalised string merely resembles — never a match.
+
+    `hub/client_key.py` gives the rule at length: match on an exact normalised
+    name or on nothing, and offer a near match only when exactly one client
+    can possibly be meant. Here even one is offered rather than used, because
+    this report has no confirmation step to settle it with — the same answer
+    `sites_billing` and `domain_renewals` arrived at, where a resemblance is
+    printed and still counted as unmatched.
+    """
+    if not norm:
+        return []
+    return sorted({kn for other, (kn, _g) in by_norm.items()
+                   if other and (other in norm or norm in other)})
+
+
+def _join_names(names, cap: int = 3) -> str:
+    """Up to `cap` names, then how many more — a row is not a list."""
+    shown = list(names)[:cap]
+    rest = len(names) - len(shown)
+    out = ", ".join(f"“{n}”" for n in shown)
+    return out + (f" and {rest} more" if rest > 0 else "")
+
+
 def invoice_off() -> dict:
     qb, err = _qb_state()
     columns = ["Customer", "Invoiced this month", "Active products / mo",
                "Difference", "Live products", "Partner"]
     if err:
         return {"columns": columns, "rows": [], "note": err, "needs_qb": True}
+    # Half this report is the QuickBooks side and half is the Knack side, and
+    # only the second one finds an active client nobody is invoicing. With the
+    # export unreadable that half goes silent while the first still answers --
+    # a report that looks like it ran and is missing the findings it exists
+    # for. Checked after the QuickBooks gate, because "connect QuickBooks" is
+    # the more actionable of the two.
+    why = knack_data.products_error()
+    if why:
+        return _unmeasured(columns, why)
     assigned = invoice_assignments()
     data = qb.monthly_totals_by_customer(2)     # this + last month is plenty
     this_key = _month_keys(1)[0]
@@ -1403,19 +1532,45 @@ def invoice_off() -> dict:
         if n:
             knack_by_norm.setdefault(n, (name, g))
 
-    rows = []
+    rows, styles = [], []
     matched_norms = set()
+    resembled = 0
     for cust in sorted(data, key=str.lower):
         if cust in assigned:            # resolved to a partner — never show again
             continue
         rec = data[cust]
         invoiced = rec["months"].get(this_key, 0.0)
         n = _norm_name(cust)
+        cust_cell = ({"text": cust, "href": qb.customer_link(rec["id"])}
+                     if rec.get("id") else cust)
         hit = knack_by_norm.get(n)
-        if not hit:      # try containment both ways for near-matches
-            hit = next(((kn, kg) for norm, (kn, kg) in knack_by_norm.items()
-                        if norm and n and (norm in n or n in norm)), None)
         if not hit:
+            # Exact or nothing. This used to fall through to `next(... if norm
+            # in n or n in norm)` -- an unbounded substring, both directions,
+            # first out of a dict ordered by the export. That is the rule
+            # `hub/client_key.py` exists to refuse, and it is live: 32 of the
+            # 547 client names here contain or are contained by another, and
+            # "cirilla s" alone matches 18. So a QuickBooks customer named
+            # "Cirilla's" was compared against whichever of eighteen came
+            # first, and the variance printed with no sign a guess had been
+            # made.
+            near = _resembling_clients(n, knack_by_norm)
+            if near:
+                # Printed, and still counted as unmatched -- the rule
+                # `sites_billing` and `domain_renewals` both work to. The row
+                # is visible so somebody can settle it, and carries no
+                # difference, because there is no client we can stand behind
+                # to compute one against.
+                resembled += 1
+                rows.append((invoiced, [
+                    cust_cell,
+                    _money(invoiced),
+                    "—",
+                    "resembles " + _join_names(near) + " — not matched",
+                    "",
+                    {"assign": cust},
+                ]))
+                styles.append("sub")
             continue     # QB customer with no Smart 1 Team client — skip
         kname, g = hit
         matched_norms.add(_norm_name(kname))
@@ -1423,8 +1578,6 @@ def invoice_off() -> dict:
         diff = round(invoiced - expected, 2)
         if abs(diff) < 0.5:
             continue
-        cust_cell = ({"text": cust, "href": qb.customer_link(rec["id"])}
-                     if rec.get("id") else cust)
         rows.append((abs(diff), [
             cust_cell,
             _money(invoiced),
@@ -1433,6 +1586,7 @@ def invoice_off() -> dict:
             len(g["live"]),
             {"assign": cust},
         ]))
+        styles.append(None)
     # active Knack clients with NO invoice at all this month
     for name, g in groups.items():
         if not _is_active(g) or g["live_total"] < 0.5:
@@ -1442,25 +1596,52 @@ def invoice_off() -> dict:
         if _norm_name(name) in matched_norms:
             continue
         n = _norm_name(name)
-        in_qb = any(n and (_norm_name(c) == n or n in _norm_name(c) or _norm_name(c) in n)
-                    for c in data)
-        if in_qb:
+        # Exact, and this direction is the one that *hid* findings. It used to
+        # accept containment either way, so an active client with live billing
+        # and no invoice at all dropped off the report the moment any
+        # QuickBooks customer name merely contained theirs -- which for the
+        # eight "N2 Advertising - Cirilla's <city>" rows is a customer called
+        # "Cirilla's". Nine clients carrying $22,091/mo of live billing sit in
+        # that shape on this deployment's own book.
+        if any(n and _norm_name(c) == n for c in data):
             continue
+        # A resembling customer is named on the row rather than used to
+        # silence it: "no invoice found" and "no invoice under this exact
+        # name, but QuickBooks has one that looks like it" send somebody to
+        # two different places, and only the first is a billing gap.
+        near = sorted({c for c in data if n and _norm_name(c)
+                       and (n in _norm_name(c) or _norm_name(c) in n)})
+        note = ("no invoice found" if not near else
+                "no invoice under this name; QuickBooks has "
+                + _join_names(near))
         rows.append((g["live_total"], [
             _c360_link(name), _money(0), _money(g["live_total"]),
-            "▼ " + _money(g["live_total"]) + " (no invoice found)",
+            "▼ " + _money(g["live_total"]) + f" ({note})",
             len(g["live"]),
             {"assign": name},
         ]))
-    rows.sort(key=lambda t: -t[0])
+        styles.append(None if not near else "sub")
+    order = sorted(range(len(rows)), key=lambda i: -rows[i][0])
+    rows = [rows[i] for i in order]
+    styles = [styles[i] for i in order]
     return {
         "columns": columns,
         "rows": [r for _, r in rows],
+        "row_styles": styles,
         "partners": partner_list(),
+        "resembled": resembled,
         "note": (f"{len(rows)} customers whose QuickBooks invoices this month "
-                 "don't match their active-product monthly total (matched by "
-                 "business name; biggest gap first). ▼ = invoiced less than "
-                 "active products, ▲ = invoiced more. Use \"Add to partner\" to "
+                 "don't match their active-product monthly total, biggest gap "
+                 "first. ▼ = invoiced less than active products, ▲ = "
+                 "invoiced more. Names are matched exactly and never on a "
+                 "partial. "
+                 + (f"{resembled} QuickBooks customer(s) only resemble a "
+                    "client and are listed with no difference, because "
+                    "there is no client we can stand behind to compute one "
+                    "against. " if resembled else "")
+                 + "A client invoiced under a similar but different name "
+                 "is listed with that name on the row — a different thing "
+                 "to chase from no invoice at all. Use \"Add to partner\" to "
                  "mark a record as handled by a partner — it's remembered and "
                  "won't show here again (nothing changes anywhere else)."),
     }
@@ -1485,10 +1666,15 @@ def uploads_not_in_suite() -> dict:
       sync is off         someone turned it off deliberately
       failed              it tried and Suite refused; the error is shown
     """
+    # `measured: False` on both refusals, because neither is an answer. Left
+    # off, the page reads no rows and draws "Nothing to report — all clear ✓"
+    # over the note, so a gallery database that would not open reported every
+    # client's uploads as safely in Suite — and `hub/report_cache.py` would
+    # have kept that as the day's answer.
     try:
         from modules.image_picker.models import PickerClient, SavedImage, session
     except Exception as exc:                            # noqa: BLE001
-        return {"columns": ["Client"], "rows": [],
+        return {"columns": ["Client"], "rows": [], "measured": False,
                 "note": f"Client Image Uploads isn't available here ({type(exc).__name__})."}
 
     try:
@@ -1496,7 +1682,7 @@ def uploads_not_in_suite() -> dict:
         rows_ = db.query(SavedImage, PickerClient).join(
             PickerClient, SavedImage.client_id == PickerClient.id).all()
     except Exception as exc:                            # noqa: BLE001
-        return {"columns": ["Client"], "rows": [],
+        return {"columns": ["Client"], "rows": [], "measured": False,
                 "note": f"Couldn't read the uploads database ({type(exc).__name__})."}
 
     by_client: dict = {}
@@ -2065,6 +2251,24 @@ def io_reconcile_report() -> dict:
 # and "Match Sites to Clients" answered nothing typed into it -- which is the
 # same invisibility the tile rule exists to stop, one screen further on.
 EXTRAS = [
+        # Clients, first: these two are about the book rather than about a
+        # system, and the question "which of my clients needs an hour today"
+        # is the one somebody opens this page with more often than any audit
+        # on it. A report nobody thinks to look for is a report nobody works.
+        ("Clients", "my-clients", {
+            "title": "My Clients",
+            "desc": "Everything outstanding on the clients assigned to you \u2014 "
+                    "creative waiting, proposals unanswered, an insertion "
+                    "order running out, a dashboard nobody built \u2014 with "
+                    "the client carrying the most at the top. Ignore or "
+                    "complete anything from the row it is on.",
+            "ico": "&#128203;", "href": "/my-clients"}),
+        ("Clients", "client-owners", {
+            "title": "Assign Clients",
+            "desc": "Who owns which client. Assign one at a time, a whole "
+                    "selection at once, or everything a media partner "
+                    "carries \u2014 and see who is holding nothing.",
+            "ico": "&#128100;", "href": "/qa/client-owners"}),
         ("Data Quality", "stale-creative", {
             "title": "Stale Creative",
             "desc": "How long since we last produced creative for each "
