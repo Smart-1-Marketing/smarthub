@@ -263,21 +263,42 @@ def _norm(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
 
 
-def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
-    """The records a connection field may point at, as {id, label}.
+def connection_records(field_id: str, obj: str = TICKETS_OBJECT) -> dict:
+    """What a connection field may be set to, and whether that is all of it.
+
+    `{"choices": [{id, label}], "total": int|None, "truncated": bool,
+      "error": str}`
 
     A connection needs a Knack record id; writing the display name creates
     nothing and clears the link, which is why create_ticket has always
     skipped these fields entirely. Offering the real records is what lets a
     form write one at all.
 
-    Never raises: a picker that cannot be built becomes a text box asking for
-    an id, not a dead form.
+    Two things it reports rather than swallows, both of which turn a picker
+    into a confident wrong answer:
+
+    **A picker holding the first 500 of several thousand looks exactly like
+    a complete one.** Knack pages its records, so a connection pointing at
+    the insertion orders or the client book comes back alphabetically
+    truncated — and a rep who cannot find their IO in it concludes it does
+    not exist. `total` is Knack's own count and `truncated` says the list is
+    a fraction of it, so every screen and every refusal can say so instead of
+    quoting the fraction as the book.
+
+    **"We could not look" is not "there is nothing here."** An object with no
+    records and a request that failed both come back as an empty list, and
+    only the first means the field is genuinely unanswerable — the rule
+    `connected_accounts_result()` in Google Finder gives at length. `error`
+    is set for the second.
+
+    Never raises: a picker that cannot be built becomes a box asking for an
+    id, not a dead form.
     """
     key = f"conn:{obj}:{field_id}"
     if key in _schema_cache:
         return _schema_cache[key]
     out: list[dict] = []
+    total, error = None, ""
     try:
         f = object_meta(obj).get(field_id) or {}
         # The object this connection POINTS AT, which is not the object the
@@ -285,20 +306,44 @@ def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
         # confused now that the owning object is a parameter.
         target = (f.get("relationship") or {}).get("object") or ""
         ident = _object_identifier(target) if target else None
-        if target and ident:
+        if not target:
+            error = "this field publishes no connected object"
+        elif not ident:
+            error = f"{target} publishes no display field to list it by"
+        else:
             r = requests.get(f"{BASE}/objects/{target}/records", headers=_headers(),
                              params={"rows_per_page": CONNECTION_LIMIT,
                                      "sort_field": ident, "sort_order": "asc"},
                              timeout=20)
             r.raise_for_status()
-            for rec in (r.json() or {}).get("records", []):
+            body = r.json() or {}
+            try:
+                total = int(body.get("total_records"))
+            except (TypeError, ValueError):
+                total = None
+            for rec in body.get("records", []):
                 label = _plain(rec.get(f"{ident}_raw") or rec.get(ident))
                 if label and rec.get("id"):
                     out.append({"id": rec.get("id"), "label": label})
-    except Exception:            # noqa: BLE001 — see the docstring
-        out = []
-    _schema_cache[key] = out
-    return out
+    except Exception as exc:     # noqa: BLE001 — see the docstring
+        out, total, error = [], None, str(exc) or exc.__class__.__name__
+    state = {
+        "choices": out,
+        "total": total,
+        # Knack's own count where it gave one; a full page where it did not,
+        # because a page that came back exactly full is the shape of a list
+        # with more behind it and saying so is the safe way to be wrong.
+        "truncated": bool(total is not None and total > len(out))
+                     or (total is None and len(out) >= CONNECTION_LIMIT),
+        "error": error,
+    }
+    _schema_cache[key] = state
+    return state
+
+
+def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
+    """Just the records, for a caller that does not draw a picker."""
+    return connection_records(field_id, obj)["choices"]
 
 
 def _control_for(f: dict, obj: str = TICKETS_OBJECT) -> tuple[str, list]:
@@ -344,6 +389,32 @@ def control_for(f: dict, obj: str) -> tuple[str, list]:
     return _control_for(f, obj)
 
 
+def connection_note(f: dict, obj: str, control: str) -> str:
+    """The line a connection picker needs under it, or nothing.
+
+    A picker that silently holds the first 500 of several thousand is the
+    failure this codebase keeps having to undo: a complete-looking list that
+    is a fraction of the answer, with a rep concluding their record does not
+    exist. It is said on the field, and `KNACK_CONNECTION_LIMIT` — the thing
+    that fixes it — is named, because a warning nobody can act on is
+    furniture.
+    """
+    if control != "connection":
+        return ""
+    state = connection_records(f.get("key"), obj)
+    if state.get("error"):
+        return ("These records could not be read (" + state["error"] +
+                ") — that is not the same as this connection having none.")
+    if not state.get("truncated"):
+        return ""
+    total = state.get("total")
+    shown = len(state.get("choices") or [])
+    return (f"Showing {shown} of {total}" if total else
+            f"Showing the first {shown}") + (
+        " — this list is alphabetical and stops short, so a record past the "
+        "end is not on it. Raise KNACK_CONNECTION_LIMIT to reach the rest.")
+
+
 def ticket_form_fields(scope: str = "create") -> list[dict]:
     """What a ticket form should draw, read from the live object.
 
@@ -373,6 +444,9 @@ def ticket_form_fields(scope: str = "create") -> list[dict]:
             "label": field_label(f) or TICKET_LABELS.get(key, key),
             "control": control,
             "choices": choices,
+            # A picker that stops short of the record somebody wants says so
+            # rather than reading as the whole book.
+            "hint": connection_note(f, TICKETS_OBJECT, control),
             "required": bool(f.get("required")),
             # False means the pinned id is not on the object any more. The
             # form still draws the field, and says so, rather than dropping it.
@@ -412,8 +486,20 @@ def coerce_field(field_id: str, value, *, obj: str = TICKETS_OBJECT,
             if len(hit) == 1:
                 ids.append(hit[0]["id"])
             elif choices:
+                # The count is what we were able to LIST, which is not the
+                # same as what the connection holds. Quoting it as the book
+                # tells somebody their record does not exist when the picker
+                # simply stopped short of it — so a truncated list says so.
+                state = connection_records(field_id, obj)
+                seen = len(choices)
+                of = (f"of the {seen} we can list; this connection holds "
+                      f"{state['total']} — raise KNACK_CONNECTION_LIMIT to "
+                      "reach the rest" if state.get("truncated") and state.get("total")
+                      else ("of the first " + str(seen) + " we can list; "
+                            "there are more — raise KNACK_CONNECTION_LIMIT"
+                            if state.get("truncated") else f"of {seen}"))
                 return None, (f"{label}: \u201c{v}\u201d matches no record on "
-                              f"this connection (of {len(choices)})")
+                              f"this connection ({of})")
             else:
                 return None, f"{label}: needs a Knack record id, not a name"
         return (ids if len(ids) > 1 else ids[0]), ""
@@ -809,7 +895,7 @@ def campaign_form_fields(kind: str) -> list[dict]:
             # matched — a box whose value would be dropped is worse than a
             # line saying why there is no box.
             "writable": writable,
-            "hint": ("" if writable else
+            "hint": (connection_note(f, obj, control) if writable else
                      ("Attached in Knack after the request is created — files "
                       "cannot be sent with it." if control == "file" else
                       f"No matching field on {obj} — this would be skipped.")),
