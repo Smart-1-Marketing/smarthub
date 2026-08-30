@@ -39,10 +39,19 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 _TMP = tempfile.mkdtemp(prefix="s1-iorecords-")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(_TMP, "t.db"))
+# Assigned, never setdefault: a fresh HUB_DATA_DIR is not isolation on its
+# own. jsonstore keys its mirror *relative to the data root* -- deliberately,
+# so a production blob restores into a dev checkout -- which means an
+# inherited DATABASE_URL (CI's Postgres, or the one this repo's SessionStart
+# hook exports) refills this run's empty directory with the last run's rows.
+# This file wrote a second insertion order under a number the previous run had
+# already used, so it passed once per container and failed on every run after,
+# which reads as a defect in the code it is testing. Owning both is what makes
+# "throwaway" true; test_dashboard_trends.py carries the same note.
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
+os.environ["HUB_DATA_DIR"] = _TMP
 os.environ.setdefault("SECRET_KEY", "iorecords-test")
 os.environ.setdefault("PANEL_PASSWORD", "test")
-os.environ.setdefault("HUB_DATA_DIR", _TMP)
 os.environ["AUDIT_LOG_PATH"] = os.path.join(_TMP, "audit.jsonl")
 os.environ.pop("GHL_WEBHOOK_URL", None)
 

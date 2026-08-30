@@ -383,24 +383,40 @@ for _f in sorted(_ROOT.glob("test_*.py")):
         _w = _env_writes(_ast.parse(_f.read_text(errors="ignore")))
     except SyntaxError:
         continue
-    if _w.get("HUB_DATA_DIR") != "assign":
+    # "Owns its directory" is either spelling. The filter was `== "assign"`,
+    # and twelve files setdefault it -- so the sweep skipped them entirely
+    # rather than clearing them, and both of the files that actually broke
+    # were in that group. A setdefault on HUB_DATA_DIR owns the directory
+    # whenever the variable is unset, which is the ordinary case and the one
+    # the mirror trap needs.
+    if _w.get("HUB_DATA_DIR") not in ("assign", "setdefault"):
         continue
     _checked += 1
     if _w.get("DATABASE_URL") != "assign":
         _offenders.append(f"{_f.name} (DATABASE_URL is "
                           f"{_w.get('DATABASE_URL') or 'never set'})")
 
-# What is enforced here is the pair that demonstrably breaks, not every file
-# matching the shape. Thirteen other files also own their directory and
-# inherit the database, and every one of them re-runs clean: they either
-# write nothing durable or overwrite what they read before reading it. They
-# are left alone deliberately -- several boot the composed app, and CI runs
-# Postgres precisely because Sites Admin refuses to start on SQLite and drops
-# out of every check that boots it, so "fix" them and the gate quietly covers
-# less. A check landing with thirteen findings it cannot safely act on is the
-# one people learn to skip past, which is the note `provider_key_drift`
-# already carries about going in red.
-_REGRESSION = ("test_dashboard_trends.py", "test_google_index.py")
+# What is enforced here is the set that demonstrably breaks, not every file
+# matching the shape. Twenty-three other files own their directory and inherit
+# the database, and every one of them re-runs clean: they either write nothing
+# durable or overwrite what they read before reading it. They are left alone
+# deliberately -- several boot the composed app, and CI runs Postgres
+# precisely because Sites Admin refuses to start on SQLite and drops out of
+# every check that boots it, so "fix" them and the gate quietly covers less. A
+# check landing with twenty-three findings it cannot safely act on is the one
+# people learn to skip past, which is the note `provider_key_drift` already
+# carries about going in red.
+#
+# That population is measured rather than assumed: every file of the shape was
+# run twice against one shared database with a fresh directory each time, and
+# exactly two failed the second run -- test_io_records.py, which wrote a
+# second insertion order under a number the previous run had already used, and
+# test_sales_status.py. Both are fixed and named below. Re-measure before
+# adding to this list, rather than reading a file and reasoning about it: the
+# whole difficulty is that the failure is invisible on a first run, so CI --
+# one fresh container per run -- can never see it.
+_REGRESSION = ("test_dashboard_trends.py", "test_google_index.py",
+               "test_io_records.py", "test_sales_status.py")
 for _name in _REGRESSION:
     _w = _env_writes(_ast.parse((_ROOT / _name).read_text()))
     check(f"{_name} owns its database, not just its directory",
@@ -408,6 +424,16 @@ for _name in _REGRESSION:
 
 check("the sweep looked at something rather than passing vacuously",
       _checked >= len(_REGRESSION), True)
+
+# `_offenders` was collected and read by nothing -- this file's own version of
+# the declared-and-never-wired trap it sits next to. It is the population the
+# assertions above deliberately do not enforce, so it is *reported* rather
+# than asserted: a count going up means somebody added a file of the shape,
+# which is the moment to run it twice before trusting it. Printing the names
+# would be twenty-three lines nobody reads; printing the number is the one
+# fact that changes.
+print(f"  ---   {len(_offenders)} of {_checked} files own their directory and "
+      f"inherit the database — measured re-runnable, not enforced")
 
 # And the pattern is read from the repo rather than asserted from memory:
 # the file CI's own comment calls safe to re-run is the one assigning both.

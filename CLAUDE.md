@@ -2894,7 +2894,36 @@ both and they agree. Setting **both** is the `test_blog_publish.py` pattern.
 Only *own directory, inherited database* gives you an empty disk in front of a
 full mirror, and `test_dashboard_trends.py` and `test_google_index.py` were
 the two files in it: three failures and four, on the second run, every time.
-They assign `DATABASE_URL` now. `test_jsonstore.py` pins that pair rather than
+They assign `DATABASE_URL` now.
+
+**And the check that recorded that was reading the spelling rather than the
+shape.** Its filter was `HUB_DATA_DIR == "assign"`, so twelve files that
+**setdefault** the directory were skipped entirely rather than cleared — and
+`test_io_records.py` and `test_sales_status.py` were both in that group,
+both broken. A `setdefault` on `HUB_DATA_DIR` owns the directory whenever the
+variable is unset, which is the ordinary case and precisely the one the mirror
+trap needs. The filter takes either spelling now.
+
+Two things made it invisible for as long as it was. **CI cannot see this
+failure at all** — one fresh container per run, each file run once, so the
+first run always passes; it surfaces only when somebody runs the suite twice,
+which is what this repo's own SessionStart hook now makes routine by exporting
+a real `DATABASE_URL`. And the failure reads as a defect in the code under
+test rather than in the harness: `test_io_records.py` wrote a second insertion
+order under a number the previous run had already used, so it failed on
+*"it updates rather than adding a second row"* — the assertion doing its job,
+about rows the test never wrote.
+
+**The population is measured, not reasoned about.** Every file of the shape
+was run twice against one shared database with a fresh directory each time;
+exactly two failed, and the other twenty-three re-run clean. That number is
+*reported* by `test_jsonstore.py` rather than enforced — `_offenders` was
+collected and read by nothing until now, this file's own
+declared-and-never-wired trap sitting inside the check that catches it — and
+enforcing it would land twenty-three findings nobody can safely act on, which
+is the check people learn to skip. Re-measure before adding to the list rather
+than reading a file and reasoning about it: the whole difficulty is that the
+first run is always green. `test_jsonstore.py` pins that pair rather than
 sweeping every file of the shape — thirteen others share it and all re-run
 clean, because they write nothing durable or overwrite what they read, and
 several boot the composed app, where forcing SQLite would drop Sites Admin out
