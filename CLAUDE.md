@@ -2429,6 +2429,42 @@ suggestion dashed with the reason beside it, Keep takes it and Dismiss puts the
 field back. One control, drawn once, so both objects get it and a third form
 added later gets it without being edited.
 
+**The third form was already there, and did not get it.** That sentence was
+written about `hub/static/knack-form.js`, which draws the web ticket, campaign
+support **and** the Ad Copy Request — and only the browser half was shared.
+The route knew two kinds, so `ad-copy.js` had nothing to call and drew no
+button, on the one of the three whose whole content is a paragraph describing
+a change. `/api/client/requests/triage` reads a table of three now, and an
+unrecognised kind is **refused by name** rather than falling through: it was
+written `if ticket … else campaign`, so any other spelling answered with the
+campaign change form's dropdowns against an ad copy request's prose — every
+suggestion then either dropped for not being one of that field's options or,
+worse, kept for a field of the same name on a different object. Both read as a
+button that half works. The tag each kind bills under is in the same table,
+because left at `tickets` every triage call in this Hub reads as the ticket
+form's on the page that says what the models cost.
+
+**It reads two boxes, because the request is written in two.** What is being
+asked for is split across *Change for What?* and *Is there Something Else we
+need to know?*, and the deadline or the URL change is as likely to be in the
+second — so `textKey` takes one key or several, and reading one of them would
+miss the half the answer was in.
+
+**And the control now keeps its own stated rule.** Its comment has said
+*"hidden entirely where there is nothing to suggest into — a button that can
+only ever say no is one people learn to skip past"* since the day it was
+written, and the code drew the button on every form and only said so once
+somebody had pressed it. What is knowable before the press is whether the
+object publishes any choice field **at all**, which is a fact about the form
+rather than about what has been typed into it; a form with none gets no
+button. Deliberately *not* hidden when every choice field merely happens to be
+answered — those can be cleared, and a control that vanishes while somebody is
+filling a form in is worse than one that says so. `emptyChoiceKeys` also
+carried its own copy of the four control names beside `request_triage`'s
+`CHOICE_CONTROLS`; `test_ad_copy.py` holds the one list against the other,
+because a control added on one side and not the other means the button offers
+a field the server will not answer for, with nothing on screen saying so.
+
 **A charge is joined to a record through a sentence somebody typed.**
 `hub/invoice_names.py`. A domain renewal is invoiced to the media partner —
 one invoice to a radio group carries five renewals for five businesses — so
@@ -6956,7 +6992,8 @@ python3 test_social_content.py     # multi-location requests, the client's four
                                    #   push failure that never reads as scheduled
 python3 test_web_tickets.py        # the object_107 ids, the form, what a write carries
 python3 test_ad_copy.py            # the ad copy object, discovered not guessed;
-                                   #   one candidate or none, nothing invented
+                                   #   one candidate or none, nothing invented, and
+                                   #   the triage control on all three forms
 python3 test_campaign_support.py   # the object_121 ids, every option off the live
                                    #   object, and what a write may not contain
 python3 test_campaign_assets.py    # campaigns waiting on an asset, by media partner

@@ -105,10 +105,23 @@ window.AdCopyRequest = (function () {
 
         body.innerHTML = notesHtml(d.notes) +
           '<div id="acLink" style="font-size:12px;color:#b45309;margin-bottom:10px"></div>' +
-          KF().form(fields, d.values || {}, null, CTX);
+          KF().form(fields, d.values || {}, null, CTX) +
+          '<div id="acTriage" style="margin-top:4px"></div>';
         KF().wire();
         var linkNote = document.getElementById('acLink');
         link(options, function (msg) { if (linkNote) linkNote.textContent = msg; });
+        // The third form knack-form.js draws, and the one that went without
+        // this control. Same renderer, same rules: into the empty choice
+        // fields only, nothing written until it is kept, and drawn only
+        // where this object publishes a choice field to offer into.
+        //
+        // Two text keys rather than one. What is being asked for is split
+        // across "Change for What?" and "Is there Something Else we need to
+        // know?", and the deadline or the URL change is as likely to be
+        // written in the second as the first -- reading one of them would
+        // miss the half the answer was in.
+        KF().triageButton('acTriage', fields, CTX, 'adcopy',
+                          ['change_for', 'anything_else']);
 
         foot.innerHTML = '<span id="acMsg" class="muted" style="font-size:12px"></span>' +
           '<a class="btn-primary" id="acSend" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Send to Smart 1 Team</a>';
