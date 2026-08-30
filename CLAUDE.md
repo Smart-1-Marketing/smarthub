@@ -3300,6 +3300,82 @@ touched by" while the heading says Created by; an uploaded proposal answers
 the same question with its own field, and a row from before it was recorded
 says *not recorded* rather than showing a blank somebody reads as nobody.
 
+### An interruption cost the work in one builder and the place in the other
+
+`hub/drafts.py`. Fifteen minutes of concentration is what an insertion order
+or a proposal takes, and a rep almost never gets fifteen uninterrupted
+minutes. Both builders already had half of the answer and each was missing
+the other half, in opposite directions.
+
+**The Proposal Builder saved the work and lost the place.** It autosaves to
+the server on every keystroke, so nothing was ever lost — and `editLoaded()`
+set `step=0`, so reopening a quote put the rep on step 1 of 14 pressing
+Continue until they found the media plan they had been on. The position is
+`S._step` now, stamped on every save and read back on open. **Inside the
+quote's own data blob, never a new column**: `create_all()` adds no column to
+an existing table, so one here would be silently absent on the live Postgres
+with every local test green — the `client_key` rule. It is **clamped** on
+read, because that number was written by whatever version of the wizard saved
+it and an index past the end throws inside `renderStep()`, which is a blank
+builder over a quote whose answers are all perfectly intact. And arriving on
+step 7 **says so** and offers step one: a wizard that opens somewhere other
+than the beginning with no explanation reads as having skipped ahead, and Back
+from there is six presses. The proposals list carries it too — *Left at step 7
+of 14* against a Draft, because "which of these was nearly finished?" is the
+question somebody scans that list asking.
+
+**The IO Builder kept the place and could lose the work.** Its draft went to
+`localStorage`, which is the right instinct and survives exactly one browser:
+somebody interrupted on their laptop and picking the IO up on a different
+machine found no draft at all, and — worse — nothing on any screen said an
+unfinished IO existed, so it was simply started again from the top. The local
+copy stays, because it is instant and it is nearly always the right one; what
+is new is a copy on the **server** and a list of them on the start screen.
+
+Six rules in the store, each a way a draft quietly becomes a liability:
+
+- **One file per draft, never one file holding all of them.** Two reps
+  autosaving at the same moment would each write the whole collection back and
+  the second write would drop the first one's work, which is precisely the
+  failure a draft store exists to prevent.
+- **Through `jsonstore`, so it outlives the disk** — and deleted through
+  `jsonstore.delete_json`, never `os.remove`, or the mirror restores it and
+  the discard undoes itself.
+- **Nothing in it may raise.** A draft is insurance and insurance that breaks
+  the thing it insures is worse than none, so every entry point returns a
+  value, every route answers 200 with what happened in the body, and an
+  autosave that could not write costs the server copy and never the IO
+  somebody is in the middle of.
+- **Bounded, and never in silence.** A per-owner cap and a per-draft size cap,
+  because an autosave loop that fills the 5 GB disk takes the whole Hub with
+  it — and when the cap drops the oldest draft the save **names it**, since a
+  draft that goes missing quietly is the thing the feature exists to stop.
+- **A colleague's unfinished IO is on the list too**, marked whose. Hiding it
+  is how the same insertion order gets built twice. What the listing does not
+  carry is the state blob: it is read into a page, and the blob is fetched
+  only when a draft is actually resumed.
+- **"Nobody has one" and "we could not look" are different answers**, the
+  `connected_accounts_result()` rule — the list says which rather than drawing
+  a clean empty panel over a store it could not read.
+
+Three things the browser half has to get right. The autosave and the discard
+**carry the mount** (`{{ request.script_root }}`): a root-absolute
+`/api/draft` leaves this module and reaches the hub app, the trap
+`test_landing_embeds.py` exists for. A closing tab is exactly the interruption
+this is for and a debounce has usually not fired yet, so `pagehide` posts
+through `sendBeacon` — which returns a boolean nobody reads, so a wrong path
+there fails in total silence. And both deletes are `keepalive`, because
+submitting the IO and pressing Reset are each followed by a navigation that
+cancels a plain fetch, which would leave a finished IO sitting on the
+unfinished list.
+
+Starting a new IO and throwing the old one away are **different statements**.
+The boot prompt's Cancel drops this browser's copy alone; the server draft
+stays on the start screen, where discarding it is a deliberate press with the
+name in the confirmation. Reset clears both, because its confirmation says it
+clears the saved draft and that sentence has to stay true.
+`test_drafts.py` asserts all of it.
+
 ### Every medium is asked about before it is priced
 
 `hub/creative_needs.py`. A Connected TV or digital radio buy that reaches an
@@ -5512,6 +5588,9 @@ python3 test_commercial_wizard.py  # the seven steps, the client join, the spec 
                                    #   shots inside beats with their grammar, the published
                                    #   thresholds and whose each is, and the Amazon warning
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
+python3 test_drafts.py             # interrupted work: the IO's server draft and
+                                   #   its list, the proposal reopening where it
+                                   #   was left, and a cap that names what it drops
 python3 test_landing_spec.py       # what a landing page is for, and what it sells
 python3 test_client_groups.py      # grouped clients: what merges, what must not double
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff

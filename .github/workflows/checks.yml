@@ -395,6 +395,18 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Draft tests — unfinished IOs and proposals
+        # Both halves of coming back to interrupted work: the server-side
+        # draft store, the IO builder's list, and the proposal wizard
+        # reopening where it was left. Guarded like the steps around it, and
+        # nothing in it reaches a third party.
+        run: |
+          if [ -f test_drafts.py ]; then
+            python test_drafts.py
+          else
+            echo "test_drafts.py not on this branch — nothing to run."
+          fi
+
       - name: Proposal share tests
         # The client's copy, and what counts as somebody having read it.
         # Guarded like the steps around it. Nothing in it reaches a third
