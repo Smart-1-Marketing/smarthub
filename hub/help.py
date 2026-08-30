@@ -718,6 +718,28 @@ REGISTRY: list[Help] = [
        "slightly different name.",
        step=1, selector="[data-tour='seo-list']"),
 
+    # The webmaster dashboard had no bubble and no tour on it at all: 450
+    # lines of sortable table whose every number is drawn from a fetch, and
+    # three different reasons a cell can be blank. The three below are the
+    # questions the page cannot answer about itself.
+    _h("hub.webmaster.roster", "Who is on this list",
+       "Every client with a live SEO product, the same roster the SEO client "
+       "list is built from \u2014 so a client missing here is missing there "
+       "too, and the cause is the product, not this page.",
+       step=1, selector="[data-tour='wm-roster']"),
+    _h("hub.webmaster.property", "Why a row has no numbers",
+       "Traffic comes from the Analytics property attached to that client. "
+       "No property attached, Google refused the read, and still fetching are "
+       "three different blanks and the row says which \u2014 none of them "
+       "means the client had no visitors.",
+       step=2, selector="[data-tour='wm-numbers']"),
+    _h("hub.webmaster.attach", "Attaching a property",
+       "Attaching here records it against the client, so the next sweep and "
+       "Client 360 both see it. A property that disagrees with the one on "
+       "the website record is left alone rather than overwritten \u2014 that "
+       "disagreement is the finding.",
+       step=3, selector="[data-tour='wm-attach']"),
+
     # ---------------- Creative ----------------
     _h("hub.creative.pick", "Which of these you want",
        "Image Creator is the full editor for making something new. Client "

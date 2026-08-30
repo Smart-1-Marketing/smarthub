@@ -22,6 +22,26 @@ from hub.webargs import clamp_int
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENTS_APP = os.path.join(ROOT, "clients_app")
 
+# Which hub path shows which registered tour. There is no mechanical
+# route from "/" to "hub.dashboard" or from "/sales/leads" to "hub.leads",
+# so this is a table -- but it is held against the registry in both
+# directions by test_hub_help_layer.py, because a table nothing checks is
+# the second description that drifts.
+#
+# Seven hub screens had tour steps written, registered and anchored, and
+# not one could ever be offered: base.html renders a fixed <body> and
+# hub-help.js only offers a tour to a screen that names itself in
+# data-screen. prospect.html and website_audit.html work purely because
+# they own their own <body> instead of extending base.html.
+HUB_TOUR_SCREENS = {
+    "/": "hub.dashboard", "/client360": "hub.client360",
+    "/creative": "hub.creative", "/activity": "hub.activity",
+    "/sales/leads": "hub.leads", "/seo": "hub.seo",
+    "/status": "hub.status", "/qa": "qa.reports",
+    "/seo/webmaster": "hub.webmaster",
+}
+
+
 MODULES = [
     {"key": "clients", "label": "Clients", "href": "/clients", "tag": "Knack"},
     {"key": "google", "label": "Google", "href": "/google/", "tag": "GA4 · GTM"},
@@ -165,20 +185,34 @@ def create_hub_app() -> Flask:
     got_request_exception.connect(_log_exc, app)
 
     # ---------------- auth ----------------
+
     @app.context_processor
     def _inject_demo_module():
-        """Which walkthrough belongs to the page being rendered.
+        """Which walkthrough and which tour belong to the page being rendered.
 
-        The demo launcher reads <body data-module>. Hub pages had none, so no
-        walkthrough button ever appeared on the Dashboard, Client 360, SEO or
-        QA — which is most of where somebody would look for one.
+        The demo launcher reads <body data-module> and offers that module's
+        FIRST scenario. It was a hand-typed path->module map with an `or 'hub'`
+        default behind it, and both halves put the button where it could not
+        work: the default made every *unmapped* hub page truthy, and four of
+        the eight mapped entries named a module whose only scenario lives on a
+        different page. Fifteen pages offered a Client 360 walkthrough --
+        "it highlights nothing and Do it for me silently does nothing, which is
+        worse than no button", which is the note hub-demo.js already carries
+        about the same failure in Smart 1 Ads.
+
+        So the module is *derived* from where the scenarios actually are: a
+        page offers a walkthrough when one is registered for that page, and
+        never otherwise. There is no default -- an empty string is falsy, which
+        is exactly what the launcher tests.
         """
+        from . import demos, help as _help
         path = (request.path or "/").rstrip("/") or "/"
-        mapping = {"/": "hub", "/client360": "hub", "/seo": "seo",
-                   "/qa": "qa", "/qa/stale-creative": "qa",
-                   "/qa/unattached-images": "qa",
-                   "/tools": "hub", "/diagnostics": "hub"}
-        return {"hub_demo_module": mapping.get(path, "")}
+        module = next((sc.module for sc in demos.SCENARIOS
+                       if ((sc.path or "/").rstrip("/") or "/") == path), "")
+        screen = HUB_TOUR_SCREENS.get(path, "")
+        if screen and not _help.has_tour(screen):
+            screen = ""          # registered nothing yet: say nothing
+        return {"hub_demo_module": module, "hub_tour_screen": screen}
 
     @app.context_processor
     def _inject_sidebar():
