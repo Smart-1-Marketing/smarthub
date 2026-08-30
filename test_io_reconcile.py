@@ -296,6 +296,13 @@ from hub import jsonstore                                     # noqa: E402
 
 _long_ago = (NOW - timedelta(days=30)).isoformat(timespec="seconds")
 
+# The store's rows are mirrored to the database under a key relative to the
+# data root, so an earlier run of this file is restored into this one's fresh
+# temp directory. Cleared through `delete_json`, never `os.remove`, or the
+# mirror puts them straight back.
+for _n in ("20001", "20002", "20003", "20004", "20005", "20006"):
+    jsonstore.delete_json(io_records._path(_n))
+
 
 def sold(number, client, budgets, partner="TMRG"):
     """Record an order on our side and age it past the grace window."""

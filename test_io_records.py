@@ -76,11 +76,32 @@ def section(title):
 from werkzeug.test import Client                                    # noqa: E402
 import wsgi                                                         # noqa: E402
 from hub import (audit, auth, io_clients, io_reconcile,             # noqa: E402
-                 io_records, jsonstore)
+                 io_records, jsonstore)  # noqa: F401
 
 staff = Client(wsgi.application)
 staff.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value("Harness"),
                  domain="localhost")
+
+
+# A fresh data directory is **not** a fresh store, and that is the whole
+# subtlety here. `jsonstore` keys its mirror **relative to the data root**, so
+# `io_orders/10412.json` is one key however many temporary directories there
+# are — and booting the app restores every mirrored blob onto the disk. So this
+# file starts with whatever an earlier run of it, or of `test_io_reconcile.py`,
+# left in the shared database: the "first" submission arrives already carrying
+# a history, and the store already holds another suite's orders.
+#
+# In production that restore is exactly right — it is what keeps orders alive
+# across a Render disk nobody backs up. Here the numbers this file uses are
+# cleared, through `delete_json` rather than `os.remove` (the mirror would
+# simply put them back), and every assertion below is scoped to those numbers
+# rather than to the size of the store.
+def _clear(*numbers):
+    for number in numbers:
+        jsonstore.delete_json(io_records._path(number))
+
+
+_clear("10412", "10413", "10600", "10999")
 
 
 def order(number, client="Riverstone Dental", **kw):
@@ -130,10 +151,11 @@ section("A resubmission is the same order, at a new revision")
 first_at = row["submitted_at"]
 again = io_records.record(order("10412"), delivered=False,
                           error="Suite refused: 502", status=502, actor="Todd")
+mine = [r for r in io_records.listing()["rows"] if r["order"] == "10412"]
 check("it updates rather than adding a second row — two rows under one number "
       "is how a client record grows three identical entries",
-      again["resubmitted"] is True
-      and len(io_records.listing()["rows"]) == 1)
+      again["resubmitted"] is True and len(mine) == 1,
+      [r["order"] for r in io_records.listing()["rows"]])
 after = io_records.get("10412")
 check("the first submission's date survives the correction: an order written "
       "in July must not be dated to the day somebody fixed a typo",
