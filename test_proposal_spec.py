@@ -1493,6 +1493,79 @@ for _n in ("Google Grant (Setup)", "Google Grant (Management)"):
     check(f"the card we publish and the card we quote from agree on {_n!r}",
           _n in _page_names and rc.find(_n) is not None)
 
+def _kit_unreadable():
+    """A page we cannot read must not report as no drift."""
+    import pathlib as _pl
+    real = cs._KIT_PAGE
+    try:
+        cs._KIT_PAGE = _pl.Path("/definitely/not/here.html")
+        rows = cs.kit_drift()
+    finally:
+        cs._KIT_PAGE = real
+    return bool(rows) and "not measured" in rows[0]["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+section("the spec numbers are the ones on the kit the client is sent")
+# ---------------------------------------------------------------------------
+# The kit is transcribed on purpose -- a table fetched live changes what a
+# check says with no diff to point at. What that never covered is the
+# transcription going stale, and it had, in both directions: Half Page and
+# 970x250 judged at 150 KB against a published 250 KB, so the checker refused
+# files the client was told to send; and a smartphone banner allowed 150 KB
+# against a published 50 KB, the same fault the other way. 970x250 was also
+# still called "Rising Star" after the IAB retired that programme, so the kit
+# and the verdict named one unit two things.
+check("the transcription and the published kit agree",
+      cs.kit_drift() == [], [r["detail"] for r in cs.kit_drift()][:6])
+
+_by_id = {u["id"]: u for u in cs.UNITS}
+check("Half Page is judged at the kit's 250 KB, not the retired flat 150",
+      _by_id["half_page"]["max_bytes"] == 250 * cs.KB,
+      _by_id["half_page"]["max_bytes"])
+check("and 970x250 is a Billboard, which is what the client's copy calls it",
+      _by_id["rising_star"]["name"] == "Billboard", _by_id["rising_star"]["name"])
+check("a smartphone banner is held to 50 KB rather than three times it",
+      _by_id["mobile_banner_320"]["max_bytes"] == 50 * cs.KB,
+      _by_id["mobile_banner_320"]["max_bytes"])
+check("the interstitial is sold at the three sizes the kit lists",
+      set(cs._sizes_of(_by_id["mobile_interstitial"]))
+      == {(640, 1136), (750, 1334), (1080, 1920)},
+      cs._sizes_of(_by_id["mobile_interstitial"]))
+check("SVG is accepted, as the kit says it now is",
+      "svg" in _by_id["half_page"]["formats"], _by_id["half_page"]["formats"])
+
+# The unit ids are deliberately NOT renamed with the names. tags_for() writes
+# "unit_<id>" onto every file delivered through the upload manager, so a
+# rename orphans the tags already on a year of creative to correct a label.
+check("the id stays what Cloudinary already has tagged",
+      "rising_star" in _by_id and "wide_skyscraper" in _by_id,
+      sorted(_by_id)[:4])
+
+# A DOOH target is what the kit asks for, not what it refuses. Carried as
+# min_bytes it was a *fail*, so a clean 30 KB billboard was rejected for
+# being too small against a number nobody published as a floor.
+_dooh = _by_id["dooh_1920x1080"]
+check("the DOOH 40 KB target is carried as a target",
+      _dooh.get("target_bytes") == 40 * cs.KB, _dooh.get("target_bytes"))
+check("and not as a floor", _dooh.get("min_bytes") is None, _dooh.get("min_bytes"))
+_small = cs.check(width=1920, height=1080, fmt="jpg", size_bytes=30 * cs.KB,
+                  unit_id="dooh_1920x1080")
+_fails = [c for c in (_small.get("checks") or []) if c.get("state") == "fail"]
+check("so a 30 KB billboard is not refused for being too small", not _fails, _fails)
+
+# ...and the check has to be able to go red, or it is furniture.
+_orig = _by_id["half_page"]["max_bytes"]
+try:
+    _by_id["half_page"]["max_bytes"] = 150 * cs.KB
+    _bit = cs.kit_drift()
+finally:
+    _by_id["half_page"]["max_bytes"] = _orig
+check("a number put back the way it was is reported",
+      any("Half Page" in r["detail"] for r in _bit), _bit[:2])
+check("and a kit that cannot be read is not measured, never a clean answer",
+      _kit_unreadable(), "reported no drift for an unreadable page")
+
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")

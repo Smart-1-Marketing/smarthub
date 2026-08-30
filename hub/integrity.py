@@ -509,6 +509,36 @@ def check_stale_json_exemptions() -> list[dict]:
     } for rel in jsonstore.stale_exemptions(ROOT)]
 
 
+def check_creative_kit_drift() -> list[dict]:
+    """Where the transcribed spec numbers and the kit we publish disagree.
+
+    `hub/creative_specs.py` transcribes the S1M CREATIVE SPEC KIT on purpose:
+    a table fetched live changes what a check says with no diff to point at.
+    What that never covered is the transcription going stale, which it had --
+    Half Page judged at 150 KB against a published 250 KB, 970x250 still
+    called "Rising Star" after the IAB retired the programme, and a
+    smartphone banner allowed three times the published weight.
+
+    Every one of those is a file refused that the client was told to send, or
+    accepted that they were told not to, and both are silent: the kit and the
+    verdict are each internally consistent. The page ships in this repo, so
+    this is checkable rather than remembered.
+    """
+    try:
+        from . import creative_specs
+        rows = creative_specs.kit_drift()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/creative_specs.py", "module": "io_builder",
+        "detail": r["detail"],
+        "fix": "Correct the unit in hub/creative_specs.py to match "
+               "hub/partner_pages/creative-specs.html, which is the kit the "
+               "client is actually sent. Keep the unit's id: tags_for() has "
+               "written it onto delivered creative in Cloudinary.",
+    } for r in rows]
+
+
 def check_creative_spec_disagreement() -> list[dict]:
     """Products the creative gate and the spec kit read as different mediums.
 
@@ -706,6 +736,8 @@ CHECKS = [
      check_creative_medium_drift),
     ("creative_spec_disagreement", "Creative gate and spec kit disagree", "high",
      check_creative_spec_disagreement),
+    ("creative_kit_drift", "Spec numbers differ from the kit we publish", "high",
+     check_creative_kit_drift),
     # High, as the note that stood here asked for once the list was empty. It
     # went in at medium with seven pre-existing findings it did not cause,
     # because a check switched on red is a check somebody turns off; the list
