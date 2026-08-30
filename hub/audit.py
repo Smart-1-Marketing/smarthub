@@ -121,6 +121,43 @@ def for_module(name: str, actor_fn=None):
 # looked for by the name it actually logs under, anywhere in the tree.
 LOG_NAMES: dict[str, str] = {"ad_builder": "display_ads"}
 
+# A module that deliberately writes no activity row, and why.
+#
+# This exists because of the way the silent-module check used to be satisfied.
+# It asked whether the *string* "for_module(" appeared in a module's source --
+# so seven modules that imported a logger, bound it to a name, wrapped it in a
+# no-op fallback and then called it nowhere all read as modules that log.
+# Every one of them had a comment above the import saying why logging mattered
+# there. pdf_optimizer's said "work that isn't logged is work nobody can point
+# to later"; page_image_optimizer's and sites_admin's said "an unattributable
+# change to a client's account is one nobody can explain later". All three
+# were true, and none of them wrote a row. That is the declared-but-unwired
+# integration point this codebase has now found in RECORD_HOOK, io_creative,
+# manifest(), thumb_url(), mark_pushed() and check_limits() -- wearing the
+# activity log.
+#
+# The check reads a CALL now, through the AST, so an import can no longer
+# silence it. Which leaves the honest remainder: a module whose work genuinely
+# does not belong in the activity log. That is a decision, so it is written
+# down here with its reason rather than left as a dangling import that
+# happens to keep a check quiet -- and integrity.py fails on an entry naming a
+# module that no longer exists, the rule check_stale_json_exemptions() works
+# to, because an exemption that outlives what it exempted goes on covering
+# whatever is written at that path next.
+NO_ACTIVITY: dict[str, str] = {
+    "calculators": (
+        "What this module produces is a LEAD, not client work: a stranger on "
+        "somebody else's website types into a public estimate box. Those go "
+        "through hub/leads.py, which is the one store, delivery and panel for "
+        "a prospect -- the rule modules/scans/leads.py gives at length. An "
+        "activity row per public estimate would file hundreds of strangers "
+        "into a log whose whole purpose is what we did for a CLIENT, and "
+        "would put a prospect on a client 360 record they belong to no part "
+        "of. The staff-facing internal calculator deliberately stores nothing "
+        "at all, so there is nothing there to attribute either."
+    ),
+}
+
 
 def registered_modules() -> list[str]:
     return sorted(_REGISTERED)

@@ -36,7 +36,16 @@ const ROOT = path.resolve(__dirname, '..');
  * that starts red is one somebody switches off, which is the note
  * tools/integritycheck.py already carries.
  */
-const ALLOWED: Record<string, string> = {};
+const ALLOWED: Record<string, string> = {
+  animatableSizes:
+    'Arrived with the animated-GIF work (#222) and nothing calls it yet. '
+    + 'jobs.ts imported it and never used it, which is what disguised it -- '
+    + 'that import is gone. countAnimated() asks animationSupport() per size '
+    + 'because it needs the reason a size was skipped, so it is not the caller '
+    + 'this was written for. Left in place rather than deleted: it is a new '
+    + 'API on a feature still being built, and this entry is here so whoever '
+    + 'finishes it sees the half that is not wired.',
+};
 
 /**
  * Source with its comments removed.

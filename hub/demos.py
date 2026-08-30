@@ -468,7 +468,7 @@ SCENARIOS: list[Scenario] = [
                  "Under the Suite (GoHighLevel) group.",
                  "Compares live Suite billing in GoHighLevel against products on "
                  "file in Knack.",
-                 action="click", selector="[data-demo='qa-billing']"),
+                 action="click", selector="[data-demo='qa-report-ghl-billing-no-products']"),
             Step("Read the rows, don't just count them",
                  "Each row is a sub-account we're billing with nothing on file.",
                  "Two very different things land in this list: a data gap where "
@@ -480,12 +480,12 @@ SCENARIOS: list[Scenario] = [
                  "Flagged separately from 'matched but no products'.",
                  "No match usually means a name mismatch, not a missing client. "
                  "Check the spelling before you panic.",
-                 action="look", selector="[data-demo='qa-nomatch']"),
+                 action="look", selector="[data-demo='qa-note']"),
             Step("Check the other direction too",
                  "Suite Billing This Month shows what's actually being billed.",
                  "The reverse case — a live product with no billing — is lost "
                  "revenue, and it's the report worth building next.",
-                 action="click", selector="[data-demo='qa-thismonth']"),
+                 action="click", selector="[data-demo='qa-report-ghl-billing-this-month']"),
         ]),
 
     # ------------------------------------------------------------------
@@ -1534,8 +1534,13 @@ SCENARIOS: list[Scenario] = [
              "chase — with the client history behind each request.",
         minutes=4, path="/tools/tickets/",
         steps=[
+            # "Sort by age" until this was checked against the page, which
+            # sorts on nothing. The filter does the same job better -- it names
+            # the SLA rather than leaving somebody to judge which ages matter --
+            # and a walkthrough describing a control that is not there is worse
+            # than one describing none, because a rep believes it.
             Step("Start with what's stale, not what's newest",
-                 "Sort by age.",
+                 "Filter to the customers past the SLA.",
                  "A new request has someone's attention already. A three-week-"
                  "old one has a client wondering whether we forgot, and that's "
                  "the one that costs you the relationship.",

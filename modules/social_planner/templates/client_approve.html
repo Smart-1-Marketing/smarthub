@@ -124,18 +124,30 @@ el("deck").addEventListener("click", function(ev){
 function send(card, decision, note){
   var msg = card.querySelector(".msg");
   msg.className = "msg";
-  msg.textContent = "Sending…";
+  // The word alone was all this said, on a page read on a phone. The glyph
+  // goes with it so a slow answer is distinguishable from a dead one.
+  var w;
+  if (window.S1Wait) {
+    w = S1Wait.note(msg, {kind:"wait", label:"Sending…"});
+  } else {
+    // Writing the word here as well would wipe the mark note() just drew,
+    // which is the whole reason this is a branch rather than two statements.
+    w = {done:function(){}};
+    msg.textContent = "Sending…";
+  }
   fetch("approve/" + encodeURIComponent(card.getAttribute("data-b")) + "/" +
         encodeURIComponent(card.getAttribute("data-s")),
         {method:"POST", headers:{"Content-Type":"application/json"},
          body:JSON.stringify({decision:decision, note:note})})
     .then(function(r){ return r.json(); })
     .then(function(d){
+      w.done();
       if (!d.ok) { msg.className = "msg err"; msg.textContent = d.error || "That didn't send."; return; }
       posts = d.posts || posts;
       draw();
     })
     .catch(function(){
+      w.done();
       msg.className = "msg err";
       msg.textContent = "That didn't send. Check your connection and try again.";
     });

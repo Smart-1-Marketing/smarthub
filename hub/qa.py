@@ -87,6 +87,24 @@ def _is_active(g: dict) -> bool:
     return bool(g["live"]) or g["thisM"]
 
 
+def client_groups() -> dict:
+    """The products on file, grouped by client. The public form of the above.
+
+    `hub/client_health.py` needs exactly what every report on this page needs
+    — the live lines, the partner, the rep, whether a dashboard is on file and
+    when the last flight ends — and a second copy of that grouping would be
+    the drift `hub/storage.py` exists to stop, one table along. Kept a thin
+    alias rather than a rename: every report here reads `_client_groups()` and
+    renaming it would touch a dozen call sites to make one import look tidy.
+    """
+    return _client_groups()
+
+
+def is_active(g: dict) -> bool:
+    """Whether a group is a client we are working for now. Public form."""
+    return _is_active(g)
+
+
 def _join(vals) -> str:
     """Join partner names, folding case-only duplicates together.
 
@@ -449,10 +467,17 @@ def stale_90() -> dict:
                     "Days since", "Last monthly"],
         "rows": rows,
         "row_styles": styles,
-        "note": (f"{total} clients with no live product whose last IO ended 90+ "
-                 f"days ago (up to 24 months back) — {_money(grand)}/mo of lapsed "
+        # "up to 24 months back" was never true: the loop above stops at 180
+        # days, deliberately and with its reason written beside it. So the one
+        # sentence on the page said two years while the table held six months,
+        # and a rep working the win-back list believed the 168 clients between
+        # six months and two years had been checked and were not lapsed.
+        "note": (f"{total} clients with no live product whose last IO ended "
+                 f"between 90 and 180 days ago — {_money(grand)}/mo of lapsed "
                  "billing, grouped by partner with subtotals; clients without a "
-                 "partner listed at the end."),
+                 "partner listed at the end. Anything quiet for longer than six "
+                 "months is a former client rather than one to chase, and is "
+                 "deliberately left off."),
     }
 
 
@@ -1485,10 +1510,15 @@ def uploads_not_in_suite() -> dict:
       sync is off         someone turned it off deliberately
       failed              it tried and Suite refused; the error is shown
     """
+    # `measured: False` on both refusals, because neither is an answer. Left
+    # off, the page reads no rows and draws "Nothing to report — all clear ✓"
+    # over the note, so a gallery database that would not open reported every
+    # client's uploads as safely in Suite — and `hub/report_cache.py` would
+    # have kept that as the day's answer.
     try:
         from modules.image_picker.models import PickerClient, SavedImage, session
     except Exception as exc:                            # noqa: BLE001
-        return {"columns": ["Client"], "rows": [],
+        return {"columns": ["Client"], "rows": [], "measured": False,
                 "note": f"Client Image Uploads isn't available here ({type(exc).__name__})."}
 
     try:
@@ -1496,7 +1526,7 @@ def uploads_not_in_suite() -> dict:
         rows_ = db.query(SavedImage, PickerClient).join(
             PickerClient, SavedImage.client_id == PickerClient.id).all()
     except Exception as exc:                            # noqa: BLE001
-        return {"columns": ["Client"], "rows": [],
+        return {"columns": ["Client"], "rows": [], "measured": False,
                 "note": f"Couldn't read the uploads database ({type(exc).__name__})."}
 
     by_client: dict = {}
@@ -2065,6 +2095,24 @@ def io_reconcile_report() -> dict:
 # and "Match Sites to Clients" answered nothing typed into it -- which is the
 # same invisibility the tile rule exists to stop, one screen further on.
 EXTRAS = [
+        # Clients, first: these two are about the book rather than about a
+        # system, and the question "which of my clients needs an hour today"
+        # is the one somebody opens this page with more often than any audit
+        # on it. A report nobody thinks to look for is a report nobody works.
+        ("Clients", "my-clients", {
+            "title": "My Clients",
+            "desc": "Everything outstanding on the clients assigned to you \u2014 "
+                    "creative waiting, proposals unanswered, an insertion "
+                    "order running out, a dashboard nobody built \u2014 with "
+                    "the client carrying the most at the top. Ignore or "
+                    "complete anything from the row it is on.",
+            "ico": "&#128203;", "href": "/my-clients"}),
+        ("Clients", "client-owners", {
+            "title": "Assign Clients",
+            "desc": "Who owns which client. Assign one at a time, a whole "
+                    "selection at once, or everything a media partner "
+                    "carries \u2014 and see who is holding nothing.",
+            "ico": "&#128100;", "href": "/qa/client-owners"}),
         ("Data Quality", "stale-creative", {
             "title": "Stale Creative",
             "desc": "How long since we last produced creative for each "

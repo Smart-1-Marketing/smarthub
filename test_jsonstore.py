@@ -336,6 +336,86 @@ levels = {r["level"] for r in report["risks"]}
 check("nothing above low is outstanding", levels - {"low"}, set())
 
 
+# =====================================================================
+section("A fresh data directory is not isolation on its own")
+# =====================================================================
+# The harness-level version of the trap above. A test file that assigns its
+# own HUB_DATA_DIR looks isolated and is not, if it merely *setdefault*s
+# DATABASE_URL: `key_for()` keys the mirror relative to the data root by
+# design -- that is what lets a production blob restore into a dev checkout --
+# so an inherited database (CI's Postgres, or a developer's own) refills the
+# new empty directory with the last run's rows.
+#
+# This is not hypothetical and it is not new. checks.yml carries a paragraph
+# headed "RUN THIS FILE EXACTLY ONCE" recording that two lineages each added
+# a target-areas step, git merged both cleanly, and the duplicate run failed
+# on the first run's rows. That mitigation is a comment asking people to
+# remember; this is the same rule as a property of the files.
+#
+# The rule is narrow on purpose. Setting neither is fine (the file inherits
+# both and is consistent). Setting both is the pattern test_blog_publish.py
+# uses. Only "own directory, inherited database" is wrong, because only that
+# pair gives you an empty disk in front of a full mirror.
+
+import ast as _ast                                                # noqa: E402
+
+def _env_writes(tree):
+    """{name: "assign" | "setdefault"} for os.environ at module level."""
+    out = {}
+    for node in _ast.walk(tree):
+        if (isinstance(node, _ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], _ast.Subscript)
+                and _ast.unparse(node.targets[0].value) == "os.environ"
+                and isinstance(node.targets[0].slice, _ast.Constant)):
+            out.setdefault(node.targets[0].slice.value, "assign")
+        if (isinstance(node, _ast.Call)
+                and isinstance(node.func, _ast.Attribute)
+                and node.func.attr == "setdefault"
+                and _ast.unparse(node.func.value) == "os.environ"
+                and node.args and isinstance(node.args[0], _ast.Constant)):
+            out.setdefault(node.args[0].value, "setdefault")
+    return out
+
+_ROOT = Path(__file__).parent
+_offenders, _checked = [], 0
+for _f in sorted(_ROOT.glob("test_*.py")):
+    try:
+        _w = _env_writes(_ast.parse(_f.read_text(errors="ignore")))
+    except SyntaxError:
+        continue
+    if _w.get("HUB_DATA_DIR") != "assign":
+        continue
+    _checked += 1
+    if _w.get("DATABASE_URL") != "assign":
+        _offenders.append(f"{_f.name} (DATABASE_URL is "
+                          f"{_w.get('DATABASE_URL') or 'never set'})")
+
+# What is enforced here is the pair that demonstrably breaks, not every file
+# matching the shape. Thirteen other files also own their directory and
+# inherit the database, and every one of them re-runs clean: they either
+# write nothing durable or overwrite what they read before reading it. They
+# are left alone deliberately -- several boot the composed app, and CI runs
+# Postgres precisely because Sites Admin refuses to start on SQLite and drops
+# out of every check that boots it, so "fix" them and the gate quietly covers
+# less. A check landing with thirteen findings it cannot safely act on is the
+# one people learn to skip past, which is the note `provider_key_drift`
+# already carries about going in red.
+_REGRESSION = ("test_dashboard_trends.py", "test_google_index.py")
+for _name in _REGRESSION:
+    _w = _env_writes(_ast.parse((_ROOT / _name).read_text()))
+    check(f"{_name} owns its database, not just its directory",
+          (_w.get("HUB_DATA_DIR"), _w.get("DATABASE_URL")), ("assign", "assign"))
+
+check("the sweep looked at something rather than passing vacuously",
+      _checked >= len(_REGRESSION), True)
+
+# And the pattern is read from the repo rather than asserted from memory:
+# the file CI's own comment calls safe to re-run is the one assigning both.
+_blog = _env_writes(_ast.parse((_ROOT / "test_blog_publish.py").read_text()))
+check("test_blog_publish.py assigns both, as CI says it does",
+      (_blog.get("HUB_DATA_DIR"), _blog.get("DATABASE_URL")), ("assign", "assign"))
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

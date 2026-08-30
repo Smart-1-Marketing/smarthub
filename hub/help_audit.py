@@ -40,12 +40,21 @@ from __future__ import annotations
 import os
 import re
 
-# `help_dot('key')` in a Jinja template, and `data-help="key"` on an element.
-# Both are real: the reach panel on the Proposal Builder's areas step uses the
-# second, so a scan for the first alone calls four live entries dead.
+# `help_dot('key')` in a Jinja template, `data-help="key"` on an element, and
+# `help:"key"` on a screen the page's own renderer draws.
+#
+# All three are real. The reach panel on the Proposal Builder's areas step
+# uses the second, so a scan for the first alone calls four live entries
+# dead. And that same builder's fourteen wizard steps are JavaScript objects
+# whose one renderer turns `help:"…"` into the `data-help` span -- a literal
+# key in the template reached through a variable, which is neither a Jinja
+# call nor an attribute and would otherwise read as thirteen registered keys
+# nobody had placed. It is still a *literal*: the key is written in the file
+# and can be resolved from it, unlike the runtime-assembled kind below.
 _PATTERNS = (
     re.compile(r"help_dot\(\s*['\"]([^'\"]+)['\"]"),
     re.compile(r"""data-help=["']([^"']+)["']"""),
+    re.compile(r"""\bhelp:\s*["']([\w.]+)["']"""),
 )
 
 # A key with an interpolation in it is assembled while the page runs and
@@ -195,6 +204,32 @@ _SEL_ID = re.compile(r"#([A-Za-z0-9_-]+)")
 _SEL_DATA = re.compile(r"""\[data-demo=["']([^"']+)["']\]""")
 _SEL_NAME = re.compile(r"""\[name=["']([^"']+)["']\]""")
 
+# A hook can be **derived** rather than typed, exactly as a help key can. The
+# QA index writes `data-demo="qa-report-{{ key }}"` once for every report it
+# lists, so a scenario naming a report added next month is anchored without
+# that template being edited again -- the reason `card()` on the prospect
+# record takes one key rather than nine call sites doing it.
+#
+# A plain substring search then finds no `qa-report-ghl-billing-no-products`
+# anywhere and calls the step dead, which is the guess `tools/linkcheck.py`
+# refuses to make about a URL built by concatenation, and which this module
+# already refuses to make about a help key. What is knowable from the source
+# is the **literal prefix** in front of the interpolation, so that is what is
+# collected, and a target starting with one reads as built at runtime rather
+# than as missing.
+_DEMO_BUILT = re.compile(
+    r"""data-demo=["']([A-Za-z0-9_-]{3,})(?:\{\{|\{%|\$\{|["']\s*\+)""")
+
+
+def _runtime_demo_prefixes(sources: str) -> list[str]:
+    """Literal prefixes of every `data-demo` assembled while the page runs.
+
+    At least three characters, because a bare `data-demo="{{ x }}"` names no
+    prefix at all and one that matched everything would switch the check off
+    -- the failure `hub/config.py`'s ALIASES rule describes, wearing a hook.
+    """
+    return sorted(set(_DEMO_BUILT.findall(sources)))
+
 
 def _needs(selector: str) -> list[tuple[str, str]]:
     out = []
@@ -230,6 +265,22 @@ def demo_targets(root: str | None = None) -> dict:
             continue
     everything = "\n".join(blob)
 
+    built = _runtime_demo_prefixes(everything)
+
+    def _found(kind: str, name: str) -> bool:
+        if name in everything:
+            return True
+        if kind == "data-demo" and any(name.startswith(p) for p in built):
+            on_prefix.add(name)
+            return True
+        return False
+
+    # Accepted on a prefix rather than found whole. Named rather than folded
+    # into the anchored count, because "we found this hook" and "a template
+    # builds hooks that start this way" are different claims and only the
+    # first was actually verified.
+    on_prefix: set = set()
+
     rows, steps, missing = [], 0, 0
     for scenario in demos.SCENARIOS:
         gone = []
@@ -239,7 +290,7 @@ def demo_targets(root: str | None = None) -> dict:
                 continue
             steps += 1
             absent = [f"{kind} {name!r}" for kind, name in _needs(selector)
-                      if name not in everything]
+                      if not _found(kind, name)]
             if absent:
                 missing += 1
                 gone.append({"step": i, "title": getattr(step, "title", ""),
@@ -264,5 +315,7 @@ def demo_targets(root: str | None = None) -> dict:
         "unanchored": missing,
         "rows": [r for r in rows if r["unanchored"]],
         "clean": [r["key"] for r in rows if not r["unanchored"]],
+        "runtime": sorted(on_prefix),
+        "runtime_prefixes": built,
         "measured": True,
     }

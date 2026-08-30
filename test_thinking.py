@@ -468,6 +468,136 @@ for rel in ("hub/templates/seo_client.html",
     ok(f"{rel} degrades if the script is missing", "window.S1Think" in src)
 
 
+# ------------------------------- the fifth surface: the pages a client opens
+section("The pages a client opens carry the mark too, inlined")
+
+# Every client-facing surface in this Hub is chrome-free by design — CHROMELESS
+# in hub/__init__.py and the PUBLIC_PREFIXES each mounted module declares —
+# because injecting the staff sidebar, help layer and feedback tab into a
+# document a client reads is the failure those lists exist to prevent.
+# hub-thinking.js rides in with that chrome, so switching the chrome off
+# switched the mark off with it, and nothing anywhere said so: a client
+# approving a finished TV cut pressed a button that greyed out and said
+# nothing, and a client swiping an idea on a phone got no visible change at
+# all. hub/thinking.py is the inline block those pages carry instead.
+import importlib
+_thinking = importlib.import_module("hub.thinking")
+BLOCK = str(_thinking.assets())
+
+ok("the block defines the small sibling and not a second S1Think",
+   "window.S1Wait" in BLOCK and "window.S1Think" not in BLOCK)
+ok("and refuses to run twice on one page", "if (window.S1Wait) { return; }" in BLOCK)
+
+# Inline is not licence to draw a different thing. A client waiting on a model
+# and a rep waiting on the same model are waiting on one thing.
+for kind, shape in (
+    ("scan", "M12 12 L12 2.8 A9.2 9.2 0 0 1 20.5 8.6 Z"),
+    ("ai", "M12 3.2 13.6 9.1 19.4 10.7 13.6 12.3 12 18.2 10.4 12.3 4.6 10.7 10.4 9.1Z"),
+):
+    ok(f"the {kind} glyph is the Hub's own path",
+       shape in _thinking.mark_svg(kind) and shape in SCRIPT)
+ok("the wait arc is the same dash pattern",
+   'stroke-dasharray="16 38"' in _thinking.mark_svg("wait")
+   and '"16 38"' in SCRIPT)
+ok("and each sweeps at the speed hub-help.css sets",
+   "1.9s linear infinite" in BLOCK and "1.9s linear infinite" in CSS
+   and ".9s linear infinite" in BLOCK)
+ok("it knows the same three kinds", list(_thinking.KINDS) == ["ai", "scan", "wait"])
+
+# The four rules, which are the script's own and are not relaxed by being
+# inlined.
+ok("nothing in it may raise", BLOCK.count("catch (e)") >= 4)
+ok("busy() returns a handle even when the button is not there",
+   "if (!btn) { return handle; }" in BLOCK)
+ok("and note() does the same for a status line",
+   "if (!host) { return handle; }" in BLOCK)
+# done() restores; it writes no word and draws no tick. Whether the call
+# succeeded is the caller's answer, and a tick over a failed one is the
+# confident wrong answer this codebase keeps undoing.
+# Read with the comments taken out, or the check reports the sentence
+# explaining the rule as a breach of it — the "prose is not a call site" trap
+# tools/spellcheck.py reads the AST to avoid.
+CODE = re.sub(r"/\*.*?\*/", " ", BLOCK, flags=re.S)
+CODE = re.sub(r"(?m)^\s*//.*$", "", CODE)
+ok("done() puts the button back and claims nothing",
+   "btn.innerHTML = was;" in CODE
+   and "Done" not in CODE and "\u2713" not in CODE and "\u2714" not in CODE)
+ok("currentColor, never a palette",
+   BLOCK.count("currentColor") >= 6
+   and not re.search(r"(?<!&)#[0-9a-fA-F]{3,6}\b", BLOCK))
+ok("reduced motion drops the movement and keeps the mark",
+   "prefers-reduced-motion" in BLOCK and "animation:none !important" in BLOCK)
+ok("and a screen reader is told what is running",
+   'aria-live="polite"' in BLOCK or "aria-live" in BLOCK)
+ok("a static mark tells one what it is",
+   'role="img"' in _thinking.mark_svg("scan")
+   and "aria-label" in _thinking.mark_svg("scan"))
+# </script> inside a string literal would close the block the script sits in.
+ok("the glyph markup cannot close its own script tag", "</script>" not in _thinking.js())
+
+# The global has to be on the environment that renders the page, and a module's
+# environment is its own — the first trap this repo names. Both registration
+# paths carry it: install_template_helpers() for every mounted module, and
+# register_help() for the hub app, where the blueprint-registered Commercial
+# Builder renders.
+HELPR = (ROOT / "hub" / "help_routes.py").read_text(encoding="utf-8")
+ok("every mounted module's environment gets it",
+   HELPR.count("_thinking.install(app)") == 2)
+
+# The call sites. Guarded every time, so a module whose environment never
+# received the registration loses the mark rather than the page.
+CLIENT_PAGES = {
+    # the four Social Content pages share one head partial rather than four
+    "modules/social_planner/templates/_client_head.html": None,
+    "modules/commercial_builder/templates/commercial_review.html": ("c-send", "d-send"),
+    "modules/ads_builder/templates/ads_estimate.html": ("modalSend", "respondBtn"),
+    "modules/sales_builder/templates/client_proposal.html": ("go",),
+}
+for rel in CLIENT_PAGES:
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    ok(f"{rel} asks for the block",
+       "s1_wait_assets()" in src)
+    ok(f"{rel} guards the call",
+       "if s1_wait_assets is defined" in src)
+
+def _code_only(src):
+    """The file with its comments taken out.
+
+    Every one of these call sites explains in a comment that it is guarded on
+    window.S1Wait, so a check reading the raw text is satisfied by the
+    sentence describing the rule and says nothing when the rule goes. That is
+    the trap tools/spellcheck.py reads the AST to avoid, and it caught this
+    check being silent on a deliberately drifted file before it shipped.
+    """
+    out = re.sub(r"\{#.*?#\}", " ", src, flags=re.S)          # Jinja
+    out = re.sub(r"/\*.*?\*/", " ", out, flags=re.S)          # /* … */
+    out = re.sub(r"(?m)^\s*//.*$", "", out)                   # a whole line
+    return re.sub(r"(?m)\s//[^\n]*$", "", out)                # a trailing one
+
+
+for rel in ("modules/social_planner/templates/client_ideas.html",
+            "modules/social_planner/templates/client_approve.html",
+            "modules/social_planner/templates/client_preferences.html",
+            "modules/social_planner/templates/client_request.html",
+            "modules/commercial_builder/templates/commercial_review.html",
+            "modules/ads_builder/templates/ads_estimate.html",
+            "modules/sales_builder/templates/client_proposal.html"):
+    src = _code_only((ROOT / rel).read_text(encoding="utf-8"))
+    ok(f"{rel} marks its wait", "S1Wait." in src)
+    # A mark that takes the answer down with it is worse than no mark.
+    ok(f"{rel} degrades if the block did not run", "window.S1Wait" in src)
+    # done() is what puts the control back. A wait started and never ended is
+    # a button disabled for the life of the page.
+    ok(f"{rel} ends every wait it starts",
+       src.count(".done()") >= src.count("S1Wait.busy(") + src.count("S1Wait.note("))
+
+# The swipe is the one that had nothing at all: the double-tap guard returned,
+# so the second tap was met by a function doing nothing, which reads as broken.
+IDEAS = (ROOT / "modules" / "social_planner" / "templates" / "client_ideas.html").read_text()
+ok("the swipe holds the other choice while the tap is in flight",
+   "other.disabled = true" in IDEAS and "other.disabled = false" in IDEAS)
+
+
 print()
 if _failed:
     print(f"{_failed} FAILED, {_passed} passed")
