@@ -8571,6 +8571,12 @@ python3 test_proposal_targeting.py # the coverage map, the pasted location list,
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
                                    #   the 2x quoted rate, the product a goal leads
                                    #   with, ZIP exceptions and what the Suite covers
+python3 test_rate_card_coverage.py # every product on the card, bought on a
+                                   #   proposal that renders: eight campaigns
+                                   #   derived from the card's own categories,
+                                   #   a ninth holding every name that means
+                                   #   two products, and a new category that
+                                   #   fails by name rather than being skipped
 python3 test_landing_maker.py      # built pages stay public and chrome-free
 python3 test_quote_numbers.py      # uploaded quotes are numbered, drafts delete
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
