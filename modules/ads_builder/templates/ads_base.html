@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Smart 1 Ads{% endblock %} — Smart 1 Hub</title>
 <style>
+  /* The page head, the sub-nav, cards, tables, number tiles, form controls and
+     the running mark come from hub/static/hub-detail.css, which wsgi.py's
+     HubBar injects into this module. They are not restated here.
+
+     `.spin` went with them: hub/static/hub-thinking.js upgrades that class into
+     the Hub's one running glyph, and the 2px arc defined here was one of the
+     ten near-identical copies CLAUDE.md counts.
+
+     What stays is what is genuinely Smart 1 Ads. */
   :root {
     --navy:#1a2e58; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0;
     --bg:#f4f6fa; --card:#fff; --blue:#2563eb; --blue-soft:#eff6ff;
@@ -17,24 +26,10 @@
   a { color:var(--blue) }
   .wrap { max-width:1360px; margin:0 auto; padding:22px 26px 70px }
 
-  .modhead { display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:16px }
-  .modhead h1 { margin:0 0 2px; font-size:21px; color:var(--navy); letter-spacing:-.2px }
-  .modhead p { margin:0; color:var(--muted); font-size:13px }
-  .modhead .spacer { flex:1 }
   .vtag { font:600 11px 'Segoe UI',system-ui,sans-serif; color:var(--muted);
           background:#fff; border:1px solid var(--line); border-radius:20px; padding:3px 10px }
 
-  .tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-bottom:20px }
-  .tabs a { padding:9px 14px; text-decoration:none; color:var(--muted); font-weight:600; font-size:13px;
-            border-bottom:2px solid transparent; margin-bottom:-1px }
-  .tabs a:hover { color:var(--navy) }
-  .tabs a.on { color:var(--navy); border-bottom-color:var(--blue) }
-  .tabs .pill { background:var(--blue-soft); color:var(--blue); border-radius:20px;
-                padding:0 6px; font-size:11px; margin-left:5px }
 
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
-          padding:18px 20px; margin-bottom:16px; box-shadow:0 1px 2px rgba(15,23,42,.04) }
-  .card h3 { margin:0 0 12px; font-size:15px; color:var(--navy) }
   .card h3 .sub { font-weight:400; color:var(--muted); font-size:12.5px; margin-left:6px }
 
   .grid { display:grid; gap:14px }
@@ -42,25 +37,30 @@
   .g3 { grid-template-columns:repeat(auto-fit,minmax(220px,1fr)) }
   .g4 { grid-template-columns:repeat(auto-fit,minmax(170px,1fr)) }
 
-  .stat { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:13px 15px }
-  .stat .l { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700 }
-  .stat .v { font-size:22px; font-weight:700; color:var(--navy); letter-spacing:-.5px; margin-top:2px }
-  .stat .f { font-size:12px; color:var(--muted) }
+  /* The footnote under a number tile -- what the figure is measured over.
+     The tile itself is .s1d-tile now; only this line is local. */
+  .s1d-tile .f { font-size:12px; color:var(--muted) }
 
+  /* This module's buttons default to *secondary*, which is the opposite of the
+     Hub's default and is deliberate: nearly every button here is a row action
+     -- approve, deploy, archive, copy -- and .b-primary is the one that
+     commits. A page of blue buttons has no primary action. So the shape is the
+     shared one and the emphasis is this module's; only the default is restated. */
   button, .btn { font:inherit; cursor:pointer; border:1px solid var(--line); background:#fff;
                  color:var(--ink); border-radius:8px; padding:7px 13px; text-decoration:none;
                  display:inline-flex; align-items:center; gap:6px }
   button:hover:not(:disabled), .btn:hover { border-color:#cbd5e1; background:#f8fafc }
   button:disabled { opacity:.5; cursor:not-allowed }
-  .b-primary { background:var(--navy); border-color:var(--navy); color:#fff; font-weight:600 }
-  .b-primary:hover:not(:disabled) { background:#24406f; border-color:#24406f; color:#fff }
+  .b-primary { background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600 }
+  .b-primary:hover:not(:disabled) { background:#1d4ed8; border-color:#1d4ed8; color:#fff }
   .b-good { color:var(--good); border-color:#a7f3d0; background:var(--good-soft) }
   .b-bad { color:var(--bad); border-color:#fecaca; background:var(--bad-soft) }
   .b-sm { padding:4px 9px; font-size:12.5px }
 
-  input, select, textarea { font:inherit; width:100%; padding:8px 10px; border:1px solid var(--line);
-                            border-radius:8px; background:#fff; color:var(--ink) }
-  input:focus, select:focus, textarea:focus { outline:2px solid #bfdbfe; outline-offset:-1px; border-color:var(--blue) }
+  /* Layout rather than look: every form on these screens is a grid, and the
+     controls fill their cell. The shared sheet sets no width, because a
+     full-width control is wrong on a page that puts two side by side. */
+  input, select, textarea { width:100% }
   textarea { min-height:80px; resize:vertical }
   label { display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:4px }
   .field { margin-bottom:14px }
@@ -71,11 +71,6 @@
 
   input[type=range] { padding:0; border:0; background:transparent; height:22px }
 
-  table { width:100%; border-collapse:collapse; font-size:13.5px }
-  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px;
-       color:var(--muted); font-weight:700; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap }
-  td { padding:10px; border-bottom:1px solid #f1f5f9; vertical-align:middle }
-  tbody tr:hover { background:#fafcff }
   .num { text-align:right; font-variant-numeric:tabular-nums }
 
   .tag { display:inline-block; font:700 11px 'Segoe UI',system-ui,sans-serif; padding:2px 8px;
@@ -104,9 +99,6 @@
   .empty h4 { margin:0 0 4px; color:var(--ink); font-size:15px }
   .mono { font-family:ui-monospace,Consolas,Menlo,monospace; font-size:12.5px }
   .brk { overflow-wrap:anywhere }
-  .spin { display:inline-block; width:13px; height:13px; border:2px solid #cbd5e1;
-          border-top-color:var(--navy); border-radius:50%; animation:sp .7s linear infinite }
-  @keyframes sp { to { transform:rotate(360deg) } }
   .comment { border-left:2px solid var(--line); padding:0 0 8px 12px; margin-bottom:12px }
   .comment .meta { font-size:11.5px; color:var(--muted) }
   @media print { .noprint { display:none !important } body { background:#fff } .wrap { padding:0; max-width:none } }
@@ -125,18 +117,18 @@
 <body data-module="ads_builder"
       {%- if screen is defined %} data-screen="{{ screen }}"{% endif %}
       {%- if walkthrough is not defined %} data-demo="off"{% endif %}>
-<div class="wrap">
+<div class="wrap s1d-page">
   {% block shell %}
-  <div class="modhead noprint">
+  <div class="s1d-head noprint">
     <div>
-      <h1>Smart 1 Ads</h1>
+      <div class="s1d-crumb">Smart 1 Ads</div>
+      <h1>{% block screentitle %}Smart 1 Ads{% endblock %}</h1>
       <p>{% block strap %}Google Ads campaign operations{% endblock %}</p>
     </div>
-    <div class="spacer"></div>
     {# Every helper call is guarded: a module's Jinja environment is its own, so
        if install_template_helpers() has not run for this app the page degrades
        to a missing button rather than an UndefinedError and a 500. #}
-    <div class="row noprint" style="gap:6px">
+    <div class="s1d-actions noprint">
       {% if screen is defined %}
         <button type="button" class="b-sm" data-tour-start="{{ screen }}"
                 title="A short tour of this screen">How this works</button>
@@ -145,17 +137,17 @@
         <button type="button" class="b-sm" data-demo-start="{{ walkthrough }}"
                 title="Drives this screen for real, with narration">▶ Walk me through it</button>
       {% endif %}
+      <span class="vtag">v{{ version }} · {{ version_date }}</span>
     </div>
-    <span class="vtag">v{{ version }} · {{ version_date }}</span>
   </div>
 
-  <nav class="tabs noprint">
+  <nav class="s1d-subnav noprint">
     {# Generator first, live campaigns after the approval hub: the first three
        steps work with no Google API access, and the fourth is the only one
        that needs a developer token. Opening on the screen that cannot work
        described the whole tool as broken. #}
     <a href="{{ mount }}/" class="{{ 'on' if active=='generator' }}">Campaign generator</a>
-    <a href="{{ mount }}/approvals" class="{{ 'on' if active=='approvals' }}">Approval hub{% if open_count %}<span class="pill">{{ open_count }}</span>{% endif %}</a>
+    <a href="{{ mount }}/approvals" class="{{ 'on' if active=='approvals' }}">Approval hub{% if open_count %}<span class="s1d-pill info">{{ open_count }}</span>{% endif %}</a>
     <a href="{{ mount }}/campaigns" class="{{ 'on' if active=='campaigns' }}">Live campaigns</a>
     <a href="{{ mount }}/activity" class="{{ 'on' if active=='activity' }}">Activity</a>
     <a href="{{ mount }}/settings" class="{{ 'on' if active=='settings' }}">Settings</a>

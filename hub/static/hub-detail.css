@@ -305,12 +305,19 @@ table.s1d-t a, table.seoc-t td a.u {
   text-transform: none; letter-spacing: 0;
 }
 
-.s1d-page button, .s1d-page .btn {
+/* Not the Hub's own injected controls. hub-help.js renders a help bubble as a
+   <button class="s1-help-dot">, and the tour and walkthrough cards are buttons
+   too — all of them injected into the page rather than written by it. Styling
+   them as page buttons turned every help dot into a pill, on every module that
+   adopts this layer at once, which is the way a broad element rule goes wrong.
+   Their own look is in hub-help.css, which loads after this file. */
+.s1d-page button:not([class*="s1-help"]):not([class*="s1-tour"]):not([class*="s1-demo"]),
+.s1d-page .btn {
   background: var(--s1d-brand); color: #fff; border: 0; border-radius: 8px;
   padding: 9px 16px; font: 600 13px 'Segoe UI', system-ui, sans-serif;
   cursor: pointer; text-decoration: none; display: inline-block; line-height: 1.3;
 }
-.s1d-page button:hover, .s1d-page .btn:hover { background: var(--s1d-brand-dark); }
+.s1d-page button:not([class*="s1-help"]):not([class*="s1-tour"]):not([class*="s1-demo"]):hover, .s1d-page .btn:hover { background: var(--s1d-brand-dark); }
 /* `ghost` and `sec` mean the same thing in different modules' vocabularies.
    Both are accepted rather than one being renamed: the name is the page's, and
    a stylesheet that requires a rename to be adopted does not get adopted. */
