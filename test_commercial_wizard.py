@@ -587,6 +587,64 @@ check("so QC's enabled-but-not-generated block still bites",
                              "cta": {"qr_enabled": True}}, [])["level"], "fail")
 
 
+section("The QR image reaches storage, rather than a path that cannot exist")
+# routes/projects.py hands upload_asset a BytesIO. It took a path or a URL:
+# str(BytesIO) is "<_io.BytesIO object at 0x7f...>", open() raised
+# FileNotFoundError on that, and its own `except Exception` turned it into a
+# quiet {"secure_url": None}. So qr_image_url was never once populated on any
+# spot, and the failure was swallowed a second time at the call site by an
+# `or` that never read `error`.
+import io as _io                                                           # noqa: E402
+import types as _types                                                     # noqa: E402
+from modules.commercial_builder.services import cloudinary_service as _cs  # noqa: E402
+
+check("bytes are read as bytes", _cs._read_bytes(b"abc"), b"abc")
+check("and so is an open file", _cs._read_bytes(_io.BytesIO(b"png")), b"png")
+# A caller that has already read the stream would otherwise store nothing,
+# which is the same silent-empty failure one layer down.
+_used = _io.BytesIO(b"already-read")
+_used.read()
+check("one that was already read is rewound, not stored empty",
+      _cs._read_bytes(_used), b"already-read")
+check("a path still names a place", _cs._read_bytes("/tmp/x.png"), None)
+check("and so does a URL", _cs._read_bytes("https://x.test/y.png"), None)
+
+# The whole point: bytes must reach storage.put, not open(). Stubbed rather
+# than uploaded, because this asserts which branch is taken.
+_seen = {}
+class _StubAsset:
+    url = "https://res.cloudinary.test/acme/logos/p-1-qr.png"
+    public_id = "acme/logos/p-1-qr"
+_stub = _types.SimpleNamespace(
+    put=lambda kind, name, data, **kw: (
+        _seen.update(call="put", name=name, data=data, public_id=kw.get("public_id")),
+        _StubAsset())[1],
+    put_remote=lambda *a, **kw: (_seen.update(call="put_remote"), _StubAsset())[1])
+_real_live, _cs.is_live = _cs.is_live, lambda: True
+_real_cfg, _cs._ensure_configured = _cs._ensure_configured, lambda: None
+# `from hub import storage` reads the attribute on the package, so patching
+# sys.modules alone leaves the real one in play — which it did, and the four
+# assertions below came back None while the upload quietly succeeded for real.
+import hub as _hub                                                         # noqa: E402
+_real_storage, _hub.storage = _hub.storage, _stub
+try:
+    _out = _cs.upload_asset(_io.BytesIO(b"\x89PNG-real-qr"), "acme", "logo",
+                            public_id="p-1-qr", resource_type="image",
+                            filename="qr.png")
+finally:
+    _cs.is_live, _cs._ensure_configured = _real_live, _real_cfg
+    _hub.storage = _real_storage
+
+check("bytes go to storage.put", _seen.get("call"), "put")
+check("carrying the actual image", _seen.get("data"), b"\x89PNG-real-qr")
+# Bytes carry no name, and the extension is what the format is read from —
+# so it is asked for rather than guessed, since a guess puts .png on an MP3.
+check("named by what the caller passed", _seen.get("name"), "qr.png")
+check("filed where it always was", _seen.get("public_id"), "acme/logos/p-1-qr")
+check("and a URL comes back", bool(_out.get("secure_url")), True)
+check("with no error", _out.get("error"), None)
+
+
 section("One reading of which lengths carry a logo bug")
 # Four readings before this: the table, a function nothing called, two call
 # sites asking the QR table instead (right by coincidence — both hold the
