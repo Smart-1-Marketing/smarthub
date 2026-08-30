@@ -51,7 +51,14 @@
 (function () {
   var TOKEN = {{ (upload_token or "")|tojson }};
   var CLIENT_ID = {{ (client_id or 0)|tojson }};
-  var BASE = {{ (url_for('image_picker.admin')|replace('/admin',''))|tojson }};
+  /* The module root, with no trailing slash. `image_picker.admin` is the
+     blueprint's own "/" -- there is no /admin to strip, so the old
+     replace() matched nothing and left the slash on, and every signed
+     upload was posted to "//api/upload-signature". Werkzeug answers that
+     with a 308, which a browser replays as a POST, so it worked by luck:
+     anything that downgrades the redirect to a 302 turns the upload into
+     a GET with no body, on the one page a client uses. */
+  var BASE = {{ url_for('image_picker.admin')|tojson }}.replace(/\/$/, "");
   var btn = document.getElementById('openUpload');
   var state = document.getElementById('uploadState');
   var strip = document.getElementById('uploadJustAdded');

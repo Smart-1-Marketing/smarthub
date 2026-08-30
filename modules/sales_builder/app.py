@@ -702,7 +702,17 @@ def index():
 @app.get("/api/config")
 def api_config():
     return jsonify({
-        "io_api_base": os.getenv("IO_API_BASE", "https://insertionordersmart.onrender.com"),
+        # Through _io_api_base(), not a second os.getenv with its own default.
+        # This read still carried the OLD external default -- the very one the
+        # docstring on that function describes as the bug -- and it is the read
+        # the browser actually uses: index.html seeds CFG with "/tools/io" and
+        # then assigns whatever this route returns over the top. So /health
+        # reported the mount while every proposal-to-IO conversion posted to a
+        # different Render service: a cold start, a different login, and a
+        # "The IO API did not return an order number." in the conversion log
+        # with nothing saying where it had gone. One reader, the rule this
+        # codebase applies to rate cards, client keys and source labels alike.
+        "io_api_base": _io_api_base(),
         # Now mounted inside the Hub rather than iframed from Render, so it
         # shares the login and can reach the client registry. The external URL
         # still works as an override if the standalone app is ever needed.
