@@ -38,6 +38,10 @@ import re
 # /api/integrity and by test_help_layer.py, and two copies of "which keys
 # resolve" is the drift a second reader always becomes.
 from . import help_audit as _help_audit
+# The work-log table and the two checks over it. Beside the audit above for
+# the same reason: one reading of "which module names count", read by
+# /api/integrity and by test_client_images.py.
+from . import client_brand as _client_brand
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -884,6 +888,25 @@ CHECKS = [
     # indistinguishable from one that never tried.
     ("dead_help_bubbles", "A help bubble with no help behind it", "medium",
      _help_audit.check_dead_bubbles),
+    # High, and green the day it went in. This is the one failure in this file
+    # that has recurred five times: work_log() skips a module WORK_KINDS
+    # cannot name, so a client who has just had display ads built / an ad copy
+    # request raised / a website audit run / an insertion order written reads
+    # as a client nobody has done any work for. Every screen is complete, the
+    # log row is present, the client record is confidently empty, and nothing
+    # errors at any of the three. Each of the five was found by somebody
+    # opening one client's record and noticing, which is not a way of finding
+    # the sixth -- and the fix is one line.
+    ("unnamed_client_work", "Client work the record cannot name", "high",
+     _client_brand.check_work_kinds),
+    ("stale_work_exemptions", "A not-a-deliverable exemption outlived its "
+     "call site", "medium", lambda: [
+         {"file": "hub/client_brand.py", "module": m,
+          "detail": (f"NOT_WORK names {m!r}, which no longer logs against a "
+                     "client — the exemption now covers whatever is written "
+                     "under that name next"),
+          "fix": f"Drop {m!r} from NOT_WORK."}
+         for m in _client_brand.stale_work_exemptions()]),
 ]
 
 

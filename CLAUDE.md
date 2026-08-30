@@ -439,6 +439,42 @@ the three. `test_client_images.py` now asserts that **every name
 exists precisely because the directory and the log disagree, which makes it
 exactly the case where a second table gets keyed on the wrong one.
 
+**That assertion covers one entry, and the failure has now happened five
+times.** `LOG_NAMES` holds exactly one mapping, so asserting over it caught
+`display_ads` and nothing else. `ad_copy` and `website_audit` were each added
+to `WORK_KINDS` later with a note in this file saying *the `display_ads`
+failure, one tool later* and *two tools later* — and then **`io_builder`,
+`landing_maker`, `stock_photos`, `brand` and `suite`** turned out to be doing
+the same thing. The insertion order is the worst of them: `hub/io_clients.py`
+exists precisely because a client whose only trace is an IO was invisible on
+their own record, so the IO was registering the client and then not appearing
+as work for them. Every one of the five was found the same way — somebody
+opens a client's record and notices — which is not a way of finding the sixth.
+
+`client_brand.check_work_kinds()` asks the question of **every call site**
+instead, through the AST: any `audit.log(…, client=…)` whose module name is
+in neither table is a finding, and `/api/integrity` runs it at **high**. It
+went in green. Two things it had to get right, both of which caught a first
+draft of it. **A bare `log()` is a module's own wrapper** whose first argument
+is the *event* rather than the module — Radio Promo and Landing Ads both have
+one — and counting those reported four modules as filing work under
+`project.create`. And **prose is not a call site**: three modules explain this
+very trap by quoting the call, so it reads the AST rather than matching text,
+or the check reports the explanation of the fix as the defect —
+`tools/spellcheck.py`'s rule, on a different shelf.
+
+**`NOT_WORK` is the other side, written down rather than left as an
+absence.** Ten landing modules and `hub/leads.py` log with a `client=` that is
+the **prospect's** own business name off a form, and a lead on a client record
+would be the Hub inventing a relationship — the distinction `hub/leads.py` and
+`hub/prospect.py` are built around. `google_index`, `hub` and `qa` record a
+join or a status rather than a deliverable. Each is named with its reason, so
+the check can tell *decided to leave out* from *nobody has noticed yet*, which
+is the only thing that lets it be green rather than a list somebody re-triages
+on every run. `stale_work_exemptions()` fails on an entry naming a module that
+no longer logs against a client, because an exemption that outlives its call
+site goes on covering whatever is written under that name next.
+
 **And a base read twice is a base with two answers.** `modules/sales_builder`
 read `IO_API_BASE` in two places with **different defaults**: `_io_api_base()`
 returned the `/tools/io` mount and carries a docstring explaining at length
@@ -7513,7 +7549,9 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
                                    #   preview every gallery draws instead of the original
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   and a gallery you can search
-python3 test_client_images.py      # deleting a client image, the count, the one brand
+python3 test_client_images.py      # every module that logs client work is one the
+                                   #   record can name; deleting a client image, the
+                                   #   count, the one brand
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
