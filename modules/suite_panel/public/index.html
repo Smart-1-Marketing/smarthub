@@ -16,27 +16,13 @@
     margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: #f4f6fa; color: var(--ink); font-size: 15px; line-height: 1.5;
   }
-  header {
-    background: var(--bg); color: #fff; padding: 16px 24px;
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  header .brand { font-weight: 700; font-size: 18px; letter-spacing: .2px; }
-  header .brand span { color: #60a5fa; }
-  header .right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: #cbd5e1; }
-  header button.link { background: none; border: none; color: #93c5fd; cursor: pointer; font-size: 13px; }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 24px; }
-
-  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
-  .tabs button {
-    background: none; border: none; padding: 12px 18px; cursor: pointer; font-size: 15px;
-    color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500;
-  }
-  .tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
-
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
-  .card h2 { margin: 0 0 4px; font-size: 17px; }
-  .card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
-
+  /* The page frame. Everything that used to sit above it -- a dark branded
+     header and an underline tab bar -- now comes from the Hub's shared
+     hub-detail.css as .s1d-head and .s1d-subnav, so this panel is the same
+     shape as the SEO client page rather than a second interpretation of it. */
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  .who { color: var(--muted); font-size: 13px; align-self: center; }
+  .who b { color: var(--ink); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
   .grid .full { grid-column: 1 / -1; }
   label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
@@ -53,35 +39,23 @@
   .checkline input { width: auto; }
   .checkline label { margin: 0; font-weight: 600; }
 
-  .btn {
-    display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px;
-    border: none; font-size: 14px; font-weight: 600; cursor: pointer;
-  }
-  .btn-primary { background: var(--brand); color: #fff; }
-  .btn-primary:hover { background: var(--brand-dark); }
-  .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
-  .btn-ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
-  .btn-ghost:hover { background: #f8fafc; }
-  .btn-danger { background: var(--danger); color: #fff; }
-  .btn-danger:disabled { opacity: .5; cursor: not-allowed; }
-  .btn-sm { padding: 6px 12px; font-size: 13px; }
-
   .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
   .toolbar input { flex: 1; min-width: 200px; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  th { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
-  td .id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
-  tr:hover td { background: #f8fafc; }
-
-  .msg { padding: 12px 14px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; display: none; }
-  .msg.show { display: block; }
-  .msg.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid #a7f3d0; }
-  .msg.err { background: var(--danger-bg); color: var(--danger); border: 1px solid #fecaca; }
-  .msg.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fde68a; }
-
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+
+  /* Local, and each for a reason the shared sheet should not carry:
+     - a button here may hold a spinner beside its label, so it lays out as a
+       flex row rather than the shared inline-block;
+     - .msg is this page's own state (shown or not), the colors are shared;
+     - td .id is a GoHighLevel account id, which is read character by character
+       when somebody is comparing it against the Suite. */
+  button.s1d-btn, a.s1d-btn { display: inline-flex; align-items: center; gap: 8px; justify-content: center; }
+  .msg { display: none; }
+  .msg.show { display: block; }
+  .s1d-card p.sub { margin: 0 0 20px; }
+  td .id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  #tableWrap { overflow-x: auto; }
 
   .brandlookup { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 14px 16px; margin-bottom: 22px; }
   .brandlookup > label { margin-bottom: 8px; }
@@ -112,9 +86,6 @@
   .spinner { width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .hidden { display: none !important; }
-
-  .who { color: #cbd5e1; }
-  .who b { color: #fff; }
 
   .dup-list { list-style: none; margin: 10px 0 0; padding: 0; }
   .dup-list li { padding: 8px 10px; background: #f8fafc; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 6px; font-size: 13px; }
@@ -165,31 +136,46 @@
   <div class="box">
     <h1>Smart <span>1</span> Suite</h1>
     <p>Control Panel — enter the access password to continue.</p>
-    <div id="loginMsg" class="msg err"></div>
+    <div id="loginMsg" class="s1d-note msg err"></div>
     <form id="loginForm">
       <label>Your name</label>
       <input type="text" id="loginName" autocomplete="name" placeholder="e.g. Todd" required style="margin-bottom:14px;" />
       <label>Password</label>
       <input type="password" id="loginPw" autocomplete="current-password" required />
       <div class="hint" style="margin-bottom:4px;">Your name is attached to any account you create or delete, for the activity log.</div>
-      <button class="btn btn-primary" style="width:100%; justify-content:center; margin-top:12px;" type="submit">Unlock</button>
+      <button class="s1d-btn" style="width:100%; justify-content:center; margin-top:12px;" type="submit">Unlock</button>
     </form>
   </div>
 </div>
 
 <!-- ============ APP ============ -->
 <div id="app" class="hidden">
-  <header>
-    <div class="brand">Smart <span>1</span> Suite · Control Panel</div>
-    <div class="right">
-      <span id="acctCount"></span>
-      <span class="who">Hi, <b id="whoName">—</b></span>
-      <button class="link" id="logoutBtn">Log out</button>
-    </div>
-  </header>
+  <!--
+    No dark branded header. This panel is mounted inside the Hub, so the page
+    already carries the Hub's own sidebar; a second bar reading "Smart 1 Suite ·
+    Control Panel" is what made this read as a different product standing next
+    to Client 360 and the SEO client page. The identity that is actually worth
+    keeping — who is signed in, and how many sub-accounts there are — moves into
+    the page head, where every other record screen in the Hub carries it.
 
+    The tab strip keeps its `tabs` class and its `active` state: both are what
+    the script below selects on, and renaming them here to suit a stylesheet is
+    the stylesheet deciding what the page's state is called.
+  -->
   <div class="wrap">
-    <div class="tabs">
+    <div class="s1d-head">
+      <div>
+        <div class="s1d-crumb">Suite</div>
+        <h1>Control Panel</h1>
+        <p>Sub-accounts, snapshots and the activity behind them. <span id="acctCount"></span></p>
+      </div>
+      <div class="s1d-actions">
+        <span class="who">Signed in as <b id="whoName">—</b></span>
+        <button class="s1d-btn sec" id="logoutBtn">Log out</button>
+      </div>
+    </div>
+
+    <div class="tabs s1d-subnav">
       <button data-tab="create" class="active">Create Account</button>
       <button data-tab="manage">Manage Accounts</button>
       <button data-tab="activity">Activity</button>
@@ -198,16 +184,16 @@
 
     <!-- CREATE TAB -->
     <section id="tab-create">
-      <div class="card">
+      <div class="s1d-card">
         <h2>Create a new sub-account</h2>
-        <p class="sub">Only the account name is required. Everything else is optional.</p>
-        <div id="createMsg" class="msg"></div>
+        <p class="s1d-muted sub">Only the account name is required. Everything else is optional.</p>
+        <div id="createMsg" class="s1d-note msg"></div>
 
         <div class="brandlookup">
           <label>Look up an existing client <span class="opt">(searches Smart 1 Team + website records)</span></label>
           <div class="toolbar" style="margin-bottom:0;">
             <input id="clientLookup" placeholder="Start typing a client name or domain…" />
-            <button type="button" class="btn btn-ghost btn-sm" id="clientLookupBtn">Find client</button>
+            <button type="button" class="s1d-btn sec small" id="clientLookupBtn">Find client</button>
           </div>
           <div id="clientLookupResults" style="margin-top:8px;"></div>
         </div>
@@ -216,7 +202,7 @@
           <label>Auto-fill from client website <span class="opt">(optional — powered by Brandfetch)</span></label>
           <div class="toolbar" style="margin-bottom:0;">
             <input id="brandDomain" placeholder="acme.com" />
-            <button type="button" class="btn btn-ghost btn-sm" id="brandBtn">Fetch brand info</button>
+            <button type="button" class="s1d-btn sec small" id="brandBtn">Fetch brand info</button>
           </div>
           <div id="brandPreview" class="brand-preview hidden"></div>
         </div>
@@ -294,7 +280,7 @@
           </div>
 
           <div style="margin-top:22px;">
-            <button class="btn btn-primary" id="createBtn" type="submit">Create account</button>
+            <button class="s1d-btn" id="createBtn" type="submit">Create account</button>
           </div>
         </form>
       </div>
@@ -302,19 +288,19 @@
 
     <!-- MANAGE TAB -->
     <section id="tab-manage" class="hidden">
-      <div class="card">
+      <div class="s1d-card">
         <h2>Manage accounts</h2>
-        <p class="sub">Search, review, and remove sub-accounts.</p>
-        <div id="manageMsg" class="msg"></div>
+        <p class="s1d-muted sub">Search, review, and remove sub-accounts.</p>
+        <div id="manageMsg" class="s1d-note msg"></div>
 
         <div class="toolbar">
           <input id="searchBox" placeholder="Search by name or email…" />
-          <button class="btn btn-ghost btn-sm" id="refreshBtn">Refresh</button>
-          <button class="btn btn-ghost btn-sm" id="csvBtn">Export CSV</button>
+          <button class="s1d-btn sec small" id="refreshBtn">Refresh</button>
+          <button class="s1d-btn sec small" id="csvBtn">Export CSV</button>
         </div>
 
         <div id="tableWrap">
-          <table>
+          <table class="s1d-t">
             <thead><tr><th>Name</th><th>Location ID</th><th>Email</th><th style="text-align:right">Actions</th></tr></thead>
             <tbody id="rows"></tbody>
           </table>
@@ -325,18 +311,18 @@
 
     <!-- ACTIVITY TAB -->
     <section id="tab-activity" class="hidden">
-      <div class="card">
+      <div class="s1d-card">
         <h2>Activity log</h2>
-        <p class="sub">Who created or deleted what, and login attempts. Stored on the server; may reset if the app restarts without a persistent disk attached.</p>
-        <div id="activityMsg" class="msg"></div>
+        <p class="s1d-muted sub">Who created or deleted what, and login attempts. Stored on the server; may reset if the app restarts without a persistent disk attached.</p>
+        <div id="activityMsg" class="s1d-note msg"></div>
 
         <div class="toolbar">
-          <button class="btn btn-ghost btn-sm" id="activityRefreshBtn">Refresh</button>
-          <button class="btn btn-ghost btn-sm" id="activityCsvBtn">Export CSV</button>
+          <button class="s1d-btn sec small" id="activityRefreshBtn">Refresh</button>
+          <button class="s1d-btn sec small" id="activityCsvBtn">Export CSV</button>
         </div>
 
         <div style="overflow-x:auto;">
-          <table>
+          <table class="s1d-t">
             <thead><tr><th>Time</th><th>Event</th><th>Who</th><th>Account</th></tr></thead>
             <tbody id="activityRows"></tbody>
           </table>
@@ -347,24 +333,24 @@
 
     <!-- DIAGNOSTICS TAB -->
     <section id="tab-diagnostics" class="hidden">
-      <div class="card">
+      <div class="s1d-card">
         <h2>System status</h2>
-        <p class="sub">Checks whether GoHighLevel and Brandfetch are configured and reachable, so a bad token or missing scope shows up here instead of as a mystery error later.</p>
+        <p class="s1d-muted sub">Checks whether GoHighLevel and Brandfetch are configured and reachable, so a bad token or missing scope shows up here instead of as a mystery error later.</p>
         <div class="toolbar">
-          <button class="btn btn-primary btn-sm" id="diagRunBtn">Run checks</button>
+          <button class="s1d-btn small" id="diagRunBtn">Run checks</button>
           <span id="diagCheckedAt" class="hint" style="align-self:center;"></span>
         </div>
         <div id="diagList" class="diag-list"></div>
         <div id="diagEmpty" class="empty">Click "Run checks" to test your GHL and Brandfetch configuration.</div>
       </div>
 
-      <div class="card">
+      <div class="s1d-card">
         <h2>Sub-account access</h2>
-        <p class="sub">The agency token can't read sub-account resources like Forms. Connecting the Marketplace app once lets the Hub issue a token for any client automatically — including clients added later.</p>
+        <p class="s1d-muted sub">The agency token can't read sub-account resources like Forms. Connecting the Marketplace app once lets the Hub issue a token for any client automatically — including clients added later.</p>
         <div class="toolbar">
-          <a class="btn btn-primary btn-sm" id="oauthConnectBtn" href="/suite/oauth/start">Connect</a>
-          <button class="btn btn-sm" id="oauthRefreshBtn">Check status</button>
-          <button class="btn btn-sm hidden" id="oauthDisconnectBtn">Disconnect</button>
+          <a class="s1d-btn small" id="oauthConnectBtn" href="/suite/oauth/start">Connect</a>
+          <button class="s1d-btn small" id="oauthRefreshBtn">Check status</button>
+          <button class="s1d-btn small hidden" id="oauthDisconnectBtn">Disconnect</button>
         </div>
         <div id="oauthStatus" class="empty">Checking…</div>
       </div>
@@ -379,8 +365,8 @@
     <p id="dupText">An account with this name already exists:</p>
     <ul class="dup-list" id="dupList"></ul>
     <div class="modal-actions">
-      <button class="btn btn-ghost" id="dupCancel">Cancel</button>
-      <button class="btn btn-primary" id="dupProceedBtn">Create anyway</button>
+      <button class="s1d-btn sec" id="dupCancel">Cancel</button>
+      <button class="s1d-btn" id="dupProceedBtn">Create anyway</button>
     </div>
   </div>
 </div>
@@ -390,7 +376,7 @@
   <div class="box">
     <h3>Delete sub-account</h3>
     <p>This permanently deletes <strong id="delName"></strong>. This cannot be undone.</p>
-    <div class="msg warn show" style="margin:0 0 14px;">
+    <div class="s1d-note msg warn show" style="margin:0 0 14px;">
       Note: HighLevel can't always fully remove the underlying Twilio subaccount via API — you may need to clean that up separately in Twilio.
     </div>
     <label>Type the account name to confirm</label>
@@ -400,8 +386,8 @@
       <label for="delTwilio">Also attempt to delete the Twilio subaccount</label>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" id="delCancel">Cancel</button>
-      <button class="btn btn-danger" id="delConfirmBtn" disabled>Delete permanently</button>
+      <button class="s1d-btn sec" id="delCancel">Cancel</button>
+      <button class="s1d-btn danger" id="delConfirmBtn" disabled>Delete permanently</button>
     </div>
   </div>
 </div>
@@ -432,8 +418,15 @@ function newIdemKey() {
   return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+/* The notice classes are the Hub's shared ones (hub/static/hub-detail.css), so
+   a message here looks like a message anywhere else in the Hub. `msg` and
+   `show` stay because they are this page's own state — whether the box is
+   displayed at all — and `err` is translated to the shared `bad` rather than
+   the shared sheet growing a fourth spelling of the same color. */
+const NOTE_LEVEL = { ok: 'ok', warn: 'warn', err: 'bad' };
+
 function flash(el, type, text) {
-  el.className = 'msg ' + type + ' show';
+  el.className = 's1d-note msg ' + (NOTE_LEVEL[type] || '') + ' show';
   el.textContent = text;
   if (type === 'ok') setTimeout(() => el.classList.remove('show'), 6000);
 }
@@ -461,7 +454,7 @@ async function lookupClient() {
     if (!groups.length) { box.innerHTML = '<span class="opt">No client matched — you can still fill the form manually.</span>'; return; }
     box.innerHTML = groups.map((g, i) => {
       const dom = (g.websites && g.websites[0] && g.websites[0].domain) || '';
-      return `<button type="button" class="btn btn-ghost btn-sm" style="margin:0 6px 6px 0" data-pick="${i}">${escapeHtml(g.client)}${dom ? ' · ' + escapeHtml(dom) : ''}</button>`;
+      return `<button type="button" class="s1d-btn sec small" style="margin:0 6px 6px 0" data-pick="${i}">${escapeHtml(g.client)}${dom ? ' · ' + escapeHtml(dom) : ''}</button>`;
     }).join('');
     box.querySelectorAll('[data-pick]').forEach(btn => btn.addEventListener('click', () => {
       const g = groups[Number(btn.dataset.pick)];
@@ -756,7 +749,7 @@ function renderRows() {
       `<td><strong>${esc(a.name || '(unnamed)')}</strong></td>` +
       `<td><span class="id">${esc(id)}</span></td>` +
       `<td>${esc(email)}</td>` +
-      `<td style="text-align:right"><button class="btn btn-ghost btn-sm mg" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Manage</button> <button class="btn btn-danger btn-sm del" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Delete</button></td>`;
+      `<td style="text-align:right"><button class="s1d-btn sec small mg" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Manage</button> <button class="s1d-btn danger small del" data-id="${esc(id)}" data-name="${esc(a.name || '')}">Delete</button></td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll('button.del[data-id]').forEach((b) =>
@@ -977,15 +970,15 @@ async function loadOauthStatus() {
       <div><h2 id="mgName" style="margin:0;font-size:17px;color:#1a2e58">Account</h2>
       <div id="mgId" style="font-size:11.5px;color:#64748b"></div></div>
       <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-        <a id="mgLogin" class="btn btn-primary btn-sm" href="#" target="_blank" rel="noopener">&#128274; Log in to this account &rarr;</a>
-        <button class="btn btn-ghost btn-sm" onclick="closeManage()">&#10005; Close</button>
+        <a id="mgLogin" class="s1d-btn small" href="#" target="_blank" rel="noopener">&#128274; Log in to this account &rarr;</a>
+        <button class="s1d-btn sec small" onclick="closeManage()">&#10005; Close</button>
       </div>
     </div>
     <div style="overflow:auto;padding:18px">
       <div id="mgBody"><span class="opt">Loading account analytics&hellip;</span></div>
     </div>
     <div style="padding:10px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center">
-      <button class="btn btn-danger btn-sm" id="mgDelete">Delete this account&hellip;</button>
+      <button class="s1d-btn danger small" id="mgDelete">Delete this account&hellip;</button>
       <span class="opt">Log-in opens the sub-account dashboard in Smart 1 Suite &mdash; you must be signed into your agency account in this browser.</span>
     </div>
   </div>
