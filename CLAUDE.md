@@ -7045,6 +7045,42 @@ whenever they like, turned into a 404 for the one person the tool is for.
 `tests/retention.test.ts` drives the clock rather than waiting on it, and holds
 all three.
 
+**The enforcer nobody tested said things that were not true.**
+`image-budget.fitImageToBudget` is the one place guaranteeing every ingest
+path -- a customer upload, a Pixabay hit, an AI generation -- ends up a valid
+raster under 150 KB, and `imagery.ts` states the rule "holds by construction:
+there is no path here that skips the enforcer". Nothing tested it, and two of
+the things it *reported* were wrong.
+
+`reencoded` was `encoded.length !== original.length`, which is true of very
+nearly every image, because the file is always re-encoded and the bytes always
+differ. Its own description said *"had to be compressed or downscaled to
+fit"* -- the field meant **we did**, and it claimed **it had to**. So a
+600-byte logo came back flagged, carrying a note that it had been optimized
+*"to meet the 150 KB limit"*, about a file at 0.4% of that limit; and
+`toFixed(0)` printed its size as **"0 KB"**, on a string whose whole job is to
+be read by a person.
+
+And a function that exists to make a file smaller could hand back a larger
+one. A high-entropy source already saved hard -- a Pixabay `webformatURL`, a
+low-quality photo -- overshoots on the q82 first pass; the ladder pulls it back
+under budget and the answer is still bigger than what arrived. Measured, 52 KB
+in and 137 KB out, described as optimized. The original is kept now where it
+already fits, is inside the dimension cap and is already the format we would
+write, and that test asks nothing about whether the ladder ran: **work having
+been done is not a reason to prefer a worse result.**
+
+Two things the tests pin that are correct and worth not losing. A source that
+genuinely cannot fit is **refused in words** rather than written over budget --
+the ladder is bounded at twelve steps and spends four of every five on quality
+before it shrinks, so a large incompressible image runs out of them, and the
+message says what to do. And the file docstring no longer claims 150 KB is
+"deliberately below Google's 150 KB delivered-creative limit", which is not a
+thing 150 can be than 150: what keeps a finished ad inside its platform ceiling
+is the quality ladder `render.ts` steps on the composed raster, and this budget
+keeps a 6 MB phone photo from being the input to it -- a different job, worth
+having, just not the one the sentence claimed.
+
 **The scan photographed their website and nobody was shown the photograph.**
 `website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
 so an operator judging brand colour on a dark canvas had to open the client's
