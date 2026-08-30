@@ -19,7 +19,7 @@ import type { ComposeOutput } from './svg';
 import { inkOverBackground, resolveColor } from './svg';
 import sharp from 'sharp';
 import { flatBackdrop, type FlatBackdrop } from './logo-tools';
-import { contrastRatio, hexLuminance, regionLuminance, type RasterResult } from './raster';
+import { contrastRatio, hexLuminance, regionLuminance, relativeLuminance, type RasterResult } from './raster';
 
 export interface QaInput {
   layout: SizeLayout;
@@ -116,6 +116,69 @@ export async function logoInkLuminance(file: string): Promise<number | null> {
   }
 }
 
+/**
+ * How much of a logo actually disappears against the panel it sits on.
+ *
+ * logoInkLuminance() averages every opaque pixel into one number, which is the
+ * right measure for the plate question below and the wrong one here: a logo is
+ * routinely two-tone, and an average is a tone that may appear nowhere in it.
+ * Icon Solar's mark is 5,193 navy pixels and 1,176 yellow ones, so on a navy
+ * panel it averages to 0.143 and scores 2.3:1 -- clear of the 1.7 threshold --
+ * while the navy wordmark itself sits at 1.15:1 and is simply not there. The
+ * check passed the one ad whose logo had vanished.
+ *
+ * So each pixel is compared on its own and the finding is the share of the
+ * mark that fails. A fraction rather than a worst case, because a worst case
+ * fires on the one anti-aliased pixel at the edge of every logo ever drawn,
+ * and a check that warns on everything is one people stop reading -- the note
+ * hub/qr_codes.py makes about a QR warning on every social spot.
+ */
+export const LOGO_MIN_CONTRAST = 1.7;
+/** A quarter of the mark gone is a finding; the odd dark detail in a mostly
+ *  light logo is not. Icon Solar's sun is 18% of its mark and stays quiet on
+ *  white, where the wordmark carries the name and reads at 14:1. */
+export const LOGO_MAX_FAIL_FRACTION = 0.25;
+
+export async function logoInkContrast(
+  file: string,
+  behind: number,
+): Promise<{ failFraction: number; failRatio: number; meanRatio: number } | null> {
+  try {
+    const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    let total = 0;
+    let failed = 0;
+    let failLumSum = 0;
+    let lumSum = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      if (data[i + 3] / 255 < 0.1) continue;
+      // relativeLuminance, not the cheap Rec.709 luma logoInkLuminance uses:
+      // `behind` comes from regionLuminance, which linearises, and comparing
+      // a non-linearised number against a linearised one through
+      // contrastRatio() is two different scales in one ratio. On this mark it
+      // is the difference between 2.2:1 and 1.2:1 -- between a pass and the
+      // finding.
+      const lum = relativeLuminance(data[i] / 255, data[i + 1] / 255, data[i + 2] / 255);
+      total += 1;
+      lumSum += lum;
+      if (contrastRatio(lum, behind) < LOGO_MIN_CONTRAST) {
+        failed += 1;
+        failLumSum += lum;
+      }
+    }
+    if (total === 0) return null;
+    return {
+      failFraction: failed / total,
+      // The tone the failing part of the mark actually is, so the number in
+      // the message is one a reader can see on the ad rather than an average
+      // across the parts that are fine.
+      failRatio: failed > 0 ? contrastRatio(failLumSum / failed, behind) : Infinity,
+      meanRatio: contrastRatio(lumSum / total, behind),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function safeRegion(layout: SizeLayout): Box {
   if (layout.safeBox) return layout.safeBox;
   const s = layout.safe;
@@ -207,14 +270,17 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     }
 
     if (ink !== null && !plateShows) {
-      const ratio = contrastRatio(ink, behind);
-      if (ratio < 1.7) {
-        // Suggest the opposite of what's there: a light logo needs the
-        // darker/full-colour version and vice versa.
-        const suggestion = ink > 0.5 ? 'full-color (darker)' : 'white';
-        warn('logo-contrast', `the logo is nearly invisible against its background (${ratio.toFixed(1)}:1). Try the ${suggestion} logo on this size.`);
-      } else {
-        pass('logo-contrast', `logo reads clearly against its background (${ratio.toFixed(1)}:1)`);
+      const measured = await logoInkContrast(logoFile, behind);
+      if (measured && measured.failFraction > LOGO_MAX_FAIL_FRACTION) {
+        // Suggest the opposite of what is actually disappearing, not the
+        // opposite of the whole mark's average: on a two-tone logo those are
+        // different answers, and the average is what got this wrong before.
+        const suggestion = behind < 0.5 ? 'white' : 'full-color (darker)';
+        const share = Math.round(measured.failFraction * 100);
+        warn('logo-contrast',
+          `${share}% of the logo is invisible against its background (${measured.failRatio.toFixed(1)}:1). Try the ${suggestion} logo on this size.`);
+      } else if (measured) {
+        pass('logo-contrast', `logo reads clearly against its background (${measured.meanRatio.toFixed(1)}:1)`);
       }
     }
     // A plated logo gets NO contrast finding rather than a passing one. What

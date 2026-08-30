@@ -23,6 +23,7 @@ import { renderPreview } from './render';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates, acceptPlatforms } from './registry';
 import { logoInkLuminance } from './qa';
+import { reverseLogoOnPanel } from './svg';
 import { paletteVariants } from './palette';
 import { ProjectStore, type Project } from './projects';
 import { PresetStore, presetFromConcept, conceptFromPreset, FIELD_ROLES } from './presets';
@@ -1048,7 +1049,11 @@ const server = http.createServer(async (req, res) => {
           });
         }
 
-        const logoFile = concept.useReverseLogo && campaign.brand.logos.reverse
+        // The same rule the render path applies, or the advisor measures one
+        // logo while the ad ships the other.
+        const useReverse = concept.useReverseLogo
+          ?? reverseLogoOnPanel(layout, campaign.brand, concept);
+        const logoFile = useReverse && campaign.brand.logos.reverse
           ? campaign.brand.logos.reverse
           : campaign.brand.logos.primary;
         const abs = logoFile && path.isAbsolute(logoFile)
