@@ -35,34 +35,62 @@ def run_qc(project_id):
 
 @bp.post("/render")
 def submit_render(project_id):
-    """Renders one job per requested output format (spec section 15: one
-    commercial can fan out to 16:9 / 9:16 / 1:1 from the same storyboard)."""
+    """Render the sizes asked for — one, until one of them is approved.
+
+    The rule this route was built around stands: rendering three sizes at once
+    means the second and third are built from a storyboard nobody has watched,
+    so a note on the first applies to two cuts already paid for. That is a
+    statement about *unwatched* creative, not about batching, and it stops
+    being true the moment a cut of this spot has been approved: the remaining
+    formats then come off a storyboard somebody has signed off, which is
+    exactly the condition the one-at-a-time rule was protecting.
+
+    So the gate is an approval on this project, not a count. Before one exists
+    a second format is refused **by name**, with what would lift the refusal —
+    a route that quietly rendered the first of three would be the old failure
+    wearing a different response.
+    """
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
-    # One size at a time, on purpose.
-    #
-    # This used to loop every ticked format and fire them all at once. Three
-    # renders in flight is three ways to be wrong before anybody has looked at
-    # one: the second and third are built from the same storyboard, so if the
-    # first comes back with a scene that reads badly at 9:16 or a CTA that
-    # crops, the other two have already been paid for and carry it too. Render
-    # one, watch it, approve it or change something — then the next.
     requested = data.get("formats")
     if requested is None:
         one = data.get("format")
         requested = [one] if one else (project.formats or ["16:9"])[:1]
-    requested = [f for f in requested if f]
-    if len(requested) != 1:
-        return jsonify({"ok": False, "error": (
-            "Render one size at a time. Pick a single format — once it comes "
-            "back and you've approved it, the others render from the same "
-            "storyboard.")}), 400
+    # Deduped, order kept: a size ticked twice is one render, and a set would
+    # reorder the batch so the panel draws them in an order nobody chose.
+    seen = set()
+    requested = [f for f in requested if f and not (f in seen or seen.add(f))]
+    if not requested:
+        return jsonify({"ok": False, "error": "Pick a size to render."}), 400
 
-    fmt = requested[0]
-    if fmt not in {f["id"] for f in OUTPUT_FORMATS}:
-        return jsonify({"ok": False, "error": f"{fmt} is not an output format."}), 400
-    formats = [fmt]
+    known = {f["id"] for f in OUTPUT_FORMATS}
+    unknown = [f for f in requested if f not in known]
+    if unknown:
+        return jsonify({"ok": False, "error": (
+            f"{', '.join(unknown)} is not an output format.")}), 400
+
+    approved_formats = _approved_formats(project)
+    if len(requested) > 1:
+        if not approved_formats:
+            return jsonify({"ok": False, "error": (
+                "Nothing on this spot has been approved yet, so render one "
+                "size first. Once a cut is approved, the rest come off a "
+                "storyboard somebody has watched and they can go together."),
+                "needs_approval_first": True}), 409
+        # A size already approved is refused rather than dropped from the
+        # batch. Re-rendering one deliberately is a thing somebody may want to
+        # do; having it silently skipped inside a batch of four is how an
+        # approved cut is quietly replaced, or quietly not replaced, with the
+        # panel reporting the same success either way.
+        clash = [f for f in requested if f in approved_formats]
+        if clash:
+            return jsonify({"ok": False, "error": (
+                f"{', '.join(clash)} {'is' if len(clash) == 1 else 'are'} "
+                "already approved. Untick to render the rest, or render that "
+                "size on its own to replace it.")}), 409
+
+    formats = requested
     force = data.get("force_despite_qc_failures", False)
 
     scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
@@ -94,11 +122,33 @@ def submit_render(project_id):
     _log_render(project, client, formats)
     return jsonify({"ok": True, "render_jobs": [j.to_dict() for j in jobs],
                     "live": creatomate_service.is_live(),
+                    "batched": len(formats) > 1,
+                    "formats": formats,
                     # Mock mode returns a job id and no file. Saying so here is
                     # what stops the panel reporting "succeeded" over nothing.
                     "note": ("" if creatomate_service.is_live() else
                              "No CREATOMATE_API_KEY is set, so these jobs are mock: "
                              "they will report success and no file will exist.")})
+
+
+def _approved_formats(project):
+    """Which sizes of this spot somebody has already approved.
+
+    Read off the approvals joined to their jobs rather than off
+    `project.status`: a project is "complete" only once every requested size is
+    approved, and the thing that unlocks a batch is the *first* one.
+
+    Never raises. This decides whether a render is refused, and a table that
+    will not answer must not turn into a 500 in front of somebody pressing
+    Render — an empty answer costs the batch and never the render, which is
+    the strictest of the two failures rather than the loudest.
+    """
+    try:
+        approved_ids = {a.render_job_id for a in
+                        RenderApproval.query.filter_by(project_id=project.id).all()}
+        return {j.format for j in project.render_jobs.all() if j.id in approved_ids}
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 def _log_render(project, client, formats):
@@ -147,11 +197,16 @@ def list_render_jobs(project_id):
         row["approval"] = approvals.get(job.id)
         rows.append(row)
     approved_formats = sorted({j.format for j in jobs if j.id in approvals})
+    remaining = [f for f in (project.formats or []) if f not in approved_formats]
     return jsonify({"ok": True, "render_jobs": rows,
                     "approved_formats": approved_formats,
                     "requested_formats": project.formats or [],
-                    "remaining_formats": [f for f in (project.formats or [])
-                                          if f not in approved_formats],
+                    "remaining_formats": remaining,
+                    # Decided here rather than inferred in the browser from the
+                    # two lists above: what opens a batch is a rule this route
+                    # enforces, and a panel that works it out separately is a
+                    # second copy of it that drifts.
+                    "can_batch": bool(approved_formats) and len(remaining) > 1,
                     "live": creatomate_service.is_live()})
 
 
@@ -217,6 +272,16 @@ def approve_render(project_id, job_id):
     # blocking it would teach people to answer "approved" to get past the
     # gate — and a project nobody ever sent for review is unchanged, because
     # an internal-only sign-off is still how most of these are built.
+    # Which published rules the copy engages, and whether anybody has said out
+    # loud that they were looked at. Asked BEFORE the client verdict, because
+    # a spot the client loves can still be one nobody checked Reg Z against —
+    # and filing is what makes it a deliverable.
+    compliance = _compliance_gate(project, client)
+    if compliance["blocks_filing"] and not data.get("acknowledge_compliance"):
+        return jsonify({"ok": False, "error": compliance["message"],
+                        "compliance": compliance,
+                        "needs_acknowledgment": True}), 409
+
     standing = _client_verdict(project)
     if standing["blocks_filing"] and not data.get("override"):
         return jsonify({"ok": False, "error": (
@@ -279,10 +344,70 @@ def approve_render(project_id, job_id):
                     # approved it" rather than only "filed". They are
                     # different sentences and only one of them is a sign-off.
                     "client_verdict": standing,
+                    "compliance": compliance,
                     "filed_over_client_objection": bool(standing["blocks_filing"]),
                     "remaining_formats": [f for f in (project.formats or [])
                                           if f not in done],
                     "next": _next_in_campaign(project)})
+
+
+def _compliance_gate(project, client):
+    """Whether the published-rule findings have been acknowledged for THIS copy.
+
+    Not a compliance verdict — `compliance_spec.py` says at length why this
+    tool must never produce one. What it gates on is narrower and checkable:
+    were the findings put in front of a named person, and were they the same
+    findings that stand now.
+
+    Rewriting the offer after somebody signed off retires that sign-off, which
+    is the `findings_key` and the rule `modules/ads_builder` applies when a
+    material edit supersedes an approved estimate. An acknowledgment of an
+    earlier cut is reported as superseded rather than accepted or ignored —
+    "nobody has looked" and "somebody looked at a different script" are
+    different situations and only the second has a name to go back to.
+
+    Never raises and never blocks on its own failure: a scanner that cannot
+    run must not stop a rep filing a commercial, so an error answers "nothing
+    to acknowledge", which is the honest degradation — it is the same answer
+    as a spot that genuinely engages no rule, and both mean there is no
+    finding on file.
+    """
+    try:
+        from .. import compliance_spec
+        from ..models import ComplianceAck
+        result = compliance_spec.scan(
+            script=project.script, brief=project.brief, cta=project.cta,
+            client=client.to_dict(), commercial_type=project.commercial_type or "")
+        if not compliance_spec.needs_acknowledgment(result):
+            return {"blocks_filing": False, "regimes": [], "superseded": False,
+                    "message": "", "acknowledged_by": ""}
+        key = compliance_spec.findings_key(result)
+        ack = (ComplianceAck.query.filter_by(project_id=project.id)
+               .order_by(ComplianceAck.id.desc()).first())
+        if ack and ack.findings_key == key:
+            return {"blocks_filing": False,
+                    "regimes": result.get("regimes", []), "superseded": False,
+                    "message": "", "acknowledged_by": ack.acknowledged_by or ""}
+        names = ", ".join(compliance_spec.REGIMES[r]["label"]
+                          for r in result.get("regimes", []))
+        superseded = bool(ack)
+        return {
+            "blocks_filing": True,
+            "regimes": result.get("regimes", []),
+            "superseded": superseded,
+            "acknowledged_by": (ack.acknowledged_by or "") if ack else "",
+            "message": (
+                (f"The copy has changed since {ack.acknowledged_by or 'somebody'} "
+                 f"acknowledged these findings, so that sign-off no longer covers "
+                 f"this cut. " if superseded else "")
+                + f"This spot engages published advertising rules ({names}). "
+                  "Read what they require on the Blueprint step and acknowledge "
+                  "them there before filing — that is a record of who checked, "
+                  "not a judgment that the spot complies."),
+        }
+    except Exception:  # noqa: BLE001
+        return {"blocks_filing": False, "regimes": [], "superseded": False,
+                "message": "", "acknowledged_by": ""}
 
 
 def _client_verdict(project):

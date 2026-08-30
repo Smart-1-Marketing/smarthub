@@ -3,15 +3,17 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link
+from .. import client_link, compliance_spec, cost_spec, library_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
+                      logo_persistence_eligible,
                       length_warning, in_build_order, DEFAULT_SHOT_GRAMMAR,
                       SHOT_NUMBER_STEP, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
                       CTV_PUBLISHERS, publisher_qr_note, shot_label)
 from ..db import db
-from ..models import Client, CommercialProject, Scene, Campaign, Variation
+from ..models import (Client, CommercialProject, Scene, Campaign, Variation,
+                      ComplianceAck, RenderApproval, RenderJob)
 from ..services import (openai_service, qrcode_service, cloudinary_service,
                         qc_service, abcd_service)
 
@@ -247,6 +249,19 @@ def save_brief(project_id):
     if "publishers" in data:
         brief["publishers"] = [p for p in (data.get("publishers") or [])
                                if p in {x["id"] for x in CTV_PUBLISHERS}]
+    # The archetype — what the spot IS, as distinct from how it gets made.
+    # It lives here rather than on a column because `commercial_type` already
+    # holds both answers and `create_all()` adds no column to an existing
+    # table; `library_spec.archetype_for()` reads the legacy value so a
+    # project saved before this reads as the archetype it always was.
+    if "archetype" in data:
+        chosen = str(data.get("archetype") or "")
+        brief["archetype"] = chosen if chosen in library_spec.ARCHETYPES else ""
+    # What each archetype needs from the client, answered on the same screen
+    # it is asked on. Free text: "which customer" is a name, not an option.
+    for need in library_spec.NEED_KEYS:
+        if need in data:
+            brief[need] = str(data.get(need) or "").strip()[:600]
     project.brief = brief
     if project.status == "draft":
         project.status = "brief"
@@ -405,12 +420,19 @@ def set_cta(project_id):
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
 
-    # :05 bumpers never carry a QR code or a persistent logo bug — per the
-    # CTV/YouTube best-practices brief, a 5-second spot is pure brand recall
-    # (logo + URL), not a response mechanism.
-    eligible = qr_eligible(project.length_seconds)
-    qr_enabled = bool(data.get("qr_enabled")) and eligible
-    logo_persistent = bool(data.get("logo_persistent", eligible)) and eligible
+    # A bumper carries neither a QR code nor a persistent logo bug: it is pure
+    # brand recall (logo + URL), not a response mechanism, and it already runs
+    # the logo full-treatment throughout.
+    #
+    # Two questions, asked of their own tables. They hold the same lengths
+    # today and that is a fact about the tables rather than a rule — a QR code
+    # is a response mechanism and needs seconds on screen to be scannable, a
+    # logo bug is brand recall and needs none, so one moving must not move the
+    # other in silence.
+    qr_ok = qr_eligible(project.length_seconds)
+    logo_ok = logo_persistence_eligible(project.length_seconds)
+    qr_enabled = bool(data.get("qr_enabled")) and qr_ok
+    logo_persistent = bool(data.get("logo_persistent", logo_ok)) and logo_ok
 
     website = data.get("website") or client.website or ""
 
@@ -424,12 +446,18 @@ def set_cta(project_id):
     prior_cta = project.cta or {}
     qr_image_url = prior_cta.get("qr_image_url")
     qr_data_url = prior_cta.get("qr_data_url")
+    # Why there is no code, when there is no code. A blank here used to be
+    # indistinguishable from a button nobody pressed, and the service used to
+    # fill it with a placeholder rather than admit it — see qrcode_service.
+    qr_error = ""
     if qr_enabled and qr_target and (qr_target != prior_cta.get("qr_target_url") or not qr_data_url):
         qr_result = qrcode_service.generate_qr(qr_target)
         qr_data_url = qr_result.get("data_url")
-        if cloudinary_service.is_live():
+        qr_error = qr_result.get("error") or ""
+        if qr_result.get("bytes_io") and cloudinary_service.is_live():
             upload = cloudinary_service.upload_asset(qr_result["bytes_io"], client.slug, "logo",
-                                                       public_id=f"project-{project_id}-qr", resource_type="image")
+                                                       public_id=f"project-{project_id}-qr", resource_type="image",
+                                                       client_name=client.name)
             qr_image_url = upload.get("secure_url") or qr_image_url
 
     project.cta = {
@@ -445,6 +473,10 @@ def set_cta(project_id):
         # so the moment one is chosen rather than at the render.
         "qr_publisher_note": publisher_qr_note((project.brief or {}).get("publishers")),
         "qr_corner": data.get("qr_corner") or "bottom-right",
+        # Named rather than left as a blank the panel reads as "not generated
+        # yet". QC still blocks a code that is enabled and absent; this is the
+        # half that says which of the two it is.
+        "qr_error": qr_error,
         "qr_target_url": qr_target,
         # What the code actually points at before the tracking was added, and
         # which field it came from. Both are printed on the CTA step: a rep
@@ -575,6 +607,199 @@ def expand_narration(project_id):
     return jsonify({"ok": True, "written": written, "note": result.get("note", ""),
                     "budget": budget, "scenes": refreshed,
                     "live": openai_service.is_live()})
+
+
+# A shared-password session is a true statement about the session and a
+# useless one in a record whose entire value is the name on it. `hub/ad_copy.py`
+# refuses the same way, for the same reason.
+NOT_A_PERSON = {"", "Shared login", "shared login"}
+
+
+def _actor_name():
+    try:
+        from hub import auth as _hub_auth
+        user = _hub_auth.user_from_environ(request.environ)
+        return (getattr(user, "name", None) or getattr(user, "email", None)
+                or str(user or "") or "")[:200]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+@bp.get("/library")
+def spot_library():
+    """Finished spots, across every client.
+
+    What the dashboard offers is the 25 most recently touched PROJECTS, which
+    answers "what was I working on" — a different question from "what have we
+    actually delivered for this client", which is what somebody asks when a
+    client wants something like the one from the spring.
+
+    Delivered means APPROVED and filed: a render that succeeded is a file
+    nobody has watched, and `RenderApproval` is the row that says a human
+    signed it off. The distinction is the one `approve_render` already draws,
+    read from the other end.
+    """
+    rows = (db.session.query(RenderApproval, RenderJob, CommercialProject, Client)
+            .join(RenderJob, RenderApproval.render_job_id == RenderJob.id)
+            .join(CommercialProject, RenderApproval.project_id == CommercialProject.id)
+            .join(Client, CommercialProject.client_id == Client.id)
+            .order_by(RenderApproval.approved_at.desc())
+            .all())
+
+    q = (request.args.get("q") or "").strip().lower()
+    length = request.args.get("length") or ""
+    fmt = request.args.get("format") or ""
+    archetype = request.args.get("archetype") or ""
+
+    out = []
+    for approval, job, project, client in rows:
+        key, _source = library_spec.archetype_for(project.brief,
+                                                  project.commercial_type or "")
+        row = {
+            "project_id": project.id,
+            "title": project.title or "",
+            "client": client.name,
+            "client_id": client.id,
+            "length_seconds": project.length_seconds,
+            "format": job.format,
+            "archetype": key,
+            "archetype_label": library_spec.ARCHETYPES.get(key, {}).get("label", ""),
+            "platform": project.platform or "",
+            "approved_at": (approval.approved_at.isoformat()
+                            if approval.approved_at else None),
+            "approved_by": approval.approved_by or "",
+            # The Cloudinary copy where there is one. `stored_url` empty means
+            # the filing failed and the only copy is a provider URL that
+            # expires — reported rather than drawn as a working link.
+            "url": approval.stored_url or "",
+            "url_note": ("" if approval.stored_url else
+                         "The copy in the client's library is missing, so there "
+                         "is nothing durable to open."),
+        }
+        if length and str(row["length_seconds"]) != str(length):
+            continue
+        if fmt and row["format"] != fmt:
+            continue
+        if archetype and row["archetype"] != archetype:
+            continue
+        if q and q not in (row["client"] + " " + row["title"]).lower():
+            continue
+        out.append(row)
+
+    return jsonify({
+        "ok": True,
+        "spots": out,
+        # Counted over what was ASKED for, never the whole table. A filtered
+        # list reporting an unfiltered total is the wrong answer with two
+        # right ones either side of it -- the SEO gallery paid for that one.
+        "total": len(out),
+        "delivered_total": len(rows),
+        "lengths": sorted({r[2].length_seconds for r in rows}),
+        "formats": sorted({r[1].format for r in rows if r[1].format}),
+        "archetypes": sorted({library_spec.archetype_for(
+            r[2].brief, r[2].commercial_type or "")[0] for r in rows}),
+        "note": ("" if rows else
+                 "Nothing has been approved and filed yet. A rendered cut is "
+                 "not a delivered one until somebody approves it."),
+    })
+
+
+@bp.get("/cost-preview")
+def cost_preview():
+    """What building this will consume, before it is built.
+
+    Its own route on the Start page for the reason /spec-preview is there:
+    the decision that moves the number — three lengths or one, AI video or
+    stock — is made before a project exists, and by the time it shows on the
+    usage page the money is gone.
+    """
+    lengths = [int(x) for x in
+               (request.args.get("lengths") or "").split(",") if x.strip().isdigit()]
+    formats = [f for f in (request.args.get("formats") or "").split(",") if f.strip()]
+    return jsonify({
+        "ok": True,
+        "estimate": cost_spec.estimate(
+            lengths, formats,
+            method=request.args.get("method", "stock_vo"),
+            ai_video=request.args.get("ai_video") == "1",
+            spokesperson=request.args.get("spokesperson") == "1"),
+    })
+
+
+@bp.get("/<int:project_id>/compliance")
+def get_compliance(project_id):
+    """Which published rules this spot's copy engages, and who has signed it off.
+
+    Its own route rather than a slice of /qc for the reason /abcd is: the
+    panel is read while the script is being edited, and QC makes an OpenAI
+    call for the spelling pass.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    result = compliance_spec.scan(
+        script=project.script, brief=project.brief, cta=project.cta,
+        client=client.to_dict(), commercial_type=project.commercial_type or "")
+    key = compliance_spec.findings_key(result)
+    ack = (ComplianceAck.query.filter_by(project_id=project.id)
+           .order_by(ComplianceAck.id.desc()).first())
+    return jsonify({
+        "ok": True,
+        "compliance": result,
+        "summary": compliance_spec.summary(result),
+        "needs_acknowledgment": compliance_spec.needs_acknowledgment(result),
+        "findings_key": key,
+        "acknowledgment": ack.to_dict() if ack else None,
+        # A sign-off against a different set of findings is not a sign-off on
+        # this one. Reported rather than silently ignored: "nobody has looked"
+        # and "somebody looked at an earlier cut" are different situations,
+        # and only the second has a name to go back to.
+        "acknowledged": bool(ack and ack.findings_key == key),
+        "superseded": bool(ack and ack.findings_key != key),
+        "not_enforced": compliance_spec.NOT_ENFORCED,
+    })
+
+
+@bp.post("/<int:project_id>/compliance/acknowledge")
+def acknowledge_compliance(project_id):
+    """One explicit "we have checked what these rules require".
+
+    Recorded against a name and against the exact findings that stood at the
+    time — never a boolean on the project, because the question somebody asks
+    later is *who* signed this off and *what did it say then*, and a flag
+    answers neither. The shape `hub/creative_needs.py` uses for a comp
+    confirmation on a low-spend medium.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    body = request.get_json(silent=True) or {}
+    result = compliance_spec.scan(
+        script=project.script, brief=project.brief, cta=project.cta,
+        client=client.to_dict(), commercial_type=project.commercial_type or "")
+
+    actor = _actor_name()
+    if actor in NOT_A_PERSON:
+        # `hub/ad_copy.py`'s rule. "Shared login" is a true statement about
+        # the session and a useless one in a record whose entire value is the
+        # name on it, so it is refused rather than written.
+        return jsonify({"ok": False, "error": (
+            "This session has no account behind it, so there is no name to "
+            "record. Sign in with your own Hub account to acknowledge "
+            "this.")}), 400
+
+    ack = ComplianceAck(
+        project_id=project.id, acknowledged_by=actor,
+        findings_key=compliance_spec.findings_key(result),
+        note=str(body.get("note") or "").strip()[:2000])
+    ack.findings = result.get("findings") or []
+    db.session.add(ack)
+    db.session.commit()
+    _cb_log("commercial_compliance_acknowledged", client=client.name,
+            detail=(f"{project.title or 'Commercial'} · "
+                    + (", ".join(compliance_spec.REGIMES[r]["label"]
+                                 for r in result.get("regimes", []))
+                       or "nothing engaged")),
+            project=project.id)
+    return jsonify({"ok": True, "acknowledgment": ack.to_dict()})
 
 
 @bp.get("/<int:project_id>/abcd")

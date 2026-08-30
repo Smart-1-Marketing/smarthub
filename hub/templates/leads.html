@@ -250,6 +250,26 @@ function filterPage(name){
   loadLeads();
 }
 
+/* What this lead produced, whichever shape it came in.
+   The cell used to render `pdf_url` and nothing else, so a website-audit lead
+   showed a dash: that audit is a page rather than a PDF, and the one link
+   worth having off this row was sitting unread in the row's own meta. Both
+   are offered now, and a lead with neither says so rather than drawing an
+   empty cell that reads as a failed capture. */
+function reportCell(l){
+  var out = [];
+  if(l.pdf_url){
+    out.push('<a class="gbtn" href="'+esc(l.pdf_url)+'" target="_blank" '+
+             'rel="noopener">PDF</a>');
+  }
+  var audit = (l.meta && (l.meta.audit_url || l.meta.report_url)) || '';
+  if(audit){
+    out.push('<a class="gbtn" href="'+esc(audit)+'" target="_blank" '+
+             'rel="noopener">Audit</a>');
+  }
+  return out.length ? out.join(' ') : '<span class="muted">—</span>';
+}
+
 function suiteCell(l){
   if(l.delivered){
     return l.contact_id
@@ -289,7 +309,8 @@ function renderLeads(d){
     d.leads.map(function(l){
       return '<tr>'+
         '<td>'+fmtWhen(l.created)+'</td>'+
-        '<td><div class="lead-name">'+esc(l.name||'—')+'</div>'+
+        '<td><div class="lead-name"><a href="/prospect/'+esc(l.id||'')+'">'+
+          esc(l.name||l.company||'open')+'</a></div>'+
           (l.company?'<div class="lead-sub">'+esc(l.company)+'</div>':'')+'</td>'+
         '<td>'+
           (l.email?'<a href="mailto:'+esc(l.email)+'">'+esc(l.email)+'</a>':
@@ -297,9 +318,7 @@ function renderLeads(d){
           (l.phone?'<div class="lead-sub">'+esc(l.phone)+'</div>':'')+'</td>'+
         '<td><span class="pill neutral">'+esc(l.source||'—')+'</span>'+
           (l.page?'<div class="lead-sub">'+esc(l.page)+'</div>':'')+'</td>'+
-        '<td>'+
-          (l.pdf_url?'<a class="gbtn" href="'+esc(l.pdf_url)+'" target="_blank" '+
-            'rel="noopener">Open PDF</a>':'<span class="muted">—</span>')+'</td>'+
+        '<td>'+reportCell(l)+'</td>'+
         '<td>'+suiteCell(l)+'</td>'+
         '<td>'+
           (l.converted_at

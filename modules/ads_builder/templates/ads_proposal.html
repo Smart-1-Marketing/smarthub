@@ -89,12 +89,12 @@
 {% endif %}
 
 <div class="grid g4" style="margin-bottom:16px">
-  <div class="stat"><div class="l">Ad groups</div><div class="v">{{ p.ad_group_count }}</div></div>
-  <div class="stat"><div class="l">Keywords</div><div class="v">{{ p.keyword_count }}</div>
+  <div class="s1d-tile"><div class="l">Ad groups</div><div class="v">{{ p.ad_group_count }}</div></div>
+  <div class="s1d-tile"><div class="l">Keywords</div><div class="v">{{ p.keyword_count }}</div>
     <div class="f">{{ p.negative_count }} negatives</div></div>
-  <div class="stat"><div class="l">Est. clicks / mo</div><div class="v">{{ '{:,.0f}'.format(est.estimatedMonthlyClicks or 0) }}</div>
+  <div class="s1d-tile"><div class="l">Est. clicks / mo</div><div class="v">{{ '{:,.0f}'.format(est.estimatedMonthlyClicks or 0) }}</div>
     <div class="f">${{ '%.2f'|format(est.avgCPC or 0) }} avg CPC <span class="est">({{ spec.CPC_NOTE }})</span></div></div>
-  <div class="stat"><div class="l">Est. CPA</div>
+  <div class="s1d-tile"><div class="l">Est. CPA</div>
     <div class="v">{% if est.estimatedCPA %}${{ '%.2f'|format(est.estimatedCPA) }}{% else %}—{% endif %}</div>
     <div class="f">{{ '{:,.0f}'.format(est.estimatedConversions or 0) }} conversions/mo</div></div>
 </div>
@@ -907,7 +907,7 @@ function drawTiers(t) {
     return;
   }
   document.getElementById('tiers').innerHTML = '<div class="grid g3">' + rows.map(r =>
-    `<div class="stat" style="${r.recommended ? 'border-color:var(--navy);box-shadow:0 0 0 1px var(--navy)' : ''}">
+    `<div class="s1d-tile" style="${r.recommended ? 'border-color:var(--navy);box-shadow:0 0 0 1px var(--navy)' : ''}">
        <div class="l">${esc(r.label)}${r.recommended ? ' · recommended' : ''}</div>
        <div class="v">${money(r.monthly)}</div>
        <div class="f">~${numf(r.estimatedClicks)} clicks/mo <span class="est">(${esc(CPC_NOTE)})</span></div>

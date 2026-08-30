@@ -575,7 +575,16 @@ def _quickbooks(year: int, refresh_qb: bool = False) -> dict:
 def _matched(rows: list[dict], lines: list[dict]) -> list[dict]:
     try:
         from hub import domain_renewals
-        return domain_renewals.match_charges(lines, rows)
+        # The readings map, read once for the whole year rather than per
+        # charge: a lookup per row is a file read per row with a database
+        # restore behind each miss. A store that will not open is {} and the
+        # matcher behaves exactly as it did before it existed.
+        try:
+            from hub import invoice_names
+            readings = invoice_names.readings()
+        except Exception:                               # noqa: BLE001
+            readings = {}
+        return domain_renewals.match_charges(lines, rows, readings=readings)
     except Exception:                                   # noqa: BLE001
         return []
 
@@ -595,6 +604,11 @@ def _charge_brief(c: dict) -> dict:
             "amount": c.get("amount", 0), "customer": c.get("customer", ""),
             "link": c.get("link", ""), "description": c.get("description", ""),
             "matched_on": c.get("matched_on", ""),
+            # Carried so a row can say a suggestion came from a *reading* of
+            # the description rather than from the description itself — two
+            # different claims, and only one of them is a rule somebody can
+            # read back.
+            "read_name": c.get("read_name", ""),
             "confidence": c.get("confidence", ""), "why": c.get("why", "")}
 
 
@@ -1013,7 +1027,32 @@ def year_to_date(year: int | None = None, today: date | None = None) -> dict:
         "problems": problems,
         "measured": not problems,
         "note": note,
+        # What "Read the descriptions" would cost and what it has already
+        # read. Only the lines every rule failed on are ever sent — a line the
+        # rules answered costs a call to be told what is known, and invites a
+        # second opinion on a domain, which is an identifier rather than a
+        # guess.
+        # The same list the button acts on — `unrecorded`, not a second filter
+        # over `matched` that would drift from it. A count that does not match
+        # what the press would do is a number that lies about its own button.
+        "ai_names": _reading_state(
+            [c.get("description") or "" for c in unrecorded]),
     }
+
+
+def _reading_state(descriptions) -> dict:
+    """How many unmatched descriptions have been read, and how many are left.
+
+    Tri-state, like every count in this Hub a page prints: a store we could not
+    open is **not measured**, never zero, because zero here reads as "there is
+    nothing to read" on the one screen that decides whether to spend anything.
+    """
+    try:
+        from hub import invoice_names
+        return invoice_names.state(descriptions)
+    except Exception as exc:                            # noqa: BLE001
+        return {"measured": False, "read": 0, "pending": 0,
+                "configured": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _orphan_charge(c: dict) -> dict:

@@ -128,6 +128,9 @@
   textarea { min-height: 58px; resize: vertical; }
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .palette-note { margin-top: 9px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
+  .palette-note.warn { color: #8a5b00; background: #fff6e5; border: 1px solid #f0d9a8;
+                       border-radius: 6px; padding: 7px 9px; }
   .swatch { text-align: center; }
   .swatch input[type=color] {
     width: 44px; height: 32px; padding: 0; border: 1px solid var(--line);
@@ -757,6 +760,44 @@
      question it stood in for -- does the copy fit -- is answered per block by
      the overflow check in the rail, from real glyph measurements. */
 
+  /* Where the palette came from.
+   *
+   * A row of swatches says nothing about whether anybody chose them. With no
+   * discovered brand and no override, finalizeColors() spreads the
+   * placeholder navy and gold underneath, and the ad looks plausibly branded
+   * on every size -- absent data reading as a confident value, on the thing
+   * the client receives.
+   *
+   * Three rules. The all-default case is said plainly and drawn as a warning,
+   * because that is the one that ships a stock ad. Roles that were merely
+   * DISCOVERED are not listed: five rows of "from Brandfetch" is noise, and a
+   * line that appears on every campaign is one people stop reading. And a
+   * campaign built before colorSources existed says NOTHING at all rather
+   * than reading as default -- absent is not the same answer as placeholder,
+   * which is the whole point of the line.
+   */
+  function paletteProvenance() {
+    var src = state.doc && state.doc.colorSources;
+    if (!src) return '';
+    var roles = ['primary', 'secondary', 'accent', 'light', 'dark'];
+    var known = roles.filter(function (r) { return src[r]; });
+    if (!known.length) return '';
+
+    var defaulted = known.filter(function (r) { return src[r] === 'default'; });
+    var adjusted = known.filter(function (r) { return src[r] === 'adjusted'; });
+
+    if (defaulted.length === known.length) {
+      return '<div class="palette-note warn">No brand colors were discovered or supplied &mdash; '
+        + 'every size is built in the placeholder palette, not the client\'s own. '
+        + 'Set these before sending a proof.</div>';
+    }
+    var parts = [];
+    if (defaulted.length) parts.push(esc(defaulted.join(', ')) + ' still placeholder');
+    if (adjusted.length) parts.push(esc(adjusted.join(', ')) + ' adjusted for readability');
+    if (!parts.length) return '';
+    return '<div class="palette-note">' + parts.join(' \u00b7 ') + '</div>';
+  }
+
   function drawControls() {
     var c = concept();
     if (!c) { $('controls').innerHTML = ''; return; }
@@ -850,13 +891,15 @@
         ['primary','secondary','accent','light','dark'].map(function (k) {
           return '<div class="swatch"><input type="color" data-color="' + k + '" value="' + esc(b.colors[k]) + '"><span>' + k + '</span></div>';
         }).join('') +
-      '</div></div>' +
+        '</div>' + paletteProvenance() +
+      '</div>' +
       '<div class="group"><h3>Type' +
         help('Only families the renderer has installed will render. An unknown ' +
              'name falls back to the default face and is flagged in the checks ' +
              'on the right, rather than failing.') + '</h3>' +
         '<div class="field"><label>Headline face</label><input type="text" data-font="headline" value="' + esc(b.fonts.headline) + '"></div>' +
         '<div class="field"><label>Body face</label><input type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
+        '<div id="siteType"></div>' +
       '</div>' +
       // This heading used to read "Text boxes for 300x250" and it was not
       // true: these overrides live on the concept and every size renders
@@ -935,7 +978,7 @@
     wireBackgroundAdjust();
     wireAccordion();
     wireNudgePads();
-    drawSiteBrand();
+    drawSiteBrand(); drawSiteType();
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'), function (el) {
       el.addEventListener('click', function () { chooseBackground(el.dataset.bgmode, el); });
     });
@@ -1835,23 +1878,31 @@
     if (!host) return;
     siteBrand().then(function (d) {
       host = $('siteBrand');                    // the column may have redrawn
-      if (!host || !d || !d.colors) return;
-      var entries = Object.keys(d.colors);
-      if (!entries.length) return;
+      if (!host || !d) return;
+      var entries = Object.keys(d.colors || {});
+      // A scan with no readable palette can still carry the screenshot, and
+      // that is the half worth looking at. Returning early on an empty color
+      // list hid the picture on every one of those.
+      if (!entries.length && !d.screenshot) return;
       host.innerHTML =
         '<div style="font-size:11px;color:var(--ink-2);margin-bottom:5px">' +
           'From their website' +
           help('Read off ' + d.domain + ' by their latest site scan \u2014 what the ' +
                'live pages actually paint, rather than a palette somebody ' +
-               'labeled. Click one to copy its hex.') +
+               'labeled. Click a swatch to copy its hex.') +
         '</div>' +
-        '<div class="inkrow" style="margin-bottom:9px">' +
-          entries.map(function (k) {
-            return '<button type="button" class="inkchip" data-sitecolor="' +
-              esc(d.colors[k]) + '" style="background:' + esc(d.colors[k]) + '"' +
-              ' title="' + esc(k + ' \u2014 ' + d.colors[k] + ' (click to copy)') + '"></button>';
-          }).join('') +
-        '</div>';
+        (entries.length
+          ? '<div class="inkrow" style="margin-bottom:9px">' +
+              entries.map(function (k) {
+                return '<button type="button" class="inkchip" data-sitecolor="' +
+                  esc(d.colors[k]) + '" style="background:' + esc(d.colors[k]) + '"' +
+                  ' title="' + esc(k + ' \u2014 ' + d.colors[k] + ' (click to copy)') + '"></button>';
+              }).join('') +
+            '</div>'
+          : '<div class="bgmsg" style="margin-bottom:9px">Their scan could not read ' +
+            'a palette off the page.</div>') +
+        siteShotMarkup(d);
+      wireSiteShot(host, d);
       Array.prototype.forEach.call(host.querySelectorAll('[data-sitecolor]'), function (el) {
         el.addEventListener('click', function () {
           var hex = el.dataset.sitecolor;
@@ -1860,6 +1911,99 @@
           // ad's primary -- and guessing it would move four other things.
           if (navigator.clipboard) navigator.clipboard.writeText(hex).catch(function () {});
           el.title = hex + ' copied \u2014 paste it into a swatch below';
+        });
+      });
+    });
+  }
+
+  /* What the scan can say about their type, which is less than people want.
+
+     `gdpr.has_google_font_api` is a boolean: the site loads Google Fonts, or
+     it does not. It never says WHICH face, and a note implying otherwise
+     would be worse than no note -- somebody would read it as a
+     recommendation and type a family the renderer does not have.
+
+     So it is stated as what it is, and the useful direction is the one people
+     do not expect: a **false** is the actionable answer. It means their type
+     is self-hosted or licensed, so nothing here will match it by accident and
+     the face is a decision somebody has to make rather than assume. A true is
+     mild encouragement. And an absent value is *not measured* -- the check
+     lives in the scan's GDPR section and a plan that did not run it leaves
+     the field out entirely, which must not read as "no". */
+  function drawSiteType() {
+    var host = $('siteType');
+    if (!host) return;
+    siteBrand().then(function (d) {
+      host = $('siteType');                     // the column may have redrawn
+      if (!host || !d) return;
+      var uses = d.usesGoogleFonts;
+      if (uses === null || uses === undefined) return;   // not measured: say nothing
+      host.innerHTML = '<div class="bgmsg" style="margin-top:2px">' +
+        (uses
+          ? esc(d.domain) + ' loads Google Fonts, so a Google family here has a ' +
+            'fair chance of matching their site. The scan does not say which one.'
+          : esc(d.domain) + ' does not load Google Fonts \u2014 their face is ' +
+            'self-hosted or licensed, so nothing here will match it by accident. ' +
+            'Worth picking deliberately.') +
+        '</div>';
+    });
+  }
+
+  /* Their site, as it looks.
+
+     The palette above says what the page paints; this says what it looks
+     like, which is the thing an ad actually gets compared against. An
+     operator judging brand color on a dark canvas has, until now, had to
+     open the client's website in another tab to remember what they are
+     matching -- and mostly did not, which is how an ad comes back "not really
+     them" with nobody able to say why.
+
+     Desktop and mobile, because half a display package runs on a phone and
+     the two are often laid out nothing alike. Desktop leads because it is the
+     one that carries the full brand furniture; mobile is a toggle rather than
+     a second thumbnail, since two small pictures side by side are two
+     pictures nobody can read.
+
+     It is reference and never a source: nothing here can be applied to the
+     ad. A screenshot of a website is not a background, and the logo in it is
+     a logo photographed off a page -- the rule `hub/scan_facts.py` states,
+     that a sighting is a candidate and never merged into what we hold. */
+  function siteShotMarkup(d) {
+    if (!d.screenshot) return '';
+    var when = d.scannedAt ? new Date(d.scannedAt) : null;
+    var dated = (when && !isNaN(when)) ? when.toLocaleDateString() : '';
+    return '<div id="siteShot">' +
+      '<div style="font-size:11px;color:var(--ink-2);margin-bottom:4px;display:flex;' +
+        'align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<span>Their site' + (dated ? ', ' + esc(dated) : '') + '</span>' +
+        (d.screenshotMobile
+          ? '<button type="button" class="bsclear" data-shot="desktop" ' +
+            'aria-pressed="true" style="padding:1px 7px;font-size:10.5px">Desktop</button>' +
+            '<button type="button" class="bsclear" data-shot="mobile" ' +
+            'aria-pressed="false" style="padding:1px 7px;font-size:10.5px">Mobile</button>'
+          : '') +
+      '</div>' +
+      '<img id="siteShotImg" src="' + esc(d.screenshot) + '" alt="' +
+        esc(d.domain + ' as it looks today') + '" ' +
+        'style="width:100%;border-radius:6px;border:1px solid var(--line);' +
+        'display:block;cursor:zoom-in;background:var(--panel-2)">' +
+      '<div class="bgmsg" style="margin-top:4px">Reference only \u2014 click to enlarge.</div>' +
+      '</div>';
+  }
+
+  function wireSiteShot(host, d) {
+    var img = host.querySelector('#siteShotImg');
+    if (!img) return;
+    img.addEventListener('click', function () {
+      // No "use this picture": see lightbox().
+      lightbox(img.src, null, d.domain + ' \u2014 Esc closes');
+    });
+    Array.prototype.forEach.call(host.querySelectorAll('[data-shot]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var want = btn.dataset.shot;
+        img.src = want === 'mobile' ? d.screenshotMobile : d.screenshot;
+        Array.prototype.forEach.call(host.querySelectorAll('[data-shot]'), function (b) {
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
         });
       });
     });
@@ -1912,8 +2056,35 @@
 
   function bgSay(html) { bgResults().innerHTML = html; }
 
-  function bgBusy(what) {
+  /* Six waits hang off this panel and they are not alike: two are a model
+     drawing (billed, tens of seconds), two are somebody else's server (the
+     client's own landing page, the stock library) and two are our own
+     storage. The Hub's one indicator draws a different glyph for each, so
+     the kind travels with the message rather than every call site being
+     edited again the next time the mark changes.
+
+     Before this the panel said a sentence and nothing else -- which is the
+     note CLAUDE.md already makes about the QA reports saying "Running
+     report..." in two words with no mark and no sign it was still going,
+     on the screen where the wait is longest and the call is billed.
+
+     Guarded on window.S1Think, so a page that failed to load the script
+     loses the mark and never the message. The handle is returned for a
+     caller that has a real transition to report; the rest end the wait by
+     writing over the panel, which the indicator's own isConnected check
+     already handles. */
+  function bgBusy(what, kind) {
+    if (window.S1Think) {
+      return window.S1Think.attach(bgResults(),
+        { kind: kind || 'wait', label: what });
+    }
     bgSay('<span class="bgmsg">' + esc(what) + '</span>');
+    return {
+      stage: function (text) {
+        if (text) bgSay('<span class="bgmsg">' + esc(text) + '</span>');
+      },
+      done: function () {}
+    };
   }
 
   function chooseBackground(mode, btn) {
@@ -1935,7 +2106,7 @@
     }
 
     if (mode === 'landing') {
-      bgBusy('Reading their landing page\u2026');
+      bgBusy('Reading their landing page\u2026', 'scan');
       post('/api/landing/images', { projectId: state.projectId || undefined,
                                     url: state.doc.landingPage || undefined })
         .then(function (d) {
@@ -1960,7 +2131,7 @@
               'there is no gallery to read.</span>');
         return;
       }
-      bgBusy('Reading ' + who + '\u2019s gallery\u2026');
+      bgBusy('Reading ' + who + '\u2019s gallery\u2026', 'wait');
       /* The Hub owns this one. The renderer does not know who our clients are
          and must not learn -- the basepath shim puts the mount prefix on the
          front, so standalone this correctly 404s rather than half-working. */
@@ -1974,7 +2145,11 @@
             return;
           }
           bgGrid(d.images.map(function (i) {
-            return { url: i.url, label: i.label || '' };
+            // `thumb` is what the tile draws; `url` is what gets applied and
+            // what the magnifier opens. Only the Hub-fed gallery carries one
+            // -- stock, AI and a fresh upload pass none and fall back to the
+            // asset, exactly as they did before.
+            return { url: i.url, thumb: i.thumb || '', label: i.label || '' };
           }), 'gallery');
         })
         .catch(function () {
@@ -2001,13 +2176,31 @@
     }
 
     if (mode === 'ai') {
-      bgBusy('Drawing something \u2014 this takes a few seconds\u2026');
+      /* Two waits back to back, and only the second one is the model. The
+         page is fetched first (their server, the dish) and then the picture
+         is drawn (billed, the star), so the mark changes hands at the real
+         transition rather than on a timer -- the browser knows exactly when
+         the fetch came back, which is the one case where reporting a step
+         beats guessing at one.
+
+         The reading step is claimed only when there is a page still to
+         fetch: ensureLanding() caches on state.landing, so the second
+         generation has no such step and announcing one would be the
+         indicator claiming what it does not know. */
+      var hasPage = !!state.landingPage;
+      var reading = hasPage && !state.landing;
+      var think = bgBusy(
+        reading ? 'Reading ' + state.landingPage + '\u2026'
+                : 'Drawing something \u2014 this takes a few seconds\u2026',
+        reading ? 'scan' : 'ai');
       /* The client's own page is part of the brief. Without it the model is
          drawing from a headline and a business name, which is how a roofing
          company gets a stock-looking house it has never worked on -- the
          analysis was sitting on the project record the whole time and this
          call never asked for it. */
       ensureLanding().then(function (landing) {
+      think.stage('Drawing something \u2014 this takes a few seconds\u2026',
+                  'ai');
       post('/api/images/generate', {
         business: state.doc.campaign.client || '',
         promoting: effective('headline') || '',
@@ -2115,7 +2308,7 @@
     var run = function () {
       var instruction = box.value.trim();
       if (!instruction) return;
-      bgBusy('Redrawing \u2014 "' + instruction + '"\u2026');
+      bgBusy('Redrawing \u2014 "' + instruction + '"\u2026', 'ai');
       post('/api/images/generate', {
         business: state.doc.campaign.client || '',
         promoting: effective('headline') || '',
@@ -2158,8 +2351,11 @@
      says which phrase produced these -- including when it had to drop terms
      to find anything -- and the box above the results is the fix. */
   function stockSearch(phrase) {
+    /* The stock libraries are somebody else's server, so this is the dish
+       rather than the star -- nothing is being written and nothing is
+       billed per call here. */
     bgBusy(phrase ? 'Looking for "' + phrase + '"\u2026'
-                  : 'Finding photos that fit this campaign\u2026');
+                  : 'Finding photos that fit this campaign\u2026', 'scan');
     post('/api/images/search', {
       business: state.doc.campaign.client || '',
       promoting: effective('headline') || '',
@@ -2243,12 +2439,45 @@
     btn.addEventListener('click', function () {
       var note = $('draftNote');
       btn.disabled = true;
-      note.textContent = state.landing
+      /* The longest wait on this screen, and it was a sentence with no mark
+         on it -- press the button and the only sign anything is happening is
+         eleven words that do not change for half a minute. Past six seconds
+         the elapsed line is the only thing separating a slow answer from a
+         dead one, which is why it exists.
+
+         Two waits, two kinds: their page is fetched first (the dish) and
+         then the copy is written (billed, the star). The reading step is
+         claimed only when there is a page still to fetch, because
+         ensureLanding() caches -- a second draft goes straight to the model
+         and saying otherwise is the indicator claiming a step that is not
+         happening. */
+      /* Three states, not two. A campaign with no landing page on it never
+         reads one, so "writing from what their page says" is a claim about
+         a page that does not exist -- and it is the sentence a rep would
+         then quote back when the copy is wrong. The page is only named
+         where there is one. */
+      var hasPage = !!state.landingPage;
+      var reading = hasPage && !state.landing;
+      var writing = hasPage
         ? 'Writing from what their page says\u2026'
-        : 'Reading ' + (state.landingPage || 'their page') + '\u2026';
+        : 'Writing your ad copy\u2026';
+      var opening = reading
+        ? 'Reading ' + state.landingPage + '\u2026'
+        : writing;
+      var think = window.S1Think
+        ? window.S1Think.attach(note,
+            { kind: reading ? 'scan' : 'ai', label: opening })
+        : (function () {
+            note.textContent = opening;
+            return {
+              stage: function (text) { if (text) note.textContent = text; },
+              done: function () {}
+            };
+          })();
 
       ensureLanding()
         .then(function (landing) {
+          think.stage(writing, 'ai');
           return post('/api/copy/suggest', {
             business: clientName() || state.doc.campaign.brand.name,
             // The route requires something to promote. The campaign name is
@@ -2360,7 +2589,7 @@
         Math.round(file.size / 1048576) + 'MB. Pick one under 12MB.</span>');
       return;
     }
-    bgBusy('Uploading ' + file.name + '\u2026');
+    bgBusy('Uploading ' + file.name + '\u2026', 'wait');
     post('/api/assets/upload-signature', {
       client: clientName() || 'Smart 1 Marketing',
       campaign: (state.doc.campaign.campaignName || 'display ads'),
@@ -2507,7 +2736,7 @@
         return '<div class="bgtile">' +
           '<button type="button" class="bgthumb" data-pick="' + i + '"' +
           ' title="Use this picture">' +
-          '<img src="' + esc(it.url) + '" alt="" loading="lazy">' +
+          '<img src="' + esc(it.thumb || it.url) + '" alt="" loading="lazy">' +
           (it.label ? '<span>' + esc(it.label) + '</span>' : '') + '</button>' +
           // Judging a photograph at 126px wide is guessing. This opens it at
           // the size it will actually be looked at, without applying it.
@@ -2534,14 +2763,20 @@
   /* One picture, big, with the same action available from in there -- looking
      at it and then having to find it again in the grid is how you end up
      picking the one next to it. */
-  function lightbox(url, onUse) {
+  /* `onUse` is optional, and its absence is the whole difference between the
+     two things this opens. A stock or generated photo is a candidate, so it
+     gets "Use this picture". A screenshot of the client's own website is
+     reference -- you look at it and go back to work -- and offering to put it
+     behind the ad would be offering something nobody wants and a few people
+     would press. */
+  function lightbox(url, onUse, caption) {
     var wrap = document.createElement('div');
     wrap.className = 'lightbox';
     wrap.innerHTML = '<img src="' + esc(url) + '" alt="">' +
       '<div class="lbbar">' +
-        '<button type="button" class="btn primary" data-lb="use">Use this picture</button>' +
+        (onUse ? '<button type="button" class="btn primary" data-lb="use">Use this picture</button>' : '') +
         '<button type="button" class="btn" data-lb="close">Close</button>' +
-        '<span class="lbnote">Esc closes</span>' +
+        '<span class="lbnote">' + esc(caption || 'Esc closes') + '</span>' +
       '</div>';
     function close() {
       document.removeEventListener('keydown', onKey);
@@ -2550,9 +2785,9 @@
     function onKey(e) { if (e.key === 'Escape') close(); }
     wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
     wrap.querySelector('[data-lb="close"]').addEventListener('click', close);
-    wrap.querySelector('[data-lb="use"]').addEventListener('click', function () {
+    if (onUse) wrap.querySelector('[data-lb="use"]').addEventListener('click', function () {
       close();
-      if (onUse) onUse();
+      onUse();
     });
     document.addEventListener('keydown', onKey);
     document.body.appendChild(wrap);

@@ -1,0 +1,25 @@
+{#
+  The Google tools' second level of navigation, once.
+
+  It was hand-copied into six templates, each carrying its own `active-page`
+  marker -- which is the drift this codebase pays for repeatedly: a tool added
+  here appears on the page somebody remembered to edit and on none of the
+  others, and the highlight is wrong on whichever copy was missed. The active
+  entry is read from `request.path` for the same reason Sites Admin reads
+  `request.endpoint`: a nav that has to be told which entry to highlight is a
+  nav that gets it wrong on the next page somebody adds.
+
+  `.s1d-subnav` is the Hub's shared strip (hub/static/hub-detail.css), injected
+  into this module by wsgi.py's HubBar. The emoji are gone with the gray box
+  they sat in -- the strip already reads as navigation, and six emoji in a row
+  is decoration on the one control a person uses to get somewhere.
+#}
+{% set _p = (request.path or '/').rstrip('/') or '/' %}
+<nav class="s1d-subnav">
+  <a href="/google/" class="{{ 'on' if _p in ('/', '/google') else '' }}">Quick Search</a>
+  <a href="/google/ga-tools" class="{{ 'on' if _p.endswith('/ga-tools') else '' }}">GA4 Tools</a>
+  <a href="/google/gtm-tools" class="{{ 'on' if _p.endswith('/gtm-tools') or _p.endswith('/gtm-logs') else '' }}">GTM Tools</a>
+  <a href="/google/webmaster-tools" class="{{ 'on' if _p.endswith('/webmaster-tools') else '' }}">Webmaster Tools</a>
+  <a href="/google/gmb-tools" class="{{ 'on' if _p.endswith('/gmb-tools') else '' }}">Business Profile</a>
+  <a href="/google/history" class="{{ 'on' if _p.endswith('/history') or _p.endswith('/reports') else '' }}">History &amp; Logs</a>
+</nav>

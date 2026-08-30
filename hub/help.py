@@ -46,6 +46,104 @@ def _h(*a, **kw) -> Help:
 
 REGISTRY: list[Help] = [
 
+    # ---------------- Three bubbles that explained nothing ----------------
+    # Each of these keys was placed on a tool's own title and had no entry
+    # here, so hub-help.js removed the dot client-side: the template read as
+    # helped, the screen showed nothing, and nothing anywhere reported it.
+    # Video Search's template even carries a comment saying its key must not
+    # be renamed *because renaming would orphan the bubble* -- protecting a
+    # key that pointed at nothing. hub/help_audit.py is the check now, and
+    # /api/integrity runs it.
+    _h("site_blocks.intro", "What this builds, and where it goes",
+       "A landing-page section for smart1marketing.com, in the same visual "
+       "language as the industry pages \u2014 Montserrat, navy, the accent "
+       "pair, the 1140px column. Fill in the copy, pick a theme, and paste "
+       "the HTML into a Custom HTML element on the site. Every block carries "
+       "its own scoped stylesheet, so nothing it defines can reach the rest "
+       "of the page \u2014 which is what makes it safe to paste into a page "
+       "somebody else built."),
+    _h("social.planner", "A month of posts in one pass",
+       "Builds a client's organic month from what the Hub already knows about "
+       "them, so the calendar starts full rather than empty. It stops at a "
+       "CSV for Smart 1 Suite's bulk upload on purpose: posting straight to "
+       "Suite needs a scope HighLevel has not granted yet, and ending at the "
+       "export means the drafting earns its keep either way. The copy checks "
+       "are code rather than a note in the prompt \u2014 a price, a "
+       "percentage, a phone number or a deadline that nobody typed blocks "
+       "the plan, because a month of posts is bulk work that gets skimmed."),
+    _h("video_backgrounds.overview", "Searching footage by what is on screen",
+       "Every clip in the two folders we own is described by a vision pass, "
+       "so you can search for what is actually in the shot rather than for "
+       "whatever the file was called. What comes back is a URL already sized, "
+       "muted and trimmed to sit behind a headline. Read the library status "
+       "above the results first: an empty list means Cloudinary is unset, or "
+       "the sweep has not reached those clips yet, or there is genuinely no "
+       "match \u2014 three different answers that would otherwise look "
+       "identical."),
+
+    # ---------------- Social content requests ----------------
+    # This screen shipped with no explanation on it at all, which is exactly
+    # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
+    # all working, and nothing on the page opting into any of it. Every key
+    # below is placed by modules/social_planner/templates/staff_requests.html;
+    # test_social_content.py asserts the two stay in step, because a bubble
+    # whose key is not in this registry is removed client-side and reads as
+    # helped from the template while showing nothing on the page.
+    _h("social.requests.queue", "One queue, every location",
+       "A client account is one social presence and often several shops. "
+       "Everybody at the client opens the same link, says which location they "
+       "are, and their request lands here — instead of in whichever inbox "
+       "they happened to know. The location is how you sort it, not where it "
+       "gets posted: one shared page is what the client has."),
+    _h("social.requests.overdue", "Overdue, and what it is not",
+       "The day the client asked for has passed and the request still is not "
+       "scheduled. A request that said \u201cas soon as you can\u201d is never "
+       "overdue — it named no day, and treating that as today would turn "
+       "every one of them red by tomorrow. Declined and duplicate requests "
+       "drop out too: they have been answered."),
+    _h("social.requests.duplicate", "Possible duplicate",
+       "Another open request from this same client wants something live in "
+       "an overlapping window. It is a flag and nothing else — as often two "
+       "locations legitimately both wanting that week as it is one ask sent "
+       "twice, and nothing here can tell them apart. Nothing is merged or "
+       "declined automatically; you confirm it or clear it. It never pairs "
+       "across clients: two businesses wanting the same Friday is a Friday."),
+    _h("social.requests.link", "Their link",
+       "One signed link per client account, not one per location — a link "
+       "each would be the inbox-per-shop arrangement this replaces. It is "
+       "derived from the client's name rather than stored, so it is the same "
+       "string every time and there is nothing to lose. Turning it off stops "
+       "all four of their pages at once, including any copy already pasted "
+       "on their intranet."),
+    _h("social.requests.turnaround", "The turnaround line",
+       "What the client's confirmation screen is allowed to promise. It is "
+       "measured from requests actually triaged, and until there are a few "
+       "it says so rather than quoting a number nobody has checked — a "
+       "figure invented here is a commitment made on the client's behalf."),
+    _h("social.requests.promote", "Promote into a plan",
+       "Turns the request into a slot on that client's month, carrying its "
+       "copy, its photographs and its date across, and joins the two so the "
+       "post says which request it came from. It will not invent a plan: "
+       "with no month built it refuses and names the step, because the "
+       "channels and the post mix belong to the plan rather than to one "
+       "request. What the client typed also becomes authorized text, so "
+       "their own offer is not flagged as invented."),
+    _h("social.requests.ideas", "Ideas and the weighting",
+       "One-line ideas the client swipes Like or Pass on. The weighting is "
+       "liked \u00f7 (liked + passed + 1), which you can check against the two "
+       "counts beside it, and it only ever decides which kinds of post get "
+       "offered next — never the words of anything. A share of each batch "
+       "goes to kinds nobody has answered on, or the mix converges on "
+       "whatever they liked first and stops learning."),
+    _h("social.requests.suite", "Pushing to Smart 1 Suite",
+       "Posting from here needs the social-media-posting.write scope on the "
+       "Suite app, and HighLevel grants what it recognizes at consent "
+       "without saying anything about the rest — so it is checked before a "
+       "push rather than discovered by one. Until the agency re-consents, "
+       "the CSV export loads the same plan into Social Planner's Bulk "
+       "Upload; the line here says which of the two you are being offered."),
+
+
     # ---------------- Proposal Builder: the reach panel ----------------
     # Four numbers sat above a target area with nothing saying what any of
     # them counted, so "addressable audience" got read as "people who will
@@ -118,6 +216,20 @@ REGISTRY: list[Help] = [
        "pipeline's archive, and cannot be undone. The count is this client's, "
        "not the whole archive's.", step=4,
        selector="[data-tour='client-images']"),
+    _h("hub.client360.spend", "What they are already spending",
+       "The first thing worth knowing about a client, and the one that decides "
+       "what the next conversation is about. Every figure is a third-party "
+       "estimate of somebody else's spend, not a billed number: the total "
+       "covers only what carries a figure, and what is deliberately left out "
+       "of it is named beside it — Meta publishes the ads and never the money, "
+       "so counting paid social as zero would understate a business by "
+       "thousands in a clean confident row. Annualising is our multiplication "
+       "and a cost per visit is their own two numbers divided, so both say so. "
+       "Underneath it is what the audit says we could fix, which is the "
+       "finding rather than a product name. This is the same reading of the "
+       "same audit the Website Audit tool and a prospect record show — read "
+       "again with the date on it, and nothing here is fetched afresh or "
+       "costs anything."),
     _h("hub.client360.scanfacts", "What we know about this business",
        "About 440 things are read off a client's website and this record used "
        "to show four of them. This is the rest of what is worth reading: the "
@@ -148,6 +260,119 @@ REGISTRY: list[Help] = [
        "the two disagree the disagreement is the finding, and folding one into "
        "the other destroys the only evidence of it. Every question here "
        "changes something in the proposal downstream, and each one says what."),
+
+    _h("hub.website_audit.ask", "Reading one and running one",
+       "Reading the last audit costs nothing and spends no credit — it is a "
+       "reading somebody already paid for, and the date it was taken is "
+       "printed on it. Running a new one spends a credit and takes minutes, "
+       "so it confirms first. A client is searched rather than typed: a name "
+       "that matches nothing is refused rather than filed against a client "
+       "nothing joins to.", step=2, selector="#askCard"),
+    _h("hub.website_audit.spend", "What they are already spending",
+       "This leads, because a business putting $2,400 a month into Google Ads "
+       "is a different sale from one putting in nothing. The total covers "
+       "only what carries a number — Meta publishes the ads and never the "
+       "spend — and whatever was left out of it is named beside it in words, "
+       "or a five-figure understatement gets quoted confidently. The "
+       "arithmetic says which two figures it divided and whose they were.",
+       step=3, selector=".card.spend"),
+    _h("hub.website_audit.opportunities", "What we could fix",
+       "Each row is what was measured and what it costs them, with the "
+       "product as the consequence rather than the headline: the finding is "
+       "the half that survives being read out to the client, and the product "
+       "is what a rep gets argued with over. A check the plan did not run "
+       "raises nothing at all — absent is never a clean bill.",
+       step=4, selector="[data-block='opportunities']"),
+    _h("hub.website_audit.lead", "Every audit is a lead",
+       "Somebody typed a business and a website into this Hub, which makes "
+       "them a prospect whatever else they are. The row goes to the one lead "
+       "store and on to Smart 1 Suite, and the two writes are reported apart "
+       "— saved here and created there are different outcomes. A lead with "
+       "neither an email nor a phone number is refused by name rather than "
+       "created: a contactless lead reads as a live prospect on every count "
+       "that follows. Once it is filed the prospect record is one click away, "
+       "and that is where the audit, the proposal and the files live "
+       "together.", step=5, selector="#leadCard"),
+    _h("hub.website_audit.proposal", "Turning it into a proposal",
+       "The builder opens with the discovery answers, the target areas and "
+       "the findings already in it, so the quote is written from what was "
+       "measured rather than from memory. A reading over sixty days old says "
+       "so first: a proposal written from an older one describes a site that "
+       "may have been rebuilt since.", step=6, selector="#nextCard"),
+
+    # ---------------- Prospect record ----------------
+    _h("hub.prospect.intro", "What this record is for",
+       "Everything the Hub knows about one prospect, in one place: what they "
+       "are spending, what the audit found, what has been quoted, the files "
+       "collected for them and what has happened. Smart 1 Suite owns the "
+       "working state and the Hub owns the evidence — the stage, the owner "
+       "and the conversation are in the CRM, which is where the calls and the "
+       "texts already are, and a stage stored here as well would be two "
+       "systems answering one question with nothing saying which to believe. "
+       "So this record reads the stage and never writes one.",
+       step=1, selector=".strip"),
+    _h("hub.prospect.spend", "What they are already spending",
+       "The same reading the Website Audit tool shows, and deliberately not a "
+       "second description of it — two screens describing a business's own "
+       "money differently is how a reader learns to believe neither. What was "
+       "left out of the total is named rather than counted as nothing.",
+       step=2, selector="[data-card='spend']"),
+    _h("hub.prospect.suite", "Where this has got to",
+       "Read from Smart 1 Suite, never decided here. Four kinds of empty, "
+       "and only one of them means chase this: the Suite is not configured, "
+       "the lead never reached it, the Suite refused the read, or the Suite "
+       "answered fine and no deal is open. The first three say so; the fourth "
+       "is the one that means somebody should open a deal. A note typed here "
+       "is posted to the Suite contact, so it lands where the next person to "
+       "pick this up will look, rather than in a second notebook.",
+       step=3, selector="[data-card='suite']"),
+    _h("hub.prospect.audit", "What the audit found",
+       "The same audit the tool and the client record read. Over sixty days "
+       "old it says so and offers the rescan, because a quote written from an "
+       "older reading describes a site that may have been rebuilt since. "
+       "Running one spends a credit and takes minutes, so the row does not "
+       "vanish on success — it would be claiming a result that does not exist "
+       "yet.", step=4, selector="[data-card='audit']"),
+    _h("hub.prospect.proposals", "What has been quoted",
+       "Proposals filed against this business. Audited and nothing quoted "
+       "is the band the whole audit pipeline exists to fill, and it is the "
+       "third thing the prospect queue sorts on — so Start a proposal at the "
+       "top of this record opens the builder with the audit already read into "
+       "it.", step=5, selector="[data-card='proposals']"),
+    _h("hub.prospect.assets", "Files on this prospect",
+       "The mock-up they were sent, the screenshot of the competitor they "
+       "complained about, the rate sheet they emailed over — the things that "
+       "otherwise live in somebody's inbox. They sit in a folder of their "
+       "own rather than a client gallery, because a prospect has no client "
+       "key yet and filing them together is how one company's assets land on "
+       "another's record. Deleting reports the record row and the stored copy "
+       "apart: one tick covering both is how somebody learns not to trust the "
+       "tick. Converting re-files them under the client by naming them, not "
+       "by uploading a second copy.", step=6, selector="[data-card='assets']"),
+    _h("hub.prospect.duplicates", "The same prospect, twice",
+       "The same business reaches the panel more than once and always will — "
+       "the widget on a client's site in March, an audit in May, a landing "
+       "page in between. Rows grouped on the same email address or the same "
+       "website are near enough proof; an exact company name on its own is "
+       "worth an eyeball and nothing more, since two franchises of one brand "
+       "carry one name and are two businesses with two owners. Merging is "
+       "done on the Leads panel and not here, because it is a decision made "
+       "with every row on screen: which one survives keeps its own details "
+       "and fills its blanks from the rest.",
+       step=7, selector="[data-card='duplicates']"),
+    _h("hub.prospect.timeline", "Everything that has happened",
+       "Assembled from the sections that were actually measured, and the ones "
+       "that were not are named on it rather than shortening it in silence — "
+       "a history missing exactly the fortnight somebody is asking about, "
+       "with nothing saying so, is worse than no history.",
+       step=8, selector="[data-card='timeline']"),
+    _h("hub.prospect.convert", "Convert to a client",
+       "A link, never a creation. A client in this Hub is a business with "
+       "a product in Knack — that is what billing reads — so this refuses a "
+       "name the registry does not know rather than inventing an account the "
+       "Hub shows and no invoice ever mentions. What it adds is the "
+       "carry-across: the files are re-filed under the client, and the "
+       "history of who came in and from which tool survives."),
 
     # ---------------- SEO Image Pipeline ----------------
     _h("seo_images.upload.details", "Fill these in first",
@@ -644,6 +869,24 @@ REGISTRY: list[Help] = [
        "the stock searches and the end card\u2019s offer. Write the offer as a client "
        "would say it \u2014 \u201c$79 air conditioning tune-up before August 31\u201d "
        "rather than \u201cHVAC services\u201d."),
+    _h("commercial_builder.brief.archetype", "What the spot is, not how it gets made",
+       "The commercial type on the Start page answers a different question \u2014 "
+       "stock footage or an AI spokesperson is how it gets BUILT. This is what "
+       "it IS: the narrative the viewer actually watches. They were one field "
+       "for a while, which meant picking \u201cAI spokesperson\u201d said "
+       "nothing about the story and picking \u201cTestimonial\u201d said nothing "
+       "about the method, and the writer was told half of what had been decided. "
+       "Each one names what it is good at, what it is bad at, and \u2014 the part "
+       "worth reading \u2014 what it needs from the client. A testimonial needs a "
+       "real customer who has agreed. A before-and-after needs the BEFORE, which "
+       "nobody photographs because at the time it was just a Tuesday. That "
+       "question appears the moment you pick one, and an unanswered one shows on "
+       "the Blueprint as something to sort out while it is still free to change. "
+       "Where the client's industry is on file, the ones that usually work in "
+       "that category are named \u2014 as a suggestion, never a filter, because an "
+       "unusual choice is often the reason a spot works. Nothing picked yet "
+       "means the tool has inferred one from the commercial type, and it says "
+       "so rather than drawing a selection you never made."),
     _h("commercial_builder.brief.landing", "The landing page becomes the QR code",
        "Where there is one, this is what the QR code on the end card points at, "
        "with tracking added so scans report as their own source rather than as "
@@ -672,6 +915,24 @@ REGISTRY: list[Help] = [
        "two-second average would be three cuts a second, which is a strobe, not "
        "a bumper.",
        step=2, selector="#abcd-rows"),
+    _h("commercial_builder.blueprint.compliance", "Which rules this copy puts in play",
+       "This tool renders finished, deliverable video, and some copy engages "
+       "published advertising rules. A payment, a rate or \u201cno money "
+       "down\u201d engages Truth in Lending. A testimonial engages the FTC\u2019s "
+       "endorsement guides. A law firm, a broker-dealer or a brewery brings its "
+       "own regime with it. Each row names the rule, the authority behind it and "
+       "what it requires \u2014 so the conversation happens while the script is "
+       "still being written rather than after the spot has run. "
+       "\u201cEngaged by\u201d quotes the words that put it in play, so you can "
+       "find them in the script. "
+       "It never says the spot is compliant, and it cannot: that is a judgment "
+       "about a specific ad in a specific state and it belongs to the client\u2019s "
+       "counsel or compliance officer. Nothing here blocks a render either. What "
+       "it asks for is one acknowledgment before a rendered cut is FILED \u2014 a "
+       "record that these were put in front of a named person, which is why a "
+       "shared login cannot give one. Rewrite the offer afterwards and that "
+       "sign-off is retired, because it was a statement about the copy as it was.",
+       step=3, selector="#compliance-card"),
     _h("commercial_builder.blueprint.checks", "The same checks Render runs",
        "They were only on the last step, and every one of them is about "
        "something on this screen: a scene with no footage, a clip shorter than "
@@ -681,7 +942,7 @@ REGISTRY: list[Help] = [
        "buying this inventory work from \u2014 and it is checked on the plan, before "
        "a frame exists, because length and aspect ratio are what a platform "
        "refuses creative over and both are decided here.",
-       step=3, selector="#run-checks-btn"),
+       step=4, selector="#run-checks-btn"),
     _h("commercial_builder.blueprint.narration", "A longer spot needs more script, not longer pauses",
        "The script writer sizes the read once, against the word budget for this "
        "length, and stops \u2014 which is why a :60 can come back reading like a :30 "
@@ -689,7 +950,7 @@ REGISTRY: list[Help] = [
        "has, and re-measures. When there is no room left it says so rather than "
        "quietly doing nothing: shorten a line first, or build a longer cut. A "
        "scene you have locked is never rewritten under you.",
-       step=4, selector="#expand-narration-btn"),
+       step=5, selector="#expand-narration-btn"),
     _h("commercial_builder.blueprint.assets", "Make a frame, then animate it",
        "The two AI buttons are one job in order, not two ways of doing the same "
        "thing. Runway animates a starting image and has no usable text-only "
@@ -699,7 +960,7 @@ REGISTRY: list[Help] = [
        "than 10 seconds is refused rather than handed a clip that stops early. "
        "Footage we already own is listed first and badged OWNED: it costs "
        "nothing and needs no license check.",
-       step=5, selector=".cb-step-pair"),
+       step=6, selector=".cb-step-pair"),
 
     _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",
        "Ranked against the account\u2019s own voices by the same casting rules the "
@@ -785,7 +1046,24 @@ REGISTRY: list[Help] = [
        "are cut down from its storyboard \u2014 then :15, the :06, the :05, "
        "and the :60 last, because the :60 is the most expensive and the "
        "first to be dropped when the budget lands. Approving one hands you "
-       "the next one\u2019s Blueprint."),
+       "the next one\u2019s Blueprint. Once one cut of a spot has been "
+       "approved the rest come off a storyboard somebody has watched, so "
+       "they can be sent together \u2014 that is what \u201cRender the "
+       "other\u201d does, and it is not offered before the first approval."),
+
+    _h("commercial_builder.dashboard.reviews", "What has come back from clients",
+       "A client answering a review link used to reach the activity log and "
+       "nothing else, so the only way to find out was to open the spot and "
+       "look. There is no mail sender in the Hub, so the answers are put "
+       "here instead. A round counts as answered if somebody pressed one of "
+       "the three buttons \u2014 or left notes and pressed none, which is "
+       "still a reply. A spot with a filed cut leaves the list, because the "
+       "answer has been acted on. Rounds still out with the client are "
+       "counted separately, in the corner, since nobody here is holding "
+       "those up. And an empty list says which kind of empty it is: nothing "
+       "waiting, nothing yet sent, and a table that could not be read are "
+       "three different situations and only two of them mean there is "
+       "nothing to do."),
 
 ]
 
@@ -808,6 +1086,21 @@ def tour(screen: str) -> list[dict]:
         prefix = screen.split(".")[0]
         steps = [h for h in REGISTRY if h.step and h.key.startswith(prefix + ".")]
     return [h.as_dict() for h in sorted(steps, key=lambda x: x.step or 999)]
+
+
+def has_tour(screen: str) -> bool:
+    """Whether THIS screen registers tour steps of its own.
+
+    Exact, unlike `tour()` above, which falls back to the module prefix when a
+    screen has none. That fallback is right for serving a tour somebody asked
+    for and wrong for deciding whether to OFFER one: asked that way, every
+    screen in a module carrying any steps at all answers yes, and then draws
+    another screen's steps over elements that are not on the page — a ring
+    anchored to nothing, with the narration still reading confidently. Which
+    is the Smart 1 Ads failure, and the reason a layout asks this rather than
+    drawing data-screen on the truth of a name.
+    """
+    return any(h.step and h.key.startswith(screen + ".") for h in REGISTRY)
 
 
 def screens() -> list[str]:

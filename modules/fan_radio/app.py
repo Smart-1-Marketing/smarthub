@@ -50,6 +50,22 @@ BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
 app.config["JSON_SORT_KEYS"] = False
 
+# The three mount-relative prefixes the CUSTOMER reaches, and a customer has
+# no Hub login. Declared here rather than in wsgi.py so the mount and the
+# module cannot disagree about what is public -- the arrangement
+# modules/scans, modules/ads_builder and modules/sales_builder already use.
+# wsgi.py hands it to _mount, which passes it to BOTH halves: AuthGuard, so
+# the page is reachable at all, and HubBar, so the staff sidebar, help layer
+# and feedback tab are not injected into a page a client reads. Either half
+# missing is its own failure, in opposite directions.
+#
+# /r/            the approval page itself
+# /api/public/   what that page fetches, and the approve/comment it posts
+# /audio/        the local-disk render the page's <audio> element plays,
+#                which is why a missing Cloudinary credential must not also
+#                mean a silent player
+PUBLIC_PREFIXES = ("/r/", "/api/public/", "/audio/")
+
 MAX_SPOTS = 12
 _rate_lock = threading.Lock()
 _hits: dict[str, list[float]] = {}

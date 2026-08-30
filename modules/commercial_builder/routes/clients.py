@@ -112,7 +112,10 @@ def upload_client_asset(client_id):
     category = data.get("category", "photo")
     if not source_url:
         return jsonify({"ok": False, "error": "url is required"}), 400
-    result = cloudinary_service.upload_asset(source_url, client.slug, category)
+    # The name as well as the slug: the gallery is keyed on the client's name
+    # and this module's slug is its own, so resolving one back would be a guess.
+    result = cloudinary_service.upload_asset(source_url, client.slug, category,
+                                             client_name=client.name)
     return jsonify({"ok": True, "asset": result})
 
 

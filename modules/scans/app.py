@@ -1948,6 +1948,21 @@ def _audit_view(row):
     # them over for an email address gives that away.
     payload.pop("discovery", None)
     payload.pop("discovery_note", None)
+
+    # Two paragraphs saying what the tables below mean, written once per scan
+    # and read thereafter — a prospect refreshing the page, or opening the
+    # mailed link on a phone, must not each cost a call for a paragraph that
+    # cannot have changed. Grounded strictly in what was measured; a summary
+    # that could not be grounded is simply absent and the report renders
+    # exactly as it did before, which is the honest empty rather than a
+    # sentence about a failed scan dressed as a finding.
+    try:
+        from hub import audit_summary
+        payload["summary"] = audit_summary.for_scan(
+            payload.get("public_id") or "", payload)
+    except Exception:                                   # noqa: BLE001
+        app.logger.exception("audit summary unavailable")
+        payload["summary"] = {"text": "", "measured": False, "why": ""}
     return payload
 
 

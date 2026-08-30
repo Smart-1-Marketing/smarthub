@@ -136,7 +136,8 @@ window.CampaignRequest = (function () {
       // gives up on.
       function suggest(clientName) {
         var prods = productsOf(clientName);
-        var byKey = { campaign: [], io_number: [], product: [], io_product: [] };
+        var byKey = { campaign: [], io_number: [], product: [], io_product: [],
+                      media_partner: [] };
         prods.forEach(function (p) {
           if (p.product) {
             byKey.campaign.push(p.product);
@@ -144,6 +145,11 @@ window.CampaignRequest = (function () {
             byKey.io_product.push(p.product);
           }
           if (p.io) byKey.io_number.push(String(p.io));
+          // The partner is on the same rows as the rest and was the one thing
+          // this form did not offer, while the ad copy form offered it from
+          // the identical data. Ignored where Knack publishes a picker for
+          // the field — a datalist on a <select> draws nothing.
+          if (p.partner) byKey.media_partner.push(p.partner);
         });
         fields.forEach(function (f) {
           var list = byKey[f.key];
@@ -207,8 +213,15 @@ window.CampaignRequest = (function () {
                 ? '<div class="muted" style="font-size:11.5px;margin-top:3px">This object has no subject field of its own, ' +
                   'so the subject leads the issue below.</div>' : '') +
             '</div></div>' +
-          KF().form(fields, prefill, SKIP[kind], CTX);
+          KF().form(fields, prefill, SKIP[kind], CTX) +
+          '<div id="csTriage" style="margin-top:4px"></div>';
         KF().wire();
+        // Same control, same rules, from the same renderer: this object's
+        // Campaign Support type and Timeline are the same kind of question
+        // the ticket's type is, and the answer is in the paragraph the rep
+        // just wrote out. Both objects call that field `description` —
+        // support's is the issue and change's is the change.
+        KF().triageButton('csTriage', fields, CTX, kind, 'description');
         wireHeader();
       }
 

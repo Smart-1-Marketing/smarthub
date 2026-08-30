@@ -76,6 +76,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: modules/ad_builder/package-lock.json
 
       - name: Install dependencies
         run: |
@@ -107,15 +109,44 @@ jobs:
       - name: Ad builder module tests
         run: python test_ads_module.py
 
+      # The Display Ad Builder is the one module that is not Python: ~14,000
+      # lines of TypeScript with its own test suite, and until now this
+      # workflow ran none of it. The stated reason was that its tests need an
+      # npm install "this workflow deliberately does not do" — which was worth
+      # re-measuring rather than inheriting. A clean `npm ci` for this module
+      # is a couple of seconds and 63 MB, the suite is about ten, and what it
+      # buys is the layout engine, the delivery zip, the QA checks and the
+      # platform registry actually being exercised instead of described.
+      #
+      # So the renderer is compiled and tested here, and the file-content
+      # checks below keep the job they are uniquely good at.
+      - name: Display ad renderer — install
+        working-directory: modules/ad_builder
+        run: npm ci
+
+      # Typecheck first, and separately: a type error and a failing assertion
+      # are different problems, and a combined step reports whichever came
+      # first as though it were the only one.
+      - name: Display ad renderer — typecheck
+        working-directory: modules/ad_builder
+        run: npx tsc --noEmit
+
+      - name: Display ad renderer — tests
+        working-directory: modules/ad_builder
+        run: npm test
+
       - name: Display ad layout and build screen tests
-        # The Node ad builder's own tests need an npm install this workflow
-        # deliberately does not do, so this asserts what lives in the files:
-        # that the Proof point field has a box to draw into on every layout
-        # with room for one, that those boxes are inside the safe area and
-        # clear of everything else, and that the build screen and the render
-        # server still agree about the shapes they exchange. Guarded like the
-        # steps below so this workflow stays mergeable on a branch that
-        # predates the file. Reads files only — no database, no network.
+        # This is NOT made redundant by the suite above, and the two do not
+        # overlap at all. Every node test imports a module from src/; this
+        # reads the things nothing imports — the hand-authored template JSON,
+        # and build.html, which is a browser file no test can require. So it
+        # still asserts that the Proof point field has a box to draw into on
+        # every layout with room for one, that those boxes sit inside the safe
+        # area and clear of everything else, and that the build screen and the
+        # render server agree about the shapes they exchange across a wire
+        # nothing typechecks. Guarded like the steps below so this workflow
+        # stays mergeable on a branch that predates the file. Reads files
+        # only — no database, no network.
         run: |
           if [ -f test_display_ads.py ]; then
             python test_display_ads.py
@@ -208,6 +239,50 @@ jobs:
             echo "test_commercial_review.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder advertising-rule tests
+        # Which published rules a spot's copy engages, and the two ways the
+        # feature would be worse than absent: a tool that claims a spot is
+        # compliant, and a rule that fires on every spot. Also that nothing
+        # here blocks a render, that an empty industry reads as not measured
+        # rather than unregulated, and that rewriting the offer retires the
+        # sign-off. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_commercial_compliance.py ]; then
+            python test_commercial_compliance.py
+          else
+            echo "test_commercial_compliance.py not on this branch — nothing to run."
+          fi
+
+      - name: Commercial Builder archetype and category tests
+        # What a spot IS as distinct from how it gets made, the legacy
+        # commercial_type reading as the archetype it always was, pack ids
+        # matching hub/industries.py so one client cannot get two taxonomies,
+        # an unmatched category reading generic rather than wrong, and the
+        # check that names any field which changes nothing. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_library.py ]; then
+            python test_commercial_library.py
+          else
+            echo "test_commercial_library.py not on this branch — nothing to run."
+          fi
+
+      - name: Commercial Builder metering and spot library tests
+        # That every billed call site records, that the scanner has a marker
+        # for each of them so the gap cannot go quiet again, that no price is
+        # invented where none is published, and that the library counts what
+        # was approved rather than what merely rendered. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_meter.py ]; then
+            python test_commercial_meter.py
+          else
+            echo "test_commercial_meter.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -242,6 +317,21 @@ jobs:
             echo "test_landing_embeds.py not on this branch — nothing to run."
           fi
 
+      - name: Calculator embed tests
+        # The same rules as the step above, on the path they did not cover.
+        # The calculators are a blueprint on the hub app and every gameplan
+        # tool is dispatcher-mounted, so nothing written for /land/<tool>/embed
+        # was in force on /tools/calculators — and both halves failed at once:
+        # the hub's embed policy answered the marketing site's iframe with the
+        # Smart 1 Suite refusal (403, plain text, in front of a prospect), and
+        # the staff sidebar was injected into the calculator pages themselves.
+        run: |
+          if [ -f test_calculator_embeds.py ]; then
+            python test_calculator_embeds.py
+          else
+            echo "test_calculator_embeds.py not on this branch — nothing to run."
+          fi
+
       - name: IO Builder start-screen tests
         # Same skip-rather-than-fail shape as the steps around it.
         run: |
@@ -270,6 +360,43 @@ jobs:
             python test_scan_widgets.py
           else
             echo "test_scan_widgets.py not on this branch — nothing to run."
+          fi
+
+      - name: Prospect queue tests
+        # Who to call, in the order the work has to happen. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_prospect_queue.py ]; then
+            python test_prospect_queue.py
+          else
+            echo "test_prospect_queue.py not on this branch — nothing to run."
+          fi
+
+      - name: Upsell report tests
+        # What we could sell each client, out of audits already paid for:
+        # coverage named rather than left off, recorded-vs-observed kept
+        # apart, and a run that could not look never becoming the day's
+        # answer. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_upsell_report.py ]; then
+            python test_upsell_report.py
+          else
+            echo "test_upsell_report.py not on this branch — nothing to run."
+          fi
+
+      - name: Prospect record tests
+        # The record a scanned business gets before it is a client: four kinds
+        # of empty on the Suite card, a timeline that names what it could not
+        # read, and files that report the record and the stored copy apart.
+        # Guarded like the steps around it so this workflow stays mergeable on
+        # a branch that predates the file.
+        run: |
+          if [ -f test_prospect_record.py ]; then
+            python test_prospect_record.py
+          else
+            echo "test_prospect_record.py not on this branch — nothing to run."
           fi
 
       - name: Website audit tests
@@ -365,6 +492,65 @@ jobs:
             python test_proposal_spec.py
           else
             echo "test_proposal_spec.py not on this branch — nothing to run."
+          fi
+
+      - name: IO reconciliation tests — orders with no campaign in Knack
+        # Whether the campaign an insertion order was written for was ever set
+        # up. A stale source read as proof that nothing was trafficked is the
+        # failure this must not have, so the refusal is asserted as hard as
+        # the finding. Guarded like the steps around it; nothing in it reaches
+        # a third party, and the only write it makes is its own overlay.
+        run: |
+          if [ -f test_io_reconcile.py ]; then
+            python test_io_reconcile.py
+          else
+            echo "test_io_reconcile.py not on this branch — nothing to run."
+          fi
+
+      - name: Sales scoreboard tests — the pipeline on the dashboard
+        # The five signals, one reading behind both screens, and each count
+        # landing on the rows it counted. Guarded like the steps around it;
+        # nothing in it reaches a third party, and nothing it tests writes.
+        run: |
+          if [ -f test_sales_status.py ]; then
+            python test_sales_status.py
+          else
+            echo "test_sales_status.py not on this branch — nothing to run."
+          fi
+
+      - name: Campaign cost tests — one number for what it costs
+        # The plan is the number: the cover, the media plan, the investment
+        # summary, the insertion order and the dashboard all read it. Guarded
+        # like the steps around it; nothing in it reaches a third party.
+        run: |
+          if [ -f test_campaign_cost.py ]; then
+            python test_campaign_cost.py
+          else
+            echo "test_campaign_cost.py not on this branch — nothing to run."
+          fi
+
+      - name: Quote validity tests — the clock, and what Suite decides
+        # How long a sent proposal's pricing stands, the Expired status that
+        # nothing used to set, the Suite stage change that reaches the quote
+        # row, and the delivery figures back on the media plan. Guarded like
+        # the steps around it; nothing in it reaches a third party.
+        run: |
+          if [ -f test_quote_validity.py ]; then
+            python test_quote_validity.py
+          else
+            echo "test_quote_validity.py not on this branch — nothing to run."
+          fi
+
+      - name: Draft tests — unfinished IOs and proposals
+        # Both halves of coming back to interrupted work: the server-side
+        # draft store, the IO builder's list, and the proposal wizard
+        # reopening where it was left. Guarded like the steps around it, and
+        # nothing in it reaches a third party.
+        run: |
+          if [ -f test_drafts.py ]; then
+            python test_drafts.py
+          else
+            echo "test_drafts.py not on this branch — nothing to run."
           fi
 
       - name: Proposal share tests
@@ -589,6 +775,19 @@ jobs:
             echo "test_client_uploads.py not on this branch — nothing to run."
           fi
 
+      - name: Image attribution audit, and the gallery that reads it
+        # Every tool that creates, uploads or lets somebody choose an image
+        # files it against a client or a lead; the audit reports the ones that
+        # do not; and the gallery reads one label table rather than a second
+        # hand-typed copy. Guarded like the steps above so this workflow stays
+        # mergeable on a branch that predates the file. Needs no network.
+        run: |
+          if [ -f test_image_audit.py ]; then
+            python test_image_audit.py
+          else
+            echo "test_image_audit.py not on this branch — nothing to run."
+          fi
+
       - name: Alt text and Claude-in-Chrome publish prompts
         # The alt-text scan, its clamps, and the prompts handed to a browser
         # agent -- including that no stored credential can reach one. Guarded
@@ -727,6 +926,26 @@ jobs:
             python test_user_accounts.py
           else
             echo "test_user_accounts.py not on this branch — nothing to run."
+          fi
+
+      - name: Nothing answers a stranger
+        # Boots the composed app and requests every static GET route it serves
+        # with no session at all. A module registered as a blueprint on the hub
+        # app never passes through wsgi.py's AuthGuard, so one that does not
+        # guard itself answers 200 to anyone with the URL -- which is how three
+        # staff tools came to be open behind tiles that redirect to /login.
+        # Every 200 has to be on an allowlist that says why it is public, so a
+        # new open route fails this without anybody adding an assertion for it.
+        # Guarded like the steps around it so this workflow stays mergeable on a
+        # branch that predates the file.
+        # It sets DATABASE_URL, HUB_DATA_DIR and AUDIT_LOG_PATH itself rather
+        # than setdefault-ing them, so it always gets its own throwaway
+        # database and never appends to the real activity log.
+        run: |
+          if [ -f test_blueprint_guards.py ]; then
+            python test_blueprint_guards.py
+          else
+            echo "test_blueprint_guards.py not on this branch — nothing to run."
           fi
 
       - name: Environment resolution and per-module attribution tests
@@ -943,6 +1162,18 @@ jobs:
       - name: The search box finds clients first, and finds the Hub
         run: python3 test_search.py
 
+      # The help layer, both halves. A bubble whose key the registry does not
+      # hold is removed client-side, so the template reads as helped and the
+      # screen shows nothing -- no console error, no failed request. And the
+      # coverage audit that would have reported the gap was measured against a
+      # hand-typed list that had gone stale: it answered "nothing is missing"
+      # while two dozen tiled tools carried no explanation at all. It is
+      # derived from the index-page tiles now, and a parse that finds no tiles
+      # is a refusal to answer rather than a clean bill. This file was in
+      # CLAUDE.md's list and in no CI step, so it was a check nobody ran.
+      - name: Every bubble has help behind it, and coverage is measured
+        run: python3 test_help_layer.py
+
       # The layer above the month plan: multi-location intake, the client's
       # four signed pages, the idea weighting and the Suite push. Every one of
       # these fails quietly rather than loudly -- a duplicate flag that crossed
@@ -959,3 +1190,44 @@ jobs:
       # counts. Reproduced before it was fixed, and both runs are green now.
       - name: Content requests, ideas and the Suite push
         run: python3 test_social_content.py
+
+      # The client registry ran on a 610-row JSON file committed to the repo
+      # while hub/knack_websites.py read the same object live. This holds the
+      # switch: live where Knack answers, the export where it will not, a
+      # failed pull that never empties a good export, and summary() still
+      # measuring the dashboard scorecard against the export -- pointed at the
+      # live list it reports 2 active websites instead of 610.
+      - name: Websites read live, with the export as the fallback
+        run: python3 test_knack_websites_source.py
+
+      # The client half of the Suite embed. The location id inside the
+      # encrypted SSO payload is the authorization and the whole security
+      # model: every refusal here is a way to show one client another client's
+      # record, and every one of them is silent. Carries its own encryptor so
+      # the CryptoJS envelope is round-tripped rather than assumed.
+      - name: Suite SSO — who is looking, inside a client's own sub-account
+        run: python3 test_suite_sso.py
+
+      # Eleven background jobs share one thread. The panel said the loop was
+      # alive and drew a green pill for any job whose last run succeeded,
+      # however long ago -- and the standby worker, which holds no timings at
+      # all, showed every job as never run. This holds the three answers it
+      # could not give: overdue, a failure streak, and not-measured-here.
+      - name: Background jobs report whether they are working
+        run: python3 test_scheduler_health.py
+
+      # The two radio commercial builders. Neither had a test, and the
+      # customer-facing half of Fan Radio was behind the staff login: the
+      # module has said since it was written that /r/, /api/public/ and
+      # /audio/ are the customer's, and the mount passed AuthGuard no public
+      # prefixes at all, so mailing a client their approval link mailed them a
+      # sign-in form for an account they will never have -- and the audio
+      # player on the page was dead with it. Nothing errored; the redirect is
+      # a correct answer to a question nobody asked. This holds both halves of
+      # "public" (reachable, and no staff chrome on a page a client reads),
+      # that a link which is not live answers what an invented one answers,
+      # that the trademark guard refuses a render before a provider is called,
+      # and that both stores write under the shared data root rather than
+      # their own copy of it.
+      - name: Radio builders — the client's page, the marks, and the clock
+        run: python3 test_radio_builders.py

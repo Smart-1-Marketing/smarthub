@@ -1151,10 +1151,21 @@ check("...and it calls the client method that had no caller at all",
       "client.check_limits(" in APPPY)
 check("an answer that is neither pass nor fail is not shown as a pass",
       "not in a shape this page can read" in APPPY)
-CSS = open(os.path.join(ROOT, "modules", "sites_admin", "static", "styles.css"),
-           encoding="utf-8").read()
-check("...and that flash category has a color of its own, not red by default",
-      ".flash.warning{" in CSS)
+# The color that answer is drawn in. Sites Admin now draws its flashes with
+# the Hub's shared notice (hub/static/hub-detail.css) rather than a .flash rule
+# of its own, so this asserts the two halves that make it work: the template
+# maps the `warning` category to the shared amber rather than letting it fall
+# through to the red every other failure gets, and the shared sheet actually
+# gives amber and red different values. Checked in both places because either
+# one alone passes while the answer still renders red.
+SITES_BASE = open(os.path.join(ROOT, "modules", "sites_admin", "templates",
+                               "base.html"), encoding="utf-8").read()
+check("...and that flash category is mapped to its own level, not to the red one",
+      "'warn' if cat=='warning'" in SITES_BASE)
+DETAIL_CSS = open(os.path.join(ROOT, "hub", "static", "hub-detail.css"),
+                  encoding="utf-8").read()
+check("...and that level has a color of its own",
+      ".s1d-note.warn" in DETAIL_CSS and ".s1d-note.bad" in DETAIL_CSS)
 
 
 # ---------------------------------------------------------------------------

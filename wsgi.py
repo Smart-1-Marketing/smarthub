@@ -251,7 +251,12 @@ class HubBar:
         # DispatcherMiddleware with its own <html>, so none of them inherit the
         # hub's base template. Injecting alongside the sidebar means all 20
         # tools get bubbles and walkthroughs without touching 20 templates.
+        # hub-detail.css beside theme.css: theme.css is typography and
+        # colour, hub-detail.css is the shape of a record page. A module
+        # that adopts the s1d- class names therefore needs no stylesheet
+        # of its own, and cannot drift from the page the look came from.
         _THEME = (b'<link rel="stylesheet" href="/assets/theme.css">'
+                  b'<link rel="stylesheet" href="/assets/hub-detail.css">'
                   b'<link rel="stylesheet" href="/hub-help.css">')
         if b"</head>" in body:
             body = body.replace(b"</head>", _THEME + b"</head>", 1)
@@ -678,6 +683,20 @@ _SALESB_PUBLIC = tuple(getattr(salesb, "PUBLIC_PREFIXES", ("/p/", "/api/p/"))) \
 _SOCIAL_PUBLIC = tuple(getattr(social, "PUBLIC_PREFIXES", ("/c/",))) \
     if social else ("/c/",)
 
+# And for Fan Radio: /tools/fan-radio/r/<token> is the page a CLIENT opens to
+# listen to their spots and approve them, /api/public/<token> is what that
+# page fetches and posts its approval to, and /audio/<name> is the render it
+# plays when Cloudinary is not configured. A client has no Hub login, so
+# without this the approval link mails a customer a staff sign-in form for an
+# account they will never have -- and the module's own docstring has said
+# these three are the customer's since the day it was written. Read from the
+# module so the mount and the module cannot drift, and handed to both
+# AuthGuard (reachable) and HubBar (no sidebar, help layer or feedback tab on
+# a page a client reads).
+_FANRAD_PUBLIC = tuple(getattr(fanrad, "PUBLIC_PREFIXES",
+                               ("/r/", "/api/public/", "/audio/"))) \
+    if fanrad else ("/r/", "/api/public/", "/audio/")
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -741,7 +760,8 @@ application = DispatcherMiddleware(hub_app, {
                     if legal_app else legal_fb),
     "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo") if radiop else radiop_fb,
     "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
-    "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio") if fanrad else fanrad_fb,
+    "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio",
+                               public_prefixes=_FANRAD_PUBLIC) if fanrad else fanrad_fb,
 })
 from hub import errors as _errors
 application = _errors.ErrorMirror(application)

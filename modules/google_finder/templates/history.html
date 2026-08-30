@@ -3,33 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>History & Audit Logs - Command Center</title>
+  <title>History &amp; Logs — Smart 1 Hub</title>
   <link rel="stylesheet" href="/google/static/style.css">
 </head>
 <body>
   <div id="toast-container"></div>
 
   <main class="wrap">
-    <section class="card">
-      <div class="topline">
-        <div>
-          <h1>📜 History & Deployment Audit Logs</h1>
-          <p>Search saved historical performance reports and review date-stamped GTM change logs.</p>
-        </div>
-        <div class="auth">
-          <a class="btn" href="/google/login">+ Add Google Account</a>
-        </div>
-      </div>
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb">Google</div>
+      <h1>History &amp; Logs</h1>
+      <p>What the Hub has deployed or changed in a client's Google properties, and the saved reports it has written.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/google/login">+ Add Google account</a>
+    </div>
+  </div>
 
-      <!-- TOP NAVIGATION MENU -->
-      <nav class="nav-anchor-bar">
-        <a href="/google/">🔍 Quick Search</a>
-        <a href="/google/ga-tools">📊 GA Tools</a>
-        <a href="/google/gtm-tools">⚡ GTM Tools</a>
-        <a href="/google/webmaster-tools">🌐 Webmaster Tools</a>
-        <a href="/google/gmb-tools">📍 GMB Tools</a>
-        <a href="/google/history" class="active-page">📜 History & Logs</a>
-      </nav>
+  {% include "_nav.html" %}
 
       <!-- SAVED HISTORICAL REPORTS -->
       <div id="saved-reports" class="saved-reports-section" style="margin-top: 20px; padding: 20px; background: #f8fafc; border: 1px solid #dfe6f0; border-radius: 12px;">
@@ -50,7 +42,6 @@
         </div>
         <div id="gtm-logs-list" style="margin-top:16px;"></div>
       </div>
-    </section>
   </main>
 
   <script src="/google/static/app.js"></script>

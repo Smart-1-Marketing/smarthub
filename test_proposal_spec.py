@@ -185,6 +185,18 @@ CASES = [
     ("MOBILE ONLY", "Geo-Fence", cn.DISPLAY),
     ("LOCATION LOOKBACK", "Brand Affinity", cn.DISPLAY),
     ("IP TARGETS", "IP Targeted Video - List is supplied", cn.VIDEO),
+    # The card files IP targeting under a heading called "Display & Video",
+    # and that heading rides in every row's `label`. Read as words about the
+    # product it made all three display products video, which asks a client
+    # for a TV spot to run a banner buy.
+    ("IP TARGETS", "IP Targeted Display - New Movers", cn.DISPLAY),
+    ("IP TARGETS", "IP Targeted Display - Venue Replay", cn.DISPLAY),
+    # These three answered OTHER, and OTHER is not a medium -- it is the
+    # Creative step never mentioning the line at all.
+    ("MOBILE ONLY", "RON (Run of Network)", cn.DISPLAY),
+    ("MOBILE ONLY", "In-Store Visits", cn.DISPLAY),
+    ("EMAIL MARKETING", "List Provided Email", cn.EMAIL),
+    ("SMART 1 SIGNAGE", "Digital Outdoor & Indoor Signage", cn.DOOH),
 ]
 for category, product, want in CASES:
     got = cn.medium_of({"category": category, "product": product})
@@ -370,8 +382,18 @@ for token in ("const EXPLICIT_MEDIUM=", "const CATEGORY_MEDIUM=", "function medi
                         js_source.find("\n/*", i + 10)) if j > 0]
     extract += js_source[i:min(ends)] + "\n"
 
-harness = (extract + "\nconst C=" + json.dumps([{"category": c, "product": p}
-                                                for c, p, _ in CASES]) + ";\n"
+# Every product on the real card, not a fixture. A hand-written list proves
+# the halves agree about the rows somebody thought to write down, which is
+# exactly the set that was already right: the four the label bleed broke were
+# not in it. This is also self-maintaining -- a product added to the card is
+# covered without anybody remembering to add it here.
+from hub import rate_card as _rc_for_media                         # noqa: E402
+
+_ALL = [{"category": p["category"], "product": p["product"],
+         "description": p["description"], "label": p["label"]}
+        for p in _rc_for_media.products()] \
+    + [{"category": c, "product": p} for c, p, _ in CASES]
+harness = (extract + "\nconst C=" + json.dumps(_ALL) + ";\n"
            "console.log(JSON.stringify(C.map(mediumOf)));\n")
 js_path = os.path.join(_TMP, "medium.js")
 open(js_path, "w", encoding="utf-8").write(harness)
@@ -379,15 +401,244 @@ try:
     out = subprocess.run(["node", js_path], capture_output=True, text=True,
                          timeout=30, check=True).stdout
     js_media = json.loads(out)
-    py_media = [cn.medium_of({"category": c, "product": p}) for c, p, _ in CASES]
+    py_media = [cn.medium_of(row) for row in _ALL]
     check("the wizard classifies every rate-card product exactly as the server does",
           js_media == py_media,
-          [f"{c}/{p}: js={j} py={y}" for (c, p, _), j, y
-           in zip(CASES, js_media, py_media) if j != y])
+          [f"{r.get('category')}/{r.get('product')}: js={j} py={y}"
+           for r, j, y in zip(_ALL, js_media, py_media) if j != y][:8])
 except FileNotFoundError:
     print("  skip node is not installed — wizard/server agreement unchecked")
 except subprocess.CalledProcessError as exc:
     check("the wizard's creative helpers run", False, exc.stderr[:300])
+
+# ---------------------------------------------------------------------------
+section("a paid social buy is asked whether the creative exists")
+# ---------------------------------------------------------------------------
+# The largest of the three holes and the last found. A Meta-only plan returned
+# *nothing* from gated_media(): six real buys -- Awareness, Targeted,
+# Programmatic Paid Social, Retargeting, Leads and Boosted Posts -- each with
+# three to seven units published in the kit, and the Creative step mentioned
+# none of them. The tempting reading is that paid social is usually a boosted
+# post the client already has, which is precisely the assumption this module
+# exists to stop making.
+from hub import creative_specs as cs                               # noqa: E402
+
+_meta = {"items": [{"product": "Facebook | Instagram - Awareness Paid Social Media Advertising",
+                    "category": "META", "dollars": 3000}], "months": 3}
+check("a Meta-only plan is asked for creative at all",
+      cn.gated_media(_meta) == [cn.SOCIAL], cn.gated_media(_meta))
+check("and the kit has units to ask for",
+      len(cs.units_for_product("Facebook | Instagram - Awareness Paid Social Media Advertising",
+                               "META")) > 0)
+check("social production is the card's own $35 per platform, not a number invented here",
+      cn.TYPICAL_PRODUCTION[cn.SOCIAL] == 35, cn.TYPICAL_PRODUCTION.get(cn.SOCIAL))
+
+# Every Meta product on this card is named "Facebook | Instagram ...", and the
+# `instagram` rule -- written for a product named only Instagram, and returning
+# a deliberately narrower list -- sits above the Facebook one. So five of the
+# seven Meta buys were asked for an Instagram image and a Story and never for
+# the Facebook feed, the Facebook video or the carousel. The two named
+# "Facebook - ..." got the full set the whole time, which is why it read as
+# working.
+_meta_rows = [p for p in _rc_for_media.products()
+              if "facebook" in p["product"].lower()
+              and "instagram" in p["product"].lower()]
+check("the card really does name both platforms in one product",
+      len(_meta_rows) >= 4, len(_meta_rows))
+for _row in _meta_rows:
+    _ch = cs.channels_for_product(_row["product"], _row["category"])
+    check(f"{_row['product'][:34]!r} is asked for the whole Meta set",
+          set(_ch) >= {"facebook", "facebook_video", "facebook_carousel",
+                       "instagram", "stories"}, _ch)
+
+# ...and the narrow answer is still there for a product that names one of them.
+check("an Instagram-only buy is not asked for the Facebook feed",
+      cs.channels_for_product("Instagram - Paid Social Media Advertising", "") ==
+      ["instagram", "stories"],
+      cs.channels_for_product("Instagram - Paid Social Media Advertising", ""))
+check("and the Meta list is written once, so the two rules cannot drift",
+      cs.channels_for_product("Facebook - Boosted Posts", "META") is
+      cs.channels_for_product("Facebook | Instagram - Awareness Paid Social Media Advertising",
+                              "META"))
+
+# An image unit with no size of its own was folded into the run of sizes,
+# where it contributed nothing and vanished. Every social unit is in that
+# position, so a paid social buy's whole requirement read "Stories Video
+# (MP4/MOV, 0-120s)" -- four image units silently absent from the one line a
+# rep and the client document read.
+_meta_state = {"items": [dict(_meta_rows[0], dollars=3000)], "months": 3}
+_meta_line = cn.units_line(_meta_state, cn.medium_of(_meta_rows[0]))
+for _want in ("Facebook Display", "Instagram Display", "Carousel Image",
+              "Stories Display"):
+    check(f"a paid social requirement names {_want}",
+          _want in _meta_line, _meta_line)
+
+# "plus a companion banner" is a claim about digital radio's optional 300x250
+# and was fired on a count -- one sized image plus anything described -- so
+# Snapchat's Single Image Ad was announced to the client as an optional
+# companion to the video.
+_snap = next(p for p in _rc_for_media.products() if "Snapchat" in p["product"])
+_snap_line = cn.units_line({"items": [dict(_snap, dollars=3000)], "months": 3},
+                           cn.medium_of(_snap))
+check("a Snapchat image is not called a companion banner",
+      "companion banner" not in _snap_line, _snap_line)
+
+# ...and the unit the phrase was written for still carries it.
+_radio_row = next(p for p in _rc_for_media.products()
+                  if p["category"] == "DIGITAL RADIO"
+                  and p["product"].lower().startswith("programmatic - targeted"))
+_radio_line = cn.units_line({"items": [dict(_radio_row, dollars=3000)], "months": 3},
+                            cn.medium_of(_radio_row))
+check("but digital radio's optional 300x250 still is one",
+      "plus a companion banner: 300x250" in _radio_line, _radio_line)
+check("and the spot is still named first, not the banner",
+      _radio_line.index("Audio Spot") < _radio_line.index("companion"), _radio_line)
+
+# The card files LinkedIn's display-and-text product under a heading called
+# SOCIAL ADS - VIDEO, and the heading is what the keyword pass reads -- so a
+# product whose own name says "Display & Text Ads" was asked for a video spot.
+_linkedin = next(p for p in _rc_for_media.products() if "LinkedIn" in p["product"])
+check("a LinkedIn display-and-text buy is not asked for a video spot",
+      cn.medium_of(_linkedin) != cn.VIDEO, cn.medium_of(_linkedin))
+check("and what it is asked for is LinkedIn's own units",
+      any("Sponsored Content" in (u.get("name") or "")
+          for u in cs.units_for_product(_linkedin["product"], _linkedin["category"])),
+      [u.get("name") for u in cs.units_for_product(_linkedin["product"], _linkedin["category"])][:3])
+
+# The rest of that heading is left alone deliberately: the heading is right
+# about them, and reclassifying a generic "Paid Social Media Advertising" on
+# our own reading of which platforms are video-first would be inventing.
+check("the genuinely video social products still ask for a spot",
+      cn.medium_of({"category": "SOCIAL ADS - VIDEO",
+                    "product": "Tik Tok - Paid Social Media Advertising"}) == cn.VIDEO)
+
+# Gating paid social made the word "social" decisive in the keyword pass, and
+# two headings that are not media buys were caught by it: the card's own $35
+# social ad *production* line, asked whether the client already had the
+# creative it exists to produce, and a $199/month organic posting retainer
+# that buys no advertising at all. Both then printed "the spec kit maps no
+# unit for this" onto the client's creative section, and both counted their
+# spend into the social medium, which is what decides whether a comped line
+# is questioned.
+for _n in ("Social Media Ad Creation per platform", "Social Media Management"):
+    _row = next(p for p in _rc_for_media.products() if p["product"] == _n)
+    check(f"{_n!r} is not gated as a media buy",
+          cn.medium_of(_row) == cn.OTHER, cn.medium_of(_row))
+    check(f"...so a plan of only {_n[:24]!r} asks for no creative",
+          cn.gated_media({"items": [dict(_row, dollars=1500)], "months": 3}) == [],
+          cn.gated_media({"items": [dict(_row, dollars=1500)], "months": 3}))
+
+# It is the *heading* that is named, not those two products: the other four
+# lines under CREATIVE / DESIGN SERVICES answer OTHER only because they happen
+# to contain no medium keyword, and the next production line added there must
+# not depend on that luck.
+for _row in _rc_for_media.products():
+    if _row["category"] == "CREATIVE / DESIGN SERVICES":
+        check(f"no production line is gated: {_row['product'][:34]!r}",
+              cn.medium_of(_row) == cn.OTHER, cn.medium_of(_row))
+
+# ...and a real paid social buy is still asked, or this has undone the gate.
+_meta_buy = next(p for p in _rc_for_media.products()
+                 if p["product"].startswith("Facebook | Instagram - Awareness"))
+check("a real Meta buy is still asked whether the creative exists",
+      cn.gated_media({"items": [dict(_meta_buy, dollars=3000)], "months": 3})
+      == [cn.SOCIAL])
+
+# The spend a comp confirmation is measured against is the media, not the
+# production line sitting beside it on the same plan.
+_mixed = {"items": [dict(_meta_buy, dollars=3000),
+                    dict(next(p for p in _rc_for_media.products()
+                              if p["product"] == "Social Media Ad Creation per platform"),
+                         dollars=35)],
+          "months": 3}
+check("a production line does not inflate its own medium's spend",
+      cn.medium_spend(_mixed, cn.SOCIAL) == 9000.0,
+      cn.medium_spend(_mixed, cn.SOCIAL))
+
+# Pinterest is on the card and is in no part of the kit, so the category was
+# answering for it: "SOCIAL ADS - VIDEO" matched the `social ads?` pattern and
+# a Pinterest buy was asked for Facebook and Instagram units -- 1:1 feed
+# squares and 9:16 stories against a platform whose feed is 2:3. A client who
+# supplied exactly what was asked for delivers creative Pinterest crops, with
+# every screen reading as correct while it happens.
+_pin = next(p for p in _rc_for_media.products() if "Pinterest" in p["product"])
+check("a Pinterest buy is still asked whether the creative exists",
+      cn.medium_of(_pin) in cn.GATED, cn.medium_of(_pin))
+check("but it is not judged against Meta's units",
+      cs.channels_for_product(_pin["product"], _pin["category"]) == [],
+      cs.channels_for_product(_pin["product"], _pin["category"]))
+_pin_req = cn.required_units({"items": [dict(_pin, dollars=2000)], "months": 3},
+                             cn.medium_of(_pin))
+check("and the screen says the kit maps no unit for it, rather than a size",
+      _pin_req["measured"] is False and "Pinterest" in _pin_req["note"],
+      _pin_req["note"])
+check("which is a statement about the kit: it publishes no Pinterest section",
+      not any("pinterest" in (u.get("channel") or "").lower() for u in cs.UNITS))
+
+# ...and the entry above the Meta rule must stay about Pinterest alone. The
+# other four platforms on that heading each have units of their own, and
+# widening one pattern to cover "the social ones" would take those away.
+for _plat, _chan in (("Snapchat", "snapchat"), ("Tik Tok", "tiktok"),
+                     ("Twitter", "x")):
+    _row = next(p for p in _rc_for_media.products() if _plat in p["product"])
+    check(f"{_plat} still reaches its own units",
+          cs.channels_for_product(_row["product"], _row["category"]) == [_chan],
+          cs.channels_for_product(_row["product"], _row["category"]))
+
+# ---------------------------------------------------------------------------
+section("the gate and the spec kit read the same product the same way")
+# ---------------------------------------------------------------------------
+# Two readings of one question -- whether to ask for creative, and what to ask
+# for -- disagreed on 25 of 90 products, in both directions, and silently:
+# each screen was internally consistent, so the rep was asked for one thing
+# and judged against another.
+_dis = cn.spec_disagreements()
+check("the creative gate and the spec kit agree on every product",
+      _dis == [], [f"{d['category']}/{d['product'][:30]}: gate={d['gate']} kit={d['kit']}"
+                   for d in _dis][:8])
+
+# ...and the check can go red, or it is furniture. Read OTT as audio and the
+# two Connected TV products must be named.
+_saved_cat = dict(cn.CATEGORY_MEDIUM)
+try:
+    cn.CATEGORY_MEDIUM["ott"] = cn.AUDIO
+    _bit = cn.spec_disagreements()
+finally:
+    cn.CATEGORY_MEDIUM.clear()
+    cn.CATEGORY_MEDIUM.update(_saved_cat)
+check("and a wrong reading is reported rather than passing quietly",
+      any("Connected TV" in d["product"] for d in _bit), _bit[:3])
+check("with both sides of the disagreement named, not just the count",
+      bool(_bit) and {"gate", "kit"} <= set(_bit[0]), _bit[:1])
+
+# The four products whose names identify nothing must reach a *video* unit.
+# They are named in EXPLICIT_MEDIUM so the gate asks for a spot; the kit has
+# to agree, or the rep is asked for a spot and handed a list of banner sizes.
+# ...the ones mapped to video, that is. EXPLICIT_MEDIUM also carries the
+# entry running the other way -- a LinkedIn "Display & Text Ads" product the
+# card files under a heading called SOCIAL ADS - VIDEO -- and asserting that
+# one reaches a video unit would be asserting the bug.
+for _name, _want in cn.EXPLICIT_MEDIUM.items():
+    if _want != cn.VIDEO:
+        continue
+    _row = next((p for p in _rc_for_media.products()
+                 if p["product"].lower() == _name), None)
+    if not _row:
+        continue
+    _units = cs.units_for_product(_row["product"], _row["category"])
+    check(f"{_row['product'][:34]!r} is asked for video, not banners",
+          bool(_units) and all(u.get("kind") == "video" for u in _units),
+          [u.get("name") for u in _units][:4])
+
+# The same product name under DIGITAL RADIO is the $18 CPM audio buy, and the
+# rule above must not have reached it.
+_radio = next((p for p in _rc_for_media.products()
+               if p["product"].lower().startswith("programmatic - targeted")
+               and p["category"] == "DIGITAL RADIO"), None)
+if _radio:
+    check("but its DIGITAL RADIO twin still asks for a spot",
+          cs.channels_for_product(_radio["product"], _radio["category"]) == ["digital_radio"],
+          cs.channels_for_product(_radio["product"], _radio["category"]))
 
 # ---------------------------------------------------------------------------
 section("one minimum rule, read by both documents")
@@ -1322,6 +1573,317 @@ api("put", f"/sales/builder/api/quotes/{tq['id']}", json={"data": with_targets})
 check("and a later save does not rewrite it",
       api("get", f"/sales/builder/api/quotes/{tq['id']}")["quote"]["created_by"]
       == "Harness")
+
+# ---------------------------------------------------------------------------
+section("one product, one name — on the card, in the proposal and in the IO")
+# ---------------------------------------------------------------------------
+# Two products were both called "Google Grant" (a $125 setup fee and a 15%
+# monthly management fee) and two more "Local Service Ads (LSA)". Three things
+# went wrong at once and none of them errored:
+#
+#   * find() returned whichever the card listed first, so a quote for
+#     management billed the setup fee;
+#   * the IO's productConfig is keyed on the label, so 90 card rows became 88
+#     and neither setup fee could be put on an insertion order at all;
+#   * check_drift() is keyed on the label too, so it could not have seen a
+#     difference between the pair it was collapsing.
+#
+# The published rate card had the answer already — it names them "(Setup)" and
+# "(Management)" — so both copies of the card were renamed to match it.
+import re as _re                                                   # noqa: E402
+import json as _json                                               # noqa: E402
+from hub import product_intake                                     # noqa: E402
+
+_labels = [p["label"] for p in rc.products()]
+check("every product on the shared card has a label of its own",
+      len(set(_labels)) == len(_labels),
+      sorted({l for l in _labels if _labels.count(l) > 1}))
+
+_io_src = open(os.path.join(ROOT, "modules", "io_builder", "templates",
+                            "index.html"), encoding="utf-8").read()
+_embedded = _json.loads(_re.search(r"const rateCard=(\[.*?\]);\n", _io_src, _re.S).group(1))
+_io_labels = [p.get("label", "") for p in _embedded]
+check("and so does every product the IO carries",
+      len(set(_io_labels)) == len(_io_labels),
+      sorted({l for l in _io_labels if _io_labels.count(l) > 1}))
+check("so the IO's product list is the whole card, not what survived a collision",
+      len(set(_io_labels)) == len(rc.products()),
+      f"io={len(set(_io_labels))} card={len(rc.products())}")
+
+check("the setup fee and the management fee are two quotable products",
+      (rc.find("Google Grant (Setup)") or {}).get("listed_rate") == "$125 One time set up fee"
+      and (rc.find("Google Grant (Management)") or {}).get("listed_rate") == "15% Mgmt fee monthly")
+check("...and the same for Local Service Ads",
+      (rc.find("Local Service Ads \u2014 LSA (Setup)") or {}).get("listed_rate")
+      == "$125 One time set up fee")
+
+# The refusal, which is the half that keeps a stored record honest. A quote
+# saved before the rename says "Google Grant", and that name is now a question
+# rather than an answer.
+check("a name that could mean two products resolves to neither",
+      rc.find("Google Grant") is None and rc.find("Behavioral") is None)
+check("and the candidates are named instead, so it never reads as 'not on the card'",
+      {c["product"] for c in rc.candidates("Google Grant")}
+      == {"Google Grant (Setup)", "Google Grant (Management)"},
+      [c["product"] for c in rc.candidates("Google Grant")])
+check("the intake asks rather than guessing",
+      product_intake.classify("Google Grant")["status"] == "near"
+      and product_intake.classify("Google Grant")["product"] == "")
+
+# A caller that knows the heading is answered rather than asked: four
+# categories carry a product called "Behavioral" and they are different rates.
+check("a category resolves a name that cannot resolve alone",
+      (rc.find("Behavioral", "MOBILE ONLY") or {}).get("listed_rate") == "$4.00 / CPM"
+      and (rc.find("Behavioral", "LOCATION LOOKBACK") or {}).get("listed_rate") == "$7.50 / CPM")
+check("and the intake matches on it",
+      product_intake.classify("Behavioral", "MOBILE ONLY")["category"] == "MOBILE ONLY")
+
+# The unambiguous anchored match this fallback was written for still works.
+check("a short name that can only mean one product still resolves",
+      (rc.find("Connected TV - Targeted") or {}).get("category") == "OTT")
+
+_drift = rc.check_drift()
+check("the drift check reports duplicate labels rather than collapsing them",
+      "duplicate_labels" in _drift and not _drift["duplicate_labels"], _drift)
+check("and the two copies of the card agree", _drift["in_sync"], _drift.get("note"))
+
+# A green check that cannot go red is not a check. Hand it a template that
+# plainly carries the collision and require it to say so -- this started life
+# green, which is the only way it was worth adding.
+_dupe_io = os.path.join(_TMP, "dupe_io.html")
+_dupe_rows = [dict(r) for r in _embedded[:2]]
+_dupe_rows[1]["label"] = _dupe_rows[0]["label"]
+open(_dupe_io, "w", encoding="utf-8").write(
+    "const rateCard=" + _json.dumps(_dupe_rows) + ";\n")
+_bit = rc.check_drift(_dupe_io)
+check("a template that carries a collision is reported, not collapsed",
+      _bit["duplicate_labels"] and not _bit["in_sync"], _bit)
+check("and the note says what a duplicate label costs the IO",
+      "dropped" in (_bit.get("note") or ""), _bit.get("note"))
+
+# The published rate card ships in this repo, so the naming can be held to it.
+_page = open(os.path.join(ROOT, "hub", "partner_pages",
+                          "rate-card-universal.html"), encoding="utf-8").read()
+_i = _page.index("const DATA = ")
+_data = _json.loads(_page[_i + len("const DATA = "):_page.index("\n", _i)].rstrip().rstrip(";"))
+_page_names = {it["p"] for s_ in _data for g in s_["groups"] for it in g["items"]}
+for _n in ("Google Grant (Setup)", "Google Grant (Management)"):
+    check(f"the card we publish and the card we quote from agree on {_n!r}",
+          _n in _page_names and rc.find(_n) is not None)
+
+# ...and the two agree about how a product is *sold*, not only what it is
+# called. Four IP Targeting products carried a bare `listedRate` of "25.0"
+# with `rateType: null`, while the page we publish sells every one of them per
+# CPM. Nothing errored at either end and every screen was internally
+# consistent, which is why it stood: `sell_rate()` returns None for a line
+# with no rate type, so the buy-side rate went onto the proposal with no
+# margin on it, beside a display line correctly doubling $4.25 to $8.50; and
+# `estimate_delivery()` answered "not an impression-based rate" about a $25
+# CPM buy, so the media plan quoted IP Targeting with no impressions and
+# printed the bare float at the client.
+import unicodedata as _ud                                          # noqa: E402
+
+
+def _card_norm(x):
+    x = _ud.normalize("NFKD", str(x or "")).replace("\u2014", "-").replace("\u2013", "-")
+    return " ".join(_re.sub(r"[^a-z0-9]+", " ", x.lower()).split())
+
+
+_page_rates = {}
+for _s in _data:
+    for _g in _s["groups"]:
+        for _it in _g["items"]:
+            _page_rates.setdefault(_card_norm(_it["p"]), set()).add(_it.get("w") or "")
+
+_unpriced, _compared = [], 0
+for _p in rc.products():
+    _rates = _page_rates.get(_card_norm(_p.get("product")))
+    if not _rates:
+        continue
+    _compared += 1
+    _per_unit = [r for r in _rates if _re.search(r"\bcp[mv]\b", r, _re.I)]
+    if _per_unit and not _p.get("rate_type"):
+        _unpriced.append(f"{_p['product'][:38]} — page says {sorted(_per_unit)}, "
+                         f"card carries rate_type={_p.get('rate_type')!r}")
+
+check("a product the published card sells per CPM is quoted as one",
+      _unpriced == [], _unpriced[:6])
+# ...and the join has to keep working, or this stops checking anything and
+# says so nowhere — the failure a coverage check exists to catch.
+check("and enough of the card matched the page for that to mean something",
+      _compared >= 50, _compared)
+
+# The four that were wrong, by name, because that is what a client was quoted.
+# Two of them are named here rather than caught by the page comparison above:
+# the Hub spells the product "purchased seperately" and the page spells it
+# "purchased separately", so the names do not join. Worth knowing — the sweep
+# above is a floor, not the whole guarantee.
+for _n in ("IP Targeted Display - New Movers", "IP Targeted Display - Venue Replay",
+           "IP Targeted Display - List is supplied or purchased seperately",
+           "IP Targeted Video - List is supplied or purchased seperately"):
+    _row = next(p for p in rc.products() if p["product"] == _n)
+    check(f"{_n!r} is marked up rather than sold at cost",
+          rc.sell_rate(_row.get("rate_value"), _row.get("rate_type")) ==
+          _row["rate_value"] * rc.SELL_MULTIPLIER,
+          rc.sell_rate(_row.get("rate_value"), _row.get("rate_type")))
+    check(f"...and {_n!r} reports the impressions it buys",
+          (rc.estimate_delivery(_row, 2000).get("units") or 0) > 0,
+          rc.estimate_delivery(_row, 2000))
+
+# A flat fee is left exactly as the card lists it -- that is what rate_type
+# None means -- but it must not reach a document as a bare float.
+for _n in ("Standard Set of 6 Ad Creation", "Social Media Management"):
+    _row = next(p for p in rc.products() if p["product"] == _n)
+    check(f"{_n!r} is still a flat fee, not marked up",
+          not rc.is_marked_up(_row.get("rate_type")), _row.get("rate_type"))
+    check(f"...and {_n!r} carries a rate a person can read",
+          str(_row.get("listed_rate", "")).startswith("$"), _row.get("listed_rate"))
+
+def _kit_unreadable():
+    """A page we cannot read must not report as no drift."""
+    import pathlib as _pl
+    real = cs._KIT_PAGE
+    try:
+        cs._KIT_PAGE = _pl.Path("/definitely/not/here.html")
+        rows = cs.kit_drift()
+    finally:
+        cs._KIT_PAGE = real
+    return bool(rows) and "not measured" in rows[0]["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+section("the spec numbers are the ones on the kit the client is sent")
+# ---------------------------------------------------------------------------
+# The kit is transcribed on purpose -- a table fetched live changes what a
+# check says with no diff to point at. What that never covered is the
+# transcription going stale, and it had, in both directions: Half Page and
+# 970x250 judged at 150 KB against a published 250 KB, so the checker refused
+# files the client was told to send; and a smartphone banner allowed 150 KB
+# against a published 50 KB, the same fault the other way. 970x250 was also
+# still called "Rising Star" after the IAB retired that programme, so the kit
+# and the verdict named one unit two things.
+check("the transcription and the published kit agree",
+      cs.kit_drift() == [], [r["detail"] for r in cs.kit_drift()][:6])
+
+_by_id = {u["id"]: u for u in cs.UNITS}
+check("Half Page is judged at the kit's 250 KB, not the retired flat 150",
+      _by_id["half_page"]["max_bytes"] == 250 * cs.KB,
+      _by_id["half_page"]["max_bytes"])
+check("and 970x250 is a Billboard, which is what the client's copy calls it",
+      _by_id["rising_star"]["name"] == "Billboard", _by_id["rising_star"]["name"])
+check("a smartphone banner is held to 50 KB rather than three times it",
+      _by_id["mobile_banner_320"]["max_bytes"] == 50 * cs.KB,
+      _by_id["mobile_banner_320"]["max_bytes"])
+check("the interstitial is sold at the three sizes the kit lists",
+      set(cs._sizes_of(_by_id["mobile_interstitial"]))
+      == {(640, 1136), (750, 1334), (1080, 1920)},
+      cs._sizes_of(_by_id["mobile_interstitial"]))
+check("SVG is accepted, as the kit says it now is",
+      "svg" in _by_id["half_page"]["formats"], _by_id["half_page"]["formats"])
+
+# The unit ids are deliberately NOT renamed with the names. tags_for() writes
+# "unit_<id>" onto every file delivered through the upload manager, so a
+# rename orphans the tags already on a year of creative to correct a label.
+check("the id stays what Cloudinary already has tagged",
+      "rising_star" in _by_id and "wide_skyscraper" in _by_id,
+      sorted(_by_id)[:4])
+
+# A DOOH target is what the kit asks for, not what it refuses. Carried as
+# min_bytes it was a *fail*, so a clean 30 KB billboard was rejected for
+# being too small against a number nobody published as a floor.
+_dooh = _by_id["dooh_1920x1080"]
+check("the DOOH 40 KB target is carried as a target",
+      _dooh.get("target_bytes") == 40 * cs.KB, _dooh.get("target_bytes"))
+check("and not as a floor", _dooh.get("min_bytes") is None, _dooh.get("min_bytes"))
+_small = cs.check(width=1920, height=1080, fmt="jpg", size_bytes=30 * cs.KB,
+                  unit_id="dooh_1920x1080")
+_fails = [c for c in (_small.get("checks") or []) if c.get("state") == "fail"]
+check("so a 30 KB billboard is not refused for being too small", not _fails, _fails)
+
+# ...and the check has to be able to go red, or it is furniture.
+_orig = _by_id["half_page"]["max_bytes"]
+try:
+    _by_id["half_page"]["max_bytes"] = 150 * cs.KB
+    _bit = cs.kit_drift()
+finally:
+    _by_id["half_page"]["max_bytes"] = _orig
+check("a number put back the way it was is reported",
+      any("Half Page" in r["detail"] for r in _bit), _bit[:2])
+check("and a kit that cannot be read is not measured, never a clean answer",
+      _kit_unreadable(), "reported no drift for an unreadable page")
+
+
+# ---------------------------------------------------------------------------
+section("every section of the published kit is accounted for")
+# ---------------------------------------------------------------------------
+# kit_drift() read three sections of twenty-three and answered "no drift",
+# which is a clean bill of health about seven per cent of what it audits. The
+# page in the repo is the 2026 kit and says on itself that twenty formats were
+# updated and three added, against a transcription taken from 2025 — so a
+# section outside the parser is not hypothetical, and a section the *next*
+# rebuild adds would be silently outside every check here for ever.
+_cov = cs.kit_coverage()
+check("the coverage of the published kit is measured",
+      _cov["measured"] is True, _cov.get("error"))
+check("every published section is declared one way or the other",
+      _cov["undeclared"] == [], _cov["undeclared"])
+check("and no declaration outlives the section it described",
+      _cov["stale"] == [], _cov["stale"])
+check("the three the numbers are checked against are still checked",
+      set(_cov["checked"]) == set(cs._KIT_SECTIONS), _cov["checked"])
+check("and the count is the whole page, not the part that parses",
+      _cov["sections"] == len(_cov["checked"]) + len(_cov["unread"])
+      + len(_cov["not_modelled"]), _cov["sections"])
+
+# ...and it goes red on a section nobody has declared, or it is furniture.
+_saved_unread = dict(cs._KIT_UNREAD)
+try:
+    cs._KIT_UNREAD.pop("tiktok", None)
+    _bit_cov = cs.kit_coverage()
+finally:
+    cs._KIT_UNREAD.clear()
+    cs._KIT_UNREAD.update(_saved_unread)
+check("an undeclared section is reported rather than passing quietly",
+      _bit_cov["undeclared"] == ["tiktok"], _bit_cov["undeclared"])
+
+# Three published sections are a different kind of gap: the kit sells them and
+# this module holds no unit for them at all. A Meta requirement that lists
+# Stories and never Reels reads as complete, and the page itself says the two
+# are not interchangeable.
+check("a Meta buy is told the kit also sells both Reels",
+      cs.unmodelled_for(["facebook", "instagram", "stories"]) ==
+      ["Instagram Reels", "Facebook Reels"],
+      cs.unmodelled_for(["facebook", "instagram", "stories"]))
+check("a CTV buy is told about the interactive formats",
+      len(cs.unmodelled_for(["ctv"])) == 1, cs.unmodelled_for(["ctv"]))
+check("and a display buy is told nothing, because nothing is missing",
+      cs.unmodelled_for(["desktop_display", "mobile_display"]) == [],
+      cs.unmodelled_for(["desktop_display", "mobile_display"]))
+
+# It has to reach the line the client document prints, not only the payload:
+# left in the note alone the requirement a client reads still looks complete.
+_meta_row = next(p for p in _rc_for_media.products()
+                 if p["product"].startswith("Facebook | Instagram - Awareness"))
+_meta_st = {"items": [dict(_meta_row, dollars=4000)], "months": 3}
+_meta_req = cn.required_units(_meta_st, cn.medium_of(_meta_row))
+check("the requirement payload names what it cannot size",
+      _meta_req["not_measured_formats"] == ["Instagram Reels", "Facebook Reels"],
+      _meta_req["not_measured_formats"])
+check("...and says so without claiming to have measured it",
+      "not measured" not in _meta_req["note"].lower()
+      and "no unit here to measure" in _meta_req["note"], _meta_req["note"])
+check("and the one-line requirement carries it too",
+      "Instagram Reels and Facebook Reels" in
+      cn.units_line(_meta_st, cn.medium_of(_meta_row)),
+      cn.units_line(_meta_st, cn.medium_of(_meta_row)))
+check("but the gate still measures the units it does have",
+      _meta_req["measured"] is True)
+
+_disp_row = next(p for p in _rc_for_media.products() if p["category"] == "DISPLAY")
+_disp_st = {"items": [dict(_disp_row, dollars=4000)], "months": 3}
+check("a display requirement gains no such clause",
+      "the kit also sells" not in cn.units_line(_disp_st, cn.medium_of(_disp_row)),
+      cn.units_line(_disp_st, cn.medium_of(_disp_row)))
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)

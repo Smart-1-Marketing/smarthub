@@ -5,15 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Content requests — Smart 1 Hub</title>
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;
         --bad:#dc2626;--warn:#b45309;--ok:#16a34a}
   *{box-sizing:border-box}
   body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
   .wrap{max-width:1180px;margin:0 auto;padding:28px 22px 70px}
-  h1{color:var(--navy);font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;max-width:82ch;line-height:1.55}
   .back{color:var(--blue);text-decoration:none;font-size:13px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px}
   label.f{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
   input[type=text],input[type=search],input[type=email],input[type=date],select,textarea{
@@ -31,10 +32,6 @@
   @media(max-width:900px){.grid,.grid3{grid-template-columns:1fr}}
   .hint{color:var(--muted);font-size:12.5px;line-height:1.55;margin-top:6px}
   .msg{font-size:13px;color:var(--muted)} .msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;
-     letter-spacing:.04em;padding:0 10px 8px;border-bottom:1px solid var(--line)}
-  td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   tr:last-child td{border-bottom:0}
   .pill{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11.5px;font-weight:600}
   .pill.amber{background:#fef3c7;color:#92400e}
@@ -66,7 +63,7 @@
    data-screen either: a tour is offered only where one is registered, and
    naming a tour that does not exist is the same silence one step earlier. #}
 <body data-module="social_planner" data-demo="off">
-<div class="wrap">
+<div class="wrap s1d-page">
   <a class="back" href="./">&larr; Social Content Planner</a>
   <h1>Content requests</h1>
   <p class="sub">One link per client account. Every location's contact opens
@@ -96,20 +93,20 @@
   <div id="client-half" class="hidden">
 
     <div class="card">
-      <h2>Where it stands</h2>
+      <h2>Where it stands {{ help_dot('social.requests.turnaround') if help_dot is defined else '' }}</h2>
       <div class="counts" id="counts"></div>
       <p class="hint" id="turnaround"></p>
-      <p class="hint" id="suite"></p>
+      <p class="hint"><span id="suite"></span> {{ help_dot('social.requests.suite') if help_dot is defined else '' }}</p>
     </div>
 
     <div class="card">
-      <h2>The queue</h2>
+      <h2>The queue {{ help_dot('social.requests.queue') if help_dot is defined else '' }}{{ help_dot('social.requests.overdue') if help_dot is defined else '' }}{{ help_dot('social.requests.duplicate') if help_dot is defined else '' }}</h2>
       <div class="grid3" style="margin-bottom:14px">
         <div><label class="f" for="fLoc">Location</label>
           <select id="fLoc"><option value="">All locations</option></select></div>
         <div><label class="f" for="fStatus">Status</label>
           <select id="fStatus"></select></div>
-        <div><label class="f" for="fBatch">Promote into</label>
+        <div><label class="f" for="fBatch">Promote into {{ help_dot('social.requests.promote') if help_dot is defined else '' }}</label>
           <select id="fBatch"><option value="">Newest open plan</option></select></div>
       </div>
       <table><thead><tr>
@@ -119,7 +116,7 @@
     </div>
 
     <div class="card">
-      <h2>Their link</h2>
+      <h2>Their link {{ help_dot('social.requests.link') if help_dot is defined else '' }}</h2>
       <div id="links"></div>
       <p style="margin:12px 0 0">
         <button class="btn sec sm" id="revoke">Turn this client's link off</button>
@@ -150,7 +147,7 @@
     </div>
 
     <div class="card">
-      <h2>Ideas</h2>
+      <h2>Ideas {{ help_dot('social.requests.ideas') if help_dot is defined else '' }}</h2>
       <p style="margin:0 0 12px">
         <button class="btn sec" id="genIdeas">Suggest a batch</button>
         <span class="msg" id="ideaMsg"></span></p>

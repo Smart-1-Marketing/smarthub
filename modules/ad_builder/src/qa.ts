@@ -18,7 +18,8 @@ import type {
 import type { ComposeOutput } from './svg';
 import { inkOverBackground, resolveColor } from './svg';
 import sharp from 'sharp';
-import { contrastRatio, hexLuminance, regionLuminance, type RasterResult } from './raster';
+import { flatBackdrop, type FlatBackdrop } from './logo-tools';
+import { contrastRatio, hexLuminance, regionLuminance, relativeLuminance, type RasterResult } from './raster';
 
 export interface QaInput {
   layout: SizeLayout;
@@ -49,6 +50,27 @@ const TEXT_ROLES = ['headline', 'support', 'offer', 'trust'] as const;
  * 1024px generated still asked to fill Amazon's 1940x500 billboard is painted
  * at nearly twice its own width and does.
  */
+/**
+ * How far a logo's plate must sit from the panel behind it before the box
+ * is worth naming. Luminance, 0-1. Below this the plate is invisible in the
+ * render and a warning would be noise on every ad that has one.
+ */
+const PLATE_VISIBLE_DELTA = 0.12;
+
+/**
+ * Will this plate actually read as a box on the panel behind it?
+ *
+ * Its own function because no fixture lands on the boundary, and a threshold
+ * nothing exercises is a threshold that can be deleted without a test
+ * noticing -- which is what a first pass here proved when the check was
+ * inline. Symmetric on purpose: a dark plate on a white card is the same box
+ * as a white plate on a navy one.
+ */
+export function plateShowsAgainst(plate: FlatBackdrop | null, behind: number): boolean {
+  if (!plate) return false;
+  return Math.abs(plate.luminance - behind) > PLATE_VISIBLE_DELTA;
+}
+
 const UPSCALE_LIMIT = 1.25;
 
 /**
@@ -89,6 +111,69 @@ export async function logoInkLuminance(file: string): Promise<number | null> {
       weight += a;
     }
     return weight > 0 ? sum / weight : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How much of a logo actually disappears against the panel it sits on.
+ *
+ * logoInkLuminance() averages every opaque pixel into one number, which is the
+ * right measure for the plate question below and the wrong one here: a logo is
+ * routinely two-tone, and an average is a tone that may appear nowhere in it.
+ * Icon Solar's mark is 5,193 navy pixels and 1,176 yellow ones, so on a navy
+ * panel it averages to 0.143 and scores 2.3:1 -- clear of the 1.7 threshold --
+ * while the navy wordmark itself sits at 1.15:1 and is simply not there. The
+ * check passed the one ad whose logo had vanished.
+ *
+ * So each pixel is compared on its own and the finding is the share of the
+ * mark that fails. A fraction rather than a worst case, because a worst case
+ * fires on the one anti-aliased pixel at the edge of every logo ever drawn,
+ * and a check that warns on everything is one people stop reading -- the note
+ * hub/qr_codes.py makes about a QR warning on every social spot.
+ */
+export const LOGO_MIN_CONTRAST = 1.7;
+/** A quarter of the mark gone is a finding; the odd dark detail in a mostly
+ *  light logo is not. Icon Solar's sun is 18% of its mark and stays quiet on
+ *  white, where the wordmark carries the name and reads at 14:1. */
+export const LOGO_MAX_FAIL_FRACTION = 0.25;
+
+export async function logoInkContrast(
+  file: string,
+  behind: number,
+): Promise<{ failFraction: number; failRatio: number; meanRatio: number } | null> {
+  try {
+    const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    let total = 0;
+    let failed = 0;
+    let failLumSum = 0;
+    let lumSum = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      if (data[i + 3] / 255 < 0.1) continue;
+      // relativeLuminance, not the cheap Rec.709 luma logoInkLuminance uses:
+      // `behind` comes from regionLuminance, which linearises, and comparing
+      // a non-linearised number against a linearised one through
+      // contrastRatio() is two different scales in one ratio. On this mark it
+      // is the difference between 2.2:1 and 1.2:1 -- between a pass and the
+      // finding.
+      const lum = relativeLuminance(data[i] / 255, data[i + 1] / 255, data[i + 2] / 255);
+      total += 1;
+      lumSum += lum;
+      if (contrastRatio(lum, behind) < LOGO_MIN_CONTRAST) {
+        failed += 1;
+        failLumSum += lum;
+      }
+    }
+    if (total === 0) return null;
+    return {
+      failFraction: failed / total,
+      // The tone the failing part of the mark actually is, so the number in
+      // the message is one a reader can see on the ad rather than an average
+      // across the parts that are fine.
+      failRatio: failed > 0 ? contrastRatio(failLumSum / failed, behind) : Infinity,
+      meanRatio: contrastRatio(lumSum / total, behind),
+    };
   } catch {
     return null;
   }
@@ -148,23 +233,60 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     const useReverse = (copy as any).__useReverseLogo === true;
     const logoFile = useReverse && input.brand.logos.reverse ? input.brand.logos.reverse : input.brand.logos.primary;
     const ink = await logoInkLuminance(logoFile);
-    if (ink !== null) {
-      const behind = await regionLuminance(backgroundPng, {
-        left: Math.max(0, Math.round(logoBox.x * scale)),
-        top: Math.max(0, Math.round(logoBox.y * scale)),
-        width: Math.max(1, Math.round(logoBox.w * scale)),
-        height: Math.max(1, Math.round(logoBox.h * scale)),
-      });
-      const ratio = contrastRatio(ink, behind);
-      if (ratio < 1.7) {
-        // Suggest the opposite of what's there: a light logo needs the
-        // darker/full-colour version and vice versa.
-        const suggestion = ink > 0.5 ? 'full-color (darker)' : 'white';
-        warn('logo-contrast', `the logo is nearly invisible against its background (${ratio.toFixed(1)}:1). Try the ${suggestion} logo on this size.`);
-      } else {
-        pass('logo-contrast', `logo reads clearly against its background (${ratio.toFixed(1)}:1)`);
+    const behind = await regionLuminance(backgroundPng, {
+      left: Math.max(0, Math.round(logoBox.x * scale)),
+      top: Math.max(0, Math.round(logoBox.y * scale)),
+      width: Math.max(1, Math.round(logoBox.w * scale)),
+      height: Math.max(1, Math.round(logoBox.h * scale)),
+    });
+
+    /* ---------------------------------------------------------- logo plate */
+    // logo-tools.ts opens with this as rule 1: "Any logo that is not already
+    // transparent must have its background removed before compositing -- a
+    // white box around a logo on a coloured ad looks broken." Nothing asked.
+    // hasTransparency() was written for it and had no caller anywhere.
+    //
+    // The contrast check below could not catch it either, and read BETTER on
+    // the broken ad: logoInkLuminance() averages every opaque pixel, so on a
+    // plated logo it measures the PLATE. The same navy wordmark scores 2.3:1
+    // on a transparent canvas and 9.9:1 with a white box behind it, on a navy
+    // panel -- so the box makes QA more confident about the one ad that has a
+    // white rectangle stamped across it.
+    //
+    // Only a finding when it will actually show. A white plate on a white
+    // card is invisible, and a warning that fires on every ad is one people
+    // stop reading -- the note hub/qr_codes.py makes about a QR warning on
+    // every social spot.
+    const plate = await flatBackdrop(logoFile);
+    const plateShows = plateShowsAgainst(plate, behind);
+    if (plateShows) {
+      const [r, g, b] = plate!.rgb;
+      warn('logo-plate',
+        `the logo has an opaque rgb(${r}, ${g}, ${b}) background that will show as a box against this panel. Use Rework logo to strip it, or supply a transparent PNG.`);
+    } else if (plate !== null) {
+      pass('logo-plate', 'the logo carries a flat background, but it matches the panel behind it');
+    } else {
+      pass('logo-plate', 'the logo carries its own transparency');
+    }
+
+    if (ink !== null && !plateShows) {
+      const measured = await logoInkContrast(logoFile, behind);
+      if (measured && measured.failFraction > LOGO_MAX_FAIL_FRACTION) {
+        // Suggest the opposite of what is actually disappearing, not the
+        // opposite of the whole mark's average: on a two-tone logo those are
+        // different answers, and the average is what got this wrong before.
+        const suggestion = behind < 0.5 ? 'white' : 'full-color (darker)';
+        const share = Math.round(measured.failFraction * 100);
+        warn('logo-contrast',
+          `${share}% of the logo is invisible against its background (${measured.failRatio.toFixed(1)}:1). Try the ${suggestion} logo on this size.`);
+      } else if (measured) {
+        pass('logo-contrast', `logo reads clearly against its background (${measured.meanRatio.toFixed(1)}:1)`);
       }
     }
+    // A plated logo gets NO contrast finding rather than a passing one. What
+    // that number measures is the plate against the panel, and printing it
+    // under a heading about the logo is the confident wrong answer -- two
+    // findings disagreeing about one ad, with the reassuring one on top.
   }
 
   /* ---------------------------------------------------------- dimensions */

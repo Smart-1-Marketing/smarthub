@@ -372,6 +372,12 @@ def staff_gallery(client_id: int):
         client=client.to_dict(include_secrets=True),
         is_staff=True,
         share_token="",
+        # One table of source labels, from the module that files them. The
+        # template used to carry its own copy, so every kind added since went
+        # into a client's gallery as a bare key under no heading. NOT
+        # `sources`: _widget_ctx already uses that name for the upload
+        # widget's tabs, and the collision is a TypeError at render time.
+        gallery_sources=filing.source_tiers(),
         **_widget_ctx(client, token=""),
     )
 
@@ -719,11 +725,64 @@ def api_saved():
         .order_by(SavedImage.created_at.desc())
         .limit(limit)
     ).scalars().all()
+
+    # What a vision model saw in each one, where the sweep has reached it.
+    # Carried beside the image rather than merged into it: a description is an
+    # observation and the alt text is what somebody chose, and folding the two
+    # together is how the second gets silently replaced by the first.
+    # Staff only. `/api/saved` also serves the client-facing picker, and what a
+    # model noticed about somebody's photograph is an internal observation with
+    # our name on it — a note reading "low-quality" beside a picture the client
+    # is proud of is not a thing to hand back to them. The search below reads
+    # the same map, so a client's own search falls back to the alt text and the
+    # filename rather than silently matching on text they cannot see.
+    from . import vision as _vision
+    seen = _vision.descriptions_for([r.id for r in rows]) if is_staff else {}
+
+    # Searching what the model saw. Applied after the read rather than in SQL
+    # because the readings live in their own table and a join here would tie
+    # the gallery to a table that may legitimately be empty — a client whose
+    # photographs have not been swept yet must still see their gallery.
+    query = str(request.args.get("q") or "").strip().lower()
+    if query:
+        terms = [t for t in query.split() if t]
+        def _hit(row):
+            d = seen.get(row.id) or {}
+            hay = " ".join([
+                (row.alt_text or ""), (row.filename or ""),
+                (row.collection_label or ""), d.get("description", ""),
+                " ".join(d.get("tags") or []),
+            ]).lower()
+            return all(t in hay for t in terms)
+        rows = [r for r in rows if _hit(r)]
+
     return jsonify({
         "ok": True,
         "client": client.to_dict(include_secrets=is_staff),
-        "images": [r.to_dict() for r in rows],
+        "images": [{**r.to_dict(), "seen": seen.get(r.id)} for r in rows],
+        "q": query,
+        # The state of the sweep, so a gallery with no descriptions can say
+        # which kind of empty it is: nothing swept yet, nothing to sweep, or a
+        # store that would not answer.
+        "vision": _vision.pending_count() if is_staff else None,
     })
+
+
+@bp.route("/api/saved/<int:image_id>/alt-from-description", methods=["POST"])
+@staff_only
+@db_guard
+def api_accept_description(image_id: int):
+    """Take the suggested alt text onto the image — the press, not the sweep.
+
+    Staff only, and a POST: the sweep writes nothing into `alt_text` on its
+    own, because a value somebody typed is the better source and a sweep that
+    overwrote it would do so silently, on work a client may have worded
+    themselves. `vision.accept()` refuses a field that is not empty and says
+    so, rather than reporting a clean success for a write it did not make.
+    """
+    from . import vision as _vision
+    out = _vision.accept(image_id, actor=hub_user())
+    return jsonify(out), (200 if out.get("ok") else 400)
 
 
 @bp.route("/api/saved/<int:image_id>/delete", methods=["POST"])

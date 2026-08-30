@@ -34,6 +34,15 @@ import os
 import pathlib
 import re
 
+# The bubble audit lives in its own module rather than here: it is read by
+# /api/integrity and by test_help_layer.py, and two copies of "which keys
+# resolve" is the drift a second reader always becomes.
+from . import help_audit as _help_audit
+# The work-log table and the two checks over it. Beside the audit above for
+# the same reason: one reading of "which module names count", read by
+# /api/integrity and by test_client_images.py.
+from . import client_brand as _client_brand
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # Third-party code is not ours to fix, and a local virtualenv sits inside the
@@ -398,6 +407,120 @@ def check_template_collisions() -> list[dict]:
         })
     return out
 
+def check_orphan_templates() -> list[dict]:
+    """A template nothing renders.
+
+    A page that exists is not a page anybody can reach — this file already
+    makes that point about the partner tiles, where `partner.available()` sat
+    written with no caller while the dashboard offered four links and a
+    promise. A template is the same failure with nothing at all to notice it:
+    it is valid Jinja, `tools/pagecheck.py` never requests it because no route
+    serves it, and `tools/linkcheck.py` names one only when it *also* finds a
+    broken `url_for` inside — so an orphan whose links happen to resolve is
+    invisible to every check here.
+
+    What that costs is not disk. `modules/sites_admin/templates/site_detail.html`
+    was rendered by nothing and was restyled anyway in the sweep that made
+    Sites read like the rest of the Hub: real effort spent on a page no
+    request can produce. And `modules/google_finder/templates/reports.html`
+    was byte-identical to `gtm_logs.html` apart from its `<title>` — a
+    copy-paste nobody finished, sitting beside live `/api/reports/save` and
+    `/api/reports/search` routes with no screen in front of them. Reading the
+    directory, both looked like features.
+
+    **A computed name is still a render.** `modules/scans` picks between
+    `widget.html` and `widget_audit.html` with a conditional and hands the
+    result to `render_template`, so a check reading only the literal arguments
+    of a render call reports the two most client-facing pages in that module
+    as dead. Both are therefore matched as **string constants anywhere in the
+    source**, which is looser than a call site on purpose: the cost of missing
+    an orphan is a file nobody deletes, and the cost of naming a live page is
+    somebody deleting it.
+
+    A partial (`_scan_mark.html`) is reached by `include` rather than by a
+    route, and `base.html` by `extends`, so both are read out of the templates
+    themselves rather than assumed.
+
+    Only Jinja is in scope: `modules/ad_builder/src/templates` holds the ad
+    renderer's layout JSON, which is TypeScript's and never reaches
+    `render_template`, so it is not one of the folders walked.
+    """
+    import re
+
+    rendered: set[str] = set()
+    for py in ROOT.rglob("*.py"):
+        if any(d in py.parts for d in SKIP_DIRS) or "__pycache__" in py.parts:
+            continue
+        # A test naming a template is not a route rendering it. This is the
+        # rule check_provider_key_drift() works to one step over: a docstring
+        # explaining a fix is not a call site, and neither is an assertion
+        # about a file. Left in, a test that merely mentions an orphan keeps
+        # it hidden for ever -- which is not hypothetical, since the sweep
+        # that restyled the dead site_detail.html added a test naming it.
+        if py.name.startswith("test_"):
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        # Every string constant, not only a render_template() argument: the
+        # name may be chosen in a conditional and passed in a variable.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if node.value.endswith(".html"):
+                    rendered.add(node.value.split("/")[-1])
+
+    files: list[pathlib.Path] = []
+    for tpl in list(ROOT.glob("*/templates")) + list(ROOT.glob("modules/*/templates")):
+        if any(d in tpl.parts for d in SKIP_DIRS):
+            continue
+        files.extend(tpl.rglob("*.html"))
+
+    # A template reached by {% extends %}, {% include %}, {% import %} or
+    # {% from %} has no route of its own and is not an orphan. Read out of
+    # the templates rather than assumed, so a partial added tomorrow needs no
+    # entry anywhere.
+    #
+    # Any .html name appearing in a template or a script counts too, for the
+    # same reason the Python side reads every string constant: a page linked
+    # to by name, or fetched by one, is reached. Erring loose is deliberate —
+    # missing an orphan costs a file nobody deletes, and naming a live page
+    # costs the page.
+    for f in files:
+        src = f.read_text(encoding="utf-8", errors="ignore")
+        for ref in re.findall(r"{%-?\s*(?:extends|include|import|from)\s+[\'\"]([^\'\"]+)", src):
+            rendered.add(ref.split("/")[-1])
+        for ref in re.findall(r"[\w./-]+\.html", src):
+            if ref.split("/")[-1] != f.name:            # not its own name
+                rendered.add(ref.split("/")[-1])
+    for js in ROOT.rglob("*.js"):
+        if any(d in js.parts for d in SKIP_DIRS) or "node_modules" in js.parts:
+            continue
+        for ref in re.findall(r"[\w./-]+\.html",
+                              js.read_text(encoding="utf-8", errors="ignore")):
+            rendered.add(ref.split("/")[-1])
+
+    out = []
+    for f in sorted(files):
+        if f.name in rendered:
+            continue
+        rel = f.relative_to(ROOT).as_posix()
+        out.append({
+            "file": rel,
+            "module": rel.split("/")[1] if rel.startswith("modules/") else "hub",
+            "detail": f"{f.name} is named nowhere in this repository, so no "
+                      f"route can render it and no request can produce it. It "
+                      f"still reads as a feature in the directory, and it is "
+                      f"still edited by sweeps that touch every template in "
+                      f"the folder.",
+            "fix": "Delete it, or give it the route it was written for — and "
+                   "if a route was intended, check what the page actually "
+                   "contains first: one of these was a copy of the page next "
+                   "to it under a different title.",
+        })
+    return out
+
+
 def check_shared_services() -> list[dict]:
     """Modules still doing Cloudinary, image work or settings themselves.
 
@@ -507,6 +630,120 @@ def check_stale_json_exemptions() -> list[dict]:
         "fix": "Drop the entry from jsonstore.UNMIRRORED_EXEMPT, or point it "
                "at the path the code moved to.",
     } for rel in jsonstore.stale_exemptions(ROOT)]
+
+
+def check_creative_kit_drift() -> list[dict]:
+    """Where the transcribed spec numbers and the kit we publish disagree.
+
+    `hub/creative_specs.py` transcribes the S1M CREATIVE SPEC KIT on purpose:
+    a table fetched live changes what a check says with no diff to point at.
+    What that never covered is the transcription going stale, which it had --
+    Half Page judged at 150 KB against a published 250 KB, 970x250 still
+    called "Rising Star" after the IAB retired the programme, and a
+    smartphone banner allowed three times the published weight.
+
+    Every one of those is a file refused that the client was told to send, or
+    accepted that they were told not to, and both are silent: the kit and the
+    verdict are each internally consistent. The page ships in this repo, so
+    this is checkable rather than remembered.
+    """
+    try:
+        from . import creative_specs
+        rows = creative_specs.kit_drift()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/creative_specs.py", "module": "io_builder",
+        "detail": r["detail"],
+        "fix": "Correct the unit in hub/creative_specs.py to match "
+               "hub/partner_pages/creative-specs.html, which is the kit the "
+               "client is actually sent. Keep the unit's id: tags_for() has "
+               "written it onto delivered creative in Cloudinary.",
+    } for r in rows]
+
+
+def check_creative_kit_coverage() -> list[dict]:
+    """Sections of the published kit nobody has declared one way or the other.
+
+    `check_creative_kit_drift` compares the numbers; this asks the question one
+    step earlier — is every section of the page one somebody has looked at. It
+    was covering three sections of twenty-three and answering "no drift", which
+    is a clean bill of health about seven per cent of the thing it audits. The
+    page in the repo is now the 2026 kit and says on itself that twenty formats
+    were updated and three added, against a transcription taken from 2025.
+
+    The twenty are declared with their reasons, so this starts empty. What it
+    catches is the next rebuild: a section added to the page is otherwise
+    silently outside every check here, for ever, with the panel green — which
+    is the failure the report itself is about.
+    """
+    try:
+        from . import creative_specs
+        cov = creative_specs.kit_coverage()
+    except Exception:                                   # noqa: BLE001
+        return []
+    if not cov.get("measured"):
+        # A page that cannot be read is not a page with nothing new in it.
+        return [{
+            "file": "hub/creative_specs.py", "module": "io_builder",
+            "detail": f"The published kit could not be read, so its coverage "
+                      f"is not measured ({cov.get('error')}).",
+            "fix": "Restore hub/partner_pages/creative-specs.html, which is "
+                   "the kit the client is sent and what this check reads.",
+        }]
+    out = []
+    for sid in cov.get("undeclared", []):
+        out.append({
+            "file": "hub/creative_specs.py", "module": "io_builder",
+            "detail": f"The published kit carries a section \"{sid}\" that "
+                      f"nothing in the transcription accounts for.",
+            "fix": "Transcribe it into UNITS and add it to _KIT_SECTIONS, or "
+                   "declare it in _KIT_UNREAD (the table shape cannot be "
+                   "parsed) or _KIT_NOT_MODELLED (we sell it and hold no unit "
+                   "for it) with the reason. A section nobody has declared is "
+                   "one no check here can see.",
+        })
+    for sid in cov.get("stale", []):
+        out.append({
+            "file": "hub/creative_specs.py", "module": "io_builder",
+            "detail": f"\"{sid}\" is declared here and is no longer a section "
+                      f"of the published kit.",
+            "fix": "Drop the declaration. An exemption that outlives what it "
+                   "exempted goes on excusing whatever is published under that "
+                   "id next.",
+        })
+    return out
+
+
+def check_creative_spec_disagreement() -> list[dict]:
+    """Products the creative gate and the spec kit read as different mediums.
+
+    Two readings of one question: `creative_needs.medium_of()` decides whether
+    to ask a client for creative, and `creative_specs.channels_for_product()`
+    decides what to ask for. They drifted apart on 25 of 90 products, in both
+    directions — display products gated as video, and whole categories (mobile
+    display, email, signage) gated as nothing at all — and every one of them
+    was silent, because each screen is internally consistent on its own.
+
+    High severity for the same reason `creative_medium_drift` is: the failure
+    is a launch date, and nothing anywhere looks wrong until the files arrive.
+    """
+    try:
+        from . import creative_needs
+        rows = creative_needs.spec_disagreements()
+    except Exception:                                   # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/creative_needs.py", "module": "sales_builder",
+        "detail": f'"{r["product"]}" under {r["category"]} is {r["gate"]} to the '
+                  f'creative gate and {"/".join(r["kit"])} to the spec kit. One '
+                  f'decides whether the client is asked for creative and the '
+                  f'other what they are asked for, so the rep is asked for one '
+                  f'thing and judged against another.',
+        "fix": "Reconcile CATEGORY_MEDIUM/EXPLICIT_MEDIUM in hub/creative_needs.py "
+               "with _PRODUCT_CHANNELS in hub/creative_specs.py, or name the pair "
+               "in SPEC_AGREE_EXEMPT with the reason both readings are right.",
+    } for r in rows]
 
 
 def check_creative_medium_drift() -> list[dict]:
@@ -668,11 +905,24 @@ CHECKS = [
      check_template_collisions),
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),
     ("shared_services", "Not yet on shared services", "low", check_shared_services),
+    # Low: an orphan template costs nobody a broken page -- it costs the
+    # effort spent editing one, and the feature somebody thinks is there
+    # because the directory says so. It went in with three findings, which
+    # were deleted in the same change, so it starts empty.
+    ("orphan_templates", "A template nothing renders", "low",
+     check_orphan_templates),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
     ("stale_json_exemptions", "Unbacked-JSON exemption names a missing file",
      "medium", check_stale_json_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
+    ("creative_spec_disagreement", "Creative gate and spec kit disagree", "high",
+     check_creative_spec_disagreement),
+    ("creative_kit_drift", "Spec numbers differ from the kit we publish", "high",
+     check_creative_kit_drift),
+    ("creative_kit_coverage",
+     "A section of the published kit nobody has declared", "high",
+     check_creative_kit_coverage),
     # High, as the note that stood here asked for once the list was empty. It
     # went in at medium with seven pre-existing findings it did not cause,
     # because a check switched on red is a check somebody turns off; the list
@@ -684,6 +934,35 @@ CHECKS = [
     # build, and the fix is one line at the call site.
     ("provider_key_drift", "Provider key read under one spelling only", "high",
      check_provider_key_drift),
+    # Medium, and green the day it went in. A bubble whose key is not in the
+    # registry is removed client-side rather than left as a dead "?" -- right
+    # for the page, and exactly what makes the mistake invisible: the template
+    # reads as helped, the screen shows nothing, and nothing errors at either
+    # end. Three tools had one on their own title. Not high, because the page
+    # still works and nobody is waiting on output; not low, because the whole
+    # help layer is opt-in and a screen that opted in and got nothing is
+    # indistinguishable from one that never tried.
+    ("dead_help_bubbles", "A help bubble with no help behind it", "medium",
+     _help_audit.check_dead_bubbles),
+    # High, and green the day it went in. This is the one failure in this file
+    # that has recurred five times: work_log() skips a module WORK_KINDS
+    # cannot name, so a client who has just had display ads built / an ad copy
+    # request raised / a website audit run / an insertion order written reads
+    # as a client nobody has done any work for. Every screen is complete, the
+    # log row is present, the client record is confidently empty, and nothing
+    # errors at any of the three. Each of the five was found by somebody
+    # opening one client's record and noticing, which is not a way of finding
+    # the sixth -- and the fix is one line.
+    ("unnamed_client_work", "Client work the record cannot name", "high",
+     _client_brand.check_work_kinds),
+    ("stale_work_exemptions", "A not-a-deliverable exemption outlived its "
+     "call site", "medium", lambda: [
+         {"file": "hub/client_brand.py", "module": m,
+          "detail": (f"NOT_WORK names {m!r}, which no longer logs against a "
+                     "client — the exemption now covers whatever is written "
+                     "under that name next"),
+          "fix": f"Drop {m!r} from NOT_WORK."}
+         for m in _client_brand.stale_work_exemptions()]),
 ]
 
 

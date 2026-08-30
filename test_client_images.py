@@ -65,6 +65,7 @@ Three more since:
      client who had just had a set of ads built read as one nobody had done
      any work for.
 """
+import json
 import os
 import shutil
 import sys
@@ -375,9 +376,18 @@ check("and the refresh does not answer out of the cache",
       "use_cache=False" in HUB, True)
 
 # The modules that were throwing their lookups away.
+#
+# Asserted as the outcome rather than as one spelling of it: a module keeps
+# what it paid for either by calling save_brandfetch itself or by going
+# through hub/brand_lookup.py, which saves on its way past. Image Creator did
+# the first and now does the second -- and the second is stronger, because
+# lookup() also asks what is stored BEFORE it spends anything. Pinning the
+# literal would have failed an improvement while a module that quietly went
+# back to a bare fetch, saving nothing, still passed.
 for mod in ("modules/image_creator/assets.py", "modules/ads_builder/logo.py"):
     src = (ROOT / mod).read_text()
-    check(f"{mod} saves what it fetched", "save_brandfetch" in src, True)
+    check(f"{mod} keeps what it paid for",
+          "save_brandfetch" in src or "brand_lookup" in src, True)
 
 
 # =====================================================================
@@ -629,6 +639,148 @@ check("and it is named for the tool a rep opened, not the directory",
 # where the table gets keyed on the wrong one.
 check("every declared log name is one the work log can name",
       sorted(set(audit.LOG_NAMES.values()) - set(client_brand.WORK_KINDS)), [])
+
+# That assertion covers `audit.LOG_NAMES`, which has exactly one entry. The
+# failure it was written about has now happened five times -- display_ads,
+# ad_copy, website_audit, and then io_builder, landing_maker, stock_photos,
+# brand and suite -- each found by somebody opening one client's record and
+# noticing, which is not a way of finding the sixth. `check_work_kinds()`
+# asks the question of every call site instead.
+check("no module logs client work the record cannot name",
+      [f["module"] for f in client_brand.check_work_kinds()], [])
+# The insertion order is the worst one it found: hub/io_clients.py exists
+# because a client whose only trace is an IO was invisible on their own
+# record, so the IO was registering the client and then not appearing as
+# work for them.
+check("an insertion order is work on the client's record",
+      "io_builder" in client_brand.WORK_KINDS, True)
+for _m in ("landing_maker", "stock_photos", "brand", "suite"):
+    check(f"{_m} is too", _m in client_brand.WORK_KINDS, True)
+
+# The other side, written down rather than left as an absence: a landing
+# module files the *prospect's* own business name off the form, and putting a
+# lead on a client record would be the Hub inventing a relationship.
+check("a landing-page lead is excluded on purpose, with a reason",
+      all(client_brand.NOT_WORK.get(m) for m in ("leads", "boat", "tourism")),
+      True)
+check("and the two lists do not overlap",
+      sorted(set(client_brand.NOT_WORK) & set(client_brand.WORK_KINDS)), [])
+# An exemption that outlives its call site goes on covering whatever is
+# written under that name next.
+check("no exemption names a module that no longer logs",
+      client_brand.stale_work_exemptions(), [])
+
+# And the rows actually arrive: reading the table is not the same as the row
+# reaching the record, and work_log() is the function the failure lived in.
+_C = "Riverside HVAC Test Client"
+for _mod, _ev in (("io_builder", "io_submitted"), ("landing_maker", "created"),
+                  ("stock_photos", "photo_used"), ("brand", "logo_filed"),
+                  ("suite", "llms_txt_published"), ("boat", "boat_report")):
+    audit.log(_mod, _ev, client=_C, actor="Tester")
+_blob = json.dumps(client_brand.work_log(_C).get("items") or [])
+for _want in ("Insertion order", "Landing page", "Stock photo used",
+              "Brand assets", "Published to Suite"):
+    check(f"{_want} reaches the work log", _want in _blob, True)
+check("and a landing-page lead does not", "boat_report" in _blob, False)
+
+# =====================================================================
+section("A push that landed is remembered; one that did not is not")
+# =====================================================================
+# `client_brand.mark_pushed()` was written, documented -- "Record that the
+# brand guide reached Suite" -- and had no caller at all. Nothing had ever
+# written `suite_brand_guide`, which is the field the card reads to decide
+# whether to draw the state or the button. The card's own comment says why
+# that matters: "Once the guide is in Suite the button is a trap: pressing it
+# again just overwrites what's there." The guard held for the life of one page
+# view -- pushBrand() swaps the button out in the browser -- and the button
+# came back on every reload, so a rep pushed the same guide again, and again,
+# with each press silently overwriting Suite and nothing anywhere saying it
+# had already been sent.
+
+import hub as _hub                                             # noqa: E402
+import requests as _requests                                   # noqa: E402
+
+_happ = _hub.create_hub_app()
+_hc = _happ.test_client()
+_hc.post("/login", data={"password": os.environ["PANEL_PASSWORD"]})
+
+_real_post = _requests.post
+_posts = []
+
+
+def _push(name="Fresh Co"):
+    return _hc.post("/api/client/brand/push-to-suite",
+                    json={"name": name}).get_json()
+
+
+def _recorded(name="Fresh Co"):
+    return client_brand.brand_kit(name, "").get("suite_brand_guide") or ""
+
+
+# A payload offered for somebody to paste by hand has not reached Suite.
+os.environ.pop("GHL_BRAND_WEBHOOK_URL", None)
+_r = _push()
+check("with no webhook, nothing is delivered", _r["delivered"], False)
+check("and it says which kind of nothing", _r["reason"], "not_configured")
+check("the payload still comes back to paste", bool(_r["payload"]["found"]), True)
+check("and nothing is recorded", _recorded(), "")
+
+os.environ["GHL_BRAND_WEBHOOK_URL"] = "https://suite.example/hook"
+
+# Suite refused it. Reported as a missing variable before this, which sends
+# somebody to set one that is already set -- the provider_check rule.
+_requests.post = lambda url, **kw: _Resp({}, 500)
+try:
+    _r = _push()
+finally:
+    _requests.post = _real_post
+check("a refusal is not delivered", _r["delivered"], False)
+check("it is named as a refusal", _r["reason"], "refused")
+check("and carries Suite's own status", "500" in _r["note"], True)
+check("a refused push records nothing", _recorded(), "")
+
+
+def _boom(url, **kw):
+    raise ConnectionError("no route to host")
+
+
+_requests.post = _boom
+try:
+    _r = _push()
+finally:
+    _requests.post = _real_post
+check("unreachable is its own answer", _r["reason"], "unreachable")
+check("named without the URL in it", "example" not in _r["note"], True)
+check("and it records nothing either", _recorded(), "")
+
+# And the one that actually landed.
+_requests.post = lambda url, **kw: _Resp({"ok": True}, 200)
+try:
+    _r = _push()
+finally:
+    _requests.post = _real_post
+check("a good push is delivered", _r["delivered"], True)
+check("it hands back the stamp it wrote", bool(_r["pushed_at"]), True)
+# The whole point: the next page load reads the same thing. Asserted as
+# "equal AND not empty", because two empty strings are equal -- and empty on
+# both sides is precisely the bug, so the obvious form of this check passes
+# on the code it was written to catch.
+check("and the record agrees with it",
+      (_recorded() == _r["pushed_at"], bool(_recorded())), (True, True))
+
+# Which is what makes the card show the state instead of the button.
+check("the card draws the state when the field is set",
+      "d.suite_brand_guide" in C360 and "Brand Guide setup in Suite" in C360, True)
+check("and offers the push only when it is not",
+      "'<a class=\"gbtn\" href=\"#\" onclick=\"pushBrand();return false\">"
+      "Send to Suite Brand Guide</a>'" in C360, True)
+
+# Three outcomes on screen, not two.
+check("the browser keeps not_configured apart",
+      "d.reason==='not_configured'" in C360, True)
+check("and reports a delivery failure in Suite's own words",
+      "d.note||" in C360, True)
+
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)

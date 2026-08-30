@@ -213,4 +213,64 @@ def api_use():
         except Exception:                               # noqa: BLE001
             pass
 
-    return jsonify({"ok": True, "download": download, "unsplash_pinged": pinged})
+    filed = _file_for_client(client, provider, image_id, url)
+
+    return jsonify({"ok": True, "download": download, "unsplash_pinged": pinged,
+                    "filed": bool(filed.get("ok")),
+                    "gallery_url": filed.get("gallery_url", ""),
+                    "note": filed.get("note", "")})
+
+
+def _file_for_client(client: str, provider: str, image_id: str, url: str) -> dict:
+    """A photo chosen for a client belongs in that client's gallery.
+
+    The activity log already recorded the pick, which puts a line on the
+    client's record and nothing in the place somebody goes to find the picture
+    again. Two paths, because they are genuinely different:
+
+    * **Our own library** is already in Cloudinary, so the row is recorded
+      against the asset that exists. Nothing is copied.
+    * **A provider photo** lives on somebody else's CDN. Filing that URL would
+      put a row in the gallery pointing at an address we do not control and
+      cannot keep — a provider that reorganises its CDN empties the client's
+      gallery with nothing saying why. So it is stored first, then filed.
+
+    With no client named, nothing is filed and the answer says so: a photo
+    filed to a guessed client is the one mistake here that cannot be undone by
+    editing a row.
+    """
+    if not client:
+        return {"ok": False, "note": "No client chosen, so this pick was not "
+                                     "filed to a gallery."}
+    if not url:
+        return {"ok": False, "note": "That photo has no address to file."}
+    try:
+        from modules.image_picker.filing import file_asset
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "note": f"The client galleries are unavailable: {exc}"}
+
+    public_id, stored_url = image_id.split(":", 1)[-1], url
+    if provider != "library":
+        if hub_storage is None:
+            return {"ok": False, "note": "Storage is not configured, so the "
+                                         "photo could not be kept."}
+        try:
+            # client= puts it under the client's own folder, which is the
+            # shared layer's job rather than a path built here.
+            asset = hub_storage.put_remote(
+                "stock_photos", url, client=client,
+                filename=f"{provider}-{public_id}.jpg")
+            public_id, stored_url = asset.public_id, asset.url
+        except Exception as exc:                        # noqa: BLE001
+            return {"ok": False, "note": f"The photo could not be stored: {exc}"}
+
+    try:
+        out = file_asset(client_name=client, public_id=public_id,
+                         url=stored_url, kind="stock",
+                         filename=f"{provider}-{public_id.split('/')[-1]}",
+                         alt=f"Stock photo chosen for {client}",
+                         provider=provider or "stock", saved_by=_actor() or "system")
+        return out if isinstance(out, dict) else {"ok": False}
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "note": f"It could not be filed: {exc}"}
+

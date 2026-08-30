@@ -129,6 +129,104 @@ def list_reviews(project_id):
     })
 
 
+@bp.get("/api/reviews/waiting")
+def reviews_waiting():
+    """Every live round across every spot, sorted into who is waiting on whom.
+
+    A client answering a review used to reach the activity log and nothing
+    else, so the rep who sent the link found out by opening the spot and
+    looking. There is no mail sender in this Hub, so this is the route
+    `hub/social_content.py` took: a figure on the dashboard of the tool, and
+    the rows behind it.
+
+    Only **live** rounds are read. A revoked one is the record of a round that
+    has been replaced, and its answers stay on file — but nobody is waiting on
+    it, and counting them would make the queue grow every time a spot went
+    round again. And a spot with a filed, approved cut is out: the answer came
+    back and somebody acted on it.
+
+    Never raises. `review_spec.inbox_unmeasured()` is what a failed read
+    answers with, because a clean zero over a table that would not answer is
+    the one thing this card must not draw.
+    """
+    try:
+        shares = (ReviewShare.query.filter_by(revoked=False)
+                  .order_by(ReviewShare.id.desc()).all())
+        filed = _filed_at()
+        rows = []
+        for share in shares:
+            project = CommercialProject.query.get(share.project_id)
+            if project is None:
+                continue
+            client = Client.query.get(project.client_id)
+            decisions = [d.to_dict() for d in share.decisions.all()]
+            verdict = review_spec.verdict(decisions)
+            rows.append({
+                "share_id": share.id,
+                "project_id": project.id,
+                "title": project.title or "Commercial",
+                "length_seconds": project.length_seconds,
+                "client": (client.name if client else ""),
+                "round_no": share.round_no or 1,
+                "sent_at": share.created_at.isoformat() if share.created_at else None,
+                "sent_by": share.created_by or "",
+                "answered": verdict["answered"],
+                "outcome": verdict["outcome"],
+                "color": verdict["color"],
+                "by": verdict["by"],
+                "conflicting": verdict["conflicting"],
+                "comments": share.comments.count(),
+                "filed": _acted_on(share, filed.get(project.id)),
+                "url": url_for("commercial_builder.cb_pages.preview",
+                               project_id=project.id),
+            })
+        return jsonify({"ok": True, **review_spec.inbox(rows)})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": True, **review_spec.inbox_unmeasured(str(exc))})
+
+
+def _filed_at():
+    """When each project last had a cut approved and filed.
+
+    An approval is what puts the video in the client's library and on their
+    360 record, so it is the point at which an answer has been acted on. Read
+    here rather than off `project.status`, which only turns complete once
+    *every* requested size is approved — a spot whose :30 is filed and whose
+    9:16 is not has still been acted on.
+    """
+    try:
+        from ..models import RenderApproval
+        latest = {}
+        for a in RenderApproval.query.all():
+            when = a.approved_at
+            if when is None:
+                continue
+            if a.project_id not in latest or when > latest[a.project_id]:
+                latest[a.project_id] = when
+        return latest
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _acted_on(share, filed_at):
+    """Whether the filing on this project answers THIS round.
+
+    A time comparison rather than "does the project have an approval", because
+    a round sent *after* a cut was filed is a live question again: the spot
+    went back to the client for a change, and an approval that predates the
+    round did not act on anything they have said since. Reading it the other
+    way drops exactly the round somebody is waiting on, silently, from the one
+    card that would have told them.
+
+    An approval with no timestamp is treated as not covering the round: it is
+    the answer that leaves the row on screen, and a row nobody needed to see
+    costs a glance where a missing one costs the reply.
+    """
+    if filed_at is None or share.created_at is None:
+        return False
+    return filed_at >= share.created_at
+
+
 @bp.post("/api/projects/<int:project_id>/reviews")
 def send_for_review(project_id):
     """Issue a link for the next round.
@@ -322,7 +420,11 @@ def client_decide(token):
 
     name = str(body.get("name") or "").strip()[:200]
     email = str(body.get("email") or "").strip()[:200]
-    if not name or not email:
+    # Asked of the spec rather than assumed here. `decision_requires_name()`
+    # was written for exactly this and had no caller, so the rule lived in
+    # this route's own words — two descriptions of one rule, and the spec's
+    # was the one nothing consulted.
+    if review_spec.decision_requires_name(outcome) and (not name or not email):
         return jsonify({"ok": False, "error": (
             "Please add your name and email. We record who signed a spot off, "
             "and an answer nobody can be named for is one we cannot act on.")}), 400

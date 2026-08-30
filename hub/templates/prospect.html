@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prospect — Smart 1 Hub</title>
+<style>
+  :root{ --ink:#0a2240; --ink-2:#33507a; --muted:#6b7d99; --line:#dfe6f0;
+         --bg:#f6f8fb; --card:#fff; --red:#c0392b; --amber:#d18b1f;
+         --blue:#2f80ed; --green:#1e8e5a; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 16px 72px}
+  a{color:var(--blue)}
+  h1{font-size:23px;margin:0 0 2px}
+  h3{font-size:15px;margin:0}
+  .sub{color:var(--muted);margin:0 0 16px;font-size:13.5px}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;
+        display:flex;flex-direction:column}
+  .card.wide{grid-column:1 / -1}
+  .card-h{display:flex;align-items:center;gap:10px;padding:12px 15px;
+          border-bottom:1px solid var(--line)}
+  .card-h .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+  .card-b{padding:13px 15px}
+  .tag{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+       padding:2px 7px;border-radius:5px;background:#e0edff;color:#1e40af}
+  .tag.suite{background:#ede9fe;color:#5b21b6}
+  .tag.hub{background:#e7f6ef;color:#147d52}
+  .tag.money{background:#e8f7ef;color:#12633f}
+  .muted{color:var(--muted)}
+  .small{font-size:12.5px}
+  .empty{color:var(--muted);font-size:13.5px}
+  .nm{color:var(--muted);font-size:13px;border-left:3px solid var(--amber);
+      padding:6px 10px;background:#fffdf6;border-radius:0 7px 7px 0}
+  .err{color:#8f2a1e;font-size:13px;border-left:3px solid var(--red);
+       padding:6px 10px;background:#fdf6f5;border-radius:0 7px 7px 0}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;
+        font-weight:600;border:1px solid var(--line);background:#f2f6fc;color:var(--ink-2)}
+  .pill.ok{background:#e8f7ef;border-color:#b9e3cd;color:#12633f}
+  .pill.warn{background:#fff6e6;border-color:#f0d8a8;color:#8a5b00}
+  .pill.bad{background:#fdecea;border-color:#f5c2bd;color:#8f2a1e}
+  .btn{display:inline-block;padding:6px 12px;border:1px solid var(--line);
+       border-radius:7px;background:#fff;color:var(--ink-2);text-decoration:none;
+       font-size:13px;cursor:pointer}
+  .btn:hover{border-color:var(--ink-2)}
+  .btn.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.go{background:var(--green);color:#fff;border-color:var(--green)}
+  input,textarea,select{padding:7px 10px;border:1px solid var(--line);
+       border-radius:7px;font:13.5px inherit;background:#fff;color:var(--ink);max-width:100%}
+  dl.kv{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13px}
+  dl.kv dt{color:var(--muted);white-space:nowrap}
+  dl.kv dd{margin:0;overflow-wrap:anywhere}
+  .strip{background:#fff;border:1px solid var(--line);border-radius:11px;
+         padding:14px 16px;margin-bottom:14px;display:flex;gap:26px;flex-wrap:wrap;
+         align-items:flex-start}
+  .strip .who{min-width:220px}
+  .strip .who b{font-size:18px;display:block}
+  .figs{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  .fig{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fbfdff}
+  .fig .v{font-size:17px;font-weight:650;line-height:1.2}
+  .fig .l{font-size:11.5px;color:var(--muted)}
+  .fig.un .v{font-size:13.5px;font-weight:600;color:var(--muted)}
+  ul.tl{list-style:none;margin:0;padding:0}
+  ul.tl li{display:flex;gap:11px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+  ul.tl li:first-child{border-top:0}
+  ul.tl .w{color:var(--muted);white-space:nowrap;font-size:12px;min-width:132px}
+  ul.tl .k{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+           color:var(--muted);min-width:64px}
+  table.t{border-collapse:collapse;width:100%;font-size:13px}
+  table.t th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;
+             color:var(--muted);padding:0 8px 6px 0;font-weight:700}
+  table.t td{border-top:1px solid var(--line);padding:6px 8px 6px 0;vertical-align:top}
+  .drop{border:1px dashed #b9c9e0;border-radius:9px;padding:10px 12px;background:#f8fbff}
+  .wrapover{overflow-x:auto}
+</style>
+</head>
+{# `data-screen` is what OFFERS a tour, so it names the screen the registry
+   actually publishes -- these keys are filed under `hub.prospect.*`, and the
+   plain `prospect` this carried before matched nothing. That cost nothing while
+   there were no steps, because hub-help.js declines to offer an empty tour;
+   the day a sibling screen registered any, `tour()` falls back to the MODULE
+   prefix and would have served them over elements that are not on this page.
+   `has_tour` is the exact question, and it is guarded `is defined` like every
+   other helper, so a Jinja env that never got install_template_helpers()
+   loses the attribute rather than the page. #}
+<body{% if has_tour is defined and has_tour("hub.prospect") %} data-screen="hub.prospect"{% endif %} data-module="prospect">
+<div class="wrap">
+  <p class="sub" style="margin:0 0 8px"><a href="/sales/leads">&larr; Leads</a>
+    {%- if has_tour is defined and has_tour("hub.prospect") %}
+    &middot; <a href="#" data-tour-start="hub.prospect">How this works</a>
+    {%- endif %}</p>
+  <div id="head"></div>
+  <div id="body"><p class="empty">Loading this prospect&hellip; <span class="spin"></span></p></div>
+</div>
+
+<script type="application/json" id="boot">{{ {'lead_id': lead_id}|tojson }}</script>
+<script>
+(function(){
+  "use strict";
+  var BOOT = {};
+  try { BOOT = JSON.parse(document.getElementById('boot').textContent||'{}')||{}; }
+  catch(e){ BOOT = {}; }
+  var ID = BOOT.lead_id || '', REC = null;
+
+  function $(id){ return document.getElementById(id); }
+  function esc(s){
+    return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function day(v){ return esc(String(v||'').slice(0,10)); }
+
+  /* One renderer for the three empties every card has, so no card can invent
+     its own kind of nothing. "We could not look" is never drawn as "there is
+     nothing here" -- that is the difference somebody stops chasing a deal
+     over. */
+  function state(sec, emptyText){
+    if(!sec) return '<div class="empty">'+esc(emptyText||'Nothing here.')+'</div>';
+    if(sec.error){
+      return '<div class="err"><b>Not measured.</b> '+esc(sec.note||'')
+        +' <span class="small">'+esc(sec.error)+'</span></div>';
+    }
+    if(!sec.measured){
+      return '<div class="nm"><b>Not measured.</b> '+esc(sec.note||'')+'</div>';
+    }
+    if(!(sec.rows||[]).length){
+      return '<div class="empty">'+esc(sec.note||emptyText||'Nothing here yet.')+'</div>';
+    }
+    return '';
+  }
+
+  /* `key` is the one argument that carries both halves of a card's
+     explanation: the bubble beside its heading and the anchor its tour step
+     rings. Decided here rather than at the nine call sites, so a card added
+     next month is explained by naming itself and cannot end up with a ring
+     pointing at nothing. <span data-help> is exactly what the help_dot
+     helper emits —
+     this whole record is drawn from a fetch, and hub-help.js mounts bubbles
+     on a debounced MutationObserver for precisely that reason. A key the
+     registry does not know is removed client-side, so a typo costs the icon
+     rather than leaving a "?" that explains nothing. */
+  function card(tag, tagClass, title, bodyHtml, actions, wide, key){
+    return '<div class="card'+(wide?' wide':'')+'"'
+      +(key?' data-card="'+esc(key)+'"':'')+'><div class="card-h">'
+      +'<span class="tag '+(tagClass||'')+'">'+esc(tag)+'</span><h3>'+esc(title)
+      +(key?' <span data-help="hub.prospect.'+esc(key)+'"></span>':'')+'</h3>'
+      +'<div class="right">'+(actions||'')+'</div></div>'
+      +'<div class="card-b">'+bodyHtml+'</div></div>';
+  }
+
+  function load(){
+    fetch('/api/prospect/'+encodeURIComponent(ID),{credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ REC = d; render(d); })
+      .catch(function(){
+        $('body').innerHTML='<div class="card"><div class="card-b"><div class="err">'
+          +'This record could not be loaded, so it is <b>not measured</b> rather '
+          +'than empty.</div></div></div>';
+      });
+  }
+
+  function render(d){
+    if(!d.found){
+      $('head').innerHTML='<h1>Prospect not found</h1>';
+      $('body').innerHTML='<div class="card"><div class="card-b"><div class="empty">'
+        +esc(d.note||'')+'</div></div></div>';
+      return;
+    }
+    var l = d.lead||{};
+    $('head').innerHTML =
+      '<h1>'+esc(l.company||l.name||'Prospect')+'</h1>'
+      +'<p class="sub">Came in '+day(l.first_seen)+' from '+esc(l.source||'a form')
+      +(l.page?' &middot; '+esc(l.page):'')
+      +(l.converted_at?' &middot; <span class="pill ok">now a client: '+esc(l.client)+'</span>':'')
+      +'</p>'
+      + strip(l);
+    $('body').innerHTML =
+      '<div class="grid">'
+      + spendCard(d)
+      + suiteCard(d)
+      + auditCard(d)
+      + scansCard(d)
+      + proposalsCard(d)
+      + assetsCard(d)
+      + workCard(d)
+      + dupesCard(d)
+      + timelineCard(d)
+      + '</div>';
+    wire();
+  }
+
+  function strip(l){
+    var contact = [
+      l.email ? '<a href="mailto:'+esc(l.email)+'">'+esc(l.email)+'</a>' : '',
+      l.phone ? '<a href="tel:'+esc(l.phone)+'">'+esc(l.phone)+'</a>' : '',
+      l.domain ? '<a href="https://'+esc(l.domain)+'" target="_blank" rel="noopener">'
+                 +esc(l.domain)+' &#8599;</a>' : ''
+    ].filter(Boolean).join(' &middot; ')
+      || '<span class="muted">No contact details on this row.</span>';
+
+    var suitePill = l.contact_id
+      ? '<span class="pill ok">in Suite</span>'
+      : (l.delivered
+          ? '<span class="pill">sent, no contact id</span>'
+          : '<span class="pill warn" title="'+esc(l.last_error||'')+'">not delivered</span>');
+    if((l.contact_ids||[]).length > 1){
+      suitePill += ' <span class="pill warn">'+l.contact_ids.length
+        +' Suite contacts</span>';
+    }
+
+    var acts = l.converted_at
+      ? '<a class="btn" href="/client360?client='+encodeURIComponent(l.client||'')
+        +'">Open the client record &rarr;</a>'
+      : '<button class="btn go" id="btnConvert">Convert to a client</button>'
+        +' <span data-help="hub.prospect.convert"></span>';
+
+    return '<div class="strip">'
+      +'<div class="who"><b>'+esc(l.name||'—')+'</b>'
+      +' <span data-help="hub.prospect.intro"></span>'
+      +'<div class="small muted">'+esc(l.company||'')+'</div></div>'
+      +'<div style="flex:1;min-width:260px"><div>'+contact+'</div>'
+      +'<div class="small muted" style="margin-top:5px">'+suitePill
+      +((l.also_from||[]).length
+          ? ' &middot; also from '+esc(l.also_from.join(', ')) : '')
+      +'</div></div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">'
+      + acts
+      + (l.domain
+          ? '<a class="btn" href="/tools/website-audit?domain='+encodeURIComponent(l.domain)
+            +'">Open the audit tool &rarr;</a>'
+            +'<a class="btn" href="/sales/builder/?audit='+encodeURIComponent(l.domain)
+            +'">Start a proposal &rarr;</a>'
+          : '')
+      +'</div><div id="convertBox" style="flex-basis:100%"></div></div>';
+  }
+
+  /* ---- what they are already spending, first, as everywhere else ---- */
+  function spendCard(d){
+    var a = (d.audit||{}).audit||{}, sp = a.spend||null;
+    var body = state(d.audit, 'Nothing has been read from this website yet.');
+    if(!body && sp){
+      body = (sp.total_display
+          ? '<div style="font-size:26px;font-weight:700;line-height:1.15">'
+            +esc(sp.total_display)+' <span class="small muted" style="font-weight:400">'
+            +'a month, that we can put a number on</span></div>'
+            +(sp.total_note?'<div class="small muted" style="margin:4px 0 10px">'
+              +esc(sp.total_note)+'</div>':'')
+          : '')
+        + '<div class="figs">'+(sp.observed||[]).map(function(f){
+            return '<div class="fig'+(f.measured?'':' un')+'">'
+              +'<div class="v">'+esc(f.value)+'</div>'
+              +'<div class="l">'+esc(f.label)+'</div></div>';
+          }).join('')+'</div>'
+        + (sp.stated && sp.stated.finding
+            ? '<div class="nm" style="margin-top:10px"><b>Worth asking:</b> '
+              +esc(sp.stated.finding)+'</div>' : '')
+        + (sp.measured ? '' : '<div class="empty" style="margin-top:8px">'
+            +esc(sp.note||'')+'</div>');
+    } else if(!body){
+      body = '<div class="empty">'+esc((d.audit||{}).note||'')+'</div>';
+    }
+    return card('Audit','money','What they are already spending', body, '', true, 'spend');
+  }
+
+  /* ---- where it has got to: read from Suite, never decided here ---- */
+  function suiteCard(d){
+    var s = d.suite||{};
+    var body = state(s, '');
+    if(!body){
+      var c = s.contact||{};
+      body = '<dl class="kv">'
+        +'<dt>Contact</dt><dd>'+esc(c.name||'—')
+          +(c.url?' <a href="'+esc(c.url)+'" target="_blank" rel="noopener">open in Suite &#8599;</a>':'')
+          +'</dd>'
+        +'<dt>Owner</dt><dd>'+(c.assigned_to
+            ? esc(c.assigned_to)
+            : '<span class="muted">nobody assigned</span>')+'</dd>'
+        +'<dt>Tags</dt><dd>'+((c.tags||[]).length
+            ? c.tags.map(function(t){return '<span class="pill">'+esc(t)+'</span>';}).join(' ')
+            : '<span class="muted">none</span>')+'</dd>'
+        +'</dl>';
+      body += s.opportunities_measured
+        ? ((s.rows||[]).length
+            ? '<table class="t" style="margin-top:10px"><thead><tr><th>Deal</th>'
+              +'<th>Stage</th><th>Value</th><th>Updated</th></tr></thead><tbody>'
+              +s.rows.map(function(o){
+                return '<tr><td>'+esc(o.name||'—')+'</td>'
+                  +'<td>'+(o.stage_measured
+                      ? esc(o.pipeline?o.pipeline+' · '+o.stage:o.stage)
+                      : '<span class="muted">stage not measured</span>')+'</td>'
+                  +'<td>'+(o.value==null?'—':'$'+Number(o.value).toLocaleString())+'</td>'
+                  +'<td class="muted">'+day(o.updated)+'</td></tr>';
+              }).join('')+'</tbody></table>'
+            : '<div class="empty" style="margin-top:10px">'+esc(s.note||'')+'</div>')
+        : '<div class="nm" style="margin-top:10px"><b>Deals not measured.</b> '
+          +esc(s.opportunities_error||'')+'</div>';
+
+      body += '<div style="margin-top:14px"><b class="small">Notes</b>';
+      body += s.notes_measured
+        ? ((s.notes||[]).length
+            ? '<ul class="tl" style="margin-top:5px">'+s.notes.map(function(n){
+                return '<li><span class="w">'+day(n.created)+'</span><span>'
+                  +esc(n.body)+'</span></li>';
+              }).join('')+'</ul>'
+            : '<div class="empty">No notes on this contact yet.</div>')
+        : '<div class="nm">Notes could not be read. '+esc(s.notes_error||'')+'</div>';
+      body += '<div style="margin-top:9px;display:flex;gap:8px">'
+        +'<input id="noteText" placeholder="Add a note…" style="flex:1">'
+        +'<button class="btn" id="btnNote">Add</button></div>'
+        +'<div class="small muted" style="margin-top:5px">Notes are written onto '
+        +'the Suite contact, where the calls and texts already are — not into a '
+        +'second notebook only this Hub can read.</div>'
+        +'<div class="small" id="noteMsg" style="margin-top:5px"></div></div>';
+    }
+    return card('Suite','suite','Where this has got to', body, '', false, 'suite');
+  }
+
+  function auditCard(d){
+    var a = (d.audit||{}).audit||{};
+    var body = state(d.audit, '');
+    if(!body){
+      var age = a.age||{};
+      body = (age.measured
+          ? '<div class="'+(age.stale?'nm':'small muted')+'">'
+            +(age.stale?'<b>'+esc(age.age_days)+' days old.</b> ':'')
+            +esc(age.note||'')+'</div>'
+          : '<div class="nm">'+esc(age.note||'')+'</div>')
+        + ((a.opportunities||[]).length
+            ? '<ul class="tl" style="margin-top:9px">'+a.opportunities.map(function(o){
+                return '<li><span class="k">'+esc(o.sells)+'</span><span><b>'
+                  +esc(o.finding)+'</b><div class="small muted">'+esc(o.means)
+                  +'</div></span></li>';
+              }).join('')+'</ul>'
+            : '<div class="empty" style="margin-top:9px">Nothing came back as a '
+              +'gap we sell against. On a plan that does not run a check, that '
+              +'is <b>not measured</b> rather than a clean bill.</div>');
+    }
+    var acts = a.scan_url
+      ? '<a class="btn" href="'+esc(a.scan_url)+'">Open the full audit &rarr;</a>' : '';
+    return card('Audit','','What the audit found', body, acts, false, 'audit');
+  }
+
+  function scansCard(d){
+    var s = d.scans||{};
+    var body = state(s, 'This website has never been audited.');
+    if(!body){
+      body = '<table class="t"><thead><tr><th>When</th><th>Score</th>'
+        +'<th>Status</th><th>From</th></tr></thead><tbody>'
+        +(s.rows||[]).map(function(r){
+          return '<tr><td>'+(r.url
+              ? '<a href="'+esc(r.url)+'">'+day(r.when)+'</a>' : day(r.when))+'</td>'
+            +'<td>'+(r.score==null?'<span class="muted">—</span>':esc(r.score))+'</td>'
+            +'<td>'+esc(r.status||'')+'</td>'
+            +'<td class="muted">'+esc(r.source||'')+'</td></tr>';
+        }).join('')+'</tbody></table>';
+    }
+    var l = (d.lead||{});
+    var acts = l.domain
+      ? '<button class="btn" id="btnScan">Run a new audit</button>' : '';
+    return card('Audit','','Scan history', body
+      + '<div class="small" id="scanMsg" style="margin-top:8px"></div>', acts);
+  }
+
+  function proposalsCard(d){
+    var p = d.proposals||{};
+    var body = state(p, 'No proposal has been filed against this prospect yet.');
+    if(!body){
+      body = '<ul class="tl">'+(p.rows||[]).map(function(r){
+        return '<li><span class="w">'+day(r.date_sent)+'</span><span>'
+          +(r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">':'')
+          +esc(r.quote_number||r.title||'Proposal')
+          +(r.url?'</a>':'')
+          +' <span class="pill">'+esc(r.status||'sent')+'</span></span></li>';
+      }).join('')+'</ul>';
+    }
+    var l = (d.lead||{});
+    var acts = l.domain
+      ? '<a class="btn" href="/sales/builder/?audit='+encodeURIComponent(l.domain)
+        +'">New proposal &rarr;</a>' : '';
+    return card('Sales','','Proposals', body, acts, false, 'proposals');
+  }
+
+  function assetsCard(d){
+    var a = d.assets||{};
+    var body = (a.rows||[]).length
+      ? '<ul class="tl">'+a.rows.map(function(r){
+          return '<li><span class="w">'+day(r.added)+'</span><span style="flex:1">'
+            +'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">'
+            +esc(r.label||r.filename)+'</a>'
+            +'<div class="small muted">'+esc(r.filename)+' &middot; '
+            +Math.max(1,Math.round((r.bytes||0)/1024))+' KB'
+            +(r.added_by?' &middot; '+esc(r.added_by):'')+'</div></span>'
+            +'<button class="btn" data-del="'+esc(r.id)+'" '
+            +'data-name="'+esc(r.label||r.filename)+'">Remove</button></li>';
+        }).join('')+'</ul>'
+      : '<div class="empty">Nothing filed against this prospect yet — the '
+        +'mock-up they were sent, a screenshot, the rate sheet they emailed over.</div>';
+    body += '<div class="drop" style="margin-top:10px">'
+      +'<input type="file" id="assetFile">'
+      +'<input id="assetLabel" placeholder="What is it? (optional)" style="margin-left:6px">'
+      +'<button class="btn" id="btnAsset" style="margin-left:6px">Add</button>'
+      +'<div class="small" id="assetMsg" style="margin-top:6px"></div></div>';
+    return card('Hub','hub','Files on this prospect', body, '', false, 'assets');
+  }
+
+  function workCard(d){
+    var w = d.work||{};
+    var body = state(w, 'Nothing has been produced for this prospect yet.');
+    if(!body){
+      body = '<ul class="tl">'+(w.rows||[]).map(function(r){
+        return '<li><span class="w">'+day(r.when)+'</span><span class="k">'
+          +esc(r.kind||'')+'</span><span>'+esc(r.detail||r.source||'')+'</span></li>';
+      }).join('')+'</ul>';
+    }
+    return card('Hub','hub','Work we have done', body);
+  }
+
+  function dupesCard(d){
+    var u = d.duplicates||{};
+    var body = state(u, 'Nothing else in the panel looks like this business.');
+    if(!body){
+      body = (u.rows||[]).map(function(g){
+        return '<div class="nm" style="margin-bottom:8px"><b>'+esc(g.evidence)+'</b>'
+          + g.leads.map(function(r){
+              return '<div style="margin-top:4px"><a href="/prospect/'+esc(r.id)+'">'
+                +esc(r.company||r.name||r.email||r.id)+'</a> '
+                +'<span class="small muted">'+esc(r.source||'')+' &middot; '
+                +day(r.created)+'</span></div>';
+            }).join('')
+          +'<div class="small muted" style="margin-top:5px">Merge them from the '
+          +'<a href="/sales/leads">Leads panel</a> — the record you keep holds its '
+          +'own details and only fills its blanks.</div></div>';
+      }).join('');
+    }
+    return card('Hub','hub','The same prospect, twice', body, '', false, 'duplicates');
+  }
+
+  function timelineCard(d){
+    var t = d.timeline||{};
+    var body = (t.rows||[]).length
+      ? '<ul class="tl">'+t.rows.map(function(e){
+          return '<li><span class="w">'+esc(e.when)+'</span>'
+            +'<span class="k">'+esc(e.kind)+'</span><span>'
+            +(e.link?'<a href="'+esc(e.link)+'">'+esc(e.text)+'</a>':esc(e.text))
+            +'</span></li>';
+        }).join('')+'</ul>'
+      : '<div class="empty">Nothing recorded against this prospect yet.</div>';
+    if((t.incomplete||[]).length){
+      body += '<div class="nm" style="margin-top:10px">'+esc(t.note)+'</div>';
+    }
+    return card('Hub','hub','Everything that has happened', body, '', true, 'timeline');
+  }
+
+  /* ---------------------------------------------------------------- wiring */
+  function wire(){
+    var l = (REC&&REC.lead)||{};
+
+    var note = $('btnNote');
+    if(note) note.onclick = function(){
+      var text = $('noteText').value.trim(), msg = $('noteMsg');
+      if(!text){ msg.textContent='Type the note first.'; return; }
+      note.disabled = true; msg.className='small muted'; msg.textContent='Saving…';
+      fetch('/api/prospect/'+encodeURIComponent(ID)+'/note',{
+          method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({note:text})})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          note.disabled = false;
+          if(!j.ok){ msg.className='small err'; msg.textContent=j.error; return; }
+          $('noteText').value=''; load();
+        })
+        .catch(function(){
+          note.disabled=false; msg.className='small err';
+          msg.textContent='That could not be saved.';
+        });
+    };
+
+    var add = $('btnAsset');
+    if(add) add.onclick = function(){
+      var file = $('assetFile').files[0], msg = $('assetMsg');
+      if(!file){ msg.textContent='Choose a file first.'; return; }
+      var form = new FormData();
+      form.append('file', file);
+      form.append('label', $('assetLabel').value);
+      add.disabled = true; msg.className='small muted'; msg.textContent='Uploading…';
+      fetch('/api/prospect/'+encodeURIComponent(ID)+'/asset',
+            {method:'POST',credentials:'same-origin',body:form})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          add.disabled = false;
+          if(!j.ok){ msg.className='small err'; msg.textContent=j.error; return; }
+          load();
+        })
+        .catch(function(){
+          add.disabled=false; msg.className='small err';
+          msg.textContent='That could not be uploaded.';
+        });
+    };
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-del]'),function(b){
+      b.onclick = function(){
+        var name = b.getAttribute('data-name')||'that file';
+        if(!window.confirm('Remove “'+name+'” from this prospect?\n\n'
+            +'The stored copy is deleted too, and for something a prospect sent '
+            +'us our copy is very often the only one. This cannot be undone.')) return;
+        b.disabled = true;
+        fetch('/api/prospect/'+encodeURIComponent(ID)+'/asset/'
+              +encodeURIComponent(b.getAttribute('data-del')),
+              {method:'DELETE',credentials:'same-origin'})
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            /* The two outcomes are reported apart: one tick covering both is
+               how somebody learns not to trust the tick. */
+            var msg = $('assetMsg');
+            if(msg){ msg.className='small muted'; msg.textContent=j.note||''; }
+            load();
+          })
+          .catch(function(){ b.disabled=false; });
+      };
+    });
+
+    var scan = $('btnScan');
+    if(scan) scan.onclick = function(){
+      var msg = $('scanMsg');
+      if(!window.confirm('Run a fresh audit of '+l.domain+'?\n\nThis spends one '
+          +'Insites credit and takes a few minutes.')) return;
+      scan.disabled = true; msg.className='small muted'; msg.textContent='Starting…';
+      fetch('/scans/api/scans',{method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({url:l.domain,force:true,source:'prospect',
+                               business_name:l.company||''})})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          scan.disabled = false;
+          if(j&&j.error){ msg.className='small err'; msg.textContent=j.error; return; }
+          msg.textContent='Running. It usually takes a minute or two — reload '
+            +'this record and it will be in the history.';
+        })
+        .catch(function(){
+          scan.disabled=false; msg.className='small err';
+          msg.textContent='The scanner could not be reached, so nothing was '
+            +'started — no credit was spent.';
+        });
+    };
+
+    var conv = $('btnConvert');
+    if(conv) conv.onclick = function(){
+      var box = $('convertBox');
+      box.innerHTML = '<div class="drop" style="margin-top:10px">'
+        +'<b class="small">Which client account did this become?</b>'
+        +'<div class="small muted" style="margin:3px 0 7px">The account is created '
+        +'in Knack — that is what billing reads — so this links to one that already '
+        +'exists rather than inventing a client the Hub shows and no invoice '
+        +'mentions. The files on this record move across with it.</div>'
+        +'<input id="convName" placeholder="Client name, exactly as the Hub holds it" '
+        +'style="min-width:320px"> <button class="btn go" id="convGo">Convert</button>'
+        +'<div class="small" id="convMsg" style="margin-top:6px"></div></div>';
+      $('convGo').onclick = function(){
+        var msg = $('convMsg'), name = $('convName').value.trim();
+        if(!name){ msg.textContent='Name the client first.'; return; }
+        msg.className='small muted'; msg.textContent='Linking…';
+        fetch('/api/prospect/'+encodeURIComponent(ID)+'/convert',{
+            method:'POST',credentials:'same-origin',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({client:name})})
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if(!j.ok){ msg.className='small err'; msg.textContent=j.error; return; }
+            load();
+          })
+          .catch(function(){
+            msg.className='small err'; msg.textContent='That could not be linked.';
+          });
+      };
+    };
+  }
+
+  if(ID){ load(); }
+})();
+</script>
+</body>
+</html>

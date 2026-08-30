@@ -136,12 +136,21 @@ function render(g,q){
       <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
       <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
       <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
+  // Knack's own Product # (field_2640), beside the name rather than in a
+  // column of its own: this card is half the grid, and the number is only
+  // ever there on the live source — the committed export has never carried
+  // one — so a column would be a wall of dashes on every export-backed
+  // record. It is labeled, because the pill next to it is the IO number and
+  // two bare #s side by side say nothing about which is which.
+  const anyProdNum=(g.products||[]).some(p=>String(p.product_num||'').trim());
   const prodRow=p=>{
     const live=String(p.status||'').toLowerCase()==='live';
+    const num=String(p.product_num||'').trim();
+    const numPill=num?` <span class="pill neutral" title="Product number in Knack">Product #${esc(num)}</span>`:'';
     const ioPill=p.io?(p.dash
-      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Open Smart 1 Dashboard">#${esc(p.io)}</a>`
-      :` <span class="pill neutral">#${esc(p.io)}</span>`):'';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${ioPill}${memberTag(p.member)}</td>`
+      ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Insertion order — open Smart 1 Dashboard">IO #${esc(p.io)}</a>`
+      :` <span class="pill neutral" title="Insertion order">IO #${esc(p.io)}</span>`):'';
+    return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${memberTag(p.member)}</td>`
       + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
       + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
       + `<td>${money(p.monthly)}</td></tr>`;
@@ -159,9 +168,15 @@ function render(g,q){
       html+='<div class="muted" style="font-size:12px;margin-bottom:8px">Live from Knack'
         + (mins===0||mins ? ' &middot; '+esc(String(mins))+' min old' : '') + '</div>';
     }
+    if(!anyProdNum){
+      html+='<div class="muted" style="font-size:12px;margin-bottom:8px">No product numbers on these rows'
+        + (g.products_source==='export'
+           ? ' &mdash; the committed export does not carry them.'
+           : '.') + '</div>';
+    }
     html+='<table><thead><tr><th>Product</th><th>Campaign</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
     html+=liveProds.slice(0,15).map(prodRow).join('');
-    if(!liveProds.length)html+='<tr><td colspan="3" class="empty">No live products right now.</td></tr>';
+    if(!liveProds.length)html+='<tr><td colspan="4" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
     if(doneProds.length){
       html+=`<div style="padding:10px 14px;border-top:1px solid var(--line-soft)"><button class="btn-ghost" onclick="const el=document.getElementById('doneProds');const on=el.style.display==='none';el.style.display=on?'block':'none';this.textContent=on?'Hide completed / other (${doneProds.length})':'Show completed / other (${doneProds.length})'">Show completed / other (${doneProds.length})</button></div>`;
@@ -206,6 +221,14 @@ function render(g,q){
   // ---------- Social Media + Client Notes (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Social content: what this client has asked us for ----------
+  // The Social Media card above is their profile URLs. This is the work:
+  // requests from their locations, the link those come in on, ideas they have
+  // swiped and posts sitting with them. All of it existed and none of it was
+  // on the record a rep opens, which is the "a link that exists and nobody
+  // can reach" failure this repo counts six of.
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social content requests</h3><a class="open-link" id="c-scq" href="/tools/social/requests">Open the queue →</a></div><div class="card-b" id="c-social-content"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
@@ -286,6 +309,20 @@ function render(g,q){
      titled by what it answers rather than by which of our tools answered it,
      the note modules/ads_builder/logo.py carries about naming a provider to a
      rep. The Site Health card above is the audit itself and keeps its name. */
+  /* ---------- What they are already spending ----------
+     The block that decides what the next conversation is about, and the one
+     the audit tool, the prospect record, the customer placement and the
+     upsell report all lead with. Client 360 was the last screen still showing
+     it as five collapsed reference rows -- same client, same audit, two
+     answers depending on which record you opened. One reading now, from
+     /api/client/audit, which drops the thin group so the figures are on the
+     page once rather than twice. */
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e8f7ef;color:#12633f">Spend</span>
+    <h3>What they are already spending {{ help_dot('hub.client360.spend') if help_dot is defined else '' }}</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-spend-acts"></div></div>
+    <div class="card-b" id="c-spend"><div class="empty">Reading the last audit… <span class="spin"></span></div></div></div>`;
+
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
     <span class="src-tag src-web" style="background:#e0edff;color:#1e40af">Business</span>
     <h3>What we know about this business {{ help_dot('hub.client360.scanfacts') if help_dot is defined else '' }}</h3>
@@ -296,8 +333,15 @@ function render(g,q){
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
     <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
     <a class="open-link" href="${clientsLink}">Open in Websites →</a></div></div>
-    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>
-    <div style="display:flex;gap:36px;flex-wrap:wrap">`;
+    <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>`;
+  // Which source these came from, exactly as the products card says it. A
+  // stale export looks identical to live data on screen, which is how a site
+  // added in Knack last week read as a client with no website at all.
+  if(g.websites&&g.websites.length&&g.websites_source==='export'){
+    html+='<div class="pill warn" style="margin-bottom:8px;display:inline-block">'
+      +'Committed export &mdash; may be out of date</div>';
+  }
+  html+=`<div style="display:flex;gap:36px;flex-wrap:wrap">`;
   if(g.websites&&g.websites.length){
     g.websites.slice(0,4).forEach(w=>{
       const PLATFORMS=['Smart1Sites','WordPress','Wix','Squarespace','Shopify','Other'];
@@ -678,7 +722,7 @@ function render(g,q){
         '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
         + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff" data-img="${esc(r.id)}">
             <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
-              <img src="${esc(r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
+              <img src="${esc(r.thumb||r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
                    style="width:100%;height:100%;object-fit:cover;display:block"></a>
             <div style="padding:7px 9px">
               <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
@@ -744,13 +788,99 @@ function render(g,q){
     const host=$('c-scanfacts'), acts=document.getElementById('c-scanfacts-acts');
     if(!host) return;
     const dom=(web0&&web0.domain)?String(web0.domain):'';
+
+    /* Both cards are drawn from the one payload, so neither can be left
+       saying something the other contradicts. */
+    function drawSpend(d, domain){
+      const box=$('c-spend'), sacts=document.getElementById('c-spend-acts');
+      if(!box) return;
+      if(sacts){
+        sacts.innerHTML=(domain
+          ? '<a class="open-link" href="/tools/website-audit?domain='
+            +encodeURIComponent(domain)+'&client='+encodeURIComponent(window.CURRENT_CLIENT||'')
+            +'">Open the audit tool →</a>' : '');
+      }
+      if(!domain){
+        box.innerHTML='<div class="empty">No website record attached, so there '
+          +'is nothing to read this off. Attach one below.</div>';
+        return;
+      }
+      if(!d || d.error){
+        box.innerHTML='<div class="empty">This could not be read, so it is '
+          +'<b>not measured</b>'+(d&&d.error?': '+esc(d.error):'.')+'</div>';
+        return;
+      }
+      if(!d.found){
+        box.innerHTML='<div class="empty">'+esc(d.note||'')+'</div>';
+        return;
+      }
+      const sp=d.spend||{}, age=d.age||{};
+      let h='';
+      /* The age first and loudest when it matters: a figure with no date on
+         it is read as today's, which is how a stale reading reaches a client. */
+      if(age.stale){
+        h+='<div class="empty" style="border-left:3px solid #d18b1f;padding-left:9px;'
+          +'margin-bottom:10px"><b>This reading is '+esc(age.age_days)+' days old</b> — '
+          +'over the '+esc(age.limit_days)+'-day mark. Re-audit before quoting from it.</div>';
+      }
+      if(sp.total_display){
+        h+='<div style="font-size:26px;font-weight:700;color:var(--navy);line-height:1.15">'
+          +esc(sp.total_display)+' <span class="muted" style="font-size:13px;font-weight:400">'
+          +'a month, that we can put a number on</span></div>';
+        if(sp.total_note) h+='<div class="muted" style="font-size:12px;margin-top:4px">'
+          +esc(sp.total_note)+'</div>';
+      }
+      if((sp.observed||[]).length){
+        h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));'
+          +'gap:10px;margin-top:12px">'
+          + sp.observed.map(f=>
+              '<div style="border:1px solid var(--line);border-radius:9px;padding:9px 11px;'
+              +'background:#fbfdff"><div style="font-size:'+(f.measured?'18px':'13.5px')
+              +';font-weight:'+(f.measured?'650':'600')+';color:'+(f.measured?'var(--navy)':'#6b7d99')
+              +'">'+esc(f.value)+'</div>'
+              +'<div class="muted" style="font-size:11.5px">'+esc(f.label)+'</div>'
+              +(f.why?'<div class="muted" style="font-size:11px;margin-top:4px">Worked out as '
+                 +esc(f.why)+'.</div>':'')+'</div>').join('')
+          +'</div>';
+      }else{
+        h+='<div class="empty">'+esc(sp.note||'Nothing came back about their advertising.')+'</div>';
+      }
+      if(sp.stated&&sp.stated.finding){
+        h+='<div class="empty" style="margin-top:10px"><b>Worth asking:</b> '
+          +esc(sp.stated.finding)+'</div>';
+      }
+      /* What the audit says we could fix. Client 360 has never shown this and
+         it is the whole upsell conversation -- the finding, never a product
+         name, because the finding is the half that survives being read out. */
+      if((d.opportunities||[]).length){
+        h+='<div style="margin-top:14px"><b style="font-size:13px;color:var(--navy)">'
+          +'What the audit says we could fix</b>'
+          +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));'
+          +'gap:9px;margin-top:8px">'
+          + d.opportunities.map(o=>
+              '<div style="border:1px solid var(--line);border-left:3px solid #d18b1f;'
+              +'border-radius:9px;padding:9px 11px"><div style="font-weight:620;font-size:12.5px">'
+              +esc(o.finding)+'</div><div class="muted" style="font-size:11.5px;margin-top:2px">'
+              +esc(o.means)+'</div></div>').join('')
+          +'</div></div>';
+      }
+      box.innerHTML=h;
+    }
+
     if(!dom){
+      drawSpend(null, '');
       host.innerHTML='<div class="empty">No website record attached, so there is '
         +'nothing to read this off. Attach one below.</div>';
       return;
     }
-    fetch('/api/client/scan-facts?domain='+encodeURIComponent(dom),{credentials:'same-origin'})
+    /* /api/client/audit rather than the Website Audit tool's own route: this
+       record is framed inside Smart 1 Suite, and suite_embed.EMBEDDABLE
+       allowlists /api/client/ and not /api/website-audit -- a card pointed at
+       the tool would render everywhere except inside the frame. Same function
+       behind both. */
+    fetch('/api/client/audit?domain='+encodeURIComponent(dom),{credentials:'same-origin'})
       .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+        drawSpend(d, dom);
         if(d.error){
           // "We could not look" is not "there is nothing" — never a clean nothing.
           host.innerHTML='<div class="empty">This could not be read, so '
@@ -793,6 +923,9 @@ function render(g,q){
             + '</dl></details>').join('')
           + '</div>';
       }).catch(()=>{
+        /* Both cards, or the spend one spins for ever on a failure the other
+           has already reported. */
+        drawSpend(null, dom);
         host.innerHTML='<div class="empty">These details could not be loaded — '
           +'<b>not measured</b> rather than nothing found.</div>';
       });
@@ -1642,11 +1775,91 @@ function render(g,q){
           });
       };
     }).catch(()=>{$('c-social').innerHTML='<div class="empty">Social links unavailable.</div>'});
+
+  // Social content — requests, ideas, their link and what is waiting on them
+  const scq=document.getElementById('c-scq');
+  if(scq) scq.href='/tools/social/requests?client='+encodeURIComponent(name);
+  fetch('/api/client/social-content?name='+encodeURIComponent(name)
+        +(web0&&web0.url?'&url='+encodeURIComponent(web0.url):''))
+    .then(r=>r.json()).then(d=>{ $('c-social-content').innerHTML=socialContentHtml(d,name); })
+    .catch(()=>{$('c-social-content').innerHTML=
+      '<div class="empty">The social content queue could not be read.</div>'});
+}
+
+function scStat(label,value,href,warn){
+  // A figure that opens the rows behind it. A count somebody cannot act on is
+  // the thing hub/housekeeping.py exists to stop putting on screens.
+  const v=`<div style="font-size:22px;font-weight:700;line-height:1.15;color:${warn&&value?'var(--bad,#dc2626)':'var(--navy,#1a2e58)'}">${value}</div>`;
+  const l=`<div class="muted" style="font-size:11.5px">${esc(label)}</div>`;
+  return href?`<a href="${esc(href)}" style="text-decoration:none;display:block">${v}${l}</a>`
+             :`<div>${v}${l}</div>`;
+}
+
+function socialContentHtml(d,name){
+  if(!d||d.measured===false)
+    return '<div class="empty">'+esc((d&&d.error)||'Not measured.')+'</div>';
+  const r=d.requests||{}, ideas=d.ideas||{}, posts=d.posts||{}, link=d.link||{};
+  let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:14px;margin-bottom:14px">';
+  if(r.measured===false){
+    h+='<div class="muted" style="grid-column:1 / -1">'+esc(r.error||'')+'</div>';
+  }else{
+    h+=scStat('Waiting on us',r.open||0,r.url);
+    h+=scStat('Past their date',r.overdue||0,r.url,true);
+    h+=scStat('Possible duplicates',r.duplicates||0,r.url);
+  }
+  if(posts.measured!==false){
+    h+=scStat('With the client',posts.waiting_on_client||0,posts.url);
+    h+=scStat('Changes asked for',posts.changes_requested||0,posts.url,true);
+  }
+  if(ideas.measured!==false) h+=scStat('Ideas unanswered',ideas.pending||0,null);
+  h+='</div>';
+
+  // The open requests themselves, because a count with no rows under it sends
+  // somebody to another screen to find out what it is about.
+  if((d.recent||[]).length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    d.recent.forEach(x=>{
+      h+=`<tr><td style="padding:6px 8px 6px 0">${esc(x.location)}</td>`
+        +`<td style="padding:6px 8px" class="muted">${esc(x.type)}</td>`
+        +`<td style="padding:6px 8px" class="muted">${esc(x.when)}</td>`
+        +`<td style="padding:6px 0;text-align:right">${x.overdue
+            ?'<b style="color:var(--bad,#dc2626)">Overdue</b>':esc(x.status)}</td></tr>`;
+    });
+    h+='</table>';
+  }else if(r.measured!==false && !(r.total)){
+    // "Nobody has asked" and "we could not look" read identically as an empty
+    // card, and only the first one has an action under it: send them the link.
+    h+='<div class="muted" style="font-size:12.5px">Nobody at this client has '
+      +'sent a request yet. If they have not been given their link, that is '
+      +'usually why.</div>';
+  }
+
+  if(ideas.measured!==false){
+    h+='<div class="muted" style="font-size:12px;margin-top:10px">'
+      +(ideas.answered
+        ? esc(ideas.answered+' idea(s) answered'
+              +(ideas.liked&&ideas.liked.length?'. Most liked: '+ideas.liked.join(', '):'.'))
+        : 'Nobody here has swiped on an idea yet.')
+      +'</div>';
+  }
+
+  // Their link, and whether it is on. Offered here because this is the screen
+  // somebody is on when they realize the client has sent us nothing.
+  if(link.pages&&link.pages.length){
+    const req=link.pages.filter(p=>p.page==='request')[0];
+    h+='<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      +'<span class="muted" style="font-size:12px">Their link:</span>'
+      +(link.revoked
+        ? '<b style="color:var(--bad,#dc2626);font-size:12.5px">turned off — none of their four pages will open</b>'
+        : `<code style="font-size:11.5px;background:var(--bg,#f8fafc);border:1px solid var(--line);border-radius:6px;padding:4px 7px;overflow-wrap:anywhere">${esc(req?req.url:'')}</code>`)
+      +'</div>';
+  }
+  return h;
 }
 
 // ---------- Creative gallery ----------
 function galleryThumb(item){
-  if(item.kind==='image') return `<img src="${esc(item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
+  if(item.kind==='image') return `<img src="${esc(item.thumb||item.url)}" loading="lazy" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('${esc(item.kind)}')">`;
   if(item.kind==='gdrive'){
     const m=String(item.url).match(/\/d\/([\w-]+)/);
     if(m) return `<img src="https://drive.google.com/thumbnail?id=${m[1]}&sz=w400" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:120px;object-fit:cover;border-radius:8px 8px 0 0;background:var(--bg)" onerror="this.outerHTML=galleryIconTile('gdrive')">`;
@@ -2100,12 +2313,23 @@ function pushBrand(){
      if(d.error){alert(d.error);return;}
      if(d.delivered){
        // Replace the button rather than leaving it pressable — pressing it
-       // again would silently overwrite the guide already in Suite.
-       if(acts) acts.innerHTML='<span class="pill ok">Brand Guide setup in Suite</span>';
+       // again would silently overwrite the guide already in Suite. The
+       // server records the push now, so this survives a reload; before it
+       // did, the guard held for one page view and the button came back.
+       // The stamp is the server's own, so the pill says the same thing
+       // after F5 as it does now.
+       if(acts) acts.innerHTML='<span class="pill ok"'
+         + (d.pushed_at?' title="Pushed '+esc(d.pushed_at)+'"':'')
+         + '>Brand Guide setup in Suite</span>';
        alert('Brand guide sent to Smart 1 Suite.');
-     } else {
+     } else if(d.reason==='not_configured'){
        alert('No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. '+
              'The payload is ready in the response.');
+     } else {
+       // Suite refused it, or could not be reached. Reporting either as a
+       // missing variable sends somebody to set one that is already set.
+       alert((d.note||'The brand guide could not be delivered.')+
+             ' Nothing was recorded, so you can try again.');
      }
    }).catch(()=>alert('Could not send the brand guide.'));
 }

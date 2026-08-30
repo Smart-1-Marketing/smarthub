@@ -1,5 +1,12 @@
 {% extends "_layout.html" %}
 {% block title %}Preview &amp; Render — {{ project.title }}{% endblock %}
+{# No walkthrough drives this screen, so the floating "Walk me through this"
+   button is off here. hub-demo.js highlights the current step's selector on
+   the page you are standing on and its perform() opens with `if (!node)
+   return` — so a walkthrough offered where its elements are not is a ring
+   anchored to nothing and a "Do it for me" that returns in silence, which is
+   worse than no button. #}
+{% set no_demo = true %}
 {% block content %}
 
 {% include "_stepper.html" %}
@@ -23,7 +30,8 @@
        third are built from a storyboard nobody has watched yet — so a note on
        the first applies to two cuts that have already been paid for. #}
     <p class="cb-hint" style="margin-top:0;">One size at a time. Render it, watch it,
-      approve it — then the next size comes off the same storyboard.</p>
+      approve it — then the rest come off a storyboard somebody has watched, and
+      they can go together.</p>
     <div class="cb-field">
       <label class="cb-label">Size</label>
       <div class="cb-choice-grid" id="render-format-choices">
@@ -38,7 +46,13 @@
         {% endfor %}
       </div>
     </div>
-    <button class="cb-btn cb-btn-primary" id="render-btn">Render this size</button>
+    <div class="cb-flex-between" style="gap:8px; justify-content:flex-start;">
+      <button class="cb-btn cb-btn-primary" id="render-btn">Render this size</button>
+      {# Drawn only once the server says a batch is open — see can_batch on
+         /render-jobs. A button offering something the route would refuse is a
+         press that teaches somebody to distrust the panel. #}
+      <button class="cb-btn" id="render-rest-btn" hidden></button>
+    </div>
     <div id="render-jobs" style="margin-top:14px;"></div>
   </div>
 </div>

@@ -1,5 +1,12 @@
 {% extends "_layout.html" %}
 {% block title %}Dashboard{% endblock %}
+{# No walkthrough drives this screen, so the floating "Walk me through this"
+   button is off here. hub-demo.js highlights the current step's selector on
+   the page you are standing on and its perform() opens with `if (!node)
+   return` — so a walkthrough offered where its elements are not is a ring
+   anchored to nothing and a "Do it for me" that returns in silence, which is
+   worse than no button. #}
+{% set no_demo = true %}
 {% block content %}
 
 <div class="cb-page-head">
@@ -8,6 +15,22 @@
     <p>Plan, storyboard, and render :05–:60 video commercials for your clients.</p>
   </div>
   <a class="cb-btn cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}">+ Start a Commercial</a>
+</div>
+
+{# What has come back from clients.
+   Above the engine row on purpose: a key that is set is housekeeping, and a
+   client waiting on a reply is work. There is no mail sender in this Hub, so
+   this is the only thing that tells anybody an answer arrived — the shape
+   `hub/social_content.py` arrived at for the same reason. #}
+<div class="cb-card" style="margin-bottom:20px;" id="cb-review-inbox"
+     data-url="{{ url_for('commercial_builder.cb_review.reviews_waiting') }}">
+  <div class="cb-flex-between" style="margin-bottom:10px;">
+    <h3>Client reviews
+      {{ help_dot('commercial_builder.dashboard.reviews') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-muted" style="font-size:12px;" id="cb-review-out"></span>
+  </div>
+  <div id="cb-review-body"><div class="cb-empty">Loading…</div></div>
 </div>
 
 <div class="cb-card" style="margin-bottom:20px;">
@@ -155,6 +178,66 @@
         btn.textContent = "Check keys";
       });
   });
+})();
+
+/* What has come back from clients.
+   Its own IIFE so a failure here cannot cost the provider check above it. */
+(function () {
+  var card = document.getElementById("cb-review-inbox");
+  if (!card) return;
+  var body = document.getElementById("cb-review-body");
+  var out = document.getElementById("cb-review-out");
+
+  function esc(value) {
+    var d = document.createElement("div");
+    d.textContent = value == null ? "" : String(value);
+    return d.innerHTML;
+  }
+
+  function row(r) {
+    /* Whose answer, and what they said. A refusal names the person who raised
+       it, because they are who somebody rings — and "three answered and one
+       refused" is drawn as a disagreement rather than collapsed into a word. */
+    var who = r.by ? " \u00b7 " + esc(r.by) : "";
+    var said = r.answered ? esc(r.outcome).replace(/_/g, " ") : "notes only";
+    var notes = r.comments
+      ? ' <span class="cb-muted">' + r.comments +
+        (r.comments === 1 ? " note" : " notes") + "</span>" : "";
+    return "<tr><td><strong>" + esc(r.title) + "</strong><br>" +
+           '<span class="cb-muted" style="font-size:11.5px;">' + esc(r.client) +
+           " \u00b7 :" + String(r.length_seconds).padStart(2, "0") +
+           " \u00b7 round " + r.round_no + "</span></td>" +
+           '<td><span class="cb-status-pill">' + said + "</span>" + who +
+           (r.conflicting ? '<br><span class="cb-muted" style="font-size:11.5px;">' +
+            "they did not agree</span>" : "") + notes + "</td>" +
+           '<td><a class="cb-btn cb-btn-sm cb-btn-primary" href="' + r.url +
+           '">Open</a></td></tr>';
+  }
+
+  fetch("/tools/commercial-builder/api/reviews/waiting")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      /* Four empties, and only one of them is somebody's to fix — so the line
+         is printed whatever the count, rather than a zero left to be read as
+         "all quiet". `state` is the server's answer; this file does not
+         re-derive it from two numbers. */
+      out.textContent = data.out_count
+        ? data.out_count + " still with clients" : "";
+      if (!data.measured || !(data.waiting || []).length) {
+        body.innerHTML = '<div class="cb-empty">' + esc(data.line) + "</div>";
+        return;
+      }
+      body.innerHTML = '<table class="cb-table"><thead><tr>' +
+        "<th>Spot</th><th>They said</th><th></th></tr></thead><tbody>" +
+        data.waiting.map(row).join("") + "</tbody></table>" +
+        '<p class="cb-muted" style="font-size:12px;margin:10px 0 0;">' +
+        esc(data.line) + "</p>";
+    })
+    .catch(function (err) {
+      body.innerHTML = '<div class="cb-empty">The review rounds could not be ' +
+        "read (" + esc(err && err.message ? err.message : "no response") +
+        "), so this is not a count of nothing waiting.</div>";
+    });
 })();
 </script>
 {% endblock %}

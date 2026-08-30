@@ -405,12 +405,12 @@ function checkBudget() {
         <div class="note n-${tone}"><b>${esc(titleise(a.status))} · ${esc(a.sector)}</b>${esc(a.advice)}
           <div style="margin-top:5px;font-size:12px;opacity:.85">${esc(a.cpc_note_long || '')}</div></div>
         <div class="grid g3">
-          <div class="stat"><div class="l">Est. clicks / month</div><div class="v">${numf(a.estimated_clicks)}</div>
+          <div class="s1d-tile"><div class="l">Est. clicks / month</div><div class="v">${numf(a.estimated_clicks)}</div>
             <div class="f">${numf(a.worst_case_clicks)} at the high end of CPC</div></div>
-          <div class="stat"><div class="l">Sector CPC range <span class="est">(${esc(a.cpc_note || '')})</span></div>
+          <div class="s1d-tile"><div class="l">Sector CPC range <span class="est">(${esc(a.cpc_note || '')})</span></div>
             <div class="v">$${a.cpc_low}–$${a.cpc_high}</div>
             <div class="f">${esc(a.sector)}</div></div>
-          <div class="stat"><div class="l">Suggested floor</div><div class="v">${money(a.recommended_minimum)}</div>
+          <div class="s1d-tile"><div class="l">Suggested floor</div><div class="v">${money(a.recommended_minimum)}</div>
             <div class="f">~100 clicks/mo to learn from</div></div>
         </div>`;
     } catch (e) { /* transient */ }

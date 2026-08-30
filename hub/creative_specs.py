@@ -39,6 +39,7 @@ a wrong answer presented confidently.
 from __future__ import annotations
 
 import datetime as _dt
+import pathlib
 import re
 from typing import Any
 
@@ -73,7 +74,15 @@ SPEC_KIT_URL = "https://smart1.agency/partner/creative-specs"
 #   max_width      hard ceiling on width
 #   max_height     hard ceiling on height
 #   max_bytes      hard ceiling — over it is a fail
-#   min_bytes      floor, where the kit states one
+#   subload_bytes  the kit's second weight: what the unit may reach once the
+#                  initial load has rendered. Reported, never failed on --
+#                  a delivered image file IS the initial load, and the
+#                  subload ceiling only means anything to an HTML5 package
+#   target_bytes   what the kit asks for rather than what it refuses. NOT a
+#                  floor: DOOH publishes "40 KB target / 750 KB max", and
+#                  carrying that as `min_bytes` failed a clean 30 KB
+#                  billboard for being too small
+#   min_bytes      floor, where the kit states one as a floor
 #   formats        accepted extensions; anything else is a fail
 #   duration       (min_seconds, max_seconds) for video and audio
 #   max_anim       animation ceiling in seconds, with max_loops alongside
@@ -82,14 +91,41 @@ SPEC_KIT_URL = "https://smart1.agency/partner/creative-specs"
 #   notes          what a human needs to know that no check can decide
 # --------------------------------------------------------------------------
 
+# The common case, not the rule: the kit publishes a weight per unit and
+# says in as many words that "the flat 150 KB rule is gone". 150/300 is what
+# most units carry; Half Page and Billboard carry 250/500 and say so below.
+#
+# `max_anim` and `max_loops` are gone with it. The kit's own wording is that
+# there is "no single universal limit" -- Google Ads and DV360 allow 30
+# seconds, The Trade Desk allows 15 seconds of looping, and the IAB now
+# guides on CPU load rather than duration -- and that "15 seconds or 3 loops
+# is no longer a universal rule". Carrying 15/3 as though it were one is
+# quoting a retired rule at somebody with a compliant file. The platform
+# figures are in `notes`, where a human can act on them, rather than in a
+# field that reads as a check.
 _DISPLAY_COMMON: dict[str, Any] = {
     "kind": "image",
-    "formats": ["gif", "jpg", "jpeg", "png"],
+    # SVG is accepted now; the kit lists it on every display unit.
+    "formats": ["gif", "jpg", "jpeg", "png", "svg"],
     "max_bytes": 150 * KB,
-    "max_anim": 15,
-    "max_loops": 3,
+    "subload_bytes": 300 * KB,
     "border": 1,
+    "notes": [
+        "Animation has no single universal limit. Google Ads allows 30 "
+        "seconds and requires the animation to stop; DV360 caps at 30 "
+        "seconds; The Trade Desk allows 15 seconds of looping. Build to the "
+        "platform the buy is on.",
+        "Creative must be clearly distinguishable from the page around it — "
+        "a contrasting border or a non-white background. The 1-pixel "
+        "contrasting border is a publisher convention rather than a formal "
+        "IAB standard; build it in by default.",
+    ],
 }
+
+# The two desktop units the kit weighs at 250/500 rather than 150/300.
+_DISPLAY_HEAVY: dict[str, Any] = {**_DISPLAY_COMMON,
+                                  "max_bytes": 250 * KB,
+                                  "subload_bytes": 500 * KB}
 
 # HTML5 display is packaged rather than sized, so it gets its own ceiling.
 _HTML5: dict[str, Any] = {
@@ -106,38 +142,64 @@ _HTML5: dict[str, Any] = {
     ],
 }
 
+_DOOH_COMMON: dict[str, Any] = {
+    "target_bytes": 40 * KB,
+    "max_bytes": 750 * KB,
+    "formats": ["jpg", "jpeg", "png", "mp4", "html5"],
+}
+
 UNITS: list[dict[str, Any]] = [
     # ---- Desktop display -------------------------------------------------
     {"id": "leaderboard", "channel": "desktop_display", "name": "Leaderboard",
      "size": (728, 90), **_DISPLAY_COMMON},
     {"id": "medium_rectangle", "channel": "desktop_display", "name": "Medium Rectangle",
      "size": (300, 250), **_DISPLAY_COMMON},
-    {"id": "wide_skyscraper", "channel": "desktop_display", "name": "Wide Skyscraper",
+    # "Skyscraper" on the kit, not "Wide Skyscraper". The id stays whatever
+    # it has always been: `tags_for()` writes "unit_<id>" onto every file
+    # delivered through the upload manager, so renaming one orphans the tags
+    # already on a year of creative in order to correct a label.
+    {"id": "wide_skyscraper", "channel": "desktop_display", "name": "Skyscraper",
      "size": (160, 600), **_DISPLAY_COMMON},
     {"id": "half_page", "channel": "desktop_display", "name": "Half Page",
-     "size": (300, 600), **_DISPLAY_COMMON},
-    {"id": "rising_star", "channel": "desktop_display", "name": "Rising Star",
-     "size": (970, 250), **_DISPLAY_COMMON},
+     "size": (300, 600), **_DISPLAY_HEAVY},
+    # 970x250 is a Billboard. The IAB retired the "Rising Stars" programme,
+    # and the name went with it -- so the kit a client is sent and the
+    # verdict we hand them named the same unit two different things.
+    {"id": "rising_star", "channel": "desktop_display", "name": "Billboard",
+     "size": (970, 250), **_DISPLAY_HEAVY},
     {"id": "desktop_html5", "channel": "desktop_display", "name": "HTML5 package",
      **_HTML5},
 
     # ---- Mobile display --------------------------------------------------
-    {"id": "mobile_banner_320", "channel": "mobile_display", "name": "Mobile Banner",
-     "size": (320, 50), **_DISPLAY_COMMON},
-    {"id": "mobile_banner_300", "channel": "mobile_display", "name": "Mobile Banner",
-     "size": (300, 50), **_DISPLAY_COMMON},
+    # The kit weighs a smartphone banner at 50/100, not 150/300 -- this was
+    # the one drift running the other way, passing a file three times the
+    # published ceiling.
+    {"id": "mobile_banner_320", "channel": "mobile_display", "name": "Smartphone Banner",
+     "size": (320, 50), **_DISPLAY_COMMON, "max_bytes": 50 * KB,
+     "subload_bytes": 100 * KB},
+    {"id": "mobile_banner_300", "channel": "mobile_display", "name": "Smartphone Banner",
+     "size": (300, 50), **_DISPLAY_COMMON, "max_bytes": 50 * KB,
+     "subload_bytes": 100 * KB},
+    # The kit sells the interstitial at three device sizes. 320x480 is on
+    # none of them, so every real interstitial failed the dimension check
+    # against a size nobody delivers.
     {"id": "mobile_interstitial", "channel": "mobile_display", "name": "Mobile Interstitial",
-     "size": (320, 480), **_DISPLAY_COMMON},
+     "sizes": [(640, 1136), (750, 1334), (1080, 1920)], **_DISPLAY_COMMON,
+     "max_bytes": 300 * KB, "subload_bytes": 600 * KB},
     {"id": "mobile_rectangle", "channel": "mobile_display", "name": "Mobile Rectangle",
      "size": (300, 250), **_DISPLAY_COMMON},
     {"id": "mobile_html5", "channel": "mobile_display", "name": "HTML5 package", **_HTML5},
 
     # ---- Tablet display --------------------------------------------------
-    {"id": "tablet_rectangle", "channel": "tablet_display", "name": "Tablet Rectangle",
+    # The kit publishes no tablet section. These four are house guidance --
+    # the desktop weights against tablet dimensions -- and are marked as such
+    # rather than left to read as transcribed, which is the rule
+    # `HOUSE_LEGIBILITY` in services/abcd_service.py works to.
+    {"source": "house", "id": "tablet_rectangle", "channel": "tablet_display", "name": "Tablet Rectangle",
      "size": (300, 250), **_DISPLAY_COMMON},
-    {"id": "tablet_leaderboard", "channel": "tablet_display", "name": "Tablet Leaderboard",
+    {"source": "house", "id": "tablet_leaderboard", "channel": "tablet_display", "name": "Tablet Leaderboard",
      "size": (728, 90), **_DISPLAY_COMMON},
-    {"id": "tablet_interstitial", "channel": "tablet_display", "name": "Tablet Interstitial",
+    {"source": "house", "id": "tablet_interstitial", "channel": "tablet_display", "name": "Tablet Interstitial",
      "size": (1024, 768), **_DISPLAY_COMMON},
     {"id": "tablet_html5", "channel": "tablet_display", "name": "HTML5 package", **_HTML5},
 
@@ -186,18 +248,22 @@ UNITS: list[dict[str, Any]] = [
                "opens more inventory."]},
 
     # ---- Digital out of home --------------------------------------------
-    {"id": "dooh_1400x400", "channel": "dooh", "name": "Billboard",
-     "kind": "image", "size": (1400, 400), "min_bytes": 40 * KB,
-     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
-    {"id": "dooh_840x400", "channel": "dooh", "name": "Billboard",
-     "kind": "image", "size": (840, 400), "min_bytes": 40 * KB,
-     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
-    {"id": "dooh_1080x1920", "channel": "dooh", "name": "Billboard",
-     "kind": "image", "size": (1080, 1920), "min_bytes": 40 * KB,
-     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
-    {"id": "dooh_1920x1080", "channel": "dooh", "name": "Billboard",
-     "kind": "image", "size": (1920, 1080), "min_bytes": 40 * KB,
-     "max_bytes": 750 * KB, "formats": ["jpg", "jpeg", "png"]},
+    # 40 KB is what the kit *asks for*, not what it refuses: "40 KB target /
+    # 750 KB max". Carried as `min_bytes` it was a fail, so a clean 30 KB
+    # billboard was rejected for being too small against a number nobody
+    # published as a floor.
+    #
+    # The kit also accepts MP4 and HTML5 on every one of these -- a screen
+    # sells motion on a loop, and refusing an MP4 here sends somebody back
+    # for a flattened still the site would have played.
+    {"id": "dooh_1400x400", "channel": "dooh", "name": "Horizontal banner",
+     "kind": "image", "size": (1400, 400), **_DOOH_COMMON},
+    {"id": "dooh_840x400", "channel": "dooh", "name": "Horizontal banner",
+     "kind": "image", "size": (840, 400), **_DOOH_COMMON},
+    {"id": "dooh_1080x1920", "channel": "dooh", "name": "Portrait billboard (D6)",
+     "kind": "image", "size": (1080, 1920), **_DOOH_COMMON},
+    {"id": "dooh_1920x1080", "channel": "dooh", "name": "Landscape billboard",
+     "kind": "image", "size": (1920, 1080), **_DOOH_COMMON},
 
     # ---- Email -----------------------------------------------------------
     {"id": "email_image", "channel": "email", "name": "Email Creative",
@@ -395,6 +461,13 @@ CHANNEL_LABELS = {
 # Product text -> channels, most specific pattern first. A product can map to
 # several channels: a display buy legitimately accepts desktop, mobile and
 # tablet units, and a file only has to satisfy one of them.
+# The Meta placements, named once. Two rules below answer with this list --
+# a product naming both platforms, and the general Facebook/Meta rule -- and
+# two hand-written copies of it is how one of them comes to be missing the
+# carousel.
+_META_CHANNELS = ["facebook", "instagram", "facebook_video",
+                  "facebook_carousel", "stories"]
+
 _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     # First, because "GPT display" must not be read as a display buy by the
     # generic `display` pattern near the bottom of this list.
@@ -413,11 +486,52 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     (r"\btwitter\b|\bx ads\b", ["x"]),
     (r"stor(y|ies)", ["stories"]),
     (r"carousel", ["facebook_carousel"]),
+    # A product naming *both* platforms is one buy running across both, and
+    # the wider answer is the right one. The `instagram` rule below returns a
+    # deliberately narrower list, written for a product named only Instagram
+    # -- and every Meta product on this card is called "Facebook | Instagram
+    # ...", so five of the seven took the narrow one and were asked for an
+    # Instagram image and a Story and never for the Facebook feed, the
+    # Facebook video or the carousel. On the video buy that is worse than it
+    # sounds: `facebook_video` was dropped from a product whose own name says
+    # Video. Nothing errors -- the units returned are real Meta units, just
+    # not all of the ones being bought -- and the two products named
+    # "Facebook - ..." got the full set the whole time, which is why it read
+    # as working.
+    (r"(?=.*facebook)(?=.*instagram)", _META_CHANNELS),
     (r"instagram", ["instagram", "stories"]),
-    (r"facebook|\bmeta\b|social ads?", ["facebook", "instagram",
-                                        "facebook_video", "facebook_carousel",
-                                        "stories"]),
+    # Pinterest is on the rate card and is in no part of the kit -- S1M
+    # CREATIVE SPEC KIT 2025 publishes no Pinterest section at all. Its own
+    # name matches nothing above, so without this entry it fell to the
+    # `social ads?` pattern below, which was matching the *category*
+    # ("SOCIAL ADS - VIDEO") rather than anything about the product: a
+    # Pinterest buy was asked for Facebook and Instagram units. Not a near
+    # miss -- a 1:1 feed square and a 9:16 story against a platform whose
+    # feed is 2:3, so a client who supplied exactly what was asked for
+    # delivers creative Pinterest crops, and every screen reads as correct
+    # while it happens. Snapchat, TikTok, X and LinkedIn each have a name
+    # rule above and are right; this is the one platform the category was
+    # answering for. It maps to nothing, so `required_units()` says the kit
+    # maps no unit for it -- the rule this module already works to, that a
+    # format the kit maps no unit for is *not measured* and never judged
+    # against the nearest channel.
+    (r"pinterest", []),
+    (r"facebook|\bmeta\b|social ads?", _META_CHANNELS),
     (r"radio|podcast|audio", ["digital_radio"]),
+    # ...and only below it. Four programmatic *video* products are filed
+    # under the card's DISPLAY heading beside banner inventory, and three of
+    # their names contain no word that says so -- "Programmatic - Targeted"
+    # is $17.00 CPM video while "Category" next to it is $4.25 CPM display.
+    # Without this they fall to the generic `display|programmatic` pattern
+    # near the bottom and a video buy is told to deliver a 728x90 and a
+    # 300x250. It sits *under* the audio rule because "Programmatic -
+    # Targeted" is also the $18.00 CPM buy under DIGITAL RADIO, and that one
+    # needs a spot rather than a video. The same four are named in
+    # `creative_needs.EXPLICIT_MEDIUM` for the same reason, and the two lists
+    # are asserted to agree: a product renamed on the card must not silently
+    # revert to the guess in either of them.
+    (r"premium:\s*non-?skippable"
+     r"|programmatic\s*-\s*(targeted|ron\b|run of network)", ["standard_video"]),
     (r"signage|out of home|\bdooh\b|billboard", ["dooh"]),
     (r"e-?mail|admail", ["email"]),
     (r"online video|pre-?roll|\bvideo\b", ["standard_video"]),
@@ -426,6 +540,244 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
                                   "tablet_display"]),
     (r"mobile", ["mobile_display"]),
 ]
+
+
+# --------------------------------------------------------------------------
+# Holding the transcription to the kit we publish
+#
+# These numbers are transcribed on purpose -- SPEC_KIT_URL is a link and not a
+# fetch, because a spec table pulled live changes what a check says with no
+# diff to point at. What that argument never covered is the transcription
+# going stale, which it had:
+#
+#   * Half Page was enforced at 150 KB against a published 250 KB, and 970x250
+#     with it -- so the checker refused files the kit allows;
+#   * a smartphone banner was allowed 150 KB against a published 50 KB, the
+#     same fault running the other way;
+#   * 970x250 was called "Rising Star", a programme the IAB retired, so the
+#     kit a client is sent and the verdict we hand them named one unit two
+#     things;
+#   * the mobile interstitial was sized 320x480, which is on none of the three
+#     rows the kit sells it at.
+#
+# The page ships in this repo (`hub/partner_pages/creative-specs.html`), so
+# the transcription is checkable rather than remembered. This reads the unit
+# tables out of it and compares. It stays a *check* rather than becoming the
+# source: a table parsed at import would change a verdict the day somebody
+# edits the page, which is the thing the transcription exists to prevent.
+# --------------------------------------------------------------------------
+_KIT_PAGE = pathlib.Path(__file__).with_name("partner_pages") / "creative-specs.html"
+
+# Which page section holds each channel's unit table. Only the channels whose
+# table is Unit / Dimensions / weight are listed: the rest publish prose per
+# format, or a table of entirely different columns, and a parser that guessed
+# at those would report drift that is not there.
+_KIT_SECTIONS = {"desktop-display": "desktop_display",
+                 "mobile-display": "mobile_display",
+                 "dooh": "dooh"}
+
+# ...and that sentence covered three sections of twenty-three while the check
+# answered "no drift", which is a clean bill of health about seven per cent of
+# the thing it is auditing. The page in the repo is now the **2026** kit and
+# says on itself "20 formats updated, 3 added", against a transcription taken
+# from 2025 -- so a section outside the parser is not a hypothetical gap. What
+# makes it dangerous is that the gap is invisible: a section the next rebuild
+# adds is silently outside the check for ever, exactly as the twenty already
+# are, with the panel green.
+#
+# So every published section is declared, and `kit_coverage()` reports one
+# that is not. Same shape as `compliance_spec.NOT_ENFORCED` and
+# `ghl_scopes.NOT_REQUESTED`: a thing left out on purpose is named with its
+# reason, so its absence is never ambiguous between an oversight and a
+# decision. It starts empty, which is the only way it was worth adding.
+_SHAPE = ("published as prose per format rather than a Unit / Dimensions / "
+          "weight table")
+_COLUMNS = ("published as a table of Format / Copy / Media / File Size, not "
+            "the Unit / Dimensions / weight shape this parser reads")
+
+_KIT_UNREAD = {
+    "native-display": _COLUMNS,
+    "standard-video": _SHAPE,
+    "youtube-video": _COLUMNS,
+    "ctv-ott": _SHAPE,
+    "native-video": _SHAPE,
+    "digital-radio": _SHAPE,
+    "standard-email": _SHAPE,
+    "facebook-display": _SHAPE,
+    "instagram-display": _SHAPE,
+    "facebook-video": _SHAPE,
+    "facebook-carousel": _SHAPE,
+    "stories-display": _SHAPE,
+    "stories-video": _SHAPE,
+    "x-twitter": _COLUMNS,
+    "linkedin": _COLUMNS,
+    "snapchat": _COLUMNS,
+    "tiktok": _COLUMNS,
+}
+
+# And three of the twenty are a different kind of gap. These are formats the
+# kit sells and this module has no unit for at all -- not "we cannot parse the
+# table", but "there is nothing here to judge one against". `when` names the
+# channels whose presence in a requirement means the format is in play, so
+# `required_units()` can say the kit publishes something it cannot measure
+# rather than answering confidently with the units it does have. That is the
+# rule this module works to everywhere else, and the reason it matters here is
+# the page's own sentence: "Facebook Reels and Instagram Reels are not
+# interchangeable -- different file types, text limits and duration rules."
+# A Meta requirement that lists Stories and never Reels is the Pinterest
+# failure again, one placement along.
+_KIT_NOT_MODELLED = (
+    {"id": "instagram-reels", "name": "Instagram Reels",
+     "when": ("instagram", "stories", "facebook", "facebook_video",
+              "facebook_carousel")},
+    {"id": "facebook-reels", "name": "Facebook Reels",
+     "when": ("instagram", "stories", "facebook", "facebook_video",
+              "facebook_carousel")},
+    {"id": "ctv-new-formats", "name": "CTV interactive formats "
+                                      "(pause, menu, screensaver, in-scene, "
+                                      "squeezeback, overlay)",
+     "when": ("ctv",)},
+)
+
+
+def _kit_section_ids() -> tuple[list[str], str]:
+    """Every section id the published page carries, in page order."""
+    try:
+        html = _KIT_PAGE.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return [], f"the published kit could not be read ({exc})"
+    ids = re.findall(r'<section class="section" id="([^"]+)"', html)
+    if not ids:
+        return [], "no sections could be read out of the published kit"
+    return ids, ""
+
+
+def kit_coverage() -> dict:
+    """Which sections of the published kit this transcription accounts for.
+
+    `kit_drift()` compares numbers; this asks the question one step earlier --
+    is every section of the page one somebody has looked at. A section nobody
+    declared is the finding, because that is what a rebuild adds and what no
+    other check here can see.
+
+    A page that cannot be read is **not measured**, never a clean answer: that
+    is the one state where "nothing undeclared" would be a lie.
+    """
+    ids, error = _kit_section_ids()
+    if error:
+        return {"measured": False, "error": error, "sections": 0,
+                "checked": [], "unread": [], "not_modelled": [],
+                "undeclared": [], "stale": []}
+    modelled = {e["id"] for e in _KIT_NOT_MODELLED}
+    declared = set(_KIT_SECTIONS) | set(_KIT_UNREAD) | modelled
+    return {
+        "measured": True,
+        "error": "",
+        "sections": len(ids),
+        "checked": [i for i in ids if i in _KIT_SECTIONS],
+        "unread": [i for i in ids if i in _KIT_UNREAD],
+        "not_modelled": [i for i in ids if i in modelled],
+        # A section on the page that nobody has declared. This is the finding.
+        "undeclared": [i for i in ids if i not in declared],
+        # ...and the other direction, the rule check_stale_json_exemptions()
+        # works to: a declaration that outlives the section it described goes
+        # on excusing whatever is published under that id next.
+        "stale": sorted(d for d in declared if d not in set(ids)),
+    }
+
+
+def unmodelled_for(channels) -> list[str]:
+    """Published formats in play for these channels that we cannot measure."""
+    have = set(channels or ())
+    return [e["name"] for e in _KIT_NOT_MODELLED
+            if have & set(e["when"])]
+
+
+def _kit_rows() -> tuple[dict, str]:
+    """Every (channel, w, h) the published page sells, with its weight."""
+    try:
+        html = _KIT_PAGE.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return {}, f"the published kit could not be read ({exc})"
+
+    def _text(x):
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", x)).strip()
+
+    out = {}
+    for sid, channel in _KIT_SECTIONS.items():
+        m = re.search(rf'<section class="section" id="{sid}"(.*?)</section>', html, re.S)
+        if not m:
+            return {}, f"the published kit has no {sid} section"
+        table = re.search(r"<table>(.*?)</table>", m.group(1), re.S)
+        if not table:
+            return {}, f"the published kit's {sid} section has no table"
+        for tr in re.findall(r"<tr>(.*?)</tr>", table.group(1), re.S):
+            cells = [_text(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+            if len(cells) < 3:
+                continue
+            dim = re.match(r"^(\d+)x(\d+)$", cells[1])
+            if not dim:
+                continue
+            # A weight column carries one figure or two, and where there are
+            # two they are labelled: DOOH publishes "40 KB target / 750 KB
+            # max". Taking the first would hold a billboard to the number
+            # the kit asks for rather than the one it refuses -- the same
+            # confusion of a target with a ceiling this change is undoing.
+            weight = cells[2]
+            hit = re.search(r"([\d.]+)\s*KB[^/]*\bmax\b", weight, re.I)
+            if not hit:
+                hit = re.search(r"([\d.]+)\s*KB", weight, re.I)
+            target = re.search(r"([\d.]+)\s*KB[^/]*\btarget\b", weight, re.I)
+            out[(channel, int(dim.group(1)), int(dim.group(2)))] = {
+                "name": cells[0],
+                "max_bytes": int(float(hit.group(1)) * KB) if hit else None,
+                "target_bytes": int(float(target.group(1)) * KB) if target else None,
+            }
+    return out, ""
+
+
+def kit_drift() -> list[dict]:
+    """Where the transcription and the published kit disagree.
+
+    Empty is the only acceptable answer. A row here is a file refused that
+    the client was told to send, or accepted that they were told not to --
+    and both are invisible from either end, because each document is
+    internally consistent.
+    """
+    rows, error = _kit_rows()
+    if error:
+        # Not measured, never a clean bill of health: a page that will not
+        # parse is the one state where "no drift" would be a lie.
+        return [{"unit": "", "detail": f"Not measured — {error}."}]
+    out = []
+    for unit in UNITS:
+        if unit["channel"] not in _KIT_SECTIONS.values():
+            continue
+        for (w, h) in _sizes_of(unit):
+            published = rows.get((unit["channel"], w, h))
+            if not published:
+                out.append({"unit": unit["id"], "detail":
+                            f"{unit['name']} {w}x{h} is not a size the "
+                            f"published kit sells."})
+                continue
+            if published["name"].lower() != unit["name"].lower():
+                out.append({"unit": unit["id"], "detail":
+                            f"{w}x{h} is \"{unit['name']}\" here and "
+                            f"\"{published['name']}\" on the kit the client "
+                            f"is sent."})
+            want_target = published.get("target_bytes")
+            if want_target and unit.get("target_bytes") != want_target:
+                out.append({"unit": unit["id"], "detail":
+                            f"{unit['name']} {w}x{h} carries no "
+                            f"{_fmt_bytes(want_target)} target, which the kit "
+                            f"publishes."})
+            want = published["max_bytes"]
+            if want and unit.get("max_bytes") != want:
+                out.append({"unit": unit["id"], "detail":
+                            f"{unit['name']} {w}x{h} is judged at "
+                            f"{_fmt_bytes(unit.get('max_bytes') or 0)} against "
+                            f"the kit's {_fmt_bytes(want)}."})
+    return out
 
 
 def channels_for_product(product: str = "", category: str = "") -> list[str]:

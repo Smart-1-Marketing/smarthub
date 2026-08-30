@@ -41,6 +41,7 @@
  @media(max-width:620px){.two{grid-template-columns:1fr}.doc{height:60vh}}
  .note{color:var(--muted);font-size:12.5px;line-height:1.55}
  .done{background:#eaf7ee;border-color:#bfe3ca}
+ .lapsed{background:#fff8e8;border-color:#f0d79a;color:#6b4a00}
  .done h2{color:#1c6b32;margin:0 0 6px;font-size:18px}
  .staff{background:#fff6e0;border:1px solid #f0d79a;border-radius:10px;
         padding:11px 14px;margin-bottom:16px;font-size:13px;color:#8c5a00}
@@ -64,6 +65,18 @@
  <h1>Proposal for {{ q.client or 'your business' }}</h1>
  <div class="sub">{{ q.quote_number }}{% if revision > 1 %} · revision {{ revision }}{% endif %}
   {% if q.months %} · {{ q.months }}-month campaign{% endif %}</div>
+
+ {% if validity_note and not accepted %}
+ {# The expiry the client can see -- above the document, not under it. One
+    they cannot see is one we cannot hold them to, and the embed is 78vh tall:
+    below it, a client reads four pages of a proposal and only then finds out
+    the price on it is stale. #}
+ <div class="{{ 'card lapsed' if expired else 'note' }}"
+      style="margin:0 0 14px{{ '' if expired else ';padding:0 2px' }}">
+  {% if expired %}<b>This pricing needs refreshing</b><br>{% endif %}
+  {{ validity_note }}
+ </div>
+ {% endif %}
 
  <div class="card" style="padding:12px">
   {# view=FitH opens on the page rather than at 100% of a letter sheet in a
@@ -96,6 +109,25 @@
    on {{ accepted.at[:10] }}{% endif %}. Your Smart 1 team has been told, and
    will be in touch about getting the campaign set up. There is nothing else
    you need to do here.</div>
+ </div>
+ {% elif expired %}
+ {# Somebody trying to say yes is the last person to turn away with nothing,
+    so this names who to ask rather than simply removing the button. #}
+ <div class="card lapsed">
+  <h2 style="color:#8a5300;font-size:18px;margin:0 0 4px">Ask us for an updated copy</h2>
+  <div class="note">The plan above stands — only the rates are due a refresh,
+   so we would rather re-quote them than have you agree to figures we can no
+   longer hold.
+   {% if contact_email %}
+   <br><br><a class="btn btn-primary" style="margin-top:8px"
+      href="mailto:{{ contact_email }}?subject={{ ('Updated proposal for ' ~ (q.client or 'us') ~ ' (' ~ q.quote_number ~ ')')|urlencode }}">Email
+    {{ contact_name or 'our team' }} for an updated proposal</a>
+   {% elif contact_name %}
+   <br><br>Please get in touch with {{ contact_name }}.
+   {% else %}
+   <br><br>Please reply to whoever sent you this link.
+   {% endif %}
+  </div>
  </div>
  {% else %}
  <div class="card" id="acceptCard">

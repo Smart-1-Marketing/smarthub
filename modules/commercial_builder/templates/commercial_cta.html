@@ -1,6 +1,13 @@
 {% extends "_layout.html" %}
 {% block title %}CTA — {{ project.title }}{% endblock %}
 {% set screen = "commercial_builder.cta" %}
+{# No walkthrough drives this screen, so the floating "Walk me through this"
+   button is off here. hub-demo.js highlights the current step's selector on
+   the page you are standing on and its perform() opens with `if (!node)
+   return` — so a walkthrough offered where its elements are not is a ring
+   anchored to nothing and a "Do it for me" that returns in silence, which is
+   worse than no button. #}
+{% set no_demo = true %}
 {% block content %}
 
 {% include "_stepper.html" %}

@@ -58,7 +58,15 @@
       onchange="render()"> Domain matches only</label>
     <label class="sm-only"><input type="checkbox" id="smInactive"
       onchange="load()"> Include expired &amp; cancelled sites</label>
+    {#- Its own control, and a button rather than something the report does on
+        its own, because the call is billed: a page opened several times a day
+        must not spend money each time — the rule the brand card on Client 360
+        works to. It says the number it would read, so pressing it is not how
+        you find out what it does. -#}
+    <button class="sm-btn" id="smReadNames" onclick="readNames()"
+            style="display:none"></button>
   </div>
+  <div id="smAiNote" class="sm-note" style="display:none;margin-bottom:10px"></div>
   <div id="smOut"><p class="sm-muted">Nothing scanned yet.</p></div>
 
   <h2 class="sm-h2">Clients with no website on file</h2>
@@ -143,8 +151,93 @@ var DATA=null;
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
+/* Reading the project names is a model, and the pass over the portfolio is a
+   scan of somebody else's list — so each says which wait it is rather than
+   sharing one word. hub-thinking.js is loaded by base.html; guarded, because a
+   mark that takes the message down with it is worse than no mark. */
+function smBusy(id, label, kind){
+  var el=document.getElementById(id); if(!el) return {done:function(){}};
+  if(el._s1think){el._s1think.done();el._s1think=null;}
+  el.innerHTML='<p class="sm-muted" id="'+id+'Busy"></p>';
+  if(window.S1Think){
+    el._s1think=window.S1Think.attach(id+'Busy',{kind:kind||'wait',label:label});
+    return el._s1think;
+  }
+  el.innerHTML='<p class="sm-muted">'+esc(label)+'</p>';
+  return {done:function(){}};
+}
+
+/* What the button says, drawn from the report rather than from a guess.
+   Four answers, not two: no key set, nothing left to read, some left to read,
+   and "we could not look" — which is not the same as nothing being read, and
+   would otherwise be a press somebody makes for no reason. */
+function drawReadNames(){
+  var b=document.getElementById('smReadNames');
+  var note=document.getElementById('smAiNote');
+  var a=(DATA&&DATA.ai_names)||null;
+  if(!b||!note) return;
+  if(!a||!a.measured){
+    b.style.display='none';
+    note.style.display=a?'block':'none';
+    if(a) note.innerHTML='The project-name readings could not be read, so this '
+      +'is <b>not measured</b> rather than none. '+esc(a.error||'');
+    return;
+  }
+  if(!a.configured){
+    b.style.display='none';
+    note.style.display='block';
+    note.innerHTML='Reading project names for the business inside them needs '
+      +'<code>OPENAI_API_KEY</code> on the server. '+a.read+' title(s) already read.';
+    return;
+  }
+  note.style.display=a.read?'block':'none';
+  if(a.read) note.innerHTML='<b>'+a.read+'</b> project title(s) have been read '
+    +'for the business inside them. A reading is a candidate name, matched '
+    +'against the real client list by the same rules as every other candidate '
+    +'&mdash; the model is never shown the client list, so it cannot name a client.';
+  b.style.display='inline-block';
+  b.disabled=!a.pending;
+  b.textContent=a.pending
+    ? ('Read '+a.pending+' project name'+(a.pending===1?'':'s')+' with AI')
+    : 'Every project name has been read';
+}
+
+function readNames(){
+  var a=(DATA&&DATA.ai_names)||{};
+  if(!a.pending) return;
+  if(!confirm('Read '+a.pending+' project title(s) with AI?\n\n'
+      +'This is a billed call. The model is shown the project titles only — '
+      +'never the client list — and answers with the words in each title that '
+      +'name the business. Nothing is matched or written by this.')) return;
+  var b=document.getElementById('smReadNames');
+  var busy=window.S1Think
+    ? window.S1Think.busy(b,{kind:'ai',label:'Reading the project names…'})
+    : (function(){b.disabled=true;return {done:function(){b.disabled=false;}};})();
+  var inactive=document.getElementById('smInactive').checked;
+  fetch('/api/sites-match/read-names',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({include_inactive:inactive})})
+   .then(function(r){return r.json();})
+   .then(function(d){
+     busy.done();
+     var note=document.getElementById('smAiNote');
+     note.style.display='block';
+     note.innerHTML=esc(d.note||d.error||'Nothing came back.');
+     /* Re-run the match so the readings are actually applied — a button that
+        stores an answer and leaves the page showing the one from before it
+        reads as a button that did nothing. */
+     load();
+   })
+   .catch(function(e){
+     busy.done();
+     var note=document.getElementById('smAiNote');
+     note.style.display='block';
+     note.textContent='The project names could not be read: '+e;
+   });
+}
+
 function load(){
-  document.getElementById('smOut').innerHTML='<p class="sm-muted">Scanning…</p>';
+  smBusy('smOut','Reading the Simvoly portfolio and matching it…','scan');
   var inactive=document.getElementById('smInactive').checked;
   fetch('/api/sites-match?include_inactive='+(inactive?'1':'0'),
         {credentials:'same-origin'}).then(function(r){return r.json();})
@@ -155,6 +248,7 @@ function load(){
 
 function render(){
   if(!DATA) return;
+  drawReadNames();
   var d=DATA, domainOnly=document.getElementById('smDomainOnly').checked;
   document.getElementById('smMetrics').innerHTML=
     [[d.active_only?'Live projects checked':'All projects checked',d.checked],

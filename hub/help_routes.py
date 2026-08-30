@@ -187,19 +187,48 @@ def api_tour_event():
     return ("", 204)
 
 
+def _staff_only():
+    """Refuse an audit endpoint to somebody with no Hub session.
+
+    The bubble text and the tour steps are deliberately outside the login --
+    they are our own explanation of our own screens, they carry no client
+    data, and the chrome fetches them on every page including the ones a
+    prospect reads. The *coverage* routes are a different thing: they return
+    the whole tool inventory and which of it is unfinished, which is our
+    roadmap rather than our help copy. Never raises: outside the Hub there is
+    no auth to import and nothing to protect.
+    """
+    try:
+        from flask import request
+
+        from .auth import user_from_environ
+    except Exception:                                # noqa: BLE001
+        return None
+    if user_from_environ(request.environ):
+        return None
+    return jsonify({"ok": False,
+                    "error": "Sign in to the Hub to read coverage."}), 401
+
+
 @bp.route("/api/help/coverage")
 def api_coverage():
-    """Which screens still have no help written. Feeds the audit suite."""
-    expected = ["hub.dashboard", "hub.client360", "seo_images.upload",
-                "seo_images.review", "seo_images.results", "image_creator.canvas",
-                "image_creator.photos", "image_creator.logos", "image_creator.layers",
-                "image_creator.export", "bg_remover.upload", "utm.form",
-                "scans.new", "scans.table", "seo.schema", "seo.faq", "qa.reports",
-                "ads_builder.generator", "ads_builder.proposal",
-                "ads_builder.approvals", "ads_builder.campaigns",
-                "ads_builder.settings", "ads_builder.activity"]
+    """Which tools still have no help written.
+
+    Measured against the tiles on the staff index pages rather than against a
+    list restated here. The list that used to live at this call site named 23
+    screens and had stopped keeping up: it answered `missing: []` -- a clean
+    bill of health -- while two dozen tiled tools carried no explanation at
+    all, because none of them was on it. `hub/help_coverage.py` says at
+    length why the tiles decide instead.
+    """
+    refused = _staff_only()
+    if refused is not None:
+        return refused
+    from . import help_coverage
+    cov = help_coverage.report()
     return jsonify({"covered": help_registry.screens(),
-                    "missing": help_registry.missing_for(expected)})
+                    "missing": [t["prefix"] for t in cov["missing"]],
+                    "coverage": cov})
 
 
 # ---------------------------------------------------------------------------
@@ -233,14 +262,24 @@ def api_demo_event():
 
 @bp.route("/api/demos/coverage")
 def api_demo_coverage():
-    expected = ["seo_images", "image_creator", "bg_remover", "utm_builder",
-                "scans", "seo", "hub", "qa", "ads_builder", "sales_builder",
-                "sites_admin", "suite_panel", "proposal_builder",
-                "image_optimizer", "pdf_optimizer", "google_finder",
-                "calculators", "image_picker", "page_image_optimizer",
-                "google_access", "fan_radio", "commercial_builder"]
+    """Which tools have no walkthrough.
+
+    Read from the same tiles as the help coverage above, for the reason the
+    two hand-typed lists gave up: this one's single finding was
+    `proposal_builder`, a module whose own docstring opens "The retired
+    Proposal Builder -- a redirect and an archive", while two dozen live
+    tools went unnamed. One reader, so the two surfaces cannot disagree about
+    which tools exist.
+    """
+    refused = _staff_only()
+    if refused is not None:
+        return refused
+    from . import help_coverage
+    cov = help_coverage.report()
+    expected = sorted({t["prefix"] for t in cov["covered"] + cov["missing"]})
     return jsonify({"covered": demos.modules_covered(),
                     "missing": demos.missing_for(expected),
+                    "measured": cov["measured"],
                     "catalogue": demos.catalogue()})
 
 
@@ -303,6 +342,14 @@ def install_template_helpers(app) -> None:
     """
     app.jinja_env.globals.setdefault("help_dot", help_dot)
     app.jinja_env.globals.setdefault("help_text", help_text)
+    # Whether a screen registers tour steps OF ITS OWN. A layout that draws
+    # data-screen on the truth of a name alone will happily name a screen the
+    # registry has no steps for — and hub/help.tour() then falls back to the
+    # MODULE prefix and serves every other screen's steps over elements that
+    # are not on the page. Guarded `if has_tour is defined` at the call site,
+    # the way every helper here is, so a module whose Jinja env never got this
+    # loses the guard rather than the page.
+    app.jinja_env.globals.setdefault("has_tour", help_registry.has_tour)
     app.jinja_env.globals.setdefault("demo_launcher", demo_launcher)
     app.jinja_env.globals.setdefault("demo_banner", lambda *a, **k: Markup(""))
     app.jinja_env.globals.setdefault("hub_sidebar", lambda *a, **k: Markup(""))
@@ -328,4 +375,7 @@ def register_help(app, current_user_fn=None) -> None:
         demo_launcher=demo_launcher,
         demo_scenarios=demos.for_module,
         hub_help_screens=help_registry.screens,
+        # See install_template_helpers above for why a layout asks this rather
+        # than drawing data-screen on the truth of a name.
+        has_tour=help_registry.has_tour,
     )

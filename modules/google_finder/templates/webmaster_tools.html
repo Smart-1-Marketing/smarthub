@@ -3,33 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Webmaster Tools - Command Center</title>
+  <title>Webmaster Tools — Smart 1 Hub</title>
   <link rel="stylesheet" href="/google/static/style.css">
 </head>
 <body>
   <div id="toast-container"></div>
 
   <main class="wrap">
-    <section class="card">
-      <div class="topline">
-        <div>
-          <h1>🌐 Webmaster & Search Console Tools</h1>
-          <p>Register new web domains and deploy XML sitemaps in bulk across Search Console accounts.</p>
-        </div>
-        <div class="auth">
-          <a class="btn" href="/google/login">+ Add Google Account</a>
-        </div>
-      </div>
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb">Google</div>
+      <h1>Webmaster Tools</h1>
+      <p>Search Console rows for a client's property, and the bulk add that registers a batch of sites in one pass.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/google/login">+ Add Google account</a>
+    </div>
+  </div>
 
-      <!-- CLEAN NAVIGATION MENU -->
-      <nav class="nav-anchor-bar">
-        <a href="/google/">🔍 Quick Search</a>
-        <a href="/google/ga-tools">📊 GA Tools</a>
-        <a href="/google/gtm-tools">⚡ GTM Tools</a>
-        <a href="/google/webmaster-tools" class="active-page">🌐 Webmaster Tools</a>
-        <a href="/google/gmb-tools">📍 GMB Tools</a>
-        <a href="/google/history">📜 History & Logs</a>
-      </nav>
+  {% include "_nav.html" %}
 
       {% set lookup_platform = 'gsc' %}
       {% set lookup_label = 'Search Console property' %}
@@ -71,7 +63,6 @@
         <button id="btn-run-gsc-bulk" class="btn" style="margin-top:10px; background:#1a2e58!important;">Execute Bulk Deployment</button>
         <div id="gsc-bulk-results" style="margin-top:10px;"></div>
       </div>
-    </section>
   </main>
 
   <script src="/google/static/app.js"></script>

@@ -148,6 +148,7 @@
   wireChoices("length-choices", (choice) => {
     toggle(selectedLengths, choice);
     refreshLengthNotes();
+    refreshCost();
   });
 
   wireChoices("platform-choices", (choice, container) => {
@@ -199,13 +200,60 @@
   wireChoices("format-choices", (choice) => {
     toggle(selectedFormats, choice);
     refreshLengthNotes();
+    refreshCost();
   });
 
   wireChoices("type-choices", (choice, container) => {
     [...container.children].forEach((c) => c.classList.remove("selected"));
     choice.classList.add("selected");
     selectedType = choice.dataset.value;
+    refreshCost();
   });
+
+  // ------------------------------------------------- what it will consume
+  //
+  // Said while the choice is being made. The usage page answers "what did we
+  // spend last month", which is the right question for a bill and the wrong
+  // one for somebody about to tick three lengths — by the time a number
+  // shows there the money is gone.
+  const costBox = document.getElementById("cost-preview");
+
+  const refreshCost = CB.debounce(async () => {
+    if (!costBox) return;
+    if (!selectedLengths.size) { costBox.innerHTML = ""; return; }
+    let data;
+    try {
+      data = await CB.api(
+        `/api/projects/cost-preview?lengths=${[...selectedLengths].join(",")}`
+        + `&formats=${encodeURIComponent([...selectedFormats].join(","))}`
+        + `&method=${encodeURIComponent(selectedType || "stock_vo")}`);
+    } catch (e) { return; }
+    const est = data.estimate;
+    if (!est.measured || !est.rows.length) { costBox.innerHTML = ""; return; }
+
+    const rows = est.rows.map((r) => {
+      // "Not priced" said in words rather than left blank: a blank is a gap a
+      // reader fills in with a guess, and this is a number people repeat.
+      const cost = r.usd === null
+        ? '<span class="cb-muted">not priced</span>'
+        : `$${r.usd.toFixed(2)}`;
+      return `<tr><td>${CB.escapeHtml(r.label)}</td>`
+        + `<td style="text-align:right;">${r.units.toLocaleString()}</td>`
+        + `<td class="cb-muted">${CB.escapeHtml(r.unit)}</td>`
+        + `<td style="text-align:right;">${cost}</td></tr>`;
+    }).join("");
+
+    costBox.innerHTML = `<div class="cb-note" style="margin-top:10px;">
+      <strong>What this will use</strong>
+      <table class="cb-table" style="margin:8px 0;">
+        <thead><tr><th>Provider</th><th style="text-align:right;">Count</th>
+          <th>Unit</th><th style="text-align:right;">Cost</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="margin:0 0 4px;">${CB.escapeHtml(est.note)}</p>
+      <p class="cb-hint" style="margin:0;">${CB.escapeHtml(est.caveat)}</p>
+    </div>`;
+  }, 300);
 
   // ------------------------------------------- what each length is going to
   // cost, and what the published spec says about running it on this buy.

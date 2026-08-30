@@ -137,12 +137,50 @@ def load_archive() -> list[dict]:
             save_archive(data)
         except Exception:                 # noqa: BLE001
             pass          # the ids are still right for this request
+
+    # What a tile draws, derived on read and never stored. The full asset
+    # stays on `url` for the link, the copy button and the download -- the
+    # SEO filename is the deliverable and a thumbnail is not it. Derived
+    # rather than written into the row for the reason `client_key` gives at
+    # length: a stored preview outlives the size it was computed at, and this
+    # index is mirrored into the database, so a bad one would be restored
+    # rather than recomputed.
+    from hub import storage           # imported here as everywhere else in this file
+    for row in data:
+        if isinstance(row, dict):
+            try:
+                row["thumb"] = storage.preview_url(row.get("url", ""))
+            except Exception:             # noqa: BLE001
+                row["thumb"] = row.get("url", "")
     return data
 
 
 def save_archive(rows: list[dict]):
     with _index_lock:
         jsonstore.write_json(_INDEX_PATH, rows, indent=1)
+
+
+def add_archive_record(**fields) -> str:
+    """Add one row to the archive from another tool, and return its id.
+
+    The Page Image Optimizer produces exactly what this table holds — a client
+    image, renamed, resized and put back on a page — and had no way to write
+    here. It carried three guessed function names, none of which had ever
+    existed, so it fell back to a private JSON file nothing reads and every
+    image it saved was missing from the gallery that is supposed to be the
+    complete list. This is the name it now calls.
+
+    Deliberately additive and id-stamped: every row needs an id or the
+    gallery's own buttons cannot address it, which is the backfill
+    `load_archive()` had to grow for rows written without one.
+    """
+    row = {k: v for k, v in fields.items() if v is not None}
+    row.setdefault("id", secrets.token_hex(8))
+    row.setdefault("saved_at", _dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    rows = load_archive()
+    rows.insert(0, row)
+    save_archive(rows)
+    return row["id"]
 
 
 # --------------------------------------------------- in-flight batch storage

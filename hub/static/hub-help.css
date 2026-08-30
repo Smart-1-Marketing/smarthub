@@ -102,6 +102,14 @@ body.s1-tour-open{overflow:hidden}
   background:#eef5fb;border-left:3px solid #1769AA;border-radius:0 7px 7px 0;padding:.5rem .65rem}
 .s1-demo-sim{font-size:.73rem;color:#5a4413;background:#fff4d6;border-radius:7px;
   padding:.35rem .55rem;margin-bottom:.6rem}
+/* A step whose target is not on this page. Amber rather than red, the note
+   hub/templates/diagnostics.html already makes about a page of red being a
+   page people scroll past: the narration above it is still correct and still
+   worth reading, and only the driving cannot happen. */
+.s1-demo-gone{font-size:.73rem;color:#6b4a12;background:#fdf3e0;border-radius:7px;
+  border-left:3px solid #c08a2e;padding:.4rem .55rem;margin-bottom:.6rem;
+  line-height:1.45}
+.s1-demo-gone[hidden]{display:none}
 .s1-demo-actions{display:flex;gap:.45rem}
 .s1-demo-actions button{flex:1;border-radius:8px;padding:.45rem .5rem;
   font:600 .8rem system-ui,sans-serif;cursor:pointer;border:1px solid transparent}

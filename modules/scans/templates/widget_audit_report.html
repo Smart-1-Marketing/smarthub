@@ -15,6 +15,11 @@
   .card { background:#fff; border:1px solid var(--line); border-radius:16px;
     padding:24px; box-shadow:0 1px 3px rgba(10,34,64,.06); margin-bottom:16px; }
   .card.spend { border-left:5px solid var(--ok); }
+  /* The opening reads as prose rather than as another panel: it is the one
+     thing on this page written to be read straight through. */
+  .card.lede { border-left:5px solid var(--accent); font-size:16.5px; line-height:1.65; }
+  .card.lede p { margin:0 0 .8em; }
+  .card.lede p:last-child { margin-bottom:0; }
   h1 { color:var(--navy); font-size:26px; line-height:1.25; margin:0 0 4px; }
   h2 { color:var(--navy); font-size:18px; margin:0 0 4px; }
   h3 { color:var(--navy); font-size:14px; margin:20px 0 8px; }
@@ -57,6 +62,19 @@
   <h1>Website audit</h1>
   <p class="sub">{{ a.domain }}{% if a.age and a.age.read_on %} · read on {{ a.age.read_on }}{% endif %}
     {% if lead.company %}· prepared for {{ lead.company }}{% endif %}</p>
+
+  {#- What the tables below mean, in two paragraphs, built only from what was
+      actually measured. Absent where it could not be grounded — and absent
+      *silently*, because the honest empty here is the report as it was, and a
+      line saying "we could not summarize this" is a sentence about our
+      tooling on a document about their business. -#}
+  {% if a.summary and a.summary.text %}
+  <div class="card lede">
+    {% for para in a.summary.text.split('\n\n') %}
+      {% if para.strip() %}<p>{{ para.strip() }}</p>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {# ---- What they are already spending. First, deliberately: it is the block
         that decides what the conversation afterwards is about, and the same

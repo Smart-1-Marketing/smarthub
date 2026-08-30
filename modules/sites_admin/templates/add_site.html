@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="titlebar"><div><h1>Add Site</h1><p>Create a project + website from an official Simvoly template and optionally activate a paid plan.</p></div></div>
-{% if not settings.enable_write_actions %}<div class="warning">Safe mode is on. Set <code>ENABLE_WRITE_ACTIONS=true</code> only after read-only API access is verified.</div>{% endif %}
-<form class="card" method="post">
+<div class="s1d-head"><div><div class="s1d-crumb"><a href="{{url_for('dashboard')}}">Sites</a> / Add Site</div><h1>Add Site</h1><p>Create a project and website from an official Simvoly template, and optionally activate a paid plan.</p></div></div>
+{% if not settings.enable_write_actions %}<div class="s1d-note warn">Safe mode is on. Set <code>ENABLE_WRITE_ACTIONS=true</code> only after read-only API access is verified.</div>{% endif %}
+<form class="s1d-card" method="post">
   <input type="hidden" name="csrf_token" value="{{session.csrf}}">
   <div class="formgrid">
     <label>Site / project name<input name="site_name" required></label>
@@ -18,6 +18,6 @@
     <label>Primary brand color<input name="brand_color" placeholder="#00a1e1"></label>
   </div>
   <label>Personalization tags (JSON array)<textarea name="personalization_tags" rows="7" placeholder='[{"name":"Company Name","value":"ABC Roofing"},{"name":"Phone","value":"614-555-1212"}]'></textarea></label>
-  <button class="primary" {{'disabled' if not settings.enable_write_actions}}>Create Site</button>
+  <button class="s1d-btn" {{'disabled' if not settings.enable_write_actions}}>Create Site</button>
 </form>
 {% endblock %}

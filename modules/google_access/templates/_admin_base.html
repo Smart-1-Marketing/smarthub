@@ -9,6 +9,10 @@
 <title>{% block title %}Google Access{% endblock %} &middot; Smart 1 Hub</title>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+/* Cards, tables, buttons, form controls, headings and pills come from
+   hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
+   wsgi.py's HubBar injects into this module. Rules for those are not
+   restated here; what is left is what is genuinely this screen. */
   :root{
     --ink:#0E1B2B;--ink-soft:#46586E;--ink-faint:#7C8B9C;
     --paper:#F4F6F8;--card:#fff;--line:#DCE3EA;--line-strong:#C3CEDA;
@@ -19,21 +23,11 @@
   body{margin:0;background:var(--paper);color:var(--ink);
     font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5}
   .wrap{max-width:1080px;margin:0 auto;padding:32px 22px 72px}
-  h1{font-family:"Archivo",sans-serif;font-weight:700;font-size:27px;
-    letter-spacing:-.02em;margin:0 0 6px}
   h2{font-family:"Archivo",sans-serif;font-weight:600;font-size:16px;margin:0 0 12px}
-  .sub{color:var(--ink-soft);margin:0 0 26px}
   a{color:var(--cyan)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
-    padding:20px;margin:0 0 20px}
   .banner{padding:13px 16px;border-radius:8px;margin:0 0 20px;font-size:14px}
   .banner.warn{background:var(--waiting-bg);color:var(--waiting)}
   .banner.bad{background:var(--fail-bg);color:var(--fail)}
-  table{width:100%;border-collapse:collapse;font-size:14.5px}
-  th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:11px;
-    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);
-    font-weight:400;padding:0 12px 10px 0;border-bottom:1px solid var(--line)}
-  td{padding:13px 12px 13px 0;border-bottom:1px solid var(--line);vertical-align:top}
   tr:last-child td{border-bottom:0}
   .chip{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.07em;
     text-transform:uppercase;padding:3px 8px;border-radius:999px;white-space:nowrap}
@@ -81,6 +75,6 @@
 </style>
 </head>
 <body data-module="google_access">
-<div class="wrap">{% block body %}{% endblock %}</div>
+<div class="wrap s1d-page">{% block body %}{% endblock %}</div>
 </body>
 </html>

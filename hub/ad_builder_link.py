@@ -30,7 +30,7 @@ import requests
 
 from flask import (Blueprint, jsonify, redirect, render_template, request)
 
-from hub import ad_builder_proxy
+from hub import ad_builder_proxy, storage
 from hub.webargs import clamp_int
 
 logger = logging.getLogger(__name__)
@@ -207,6 +207,15 @@ def client_gallery(client_name: str, limit: int = 48) -> dict:
             continue
         images.append({
             "url": url,
+            # What the chooser's 126px tile draws. The full asset stays on
+            # `url`, which is what applying the background and the magnifier
+            # both use -- a 400px preview behind an ad would be the wrong
+            # file in the creative. This grid was the one gallery #179 could
+            # not reach, because the renderer is TypeScript and its rows never
+            # pass through hub/storage.py; they pass through here, so the rule
+            # is applied once on this side rather than mirrored into the
+            # renderer.
+            "thumb": storage.preview_url(url, row.resource_type or "image"),
             "public_id": row.cloudinary_public_id or "",
             "width": row.width or 0,
             "height": row.height or 0,
@@ -862,7 +871,16 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
           * The logo is the mark in use today, which is not always the one in
             a brand pack from two years ago.
           * The screenshot is what the client sees when they think "our
-            brand", which is the thing a proof gets compared against.
+            brand", which is the thing a proof gets compared against. Desktop
+            and mobile, because half the sizes in a display package run on a
+            phone and the two often look nothing alike.
+
+        One thing it deliberately does not claim. ``gdpr.has_google_font_api``
+        says the site loads Google Fonts and never says *which* face, so it is
+        passed on as the weak signal it is rather than dressed up as a font
+        recommendation. It is still worth carrying: a **false** is the useful
+        direction, because it means their type is self-hosted or licensed and
+        an ad will not match it by accident.
 
         Returns ``{}``-shaped absence rather than an error: a client with no
         scan is the ordinary case, and the builder shows the option only when
@@ -918,12 +936,31 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
 
         logo = _sec("logo")
         shot = _sec("website_screenshot")
+        desktop = str(shot.get("desktop_screenshot_url") or "")
+        mobile = str(shot.get("mobile_screenshot_url") or "")
+
+        # Whether their site loads Google Fonts. Tri-state on purpose: the
+        # scan's GDPR section is where this lives, and a plan that did not run
+        # that check leaves it absent -- which is "not measured", not "no".
+        # The difference matters in the direction people forget: a false says
+        # their type is self-hosted or licensed, which is the case where the
+        # ad will NOT match unless somebody picks the face deliberately.
+        gdpr = _sec("gdpr")
+        google_fonts = gdpr.get("has_google_font_api")
+        if not isinstance(google_fonts, bool):
+            google_fonts = None
+
         return jsonify({
-            "found": bool(colors or logo.get("logo_url")),
+            # A scan carrying only a screenshot is still something to show.
+            # Keying this on the palette alone hid the picture on every site
+            # whose colours the scan could not read.
+            "found": bool(colors or logo.get("logo_url") or desktop),
             "domain": domain,
             "colors": colors,
             "logo": str(logo.get("logo_url") or "") if logo.get("has_detected_logo") else "",
-            "screenshot": str(shot.get("desktop_screenshot_url") or ""),
+            "screenshot": desktop,
+            "screenshotMobile": mobile,
+            "usesGoogleFonts": google_fonts,
             "scannedAt": str(payload.get("completed_at") or payload.get("created_at") or ""),
         })
 

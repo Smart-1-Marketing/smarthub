@@ -1323,71 +1323,128 @@ SCENARIOS: list[Scenario] = [
         ]),
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Two scenarios, not one, and the split is the whole repair.
+    #
+    # There was one nine-step `commercial_builder.first_spot` walking the
+    # entire wizard — and hub-demo.js does not navigate. It highlights the
+    # current step's selector on the page you are standing on, and `perform()`
+    # opens with `if (!node) return`, so a step whose element is elsewhere
+    # draws no ring and "Do it for me" returns in silence. Every one of its
+    # nine `data-demo` hooks existed in no template at all, on a module whose
+    # every screen offers the button, so the walkthrough was nine silent steps
+    # from whichever screen it was started on. That is the failure
+    # `ads_builder.review_and_launch` was split out of one screen earlier.
+    #
+    # It was also describing a tool that no longer exists: a Storyboard step
+    # the wizard replaced with Blueprint / Voice / CTA, lengths with no :06 in
+    # them, "eleven checks" against the 24 run_qc returns, and a QR code it
+    # called required with QC hard-failing without it — which is the exact
+    # rule QR_CODE_RULES reversed, and the most expensive kind of wrong,
+    # because a rep believes it.
     Scenario(
-        key="commercial_builder.first_spot", module="commercial_builder",
-        title="Produce a :30 CTV commercial end to end",
-        goal="A finished :30 spot — concept, timed script, storyboard, voice, "
-             "QC-passed and rendered — for one client.",
-        minutes=10, path="/tools/commercial-builder/",
+        key="commercial_builder.start_a_spot", module="commercial_builder",
+        title="Start a commercial: the four answers that shape everything else",
+        goal="A project opened against a real client, with the platform, the "
+             "length and the publishers set — the four things every later "
+             "step reads and none of them easy to change afterwards.",
+        minutes=3, path="/tools/commercial-builder/new",
+        # Nothing here reaches a provider. Four form controls.
+        spends=[],
+        steps=[
+            Step("Find the client, don't retype them",
+                 "Search the Hub's own client book.",
+                 "Retyping a client of eleven years' standing files the "
+                 "finished commercial under a name that joins to nothing — no "
+                 "products, no scans, no 360 card, no logo or phone number "
+                 "that were on file all along.",
+                 action="look", selector="[data-demo='cb-client']"),
+            Step("Platform is not a crop",
+                 "CTV, YouTube, both, or social.",
+                 "Social is its own platform rather than a 9:16 render of a "
+                 "CTV spot: it gets a different beat structure with the hook "
+                 "at zero, and it is checked for playing muted. A CTV spot "
+                 "reframed for a feed is still a CTV spot.",
+                 action="look", selector="[data-demo='cb-platform']"),
+            Step("Pick the length — or several",
+                 "The :06 is its own unit, not a rounded :05.",
+                 "Google caps a bumper at six seconds, so a :06 is the "
+                 "longest cut that still buys bumper inventory and a :05 "
+                 "leaves a second of it unbought. Several lengths build :30 "
+                 "first, because the others are cut down from its storyboard.",
+                 action="click", selector="[data-demo='cb-length']"),
+            Step("Say which streaming platforms, on a CTV buy",
+                 "Amazon takes no QR code at all.",
+                 "Its own creative guidance says an ad should not carry "
+                 "call-to-action elements that encourage clicking, because "
+                 "there is nothing there to click. Ticking Amazon is what "
+                 "raises that warning; ticking nothing says nothing, which is "
+                 "not the same as saying it is fine.",
+                 action="look", selector="[data-demo='cb-publishers']"),
+        ]),
+
+    # ------------------------------------------------------------------
+    # The second half, on the screen where the work is. Split from the above
+    # for the reason hub-demo.js forces: a walkthrough drives one page.
+    Scenario(
+        key="commercial_builder.blueprint", module="commercial_builder",
+        title="Work the Blueprint: beats, shots, and the checks that sit there",
+        goal="A storyboard whose shots are paced against published thresholds, "
+             "whose copy has been read for the rules it engages, and which has "
+             "been through QC before anybody spends a render on it.",
+        minutes=6, path="/tools/commercial-builder/",
+        # The narration expansion and QC's spelling pass are both model calls,
+        # so both are simulated below and neither button is offered.
         spends=["openai.text"],
         steps=[
-            Step("Set the brand profile before the brief",
-                 "Logo, colors, fonts, phone, CTA, tagline.",
-                 "Everything downstream reads from here — the end card, the "
-                 "persistent logo, the QC check for brand logo. Filling it "
-                 "once saves re-doing the CTA on every spot.",
-                 action="look", selector="[data-demo='cb-brand']"),
-            Step("Choose length and platform together",
-                 ":05 / :15 / :30 / :60, and CTV / YouTube / Both.",
-                 "These change the rules, not just the runtime. CTV requires a "
-                 "QR code and gets bigger end-card text for living-room "
-                 "viewing; YouTube gets checked for a hook inside the first "
-                 "five seconds because that's when it becomes skippable.",
-                 action="choose", selector="[data-demo='cb-length']", value="30"),
-            Step("Write the brief, get three concepts",
-                 "Materially different angles, not three phrasings of one.",
-                 "Pick the one you'd defend to the client, not the safest. You "
-                 "can regenerate — it costs a call, not a re-shoot.",
-                 action="click", selector="[data-demo='cb-concepts']", simulated=True),
-            Step("Generate the timed script",
-                 "Word count is enforced against the length.",
-                 "65–75 words for a :30. It follows a Hook/Value/Close beat "
-                 "structure rather than splitting time evenly, and flags "
-                 "itself in QC if it lands outside the range. Read it aloud "
-                 "anyway.",
-                 action="click", selector="[data-demo='cb-script']", simulated=True),
-            Step("Build the storyboard",
-                 "Per scene: find stock, generate, use a spokesperson, upload, "
-                 "or pull a client asset.",
-                 "This is the centerpiece. Scene durations must sum exactly to "
-                 "your length — the tool enforces it, so shortening one scene "
-                 "means lengthening another.",
-                 action="look", selector="[data-demo='cb-storyboard']"),
-            Step("Set the voice and the music level",
-                 "Music level maps to real dB ducking.",
-                 "Voice always dominates. A music bed that competes with the "
-                 "read is the most common reason a spot gets rejected.",
-                 action="look", selector="[data-demo='cb-voice']"),
-            Step("Build the CTA — and enable the QR on CTV",
-                 "QR code plus a persistent logo.",
-                 "On CTV there's nothing to click, so the QR is how the spot "
-                 "converts at all. It must hold at least 8 seconds on the end "
-                 "card; QC hard-fails without it on a CTV spot.",
-                 action="click", selector="[data-demo='cb-qr']"),
-            Step("Run QC before you render",
-                 "Eleven checks: timing, voice fit, CTA, logo, resolution, "
-                 "aspect, safe area, spelling, QR, persistent logo, hook.",
-                 "The render is blocked by default if QC fails. That's a hard "
-                 "gate on purpose — catching an incomplete commercial here is "
-                 "the entire point of automatic QC.",
-                 action="click", selector="[data-demo='cb-qc']"),
-            Step("Render, then reuse it",
-                 "Create Variation clones the storyboard and re-runs only "
-                 "what changed.",
-                 "Offer, location, weather, CTA, voice, duration. Locked "
-                 "scenes and footage choices survive — so the second spot for "
-                 "a client costs a fraction of the first.",
-                 action="look", selector="[data-demo='cb-variations']"),
+            Step("The beats are the length's, not an even split",
+                 "A :30 is Hook / Value / Close; a :06 is two beats.",
+                 "There is no room for a middle in six seconds, so the :06 "
+                 "gets Hook and Brand and nothing between them.",
+                 action="look", selector="[data-demo='cb-beats']"),
+            Step("Shots sit inside beats, and each row is a shot",
+                 "Size, angle and move come from closed vocabularies.",
+                 "Not decoration: the two things downstream of a shot are a "
+                 "stock search and a Runway prompt, and both are the "
+                 "difference between \u201ctechnician working\u201d and "
+                 "\u201cclose-up, low angle, slow push\u201d.",
+                 action="look", selector="[data-demo='cb-scenes']"),
+            Step("Scored against somebody else's numbers",
+                 "Google's own ABCDs Detector, Amazon and Roku.",
+                 "Every row says whose threshold it is, because \u201cyour "
+                 "average shot is ten seconds and Google's own detector wants "
+                 "two\u201d is an argument a client cannot talk us out of, "
+                 "where \u201cour tool thinks this is slow\u201d is not. A "
+                 "bumper is scored on none of the pacing rules \u2014 cutting "
+                 "a :06 to a two-second average is a strobe.",
+                 action="look", selector="[data-demo='cb-abcd']"),
+            Step("Which published rules this copy puts in play",
+                 "Reg Z, the FTC endorsement guides, FINRA, attorney "
+                 "advertising, TTB.",
+                 "It never says a spot is compliant, and that is the design: "
+                 "every finding reads \u201cthis engages X\u201d and never "
+                 "\u201cthis violates X\u201d. Nothing here blocks a render "
+                 "\u2014 what a finding does is require one explicit "
+                 "acknowledgment before a rendered cut can be filed.",
+                 action="look", selector="[data-demo='cb-compliance']"),
+            Step("A longer spot needs more script, not longer pauses",
+                 "The expansion is told how much room is left.",
+                 "A model asked to \u201cwrite a bit more\u201d writes a bit "
+                 "more whether there were four words of room or forty. With "
+                 "no room it refuses in words rather than appearing to work "
+                 "and changing nothing. Simulated here so it spends nothing.",
+                 action="click", selector="[data-demo='cb-narration']",
+                 simulated=True),
+            Step("Run the checks here, not two steps later",
+                 "Every check is about something on this screen.",
+                 "They used to live on Preview, so pressing Render re-ran a "
+                 "set somebody had just read. A recommendation is drawn amber "
+                 "rather than red, because a page of red is a page people "
+                 "scroll past \u2014 and the severity is the server's, so "
+                 "this panel and Preview cannot disagree about one finding. "
+                 "Simulated here: the spelling pass is a model call.",
+                 action="click", selector="[data-demo='cb-checks']",
+                 simulated=True),
         ]),
 
     # ------------------------------------------------------------------

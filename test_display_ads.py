@@ -381,6 +381,192 @@ def test_the_rail_only_lists_sizes_this_campaign_builds():
           "1200x628" in google and "1200x628" in meta)
 
 
+def test_the_palette_says_whether_anybody_chose_it():
+    """An ad in Smart 1's placeholder navy looks plausibly branded.
+
+    `assetSources` has recorded provenance for the logo and the hero since it
+    was written -- upload, brandfetch, wordmark, placeholder, none. The
+    palette had no equivalent: `finalizeColors()` spread DEFAULTS underneath
+    whatever was discovered and said nothing at all. So a client with no
+    brand colours on file got the placeholder navy and gold on every size,
+    and nothing on any screen said so. Absent data reading as a confident
+    value, on the thing the client receives.
+
+    Three rules on the line the operator reads. The all-default case is said
+    plainly, because that is the one that ships a stock ad. A role somebody
+    answered for is not listed -- five rows of "from Brandfetch" is noise,
+    and a line that appears on every campaign is one people stop reading. And
+    a campaign built before the field existed says NOTHING rather than
+    reading as default: absent is not the same answer as placeholder, which
+    is the whole point of the line.
+    """
+    intake = (MODULE / "src" / "intake.ts").read_text()
+    screen = BUILD_HTML.read_text()
+
+    check("the build records where each color role came from",
+          "colorSources" in intake and "export type ColorSource" in intake)
+    check("and finalizeColors is what decides it",
+          "sources: BuildResult['colorSources']" in intake)
+    check("a color we moved for readability is ours, not theirs",
+          "sources.accent = 'adjusted';" in intake
+          and "sources.light = 'adjusted';" in intake)
+    check("a wholly placeholder palette is said once, in words",
+          "No brand colors were discovered or supplied" in intake)
+    check("it survives into the campaign record",
+          "colorSources: result.colorSources," in (MODULE / "src" / "server.ts").read_text())
+
+    check("the screen draws it beside the swatches",
+          "paletteProvenance()" in screen and "palette-note" in screen)
+    check("and says nothing at all when the field is absent",
+          "if (!src) return '';" in screen)
+    check("naming only the roles nobody answered for",
+          "still placeholder" in screen and "adjusted for readability" in screen)
+
+
+def test_a_white_box_round_the_logo_is_named_rather_than_scored():
+    """logo-tools.ts opens with a rule nothing asked.
+
+    "Any logo that is not already transparent must have its background
+    removed before compositing -- a white box around a logo on a coloured ad
+    looks broken." `hasTransparency()` was written for exactly that question
+    and had no caller anywhere in the repo.
+
+    The QA pass could not have caught it either, and read BETTER on the
+    broken ad: `logoInkLuminance()` averages every opaque pixel, so on a
+    plated logo it measures the plate. The same navy wordmark scores about
+    2.3:1 on a transparent canvas and about 9.9:1 with a white box behind it,
+    against a navy panel -- the box makes QA more confident about the one ad
+    with a white rectangle stamped across it.
+
+    The same corner sample failed the other way too. It never asked whether
+    the corners were opaque, so on an already-transparent logo they read
+    (0,0,0, alpha 0), black was taken for the background colour, and every
+    near-black pixel in the mark was made transparent: Rework logo erased a
+    #0a0a0a wordmark outright and reported success. #111111 survived only
+    because it happens to sit 51 units of colour distance from black against
+    a tolerance of 42, which is luck rather than a rule.
+
+    One reader now answers both -- what a flat opaque plate is, and whether
+    there is one.
+    """
+    tools = (MODULE / "src" / "logo-tools.ts").read_text()
+    qa = (MODULE / "src" / "qa.ts").read_text()
+
+    check("there is one description of what a plate is",
+          "export async function flatBackdrop" in tools)
+    check("and the stripper reads it rather than sampling again",
+          "backdropOf(data, width, height, channels)" in tools
+          and "spread > 60" not in tools.split("export async function removeFlatBackground")[1])
+    check("a transparent corner means there is no plate to strip",
+          "data[p + 3] < 250" in tools)
+    check("so an already-transparent logo is copied through, not eaten",
+          "if (!plate) {" in tools)
+
+    check("QA asks the same reader", "flatBackdrop" in qa)
+    check("and names the colour that will show",
+          "opaque rgb(" in qa and "Rework logo" in qa)
+    check("only when it will actually show against the panel",
+          "plateShowsAgainst" in qa and "PLATE_VISIBLE_DELTA" in qa)
+    check("and a plated logo gets no contrast finding at all",
+          "if (ink !== null && !plateShows) {" in qa)
+
+
+def test_the_alert_channel_reports_itself():
+    """notify.ts promised a check that was never written.
+
+    Its header has said since the day it was written that a missing transport
+    is "appended to out/notifications/outbox.jsonl instead of being lost, and
+    diagnostics flags the missing configuration". Diagnostics did not: there
+    was no such check, its Integrations group held one entry for Cloudinary,
+    and `notificationsConfigured()` -- written for exactly this question --
+    had no caller anywhere in the repo. The declared-but-unwired shape this
+    codebase has now hit six times.
+
+    Nine call sites in server.ts raise an alert and every one discards the
+    NotifyResult, so the route reports success whether or not anything was
+    sent. The self-health timer is the one that matters: it runs the
+    diagnostics every three hours so a 2am failure pages somebody rather than
+    waiting for a customer to find it, and with no transport that page is a
+    line in a JSONL file on the output directory, which a deploy wipes. The
+    thing built to say the tool is broken was itself unrouted.
+    """
+    notify = (MODULE / "src" / "notify.ts").read_text()
+    diag = (MODULE / "src" / "diagnostics.ts").read_text()
+
+    check("the check the header promises now exists",
+          "function checkNotifications" in diag)
+    check("and is actually registered, not merely written",
+          "checks.push(checkNotifications(opts.outDir));" in diag)
+    check("it reads the transport state rather than the two keys",
+          "notificationsState" in diag and "notificationsState" in notify)
+    check("the function written for this finally has a caller",
+          "notificationsConfigured" in notify)
+
+    # Three states, because a key with no recipient is not the same as no key.
+    check("a key with nowhere to send it is its own answer",
+          "EMAIL_TO is not" in notify and "blocked" in notify)
+    check("and it is a failure rather than a warning",
+          "level: 'fail'," in diag.split("function checkNotifications")[1]
+          .split("function checkPlatforms")[0])
+    check("an unrouted channel names where the alerts are going instead",
+          "outbox.jsonl" in diag)
+    check("and how many have gone there already",
+          "outboxState" in diag and "export function outboxState" in notify)
+
+
+def test_a_ceiling_says_where_it_came_from_and_the_panel_derives_it():
+    """A file-weight limit nobody sourced reads exactly like one that was.
+
+    `source: 'doc'` is a rule's own claim that its numbers came off the
+    platform's spec sheet, and the diagnostics panel used to take that claim
+    as the whole answer -- it flagged a size only where somebody had typed
+    `source: 'verify'`, which nothing ever had. So the panel reported "all
+    limits sourced from documentation" across 23 rules of which 13 recorded
+    no source at all, and could not have said otherwise however many more
+    were added: it was answering about what somebody remembered to flag.
+
+    Both halves are here. Every rule now records what confirmed it, or says
+    it is unconfirmed; and the panel derives the doubt from that record
+    rather than from the claim, so a rule added next month with a ceiling and
+    no source is reported without anybody having to remember to mark it.
+
+    Getting this wrong is quiet in both directions and the directions are not
+    alike: a ceiling set too high ships a file the platform refuses at
+    delivery, and one set too low steps the quality ladder down to satisfy a
+    limit that does not exist -- which is the mistake meta.json made once
+    already, carrying Google's 150 KB on a Meta story frame.
+    """
+    cfg = MODULE / "src" / "config" / "platforms"
+    rules = [(f.stem, size, rule)
+             for f in sorted(cfg.glob("*.json"))
+             for size, rule in json.loads(f.read_text())["sizes"].items()]
+    check("there are platform rules to check at all", len(rules) >= 20,
+          f"found {len(rules)}")
+    unsourced = [f"{p}/{s}" for p, s, r in rules
+                 if not (r.get("_verifiedAgainst") or "").strip()
+                 and r.get("source") != "verify"]
+    check("every ceiling records what confirmed it, or says it is unconfirmed",
+          not unsourced, f"no source recorded: {unsourced}")
+
+    # The one that is genuinely open, named rather than dropped or guessed at.
+    amz = dict((s, r) for p, s, r in rules if p == "amazon")
+    check("the Amazon square is the one open question, and says so",
+          amz["250x250"]["source"] == "verify")
+    check("and it is left at the value it had rather than moved on a guess",
+          amz["250x250"]["maxFileBytes"] == 51200)
+
+    diag = (MODULE / "src" / "diagnostics.ts").read_text()
+    check("the panel derives the doubt rather than reading the claim",
+          "_verifiedAgainst" in diag and "export function ceilingDoubt" in diag)
+    check("and a rule declaring doc with nothing behind it is not confirmed",
+          "'no source recorded'" in diag)
+    check("while one somebody looked at and could not confirm says which",
+          "'marked for confirmation'" in diag)
+    check("so the clean answer is about the record, not about the claim",
+          "every limit records where it came from" in diag
+          and "all limits sourced from documentation" not in diag)
+
+
 def test_no_platform_picker_and_a_render_button_that_explains_itself():
     screen = BUILD_HTML.read_text()
     check("the toolbar no longer asks which platform", "platformPick" not in screen)
@@ -1155,6 +1341,57 @@ def test_the_preset_screen_is_linked_rather_than_tiled_twice():
           f"{creative.count('/tools/display-ads/')} tiles")
 
 
+def test_the_scan_shows_the_site_as_well_as_its_palette():
+    """The screenshot was fetched, returned, and drawn nowhere.
+
+    An operator judging brand colour on a dark canvas had to open the client's
+    website in another tab to remember what they were matching, and mostly did
+    not -- which is how an ad comes back "not really them" with nobody able to
+    say why.
+    """
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    screen = BUILD_HTML.read_text()
+
+    check("the route carries both devices",
+          '"screenshot": desktop,' in link and '"screenshotMobile": mobile,' in link)
+    check("because half a package runs on a phone",
+          "half the sizes in a display package run on a" in link)
+    check("a scan with only a screenshot still counts as something",
+          'bool(colors or logo.get("logo_url") or desktop)' in link)
+    check("the screen draws it", "function siteShotMarkup" in screen)
+    check("and does not give up when the palette is empty",
+          "if (!entries.length && !d.screenshot) return;" in screen)
+    check("mobile is a toggle, not a second thumbnail", 'data-shot="mobile"' in screen)
+
+    # The one that would be wrong to get wrong: a screenshot of somebody's
+    # website is reference, and offering to put it behind their ad is offering
+    # something a few people would press.
+    check("the lightbox's use button is optional",
+          "function lightbox(url, onUse, caption)" in screen and
+          "(onUse ? '<button" in screen)
+    check("and the screenshot opens without one", "lightbox(img.src, null," in screen)
+    check("it says so on the panel too", "Reference only" in screen)
+
+
+def test_the_font_signal_says_only_what_it_measured():
+    """`has_google_font_api` is a boolean about loading, never about which
+    face. A note implying otherwise is worse than no note."""
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    screen = BUILD_HTML.read_text()
+
+    check("the route reads it", 'gdpr.get("has_google_font_api")' in link)
+    check("and it is tri-state, because absent is not no",
+          "if not isinstance(google_fonts, bool):\n            google_fonts = None" in link)
+    check("the route says what it will not claim",
+          "never says *which* face" in link)
+    check("the screen says nothing when it was not measured",
+          "if (uses === null || uses === undefined) return;" in screen)
+    check("a true is stated as the weak signal it is",
+          "The scan does not say which one." in screen)
+    check("and a false is the actionable direction",
+          "nothing here will match it by accident" in screen)
+    check("it sits in the Type panel, where the decision is",
+          "'<div id=\"siteType\"></div>' +" in screen)
 
 # ---------------------------------------------------------------- animation
 
@@ -1405,6 +1642,7 @@ def test_the_panel_prints_the_timing_rather_than_implying_it():
           "30000" not in screen and "30_000" not in screen)
     check("a size that cannot take one is said, not drawn as an error",
           "r.supported === false" in screen and "ships as the static ad" in screen)
+
 
 
 def main():

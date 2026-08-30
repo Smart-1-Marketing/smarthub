@@ -366,7 +366,29 @@ def api_save():
     except Exception as exc:                          # noqa: BLE001
         return jsonify({"error": f"Upload failed: {exc}"}), 502
     _log("cutout_saved", detail=client, name=name)
+    # Into the client's gallery, not only into a Cloudinary folder. The folder
+    # was the only record that a cut-out belonged to anybody, and no screen
+    # reads Cloudinary folders -- so every cut-out this tool has ever made was
+    # absent from the one page somebody opens to see what we have produced for
+    # a client. A cut-out with no client named lands under `unfiled/` and is
+    # filed nowhere, which is what hub/image_audit.py now reports.
+    gallery = {}
+    if client:
+        try:
+            from modules.image_picker.filing import file_asset
+            gallery = file_asset(
+                client_name=client, public_id=res.get("public_id", ""),
+                url=res.get("secure_url", ""), kind="cutout",
+                filename=f"{name}.png",
+                alt=f"{name.replace('-', ' ')} cut-out for {client}",
+                provider="bg_remover", saved_by=actor_name(),
+                width=res.get("width"), height=res.get("height"),
+                size_bytes=res.get("bytes"))
+        except Exception as exc:                      # noqa: BLE001
+            gallery = {"ok": False, "error": str(exc)}
     return jsonify({"ok": True, "url": res.get("secure_url", ""),
+                    "filed": bool(gallery.get("ok")),
+                    "gallery_url": gallery.get("gallery_url", ""),
                     "public_id": res.get("public_id", ""),
                     "width": res.get("width"), "height": res.get("height"),
                     "bytes": res.get("bytes")})

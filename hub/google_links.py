@@ -152,7 +152,18 @@ def _words(text: str) -> set:
 def _context() -> dict:
     """Every lookup the suggestions need, built once for the whole list."""
     ctx = {"recorded": {}, "by_domain": {}, "shared_domain": {}, "by_stem": {},
-           "by_word": {}, "common_words": set(), "sources": []}
+           "by_word": {}, "common_words": set(), "sources": [],
+           # What a model read out of each resource label, where one was
+           # pressed for. Read once for the whole book: a lookup per row is a
+           # file read per row with a database restore behind each miss. A
+           # store that will not open is {} and every rule below behaves
+           # exactly as it did before this existed.
+           "readings": {}}
+    try:
+        from hub import google_names_ai
+        ctx["readings"] = google_names_ai.readings()
+    except Exception:                                   # noqa: BLE001
+        ctx["readings"] = {}
 
     # Knack's recorded GA and GTM ids. The strongest signal available, because
     # it is the client's own record naming the property rather than anything
@@ -306,6 +317,42 @@ def suggest_for(item: dict, ctx: dict | None = None) -> list[dict]:
                  "More than one client could be meant by this name, so nothing "
                  "was matched automatically.")
 
+        # The same question, asked of the business a model read out of the
+        # label rather than of the label itself. "FabLocal – SERVPRO Fresno
+        # GTM" resolves to nothing; "SERVPRO Fresno" resolves the way any
+        # typed name does.
+        #
+        # Through the identical `client_key.resolve()` above, so the rules
+        # that decide have not changed: exact is a match, two clients
+        # answering to one name propose neither, anything softer is
+        # `possible`. `_add()` keeps the best confidence anything gave a
+        # client, so this can never displace a recorded id or a domain — a
+        # reading of a label is a guess about what somebody meant, and those
+        # two are identifiers.
+        read_name = ""
+        try:
+            from hub import google_names_ai
+            read_name = google_names_ai.business_in(label, ctx.get("readings"))
+        except Exception:                               # noqa: BLE001
+            read_name = ""
+        from hub.name_reading import key_for as _nkey
+        if read_name and _nkey(read_name) != _nkey(label):
+            try:
+                from hub import client_key
+                rhit = client_key.resolve(name=read_name, allow_fuzzy=True)
+            except Exception:                           # noqa: BLE001
+                rhit = None
+            if rhit and rhit.get("known"):
+                _add(out, rhit["client"],
+                     "name" if rhit.get("confidence") == "exact" else "possible",
+                     f"Read as “{read_name}”, which is that client"
+                     + ("." if rhit.get("confidence") == "exact"
+                        else " — a suggestion; confirm it."))
+            for cand in (rhit or {}).get("candidates") or []:
+                _add(out, cand, "possible",
+                     f"Read as “{read_name}”, and more than one client could "
+                     "be meant by that.")
+
     # Last and loosest: a word shared between this resource and a client name.
     # A GTM container called "Buckeye Marina - new" and a client filed as
     # "Buckeye Lake Marina" match on nothing above — not the domain (a
@@ -405,6 +452,22 @@ def _orphan_book() -> dict:
     except Exception:                                   # noqa: BLE001
         return build()
     return report_cache.serve("google-orphans", build)
+
+
+def _label_reading_state(rows) -> dict:
+    """How many orphan labels have been read, and how many are left.
+
+    Tri-state, like every count in this Hub a page prints: a store we could
+    not open is **not measured**, never zero, because zero here reads as
+    "there is nothing to read" on the one screen that decides whether to
+    spend anything.
+    """
+    try:
+        from hub import google_names_ai
+        return google_names_ai.state(google_names_ai.labels_of(rows))
+    except Exception as exc:                            # noqa: BLE001
+        return {"measured": False, "read": 0, "pending": 0,
+                "configured": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def orphans(q: str = "", platform: str = "", include_other: bool = False,
@@ -527,6 +590,11 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
         "rows": page,
         "with_suggestion": sum(1 for r in kept if r["suggestions"]),
         "orphans_total": len(unmapped),
+        # What "Read the labels" would cost and what it has already read.
+        # Counted over the WHOLE unmatched book, not this page: a button that
+        # says 25 on a book of four hundred is a number that lies, which is
+        # the reason every other count in this reply is of the whole list too.
+        "ai_names": _label_reading_state(unmapped),
         "by_platform": {PLATFORM_LABELS.get(k, k): v for k, v in
                         sorted(by_key.items(), key=lambda kv: -kv[1])},
         "resources": status.get("resources", 0),

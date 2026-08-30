@@ -743,7 +743,15 @@ def gallery_background_source():
             row = ip.SavedImage(
                 client_id=gallery.id, provider="test", provider_image_id=pid,
                 cloudinary_public_id=pid,
-                cloudinary_url=f"https://res.cloudinary.com/x/{pid}.jpg",
+                # The real delivery shape, "<cloud>/<type>/upload/<version>/
+                # <public_id>", because the preview rewrite keys on it: a
+                # shortened fake URL is one hub/storage.preview_url() rightly
+                # declines to touch, so a fixture that does not look like
+                # Cloudinary leaves that rule untested and passing.
+                cloudinary_url=(
+                    "https://res.cloudinary.com/demo/"
+                    + ("raw" if kw.get("resource_type") == "raw" else "image")
+                    + f"/upload/v1/{pid}.jpg"),
                 collection_kind=kind, **kw)
             db.add(row)
             return row
@@ -781,6 +789,46 @@ def gallery_background_source():
     check("the label carries the real dimensions",
           next((i["label"] for i in res["images"]
                 if i["public_id"] == "crew"), "") == "1600\u00d7900")
+
+    # The chooser draws each of these into a 126px tile. It used to ask for
+    # the full asset, which on a gallery of phone photographs is megabytes a
+    # head to fill a thumbnail -- and this grid was the one gallery the
+    # preview change could not reach, because the renderer is TypeScript.
+    # Its rows come from here, so the rule is applied on this side rather
+    # than mirrored into the renderer.
+    # Read with .get() throughout: a missing field is the regression this is
+    # here to report, and an assertion that raises on it takes every check
+    # after it out of the run instead.
+    crew = next((i for i in res["images"] if i["public_id"] == "crew"), {})
+    check("a gallery row carries a preview for the tile",
+          "c_limit" in crew.get("thumb", ""), crew.get("thumb"))
+    check("...and the full asset is untouched beside it",
+          crew.get("url") == "https://res.cloudinary.com/demo/image/upload/v1/crew.jpg",
+          crew.get("url"))
+    # Not "every row is truthy" -- thumb falls back to the asset, so that
+    # passes on a preview that was never computed. Every row is capped, and
+    # none of them lost its original.
+    check("every offered row is capped",
+          bool(res["images"]) and
+          all("c_limit" in i.get("thumb", "") for i in res["images"]),
+          str([i.get("thumb") for i in res["images"]]))
+    check("and every one keeps its own full asset",
+          all(i.get("url", "").endswith(i["public_id"] + ".jpg")
+              for i in res["images"]))
+
+    # Which matters because the tile and the picture are different things: a
+    # 400px preview applied behind an ad would be the wrong file in the
+    # creative, and the magnifier's whole job is the full asset.
+    _bg = (ROOT / "modules" / "ad_builder" / "public" / "build.html").read_text()
+    check("the tile draws the preview",
+          "esc(it.thumb || it.url)" in _bg)
+    check("applying a background uses the original",
+          "applyBackground(items[Number(el.dataset.pick)].url" in _bg)
+    check("and so does the magnifier", "lightbox(items[i].url" in _bg)
+    # A source that carries no preview falls back to the asset, so stock, AI
+    # and a fresh upload draw exactly what they drew before.
+    check("a source with no preview still draws",
+          "thumb: i.thumb || ''" in _bg)
 
     # The loop the upload source depends on: a picture filed from the editor
     # has to come back out of the gallery source, or the next person uploads

@@ -64,7 +64,15 @@ def _install_login_guard(bp):
     `modules/scans` get this from `wsgi.py`'s `PUBLIC_PREFIXES`, which is
     handed to `AuthGuard` by `_mount()` — and this module is a blueprint on
     the hub app rather than a mounted one, so nothing in `wsgi.py` ever sees
-    it. That difference is the whole reason this is written out here.
+    it. That difference is the whole reason a guard is needed here at all.
+
+    The guard itself is `hub/blueprint_guard.py`. It was written out in this
+    file first and then copied into `modules/calculators`, and three further
+    blueprints turned out to need it — so it is shared now, and the JSON-401
+    this file worked out went into it rather than being left behind here.
+    `public` there is matched under the mount, so moving the mount cannot
+    silently un-publish the review page, and `/review/` keeps its trailing
+    slash so a route called `/reviewers` is not accidentally public.
 
     Exempting it from the login is only half. The hub app's own
     `after_request` injects the sidebar, the help layer and the feedback tab
@@ -73,29 +81,9 @@ def _install_login_guard(bp):
     """
     if _hub_auth is None:
         return
-
-    public = tuple(review.PUBLIC_PATHS)
-
-    @bp.before_request
-    def _require_hub_login():                      # noqa: ANN202
-        from flask import jsonify, redirect, request
-
-        # Matched against the path under this blueprint's own mount, so
-        # moving the mount cannot silently un-publish the review page — and
-        # `/review/` is matched with its trailing slash, so a route called
-        # `/reviewers` is not accidentally public.
-        under_mount = request.path[len(bp.url_prefix or ""):] or "/"
-        if any(under_mount.startswith(p) for p in public):
-            return None
-        if _hub_auth.user_from_environ(request.environ):
-            return None
-        # A fetch() that follows a redirect to the login page parses the HTML
-        # as JSON and reports "Bad response from server", which says nothing
-        # about the real problem. JSON callers get a 401 they can read.
-        if "/api/" in request.path or request.method not in ("GET", "HEAD"):
-            return jsonify({"ok": False, "error": "Not authenticated. "
-                                                  "Please log in to the Hub."}), 401
-        return redirect("/login?next=" + request.path)
+    from hub.blueprint_guard import install as _install_guard
+    _install_guard(bp, mount=bp.url_prefix or "",
+                   public=tuple(review.PUBLIC_PATHS))
 
 
 def create_blueprint():

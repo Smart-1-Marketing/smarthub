@@ -321,6 +321,50 @@ def locate(areas) -> dict:
     return {"points": points, "not_plotted": missed}
 
 
+def nothing_plotted_reason(placed) -> str:
+    """Why the picture is empty, in the words of whichever thing happened.
+
+    `locate()` already tells the four kinds of missing apart per row -- covered
+    but not drawable, an origin nothing could find, an area carrying no origin
+    at all -- and both callers were throwing that away and printing one
+    sentence: *an area needs a city or a ZIP Code*. So a campaign of three DMAs
+    (covered, correctly not drawn) and a campaign whose one city the geocoder
+    could not reach both read as somebody having failed to fill a field in --
+    and on the areas screen that sentence lands directly above a box naming the
+    city the area plainly has. Only two of the four are anybody's to fix, and a
+    summary that asks for a fix on the other two is the confident wrong answer
+    this module's per-row reasons exist to avoid.
+
+    One reader, because `render()` and `/api/target-map/status` answer the same
+    question and a second copy of the wording drifts the day either is edited.
+    """
+    missed = (placed or {}).get("not_plotted") or []
+    if not missed:
+        # No areas at all -- nothing has been asked of the map yet.
+        return ("There are no target areas on this campaign yet, so there is "
+                "nothing to put on a map.")
+    kinds = [row.get("kind") for row in missed]
+    if all(k in NOT_DRAWN for k in kinds):
+        # Every one of them is covered by the buy and deliberately not drawn.
+        # Nothing here is a defect, so nothing here is offered as a fix.
+        return ("Everything on this campaign is covered without being drawn — "
+                "a DMA, a state or a national buy has no ring to put on a map.")
+    fixable = [row for row in missed if row.get("kind") not in NOT_DRAWN]
+    unfound = [r for r in fixable
+               if "could not find" in str(r.get("reason") or "")]
+    if unfound and len(unfound) == len(fixable):
+        # A place was named and the lookup did not come back with it. Asking
+        # for a city that is already typed in is what this branch exists to
+        # stop; the per-row reason names the spelling it tried.
+        return ("The areas here name a place we could not look up, so there is "
+                "nothing to draw yet — see below for which.")
+    if not unfound:
+        return ("Nothing here can be placed on a map yet — an area needs a "
+                "city or a ZIP Code.")
+    return ("Some areas here carry no city or ZIP Code and others name a place "
+            "we could not look up, so there is nothing to draw yet.")
+
+
 # ---------------------------------------------------------------------------
 # Drawing it
 # ---------------------------------------------------------------------------
@@ -443,9 +487,7 @@ def render(areas, width: int = 1100, height: int = 620) -> tuple[bytes | None, d
     meta["not_plotted"] = placed["not_plotted"]
     points = placed["points"]
     if not points:
-        meta["reason"] = ("Nothing on this campaign can be put on a map yet — "
-                          "a target area needs a city or a ZIP Code to be "
-                          "placed by.")
+        meta["reason"] = nothing_plotted_reason(placed)
         return None, meta
 
     try:

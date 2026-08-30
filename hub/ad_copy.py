@@ -270,6 +270,9 @@ def form_fields(obj: str = "") -> list[dict]:
             "label": _label(f, key),
             "control": control,
             "choices": choices,
+            # A connection picker that stops short of the record somebody
+            # wants says so rather than reading as the whole book.
+            "hint": knack_api.connection_note(f, obj, control) if f else "",
             "required": bool(f.get("required")),
             # What Knack itself publishes as this field's default. Reading it
             # is not the same as choosing one — see _schema_default().
@@ -488,11 +491,16 @@ def _decorate(fields: list[dict], opts: dict) -> list[dict]:
                  "the Hub cannot upload them, so nothing is sent from here.",
     }
     for f in fields:
+        # A note the schema already put there outranks both of these: a
+        # truncated picker is the one line that says the right answer may not
+        # be on the list at all, and replacing it with "from this client's
+        # insertion orders" is how it goes unread.
+        schema_note = f.get("hint") or ""
         items, note = suggest.get(f["key"], ([], ""))
         if items:
             f["suggest"] = items
-            f["hint"] = note
-        if f["key"] in hints:
+            f["hint"] = schema_note or note
+        if f["key"] in hints and not schema_note:
             f["hint"] = hints[f["key"]]
     return fields
 

@@ -4,44 +4,33 @@
 <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Scan Widgets · Smart 1 Hub</title>
 <style>
-  :root { --navy:#0A2240; --blue:#009ED2; --ink:#25364B; --muted:#68798C;
-    --line:#DBE5ED; --bg:#F3F7FA; --ok:#2DBB72; --bad:#DC2626; --warn:#F0B429; }
+  /* The page head, cards, buttons, tables, pills and form controls come from
+     hub/static/hub-detail.css via `s1d-page` on the wrapper below. This screen
+     was the furthest out of the five in this module: --navy #0A2240 and --blue
+     #009ED2, a navy and a cyan that appear nowhere else in the Hub.
+
+     What is left is what is genuinely this screen: the embed snippet block, the
+     lead count, and the row that is being edited. */
+  /* The Hub's own values, for the handful of local rules below. */
+  :root { --navy:#1a2e58; --blue:#2563eb; --ink:#1e293b; --muted:#64748b;
+    --line:#e2e8f0; --bg:#f4f6fa; --ok:#16a34a; --bad:#dc2626; --warn:#b45309; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
     font:14.5px/1.55 'Segoe UI',system-ui,sans-serif; }
   .wrap { max-width:1060px; margin:0 auto; padding:26px 22px 80px; }
   a { color:var(--blue); }
-  h1 { color:var(--navy); font-size:25px; margin:6px 0 4px; }
-  .sub { color:var(--muted); margin:0 0 20px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:13px;
-    padding:20px 22px; margin-bottom:16px; }
-  .card h2 { font-size:13px; color:var(--navy); margin:0 0 14px;
-    text-transform:uppercase; letter-spacing:.05em; }
   .warn { background:#FEF7E7; border:1px solid #F5DFA8; color:#7A5209;
     border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:13.5px; }
-  label { display:block; font-weight:600; font-size:12.5px; color:var(--navy); margin:0 0 5px; }
-  input, textarea { width:100%; padding:9px 11px; border:1px solid var(--line);
-    border-radius:8px; font:14px inherit; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .field { margin-bottom:12px; }
-  button { background:var(--navy); color:#fff; border:0; border-radius:8px;
-    padding:10px 16px; font:600 14px inherit; cursor:pointer; }
-  button.sec { background:#fff; color:var(--navy); border:1px solid var(--line);
-    padding:7px 12px; font-size:13px; }
-  button.danger { background:#fff; color:var(--bad); border:1px solid #F3C9C9;
-    padding:7px 12px; font-size:13px; }
-  table { width:100%; border-collapse:collapse; }
-  th { text-align:left; font-size:11px; text-transform:uppercase; color:var(--muted);
-    letter-spacing:.05em; border-bottom:1px solid var(--line); padding:8px 8px 8px 0; }
-  td { border-bottom:1px solid var(--line); padding:11px 8px 11px 0; vertical-align:top; }
   code { background:#F3F7FA; border:1px solid var(--line); border-radius:6px;
     padding:1px 6px; font-size:12px; }
   pre { background:#0A2240; color:#DBE6FF; padding:13px 15px; border-radius:9px;
     overflow:auto; font-size:12px; margin:8px 0 0; }
-  .pill { display:inline-block; border-radius:999px; padding:3px 10px;
-    font-size:11.5px; font-weight:700; background:#EEF3F8; color:var(--muted); }
-  .pill.on { background:#ECFDF3; color:#12794B; }
-  .pill.off { background:#FDECEC; color:#B01919; }
+  /* This page's own words for a placement's state. The shared pill is gray by
+     default, which is right for one nobody has switched either way. */
+  .s1d-pill.on { background:#ECFDF3; color:#12794B; }
+  .s1d-pill.off { background:#FDECEC; color:#B01919; }
   .muted { color:var(--muted); font-size:12.5px; }
   .count { font-size:21px; font-weight:700; color:var(--navy); line-height:1.1; }
   .count.zero { color:var(--muted); font-weight:600; }
@@ -52,36 +41,42 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap s1d-page">
   {#
     Three ways back, because this page is reached from three places now: it has
     its own tile on /tools under Landing Pages, it is still linked from Site
     Scans, and everything it produces ends up in the Leads panel.
   #}
-  <p class="muted"><a href="/tools">&larr; Tools</a> · <a href="./">Site Scans</a> ·
-    <a href="/sales/leads">Leads panel</a></p>
-  <h1>Scan Widgets</h1>
-  <p class="sub">The embeddable AI-visibility scanner &mdash; a lead-capture page you can
-    drop on any site. Every lead it captures is tagged with its placement and lands in the
-    <a href="/sales/leads">Leads panel</a> with everything else.</p>
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb"><a href="/tools">Client Tools</a> / <a href="./">Site Scans</a> / Scan Widgets</div>
+      <h1>Scan Widgets</h1>
+      <p>The embeddable AI-visibility scanner &mdash; a lead-capture page you can
+        drop on any site. Every lead it captures is tagged with its placement and lands in the
+        <a href="/sales/leads">Leads panel</a> with everything else.</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/sales/leads">Leads panel</a>
+    </div>
+  </div>
 
   {% if not insites_ok %}
-    <div class="warn"><b>Insites isn't configured.</b> The free pre-check still
+    <div class="s1d-note warn"><b>Insites isn't configured.</b> The free pre-check still
       runs and leads are still captured, but no deep scan will start until
       <code>INSITES_API_KEY</code> is set.</div>
   {% endif %}
   {% if leads_route != 'api' %}
-    <div class="warn"><b>Lead delivery isn't configured.</b> Leads are stored in the
+    <div class="s1d-note warn"><b>Lead delivery isn't configured.</b> Leads are stored in the
       <a href="/sales/leads">leads panel</a> and can be retried from there, but nothing
       reaches Smart 1 Suite until <code>GHL_LEAD_LOCATION_ID</code> is set. The old
       <code>HUB_LEAD_WEBHOOK_URL</code> route is retired and is not a fallback.</div>
   {% endif %}
   {% if stats_error %}
-    <div class="warn"><b>We couldn't count what these placements have produced.</b>
+    <div class="s1d-note warn"><b>We couldn't count what these placements have produced.</b>
       The Leads column reads <i>not measured</i> rather than nought, and deleting a
       placement is refused until it can be counted. <span class="muted">{{ stats_error }}</span></div>
   {% endif %}
-  {% for w in warnings %}<div class="warn">{{ w }}</div>{% endfor %}
+  {% for w in warnings %}<div class="s1d-note warn">{{ w }}</div>{% endfor %}
 
   <script type="application/json" id="kindData">{{ kinds|tojson }}</script>
 
@@ -144,7 +139,7 @@
         <tr id="row-{{ w.slug }}">
           <td><b>{{ w.name }}</b>
             <div class="muted">{{ w.kind_label }} &middot; {{ w.headline }}</div>
-            <span class="pill {{ 'on' if w.active else 'off' }}">{{ 'live' if w.active else 'paused' }}</span>
+            <span class="s1d-pill {{ 'on' if w.active else 'off' }}">{{ 'live' if w.active else 'paused' }}</span>
           </td>
           <td><code>{{ w.tag }}</code></td>
           {#

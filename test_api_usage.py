@@ -281,13 +281,142 @@ check("a refused call still spent its quota", g["measured"]["calls"], 12_101)
 # ------------------------------------------------------------ 11. blind spots
 section("A call site that spends without recording is named, not missed")
 blind = quotas.untracked_provider_calls(force=True)
-check("every provider is scanned", sorted(blind), ["cloudinary", "elevenlabs", "google"])
+# Pinned deliberately. A provider that quietly leaves this list is a spend
+# nothing counts any more, and the whole point of the scanner is that the gap
+# is named rather than silent — so growing it is an edit somebody makes on
+# purpose, which is what this assertion forces.
+#
+# The last three arrived together: HeyGen, Runway and Creatomate all bill per
+# generation, were recorded nowhere, and had no marker here — so no check
+# could ever have named them, which is why it stood.
+check("every provider is scanned", sorted(blind),
+      ["brandfetch", "cloudinary", "creatomate", "elevenlabs", "google",
+       "heygen", "runway"])
 # This is the point of the check: the repository is expected to be clean, and
 # the moment a new module calls one of these without recording it, this fails
 # here and on /api/integrity rather than quietly understating the bill.
 for provider, found in blind.items():
     check(f"no unrecorded {provider} call sites",
           [f["file"] for f in found], [])
+
+# Brandfetch joined the table late, and the two things that make it worth
+# having are the two it could most easily get wrong.
+section("The Brandfetch scan bites, and does not cry wolf on a key check")
+_bf = quotas._PROVIDER_MARKERS["brandfetch"]
+
+# A module that looks a client up and records nothing is the whole point.
+check("a direct lookup with no recording is caught",
+      _bf["calls"]("r = requests.get('https://api.brandfetch.io/v2/brands/' + d)")
+      and not any(m in "r = requests.get('https://api.brandfetch.io/v2/brands/' + d)"
+                  for m in _bf["recorded"]),
+      True)
+# Both of Brandfetch's published type routes are real. Matching one path would
+# give a module a clean bill for using the other spelling.
+check("and so is the explicit domain route",
+      _bf["calls"]("requests.get(f'https://api.brandfetch.io/v2/brands/domain/{d}')"), True)
+# Going through the shared lookup is what clears it.
+check("a module on hub/brand_lookup.py is clear",
+      any(m in "from hub import brand_lookup\nbrand_lookup.lookup(d)"
+          for m in _bf["recorded"]), True)
+# The sign-in health panel and diagnostics fetch Brandfetch's OWN domain to
+# prove the key still works. Flagging that would put a finding nobody can act
+# on in front of somebody from the day this landed, and a check that starts
+# life red is one people switch off.
+check("a key-validity probe is not a client lookup",
+      _bf["calls"]("requests.get('https://api.brandfetch.io/v2/brands/brandfetch.com')"),
+      False)
+
+section("Image Creator asks what is stored before it spends a call")
+# It used to fetch FIRST and consult the Hub's stored brand data only if the
+# fetch came back empty -- so the store was a fallback for a failed call, and
+# every search for a client already on file spent one of the plan's hundred
+# monthly lookups on an answer the Hub was already holding.
+from unittest import mock as _mock                            # noqa: E402
+from hub import brand_lookup as _bl                           # noqa: E402
+from modules.image_creator import assets as _ic               # noqa: E402
+
+_PAYLOAD = {"name": "Icon Solar", "domain": "iconsolar.com",
+            "logos": [{"type": "logo",
+                       "formats": [{"src": "http://x/l.svg", "format": "svg"}]}],
+            "colors": [{"hex": "#123456"}]}
+
+with _mock.patch.object(_bl, "requests") as _rq, \
+     _mock.patch("hub.seo.brand_for", return_value=_PAYLOAD):
+    _out = _ic.brand_lookup("iconsolar.com", client="Icon Solar")
+    check("a stored answer costs no call", _rq.get.call_count, 0)
+    check("and is still the answer", _out.get("name"), "Icon Solar")
+    check("with its logos", len(_out.get("logos") or []), 1)
+
+_resp = _mock.Mock(status_code=200, ok=True)
+_resp.json.return_value = dict(_PAYLOAD)
+with _mock.patch.object(_bl, "requests") as _rq, \
+     _mock.patch("hub.seo.brand_for", return_value=None), \
+     _mock.patch("hub.seo.save_brandfetch") as _save, \
+     _mock.patch.object(_bl, "_key", return_value="k"):
+    _rq.get.return_value = _resp
+    _rq.RequestException = Exception
+    _ic.brand_lookup("iconsolar.com", client="Icon Solar")
+    check("a miss goes to Brandfetch, once", _rq.get.call_count, 1)
+    check("and what it paid for is kept against the client",
+          _save.called and _save.call_args.kwargs.get("client"), "Icon Solar")
+
+# A cache hit answers with no key at all, which this function has always
+# promised, so "not configured" is only right when nothing was stored either.
+with _mock.patch.object(_bl, "configured", return_value=False), \
+     _mock.patch("hub.seo.brand_for", return_value=None):
+    check("the unconfigured wording survives the move",
+          "nothing is cached" in (_ic.brand_lookup("iconsolar.com").get("error") or ""), True)
+check("and so does the empty-query one",
+      _ic.brand_lookup("").get("error"), "Enter a company name or domain.")
+
+
+section("The Suite Panel stores what Brandfetch returned, not its own reshape")
+# This is the one that was losing data rather than money. Every other caller
+# stores the RAW Brandfetch payload, which is the shape hub/client_brand.py
+# walks -- `logos` as a list of objects each carrying `formats`. The Suite
+# Panel stored a bare `logo` URL string and no `logos` key at all, keyed on the
+# domain, so a lookup here overwrote a good payload with one the Client 360
+# brand card cannot read: colours, and no logo, silently.
+from hub import client_brand as _cb                            # noqa: E402
+import importlib as _il                                        # noqa: E402
+_sp = _il.import_module("modules.suite_panel.app")
+
+_RAW = {"name": "Icon Solar", "domain": "iconsolar.com",
+        "logos": [{"type": "logo", "theme": "light",
+                   "formats": [{"src": "http://x/l.png", "format": "png"}]}],
+        "colors": [{"hex": "#123456", "type": "primary"}]}
+_RESHAPED = {"name": "Icon Solar", "domain": "iconsolar.com",
+             "logo": "http://x/l.png", "icon": None,
+             "colors": [{"hex": "#123456", "type": "primary"}]}
+
+with _mock.patch("hub.seo.brand_for", return_value=_RAW):
+    check("the raw shape puts a logo on the client's card",
+          len(_cb.brand_kit("Icon Solar", "iconsolar.com").get("logos") or []), 1)
+with _mock.patch("hub.seo.brand_for", return_value=_RESHAPED):
+    _k = _cb.brand_kit("Icon Solar", "iconsolar.com")
+    check("the reshaped one puts none there — colors, and no logo",
+          (len(_k.get("logos") or []), len(_k.get("colors") or [])), (0, 1))
+
+_c = _sp.app.test_client()
+with _mock.patch.object(_bl, "lookup", return_value={"found": True, "payload": _RAW}), \
+     _mock.patch("hub.seo.save_brandfetch") as _save:
+    _r = _c.get("/api/brand?domain=iconsolar.com&client=Icon+Solar")
+    check("so the route saves nothing of its own", _save.called, False)
+    check("and still answers in its own format", _r.get_json().get("logo"), "http://x/l.png")
+
+# The status codes this panel's script branches on, each from the answer
+# lookup() actually gives. 429 keeps its own wording because "try again later"
+# is different advice from "the key was refused".
+for _name, _ret, _want in (
+    ({"found": False, "unconfigured": True}, None, 400),
+    ({"found": False, "note": "Nothing is published for iconsolar.com."}, None, 404),
+    ({"found": False, "note": "The brand lookup answered HTTP 429."}, None, 429),
+    ({"found": False, "refused": True, "note": "refused our key"}, None, 502),
+):
+    with _mock.patch.object(_bl, "lookup", return_value=_name):
+        check(f"status {_want} survives the move",
+              _c.get("/api/brand?domain=iconsolar.com").status_code, _want)
+
 
 section("The integrity page reports the same scan, from the same code")
 from hub import integrity                                # noqa: E402

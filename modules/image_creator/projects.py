@@ -191,6 +191,28 @@ def save_project(name: str, canvas: dict, preview: str = "", client: str = "",
     rows = [r for r in rows if r.get("id") != pid]
     rows.insert(0, record)
     _save_index(rows[:3000])
+
+    # And into the client's gallery, where somebody looking at the client can
+    # actually find it. This index is the Image Creator's own list; nothing on
+    # a client record reads it, so a graphic made for a client was invisible
+    # from that client's page. Only when a client is named -- a one-off
+    # graphic with nobody attached is a real thing and is not filed to a guess.
+    if record["client"] and preview_url:
+        try:
+            from modules.image_picker.filing import file_asset
+            # The real Cloudinary id, deterministic from the folder and the
+            # project id -- a synthetic one would dedupe correctly and then
+            # send a gallery delete at a public_id that does not exist.
+            file_asset(client_name=record["client"],
+                       public_id=f"{FOLDER}/previews/{pid}",
+                       url=preview_url, kind="graphic",
+                       filename=f"{record['slug']}.png",
+                       alt=f"{record['name']} — graphic for {record['client']}",
+                       provider="image_creator", saved_by=record["updated_by"],
+                       width=record["width"] or None,
+                       height=record["height"] or None)
+        except Exception as exc:                      # noqa: BLE001 — the
+            print("gallery filing failed:", exc)      # project itself is saved
     return record
 
 

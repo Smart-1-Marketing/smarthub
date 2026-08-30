@@ -73,17 +73,17 @@
   </div>
 
   <div class="grid g3" style="margin-bottom:12px">
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">Credentials</div>
       <div class="v" style="font-size:17px">{{ 'Configured' if status.configured else 'Incomplete' }}</div>
       <div class="f">{{ ('Missing: ' + status.missing|join(', ')) if status.missing else 'All keys present' }}</div>
     </div>
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">Authorization</div>
       <div class="v" style="font-size:17px">{{ 'Connected' if status.connected else 'Not connected' }}</div>
       <div class="f">{{ status.refresh_token_source }}</div>
     </div>
-    <div class="stat">
+    <div class="s1d-tile">
       <div class="l">API version</div>
       <div class="v" style="font-size:17px">{{ status.api_version }}</div>
       <div class="f">{{ ('MCC ' + status.login_customer_id) if status.login_customer_id else 'No login-customer-id set' }}</div>

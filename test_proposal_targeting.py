@@ -302,9 +302,36 @@ check("and the key underneath it is counted in that, not added after",
 
 check("a campaign with nothing placeable draws no map at all",
       tmap.render([{"type": "National"}])[0] is None)
-check("and says why, in words a rep can act on",
-      "city or a ZIP" in tmap.render([{"type": "National"}])[1]["reason"],
-      tmap.render([{"type": "National"}])[1]["reason"])
+
+# Four kinds of missing are four answers, and the summary used to print one of
+# them whichever had happened: *an area needs a city or a ZIP Code*, over a
+# national buy that is covered and correctly not drawn, and over a city the
+# geocoder simply could not reach -- which on the areas screen lands directly
+# above a box naming the city the area plainly carries. Only two of the four
+# are anybody's to fix, so only those two ask for a fix.
+national = tmap.render([{"type": "National"}])[1]["reason"]
+check("a buy that is covered without being drawn says so, and asks for nothing",
+      "covered without being drawn" in national and "ZIP" not in national,
+      national)
+
+nowhere = tmap.render([{"name": "Somewhere", "type": "City/ZIP + Radius",
+                        "radius": 10}])[1]["reason"]
+check("an area carrying no origin at all is the one that does need a city",
+      "city or a ZIP" in nowhere, nowhere)
+
+unfound = tmap.render([{"name": "Nowheresville", "type": "City/ZIP + Radius",
+                        "origin": "Carmel, TX", "radius": 10}])[1]["reason"]
+check("and a place we could not look up never reads as a field somebody "
+      "forgot to fill in",
+      "could not look up" in unfound and "city or a ZIP" not in unfound,
+      unfound)
+
+check("no target areas at all is its own answer",
+      "no target areas" in tmap.render([])[1]["reason"],
+      tmap.render([])[1]["reason"])
+check("and both readers of that sentence are the same reader",
+      "nothing_plotted_reason" in open(
+          os.path.join(ROOT, "modules", "sales_builder", "app.py")).read())
 
 
 def _dead_tile(session, z, x, y, deadline=0.0):

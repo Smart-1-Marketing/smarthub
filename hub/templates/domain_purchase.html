@@ -41,10 +41,17 @@
     <div class="dp-metrics" id="ytdMetrics"></div>
     <div class="dp-bar">
       <button class="dp-btn primary" onclick="loadYtd()">Load year to date</button>
+      {#- Its own control, and a button rather than something the report does
+          on its own, because the call is billed — the same rule Refresh on
+          the calendar tab works to. It says the number it would read, so
+          pressing it is not how you find out what it does. -#}
+      <button class="dp-btn" id="ytdRead" onclick="readDescriptions()"
+              style="display:none"></button>
       <span class="dp-muted">Reads the same two stored pulls the calendar
         does. Refresh, on the calendar tab, is the one control that reaches
         Knack and QuickBooks.</span>
     </div>
+    <div id="ytdReadNote" class="dp-note" style="display:none"></div>
     <div id="ytdOut"><p class="dp-muted">Nothing loaded yet.</p></div>
   </div>
 </div>
@@ -427,8 +434,81 @@ function clearDnr(btn,id){
 /* ------------------------------------------------------------------ *
  * Year to date — both directions of the same question
  * ------------------------------------------------------------------ */
+/* What the button says, drawn from the report rather than from a guess.
+   Four answers, not two: no key set, nothing left to read, some left, and
+   "we could not look" — which is not the same as nothing being read and
+   would otherwise be a press somebody makes for no reason. */
+function drawReadBtn(){
+  var b=document.getElementById('ytdRead');
+  var note=document.getElementById('ytdReadNote');
+  var a=(YTD&&YTD.ai_names)||null;
+  if(!b||!note) return;
+  if(!a||!a.measured){
+    b.style.display='none';
+    note.style.display=a?'block':'none';
+    if(a) note.innerHTML='The stored readings could not be opened, so this is '
+      +'<b>not measured</b> rather than none. '+esc(a.error||'');
+    return;
+  }
+  if(!a.configured){
+    b.style.display='none';
+    note.style.display=a.read?'block':'none';
+    if(a.read) note.innerHTML=a.read+' description(s) already read. Reading '
+      +'more needs <code>OPENAI_API_KEY</code> on the server.';
+    return;
+  }
+  note.style.display=a.read?'block':'none';
+  if(a.read) note.innerHTML='<b>'+a.read+'</b> unmatched description(s) have '
+    +'been read for the business inside them. A reading is a <b>suggestion</b>: '
+    +'it resolves against the registry by the same rules a typed name does, it '
+    +'is never better than <i>suggested</i>, and a suggested charge still '
+    +'counts as having no record here until you link it.';
+  b.style.display='inline-block';
+  b.disabled=!a.pending;
+  b.textContent=a.pending
+    ? ('Read '+a.pending+' unmatched description'+(a.pending===1?'':'s')+' with AI')
+    : 'Every unmatched description has been read';
+}
+
+function readDescriptions(){
+  var a=(YTD&&YTD.ai_names)||{};
+  if(!a.pending) return;
+  if(!confirm('Read '+a.pending+' unmatched line description(s) with AI?\n\n'
+      +'This is a billed call. Only the lines every matching rule already '
+      +'failed on are sent, and the model is shown the description only — '
+      +'never the registry. Nothing is marked billed by this.')) return;
+  var b=document.getElementById('ytdRead');
+  var busy=window.S1Think
+    ? window.S1Think.busy(b,{kind:'ai',label:'Reading the descriptions…'})
+    : (function(){b.disabled=true;return {done:function(){b.disabled=false;}};})();
+  fetch('/api/domains/read-descriptions',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({})})
+   .then(function(r){return r.json();})
+   .then(function(d){
+     busy.done();
+     var note=document.getElementById('ytdReadNote');
+     note.style.display='block';
+     note.textContent=d.note||d.error||'Nothing came back.';
+     /* Re-run the report so the readings are actually applied — a button that
+        stores an answer and leaves the page showing the one from before it
+        reads as a button that did nothing. */
+     loadYtd();
+   })
+   .catch(function(e){
+     busy.done();
+     var note=document.getElementById('ytdReadNote');
+     note.style.display='block';
+     note.textContent='The descriptions could not be read: '+e;
+   });
+}
+
 function loadYtd(){
-  document.getElementById('ytdOut').innerHTML='<p class="dp-muted">Reading the stored registry and charges…</p>';
+  var host=document.getElementById('ytdOut');
+  host.innerHTML='<p class="dp-muted" id="ytdBusy"></p>';
+  if(window.S1Think) window.S1Think.attach('ytdBusy',
+    {kind:'wait',label:'Reading the stored registry and charges…'});
+  else host.innerHTML='<p class="dp-muted">Reading the stored registry and charges…</p>';
   fetch('/api/domains/ytd',{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){YTD=d;renderYtd();})
     .catch(function(){document.getElementById('ytdOut').innerHTML=
@@ -466,7 +546,12 @@ function chargeRow(c,i){
     '<td>'+dollars(c.amount)+'</td>'+
     '<td>'+esc(c.description||'')+
       '<span class="dp-sm">read as '+(what.length?what.join(' · '):
-        'nothing that identifies a business')+'</span></td>'+
+        'nothing that identifies a business')+'</span>'+
+      /* Two different claims, and a reader has to be able to tell them
+         apart: what the description *says*, and what a model thought it
+         meant. */
+      (c.read_name?'<span class="dp-sm">AI read the business as “'+
+        esc(c.read_name)+'”</span>':'')+'</td>'+
     '<td>'+(c.confidence==='probable'?'<span class="pill due">suggested</span>':
             '<span class="pill bad">no record</span>')+
       '<span class="dp-sm">'+esc(c.why||'')+'</span>'+
@@ -512,6 +597,7 @@ function attach(i,recordId,domain){
 
 function renderYtd(){
   var d=YTD; if(!d) return;
+  drawReadBtn();
   document.getElementById('ytdMetrics').innerHTML=
     [['Renewals reconciled',d.reconciled_count],
      ['Renewed, never billed',d.not_billed_count],

@@ -20,7 +20,7 @@ import type {
   RenderResult,
   SizeKey,
 } from './types';
-import { compose, resolveColor } from './svg';
+import { compose, resolveColor, reverseLogoOnPanel } from './svg';
 import { rasterise } from './raster';
 import { rollUp, runQa } from './qa';
 import { applyBlockStyles, type StyleOverrides } from './block-style';
@@ -75,7 +75,13 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
   const scale = rule.deliverScale;
   const copy = copyForSize(concept, size);
   // Passed through so the composer can pick the reverse logo on dark panels.
-  (copy as any).__useReverseLogo = concept.useReverseLogo ?? layout.background === 'dark';
+  // Decided from the colour the background role resolves to, never the role's
+  // name -- see reverseLogoOnPanel(). The concept-wide flag stays an explicit
+  // override, but it is no longer the only thing that can get this right: it
+  // is one boolean per concept while `background` varies per size, so on a
+  // mixed template (T04 ships 2 `primary` sizes and 13 `light` ones) no single
+  // value of it is correct for every size.
+  (copy as any).__useReverseLogo = concept.useReverseLogo ?? reverseLogoOnPanel(layout, brand, concept);
 
   const composed = await compose({
     layout,
@@ -102,6 +108,7 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     hero: concept.hero,
     scale,
     includeText: false,
+    includeLogo: false,
     noBakedCta: rule.noBakedCta,
     backgroundImage: concept.backgroundImage,
     backgroundOverlay: concept.backgroundOverlay,
@@ -184,7 +191,8 @@ export async function renderPreview(opts: {
 
   const scale = rule.deliverScale;
   const copy = copyForSize(concept, size);
-  (copy as any).__useReverseLogo = concept.useReverseLogo ?? layout.background === 'dark';
+  // Same rule as the deliver path, or the preview and the file disagree.
+  (copy as any).__useReverseLogo = concept.useReverseLogo ?? reverseLogoOnPanel(layout, brand, concept);
 
   const composed = await compose({
     layout, brand, copy, hero: concept.hero, scale,
@@ -197,7 +205,7 @@ export async function renderPreview(opts: {
   });
   const bgPass = await compose({
     layout, brand, copy, hero: concept.hero, scale,
-    includeText: false, noBakedCta: rule.noBakedCta, assetRoot,
+    includeText: false, includeLogo: false, noBakedCta: rule.noBakedCta, assetRoot,
     backgroundImage: concept.backgroundImage, backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
     backgroundPosition: concept.backgroundPosition,
@@ -307,7 +315,11 @@ async function buildFrames(opts: {
     const overrides: StyleOverrides = mergeStyle(concept.styleOverrides, frame.style);
     const layout = applyBlockStyles(rawLayout, overrides);
     const copy = { ...baseCopy, ...(frame.copy ?? {}) } as CopySet;
-    (copy as any).__useReverseLogo = concept.useReverseLogo ?? layout.background === 'dark';
+    // The same rule the static render uses, called rather than restated: an
+    // animated ad picking a different logo from its own still sibling is
+    // exactly the drift this module keeps having to undo, and it would be
+    // invisible -- both files render, and only the pair side by side shows it.
+    (copy as any).__useReverseLogo = concept.useReverseLogo ?? reverseLogoOnPanel(layout, brand, concept);
     resolvedCopy.push(stripInternal(copy));
 
     const shared = {

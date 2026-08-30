@@ -303,6 +303,17 @@ export interface PlatformSizeRule {
   notes?: string;
   /** 'doc' = specified in the background research; 'verify' = needs confirming. */
   source: 'doc' | 'verify';
+  /**
+   * What confirmed this rule's numbers, and when.
+   *
+   * The claim, not a decoration: `source: 'doc'` says a limit came from the
+   * platform's documentation, and diagnostics.ceilingDoubt() reads *this*
+   * rather than that claim, because for a long time thirteen rules declared
+   * `doc` with nothing behind them and the panel reported a clean sweep. A
+   * rule with neither this nor `source: 'verify'` is reported as unconfirmed
+   * whatever it declares.
+   */
+  _verifiedAgainst?: string;
 }
 
 export interface PlatformConfig {

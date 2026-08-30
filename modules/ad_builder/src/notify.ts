@@ -89,6 +89,60 @@ export async function notify(n: Notification, outDir: string): Promise<NotifyRes
   return { sent: true, transports, error: errors.join('; ') || undefined };
 }
 
+export interface NotifyState {
+  /** Transports that can actually deliver a message right now. */
+  ready: string[];
+  /** Transports set up but unable to send, and why. */
+  blocked: { transport: string; why: string }[];
+}
+
+/**
+ * What the alert channel can actually do, rather than which keys are present.
+ *
+ * The distinction earns its place on one case: `RESEND_API_KEY` set with no
+ * `EMAIL_TO` is a transport that is configured and throws on every send --
+ * sendResend() raises before it reaches the API. A boolean over the two keys
+ * calls that healthy, which is the confident wrong answer: somebody who set
+ * the key believes alerts are on, and every one of them lands in the outbox
+ * behind an error nobody reads. Set up and failing is not the same state as
+ * not set up, and only one of the two is somebody halfway through a job.
+ */
+export function notificationsState(): NotifyState {
+  const ready: string[] = [];
+  const blocked: { transport: string; why: string }[] = [];
+
+  if (process.env.RESEND_API_KEY) {
+    if (process.env.EMAIL_TO) ready.push('email');
+    else blocked.push({ transport: 'email', why: 'RESEND_API_KEY is set but EMAIL_TO is not' });
+  }
+  if (process.env.NOTIFY_WEBHOOK_URL) ready.push('webhook');
+
+  return { ready, blocked };
+}
+
 export function notificationsConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY || process.env.NOTIFY_WEBHOOK_URL);
+  return notificationsState().ready.length > 0;
+}
+
+/**
+ * How many alerts have gone to the outbox, and when the last one did.
+ *
+ * A warning that says a channel is unconfigured is abstract; one that says
+ * thirty-seven alerts went nowhere, the most recent an hour ago, is a thing
+ * somebody acts on. Counted rather than read: these lines carry client names
+ * and this feeds a page.
+ */
+export function outboxState(outDir: string): { count: number; latest?: string } {
+  const file = path.join(outDir, 'notifications', 'outbox.jsonl');
+  try {
+    const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
+    let latest: string | undefined;
+    for (let i = lines.length - 1; i >= 0 && !latest; i--) {
+      try { latest = JSON.parse(lines[i])?.at; } catch { /* a torn line costs the date, not the count */ }
+    }
+    return { count: lines.length, latest };
+  } catch {
+    // No file is the ordinary case on a fresh boot and is not an error.
+    return { count: 0 };
+  }
 }
