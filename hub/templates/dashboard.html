@@ -155,6 +155,20 @@
        route is putting it where people already look. Every figure opens the
        rows behind it rather than the tool the reader would then have to
        filter themselves. #}
+    {# The pipeline, on the page everybody opens. Three phases of work gave
+       the Hub real knowledge about every proposal — who opened it, whether
+       the pricing still stands, whether the client said yes — and all of it
+       was readable only inside the Proposal Builder, while this page carried
+       eleven KPIs about live business and not one about what is quoted. Same
+       answer as the social scoreboard below it, and the same rules: every
+       figure opens the rows behind it, and each zero says which kind it is. #}
+    <div class="card">
+      <div class="card-h"><h3>Proposals</h3><div class="right"><a class="open-link" href="/sales/builder/">Open the builder →</a></div></div>
+      <div class="card-b">
+        <div id="salesboard"><span class="muted">Reading the pipeline… <span class="spin"></span></span></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-h"><h3>Social content requests</h3><div class="right"><a class="open-link" href="/tools/social/requests">Open the queue →</a></div></div>
       <div class="card-b">
@@ -361,6 +375,68 @@ fetch('/api/presence').then(r=>r.json()).then(d=>{
 }).catch(()=>{
   const host=$('presence');
   if(host) host.innerHTML='<span class="muted">Signed in now: not measured.</span>';
+});
+
+/* The pipeline. Same three rules as the scoreboard below, and one of its own:
+   the five signals are kept apart rather than folded into a single "needs
+   attention" figure, because "they have not opened it", "they read it and
+   said nothing", "the price is about to lapse" and "they said yes and nobody
+   wrote the order" are four different jobs. */
+fetch('/api/sales/scoreboard').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('salesboard');
+  if(!box) return;
+  if(!d || d.measured===false){
+    box.innerHTML='<span class="muted">'+esc((d&&d.error)||'Not measured.')+'</span>';
+    return;
+  }
+  const money=n=>'$'+Number(n||0).toLocaleString();
+  const stat=(label,value,href,warn)=>{
+    const color=warn&&value?'#dc2626':'var(--navy,#1a2e58)';
+    const inner='<div style="font-size:24px;font-weight:700;line-height:1.15;color:'
+      +color+'">'+value+'</div><div class="muted" style="font-size:11.5px">'
+      +esc(label)+'</div>';
+    return href?'<a href="'+esc(href)+'" style="text-decoration:none;display:block">'
+      +inner+'</a>':'<div>'+inner+'</div>';
+  };
+  const c=d.counts||{},u=d.urls||{};
+  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+    + stat('Open proposals',d.open_count,u.all)
+    + stat('Quoted / mo',money(d.pipeline_monthly),u.all)
+    + stat('Pricing lapsed',c.expired||0,u.expired,true)
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px">'
+    + stat('Expiring this week',c.expiring||0,u.expiring,true)
+    + stat('Never opened',c.unopened||0,u.unopened)
+    + stat('Read, no answer',c.waiting||0,u.waiting)
+    + '</div>';
+  /* Drawn in the same three-column grid so its figure lines up under the one
+     above it rather than sitting alone in a full-width block, and only when
+     there is one: a permanently empty stat is furniture. */
+  if(c.to_convert) h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px">'
+    + stat('Accepted, no IO yet',c.to_convert,u.to_convert,true)+'</div>';
+  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
+  if((d.rows||[]).length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px">';
+    d.rows.forEach(r=>{
+      let why='';
+      if(r.expires_on&&r.days_left===undefined) why='<b style="color:#dc2626">pricing lapsed</b>';
+      else if(r.days_left!==undefined) why='<b style="color:#dc2626">'+r.days_left+'d left</b>';
+      else if(r.opens) why=r.opens+(r.opens===1?' open':' opens')+', no answer';
+      else if(r.gaps!==undefined&&r.gaps!==null) why='accepted · '+r.gaps+' answer'+(r.gaps===1?'':'s')+' needed';
+      else if(r.gaps===null) why='accepted';
+      else why='not opened yet';
+      h+='<tr><td style="padding:5px 8px 5px 0"><a href="'+esc(r.url)+'">'
+        +esc(r.client||r.quote||'(no client)')+'</a></td>'
+        +'<td style="padding:5px 0;text-align:right" class="muted">'+why+'</td></tr>';
+    });
+    h+='</table>';
+    if(d.more) h+='<div class="muted" style="font-size:11.5px;margin-top:6px">'
+      +'and '+d.more+' more — <a href="'+esc(u.all)+'">the whole book</a></div>';
+  }
+  box.innerHTML=h;
+}).catch(()=>{
+  const box=document.getElementById('salesboard');
+  if(box) box.innerHTML='<span class="muted">The proposals could not be read.</span>';
 });
 
 /* The scoreboard. Three rules it shares with every other count on this page:

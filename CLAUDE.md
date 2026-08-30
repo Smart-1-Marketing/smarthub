@@ -3850,6 +3850,58 @@ touched by" while the heading says Created by; an uploaded proposal answers
 the same question with its own field, and a row from before it was recorded
 says *not recorded* rather than showing a blank somebody reads as nobody.
 
+### The pipeline was knowledge the Hub had and told nobody
+
+`hub/sales_status.py`, the **Proposals** card on the dashboard, and
+`/api/sales/scoreboard`. Three phases of work gave the Hub real knowledge
+about every proposal — who opened it and how many times, whether the pricing
+still stands, whether the client accepted, what the campaign costs — and all
+of it was readable only inside the Proposal Builder. The dashboard everybody
+opens carried eleven KPIs about *live* business (clients, live products, live
+budget, websites, billing) and **not one figure about pipeline**: nothing
+quoted, nothing waiting on a client, nothing won and not yet trafficked. There
+was no scheduled sweep either.
+
+That is the shape `hub/social_status.py` already answers next door, and its
+note applies word for word: there is no mailer in this Hub, so the honest
+route is putting it where people already look.
+
+**Five signals, kept apart.** *They have not opened it*, *they read it and
+said nothing*, *the price lapses this week*, *the price has lapsed* and *they
+said yes and nobody wrote the order* send somebody to five different actions,
+and one "needs attention" figure covering all five is a figure nobody can act
+on. A quote lands in exactly one of them.
+
+**It reads the open book and nothing else** — Draft, Sent and Approved. A
+Converted or Lost quote is finished, and walking every quote ever written on a
+page that loads on every visit is the cost that gets a number turned off.
+
+**A count is never a link to a page that cannot show it.** Each figure carries
+`?focus=<signal>`, and the builder narrows its list to exactly the ids that
+reading counted — not to a status tab that is nearly the same thing — saying
+what it is showing and how to leave it. An empty bucket leaves the whole list
+rather than an empty table that reads as a book with nothing in it.
+
+**Each zero says which kind of zero it is.** "Nothing is waiting on a client"
+and "no client link has ever been sent for any of these" render identically as
+a nought and only the second is somebody's to fix.
+
+**One reading, two screens.** The Proposal Builder's own dashboard is handed
+the same block by `/api/dashboard`, because two screens answering "what needs
+chasing" separately is how they come to disagree in front of the same rep —
+the `/api/db/structure` versus `/api/integrity` trap. And the route is
+deliberately **not** a Utilities path: the presence headcount already showed
+what happens when a figure everybody sees is served by a path most accounts
+are refused.
+
+**Nothing is written anywhere.** It does not touch a quote, it does not record
+having looked, and it deliberately sends nothing to Smart 1 Suite — a nudge
+onto a client's CRM record is a different decision from surfacing a number on
+our own dashboard. `test_sales_status.py` asserts that from the **AST** rather
+than the text, because the module's own docstring names `ghl_hooks.py` as the
+precedent it follows and a check that reads prose as a call site reports the
+explanation as the defect.
+
 ### One proposal, three monthly figures, and a fourth on the insertion order
 
 `campaign_cost()`. `summarize_into()` took `monthly_budget` from the selected
@@ -6477,6 +6529,8 @@ python3 test_detail_ui.py          # one description of the record-page look, an
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
+                                   #   one reading, and counts that land on rows
 python3 test_campaign_cost.py      # one number for what the campaign costs: the
                                    #   cover, the plan, the summary and the IO
 python3 test_quote_validity.py     # how long a price stands, the Expired nothing

@@ -3133,6 +3133,22 @@ def create_hub_app() -> Flask:
         from . import social_status
         return jsonify(social_status.scoreboard())
 
+    @app.route("/api/sales/scoreboard")
+    def api_sales_scoreboard():
+        """What the pipeline is worth and what needs chasing, for the dashboard.
+
+        Not behind `access.UTILITY_PREFIXES`, for the reason the social
+        scoreboard above gives: this is the work of the people reading the
+        dashboard, and a figure everybody sees that is served by a path most
+        accounts are refused renders a confident nothing for eleven of the
+        fourteen.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import sales_status
+        return jsonify(sales_status.scoreboard())
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
