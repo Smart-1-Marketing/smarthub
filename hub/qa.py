@@ -2162,6 +2162,99 @@ def io_reconcile_report() -> dict:
     }
 
 
+
+def io_delivery_report() -> dict:
+    """Campaigns trafficked for different money than the order was written for.
+
+    The next link after Orders With No Campaign, and the one the order record
+    made possible: before `hub/io_records.py` there was nothing on our side to
+    compare against. That report asks whether a campaign exists; this asks
+    whether it is the campaign we sold.
+
+    The finding is the **money**. How many product rows a campaign was split
+    into is printed beside each order and is never itself raised — an order of
+    six lines may be trafficked as six rows or as one, nothing readable from
+    here says which convention this book follows, and a check that fired on
+    every order because of it is one somebody switches off within a week.
+    """
+    from . import io_reconcile
+
+    data = io_reconcile.delivery()
+    note = io_reconcile.delivery_note(data)
+    if not data.get("measured"):
+        return {"columns": ["Order"], "rows": [], "row_styles": [],
+                "measured": False, "error": data.get("error", ""),
+                "note": note}
+
+    columns = ["Order", "Client", "On the order", "In Knack", "Difference",
+               "Rows", "Partner", "Submitted"]
+    rows, styles = [], []
+
+    def _rowcount(row):
+        """Context, never a finding — see the note above."""
+        sold = row.get("lines_sold")
+        got = row.get("products")
+        if sold in (None, ""):
+            return f"{got} in Knack"
+        return f"{sold} sold \u2192 {got} in Knack"
+
+    def _when(row):
+        at = row.get("at")
+        return at.strftime("%b %-d, %Y") if at else "not recorded"
+
+    for row in data["rows"]:
+        client = str(row.get("client") or "")
+        diff = row.get("difference") or 0
+        rows.append([
+            str(row.get("order") or ""),
+            _c360_link(client) if client else "(no client name)",
+            _money(row.get("sold")),
+            _money(row.get("trafficked")),
+            # The words carry the direction, so a sign in front of them is
+            # noise — and the currency stays, because this is money.
+            _money(abs(diff)) + (" a month more than the order" if diff > 0
+                                 else " a month less than the order"),
+            _rowcount(row),
+            str(row.get("partner") or "") or "\u2014",
+            _when(row),
+        ])
+        # Under-delivery is red: it is money a client paid for and is not
+        # getting. Over is amber: real, and a billing conversation rather than
+        # a delivery one.
+        styles.append("bad" if row.get("direction") == "under" else "warn")
+
+    if data.get("unmeasured"):
+        rows.append([{"group": f"Could not be compared "
+                               f"({len(data['unmeasured'])})",
+                      "tone": "later"}, "", "", "", "", "", "", ""])
+        styles.append(None)
+        for row in data["unmeasured"]:
+            client = str(row.get("client") or "")
+            rows.append([
+                str(row.get("order") or ""),
+                _c360_link(client) if client else "(no client name)",
+                _money(row.get("sold")) if row.get("sold") else "\u2014",
+                # Never the partial total: the row's whole point is that the
+                # campaign's money could not be measured, and printing a
+                # figure beside that sentence invites somebody to read it as
+                # one.
+                "\u2014",
+                str(row.get("reason") or ""),
+                _rowcount(row),
+                str(row.get("partner") or "") or "\u2014",
+                _when(row),
+            ])
+            styles.append(None)
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        "measured": True,
+        "note": note,
+    }
+
+
 # Whole tools rather than table-returning functions, and every one of them
 # answers "what is wrong / what do we owe" -- which is the question the QA page
 # exists for. They were on the Tools page under a group called "Client Work",
@@ -2265,6 +2358,16 @@ REPORTS = {
         "ico": "&#9679;",
         "fn": active_clients,
         "group": "Clients",
+    },
+    "io-money-mismatch": {
+        "title": "Campaigns Not At Order Value",
+        "desc": "Insertion orders whose campaign in Knack is trafficked for "
+                "different money than the order was written for \u2014 under, "
+                "which is delivery the client is not getting, and over, which "
+                "is billing nobody wrote an order for.",
+        "ico": "&#9878;",
+        "fn": io_delivery_report,
+        "group": "Data Quality",
     },
     "io-not-in-knack": {
         "title": "Orders With No Campaign",

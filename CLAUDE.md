@@ -5736,6 +5736,56 @@ the text — this module's own docstring names Suite and `io_clients.py` as the
 things it does not touch, and a check reading prose as a call site reports the
 explanation as the defect.
 
+### And is it the campaign we sold?
+
+`hub/io_reconcile.delivery()` and **QA → Data Quality → Campaigns Not At Order
+Value**. *Orders With No Campaign* asks whether a campaign exists; this asks
+whether it is the one that was sold. It is the next link, and the one
+`hub/io_records.py` made possible — before the order record there was nothing
+on our side to compare against, because the only trace of an order was a log
+line carrying a number and a client name.
+
+**The finding is the money, and the counts are never the finding.** An
+insertion order of six lines may be trafficked in Knack as six product rows or
+as one, and nothing readable from here says which convention this book
+follows. A check that fired on every order because the shop writes one row per
+campaign is a check somebody switches off within a week — the note
+`hub/qr_codes.py` makes about a warning that fires on every social spot. So
+the line counts are printed beside each row as context and no row is ever
+raised for them; what is compared is the **monthly**, which is the same number
+however many rows it was split across.
+
+**Both figures are always shown, and so is the difference.** A report that
+says "discrepancy" without printing the two numbers behind it is one nobody
+can check, and the first person who finds it wrong stops reading the rest.
+
+**Over and under are different conversations.** A campaign trafficked for less
+than the order is delivery a client paid for and is not getting, and is drawn
+red; one trafficked for more is billing nobody wrote an order for, and is
+amber. They are counted apart and the row says which.
+
+**A tolerance, and it is ours.** Nobody publishes one, so
+`MONEY_TOLERANCE_PCT` / `MONEY_TOLERANCE_MIN` carry `TOLERANCE_SOURCE =
+"house"` and the page says so in words — the rule `HOUSE_LEGIBILITY` in
+`services/abcd_service.py` already works to. A campaign trafficked to the
+exact dollar is not the normal case: a rounded rate and a part first month are
+ordinary, and calling every one of those a finding is how a list stops being
+read.
+
+**A product row with no monthly cost is never counted as zero.** A blank there
+would drag the campaign's total down and read as under-delivery invented out
+of a field nobody filled in, so an order with any such row is *not measured*
+and is listed with the reason — and its "In Knack" cell is a dash rather than
+the partial total, because a figure printed beside that sentence is one
+somebody reads as the answer.
+
+**An order with no campaign at all is left to the other report.** Raising the
+same order on two screens is how a reader learns the two disagree. It
+inherits the rest: the products must have come from a live Knack read, an
+order newer than that read or inside `GRACE_DAYS` is not judged (a campaign
+part-entered is not a campaign short-delivered), and a settled order is out of
+both. `test_io_reconcile.py` asserts all of it.
+
 ### A price with no end on it
 
 `hub/quote_validity.py`. `VALID_STATUSES` has carried **Expired** since the day
@@ -9419,7 +9469,8 @@ python3 test_sales_status.py       # the pipeline on the dashboard: five signals
                                    #   one reading, and counts that land on rows
 python3 test_io_reconcile.py       # the orders we sent against the campaigns
                                    #   Knack has: a stale source never reads as
-                                   #   proof, and a row can be settled
+                                   #   proof, a row can be settled, and the
+                                   #   money a campaign is trafficked at
 python3 test_io_records.py         # the order written down: one row per
                                    #   number, a resubmission that revises it,
                                    #   and bookkeeping that cannot fail a submit

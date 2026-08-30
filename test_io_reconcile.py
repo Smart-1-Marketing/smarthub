@@ -289,6 +289,117 @@ check("report() reads the settle marks itself on every run rather than being "
       "handed a list somebody cached", "settled" in calls, sorted(calls))
 
 # ---------------------------------------------------------------------------
+section("Is it the campaign we sold?")
+
+from hub import io_records                                    # noqa: E402
+from hub import jsonstore                                     # noqa: E402
+
+_long_ago = (NOW - timedelta(days=30)).isoformat(timespec="seconds")
+
+
+def sold(number, client, budgets, partner="TMRG"):
+    """Record an order on our side and age it past the grace window."""
+    io_records.record({
+        "orderNumber": number, "client": client, "partner": partner,
+        "start": "2026-07-01", "end": "2026-12-31",
+        "items": [{"product": f"Line {i}", "budget": b}
+                  for i, b in enumerate(budgets, 1)],
+        "client_pdf_url": "a", "internal_pdf_url": "b",
+    }, delivered=True, status=200, actor="Harness")
+    row = io_records.get(number)
+    row["submitted_at"] = _long_ago
+    jsonstore.write_json(io_records._path(number), row)
+
+
+sold("20001", "Exact Co", [2500, 1500])       # 4,000 sold, 4,000 trafficked
+sold("20002", "Short Co", [2500, 1500])       # 4,000 sold, 3,000 trafficked
+sold("20003", "Over Co", [1000])              # 1,000 sold, 1,800 trafficked
+sold("20004", "Blank Co", [2000])             # a Knack row with no monthly
+sold("20005", "Rounding Co", [3000])          # 2,980 trafficked
+sold("20006", "No Campaign Co", [900])        # nothing in Knack at all
+
+knack_products._write_cache([
+    {"io": "20001", "monthly": 2500}, {"io": "20001", "monthly": 1500},
+    {"io": "20002", "monthly": 3000},
+    {"io": "20003", "monthly": 1800},
+    {"io": "20004", "monthly": 2000}, {"io": "20004", "monthly": None},
+    {"io": "20005", "monthly": 2980},
+])
+deliv = io_reconcile.delivery()
+by_order = {r["order"]: r for r in deliv["rows"]}
+unmeasured = {r["order"]: r for r in deliv["unmeasured"]}
+
+check("a campaign trafficked at the order's money is not a finding",
+      "20001" not in by_order)
+check("one trafficked for less is, and it says so in money rather than in a "
+      "verdict", by_order.get("20002", {}).get("difference") == -1000.0
+      and by_order["20002"]["sold"] == 4000.0
+      and by_order["20002"]["trafficked"] == 3000.0)
+check("under and over are different conversations and are counted apart — one "
+      "is delivery a client is not getting, the other is billing nobody wrote "
+      "an order for",
+      by_order.get("20002", {}).get("direction") == "under"
+      and by_order.get("20003", {}).get("direction") == "over"
+      and deliv["under"] == 1 and deliv["over"] == 1)
+check("a rounded rate or a part first month is inside the tolerance rather "
+      "than a finding — a check that fires on every order is one somebody "
+      "switches off", "20005" not in by_order)
+check("and the tolerance is ours, said as ours, rather than borrowed from a "
+      "standard nobody published",
+      io_reconcile.TOLERANCE_SOURCE == "house"
+      and "our own figure" in io_reconcile.delivery_note(deliv))
+
+check("a Knack row with no monthly cost is never counted as zero — a blank "
+      "counted as nought reads as a campaign delivering nothing",
+      "20004" in unmeasured and "20004" not in by_order
+      and "not measurable" in unmeasured["20004"]["reason"])
+check("and that row is not judged in either direction — the four that could "
+      "be compared are the ones with a monthly on both sides",
+      deliv["checked"] == 4 and deliv["matched"] == 2,
+      (deliv["checked"], deliv["matched"]))
+
+check("an order with no campaign at all is left to the other report — raising "
+      "it on two screens is how a reader learns the two disagree",
+      "20006" not in by_order and "20006" not in unmeasured)
+check("but it is still a finding over there",
+      "20006" in [r["order"] for r in io_reconcile.report()["outstanding"]])
+
+# The counts are context, never the finding.
+check("how many product rows a campaign was split into is carried",
+      by_order["20002"]["lines_sold"] == 2
+      and by_order["20002"]["products"] == 1)
+src = open(os.path.join(ROOT, "hub", "io_reconcile.py"), encoding="utf-8").read()
+deliv_src = src[src.index("def delivery(now=None)"):src.index("def delivery_note")]
+check("and no row is ever raised for them: an order of six lines may be "
+      "trafficked as six rows or as one, and nothing here can tell which",
+      "products" not in deliv_src.split("row[\"direction\"]")[0].split(
+          "if abs(row[\"difference\"])")[-1],
+      "the direction is decided by the money alone")
+check("the note says so out loud", "never itself a finding"
+      in io_reconcile.delivery_note(deliv))
+
+# Not measured, on the same terms as the other report. The cache file is
+# removed rather than written empty: an empty write is a successful Knack read
+# of nothing, which is a different thing from not having read Knack at all.
+try:
+    os.remove(knack_products._cache_path())
+except OSError:
+    pass
+blind = io_reconcile.delivery()
+check("with no live product read this refuses rather than reporting every "
+      "campaign as under-delivering", blind["measured"] is False
+      and blind["rows"] == [], blind.get("knack_source"))
+check("and the QA report carries that through, so report_cache never freezes "
+      "it into the day's answer",
+      qa.io_delivery_report().get("measured") is False)
+
+check("it is registered under a name the QA page can run",
+      "io-money-mismatch" in qa.REPORTS
+      and qa.REPORTS["io-money-mismatch"]["fn"] is qa.io_delivery_report)
+check("and its title names the finding rather than the process",
+      qa.REPORTS["io-money-mismatch"]["title"] == "Campaigns Not At Order Value")
+
+# ---------------------------------------------------------------------------
 section("Nothing here writes to Knack, to Suite or to a quote")
 
 # Read from the AST rather than the text: this module's own docstring names
