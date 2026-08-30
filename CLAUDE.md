@@ -4410,6 +4410,86 @@ document that reaches a client. It is read off the plan's own fee lines, or
 `test_campaign_cost.py` asserts all of it, including that the browser keeps no
 copy of the arithmetic.
 
+### An order we sent, and the campaign nobody set up
+
+`hub/io_reconcile.py` and **QA → Data Quality → Orders With No Campaign**.
+Submitting an insertion order does three things: it writes an activity-log
+entry, it registers the client as an overlay when nobody has heard of them
+(`hub/io_clients.py`), and it POSTs the order to Smart 1 Suite. Then the IO
+Builder's job is over, and **nothing ever checked that the campaign was set
+up**. An order signed in March whose products were never written into Knack
+looks exactly like one that was: the log says it went, the overlay row goes on
+standing in for a record that never arrived, and Client 360 keeps saying the
+cards are empty because there is nothing to read — which is the sentence
+`io_clients.py` added for a client who is *new*, not for one whose campaign
+was dropped. Nobody is billed, nothing is trafficked, and the first person to
+find out is whoever eventually asks why a client we wrote an order for has no
+products. Both halves were already here — what we sent is in the activity log
+and, for a converted proposal, on the quote; what landed is on Knack's
+products, each carrying its IO number — and nothing compared them.
+
+**Underneath it was a defect that would have made the report useless on the
+day it shipped.** `submit_io()` logged `order=_body.get("order_number")`
+against a payload whose key is `orderNumber`, so **every `io_submitted` entry
+that route has ever written carries an empty order number** — while the
+`client_registered` entry written three lines below it, through
+`io_clients.register_from_io`, read the real key and got it right. Two readers
+of one payload, the wrong one is the record a reconciliation depends on, and
+nothing errored at either end. The entry now also carries the media partner,
+the flight start and the monthly, because a chase list needs to know who to
+ask and whether the campaign should already be running, and neither is
+knowable from an order number.
+
+**A source that could not be read is not measured, and this is the strongest
+case of that rule in the Hub.** `knack_products.rows()` never raises: it falls
+back to a stale cache, then to the committed export, then to nothing. Read
+against the export — a snapshot nobody refreshes, whose rows are the raw Knack
+records rather than `_row()` output and so carry no IO number at all — *every*
+order reads as never trafficked, which is a report accusing the whole traffic
+team on the strength of a stale file. So the products must have come from
+Knack itself, or this answers `measured: False` and says why, and
+`report_cache` never freezes that into the shape of "there is nothing to see".
+
+**An order newer than the product read is not judged at all.** A stale cache
+is a real Knack read of an earlier day, and an order written after it was
+taken could not appear in it however long ago it was sent — so those are
+counted as waiting with the reason named, rather than the whole report being
+refused over a cache that is perfectly good for everything older than itself.
+**An order submitted this morning is not late** either: setting a campaign up
+is not same-day work, so `GRACE_DAYS` is a week, and a report that fires on
+every order the day it is written is one nobody reads.
+
+**"Late to be set up" and "should be live right now" are two different
+conversations.** An order whose flight has already started is running in
+nobody's system — not trafficked, not billed, and the client is expecting it —
+so those sort to the top, are counted apart and are drawn red, while a merely
+late one is amber. A page of red is a page people scroll past.
+
+**An order with no number is its own finding, not a missing campaign**: there
+is nothing to look up for it, which is a different thing to do about it. And
+**the activity log rotates**, so the note says how far back it can see rather
+than implying it looked at everything — a converted proposal is the half that
+does not rotate, because those live in the quotes table.
+
+**A row somebody has settled leaves the list, and the mark is applied on
+read.** Some orders are never going to appear: cancelled before trafficking,
+renumbered, a test. Left in, they are permanent red on a report whose whole
+job is to say what to act on this week — the failure `hub/creative_evergreen.py`
+was written for — and the mark is read on every run rather than baked into the
+cached rows, because there are two gunicorn workers and one folded into a
+cached payload is a button that appears to do nothing to whichever worker did
+not take it. The reason is one of a short list rather than free text, the
+control reads that list off the payload so a screen cannot offer what the
+write refuses, and the mark records **who and when**: a decision about a
+campaign that nobody can attribute is one nobody can revisit.
+
+**Nothing here writes to Knack, to Smart 1 Suite or to a quote.** The settle
+mark is a small Hub overlay through `jsonstore` and everything else is a
+reading. `test_io_reconcile.py` asserts all of it, from the AST rather than
+the text — this module's own docstring names Suite and `io_clients.py` as the
+things it does not touch, and a check reading prose as a call site reports the
+explanation as the defect.
+
 ### A price with no end on it
 
 `hub/quote_validity.py`. `VALID_STATUSES` has carried **Expired** since the day
@@ -7288,6 +7368,9 @@ python3 test_menu_layout.py        # the three index pages: every tool tiled onc
                                    #   computes the same plan and captures nothing
 python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
                                    #   one reading, and counts that land on rows
+python3 test_io_reconcile.py       # the orders we sent against the campaigns
+                                   #   Knack has: a stale source never reads as
+                                   #   proof, and a row can be settled
 python3 test_campaign_cost.py      # one number for what the campaign costs: the
                                    #   cover, the plan, the summary and the IO
 python3 test_quote_validity.py     # how long a price stands, the Expired nothing
