@@ -2063,6 +2063,29 @@ button nobody pressed. The dependency is pinned and installed, so this
 fallback has never fired; it is the same shape as filing a mock render as a
 delivered commercial, which `approve_render` already refuses.
 
+**And the QR upload beside it had never once run.** That fallback was
+hypothetical; this was live on every spot ever built. `routes/projects.py`
+hands `cloudinary_service.upload_asset` a **BytesIO**, and that function took
+a path or a URL: `str()` on a BytesIO is `<_io.BytesIO object at 0x7f…>`,
+`open()` raises `FileNotFoundError` on it, and its own `except Exception`
+turned that into a quiet `{"secure_url": None}`. So `qr_image_url` was never
+populated, and the failure was swallowed a **second** time at the call site by
+an `or` that never read `error`. Both readers fall back to `qr_data_url`, so
+what reached Creatomate as the image `source` was a base64 data URI rather
+than a hosted one — and whether it accepts those is not a thing this repo can
+answer, which is the point: the intended path was dead and nothing said so.
+
+`_read_bytes()` is the fix and it is also the migration `hub/storage.py`
+exists for — `storage.put()` has always taken bytes, so the shared service
+could do this the whole time. Three rules on it. A **file object is rewound
+first**, because a caller that has already read it would otherwise store an
+empty file, which is the same silent-empty failure one layer down. The
+**filename is asked for rather than guessed**, since bytes carry no name and
+the extension is what the format is read from — inventing one puts a `.png` on
+an MP3. And a storage failure now lands in the `qr_error` the CTA already
+carries, as a **note rather than a refusal**: the code still renders from the
+data URL, and saying nothing is what let this run silently for so long.
+
 **Severity is the server's, and it was two JavaScript files' before.**
 `blueprint.js` and `preview.js` each kept an `ADVISORY = new Set([...])` by
 hand — two copies of a decision `qc_service` has every fact to make, and the

@@ -84,23 +84,67 @@ def client_folder(client_slug, category):
 GALLERY_CATEGORIES = {"logo", "logos", "photo", "photos", "image", "images"}
 
 
+def _is_url(src):
+    return isinstance(src, str) and src.startswith(("http://", "https://"))
+
+
+def _read_bytes(source):
+    """Bytes from whatever a caller handed us, or None if it named a place.
+
+    Four kinds arrive at `upload_asset`, and until now it understood two.
+    Bytes and an open file object were read as a **path**: `str(x)` on a
+    BytesIO is `<_io.BytesIO object at 0x7f...>`, which `open()` raises
+    FileNotFoundError on, which the caller's own `except` turned into a quiet
+    `{"secure_url": None}`. The QR code was the one caller passing bytes, so
+    the QR image was never once stored — see the note on that call site.
+
+    A file object is **rewound first**. A caller that has already read it
+    would otherwise store nothing at all, which is the same silent-empty
+    failure one layer down.
+    """
+    if isinstance(source, (bytes, bytearray)):
+        return bytes(source)
+    reader = getattr(source, "read", None)
+    if callable(reader):
+        try:
+            source.seek(0)
+        except Exception:  # noqa: BLE001 — a stream that cannot rewind
+            pass
+        return reader()
+    return None
+
+
 def upload_asset(file_path_or_url, client_slug, category, public_id=None,
-                 resource_type="auto", client_name=""):
+                 resource_type="auto", client_name="", filename=""):
+    """Store an asset, from a URL, a path, raw bytes or an open file.
+
+    `filename` is only consulted for bytes, which carry no name of their own —
+    and it is asked for rather than guessed at, because the extension is what
+    Cloudinary reads the format from and inventing one here would put a `.png`
+    on an MP3. With none given the public id stands in.
+    """
+    data = _read_bytes(file_path_or_url)
     if not is_live():
-        return {"secure_url": file_path_or_url if str(file_path_or_url).startswith("http") else None,
+        return {"secure_url": file_path_or_url if _is_url(file_path_or_url) else None,
                 "public_id": public_id or f"mock_{int(time.time())}",
                 "folder": client_folder(client_slug, category), "_mock": True}
 
     _ensure_configured()
     try:
-        # Through hub.storage. A local path is read and stored as bytes; a URL
-        # is still fetched by Cloudinary rather than pulled through this
-        # process. Folder and id are unchanged, so existing assets stay put.
+        # Through hub.storage. Bytes go straight to it; a local path is read
+        # and stored as bytes; a URL is still fetched by Cloudinary rather
+        # than pulled through this process. Folder and id are unchanged, so
+        # existing assets stay put.
         from hub import storage
         folder = client_folder(client_slug, category)
-        name = os.path.basename(str(file_path_or_url).split("?")[0]) or public_id
-        src = str(file_path_or_url)
-        if src.startswith(("http://", "https://")):
+        src = file_path_or_url if isinstance(file_path_or_url, str) else ""
+        name = (os.path.basename(src.split("?")[0]) if src else "") or filename or public_id
+        if data is not None:
+            asset = storage.put("commercials", name, data,
+                                folder=folder,
+                                public_id=f"{folder}/{public_id}",
+                                overwrite=True)
+        elif _is_url(src):
             asset = storage.put_remote("commercials", src, filename=name,
                                        folder=folder,
                                        public_id=f"{folder}/{public_id}",
