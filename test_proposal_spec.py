@@ -412,14 +412,52 @@ except subprocess.CalledProcessError as exc:
     check("the wizard's creative helpers run", False, exc.stderr[:300])
 
 # ---------------------------------------------------------------------------
+section("a paid social buy is asked whether the creative exists")
+# ---------------------------------------------------------------------------
+# The largest of the three holes and the last found. A Meta-only plan returned
+# *nothing* from gated_media(): six real buys -- Awareness, Targeted,
+# Programmatic Paid Social, Retargeting, Leads and Boosted Posts -- each with
+# three to seven units published in the kit, and the Creative step mentioned
+# none of them. The tempting reading is that paid social is usually a boosted
+# post the client already has, which is precisely the assumption this module
+# exists to stop making.
+from hub import creative_specs as cs                               # noqa: E402
+
+_meta = {"items": [{"product": "Facebook | Instagram - Awareness Paid Social Media Advertising",
+                    "category": "META", "dollars": 3000}], "months": 3}
+check("a Meta-only plan is asked for creative at all",
+      cn.gated_media(_meta) == [cn.SOCIAL], cn.gated_media(_meta))
+check("and the kit has units to ask for",
+      len(cs.units_for_product("Facebook | Instagram - Awareness Paid Social Media Advertising",
+                               "META")) > 0)
+check("social production is the card's own $35 per platform, not a number invented here",
+      cn.TYPICAL_PRODUCTION[cn.SOCIAL] == 35, cn.TYPICAL_PRODUCTION.get(cn.SOCIAL))
+
+# The card files LinkedIn's display-and-text product under a heading called
+# SOCIAL ADS - VIDEO, and the heading is what the keyword pass reads -- so a
+# product whose own name says "Display & Text Ads" was asked for a video spot.
+_linkedin = next(p for p in _rc_for_media.products() if "LinkedIn" in p["product"])
+check("a LinkedIn display-and-text buy is not asked for a video spot",
+      cn.medium_of(_linkedin) != cn.VIDEO, cn.medium_of(_linkedin))
+check("and what it is asked for is LinkedIn's own units",
+      any("Sponsored Content" in (u.get("name") or "")
+          for u in cs.units_for_product(_linkedin["product"], _linkedin["category"])),
+      [u.get("name") for u in cs.units_for_product(_linkedin["product"], _linkedin["category"])][:3])
+
+# The rest of that heading is left alone deliberately: the heading is right
+# about them, and reclassifying a generic "Paid Social Media Advertising" on
+# our own reading of which platforms are video-first would be inventing.
+check("the genuinely video social products still ask for a spot",
+      cn.medium_of({"category": "SOCIAL ADS - VIDEO",
+                    "product": "Tik Tok - Paid Social Media Advertising"}) == cn.VIDEO)
+
+# ---------------------------------------------------------------------------
 section("the gate and the spec kit read the same product the same way")
 # ---------------------------------------------------------------------------
 # Two readings of one question -- whether to ask for creative, and what to ask
 # for -- disagreed on 25 of 90 products, in both directions, and silently:
 # each screen was internally consistent, so the rep was asked for one thing
 # and judged against another.
-from hub import creative_specs as cs                               # noqa: E402
-
 _dis = cn.spec_disagreements()
 check("the creative gate and the spec kit agree on every product",
       _dis == [], [f"{d['category']}/{d['product'][:30]}: gate={d['gate']} kit={d['kit']}"
@@ -442,7 +480,13 @@ check("with both sides of the disagreement named, not just the count",
 # The four products whose names identify nothing must reach a *video* unit.
 # They are named in EXPLICIT_MEDIUM so the gate asks for a spot; the kit has
 # to agree, or the rep is asked for a spot and handed a list of banner sizes.
-for _name in cn.EXPLICIT_MEDIUM:
+# ...the ones mapped to video, that is. EXPLICIT_MEDIUM also carries the
+# entry running the other way -- a LinkedIn "Display & Text Ads" product the
+# card files under a heading called SOCIAL ADS - VIDEO -- and asserting that
+# one reaches a video unit would be asserting the bug.
+for _name, _want in cn.EXPLICIT_MEDIUM.items():
+    if _want != cn.VIDEO:
+        continue
     _row = next((p for p in _rc_for_media.products()
                  if p["product"].lower() == _name), None)
     if not _row:

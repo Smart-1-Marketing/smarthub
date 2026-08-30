@@ -3440,6 +3440,28 @@ mediums with their own production figures — email creative is the card's own
 $150 line, so it is questioned at $400 rather than $1,500, the per-medium rule
 display already followed.
 
+**And paid social was the largest hole of the three.** A Meta-only plan
+returned *nothing* from `gated_media()`: six real buys — Awareness, Targeted,
+Programmatic Paid Social, Retargeting, Leads and Boosted Posts — each with
+three to seven units published in the kit, and the Creative step never
+mentioned one of them. The tempting reading is that paid social is usually a
+boosted post the client already has, and that is exactly the assumption this
+module exists to stop making. `SOCIAL` is gated now, at the card's own
+"Social Media Ad Creation per platform" of **$35** rather than a figure
+invented here — low enough that its comp confirmation is in practice never
+raised, which is the right outcome for a $35 line rather than a threshold
+nobody would act on.
+
+**One product runs the other way.** The card files
+`LinkedIn - Display & Text Ads` under a heading called **SOCIAL ADS - VIDEO**,
+and the heading is what the keyword pass reads — so a product whose own name
+says *Display & Text Ads* was gated as video, asking a client for a spot to
+run text ads. It is named in `EXPLICIT_MEDIUM`, where `card_drift()` will
+report it if the card renames it. The other five under that heading are left
+alone: the heading is right about them, and reclassifying a generic "Paid
+Social Media Advertising" on our own reading of which platforms are
+video-first would be inventing.
+
 **Two readings of one question, disagreeing in both directions.**
 `medium_of()` decides *whether* to ask for creative;
 `creative_specs.channels_for_product()` decides *what* to ask for. They

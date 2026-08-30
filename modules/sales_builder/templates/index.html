@@ -1494,10 +1494,10 @@ const COMP_CONFIRM_UNDER=1500;
    $250 of design on the card, so comping it stops being sensible far lower
    down than a shoot does -- and a confirmation that fires on every plan is
    one nobody reads. */
-const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500,email:400};
+const COMP_CONFIRM_BY_MEDIUM={display:500,retargeting:500,email:400,social:100};
 function confirmUnder(m){return COMP_CONFIRM_BY_MEDIUM[m]||COMP_CONFIRM_UNDER;}
 const TYPICAL_PRODUCTION={video:750,audio:250,display:250,retargeting:250,
- email:150,dooh:250};
+ email:150,dooh:250,social:35};
 const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
  audio:"Audio (digital radio, podcasts, streaming audio)",
  display:"Display (banners, native, IP targeted, geo-fenced)",
@@ -1511,7 +1511,11 @@ const MEDIUM_LABEL={video:"Video (CTV, streaming, YouTube, pre-roll)",
    from the category would price a video buy and never ask for a spot. */
 const EXPLICIT_MEDIUM={"programmatic - ron (run of network)":"video",
  "programmatic - targeted":"video","premium: non-skippable":"video",
- "premium native video":"video"};
+ "premium native video":"video",
+ /* ...and one the other way: the card files this under a heading called
+    SOCIAL ADS - VIDEO, and the heading is what the keyword pass reads, so a
+    product whose own name is "Display & Text Ads" was gated as video. */
+ "linkedin - display & text ads - budget based - no impression guarantee":"social"};
 const CATEGORY_MEDIUM={"digital radio":"audio","ott":"video","youtube":"video",
  "retargeting":"retargeting",
  /* "Select Tactics - Comes with Retargeting" is the programmatic DISPLAY
@@ -1566,7 +1570,11 @@ function mediumSpend(m){
    with published specs and neither was ever asked for, because every product
    under EMAIL MARKETING and SMART 1 SIGNAGE answered "other" and an ungated
    medium is one this step never mentions. */
-const GATED_MEDIA=["video","audio","display","retargeting","email","dooh"];
+/* Paid social joined last and was the largest hole: a Meta-only plan
+   returned nothing at all from gatedMedia(), so six real buys with published
+   spec units each were never mentioned on this step. "They probably have a
+   post already" is exactly the assumption the gate exists to stop. */
+const GATED_MEDIA=["video","audio","display","retargeting","email","dooh","social"];
 function gatedMedia(){
  const present=new Set(S.items.map(mediumOf));
  return GATED_MEDIA.filter(m=>present.has(m));}
