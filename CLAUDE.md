@@ -1194,6 +1194,31 @@ copy change**. Where a term genuinely had to move, the old spelling is still
 *matched* -- `video_library.TAG_ALIASES` -- rather than re-indexing a library
 to correct a label.
 
+**And it could not see the one module that is not Python.** It scanned
+`.html`, `.js`, `.css` and `.py` — and the Display Ad Builder renders a page a
+**client** reads out of TypeScript, so the proof footer said *"Colours may vary
+slightly"*, the delivery panel said *"organised by platform"*, and the AI copy
+prompt told the model a proof point could be *"a licence"*. Ten thousand lines
+outside every spelling rule in the Hub, reported by nothing, because the page
+renders and the English is correct.
+
+`.ts` is read the same way Python is — **string literals only**, so
+`rasterise`, `normalise`, `optimise` and sharp's own `colours` option are not
+reported and this stays a copy check rather than a rename of the renderer.
+Four things it has to get right, and each is a way that goes wrong: a **`//` or
+`/* */` comment is not copy**, the same rule docstrings follow; a **`${…}`
+interpolation is code**, blanked to same-width filler rather than removed so
+line numbers still land; a **regex literal is a pattern**, skipped whole, and
+which of `/` is a regex or a division is decided from the previous significant
+character, or the scanner ends up inside a string it never entered; and a
+literal that is **one bare lowercase token** is a stored value — `focal:
+'centre'` is what saved concepts carry and renaming it is a data migration, the
+`_IDENTIFIER` rule one language over. The line reported is the **word's**, not
+the literal's: `proof.ts` draws its whole page from one 400-line template
+literal, and a report putting every finding on the backtick is one nobody can
+act on. `test_spelling.py` asserts all of it against a sample that contains
+each shape.
+
 `ALLOW` is per file **and** per word, with the reason written down, and
 `stale_allowances()` fails on an entry naming a file that is gone or a word it
 no longer contains: an exemption that outlives what it exempted goes on
@@ -8116,15 +8141,65 @@ format list means that placement will *also* take an animated file.
 
 **And it never replaces the static file.** Most placements on a buy take the
 still one, so a folder holding only GIFs is a set that cannot be trafficked.
-The GIF is written beside its sibling with `_animated` on the end, ships in the
-delivery ZIP under `animated/`, and is **counted apart** — "8 files delivered"
-about a pack of five ads and three GIFs is a sentence a client reads as eight
-ads. A QA-failing animation is **withheld** and named, and the static file goes
-in its place: the ad still runs, and the client can see the animation is
-missing. `AnimatedResult` is deliberately not a `RenderResult` with
-`format: 'gif'`, and animations are their own list on the project rather than a
-row on `RenderBatch` — a batch is a static delivery pack, and one containing
-only GIFs would be read by `deliverProject` as the whole of what was built.
+The GIF is written beside its sibling with `_animated` on the end.
+`AnimatedResult` is deliberately not a `RenderResult` with `format: 'gif'`, and
+animations are their own list on the project rather than a row on
+`RenderBatch` — a batch is a static delivery pack, and one containing only GIFs
+would be read by `deliverProject` as the whole of what was built.
+
+**One animation is one decision and one file, and the zip carries none of
+them.** They shipped inside the delivery ZIP under `animated/` for exactly one
+release, and that was wrong for a reason worth writing down: **a zip is one
+act.** It is built once, downloaded once, and every file in it goes out on the
+strength of the same press. An animation is not delivered on that press — each
+is watched, approved and sent on its own, because somebody who likes the
+728x90 may want the 300x250's second slide rewritten. Bundled, an animation
+nobody had watched went to a client inside a package somebody approved the
+*static set* of, which is the whole distinction the approval draws.
+
+So `deliverProject` **names** them and encloses none: the README says they are
+not in the zip and which have been approved, and the machine manifest carries
+`inThisZip: false` rather than a path an ops person will not find in the
+folder. Silence would be worse than either — a client shown a moving version
+who opens a package without one needs the package to account for it.
+
+**The approval is now the only gate between a clipped second slide and a
+client's library**, since the zip is no longer what withholds a QA failure. So
+`approveAnimation` refuses a failing row **by name** rather than quietly doing
+nothing, and `hub/ad_builder_link.approved_animations()` refuses it a second
+time — a gate enforced in one place is a gate that moves the day somebody adds
+a second door. A sign-off is about the file as it was, so re-animating a size
+retires its approval and carries `previouslyApprovedAt`: *"approved on the 3rd,
+and rebuilt since"* and *"nobody has looked at this"* are different things to
+tell somebody.
+
+**Approving is what sends it, and that is three writes reported apart.** The
+renderer records the decision, uploads the file, and the Hub files it onto the
+client's record; "approved", "approved and stored" and "on their record" are
+different outcomes and one tick for all three is how somebody learns not to
+trust the tick — `hub/domain_links.py`'s rule. The decision **survives** a
+failed upload and says so, because a Cloudinary that would not answer must not
+cost somebody the judgement they made; pressing approve again retries only the
+half that did not happen, and an already-stored file is never re-uploaded.
+**Who approved comes from the proxy's `X-S1-User` header and never the request
+body** — a name a browser can put in a POST is a name anybody can put in a
+POST, and it is the entire content of the record.
+
+**The upload is its own Cloudinary call, and that is not tidiness.**
+`uploadCreative` passes `quality: 100`, which is an incoming transformation,
+and **any** re-encode of a GIF rewrites its frame delays and its loop block —
+the two numbers the compliance check measured. The stored file would still
+play, still look right, and no longer have the properties that were verified.
+`uploadAnimation` passes nothing but the destination.
+
+**And they reach the client's gallery under their own kind.** `finished_ads()`
+reads `project["batches"]`, which animations are deliberately not in, so
+without `attach_animations()` an animated ad delivered to a client would be
+invisible on that client's own record — the failure this file has already
+counted six times, one tool later. `filing.KIND_LABELS` declares `animated_ad`,
+because a kind nothing names arrives in a gallery as a bare key under no
+heading, and it is filed in the same change that declares it: a label declared
+and written by nothing is the `io_creative` failure.
 
 **The weight ladder is `raster.ts`'s in GIF terms, and it is cheap for a
 reason worth knowing.** A GIF has no quality setting: it has a palette, a
@@ -9232,7 +9307,8 @@ python3 test_suite_sso.py          # the client half: the location id is the
 python3 test_calculator_embed.py   # the media calculators framed on smart1marketing.com
 python3 test_display_ads.py        # the display layouts, the build screen's contracts, and
                                    #   the animated GIF: whose rule each number is, a loop
-                                   #   that can never be endless, and QA on every frame
+                                   #   that can never be endless, QA on every frame, and
+                                   #   one approval per file -- never the zip
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
@@ -9247,8 +9323,9 @@ python3 test_env_config.py         # one setting, every name it answers to, and 
 python3 test_knack_websites_source.py # websites live where Knack answers, the
                                    #   export where it will not, and a failed
                                    #   pull that never empties a good one
-python3 test_spelling.py           # the spelling check still bites, and its
-                                   #   exemptions still name real files
+python3 test_spelling.py           # the spelling check still bites, its exemptions
+                                   #   still name real files, and it reads the one
+                                   #   module that is not Python
 python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   what it is never offered, and what a
                                    #   model is told about the client

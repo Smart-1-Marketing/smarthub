@@ -238,7 +238,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
             <div class="page-body">
               <div class="page-col">
                 <h4>City approves new transit corridor</h4>
-                <p>Council members voted late Tuesday to advance the long-debated proposal, ending months of negotiation between neighbourhood groups and the transit authority.</p>
+                <p>Council members voted late Tuesday to advance the long-debated proposal, ending months of negotiation between neighborhood groups and the transit authority.</p>
                 <p>Construction would begin next spring under the current timetable, with the first segment opening to riders within three years.</p>
                 <p>Residents along the route have asked for noise mitigation and a guarantee that existing bus service will continue during the build.</p>
                 <p>The measure passed seven votes to two, with both dissenting members citing cost.</p>
@@ -268,7 +268,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* A proofing grey, not a brand colour. The interface must not compete
+    /* A proofing gray, not a brand color. The interface must not compete
        with whatever palette the creative is carrying. */
     --paper: #E9EAEC;
     --card: #FFFFFF;
@@ -571,7 +571,7 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
     </div>
   </div>
 
-  <footer>Sizes and file weights meet current Google Display and Amazon DSP requirements. Colours may vary slightly between screens.</footer>
+  <footer>Sizes and file weights meet current Google Display and Amazon DSP requirements. Colors may vary slightly between screens.</footer>
 </div>
 
 ${!editor ? '' : `<div class="size-editor" id="sizeEditor">
@@ -705,7 +705,7 @@ window.PROOF_DELIVERED = ${jsonScript(opts.delivered ?? null)};
     var ridHere = _pp2.length > 1 ? _pp2[1].split('/')[0].split('?')[0].split('#')[0] : '';
     var b = 'display:inline-block;text-decoration:none;padding:13px 24px;border-radius:8px;font-weight:600;font-size:15px;margin:0 10px 10px 0;';
     box.innerHTML = '<h2>Approved \u2014 your ads are ready</h2>' +
-      '<p>' + (count ? count + ' finished files, ' : '') + 'organised by platform and named for upload. What next?</p>' +
+      '<p>' + (count ? count + ' finished files, ' : '') + 'organized by platform and named for upload. What next?</p>' +
       '<a href="' + url + '" download style="' + b + 'background:#1F5FC0;color:#fff">Download ads</a>' +
       '<a href="/overview/' + ridHere + '" style="' + b + 'background:#fff;color:#1F5FC0;border:1px solid #C9D4E0">Review campaign overview</a>' +
       '<a href="/embed" style="' + b + 'background:#fff;color:#1F5FC0;border:1px solid #C9D4E0">Make another campaign</a>' +
@@ -777,9 +777,9 @@ window.PROOF_DELIVERED = ${jsonScript(opts.delivered ?? null)};
     });
   }
 
-  // Live rebuild: apply the editor's copy + colours to the chosen concept,
+  // Live rebuild: apply the editor's copy + colors to the chosen concept,
   // re-render every size on the server, and reload onto the fresh proof. This
-  // is the "changes reconfigure the ads right here" behaviour.
+  // is the "changes reconfigure the ads right here" behavior.
   var rebuildBtn = document.getElementById('rebuild');
   if (rebuildBtn) {
     rebuildBtn.addEventListener('click', function () {

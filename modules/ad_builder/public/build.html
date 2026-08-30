@@ -272,6 +272,14 @@
   .anim-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12px;
     color: var(--ink-2); }
   .anim-row input[type=range] { width: 150px; }
+  /* One built animation and the decision it is waiting on. */
+  .anim-built { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; margin-bottom: 7px;
+    font-size: 12px; }
+  .anim-built b { font-size: 12.5px; }
+  .anim-built .ab-meta { color: var(--ink-2); }
+  .anim-built .ab-state { flex: 1 1 12rem; }
+  .anim-built button { margin-left: auto; }
 
   /* The scope of a copy edit, kept beside the field it governs so the answer
      stays visible and changeable rather than being asked once and forgotten. */
@@ -4372,9 +4380,19 @@
         esc(refused[0].reasons[0]) + '</p>';
     }
     if (built.length) {
-      left += '<p style="margin:8px 0 0;font-size:11.5px;color:var(--ink-2)">Already built: <b>' +
-        esc(built.map(function (a) { return a.size; }).join(', ')) +
-        '</b>. Building again replaces those and leaves the rest alone.</p>';
+      /* Built, and then one decision per file.
+
+         An animation is not delivered by the zip -- that package is the static
+         set, approved once -- so approving one here IS sending it, and each is
+         approved on its own. Eight moving ads are eight decisions: somebody
+         watches one, likes it, sends it, and the next may need its second
+         slide rewritten. One button covering all eight would deliver the seven
+         nobody watched on the strength of the one they did. */
+      left += '<h5>Built, and who has approved what</h5>' +
+        '<p style="margin:-2px 0 10px;font-size:11.5px;color:var(--ink-2)">' +
+        'These are not in the delivery zip. Approving one is what sends it to ' +
+        esc(clientLabel()) + ' \u2014 on its own, as its own file.</p>' +
+        '<div id="animBuilt">' + animBuiltRows(built) + '</div>';
     }
 
     body.innerHTML =
@@ -4421,11 +4439,144 @@
         if (!el.checked && at >= 0) anim.sizes.splice(at, 1);
       });
     });
+    /* Delegated, because animRefreshBuilt() replaces these rows after every
+       approval -- a handler bound to the button that was pressed is bound to a
+       detached node by the time the next one is. */
+    body.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-approve]');
+      if (!b || b.disabled) return;
+      animApprove(b.dataset.approve, b.dataset.on === '1');
+    });
     body.querySelector('[data-back]').addEventListener('click', function () {
       anim.spec = null; drawAnimator();
     });
     body.querySelector('[data-close]').addEventListener('click', anim.close);
     $('animBuild').addEventListener('click', animBuild);
+  }
+
+  /* One row per built animation, with the one decision it is waiting on.
+
+     Four states, kept apart because they send somebody to four different
+     places. Approved and sent is done. Approved and NOT stored is the upload
+     having failed after the decision landed -- pressing approve again retries
+     only that half. Superseded is "somebody approved this, and it has been
+     rebuilt since", which is a different thing to say than nobody having
+     looked. And a QA failure cannot be approved at all, so it says what is
+     wrong rather than offering a button that refuses. */
+  function animBuiltRows(built) {
+    return built.map(function (a) {
+      var failed = a.status === 'fail';
+      var done = !!a.approvedAt;
+      var was = !done && a.previouslyApprovedAt;
+      var state = failed
+        ? '<span style="color:var(--fail)">did not pass its checks — ' +
+          esc((a.issues && a.issues[0]) || 'see the findings above') + '</span>'
+        : done
+          ? '<span style="color:var(--pass)">approved' +
+            (a.approvedBy ? ' by ' + esc(a.approvedBy) : '') +
+            (a.cloudinaryPublicId ? ' and sent' : ' — not stored yet, approve again to retry') +
+            '</span>'
+          : was
+            ? '<span style="color:var(--warn)">was approved, and has been rebuilt since</span>'
+            : '<span style="color:var(--ink-2)">nobody has approved this yet</span>';
+      return '<div class="anim-built" data-size="' + esc(a.size) + '">' +
+        '<b>' + esc(a.size) + '</b> ' +
+        '<span class="ab-meta">' + esc(a.frames) + ' frames · plays ' + esc(a.loop) +
+        '× · ' + esc((a.totalMs / 1000).toFixed(1)) + 's · ' +
+        esc((a.bytes / 1024).toFixed(0)) + ' KB</span>' +
+        '<span class="ab-state">' + state + '</span>' +
+        (failed ? '' :
+          '<button type="button" class="btn' + (done ? '' : ' primary') +
+          '" data-approve="' + esc(a.size) + '" data-on="' + (done ? '0' : '1') + '">' +
+          (done ? 'Un-approve' : 'Approve & send') + '</button>') +
+        '</div>';
+    }).join('');
+  }
+
+  /* Approving is two writes and they are reported apart.
+
+     The renderer records the decision and stores the file; the Hub files it
+     onto the client's record. "Approved" and "approved and on their record"
+     are different outcomes, and one tick for both is how somebody learns not
+     to trust the tick -- the rule hub/domain_links.py works to. The decision
+     stands even when the rest fails, so nothing here can lose it. */
+  function animApprove(size, on) {
+    var row = document.querySelector('.anim-built[data-size="' + size + '"]');
+    var btn = row && row.querySelector('[data-approve]');
+    if (btn) { btn.disabled = true; btn.textContent = on ? 'Sending…' : 'Removing…'; }
+    post('/api/animate/' + encodeURIComponent(state.requestId) + '/approve', {
+      conceptId: anim.conceptId,
+      platform: state.platform,
+      size: size,
+      approved: on
+      // No `by`. The name is taken from the Hub proxy's own header
+      // server-side, because a name the browser supplies is one anybody can
+      // supply -- and it is the whole content of an approval record.
+    }).then(function (r) {
+      if (r && r.error) throw new Error(r.error);
+      if (!on) return { note: 'Un-approved. It is not sent, and the stored copy is left alone.' };
+      var note = r.stored
+        ? (r.simulated ? 'Approved. Cloudinary is not configured here, so nothing was really stored.'
+                       : 'Approved and stored.')
+        : 'Approved, but not stored: ' + (r.storeError || 'the upload failed') +
+          ' The decision is saved — press Approve again to retry the upload.';
+      if (!r.stored || r.simulated) return { note: note };
+      return fileAnimationToClient(size).then(function (f) {
+        return { note: note + ' ' + f };
+      });
+    }).then(function (out) {
+      animRefreshBuilt(out.note);
+    }).catch(function (e) {
+      animRefreshBuilt((e && e.message) || 'That could not be recorded.', true);
+    });
+  }
+
+  /* Standalone there is no client registry to file anything into, which is a
+     real state and not an error: the file is stored and approved either way. */
+  function fileAnimationToClient(size) {
+    if (!window.S1_BASE) {
+      return Promise.resolve('Not filed onto a client record — this builder is ' +
+                             'running outside the Hub.');
+    }
+    return post(window.S1_BASE + '/_hub/attach-animation', {
+      project: projectIdOf(), client: clientName(), sizes: [size]
+    }).then(function (r) {
+      if (!r || !r.ok) {
+        return 'Not filed onto ' + clientLabel() + ': ' +
+               ((r && r.error) || 'the Hub refused it') +
+               ' The file is stored, so filing can be retried.';
+      }
+      return r.duplicates ? 'Already on ' + clientLabel() + '’s record.'
+                          : 'Filed onto ' + clientLabel() + '’s record.';
+    }).catch(function () {
+      return 'Stored, but the Hub did not answer, so it is not on the client ' +
+             'record yet.';
+    });
+  }
+
+  /* Re-read the built rows from the server rather than editing the one on
+     screen: the approval, the upload and the filing are three writes and the
+     row has to show what actually landed, not what was pressed. */
+  function animRefreshBuilt(note, isError) {
+    var facts = $('animFacts');
+    fetch('/api/animate/' + encodeURIComponent(state.requestId) + '/options')
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.concepts) return;
+        anim.options = j;
+        var built = (j.animations || []).filter(function (a) {
+          return a.conceptId === anim.conceptId;
+        });
+        var host = $('animBuilt');
+        if (host) host.innerHTML = animBuiltRows(built);
+      })
+      .catch(function () { /* the note below still says what happened */ })
+      .then(function () {
+        if (note && facts) {
+          facts.innerHTML = '<span' + (isError ? ' class="bad"' : '') + '>' +
+            esc(note) + '</span>';
+        }
+      });
   }
 
   /* The preview is the encoded file, at the weight it ships at.
