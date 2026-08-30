@@ -4510,6 +4510,42 @@ oversight and a decision. A page that cannot be read is **not measured**,
 never "nothing undeclared" — that is the one state where a clean answer would
 be a lie. It started empty, which is the only way it was worth adding.
 
+**And the names were the half that reaches the client fastest.** `kit_drift()`
+compares numbers and can only read the three sections whose table is Unit /
+Dimensions / weight. The social sections publish a different table — but its
+first column is a **format name**, and a name is what the requirement line
+prints at the client. **X** is the case that shows the cost: its 2025 model
+named eight formats and **not one of them is a format X still sells**. "Website
+Card" and "Direct Message Card" are retired, and the two mobile/desktop pairs
+modeled a split the kit says in as many words is gone — *"the
+mobile-versus-desktop creative split is gone. one asset set serves both."* So a
+client was asked to supply four things that do not exist, and two of them
+twice, on the line the client document prints. Silent from both ends: every
+name was a real format's name once, the sizes were real sizes, and nothing
+errored.
+
+X is transcribed against the 2026 kit now — Image Ads, Video Ads, Vertical
+Video Ads, Carousel Ads, Conversation Button, Amplify Pre-roll, Spotlight
+Takeover and Polls — and the old `text: {final: 256}` went with it, because the
+page says media no longer consumes characters. **The ids are kept wherever the
+format survives in substance**, the rule `billboard` already follows from when
+the IAB retired the Rising Stars name: `tags_for()` has written `unit_<id>`
+onto delivered creative and a gallery filters on it. The four with no 2026
+equivalent are in `RETIRED_UNITS` rather than deleted — **out of `UNITS`, so
+nothing asks a client for one, and still in `BY_ID`, so a row carrying the tag
+resolves to a unit that says what replaced it.** Deleting them would orphan the
+tag; leaving them in would go on asking.
+
+`kit_name_drift()` is the check, at **high**, and it covers only the channels
+declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x` today.
+The five still on the 2025 transcription are named in `_KIT_NAMES_PENDING` with
+what is known to have moved (LinkedIn sells 11 formats to our 5 and calls
+Sponsored InMail *Message Ads*; TikTok's six names include none of our three;
+YouTube's *TrueView* is now *Skippable in-stream*), and `kit_coverage()`
+carries them. A backlog named rather than left as an absence — a check listing
+every platform on the day it is written is red on the day it is written, and
+gets switched off.
+
 **Three of the twenty are a different kind of gap, and it reaches the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
 formats are sold by the kit and this module holds **no unit** for any of them

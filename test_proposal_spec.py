@@ -1814,6 +1814,77 @@ check("and a kit that cannot be read is not measured, never a clean answer",
 
 
 # ---------------------------------------------------------------------------
+section("X is asked for formats X still sells")
+# ---------------------------------------------------------------------------
+# The 2025 model named eight X formats and not one of them is a format X still
+# sells: "Website Card" and "Direct Message Card" are retired, and the
+# mobile/desktop pairs modelled a split the kit says in as many words is gone
+# -- "the mobile-versus-desktop creative split is gone. one asset set serves
+# both." So the requirement line a client reads asked for four things that do
+# not exist, and two of them twice. Silent from both ends: every name was a
+# real format's name once, and nothing errors.
+_x_units = [u for u in cs.UNITS if u["channel"] == "x"]
+_x_names = {u["name"] for u in _x_units}
+check("X is modeled on the eight formats the kit publishes",
+      _x_names == {"Image Ads", "Video Ads", "Vertical Video Ads",
+                   "Carousel Ads", "Conversation Button", "Amplify Pre-roll",
+                   "Spotlight Takeover", "Polls"}, sorted(_x_names))
+check("and no unit we ask for is a format the kit no longer sells",
+      cs.kit_name_drift() == [],
+      [d["detail"][:70] for d in cs.kit_name_drift()][:4])
+
+# ...and the check goes red on exactly that, or it is furniture.
+_saved_name = cs.BY_ID["x_image_website_card"]["name"]
+try:
+    cs.BY_ID["x_image_website_card"]["name"] = "Image Website Card"
+    _name_bit = cs.kit_name_drift()
+finally:
+    cs.BY_ID["x_image_website_card"]["name"] = _saved_name
+check("a retired name is reported rather than passing quietly",
+      len(_name_bit) == 1 and "Image Website Card" in _name_bit[0]["detail"],
+      _name_bit)
+
+# The ids are what Cloudinary has tagged, so a format that is gone is retired
+# rather than deleted -- a gallery filtering on unit_<id> must still find a
+# unit rather than nothing.
+for _rid in ("x_direct_message", "x_multi_image_desktop",
+             "x_single_image_mobile", "x_single_image_desktop"):
+    check(f"{_rid!r} still resolves by id", _rid in cs.BY_ID)
+    check(f"...and {_rid!r} is not asked of a client",
+          _rid not in {u["id"] for u in cs.UNITS})
+    check(f"...and says what replaced it",
+          bool(cs.BY_ID[_rid].get("retired")), cs.BY_ID[_rid].get("retired"))
+
+# The ids that survived kept their ids, for the same reason.
+for _kid in ("x_image_website_card", "x_video_website_card",
+             "x_conversational", "x_multi_image_mobile"):
+    check(f"{_kid!r} kept its id through the rename",
+          _kid in {u["id"] for u in cs.UNITS})
+
+# A real file still lands on a sensible unit -- Polls carries no media at all
+# and must never be what a file is judged against.
+for _w, _h, _fmt, _want in ((1080, 1080, "jpg", "Image Ads"),
+                            (1080, 1920, "mp4", "Vertical Video Ads"),
+                            (800, 418, "png", "Carousel Ads")):
+    _v = cs.check(product="Twitter - Paid Social Media Advertising",
+                  category="SOCIAL ADS - VIDEO", width=_w, height=_h,
+                  size_bytes=2 * 1024 * 1024, fmt=_fmt)
+    check(f"a {_w}x{_h} {_fmt} is judged as {_want}",
+          (_v.get("unit") or {}).get("name") == _want, _v.get("unit"))
+
+# What is still on the 2025 transcription is a named backlog, not an absence.
+_cov = cs.kit_coverage()
+check("the channels held to the 2026 names say which they are",
+      _cov["names_checked"] == ["x"], _cov["names_checked"])
+check("and the ones still on 2025 are named with what moved",
+      set(_cov["names_pending"]) == {"linkedin", "tiktok", "snapchat",
+                                     "youtube", "native_display"},
+      sorted(_cov["names_pending"]))
+check("each with a reason somebody can act on",
+      all(str(v).strip() for v in _cov["names_pending"].values()))
+
+
+# ---------------------------------------------------------------------------
 section("every section of the published kit is accounted for")
 # ---------------------------------------------------------------------------
 # kit_drift() read three sections of twenty-three and answered "no drift",
