@@ -1026,6 +1026,23 @@ def _google_calls(src: str) -> bool:
                                    "requests.delete"))
 
 
+def _brandfetch_calls(src: str) -> bool:
+    """A file that looks a CLIENT up, not one that checks the key still works.
+
+    The sign-in health panel and diagnostics both fetch
+    ``brands/brandfetch.com`` -- Brandfetch's own domain -- to prove the key is
+    valid. That is a probe, not attributable client work, and flagging it would
+    have this check report a finding nobody can act on from the day it lands.
+    A check that starts life red is one somebody switches off, which is the
+    note tools/integritycheck.py already carries.
+
+    Same shape as _google_calls below: strip the thing that is not a call,
+    then ask whether anything is left.
+    """
+    body = src.replace("api.brandfetch.io/v2/brands/brandfetch.com", "")
+    return "api.brandfetch.io" in body
+
+
 _PROVIDER_MARKERS = {
     "elevenlabs": {
         "calls": lambda src: "/text-to-speech" in src,
@@ -1046,6 +1063,24 @@ _PROVIDER_MARKERS = {
                   "attributed to this module.",
         "fix": "Move the upload onto hub.storage.put(), which records it, or "
                "add quotas.record_asset(module=..., nbytes=len(data)).",
+    },
+    "brandfetch": {
+        # Every caller hits api.brandfetch.io. The two type routes Brandfetch
+        # publishes -- /v2/brands/<domain> and the newer explicit
+        # /v2/brands/domain/<domain> -- are both real, so match the host
+        # rather than either path, or a module gets a clean bill for using
+        # the spelling this check did not think of.
+        "calls": _brandfetch_calls,
+        "recorded": ("record(\"brandfetch\"", "record('brandfetch'",
+                     "from hub import brand_lookup", "from hub.brand_lookup import",
+                     "hub.brand_lookup"),
+        "detail": "Looks a brand up at Brandfetch outside hub/brand_lookup.py, "
+                  "so the call is not counted against the monthly plan and the "
+                  "answer is not saved -- Client 360's brand card stays empty "
+                  "for a client somebody looked up this morning.",
+        "fix": "Move the lookup onto hub.brand_lookup.lookup(domain, "
+               "client=..., module=...), which records it and keeps what it "
+               "paid for.",
     },
     "google": {
         "calls": _google_calls,
