@@ -94,8 +94,28 @@ export interface BuildResult {
   notes: string[];
   findings: Finding[];
   assetSources: Record<string, 'upload' | 'brandfetch' | 'wordmark' | 'placeholder' | 'none'>;
+  /**
+   * Where each of the five colour roles came from.
+   *
+   * assetSources has recorded this for the logo and the hero since it was
+   * written; the palette had no equivalent, and finalizeColors() spread
+   * DEFAULTS underneath and said nothing. So a client with no discovered
+   * brand colours got Smart 1's placeholder navy and gold on every size, in
+   * an ad that looks plausibly branded, with nothing on any screen saying
+   * so. Absent data reading as a confident value, on a deliverable.
+   */
+  colorSources: Record<keyof Brand['colors'], ColorSource>;
   renderable: boolean;
 }
+
+/**
+ * 'discovered' -- Brandfetch or the intake answered for this role.
+ * 'override'   -- somebody typed it, which beats both of the others.
+ * 'adjusted'   -- we moved it so text would be readable, and the note says
+ *                 what it was; still ours rather than theirs.
+ * 'default'    -- nobody answered and this is the placeholder.
+ */
+export type ColorSource = 'discovered' | 'override' | 'adjusted' | 'default';
 
 const DEFAULTS: Brand['colors'] = {
   primary: '#1F3A5F',
@@ -157,13 +177,23 @@ function finalizeColors(
   found: Partial<Brand['colors']> | undefined,
   overrides: Partial<Brand['colors']> | undefined,
   notes: string[],
-): Brand['colors'] {
+): { colors: Brand['colors']; sources: BuildResult['colorSources'] } {
   const c: Brand['colors'] = { ...DEFAULTS, ...(found ?? {}), ...(overrides ?? {}) };
+
+  const roles = Object.keys(DEFAULTS) as (keyof Brand['colors'])[];
+  const sources = {} as BuildResult['colorSources'];
+  for (const role of roles) {
+    sources[role] = overrides?.[role] ? 'override'
+      : found?.[role] ? 'discovered'
+      : 'default';
+  }
 
   if (contrastRatio(hexLuminance(c.light), hexLuminance(c.dark)) < 7) {
     notes.push('Light and dark brand colors did not contrast; substituted white and near-black.');
     c.light = '#FFFFFF';
     c.dark = '#111111';
+    sources.light = 'adjusted';
+    sources.dark = 'adjusted';
   }
   // The CTA is dark text on the accent by default. If that combination is
   // unreadable the button fails QA on every size, so catch it here.
@@ -186,8 +216,20 @@ function finalizeColors(
         `adjusted to ${onPrimary.hex} for offer-led layouts.`,
     );
     c.accent = onPrimary.hex;
+    sources.accent = 'adjusted';
   }
-  return c;
+
+  // Said once, plainly, rather than left to be inferred from five rows. This
+  // is the case that ships a stock-looking ad: nobody answered for any role,
+  // so every colour on every size is the placeholder.
+  if (roles.every((r) => sources[r] === 'default')) {
+    notes.push(
+      'No brand colors were discovered or supplied, so every size is built in '
+      + 'the placeholder palette rather than the client\'s own. Set the five '
+      + 'swatches before sending a proof.',
+    );
+  }
+  return { colors: c, sources };
 }
 
 function pickFont(name: string | undefined, fallback: string, slot: string, notes: string[]): string {
@@ -391,7 +433,7 @@ export async function buildCampaign(
     }
   }
 
-  const colors = finalizeColors(discovered?.colors, sub.colorOverrides, notes);
+  const { colors, sources: colorSources } = finalizeColors(discovered?.colors, sub.colorOverrides, notes);
   const brand: Brand = {
     name: sub.business,
     domain: domain || sub.business.toLowerCase().replace(/\W+/g, '-'),
@@ -702,6 +744,7 @@ export async function buildCampaign(
     notes,
     findings,
     assetSources,
+    colorSources,
     renderable: !findings.some((f) => f.level === 'error'),
   };
 }

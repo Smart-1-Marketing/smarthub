@@ -179,12 +179,15 @@ for name, text, screen in (("the audit tool", AUDIT_T, AUDIT_SCREEN),
     check(f"{name} names the screen the registry publishes",
           f'data-screen="{screen}"' in text, True)
     check(f"{name} asks has_tour rather than drawing it on the truth of a name",
-          f"has_tour('{screen}')" in text, True)
+          f'has_tour("{screen}")' in text, True)
     check(f"{name} offers the tour again afterwards",
           f'data-tour-start="{screen}"' in text, True)
-    # Guarded `is not defined`, the pattern every helper call here uses, so a
-    # Jinja environment that never got the global loses the guard, not the page.
-    check(f"{name} guards the helper", "has_tour is not defined" in text, True)
+    # Guarded `is defined`, the convention every other screen carries, so a
+    # Jinja environment that never got the global loses the attribute rather
+    # than the page.
+    check(f"{name} guards the helper", "has_tour is defined and" in text, True)
+    check(f"{name} carries one polarity, not two",
+          "has_tour is not defined" in text, False)
 
 check("the registry publishes exactly these two screen names",
       sorted(s for s in help_registry.screens()

@@ -20,7 +20,7 @@ import time
 import requests
 
 from ..config import (OUTPUT_FORMATS, MUSIC_LEVELS, QR_CODE_RULES, LOGO_PERSISTENCE_RULES,
-                      CHROMA_KEY_COLOR)
+                      CHROMA_KEY_COLOR, logo_persistence_eligible)
 
 BASE_URL = "https://api.creatomate.com/v1"
 
@@ -127,7 +127,11 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
     # own track above the scene footage; skipped on :05s (already full-logo
     # the entire time) and whenever the CTA builder has it turned off.
     client_logo = (cta.get("client") or {}).get("logo_url")
-    if cta.get("logo_persistent") and client_logo and length_seconds != 5:
+    # `length_seconds != 5` before this, which is the reading that cannot be
+    # kept in step: it had already stopped agreeing with the table the day the
+    # :06 arrived, and nothing points at a literal.
+    if (cta.get("logo_persistent") and client_logo
+            and logo_persistence_eligible(length_seconds)):
         corner = cta.get("logo_corner", LOGO_PERSISTENCE_RULES["default_corner"])
         x, y = _CORNER_ANCHORS.get(corner, _CORNER_ANCHORS["top-left"])
         video_elements.append({

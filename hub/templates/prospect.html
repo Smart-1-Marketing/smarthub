@@ -76,10 +76,19 @@
   .wrapover{overflow-x:auto}
 </style>
 </head>
-<body{% if has_tour is not defined or has_tour('hub.prospect') %} data-screen="hub.prospect"{% endif %} data-module="prospect">
+{# `data-screen` is what OFFERS a tour, so it names the screen the registry
+   actually publishes -- these keys are filed under `hub.prospect.*`, and the
+   plain `prospect` this carried before matched nothing. That cost nothing while
+   there were no steps, because hub-help.js declines to offer an empty tour;
+   the day a sibling screen registered any, `tour()` falls back to the MODULE
+   prefix and would have served them over elements that are not on this page.
+   `has_tour` is the exact question, and it is guarded `is defined` like every
+   other helper, so a Jinja env that never got install_template_helpers()
+   loses the attribute rather than the page. #}
+<body{% if has_tour is defined and has_tour("hub.prospect") %} data-screen="hub.prospect"{% endif %} data-module="prospect">
 <div class="wrap">
   <p class="sub" style="margin:0 0 8px"><a href="/sales/leads">&larr; Leads</a>
-    {%- if has_tour is not defined or has_tour('hub.prospect') %}
+    {%- if has_tour is defined and has_tour("hub.prospect") %}
     &middot; <a href="#" data-tour-start="hub.prospect">How this works</a>
     {%- endif %}</p>
   <div id="head"></div>

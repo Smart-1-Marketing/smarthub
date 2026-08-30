@@ -30,7 +30,7 @@ import requests
 
 from flask import (Blueprint, jsonify, redirect, render_template, request)
 
-from hub import ad_builder_proxy
+from hub import ad_builder_proxy, storage
 from hub.webargs import clamp_int
 
 logger = logging.getLogger(__name__)
@@ -207,6 +207,15 @@ def client_gallery(client_name: str, limit: int = 48) -> dict:
             continue
         images.append({
             "url": url,
+            # What the chooser's 126px tile draws. The full asset stays on
+            # `url`, which is what applying the background and the magnifier
+            # both use -- a 400px preview behind an ad would be the wrong
+            # file in the creative. This grid was the one gallery #179 could
+            # not reach, because the renderer is TypeScript and its rows never
+            # pass through hub/storage.py; they pass through here, so the rule
+            # is applied once on this side rather than mirrored into the
+            # renderer.
+            "thumb": storage.preview_url(url, row.resource_type or "image"),
             "public_id": row.cloudinary_public_id or "",
             "width": row.width or 0,
             "height": row.height or 0,

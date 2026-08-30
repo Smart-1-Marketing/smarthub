@@ -24,7 +24,7 @@
 <main>
   {% if session.authenticated %}
   <nav class="s1d-subnav">
-    <a href="{{url_for('dashboard')}}" class="{{'on' if _here in ('dashboard','project_detail','site_detail') else ''}}">Accounts</a>
+    <a href="{{url_for('dashboard')}}" class="{{'on' if _here in ('dashboard','project_detail') else ''}}">Accounts</a>
     <a href="{{url_for('inventory')}}" class="{{'on' if _here.startswith('inventory') else ''}}">Inventory</a>
     <a href="{{url_for('packages')}}" class="{{'on' if _here in ('packages','costs_import') else ''}}">Packages</a>
     <a href="{{url_for('add_site')}}" class="{{'on' if _here == 'add_site' else ''}}">Add Site</a>

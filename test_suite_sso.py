@@ -157,6 +157,27 @@ tampered = refused(encrypt(PAYLOAD)[:-8] + "BBBBBBBB")
 check("a wrong key and a tampered payload give the same answer",
       wrong_key == tampered, (wrong_key, tampered))
 
+# And they must give it *every* time, which one trial cannot say. A wrong key
+# produces garbage, and garbage ends in valid PKCS#7 padding about 0.6% of the
+# time -- so the single check above passed 199 runs in 200 while the property
+# it asserts was broken, and read as a flake on the run it caught. Six hundred
+# distinct wrong keys puts the odds of missing it below one in 10^15, and the
+# whole sweep costs about a tenth of a second.
+#
+# The failure message names the count rather than only the odd answer: "3 of
+# 600" and "600 of 600" are a leak and a broken decrypt, and they are fixed in
+# different places.
+_answers: dict[str, int] = {}
+for _i in range(600):
+    _said = refused(encrypt(PAYLOAD, f"wrong-key-{_i}"))
+    _answers[_said] = _answers.get(_said, 0) + 1
+check("every wrong key gives that same answer, not almost every one",
+      len(_answers) == 1,
+      ", ".join(f"{n} of 600: {m!r}" for m, n in sorted(_answers.items(),
+                                                        key=lambda kv: -kv[1])))
+check("and it is the one a tampered payload gives",
+      set(_answers) == {tampered}, (set(_answers), tampered))
+
 
 # ---------------------------------------------------------------------------
 print("\nThe location is the authorization, and nothing else is")
