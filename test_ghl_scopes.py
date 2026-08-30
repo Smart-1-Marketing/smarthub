@@ -79,18 +79,43 @@ section("Every GHL write path in the Hub has a scope declared for it")
 
 names = ghl_scopes.requested_names()
 
-# Each of these files performs a write against services.leadconnectorhq.com on
-# the agency Private Integration Token today. A location token can only take
-# that work over if the scope was consented to, so a call site absent from the
-# table is a feature that silently cannot migrate.
-WRITE_CALL_SITES = {
-    "hub/ghl_contacts.py": "contacts.write",
-    "hub/suite_opportunity.py": "opportunities.write",
-    "hub/ghl_blog.py": "blogs/post.write",
-    "modules/image_picker/ghl.py": "medias.write",
-    "modules/social_planner/app.py": "social-media-posting.write",
-}
-for path, scope in WRITE_CALL_SITES.items():
+# The version of this that enumerated five known files could only re-confirm
+# what somebody had already thought of, and two call sites slipped past it
+# within months. So the tree is walked instead: every file that names the
+# HighLevel host and performs a write must be claimed by some scope.
+undeclared = ghl_scopes.undeclared_writes()
+check("every GHL write call site in the tree is declared", undeclared, [])
+check("no scope declares a file that no longer exists",
+      ghl_scopes.stale_declarations(), [])
+
+# The discovery has to actually find things — an empty result would satisfy the
+# two checks above while proving nothing, which is the way this kind of check
+# usually rots.
+sites = ghl_scopes.write_call_sites()
+check("the scan finds real call sites rather than nothing",
+      len(sites) >= 5, True)
+for known in ("hub/ghl_contacts.py", "hub/qa.py",
+              "modules/social_planner/suite_client.py"):
+    check(f"the scan sees {known}", known in sites, True)
+
+# hub/suite_opportunity.py writes via requests.request(method, ...) with the
+# verb in a variable — the idiom most likely to be copied into the next
+# module. A hint list blind to it would give false comfort.
+check("a variable-method write is still detected",
+      "hub/suite_opportunity.py" in sites, True)
+
+# The exemptions are named with a reason, never silently skipped.
+for path, reason in ghl_scopes.WRITE_EXEMPT.items():
+    check(f"{path} is exempt with a stated reason", len(reason.strip()) > 40, True)
+check("the OAuth module is the exemption that matters",
+      "hub/ghl_oauth.py" in ghl_scopes.WRITE_EXEMPT, True)
+
+for path, scope in (("hub/ghl_contacts.py", "contacts.write"),
+                    ("hub/suite_opportunity.py", "opportunities.write"),
+                    ("hub/ghl_blog.py", "blogs/post.write"),
+                    ("modules/image_picker/ghl.py", "medias.write"),
+                    ("modules/social_planner/suite_client.py",
+                     "social-media-posting.write")):
     check(f"{path} is covered by {scope}", scope in names, True)
     entry = ghl_scopes.by_name(scope)
     check(f"{scope} names {path} as a caller",

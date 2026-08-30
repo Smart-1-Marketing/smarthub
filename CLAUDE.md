@@ -526,8 +526,8 @@ is in `NOT_REQUESTED` with its reason, so a 401 is never ambiguous between an
 oversight and a decision. And because a location token inherits only what the
 agency token was granted, a scope missed at install is missed for every client
 until somebody re-consents — which is why the write scopes are requested now
-rather than when a feature turns out to need them. `test_ghl_scopes.py` asserts
-that every GHL write call site in the Hub has a scope declared for it.
+rather than when a feature turns out to need them. `test_ghl_scopes.py` and `/api/integrity` assert
+that every GHL write call site in the Hub has a scope declared for it — by **walking the tree**, not by re-reading a list. The hand-written version could only re-confirm what somebody had already thought of, and two sites slipped past it within months: `hub/qa.py` grew an opportunity-status write, and the Social Planner's posting moved from `app.py` into `suite_client.py` while the table went on naming `app.py`. The invariant is deliberately the weak one — the file must be named by *some* scope, not that the right scope was picked, because inferring a scope from an endpoint is where false positives live and a check people ignore is worse than none. A file that reaches the API but needs no scope goes in `WRITE_EXEMPT` with its reason.
 
 **A `SameSite=Lax` cookie is not sent into somebody else's iframe.** Which is
 the whole difficulty of putting a Hub page inside Smart 1 Suite: the rep is
