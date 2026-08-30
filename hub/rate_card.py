@@ -148,7 +148,7 @@ def by_category() -> dict[str, list[dict]]:
     return out
 
 
-def find(label: str) -> dict | None:
+def find(label: str, category: str = "") -> dict | None:
     """One card product, by label or by product name.
 
     Exact first, then the card's own name *starting with* what was asked for.
@@ -168,14 +168,53 @@ def find(label: str) -> dict | None:
     want = (label or "").strip().lower()
     if not want:
         return None
-    for p in products():
-        if p["label"].lower() == want or p["product"].lower() == want:
-            return p
+    # A category narrows first where the caller has one. Four categories carry
+    # a product called "Behavioral" and the name alone cannot say which -- so
+    # a caller that knows the heading is answered rather than asked.
+    rows = products()
+    cat = (category or "").strip().lower()
+    if cat:
+        narrowed = [p for p in rows if p["category"].lower() == cat]
+        rows = narrowed or rows
+    exact = [p for p in rows
+             if p["label"].lower() == want or p["product"].lower() == want]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return None     # ambiguous by name; the caller needs candidates()
+    # An anchored match that could mean more than one product means none of
+    # them. "Google Grant" is a setup fee *and* a monthly management fee, and
+    # returning whichever the card lists first billed the one nobody quoted --
+    # the `client_key.resolve()` rule, wearing a rate. A caller handed None
+    # asks: `product_intake.classify()` names the candidates and commits to
+    # neither, which is the answer this question actually has.
     if len(want) > 3:
-        for p in products():
-            if p["product"].lower().startswith(want):
-                return p
+        hits = [p for p in rows if p["product"].lower().startswith(want)]
+        if len(hits) == 1:
+            return hits[0]
     return None
+
+
+def candidates(label: str, category: str = "") -> list[dict]:
+    """Every card product an anchored lookup could have meant.
+
+    `find()` refuses an ambiguous name; this is what a screen shows instead of
+    the refusal, so "we could not tell which" never reads as "not on the card".
+    """
+    want = (label or "").strip().lower()
+    if not want:
+        return []
+    rows = products()
+    cat = (category or "").strip().lower()
+    if cat:
+        rows = [p for p in rows if p["category"].lower() == cat] or rows
+    exact = [p for p in rows
+             if p["label"].lower() == want or p["product"].lower() == want]
+    if exact:
+        return exact
+    if len(want) <= 3:
+        return []
+    return [p for p in rows if p["product"].lower().startswith(want)]
 
 
 def search(term: str, limit: int = 20) -> list[dict]:
@@ -279,16 +318,37 @@ def check_drift(io_template: str | None = None) -> dict:
         embedded = json.loads(m.group(1))
     except ValueError:
         return {"checked": False, "note": "Embedded rate card wouldn't parse."}
+    # Keyed on the label, which has to be unique for that to mean anything.
+    # It was not: two products were both called "SEARCH ENGINE MARKETING /
+    # PAY PER CLICK — Google Grant", one a setup fee and one a monthly
+    # management fee, so each collapsed onto the other in *both* dicts and
+    # this check could not have seen a difference between them. It also cost
+    # the IO the product outright -- its `productConfig` is keyed the same
+    # way, so 90 card rows became 88 and the setup fee could not be billed.
+    # A duplicate label is therefore a finding in its own right.
     ours = {p["label"]: p["listed_rate"] for p in products()}
     theirs = {p.get("label", ""): p.get("listedRate", "") for p in embedded}
+    dupes = sorted({p["label"] for p in products()
+                    if sum(1 for q in products() if q["label"] == p["label"]) > 1})
+    dupes += sorted({p.get("label", "") for p in embedded
+                     if sum(1 for q in embedded
+                            if q.get("label", "") == p.get("label", "")) > 1}
+                    - set(dupes))
     diffs = [k for k in set(ours) | set(theirs) if ours.get(k) != theirs.get(k)]
+    notes = []
+    if diffs:
+        notes.append(f"{len(diffs)} product(s) differ between the shared card "
+                     f"and the IO template. A proposal and its IO will quote "
+                     f"different numbers until this is resolved.")
+    if dupes:
+        notes.append(f"{len(dupes)} label(s) are carried by more than one "
+                     f"product. The IO keys its product list on the label, so "
+                     f"one of each pair is dropped and cannot be quoted.")
     return {
         "checked": True, "shared": len(ours), "embedded": len(theirs),
-        "differences": diffs[:20], "in_sync": not diffs,
-        "note": ("Both copies agree." if not diffs else
-                 f"{len(diffs)} product(s) differ between the shared card and "
-                 f"the IO template. A proposal and its IO will quote different "
-                 f"numbers until this is resolved."),
+        "differences": diffs[:20], "duplicate_labels": dupes[:20],
+        "in_sync": not diffs and not dupes,
+        "note": " ".join(notes) or "Both copies agree.",
     }
 
 
