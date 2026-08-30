@@ -46,6 +46,40 @@ export interface SizeApproval {
   by?: string;
 }
 
+/**
+ * One animated size, filed against the project.
+ *
+ * Its own list rather than a row on RenderBatch, because an animation is not
+ * produced by the same job as the static pack and must not be: the static
+ * build is what gets made every time and an animation is asked for afterwards,
+ * on the sizes that take one. Folding it into a batch would mean either
+ * re-rendering eight static ads to add a GIF or writing a batch with no static
+ * ads in it, and both lie about what happened.
+ *
+ * A re-render supersedes the record for its own concept, platform and size and
+ * leaves every other one alone -- see recordAnimations.
+ */
+export interface AnimationRecord {
+  conceptId: string;
+  platform: string;
+  size: string;
+  /** Absolute path on the render disk. */
+  file: string;
+  /** /files/... path, which is what a browser and the proof page read. */
+  url: string;
+  bytes: number;
+  frames: number;
+  loop: number;
+  totalMs: number;
+  fps: number;
+  kind: 'text' | 'button';
+  status: 'pass' | 'warn' | 'fail';
+  /** Non-passing findings, in words, so a screen does not have to re-run QA
+   *  to say what is wrong with a file it is listing. */
+  issues: string[];
+  renderedAt: string;
+}
+
 export interface CreativeOverride {
   conceptId: string;
   platform: string;
@@ -128,6 +162,8 @@ export interface Project {
   conceptRoot?: string;
   /** Set once a delivery zip has been produced. */
   delivered?: { at: string; zipUrl: string; fileCount: number }[];
+  /** Animated versions, produced after the static build exists. */
+  animations?: AnimationRecord[];
   /** The job id of the automatic render started at intake, so the public
    *  status endpoint can report real progress instead of guessing. */
   autoJobId?: string;
@@ -234,6 +270,45 @@ export class ProjectStore {
   get(projectId: string): Project | null {
     const f = this.file(projectId);
     return fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, 'utf8')) as Project) : null;
+  }
+
+  /* ----------------------------------------------------------- animations */
+
+  /**
+   * File animated versions, replacing only what was re-rendered.
+   *
+   * Keyed on concept, platform and size. Animating three sizes must not drop
+   * the five that were animated last week -- a list that quietly gets shorter
+   * cannot be told from one that failed to load, and the delivery ZIP reads
+   * this list.
+   */
+  recordAnimations(project: Project, records: AnimationRecord[]): AnimationRecord[] {
+    const key = (a: { conceptId: string; platform: string; size: string }) =>
+      `${a.conceptId}\u0000${a.platform}\u0000${a.size}`;
+    const incoming = new Set(records.map(key));
+    const kept = (project.animations ?? []).filter((a) => !incoming.has(key(a)));
+    project.animations = [...kept, ...records].sort(
+      (a, b) => a.conceptId.localeCompare(b.conceptId) || a.size.localeCompare(b.size),
+    );
+    this.save(project);
+    return project.animations;
+  }
+
+  /**
+   * Take an animation off a concept.
+   *
+   * The file is left on disk: `retention.ts` sweeps the render folder, and
+   * deleting it here would break a proof link somebody has already sent while
+   * this screen reported a clean removal.
+   */
+  forgetAnimations(project: Project, key: { conceptId?: string; platform?: string; size?: string }): number {
+    const before = (project.animations ?? []).length;
+    project.animations = (project.animations ?? []).filter((a) =>
+      (key.conceptId && a.conceptId !== key.conceptId) ||
+      (key.platform && a.platform !== key.platform) ||
+      (key.size && a.size !== key.size));
+    if (project.animations.length !== before) this.save(project);
+    return before - project.animations.length;
   }
 
   /* ------------------------------------------------------------ approvals */

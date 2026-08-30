@@ -448,6 +448,22 @@ def api_save(job_id, batch_id):
     job["batches"].pop(batch_id, None)
     store.save_job(job)
 
+    # The row this module's own comment above has always described and never
+    # written: _audit was imported, wrapped in a no-op fallback and called
+    # nowhere, so "every action is attributable" was true of nothing. Filed
+    # against the company, because CLAUDE.md's rule is that work reaching a
+    # client carries client= or it never appears on their 360 record -- the
+    # display_ads failure this repo has now paid for six times.
+    #
+    # Written after the save, not before: images that failed to store are not
+    # delivered work. Plain reads only, never an expression, or a caller that
+    # raises while building its arguments takes the route with it.
+    if saved:
+        _audit("page_images_saved", client=job.get("company") or "",
+               project=job.get("project") or "",
+               page_url=job.get("page_url") or "",
+               images=len(saved), skipped=len(skipped), failed=len(failed))
+
     saved_urls = {row["source_url"] for row in job["saved"]}
     remaining = [
         url for url, c in job["candidates"].items()

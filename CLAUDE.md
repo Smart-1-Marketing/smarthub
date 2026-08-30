@@ -285,6 +285,52 @@ added before that observer existed did not.
 **`audit.log()`'s first positional is `module`.** Passing `module=` in the
 extras raises `TypeError` and silently zeroes cost tracking. Use `tool=`.
 
+**And binding the logger is not calling it.** `/api/integrity`'s silent-module
+check asked whether the *string* `"for_module("` appeared in a module's source,
+which the binding alone satisfies. So seven modules — `calculators`,
+`google_finder`, `image_optimizer`, `page_image_optimizer`, `pdf_optimizer`,
+`sites_admin` and `tickets` — imported `hub.audit`, bound it to `_audit`,
+wrapped it in a no-op fallback for running standalone, wrote a comment above
+the import explaining exactly why attribution mattered there, and called it
+nowhere. The comments are the part worth reading: pdf_optimizer's said *"work
+that isn't logged is work nobody can point to later"*, and
+page_image_optimizer's and sites_admin's said *"an unattributable change to a
+client's account is one nobody can explain later"*. All three were true and
+none of them wrote a row, so **deleting a client's live website, connecting a
+domain, deploying a tag into somebody else's Tag Manager container and
+compressing a client's documents were the least attributable actions in this
+Hub** — behind a check reporting them clean. That is the declared-but-unwired
+integration point this file already counts in `RECORD_HOOK`, `io_creative`,
+`manifest()`, `thumb_url()`, `mark_pushed()` and `check_limits()`, wearing the
+activity log. The check reads a **call** now, through the AST — an import
+cannot satisfy it, and a docstring quoting `audit.log(` is not a call site,
+the rule `hub/config.py`'s drift check gives. A module whose work genuinely
+does not belong in the log is declared in `audit.NO_ACTIVITY` with the reason
+rather than left as a dangling import: `calculators` is the only one, because
+what a public estimate box produces is a **lead**, and leads go through
+`hub/leads.py`.
+
+**A module's own `log()` wrapper hid the same failure one step on.**
+`check_work_kinds()` counted only a direct `audit.log("mod", …, client=…)`,
+reasoning that a bare `log()` is a wrapper whose first argument is the event
+rather than the module. True, and it drops those modules entirely — the name is
+one level up, in whatever bound the wrapper (`log = audit.for_module("msa")`,
+or `def log(event, **extra): hub_audit.log("radio_promo", event, **extra)`).
+Four fell through, and **`radio_promo` is the one that shows the cost**:
+`fan_radio` has been in `WORK_KINDS` since it was written and its sibling was
+not, so a client who had a Fan Radio spot made appeared on their own record and
+a client who had a Radio Promo spot made did not — two tools writing, casting
+and recording a commercial for the same client, one of them invisible.
+`gpt_ads`, `landing_ads` and `msa` were the others; `hub/prospect.py` and
+`hub/stale_creative.py` surfaced with them and are the *other* answer, in
+`NOT_WORK`. **And the check's two halves each had their own copy of the walk** —
+`stale_work_exemptions()` asks what no longer logs, the same walk from the
+opposite end, so the moment one learned to resolve a wrapper and the other did
+not, every `NOT_WORK` entry added for a wrapper-shaped call site was reported
+stale. They read one `_client_log_modules()` now, the
+`/api/db/structure` versus `/api/integrity` rule. `test_activity_logging.py`
+asserts all of it, and both checks were reverted and confirmed red first.
+
 **A provider is not metered in calls just because you counted calls.**
 `hub/quotas.py` estimates six providers now, and only three of them bill per
 call. ElevenLabs bills the **character** of script, so counting renders makes
@@ -2063,6 +2109,29 @@ button nobody pressed. The dependency is pinned and installed, so this
 fallback has never fired; it is the same shape as filing a mock render as a
 delivered commercial, which `approve_render` already refuses.
 
+**And the QR upload beside it had never once run.** That fallback was
+hypothetical; this was live on every spot ever built. `routes/projects.py`
+hands `cloudinary_service.upload_asset` a **BytesIO**, and that function took
+a path or a URL: `str()` on a BytesIO is `<_io.BytesIO object at 0x7f…>`,
+`open()` raises `FileNotFoundError` on it, and its own `except Exception`
+turned that into a quiet `{"secure_url": None}`. So `qr_image_url` was never
+populated, and the failure was swallowed a **second** time at the call site by
+an `or` that never read `error`. Both readers fall back to `qr_data_url`, so
+what reached Creatomate as the image `source` was a base64 data URI rather
+than a hosted one — and whether it accepts those is not a thing this repo can
+answer, which is the point: the intended path was dead and nothing said so.
+
+`_read_bytes()` is the fix and it is also the migration `hub/storage.py`
+exists for — `storage.put()` has always taken bytes, so the shared service
+could do this the whole time. Three rules on it. A **file object is rewound
+first**, because a caller that has already read it would otherwise store an
+empty file, which is the same silent-empty failure one layer down. The
+**filename is asked for rather than guessed**, since bytes carry no name and
+the extension is what the format is read from — inventing one puts a `.png` on
+an MP3. And a storage failure now lands in the `qr_error` the CTA already
+carries, as a **note rather than a refusal**: the code still renders from the
+data URL, and saying nothing is what let this run silently for so long.
+
 **Severity is the server's, and it was two JavaScript files' before.**
 `blueprint.js` and `preview.js` each kept an `ADVISORY = new Set([...])` by
 hand — two copies of a decision `qc_service` has every fact to make, and the
@@ -2269,6 +2338,62 @@ spends money from.** `spec.CPC_NOTE` is one string, `analyse_budget()` returns
 it alongside the numbers so no screen can render a CPC without having been
 handed the words for it, and `test_ads_estimate.py` asserts each template
 carries it.
+
+**A developer token is not one thing, and the tier is what decides.** Google
+grants a new token **Explorer** access automatically — production accounts,
+2,880 operations a day, and the keyword planning services **excluded**. So
+`generateKeywordIdeas` answers `DEVELOPER_TOKEN_NOT_APPROVED` on a token that
+is entirely healthy, and read as a bad key it sends somebody to rotate a
+credential that was fine. Basic access is the first tier that can measure
+anything, and it is applied for and reviewed rather than granted.
+`keyword_plan.PlanningUnavailable` carries `tier_needed` so a page says *apply
+for Basic access* rather than printing an error code at a rep who cannot act on
+one, and the refusal is **saved onto the campaign** — "we asked Google and the
+tier does not allow it" is a fact the estimate should carry, and dropping it
+leaves the benchmark on screen with nothing saying the measured number was
+tried for. Google publishes the tier nowhere an API can read it, so
+`api_readiness.tier()` treats `GOOGLE_ADS_ACCESS_LEVEL` and the stored setting
+as **claims** and lets an actual probe outrank both.
+
+**A top-of-page bid is not a cost per click.** Google's two planning services
+return two different numbers: `generateKeywordIdeas` gives the bid you would
+need to show at the top of the page (20th/80th percentile), and
+`generateKeywordForecastMetrics` gives a forecast `averageCpcMicros`. Only the
+second is what you pay, and the first is always the larger — so printing it
+under the word "cost" overstates every estimate this tool produces, by a margin
+that grows with the sector, and looks exactly like a better number than the
+benchmark it replaced. `spec.CPC_SOURCES` holds all three provenances with the
+caveat each must appear beside, `keyword_plan.py` imports that rather than
+restating it, and the estimate reads `spec.cpc_provenance()` so a label cannot
+drift from the call that produced the number under it. The forecast is
+preferred, the bid range is the labelled fallback, and the sector benchmark is
+what you get when neither answered. Measuring also **re-costs the tiers** —
+`campaign_ai.retier()`, recomputed and never re-asked, so wording a rep edited
+survives — because a measured headline over tiers costed at the sector rate
+shows a client two different campaigns on one page. An area Google could not
+place is **named on the client document**, never widened to the state it sits
+in: a CPC measured across three of a client's five counties is not this
+campaign's CPC.
+
+**"Not ready" is useless; "the client has not accepted the link invitation" is
+a phone call.** Reaching a client's Google Ads account is a separate act from
+authorising ours — there is no "add this email" call, so we send a manager link
+invitation and *they* accept it, and until they do the API reports an empty
+customer list rather than an error. `api_readiness.preflight()` asks every
+question in the order it bites and returns a **named checklist**: credentials,
+authorisation, tier, account reachability, then the Hub's own three approval
+rungs. `api_deploy` refuses on that checklist and returns the whole thing, so a
+rep who fixes the status is not then told the account is unreachable — one
+press, every blocker. Three rules in it: a check that could not run is *not
+measured* and never a red cross (an unreachable Google is not a bad key); the
+client's own answer is shown but does not block, because a rep may have an
+approval by phone and "never sent", "asked to talk first" and "said yes" are
+three different situations; and the **dry run is never gated**, because
+validating is how somebody finds out what is wrong and gating the diagnostic
+behind the conditions it diagnoses makes it unavailable exactly when it is
+needed. `docs/google-ads-api-integration.md` is the rollout order.
+`test_ads_keyword_plan.py` asserts all of it with Google stubbed, because what
+is worth asserting is what the module does when Google says no.
 
 **A budget nobody has named is the ordinary case.** Refusing to build anything
 until a client picks a number is how the conversation stops before it starts,
@@ -2515,6 +2640,28 @@ actually mirrored.
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one
 way the backup can bite you.
+
+**And a test's throwaway data directory is the same trap wearing a harness.**
+`key_for()` keys the mirror **relative to the data root** — deliberately, so a
+production blob restores into a development checkout — which means a fresh
+`HUB_DATA_DIR` in front of an *inherited* `DATABASE_URL` is refilled with the
+last run's rows. The file looks isolated, the directory really is empty, and
+the second run reads the first one's writes. `checks.yml` carried a paragraph
+headed **RUN THIS FILE EXACTLY ONCE** recording exactly that: two lineages
+each added a target-areas step, git merged both cleanly, and the duplicate
+failed on the first run's rows.
+
+Only one combination breaks. Setting **neither** is fine — the file inherits
+both and they agree. Setting **both** is the `test_blog_publish.py` pattern.
+Only *own directory, inherited database* gives you an empty disk in front of a
+full mirror, and `test_dashboard_trends.py` and `test_google_index.py` were
+the two files in it: three failures and four, on the second run, every time.
+They assign `DATABASE_URL` now. `test_jsonstore.py` pins that pair rather than
+sweeping every file of the shape — thirteen others share it and all re-run
+clean, because they write nothing durable or overwrite what they read, and
+several boot the composed app, where forcing SQLite would drop Sites Admin out
+of the gate. A check landing with thirteen findings it cannot act on is the
+one people learn to skip.
 
 **Two checks asking one question will answer it differently, and both
 answers are on screen.** `/api/db/structure` and `/api/integrity` both report
@@ -7209,6 +7356,91 @@ a fetch is detached by the time the answer arrives: the write succeeds, the
 screen does not change, and it reads as a button that did nothing. Re-read the
 node after any redraw.
 
+**Motion is a second pass over an ad that already exists, and the sequencing
+is the feature.** `modules/ad_builder/src/animation.ts`. A GIF here is the
+static ad played two or three ways: a frame is one more `compose()` with a
+different `CopySet` or a different CTA fill, so there is no second renderer and
+no way for the moving version to disagree with the still one about anything
+except the thing that is moving. It is offered only once a build has been
+**saved** — not once a client has approved it, which is a different and later
+question — and it runs as its **own job** on the same queue rather than extra
+work bolted onto the render. Both halves matter: a set nobody wants animated
+costs exactly what it cost before, and an animation asked for on a Friday does
+not mean re-rendering eight ads that were signed off on Tuesday. The gate is
+enforced on the server (the campaign file on disk is what "a static build
+exists" means) as well as in the build screen, because a rule the form keeps
+while the write breaks it is not a rule.
+
+**Four published numbers, and two of them are invisible on the screen they are
+broken on.** Google requires an animated image ad to be 150 KB or less, to run
+at **5 frames a second or slower**, and to **stop animating within 30
+seconds** — loops included. A GIF with a loop count of 0 repeats for ever,
+renders correctly in every browser, passes every eye here, and is outside the
+rule; one at 20fps looks *better* than one at 5. So the loop count is
+**computed** from the cycle length rather than chosen (`loopsWithin`, floored
+at 1, so `loop: 0` is unreachable from that file), the frame delay has a 200ms
+floor, and both are printed on the panel in words beside the preview. The
+browser recomputes none of it — a second copy of that arithmetic is a second
+answer to "is this legal", and the two disagree the day either is edited.
+`ANIMATION_RULES` carries a **source** per number, and `maxSlides: 3` /
+`maxFrames: 5` are marked as **ours**, the `services/abcd_service.py` rule:
+"Google requires three slides" about a number Google has never published is a
+claim a client can talk us out of once they check. (sharp writes `loop - 1`
+into the file's Netscape block — the GIF format's count of iterations *after*
+the first — and readers disagree about that byte, so the arithmetic is done
+against the larger reading and `totalMs` can never understate what a browser
+will play.)
+
+**QA runs per frame, and that is the half most likely to be quietly wrong.**
+Slide 2 is different copy in the same box: it can overflow, collide with the
+button, or lose its contrast where slide 1 fit perfectly. Not hypothetical —
+the first run of this against the sample campaign passed the static 320x50 and
+**failed** the animated one on a clipped headline, twice, naming the slide. So
+every frame goes through `runQa`, frame 1's findings are kept whole (frame 1
+*is* the static ad) and later frames contribute only what they got wrong,
+tagged by slide. A finding frame 1 already carries is dropped rather than
+repeated once per frame, or one note about the type hierarchy becomes five and
+buries the one that is about slide 2. The background pass is composed **once**:
+none of the motions offered changes what is behind the ink, and re-composing it
+per frame triples the slowest step to produce identical bytes.
+
+That failure is also why slides carry **per-size overrides** (`sizeSlides`,
+resolved slide by slide and field by field, the way `copyForSize` already
+resolves static copy). Without them a set animates at seven sizes and fails at
+the eighth on copy nobody can shorten.
+
+**Which sizes take one is read from the platform config, never decided.** Only
+Google's eight banner sizes list `gif`; Amazon's specs here are static at
+40-50 KB, Meta converts an uploaded GIF into a video, and Google's three
+**responsive-display image assets** are image assets — Google composes its own
+headline around those. A size that cannot carry one is **refused by name** on
+the panel and in the job's own `animationSkipped`, because a set that came back
+with five moving ads out of eight and nothing saying which three or why is the
+silence this module exists to avoid. `render.ts` still strips `gif` from the
+static raster's format list, and the comment there now says why: `gif` in a
+format list means that placement will *also* take an animated file.
+
+**And it never replaces the static file.** Most placements on a buy take the
+still one, so a folder holding only GIFs is a set that cannot be trafficked.
+The GIF is written beside its sibling with `_animated` on the end, ships in the
+delivery ZIP under `animated/`, and is **counted apart** — "8 files delivered"
+about a pack of five ads and three GIFs is a sentence a client reads as eight
+ads. A QA-failing animation is **withheld** and named, and the static file goes
+in its place: the ad still runs, and the client can see the animation is
+missing. `AnimatedResult` is deliberately not a `RenderResult` with
+`format: 'gif'`, and animations are their own list on the project rather than a
+row on `RenderBatch` — a batch is a static delivery pack, and one containing
+only GIFs would be read by `deliverProject` as the whole of what was built.
+
+**The weight ladder is `raster.ts`'s in GIF terms, and it is cheap for a
+reason worth knowing.** A GIF has no quality setting: it has a palette, a
+dither, and how different two frames must be before the second re-encodes a
+pixel. Both motions offered leave the background **byte-identical** between
+frames, so the encoder only ever pays for the words or the button — measured
+against this repo's own hero photo, a three-slide 300x250 is 19 KB and a
+970x250 is 27 KB, against a 150 KB ceiling. `test_display_ads.py` asserts all
+of it, including that Amazon and Meta are offered none at any size.
+
 ## Everyone has their own login, and there are two levels of it
 
 Fourteen people, uploaded from the company census. `hub/user_directory.py`
@@ -8097,6 +8329,7 @@ python3 test_report_cache.py       # one run per report per day; a failed run is
                                    #   the answer, and a write drops what it changed
 python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the client join
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
+python3 test_ads_keyword_plan.py   # measured CPC, the access tier, the deploy preflight
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
 python3 test_help_layer.py         # every bubble placed has help behind it, both
                                    #   ways one is placed, a key built at runtime
@@ -8191,6 +8424,10 @@ python3 test_google_index.py       # the Google sweep: no request, and none vs c
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
+python3 test_activity_logging.py   # every module's work is attributable: an
+                                   #   import is not a call, a module's own
+                                   #   log() wrapper is resolved, and the
+                                   #   remainder is declared with its reason
 python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,
@@ -8225,7 +8462,9 @@ python3 test_suite_embed.py        # Hub pages framed in Suite: the cookie, the 
 python3 test_suite_sso.py          # the client half: the location id is the
                                    #   authorization, and every way that goes wrong
 python3 test_calculator_embed.py   # the media calculators framed on smart1marketing.com
-python3 test_display_ads.py        # the display layouts, and the build screen's contracts
+python3 test_display_ads.py        # the display layouts, the build screen's contracts, and
+                                   #   the animated GIF: whose rule each number is, a loop
+                                   #   that can never be endless, and QA on every frame
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the

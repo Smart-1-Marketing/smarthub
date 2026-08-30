@@ -41,6 +41,27 @@ export interface ProofOptions {
   /** Latest delivered package, when the project is already complete. */
   delivered?: { at: string; zipUrl: string; fileCount?: number };
   /**
+   * Animated versions, when somebody built them after the static design.
+   *
+   * Drawn as their OWN block under the size grid rather than swapped into it,
+   * because they are not the same claim: most placements on a buy take the
+   * static file and only some take a GIF, so a grid that quietly showed the
+   * moving version wherever one existed would have a client approving an ad
+   * that runs in four of their eight slots. Absent means nobody built any,
+   * which is the ordinary case and draws nothing at all.
+   */
+  animations?: Array<{
+    conceptId: string;
+    size: string;
+    url: string;
+    bytes: number;
+    frames: number;
+    loop: number;
+    totalMs: number;
+    kind: 'text' | 'button';
+    status: 'pass' | 'warn' | 'fail';
+  }>;
+  /**
    * Whether to draw the live editor -- the copy and colour fields, the
    * background search, "Apply changes & rebuild" and the per-size editor.
    *
@@ -171,9 +192,43 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
       const inline = c.entries.find((e) => e.size === '300x250');
       const board = c.entries.find((e) => e.size === '728x90');
 
+      // Only what actually passed. A client reading a proof is deciding, and
+      // an animation withheld from the delivery for failing its checks must
+      // not be the version they say yes to.
+      const moving = (opts.animations ?? []).filter(
+        (a) => a.conceptId === c.id && a.status !== 'fail',
+      );
+      const movingBlock = moving.length
+        ? `
+        <div class="moving">
+          <h3>Animated versions</h3>
+          <p class="moving-note">These are the same ads with motion on them, not
+          replacements. Each one plays ${esc(String(moving[0].loop))} times and
+          stops, which is what Google requires. The still versions above are what
+          runs everywhere an animated file is not accepted.</p>
+          <div class="grid">
+            ${moving.map((a) => {
+              const [w, h] = a.size.split('x').map(Number);
+              return `
+            <figure class="ad" data-size="${esc(a.size)}">
+              <figcaption>
+                <span class="size">${esc(a.size)}</span>
+                <span class="spec">gif · ${kb(a.bytes)} · ${a.frames} frames · ${(a.totalMs / 1000).toFixed(1)}s · ${esc(a.kind === 'text' ? 'changing text' : 'pulsing button')}</span>
+                <span class="dot ${esc(a.status)}" title="${esc(a.status)}"></span>
+              </figcaption>
+              <div class="frame" style="width:${w}px">
+                <img src="${esc(a.url)}" width="${w}" height="${h}" alt="${esc(a.size)} animated advertisement" loading="lazy">
+              </div>
+            </figure>`;
+            }).join('')}
+          </div>
+        </div>`
+        : '';
+
       return `
       <section class="panel${i === 0 ? ' on' : ''}" data-panel="${esc(c.id)}">
         <div class="grid">${tiles}</div>
+        ${movingBlock}
 
         <div class="context" hidden>
           <p class="context-note">Your ad as a reader meets it — inside someone else's page, at real size.</p>
@@ -330,6 +385,12 @@ export function renderProof(m: Manifest, opts: ProofOptions = {}): string {
 
   /* ---- in-context ---- */
   .context-note { color: var(--ink-2); font-size: 13.5px; margin: 0 0 12px; }
+
+  /* The animated block sits under the grid rather than inside it, with a rule
+     between them, because it is a second set of files and not eight more ads. */
+  .moving { margin-top: 34px; padding-top: 26px; border-top: 1px solid var(--rule); }
+  .moving h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+  .moving-note { color: var(--ink-2); font-size: 13.5px; margin: 0 0 18px; max-width: 62ch; }
   .page {
     background: #fff; border: 1px solid var(--rule); box-shadow: var(--shadow);
     padding: 0 0 22px; max-width: 800px; overflow-x: auto;

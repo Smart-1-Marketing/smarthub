@@ -15,6 +15,11 @@
  *     README.txt                           (what each file is, its delivered
  *                                           pixel size, weight, and where it
  *                                           is allowed to run)
+ *     animated/<client>_300x250_animated.gif (present only when somebody built
+ *                                           one after the static design was
+ *                                           saved -- an EXTRA version of an ad
+ *                                           already in the platform folders,
+ *                                           never a replacement for it)
  *     campaign-manifest.json               (the same delivery for a machine:
  *                                           the ad ops person trafficking it
  *                                           was inferring platform and size
@@ -42,7 +47,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
 import type { Manifest, ManifestEntry } from './manifest';
-import type { Project } from './projects';
+import type { AnimationRecord, Project } from './projects';
 import { slug } from './cloudinary';
 
 export interface DeliverOptions {
@@ -55,6 +60,10 @@ export interface DeliverResult {
   zipFile: string;          // absolute path
   zipUrl: string;           // /files/... path for the browser
   fileCount: number;
+  /** Animated versions riding along beside the static files. Counted apart
+   *  from fileCount, because "8 files delivered" about a pack containing five
+   *  ads and three GIFs is a sentence a client reads as eight ads. */
+  animatedCount: number;
   overrideCount: number;
   skipped: { size: string; reason: string }[];
   bytes: number;
@@ -79,6 +88,7 @@ function readme(
   clientSlug: string,
   shipped: { entry: ManifestEntry; overridden: boolean; finalFile: string }[],
   skipped: { size: string; reason: string }[],
+  animated: AnimationRecord[],
 ): string {
   const lines: string[] = [];
   lines.push(`${project.client} — ${project.campaignName}`);
@@ -96,6 +106,22 @@ function readme(
       `  ·  ${human(fs.statSync(s.finalFile).size)}` +
       (s.overridden ? '  ·  MANUALLY EDITED replacement supplied by Smart 1' : ''),
     );
+  }
+  if (animated.length) {
+    lines.push('');
+    lines.push('ANIMATED VERSIONS');
+    lines.push('-----------------');
+    lines.push('In animated/. These are the SAME ads with motion on them, not');
+    lines.push('replacements — upload the static file anywhere an animated one is');
+    lines.push('not accepted. Each runs at 5 frames a second or slower, stops');
+    lines.push('animating within 30 seconds, and is inside the placement\'s file');
+    lines.push('weight, which is what Google requires of an animated image ad.');
+    for (const a of animated) {
+      lines.push(
+        `${clientSlug}_${a.size}_animated.gif  ·  ${a.platform}  ·  ${a.frames} frames  ·  ` +
+        `plays ${a.loop}x, ${(a.totalMs / 1000).toFixed(1)}s in total  ·  ${human(a.bytes)}`,
+      );
+    }
   }
   if (skipped.length) {
     lines.push('');
@@ -153,6 +179,7 @@ function campaignManifest(
   root: string,
   shipped: { entry: ManifestEntry; overridden: boolean; finalFile: string }[],
   skipped: { size: string; reason: string }[],
+  animated: AnimationRecord[],
 ): string {
   const assets = [];
   for (const s of shipped) {
@@ -198,9 +225,28 @@ function campaignManifest(
         files: assets.length,
         creatives: shipped.length,
         withheld: skipped.length,
+        animated: animated.length,
         bytes: assets.reduce((n, a) => n + a.bytes, 0),
       },
       assets,
+      // Listed apart from `assets` on purpose. An animated file is an EXTRA
+      // version of an ad that is already in `assets`, not a ninth ad -- folded
+      // in, it would double the creative count on any sheet keyed on this
+      // file, and an ops person would traffic the same placement twice.
+      animated: animated.map((a) => ({
+        file: `${root}/animated/${clientSlug}_${a.size}_animated.gif`,
+        platform: a.platform,
+        size: a.size,
+        format: 'gif',
+        bytes: a.bytes,
+        frames: a.frames,
+        loop: a.loop,
+        totalSeconds: Number((a.totalMs / 1000).toFixed(1)),
+        fps: a.fps,
+        motion: a.kind,
+        qa: a.status,
+        qaIssues: a.issues,
+      })),
       withheld: skipped.map((s) => ({ size: s.size, reason: s.reason })),
     },
     null,
@@ -251,6 +297,37 @@ export async function deliverProject(
 
   if (!shipped.length) throw new Error('Nothing deliverable: every size was withheld or missing.');
 
+  /* Animated versions ride along, under the same two rules the static files
+     follow and for the same reasons.
+
+     A QA-FAILING ANIMATION IS WITHHELD. Delivering a GIF that is over the file
+     weight, or whose second slide is clipped, is worse than delivering the
+     static ad on its own -- the static one runs, and the client can see for
+     themselves that the animation is missing.
+
+     IT NEVER REPLACES ITS STATIC SIBLING. Most of this Hub's placements do not
+     take an animated file at all, so a folder holding only GIFs is a set that
+     cannot be trafficked. They sit in animated/ and the README says which is
+     which. */
+  const animated = (project.animations ?? []).filter((a) => {
+    if (a.conceptId !== concept) return false;
+    if (a.status === 'fail') {
+      skipped.push({
+        size: `${a.platform}/${a.size} (animated)`,
+        reason: 'the animated version did not pass creative checks and was withheld; the static file is included',
+      });
+      return false;
+    }
+    if (!fs.existsSync(a.file)) {
+      skipped.push({
+        size: `${a.platform}/${a.size} (animated)`,
+        reason: 'the animated file is no longer on disk — animate again and deliver',
+      });
+      return false;
+    }
+    return true;
+  });
+
   const deliveriesDir = path.join(opts.outDir, 'deliveries');
   fs.mkdirSync(deliveriesDir, { recursive: true });
   const zipName = `${clientSlug}_${slug(project.campaignName)}_${concept}_${Date.now().toString(36)}.zip`;
@@ -275,14 +352,20 @@ export async function deliverProject(
       });
     }
   }
+  for (const a of animated) {
+    zipEntries.push({
+      name: `${root}/animated/${clientSlug}_${a.size}_animated.gif`,
+      data: fs.readFileSync(a.file),
+    });
+  }
   zipEntries.push({
     name: `${root}/README.txt`,
-    data: Buffer.from(readme(project, concept, clientSlug, shipped, skipped), 'utf8'),
+    data: Buffer.from(readme(project, concept, clientSlug, shipped, skipped, animated), 'utf8'),
   });
   zipEntries.push({
     name: `${root}/campaign-manifest.json`,
     data: Buffer.from(
-      campaignManifest(project, concept, clientSlug, root, shipped, skipped),
+      campaignManifest(project, concept, clientSlug, root, shipped, skipped, animated),
       'utf8',
     ),
   });
@@ -292,6 +375,7 @@ export async function deliverProject(
     zipFile,
     zipUrl: `/files/deliveries/${zipName}`,
     fileCount: shipped.length,
+    animatedCount: animated.length,
     overrideCount: shipped.filter((s) => s.overridden).length,
     skipped,
     bytes: fs.statSync(zipFile).size,

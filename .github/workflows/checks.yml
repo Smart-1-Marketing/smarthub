@@ -167,6 +167,22 @@ jobs:
             echo "test_ads_estimate.py not on this branch — nothing to run."
           fi
 
+      - name: Measured CPC, access tier and deploy preflight tests
+        # Google is stubbed throughout, deliberately: what is worth asserting
+        # is what the module does when Google says NO, and that is unreachable
+        # from a deployment where Google says yes. A top-of-page bid must never
+        # be printed as a cost per click, a DEVELOPER_TOKEN_NOT_APPROVED must
+        # read as the access tier rather than a bad key, and an area Google
+        # could not place must be named rather than widened. Guarded like the
+        # steps above so this workflow stays mergeable on a branch that
+        # predates the file. No database, no network.
+        run: |
+          if [ -f test_ads_keyword_plan.py ]; then
+            python test_ads_keyword_plan.py
+          else
+            echo "test_ads_keyword_plan.py not on this branch — nothing to run."
+          fi
+
       - name: Smart 1 Ads explainer tests
         # The bubbles, the per-screen tour and the two walkthroughs. Every
         # failure this covers is silent by design: a bubble whose key is not in
@@ -451,15 +467,23 @@ jobs:
         # Guarded like the step above, so this workflow stays mergeable on a
         # branch that predates the file.
         #
-        # RUN THIS FILE EXACTLY ONCE. It calls os.environ.setdefault for
-        # DATABASE_URL, so it uses its throwaway SQLite only when nothing else
-        # has set one -- and this job sets DATABASE_URL to the Postgres service
-        # above, which persists across steps. Each run also gets a fresh
-        # HUB_DATA_DIR, and jsonstore restores the previous run's writes into
-        # that empty directory, so a second invocation sees the first one's
-        # rows and fails "files one document, not three" with 3. Two lineages
-        # each added a target-areas step and git merged both cleanly, which is
-        # exactly how the duplicate got in.
+        # This file used to be unsafe to run twice, and no longer is. It
+        # still setdefaults DATABASE_URL -- so it inherits the Postgres
+        # service above, which persists across steps -- but it now empties
+        # the client's shelf at the start rather than assuming an empty one,
+        # and re-runs clean (82 passed, twice, against one database).
+        #
+        # The hazard it records is real and worth keeping in mind: jsonstore
+        # keys its mirror relative to the data root by design, so a fresh
+        # HUB_DATA_DIR in front of an inherited database is refilled with the
+        # last run's rows. That is how a duplicated step failed "files one
+        # document, not three" with 3 -- two lineages each added a
+        # target-areas step and git merged both cleanly.
+        #
+        # test_dashboard_trends.py and test_google_index.py had the same
+        # shape and were fixed the other way, by owning DATABASE_URL as well
+        # as HUB_DATA_DIR (the test_blog_publish.py pattern).
+        # test_jsonstore.py pins that so it cannot come back.
         run: |
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py
@@ -1244,6 +1268,21 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      # Every module's work is attributable, and the two checks that say so
+      # both bite. /api/integrity's silent-module check tested whether the
+      # STRING "for_module(" appeared in a module's source, which binding the
+      # logger satisfies -- so seven modules imported hub.audit, bound it,
+      # wrapped it in a no-op fallback, wrote a comment above the import
+      # explaining why attribution mattered, and called it nowhere. Deleting a
+      # client's live website, connecting a domain, deploying a tag into
+      # somebody's Tag Manager container and compressing a client's documents
+      # were the least attributable actions in the Hub, behind a check
+      # reporting them clean. Its neighbour had the same shape one step on:
+      # check_work_kinds() could not see a module's own log() wrapper, so
+      # radio_promo logged client work that never reached the client record
+      # while fan_radio, doing the same job, did.
+      - name: Every module's work is attributable
+        run: python3 test_activity_logging.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
       # never existed, `storage.manifest()` feeding an audit nobody built,
