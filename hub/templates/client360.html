@@ -4,7 +4,7 @@
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
 <form class="c360-search" onsubmit="run();return false" hidden>
-  <input id="q" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
+  <input id="q" data-demo="client-search" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
   <button class="btn-primary" type="submit">Search</button>
 </form>
 <div id="picker" class="c360-picker" style="display:none"></div>
@@ -248,7 +248,7 @@ function render(g,q){
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
+  html+=`<div class="card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
       <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
       <a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a>
@@ -1044,7 +1044,7 @@ function render(g,q){
         <input id="up-title" placeholder="Proposal name (optional)"
           style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
         <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Date sent to client</label>
-        <input id="up-date" type="date" value="${todayISO()}"
+        <input id="up-date" data-demo="date-sent" type="date" value="${todayISO()}"
           style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
@@ -1054,7 +1054,7 @@ function render(g,q){
         <select id="up-term" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box">
           <option value="monthly">monthly</option><option value="one_time">one-time</option><option value="annual">annual</option></select></div>
       </div>
-      <input id="up-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      <input id="up-file" data-demo="proposal-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         style="font:12.5px inherit;margin-bottom:8px">
       <div><button class="btn-primary" id="up-go" style="padding:7px 14px">Save to client</button>
         <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Filed with this client and opened as an opportunity in Smart 1 Suite.</span></div>
