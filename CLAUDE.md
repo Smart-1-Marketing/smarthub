@@ -9800,10 +9800,29 @@ fix and a paragraph to write, so the two are counted apart. `test_help_layer.py`
 feeds it the bug it was written for and requires it to say so, because a
 check that reads green either way is one nobody can trust.
 
-It **reports rather than gates**. Twenty-three of the forty-seven tiles have
-no help behind them; that is all real, none of it breaks a page, and a build
+It **reports rather than gates**. Twenty-three of the forty-seven tiles had
+no help behind them when it first ran; none of that broke a page, and a build
 failing on it is a check switched off within a week. `env_report()`'s shape —
 the thing that stands beside a check and says what the check cannot see.
+
+**And the backlog it held is written down to zero.** The last twelve tools it
+named — the two image optimizers, the PDF Optimizer, Client Image Uploads,
+Landing Page Ads, Stock Photo Search, both radio builders, the IO Builder, the
+Landing Page Maker, the GPT Ads Builder and Google Access — carry their copy
+now, each key placed by the tool's own staff template under the prefix
+`PREFIXES` declares, guarded `if help_dot is defined` like every call in this
+Hub. Three of them are the shapes worth remembering. The **PDF Optimizer** is
+a static file served by `send_file`, so there is no Jinja and no `help_dot`
+global on it: it carries the raw `<span data-help>` that helper emits, which
+`hub-help.js` mounts like any other. The **Image Optimizer** and **Page Image
+Optimizer** had placed bubbles all along — borrowed from `image_creator.*` and
+`seo_images.*`, so the audit read them as helped while coverage read them as
+missing, and both were right; the borrowed keys are replaced with their own,
+saying what *this* tool's control does rather than what a neighboring tool's
+did. And none of it reaches a page a client reads: Fan Radio's `/r/` link, the
+picker's `/pick/` page, Google Access's `/connect` flow and the built landing
+pages stay outside the help layer, the rule `test_ads_explainer.py` holds the
+public estimate to.
 
 **And it is on the panel the other two halves are already on.** Bubbles,
 walkthroughs and coverage are one question asked of three mechanisms — does

@@ -69,14 +69,14 @@
 <body data-module="landing_ads">
 <div class="wrap s1d-page">
   <a class="back" href="/tools">&larr; Tools</a>
-  <h1>Landing Page Ads</h1>
+  <h1>Landing Page Ads {{ help_dot('landing_ads.build.intro') if help_dot is defined else '' }}</h1>
   <p class="sub">Pick one of our landing pages and it gets read, then the whole campaign is
      written from what that page actually says — Google search, Meta and TikTok, display
      banners, and streaming-audio scripts. Spec or attached to a client, same as Radio Promo.</p>
 
   <!-- 1 -->
   <div class="card" id="c-setup">
-    <h2><span class="n">1</span> Which page, and who for?</h2>
+    <h2><span class="n">1</span> Which page, and who for? {{ help_dot('landing_ads.build.setup') if help_dot is defined else '' }}</h2>
     <div class="modes">
       <div class="mode on" id="m-spec" onclick="setMode('spec')">
         <b>Spec</b><span>No client attached. For pitching or for our own campaigns.</span>
@@ -156,7 +156,7 @@
 
   <!-- pages -->
   <div class="card" id="pages">
-    <h2>Pages</h2>
+    <h2>Pages {{ help_dot('landing_ads.build.pages') if help_dot is defined else '' }}</h2>
     <p class="hint" style="margin-top:0">The live URL for each Smart 1 landing page. Set once;
        used by every campaign after that.</p>
     <table><thead><tr><th>Page</th><th>Vertical</th><th>Live URL</th><th></th></tr></thead>
