@@ -700,7 +700,7 @@ async function drawDashboard(){
  host.innerHTML=`
   <div class="headrow"><div class="grow"><h1>${greet}${REP_NAME?", "+esc(REP_NAME.split(" ")[0]):""}</h1>
    <div class="pgsub">${s.awaiting_count} proposal${s.awaiting_count===1?"":"s"} awaiting client response${approvedReady?` · ${approvedReady} approved proposal${approvedReady===1?" is":"s are"} ready to become IOs`:""}</div></div>
-   <button class="btn btn-gold" onclick="startNewProposal()">✨ New Proposal</button>
+   <button class="btn btn-gold" data-demo="new-quote" onclick="startNewProposal()">✨ New Proposal</button>
    <button class="btn btn-primary" onclick="nav('io')">＋ New Insertion Order</button>
    <button class="btn btn-line" onclick="nav('proposals')">🔍 Lookup</button></div>
   <div class="stats">
@@ -793,10 +793,10 @@ function rowHtml(x){
    ${x.status==='Draft'&&x.step>0?`<small style="display:block;color:var(--muted);margin-top:3px">Left at step ${x.step+1} of ${STEP_COUNT}</small>`:""}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    <button class="ic" title="Edit proposal" onclick="editQuote(${x.id})">✏️</button>
-   <button class="ic" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
-   <button class="ic" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
-   <button class="ic" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
-   ${x.status!=='Converted'?`<button class="ic gold" title="${x.status==='Approved'?'Convert to IO':'Convert to IO — this quote is '+x.status.toLowerCase()+', so check it is agreed first'}" onclick="openConvert(${x.id})">🔁</button>`:""}
+   <button class="ic" data-demo="quote-pdf" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
+   <button class="ic" data-demo="quote-docx" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
+   <button class="ic" data-demo="duplicate" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
+   ${x.status!=='Converted'?`<button class="ic gold" data-demo="convert" title="${x.status==='Approved'?'Convert to IO':'Convert to IO — this quote is '+x.status.toLowerCase()+', so check it is agreed first'}" onclick="openConvert(${x.id})">🔁</button>`:""}
    ${x.status==='Draft'?`<button class="ic" title="Delete this draft" onclick="deleteQuote(${x.id})">🗑️</button>`:""}
   </div></td></tr>`;
 }
