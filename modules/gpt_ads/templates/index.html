@@ -93,7 +93,7 @@
     rather than ticked &mdash; a pack is only called ready when nothing is outstanding.</p>
 
   <div class="card">
-    <h2><span class="n">1</span> Client</h2>
+    <h2><span class="n">1</span> Client {{ help_dot('gpt_ads.pack.client') if help_dot is defined else '' }}</h2>
     <div class="grid">
       <div>
         <label class="f" for="clientq">Search clients</label>
@@ -114,7 +114,7 @@
 
   <div id="packArea" hidden>
     <div class="card">
-      <h2>Readiness <span class="state" id="readyState">&nbsp;</span></h2>
+      <h2>Readiness {{ help_dot('gpt_ads.pack.readiness') if help_dot is defined else '' }} <span class="state" id="readyState">&nbsp;</span></h2>
       <p class="req" id="readySummary"></p>
       <ul class="checklist" id="readyList"></ul>
       <div class="bar" style="margin-top:6px">
@@ -137,7 +137,7 @@
     </div>
 
     <div class="card">
-      <h2><span class="n">3</span> Ad copy options <span class="state" id="stCopy">&nbsp;</span></h2>
+      <h2><span class="n">3</span> Ad copy options {{ help_dot('gpt_ads.pack.copy') if help_dot is defined else '' }} <span class="state" id="stCopy">&nbsp;</span></h2>
       <p class="req" id="reqCopy"></p>
       <div class="bar">
         <button class="btn sm" id="genHeadlines">Write headlines</button>

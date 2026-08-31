@@ -319,10 +319,38 @@ for _key in ("image_creator.promo_post", "utm.campaign_links",
 ok("a target that only exists in another tool is named",
    isinstance(DEMO.get("elsewhere"), list), str(type(DEMO.get("elsewhere"))))
 
+# A selector carrying nothing that identifies an element -- an
+# `input[type='file']` -- is a step this check cannot speak to, and counting
+# it as anchored was a tick over a question nobody asked. It is what let
+# `client360.proposal` clear the floor above: three hooks in no template and
+# one selector matching a file input on any page in the Hub. Reported apart,
+# and it clears nothing.
+ok("a selector naming nothing to test is counted apart",
+   isinstance(DEMO.get("untestable"), list))
+ok("...and every such step says which scenario it is in",
+   all(":" in u for u in DEMO["untestable"]), str(DEMO["untestable"]))
+ok("...and a scenario carrying one is not called clean",
+   all(r["key"] not in DEMO["clean"]
+       for r in DEMO["rows"] if r.get("untestable")))
+
+# `data-tour` is how a tour step anchors, and seven walkthrough steps use it
+# too. Left out of the parser, 39 anchors in this repo were tested by nothing:
+# renaming one out from under the step that drives it changed no count.
+ok("a data-tour anchor is a requirement the check reads",
+   ("data-tour", "wm-roster") in help_audit._needs("[data-tour='wm-roster']"))
+
 # The five that did. Named rather than merely counted: the point is that these
 # screens can now be walked, not that a number went down.
 for _key in ("seo.faq_and_schema", "qa.stale_creative", "landing_ads.from_page",
-             "tickets.triage", "qa.billing_audit"):
+             "tickets.triage", "qa.billing_audit",
+             # The two the floor above could not see until an untestable
+             # selector stopped counting as a driven step. `client360.proposal`
+             # had its hooks placed; `bg_remover.logo_cutout` described a free
+             # "remove white background" button the tool has never had, so it
+             # was rewritten against the preview cut that actually is free --
+             # the Web Tickets "sort by age" rule, since a rep believes a
+             # walkthrough.
+             "client360.proposal", "bg_remover.logo_cutout"):
     ok(f"{_key} drives every step it names", _key in DEMO["clean"],
        str([r["key"] for r in DEMO["rows"] if r["key"] == _key]))
 
@@ -453,12 +481,11 @@ try:
        [m["prefix"] for m in _bit] == ["website_audit"], str(_bit))
     ok("and names the screen the help is actually under",
        _bit and _bit[0]["registered"] == ["hub.website_audit"], str(_bit))
-    # The twenty-three tools nobody has written help for are NOT this finding.
-    # "Nobody wrote it" and "it is written under another name" are different
-    # jobs, and reporting the first as the second is a list somebody
-    # re-triages on every run.
-    ok("a tool that genuinely has no help is not reported as mislabeled",
-       "gpt_ads" not in [m["prefix"] for m in _bit], str(_bit))
+    # A tool with no help written was never this finding -- "nobody wrote
+    # it" and "it is written under another name" are different jobs. Every
+    # tiled tool carries help now, so the rule is held by the equality
+    # above: the doctored list is exactly the doctored prefix, nothing
+    # riding along with it.
 finally:
     help_coverage.PREFIXES.clear()
     help_coverage.PREFIXES.update(_saved)
@@ -521,9 +548,20 @@ _staff = Client(wsgi.application)
 _staff.post("/login", data={"password": "test"})
 _r = _staff.get("/api/help/coverage")
 check("and a signed-in reader gets the coverage", _r.status_code, 200)
-ok("which names what is missing rather than answering none",
-   len(_r.get_json()["missing"]) > 0,
-   "an empty answer here is what the hand-typed list used to give")
+# `missing` was asserted non-empty here once -- proof the route had stopped
+# reading the hand-typed list that always answered []. The backlog it named
+# has since been written down to zero, so a true empty is now the correct
+# answer, and the discriminator is the shape only a measured report has:
+# measured, a real tile count, and every tile accounted for in exactly one
+# bucket. The hand-typed list could produce none of those.
+_body = _r.get_json()["coverage"]
+ok("which measured the tiles rather than reading a hand-typed list",
+   _body.get("measured") is True and _body.get("tools", 0) >= 40
+   and _body["tools"] == sum(len(_body.get(k, [])) for k in
+                             ("covered", "missing", "unmapped",
+                              "client_facing")),
+   "an unmeasured answer, or a tile in no bucket, is the hand-typed "
+   "list back again")
 
 # And it is on the panel the other two halves are on, rather than being a
 # report reachable only over the API. Bubbles, walkthroughs and coverage are

@@ -2,14 +2,14 @@
 {% block title %}Landing Pages — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h2>Landing Pages</h2>
+  <h2>Landing Pages {{ help_dot('landing_maker.pages.intro') if help_dot is defined else '' }}</h2>
   <p>Build a campaign page from a proposal. It reads the client, the products
      being sold and their brand, so the page, the ads and the IO all say the
      same thing.</p>
 </div>
 
 <div class="card" style="margin-bottom:18px">
-  <div class="card-h"><h3>New landing page</h3></div>
+  <div class="card-h"><h3>New landing page {{ help_dot('landing_maker.pages.new') if help_dot is defined else '' }}</h3></div>
   <div class="card-b">
     <div style="display:grid;grid-template-columns:1fr;gap:14px">
       <div>
@@ -118,7 +118,7 @@
 </div>
 
 <div class="card">
-  <div class="card-h"><h3>Pages built</h3>
+  <div class="card-h"><h3>Pages built {{ help_dot('landing_maker.pages.built') if help_dot is defined else '' }}</h3>
     <div class="right">
       <input id="lpSearch" placeholder="Search client, campaign or headline…"
              oninput="lpDebounce()" class="lp-i" style="min-width:260px;margin:0">

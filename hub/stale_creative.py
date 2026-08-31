@@ -905,7 +905,22 @@ def _cached(refresh=False, items_per_client=DEFAULT_ITEMS_PER_CLIENT):
 
 
 def scorecard():
-    """Compact payload for the dashboard tile."""
+    """Compact payload for the dashboard tile.
+
+    **It carries `measured`, and both halves of it.** This copies eleven keys
+    out of the audit, and the first draft copied the counts and left that flag
+    behind — so on a morning where the client list refused, `build_audit()`
+    said `measured: False`, the report page one click away drew *Not
+    measured*, and this tile drew **0 · 0 · 0 · 0** on the dashboard: every
+    client up to date on creative, in four confident noughts, because the
+    fetch succeeded and every band was genuinely zero. Two screens answering
+    one question differently, which is the trap `by_client()` below is written
+    to avoid one function later.
+
+    The tile's own note says it fails quietly so the dashboard never goes down
+    when the card cannot load, and that is right about a fetch that fails —
+    and it is what made this invisible, because this fetch does not fail.
+    """
     data = _cached()
     by = {g["key"]: g["count"] for g in data["groups"]}
     lo, mid, hi = data["edges"]
@@ -925,6 +940,12 @@ def scorecard():
         "clients": data["totals"]["clients"],
         "worst": [{"client": w["client"], "days_since": w["days_since"]}
                   for w in worst[:5]],
+        # Both halves, because they send somebody to different places: the
+        # client list refusing and every creative source refusing are not the
+        # same outage, and the tile says which.
+        "measured": bool(data.get("measured")),
+        "sources_measured": bool(data.get("sources_measured")),
+        "clients_measured": bool(data.get("clients_measured")),
         "url": "/qa/stale-creative",
     }
 
