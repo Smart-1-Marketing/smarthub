@@ -49,6 +49,7 @@
   </div>
 
   <p class="s1-stale-worst" data-worst></p>
+  <p class="s1-stale-worst" data-unmeasured hidden></p>
 </section>
 
 <script>
@@ -58,6 +59,28 @@
   fetch('/api/qa/stale-creative/scorecard', { credentials: 'same-origin' })
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(function (d) {
+      /* "We looked and nothing is overdue" and "we could not look" are
+         different answers and both are four noughts here — the fetch
+         succeeds either way, which is why the card's quiet-failure rule
+         below could not catch this. Dashes, and one line saying which
+         half refused, the way the report page draws it one click away. */
+      if (d.measured === false) {
+        card.querySelectorAll('[data-k]').forEach(function (n) {
+          n.textContent = '\u2013';
+        });
+        var u = card.querySelector('[data-unmeasured]');
+        if (u) {
+          u.textContent = 'Not measured \u2014 ' + (
+            d.clients_measured === false && d.sources_measured === false
+              ? 'neither the client list nor the creative stores answered.'
+              : d.clients_measured === false
+                ? 'the client list could not be read.'
+                : 'no creative store answered.');
+          u.hidden = false;
+        }
+        card.hidden = false;
+        return;
+      }
       var e = d.edges || [30, 60, 90];
       var labels = { hi: e[2] + '+ days',
                      mid: e[1] + '–' + e[2] + ' days',

@@ -225,6 +225,24 @@ def actor_name() -> str:
     return request.environ.get("s1hub.user") or "Unknown"
 
 
+# Write routes that deliberately record nothing, each with the reason.
+#
+# Everything this module files against a client is recorded -- saving a batch,
+# saving one image, adding or removing a house client, deleting an image from
+# the gallery (which for an image a client sent us is very often the only
+# copy), and the downloads. What is left is the working set: an upload is
+# analyzed and renamed in a batch that expires, and nothing reaches a client
+# until finalize or save-one, both of which log.
+#
+# The vision call inside `api_analyze` is billed, and that is recorded where
+# it is spent -- `generate_seo_data` calls `ai.note_usage` -- which is
+# `hub/quotas.py`'s question rather than the activity log's.
+HOUSEKEEPING_ROUTES = {
+    "api_analyze": "names an uploaded batch that expires; nothing is filed against a client until finalize, which logs",
+    "api_rename": "re-proposes one name inside that same working batch",
+}
+
+
 def _log(event: str, **extra):
     if hub_audit is not None:
         try:
