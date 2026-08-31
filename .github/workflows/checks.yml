@@ -1693,3 +1693,46 @@ jobs:
       # a 500 out of the helper whose first promise is that it never raises.
       - name: A number a stranger controls
         run: python3 test_webargs.py
+      # hub/landing_images.py picks the pictures on a page a prospect reads,
+      # and its docstring ends "a page may be short, it may not lie".
+      # from_site() regexed every image URL out of a 400 KB scan payload and
+      # labelled all of them `their site` -- with no domain check at all.
+      # Against a realistic payload six came back and five were somebody
+      # else's: the scan vendor's screenshot, a Facebook card, a Google
+      # static map, a Google ad creative and another agency's Cloudinary
+      # folder, any of which could be the hero of a landing page presented as
+      # the client's own premises. Beside it: a picture off their site
+      # carries no dimensions, and pick() read a missing `wide` as True, so
+      # the hero floor was skipped for the source this module prefers; and
+      # `source` said "their site" whenever the site search returned
+      # anything, however much of what was picked came from a stock library.
+      - name: A picture is theirs, or it is not on the page as theirs
+        run: python3 test_landing_images.py
+      # hub/schema_questions.py refuses to let a schema be approved while any
+      # of its 35 questions is unanswered -- "The block is the feature". The
+      # block could not be cleared for the commonest honest answer there is:
+      # _blank() reads "none", "n/a" and "unknown" as an unfilled field, which
+      # is right for a value off a record and exactly wrong for one a person
+      # types into "does the business hold any licenses?". A reviewer answered
+      # awards: none, it was stored, read back as blank, and marked NEED
+      # ANSWER again -- for ever. Beside it: the GET built with AI and said
+      # "Ready to approve" in green while the POST beside it said "approval
+      # stays blocked" in red, two readings of one question on one panel; and
+      # by_confidence reported site: 0 and search: 0 for two sources nothing
+      # has ever consulted, which reads as a fact about the client's website.
+      - name: 'A "none" answer, and the block that could not be cleared'
+        run: python3 test_schema_questions.py
+      # modules/scans is the second largest module in the Hub and the most
+      # client-facing thing in it, and only its placement admin was tested.
+      # Booting the visitor's own path found four. The callback token went
+      # into a query string unencoded, so a `+` came back as a space and every
+      # callback was refused 403 while the row stayed `running` — and the
+      # widget carried its own copy of that URL builder, so the fix would have
+      # landed in two of three. Both poll loops read `ready` and never
+      # `status`, so a run already at `error` or `unconfigured` was polled to
+      # the ceiling and then told it was still running. Two pages promised to
+      # email a report, and there is no mail sender in this Hub. And a second
+      # unlock rewrote the contact on somebody else's run while the lead it
+      # pointed at kept the first name.
+      - name: What a prospect on somebody else's website is told
+        run: python3 test_scan_run.py

@@ -107,7 +107,7 @@ SCENARIOS: list[Scenario] = [
                  "full-size, straight off a phone.",
                  "These are 6000 pixels wide, which is what a real phone photo "
                  "looks like. Watch what happens to them.",
-                 action="upload", selector="input[type='file']",
+                 action="upload", selector="[data-demo='seo-image-file']",
                  sample="demo/hvac-batch"),
             Step("Choose the resize cap",
                  "Set the longest edge to 2400.",
@@ -342,32 +342,37 @@ SCENARIOS: list[Scenario] = [
         spends=["removebg.cutout"],
         steps=[
             Step("Look at the credit balance before anything else",
-                 "It's shown at the top.",
-                 "Every AI cutout spends one. The balance is deliberately shown "
-                 "*before* you can click, not after.",
+                 "It's shown at the top, and it says when it is running low.",
+                 "Every full-resolution cutout spends one. The balance is "
+                 "deliberately shown *before* you can click, not after.",
                  action="look", selector="[data-demo='credit-balance']"),
             Step("Upload the logo",
                  "A client logo on a plain white background.",
-                 "Most logos you'll be handed look exactly like this.",
-                 action="upload", selector="input[type='file']", sample="demo/logo-white-bg"),
-            Step("Try the free option first",
-                 "Choose 'Remove white background'.",
-                 "This runs entirely in your browser. No API call, no credit, no "
-                 "waiting. For a logo on flat white it's usually as good as the "
-                 "paid version.",
-                 action="click", selector="[data-demo='remove-white']"),
-            Step("Check the edges",
+                 "Most logos you'll be handed look exactly like this, and up to "
+                 "ten go through at once.",
+                 action="upload", selector="[data-demo='cutout-file']",
+                 sample="demo/logo-white-bg"),
+            Step("Take the free cut first",
+                 "Set 'Cut-out resolution' to Preview.",
+                 "A preview cut costs no credit. It comes back at a quarter of a "
+                 "megapixel, which is too small to deliver and perfectly big "
+                 "enough to see whether the edges came out clean.",
+                 action="choose", selector="[data-demo='cutout-quality']",
+                 value="preview"),
+            Step("Check the edges on it",
                  "Zoom in on the curves and any drop shadow.",
-                 "If the edges are clean, you're done and it cost nothing. If "
-                 "there's a halo or a soft shadow got chewed, that's when the "
-                 "paid AI removal earns its credit.",
-                 action="look", selector="[data-demo='cutout-preview']"),
-            Step("Now try the AI one for comparison",
-                 "Same image, 'Remove background'.",
-                 "Identical images are cached by content hash, so retrying the "
-                 "same file never charges twice. Save this for photographs and "
-                 "complicated edges — hair, glass, foliage.",
-                 action="click", selector="[data-demo='remove-ai']", simulated=True),
+                 "If the preview's edges are clean the full cut will be too, and "
+                 "you have learned that for nothing. A halo, or a soft shadow "
+                 "chewed off, is what tells you this one is worth a credit — or "
+                 "is not worth running at all.",
+                 action="look", selector="[data-demo='cutout-results']"),
+            Step("Only then take the one you will deliver",
+                 "Set the resolution to Auto or Full and run it again.",
+                 "Identical images are cached by content hash, so re-running the "
+                 "same file never charges twice. Photographs and complicated "
+                 "edges — hair, glass, foliage — are what the credit is for.",
+                 action="choose", selector="[data-demo='cutout-quality']",
+                 value="auto", simulated=True),
         ]),
 
     # ------------------------------------------------------------------
@@ -447,7 +452,8 @@ SCENARIOS: list[Scenario] = [
                  "PDF, DOC or DOCX, up to 25 MB.",
                  "Upload the version that went to the client, not the draft. "
                  "This is the record you'll be reading back to them.",
-                 action="upload", selector="input[type='file']", sample="demo/proposal"),
+                 action="upload", selector="[data-demo='proposal-file']",
+                 sample="demo/proposal"),
             Step("Set the date you sent it",
                  "Not today's date — the date it went out.",
                  "Editable afterwards. When they call in six months asking what "
@@ -1015,7 +1021,8 @@ SCENARIOS: list[Scenario] = [
             Step("Upload the PDF",
                  "Drop it in.",
                  "",
-                 action="upload", selector="input[type='file']", sample="demo/proposal-large"),
+                 action="upload", selector="[data-demo='pdf-file']",
+                 sample="demo/proposal-large"),
             Step("Optimize",
                  "Ghostscript recompresses the images and fonts, then qPDF "
                  "linearizes it.",

@@ -13,7 +13,7 @@
   <main class="shell">
     <section class="hero">
       <div class="eyebrow">SMART 1 MARKETING</div>
-      <h1>Image Optimizer <span>& Resizer</span></h1>
+      <h1>Image Optimizer <span>& Resizer</span> {{ help_dot('image_optimizer.tool.intro') if help_dot is defined else '' }}</h1>
       <p>Resize images, reduce file size, and convert them to PNG, JPG, or GIF.</p>
     </section>
 
@@ -37,7 +37,7 @@
           </div>
         </div>
 
-        <div class="section-title">Crop image {{ help_dot('image_creator.export.scale') if help_dot is defined else '' }}</div>
+        <div class="section-title">Crop image {{ help_dot('image_optimizer.tool.crop') if help_dot is defined else '' }}</div>
         <label class="check-row">
           <input id="crop_enabled" type="checkbox">
           <span>Enable cropping</span>
@@ -53,7 +53,7 @@
         </div>
         <p class="helper">Turn cropping on, then drag across the preview to select the area you want to keep.</p>
 
-        <div class="section-title">Resize image {{ help_dot('seo_images.upload.max_edge') if help_dot is defined else '' }}</div>
+        <div class="section-title">Resize image {{ help_dot('image_optimizer.tool.resize') if help_dot is defined else '' }}</div>
         <div class="grid two">
           <label>
             <span>Width (px)</span>
@@ -79,7 +79,7 @@
           <button type="button" data-size="1920x1080">1920 × 1080</button>
         </div>
 
-        <div class="section-title">Output settings</div>
+        <div class="section-title">Output settings {{ help_dot('image_optimizer.tool.output') if help_dot is defined else '' }}</div>
 
         <label class="filename-field">
           <span>Rename downloaded image</span>

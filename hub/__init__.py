@@ -42,6 +42,28 @@ HUB_TOUR_SCREENS = {
 }
 
 
+def _demo_module_for(path: str) -> str:
+    """Which walkthrough belongs to this page, or "" -- one reading, two
+    callers.
+
+    `_inject_demo_module()` answers it for a hub page and the `after_request`
+    injector answers it for a blueprint-registered one, and the injector used
+    to answer it from a hand-typed slug map instead. Two descriptions of where
+    a scenario lives is the drift this codebase keeps paying for, and this one
+    had already drifted in both directions before anybody read it.
+
+    Matched on the scenario's own path and nothing looser. A walkthrough drives
+    ONE page: matched on a URL segment it lands on every page under a prefix,
+    and matched on a prefix it lands on a tool's sub-pages -- neither of which
+    is the screen the steps were written against. There is no default, because
+    an empty string is falsy and that is exactly what the launcher tests.
+    """
+    from . import demos
+    want = (path or "/").rstrip("/") or "/"
+    return next((sc.module for sc in demos.SCENARIOS
+                 if ((sc.path or "/").rstrip("/") or "/") == want), "")
+
+
 MODULES = [
     {"key": "clients", "label": "Clients", "href": "/clients", "tag": "Knack"},
     {"key": "google", "label": "Google", "href": "/google/", "tag": "GA4 · GTM"},
@@ -205,10 +227,9 @@ def create_hub_app() -> Flask:
         never otherwise. There is no default -- an empty string is falsy, which
         is exactly what the launcher tests.
         """
-        from . import demos, help as _help
+        from . import help as _help
         path = (request.path or "/").rstrip("/") or "/"
-        module = next((sc.module for sc in demos.SCENARIOS
-                       if ((sc.path or "/").rstrip("/") or "/") == path), "")
+        module = _demo_module_for(path)
         screen = HUB_TOUR_SCREENS.get(path, "")
         if screen and not _help.has_tour(screen):
             screen = ""          # registered nothing yet: say nothing
@@ -6180,22 +6201,23 @@ def create_hub_app() -> Flask:
             # Tag <body> so the walkthrough launcher knows which tool it's on.
             # Only when the page hasn't already declared one.
             if b"data-module=" not in body and b"<body" in body:
-                seg = path.strip("/").split("/")
-                slug = seg[1] if len(seg) > 1 and seg[0] == "tools" else (seg[0] if seg else "")
-                mod = {"tickets": "tickets", "calculators": "calculators",
-                       "page-images": "page_image_optimizer",
-                       "google-access": "google_access",
-                       "image-picker": "image_picker",
-                       "sites-match": "sites_admin",
-                       "domains": "sites_admin",
-                       "google-match": "google_access",
-                       # /my-clients is deliberately absent: no walkthrough
-                       # is registered for it, and data-module is what floats
-                       # the "Walk me through this" button onto a page. A
-                       # button that offers a tour nobody wrote is the
-                       # silence Smart 1 Ads shipped on Settings and Live
-                       # campaigns.
-                       "stale-creative": "qa", "qa": "qa"}.get(slug, "")
+                # Derived from where the scenarios actually are, never from a
+                # hand-typed slug map. The map this replaced was a second
+                # description of where a walkthrough lives, and it had already
+                # drifted in both directions: `sites-match`, `domains` and
+                # `google-match` named a module whose only scenario is written
+                # for a different page, and `qa` matched on the FIRST URL
+                # SEGMENT, so it tagged every /qa/* page. Measured on the
+                # running app, that put the button on `/qa/client-owners` and
+                # `/qa/unattached-images` -- offering `qa.billing_audit`, whose
+                # four targets are 0 of 4 present there, so it rang nothing on
+                # every step. `client_owners.html` declares no module on
+                # purpose and says why; the injector put one back.
+                #
+                # A walkthrough drives ONE page, so the match is the scenario's
+                # own path and nothing looser: a sub-page of a tool is not the
+                # screen the steps were written against.
+                mod = _demo_module_for(path)
                 if mod:
                     body = re.sub(rb"<body\b",
                                   b'<body data-module="' + mod.encode() + b'"',

@@ -3196,6 +3196,91 @@ somebody to judge which ages matter. A walkthrough describing a tool that
 does not exist is worse than one describing none, because a rep believes it,
 so the step is rewritten rather than anchored to the nearest thing.
 
+**And the floor it stands on could be cleared by a selector that tests
+nothing.** `_needs()` reads a step's selector for an `#id`, a `[data-demo]` or
+a `[name]`, and a selector carrying none of those returned **no requirement at
+all** — so `absent` was empty, the step counted as anchored, and the check had
+put a tick over a question nobody asked. Four steps were written
+`input[type='file']`, which matches a file input on any page in the Hub and
+identifies nothing.
+
+That is what let **`client360.proposal`** clear *no scenario may drive none of
+its steps*: three of its four hooks are in no template, and the fourth was that
+selector, so three-of-four is not four-of-four and the floor passed a
+walkthrough that drives nothing. **`bg_remover.logo_cutout` was hiding behind
+the identical selector** and had four dead hooks — so the floor was reporting
+one clean sweep over two scenarios that could not drive a single step between
+them. Absent data reading as a measurement, in the check written to find
+exactly that.
+
+A selector the check cannot test is its own state now — counted apart, drawn
+under the *unverified* pill the runtime-prefix rule already has, and it
+**clears nothing**: `dead` is measured against the steps that carry something
+testable, so an untestable step neither proves a scenario drives something nor,
+where every step is one, asserts that it drives nothing.
+
+**And `data-tour` was a whole attribute the parser had never heard of.** It is
+how a tour step anchors and how seven of Smart 1 Ads' driving steps anchor too,
+and **39 anchors in this repo were tested by nothing**: renaming one out from
+under the step that drives it changed no count on any screen. It is read like
+`data-demo` now.
+
+Both scenarios are repaired rather than retired, and the two repairs are
+different jobs. `client360.proposal`'s hooks were simply never placed, so they
+are placed. `bg_remover.logo_cutout` described a free **"Remove white
+background"** button that runs in the browser — and that tool has never had
+one: its free option is a *preview* cut at a quarter of a megapixel, too small
+to deliver and exactly big enough to see whether the edges came out clean. The
+advice was right and the control was imaginary, so the steps are rewritten
+against the tool that exists — Web Tickets' *"Sort by age"* rule, because a rep
+believes a walkthrough.
+
+**And the injector answering the same question kept a second description of
+it.** A page that does not extend `base.html` — a blueprint-registered tool,
+`client_owners.html`, `unattached_images.html` — is tagged by the hub app's own
+`after_request`, and that tagged it from a **hand-typed slug map** rather than
+from where the scenarios are. It had drifted in both directions before anybody
+read it: three entries named a module whose only scenario is written for a
+different page, and `qa` matched on the **first URL segment**, so it claimed
+every path under `/qa`.
+
+Measured on the running app, four pages carried a button that could not work —
+`/qa/client-owners`, `/qa/unattached-images`, `/tools/calculators/leads` and
+`/tools/tickets/setup`, each offered its module's *first* scenario, written for
+the index page. On `/qa/client-owners` that is `qa.billing_audit`, whose four
+targets are **0 of 4** present there: it rings nothing on every step. And
+`client_owners.html` declares no module **on purpose** — this file says why, a
+few sections up — so the injector was overruling an opt-out with the very thing
+it opted out of.
+
+`_demo_module_for()` is the one reading now and both callers use it. Matched on
+the scenario's **own path** and nothing looser: matched on a segment it lands on
+every page under a prefix, and matched on a prefix it lands on a tool's
+sub-pages, and neither is the screen the steps were written against — a
+walkthrough drives one page.
+
+**The sweep that proves it had to survive itself.** `test_hub_help_layer.py`
+requests every hub page and fails any that offers a walkthrough written for
+another — and the first version signed itself out partway through, because
+`/signout` is a GET like any other, so every page after it came back as the
+sign-in form and was skipped. It reported two wrongly-tagged pages where there
+were four. A sweep that quietly stops sweeping, in the check written to catch a
+map that had quietly stopped matching. It skips the auth routes and asserts it
+still held its session at the end. It also models the two real opt-outs —
+`data-demo="off"` and a page's own `[data-demo-start]`, both of which the
+launcher honours — and judges where a request **landed** rather than where it
+was aimed, since `/seo/client` with no `?name=` redirects to `/seo` and that
+page's module is its own. A check with false positives is one somebody switches
+off.
+
+One thing it deliberately does not report: `website_audit.html` declares
+`data-module="website_audit"` and **no scenario is registered for that module
+at all**. `autoLauncher()` returns early on an empty list, so no button is
+drawn and the page is right today. Calling it a finding would start the check
+red over a page nothing is wrong with — the `has_tour()` shape one layer over,
+and worth knowing before somebody registers a `website_audit` scenario for a
+different screen.
+
 **A hook can be derived, and a substring search calls a derived hook dead.**
 The QA index writes `data-demo="qa-report-{{ key }}"` once for every report it
 lists, so a scenario naming a report added next month is anchored without that
@@ -6971,6 +7056,87 @@ thirty days and the count on this page looked wrong rather than unfiltered.
 `test_scan_widgets.py` asserts all of it, the tile included --- a tool with no
 tile is invisible, and this file counts six that were.
 
+## And the visitor's own half of that placement was tested by nobody
+
+The placement admin is the tool a rep opens. The three pages a **stranger**
+meets on a client's own website — the widget, the audit form, the waiting
+page — are the rest of the second-largest module in this Hub, and nothing
+exercised them. Booting the visitor's path found four, and every one answered
+a prospect confidently.
+
+**The callback token reached Insites unencoded.** `_callback_url()`
+interpolated `SCANS_CALLBACK_TOKEN` straight into a query string, and that
+token is a secret somebody typed into Render rather than a string this code
+chose: a `+` comes back as a space, an `&` or a `#` truncates it at the
+receiving end, and `secrets.compare_digest` then fails on a token that is
+perfectly correct. Every callback 403s — and `api_callback` **deliberately**
+leaves a refused row `running` rather than errored, which is right for a
+malformed POST and is what makes this silent: the audit we paid for never
+attaches, the visitor's page polls until it gives up, and nothing anywhere
+says why. This is where the `SCANS_CALLBACK_TOKEN="abc"` quoting trap this
+file already names actually lands; the quotes survive the round trip and the
+characters around them are what do not.
+
+**And it was two lines the shared reader already held.** `_callback_url()`
+exists and is called by both staff paths; `_start_widget_scan` built the same
+string itself, so the encoding fix would have landed in two of the three
+places a scan is started — the drift `hub/storage.py` exists to stop, wearing
+a query string. The check counts the *compositions* rather than asserting the
+call, so a fourth one cannot be added quietly.
+
+**Both poll loops read `ready` and never `status`.** A run at `error` or
+`unconfigured` will never become `complete`: the first is a provider that
+refused, the second is a deployment with no Insites key, where the lead is
+still captured — correctly, since a lead is a lead whether or not Insites ever
+answers — and no audit is ever bought. Those were polled to the ceiling and
+then told *"Your deep scan is still running"* and *"Still working … open the
+link below in a few minutes and it will be there"*, which is the one thing
+neither is. The status was on that response the whole time and nothing read
+it: the failure `campaign_assets.report()` already has, where a warning is
+computed and dropped on the way to the reader. `STOPPED_SCAN_STATUSES` is the
+list, and it is **the server's** — `api_widget_status` answers `stopped` with
+the sentence to show, because a second list of which statuses are over, in two
+templates, is two more answers to one question. The server-rendered waiting
+page had the same gap in Jinja: it tested `status == "error"` and not
+`unconfigured`, so a Hub with no Insites key drew a spinner and a 30-second
+meta refresh for ever, on a run where nothing was ever started. It stops
+refreshing when there is nothing left to wait for.
+
+**And two of those pages promised an email.** *"We'll email your report the
+moment it lands"* and *"close it and open the link in your email when it
+lands"* — to a stranger, on somebody else's website. **There is no mail sender
+in this Hub**, which this file says five times over, so it was a promise
+nothing here could keep; and the first one fired on every run that crossed ten
+minutes rather than only on the failures. Both say where the report will be
+instead, which is what the audit placement's own copy had said correctly all
+along.
+
+**A second unlock rewrote the contact on somebody else's run.** The lead is
+filed once, properly guarded by `first_unlock` — and the four contact fields
+were written unconditionally, directly beside an `unlocked_at` that
+deliberately was not (`row.unlocked_at or _now()`). So a second post of the
+same token left the run row naming one person while carrying the **lead id of
+another**, and the run row is the evidence of where that lead came from: what
+the placement list counts and what the report page prints. Anybody holding the
+token can post that route, so the second name is not necessarily a typo being
+corrected — and correcting the row without correcting a lead that has already
+gone to Suite and is never re-delivered makes the two disagree rather than
+agree. The contact follows the timestamp now.
+
+**The email sweep is a sweep, and it caught two things a reading would not.**
+A list of the two pages we fixed proves nothing about the third, so
+`test_scan_run.py` reads every template this module serves without a login.
+Two rules it needed. **Prose is not a call site**, for the sixth time in this
+file: the first run reported the comment *explaining* the fix as the promise
+it describes, so block comments and whole-line `//` ones are stripped — and a
+mid-line `//` is left alone, because that is a URL. And **the copy was written
+with a backslash in it**: the line that was live is a JS literal reading
+`We\'ll email`, which a character class that did not allow one reads straight
+past — a sweep that misses the sentence it was written to find is a sweep
+reporting a clean page. Both are asserted against the exact text that was
+there.
+
+
 ## The audit was already paid for, and four screens read it differently
 
 `hub/website_audit.py`, `/tools/website-audit`, the **Full website audit**
@@ -7790,6 +7956,103 @@ someone rewrites it. It strips the HTML first: scanning raw markup matched
 `class="guarantee-band"` and flagged a post whose copy never said it. The free
 guidance box still goes to the model unchecked, because most of it is context —
 how they operate, what they are licensed for, how the warranty works.
+
+## A reviewer answers "none", and the question still needs an answer
+
+`hub/schema_questions.py` asks 35 questions and refuses to let a schema be
+approved while any is unanswered. Its docstring is emphatic about why — *"An
+empty field is honest; a plausible guess is not … structured data is consumed
+by machines that treat it as fact"* — and ends the paragraph **"The block is
+the feature."** The block could not be cleared for the commonest honest
+answer there is.
+
+`_blank()` reads `none`, `n/a`, `unknown` and `-` as an unfilled field. That
+is right for a value coming off a **record**, where it means nobody typed
+anything, and exactly wrong for one a person types into *"does the business
+hold any licenses?"* — where it is the true answer for most small businesses,
+as it is for awards, trade associations and a slogan. So a reviewer answered
+`awards: none`, `save_answers()` stored it, `build()` read it back as blank,
+and it came out **NEED ANSWER** again. They typed it, saved it, reloaded, and
+approval was still blocked by a question they had answered. For ever.
+
+What a person saved is kept apart from the record now and held to the looser
+test: theirs is the best source there is, and the one place "none" means
+none. **And the first fix for it did not work**, which is worth recording
+because it is the same shape as the bug: `_lookup()` returned the typed
+answer correctly and the line immediately after **re-tested it** with the
+strict rule, because that call site cannot know the value came from a person.
+It is `val is None` now — one reading, asked once.
+
+**The panel contradicted itself on the one question it exists to answer.**
+The GET builds with AI and reported `can_approve` on the strength of
+inferences; the POST beside it calls `can_approve()`, which re-derives with
+`use_ai=False` and turns every inference back into a NEED ANSWER. So the same
+screen said *"Every question answered. Ready to approve."* in green on load
+and *"N still marked NEED ANSWER, so approval stays blocked."* in red on
+save — the `/api/db/structure` versus `/api/integrity` trap, on a schema
+builder. `_blocking()` is the one reading, and an **AI answer blocks**: this
+module says an inference is "always worth checking" and that a plausible
+guess is worse than an empty field, so saving one is the check, and saving is
+what unblocks it. The two paths now agree by construction rather than by
+coincidence — without AI those rows are `needed`, with it they are `ai`, and
+both count.
+
+**And two confidence levels were always zero.** The docstring promised each
+question is answered *"from the Hub's own records first, then the client's
+website, then a web search"*. Neither of the last two is built — nothing
+fetches their pages, and the AI call is told to use only what it is given —
+and `by_confidence` reported `site: 0, search: 0`, which reads as *their
+website had nothing on it* rather than as *nothing looked*. `NOT_BUILT` names
+them with the reason and the two keys are gone from the count, the
+`_KIT_UNREAD` rule one module over. `test_schema_questions.py` asserts all of
+it.
+
+## Another agency's photograph, captioned as the client's own premises
+
+`hub/landing_images.py` picks the pictures on a landing page a prospect
+reads. Its docstring names its best source — *"**The client's own site.** A
+photo of their actual premises, van or team beats any stock library, and it
+is the only source that is genuinely about them"* — and ends with the rule
+the whole module is under: *"Stock photography … is never captioned as the
+client's own work … a page may be short, it may not lie."* It was breaking
+both halves.
+
+**`from_site()` had no domain check at all.** It regexed every image URL out
+of a 400 KB scan payload and labelled all of them `their site`. A scan
+payload is 440 fields of whatever the crawler saw, so those URLs belong to
+all sorts of people: against a realistic one, six pictures came back and
+**five were somebody else's** — the scan vendor's own screenshot, a Facebook
+social card, a Google static map, a Google ad creative, and **another
+agency's Cloudinary folder**. Any of them could become the hero of a landing
+page presented as the client's own premises. That is
+`client_urls.NOT_A_WEBSITE` one module over, and it was not hypothetical
+there either: on this deployment's own export *every single* click-thru
+domain turned out to be a file host.
+
+`theirs()` is the test, and it reads `client_context.canonical_domain()`
+rather than comparing strings, so it cannot drift from every other join in
+the Hub. A **subdomain counts** — `cdn.`, `www.` and `images.` are ordinarily
+theirs — and a lookalike does not: `acme-tyre.com.evil.test` ends with the
+domain and is refused, which is why the test is `endswith("." + domain)` and
+not a containment. What is dropped is **counted** (`not_theirs`), because a
+list that quietly gets shorter cannot be told from a site with no pictures on
+it.
+
+**A picture off their site carries no dimensions, and a missing size read as
+a large one.** `pick()` asked `img.get("wide", True)`, so every unmeasured
+picture qualified as a hero and `_MIN_HERO_WIDE` was skipped entirely for the
+source this module prefers — a thumbnail off their page could be the
+full-bleed band. It is `wide: None` now, *not measured*, and the test is `is
+not False`: a stock image measured and found narrow is still skipped exactly
+as before, and their own site still leads, which is this module's stated
+order and the reason the old default read as harmless.
+
+**And `source` described the search rather than the set.** It said `their
+site` whenever the site search returned anything at all, however much of what
+was actually picked came from a stock library. It reads the pictures that
+were chosen now, and answers `their site and stock` where it is both — which
+is the docstring's own rule, in one word. `test_landing_images.py` asserts
+all of it.
 
 ## A featured image named after a title two posts share
 
@@ -10001,10 +10264,29 @@ fix and a paragraph to write, so the two are counted apart. `test_help_layer.py`
 feeds it the bug it was written for and requires it to say so, because a
 check that reads green either way is one nobody can trust.
 
-It **reports rather than gates**. Twenty-three of the forty-seven tiles have
-no help behind them; that is all real, none of it breaks a page, and a build
+It **reports rather than gates**. Twenty-three of the forty-seven tiles had
+no help behind them when it first ran; none of that broke a page, and a build
 failing on it is a check switched off within a week. `env_report()`'s shape —
 the thing that stands beside a check and says what the check cannot see.
+
+**And the backlog it held is written down to zero.** The last twelve tools it
+named — the two image optimizers, the PDF Optimizer, Client Image Uploads,
+Landing Page Ads, Stock Photo Search, both radio builders, the IO Builder, the
+Landing Page Maker, the GPT Ads Builder and Google Access — carry their copy
+now, each key placed by the tool's own staff template under the prefix
+`PREFIXES` declares, guarded `if help_dot is defined` like every call in this
+Hub. Three of them are the shapes worth remembering. The **PDF Optimizer** is
+a static file served by `send_file`, so there is no Jinja and no `help_dot`
+global on it: it carries the raw `<span data-help>` that helper emits, which
+`hub-help.js` mounts like any other. The **Image Optimizer** and **Page Image
+Optimizer** had placed bubbles all along — borrowed from `image_creator.*` and
+`seo_images.*`, so the audit read them as helped while coverage read them as
+missing, and both were right; the borrowed keys are replaced with their own,
+saying what *this* tool's control does rather than what a neighboring tool's
+did. And none of it reaches a page a client reads: Fan Radio's `/r/` link, the
+picker's `/pick/` page, Google Access's `/connect` flow and the built landing
+pages stay outside the help layer, the rule `test_ads_explainer.py` holds the
+public estimate to.
 
 **And it is on the panel the other two halves are already on.** Bubbles,
 walkthroughs and coverage are one question asked of three mechanisms — does
@@ -10633,11 +10915,20 @@ python3 test_help_layer.py         # every bubble placed has help behind it, bot
                                    #   ways one is placed, a key built at runtime
                                    #   named rather than guessed at, the
                                    #   walkthrough saying which step it cannot
-                                   #   run, and coverage measured against the
-                                   #   tiles rather than a list that went stale
+                                   #   run, a selector that tests nothing
+                                   #   clearing no floor, and coverage measured
+                                   #   against the tiles rather than a list
+                                   #   that went stale
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
+python3 test_scan_run.py           # what a prospect on somebody else's
+                                   #   website is told: a callback token
+                                   #   that survives the URL, a run that
+                                   #   is over saying so rather than
+                                   #   being polled to the ceiling, no
+                                   #   promise of an email nothing here
+                                   #   can send, and one unlock per run
 python3 test_prospect_queue.py     # who to call, in the order the work has to happen
 python3 test_upsell_report.py      # what the audit says we could sell each client:
                                    #   coverage named, recorded vs observed kept apart
@@ -10714,6 +11005,14 @@ python3 test_analytics_ask.py      # a GA4 comparison keyed on the tag Google
                                    #   actually sends, a time series left in
                                    #   the order it was asked for, and a total
                                    #   that says what it is the total of
+python3 test_schema_questions.py   # "none" is an answer to "any awards?", one
+                                   #   reading of whether a schema can be
+                                   #   approved, and two sources that were
+                                   #   reported as zero rather than not built
+python3 test_landing_images.py     # a picture on a client's landing page is
+                                   #   theirs or it is not captioned as
+                                   #   theirs, and a size nobody measured is
+                                   #   not a size
 python3 test_blog_images.py        # one image per post rather than one per
                                    #   title, a badge that counts the posts
                                    #   the list still shows, a hero filed at
@@ -10892,8 +11191,10 @@ python3 test_ghl_oauth.py          # the Suite install: a refresh that keeps
                                    #   crash, and a status carrying no secret
 python3 test_site_blocks.py        # the website blocks a page is built from
 python3 test_hub_help_layer.py    # the hub's own tours: offered at all,
-                                   #   and a walkthrough button only
-                                   #   where a scenario can run
+                                   #   and a walkthrough button only where a
+                                   #   scenario is written for that page --
+                                   #   swept across every hub page, by a sweep
+                                   #   that does not sign itself out partway
 python3 test_linkcheck_helpers.py # the URLs linkcheck could not see: a
                                    #   module's own request helper, and
                                    #   sendBeacon; and prose is not a
