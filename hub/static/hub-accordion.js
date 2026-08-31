@@ -93,6 +93,20 @@
     return ONLY_ON.some(function (x) { return p === x || p.indexOf(x + "/") === 0; });
   }
 
+  /* A page that manages its own sections opts the whole accordion out by
+     carrying data-s1-workspace on its layout root. This is not cosmetic:
+     reorder() below appends EVERY .card into the first card's parent, which
+     on a page whose cards live in per-section views would tear all of them
+     out of their sections and pile them into the first one — the layout
+     destroyed by a script wired for the flat page it used to be. And the
+     Expand/Collapse bar saves no scrolling on a page showing one section at
+     a time. The SEO client record is the first such page; Client 360 joins
+     it. Checked per pass rather than once, because the workspace root on
+     Client 360 is rendered from a fetch after this script has already run. */
+  function workspace() {
+    return !!document.querySelector("[data-s1-workspace]");
+  }
+
   function titleOf(card) {
     var h = card.querySelector(".card-h h3");
     return (h ? h.textContent : "").trim();
@@ -255,7 +269,10 @@
     });
   }
 
-  function pass() { injectCSS(); reorder(); document.querySelectorAll(".card").forEach(wire); controls(); }
+  function pass() {
+    if (workspace()) return;
+    injectCSS(); reorder(); document.querySelectorAll(".card").forEach(wire); controls();
+  }
 
   function init() {
     if (!pageWants()) return;

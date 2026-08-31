@@ -129,6 +129,8 @@
   .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid #b7c7d8;background:#fff;border-radius:18px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer;margin:6px 7px 0 0}
   .pill:hover{background:var(--sky)}.pill.on{border-color:var(--blue);background:#edf5ff;color:var(--navy)}.pill.on:before{content:"✓ ";color:var(--blue);font-weight:800}
   .addpill{display:flex;gap:8px;margin-top:11px;max-width:460px}.addpill input{flex:1;border:1px solid #b8c6d5;border-radius:18px;padding:9px 14px;font-size:13px}
+  .kpigrp{margin-top:13px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#5a6f85}
+  .pill .kpix{font-weight:500;font-size:11px;color:#64788c}
   .bpanel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:20px;box-shadow:var(--shadow)}
   .bpanel .ttl{font-weight:800;color:var(--navy);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
   .estgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-top:12px}
@@ -1234,7 +1236,11 @@ async function startNewProposal(){
  catch(e){drawQuoteTag("⚠ Not saved — server unreachable");}
 }
 async function editQuote(id){
- try{const d=await api('/sales/builder/api/quotes/'+id);editLoaded(d.quote);}catch(e){toast(e.message);}
+ /* Returns whether the quote actually opened, because the deep-link init has
+    no screen drawn yet and needs to know to fall back; the list callers
+    already have one behind the toast and ignore the answer. */
+ try{const d=await api('/sales/builder/api/quotes/'+id);editLoaded(d.quote);return true;}
+ catch(e){toast(e.message);return false;}
 }
 function resumeStep(){
  /* The saved position, or the first step. Clamped, because the number was
@@ -2251,6 +2257,30 @@ function pill(kind,v){const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};
  if(!m[kind])return;toggle(m[kind],v);saveSoon();renderStep();}
 function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
 function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
+/* The Measurement step's choices. The catalog is the IO builder's own
+   benchmark table, handed over by the server (CFG.kpi_choices, from
+   hub/kpi_framework.py) rather than restated here -- a second list of what a
+   KPI can be is the drift the benchmark mirror test exists to stop. The
+   plan-derived group reads S._kpiPlan.rows, the server's own derivation of
+   what each product on the plan is measured on, so there is still no client
+   copy of benchmarkFor. Grouped because the three lists answer different
+   questions, and deduped across them on the lowercased name with the plan's
+   answer first: its expected range is the specific one. */
+function kpiPill(k,expected){
+ return '<span class="pill'+(S.kpis.includes(k)?' on':'')+'" onclick="pill(\'kpi\',this.dataset.v)" data-v="'+esc(k)+'">'+esc(k)+(expected?'<span class="kpix">'+esc(expected)+'</span>':'')+'</span>';}
+function kpiChoiceGroups(){
+ const seen=new Set();
+ const take=rows=>rows.filter(r=>{const key=(r.kpi||'').toLowerCase();if(!key||seen.has(key))return false;seen.add(key);return true;});
+ const byKpi={};
+ (((kpiPlan()||{}).rows)||[]).filter(r=>r.matched).forEach(r=>{const key=r.kpi.toLowerCase();if(!byKpi[key])byKpi[key]={kpi:r.kpi,expected:r.expected};});
+ const plan=take(Object.values(byKpi));
+ const goal=take([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].map(k=>({kpi:k,expected:''})));
+ const cat=take(((CFG.kpi_choices||{}).catalog)||[]);
+ const groups=[];
+ if(plan.length)groups.push({title:"What the products on the plan are measured on",rows:plan});
+ if(goal.length)groups.push({title:"Suggested by the campaign goals",rows:goal});
+ if(cat.length)groups.push({title:(plan.length||goal.length)?"The rest of the benchmark table":"From the benchmark table",rows:cat});
+ return groups;}
 function budgetDriftNote(){
  /* The plan moves the working budget, so this step has to say when the two
     have parted company -- otherwise a rep who set $8,000, built a $5,750
@@ -3130,10 +3160,23 @@ const STEPS=[
     to come after the plan was already priced, where it could only describe
     what had been chosen. */
  ()=>{ if(S.kpis.length===0)S.kpis=[...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].slice(0,6);
-   return{eyebrow:"Measurement",title:"How will this be judged?",help:"sales_builder.measurement.kpi",sub:"Set this before the products: what counts as success decides which products belong on the plan.",
-   html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'+pillRow([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))],S.kpis,'kpi')+
-     '<div class="addpill"><input id="kpiIn" placeholder="Add a KPI…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>'
-     +'<div class="note">These travel onto the insertion order and into the proposal\'s Measurement &amp; Reporting section.</div>',
+   /* Choices, not a text box: with no goal picked and nothing on the plan
+      yet, the old pill row was empty and the only control left was the
+      "Add a KPI" box. kpiChoiceGroups() always has the benchmark table to
+      offer. A KPI somebody typed by hand is still drawn as a selected
+      pill -- invisible, adding one reads as having done nothing on the
+      very step that asked for it. */
+   const groups=kpiChoiceGroups();
+   const listed=new Set();groups.forEach(g=>g.rows.forEach(r=>listed.add(r.kpi.toLowerCase())));
+   const extra=S.kpis.filter(k=>!listed.has(k.toLowerCase()));
+   const always=((CFG.kpi_choices||{}).always)||[];
+   return{eyebrow:"Measurement",title:"How will this be judged?",help:"sales_builder.measurement.kpi",sub:"Set this before the products: what counts as success decides which products belong on the plan. These are the same KPIs the insertion order's framework is judged against.",
+   html:'<div class="bpanel"><div class="ttl">📐 KPIs</div>'
+     +groups.map(g=>'<div class="kpigrp">'+esc(g.title)+'</div><div class="pillrow">'+g.rows.map(r=>kpiPill(r.kpi,r.expected)).join('')+'</div>').join('')
+     +(extra.length?'<div class="kpigrp">Added by hand</div><div class="pillrow">'+extra.map(k=>kpiPill(k,'')).join('')+'</div>':'')
+     +'<div class="addpill"><input id="kpiIn" placeholder="Add one the list does not offer…" onkeydown="if(event.key===\'Enter\'){addCustom(\'kpi\',\'kpiIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'kpi\',\'kpiIn\')">+ Add</button></div></div>'
+     +(S.kpis.length?'<div class="note"><b>'+esc(S.kpis[0])+'</b> is the primary KPI — the first one picked leads the framework; the rest are secondary.</div>':'')
+     +'<div class="note">These travel onto the insertion order and into the proposal\'s Measurement &amp; Reporting section.'+(always.length?' Reported on every campaign whichever are picked: '+esc(always.join('; '))+'.':'')+'</div>',
    valid:()=>S.kpis.length>0};},
 
  ()=>({eyebrow:"Audience Strategy",title:"Who we target",help:"sales_builder.audience.competitors",sub:"Pulled from the industry audience library — then the part only the client knows: whose customers we want.",
@@ -4302,7 +4345,15 @@ async function runConvert(){
  // ?quote=<id> opens an existing quote; ?prefill=1&client=…&url=… starts a new
  // one with the client already filled in.
  const qs=new URLSearchParams(location.search);
- if(qs.get('quote')){await editQuote(qs.get('quote'));return;}
+ /* A ?quote= link outlives the quote: Client 360 links by id and a draft can
+    be deleted. editQuote() toasts the refusal, but nothing after it drew a
+    screen, so the rep landed on the empty dashboard shell — a blank page with
+    a three-second toast, from a link that looked perfectly good. Fall back to
+    the real dashboard so there is always a working screen behind the message. */
+ if(qs.get('quote')){
+  const opened=await editQuote(qs.get('quote'));
+  if(!opened){nav('dashboard');toast("That proposal could not be opened — it may have been deleted. Here is the dashboard instead.");}
+  return;}
  /* ?focus=<signal> — arriving from the Hub dashboard's pipeline card. The
     count there is only worth pressing if it lands on the rows it counted, so
     the list filters to exactly those quotes rather than to a status tab that

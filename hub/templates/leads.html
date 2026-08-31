@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Leads — Smart 1 Hub{% endblock %}
+{# The icon rail. Like Client 360, this is a full-width workbench — the
+   captured table wants its width — and a stored preference still wins in
+   both directions. #}
+{% block body_attrs %} data-s1hub-collapse="1"{% endblock %}
 {% block content %}
 <div class="page-head">
   <h2 data-tour="leads-store">Leads {{ help_dot('hub.leads.store') if help_dot is defined else '' }}</h2>
@@ -8,67 +12,103 @@
      Suite &mdash; so a Suite outage delays a lead rather than losing it.</p>
 </div>
 
-<div id="leadWarn"></div>
 <div id="leadMsg"></div>
 
-<div class="kpi-row" id="leadKpis">
-  <div class="kpi"><div class="k-label">Leads</div>
-    <div class="k-value"><span class="spin"></span></div><div class="k-sub">Loading&hellip;</div></div>
-</div>
+{# The Client 360 workspace shape: a rail of section names on the left, one
+   group of cards on screen at a time. The sections are static markup rather
+   than sectionize()'d — this page's cards are written here, not built by a
+   fetch — so the rail only toggles views. Overview is the work (scorecards
+   and the captured list), Maintenance is the tidying (duplicates and the
+   delivery route), and Notifications is anything that needs an admin. #}
+<div class="ld-work">
+  <nav class="ld-rail" id="ldRail" aria-label="Panel sections">
+    <button type="button" class="rl on" data-sec="overview">Overview</button>
+    <button type="button" class="rl" data-sec="maintenance">Maintenance</button>
+    <button type="button" class="rl" data-sec="notifications">Notifications
+      <span class="ld-badge" id="noteBadge" hidden></span></button>
+  </nav>
+  <div class="ld-surface">
 
-<div class="card">
-  <div class="card-h">
-    <h3>Delivery to Smart 1 Suite</h3>
-    <span id="routePill" class="pill neutral">checking&hellip;</span>
-    <div class="right">
-      <a class="open-link" href="/api/leads/ghl/preflight?find=1"
-         target="_blank" rel="noopener">Run preflight &rarr;</a>
+  <section class="ld-view on" id="v-overview">
+    <div class="kpi-row" id="leadKpis">
+      <div class="kpi"><div class="k-label">Leads</div>
+        <div class="k-value"><span class="spin"></span></div><div class="k-sub">Loading&hellip;</div></div>
     </div>
-  </div>
-  <div class="card-b"><div class="lead-prose" id="routeBody"><span class="muted">Loading&hellip;</span></div></div>
-</div>
 
-<div class="card">
-  <div class="card-h">
-    <h3>The same prospect, twice</h3>
-    <div class="right"><button class="btn-ghost" onclick="loadDupes()">Look for duplicates</button></div>
-  </div>
-  <div class="card-b" id="dupeBox">
-    <p class="muted" style="margin:0;font-size:13px">A business reaches this
-      panel more than once and always will &mdash; the widget on a client&rsquo;s
-      site in March, a website audit in May, a landing page in between. Grouping
-      is on evidence that identifies a business exactly (one email address, one
-      website); an exact company name on its own is offered as <i>possible</i>
-      and nothing more, because two franchises of one brand carry one name.
-      Nothing merges by itself. Rows the evidence cannot group &mdash; a
-      different email on each visit, a business with no website &mdash; can
-      still be combined by hand: tick them in the table below and press
-      <b>Combine</b>.</p>
-  </div>
-</div>
-
-<div class="card">
-  <div class="card-h">
-    <h3>Captured leads <span class="lead-count muted" id="leadCount"></span></h3>
-    <select id="lDays" class="lead-input" onchange="loadLeads()" aria-label="Period">
-      <option value="7">Last 7 days</option>
-      <option value="30" selected>Last 30 days</option>
-      <option value="90">Last 90 days</option>
-      <option value="365">Last year</option>
-    </select>
-    <input id="lPage" class="lead-input lead-search" placeholder="Filter by page&hellip;"
-           oninput="debounceLeads()" aria-label="Filter by page">
-    <label class="lead-check"><input type="checkbox" id="lUndel" onchange="loadLeads()">
-      Not yet in Suite</label>
-    <div class="right">
-      <button class="btn-ghost" onclick="retryLeads()">&#8635; Retry undelivered</button>
-      <a class="btn-ghost" href="/api/leads?days=365" target="_blank" rel="noopener">Raw JSON</a>
+    <div class="card">
+      <div class="card-h">
+        <span class="src-tag src-web">Hub</span>
+        <h3>Captured leads <span class="lead-count muted" id="leadCount"></span></h3>
+        <select id="lDays" class="lead-input" onchange="loadLeads()" aria-label="Period">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="365">Last year</option>
+        </select>
+        <input id="lPage" class="lead-input lead-search" placeholder="Filter by page&hellip;"
+               oninput="debounceLeads()" aria-label="Filter by page">
+        <label class="lead-check"><input type="checkbox" id="lUndel" onchange="loadLeads()">
+          Not yet in Suite</label>
+        <div class="right">
+          <a class="open-link" href="/api/leads?days=365" target="_blank" rel="noopener">Raw JSON &rarr;</a>
+        </div>
+      </div>
+      <div class="lead-pages" id="leadPages" hidden></div>
+      <div id="combineBar" hidden></div>
+      <div class="card-b flush" id="leadTable">
+        <p class="empty">Loading&hellip; <span class="spin"></span></p>
+      </div>
     </div>
-  </div>
-  <div class="lead-pages" id="leadPages" hidden></div>
-  <div id="combineBar" hidden></div>
-  <div class="card-b flush" id="leadTable">
-    <p class="empty">Loading&hellip; <span class="spin"></span></p>
+  </section>
+
+  <section class="ld-view" id="v-maintenance">
+    <div class="card">
+      <div class="card-h">
+        <span class="src-tag src-web">Hub</span>
+        <h3>The same prospect, twice</h3>
+        <div class="right"><button class="btn-ghost" onclick="loadDupes()">Look for duplicates</button></div>
+      </div>
+      <div class="card-b" id="dupeBox">
+        <p class="muted" style="margin:0;font-size:13px">A business reaches this
+          panel more than once and always will &mdash; the widget on a client&rsquo;s
+          site in March, a website audit in May, a landing page in between. Grouping
+          is on evidence that identifies a business exactly (one email address, one
+          website); an exact company name on its own is offered as <i>possible</i>
+          and nothing more, because two franchises of one brand carry one name.
+          Nothing merges by itself. Rows the evidence cannot group &mdash; a
+          different email on each visit, a business with no website &mdash; can
+          still be combined by hand: tick them in the captured list on the
+          Overview section and press <b>Combine</b>.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="src-tag src-ghl">Suite</span>
+        <h3>Delivery to Smart 1 Suite</h3>
+        <span id="routePill" class="pill neutral">checking&hellip;</span>
+        <div class="right">
+          <button class="btn-ghost" onclick="retryLeads()">&#8635; Retry undelivered</button>
+          <a class="open-link" href="/api/leads/ghl/preflight?find=1"
+             target="_blank" rel="noopener">Run preflight &rarr;</a>
+        </div>
+      </div>
+      <div class="card-b"><div class="lead-prose" id="routeBody"><span class="muted">Loading&hellip;</span></div></div>
+    </div>
+  </section>
+
+  <section class="ld-view" id="v-notifications">
+    <div class="card">
+      <div class="card-h">
+        <span class="src-tag src-web">Hub</span>
+        <h3>Notifications</h3>
+      </div>
+      <div class="card-b" id="noteList">
+        <p class="empty">Loading&hellip; <span class="spin"></span></p>
+      </div>
+    </div>
+  </section>
+
   </div>
 </div>
 
@@ -79,6 +119,33 @@
    here — the buttons rendered as bare native controls and the summary as a
    run-on line of unstyled divs. Use the shared classes, and define only what
    is genuinely local. */
+/* The Client 360 workspace shell, in this page's own prefix: a rail of
+   section names, one group of cards on screen at a time. Same metrics and
+   colors as client360.html's .c360-* rules, restated here because that page
+   keeps its shell inline too — a shared home for the shell is hub-detail.css
+   work, and moving both is a separate change from adopting the shape. */
+.ld-work{display:grid;grid-template-columns:190px minmax(0,1fr);gap:14px;align-items:start}
+.ld-rail{position:sticky;top:12px;background:#fff;border:1px solid var(--line,#e2e8f0);
+  border-radius:12px;padding:7px;display:flex;flex-direction:column;gap:1px}
+.ld-rail .rl{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;
+  background:none;border-radius:8px;cursor:pointer;font:600 13px 'Segoe UI',system-ui,sans-serif;
+  color:#1e293b;text-align:left}
+.ld-rail .rl:hover{background:#f4f6fa}
+.ld-rail .rl.on{background:#eff4ff;color:#1d4ed8}
+.ld-surface{min-width:0}
+.ld-view{display:none}
+.ld-view.on{display:block;margin-bottom:14px}
+.ld-view > .card{margin-bottom:14px}
+/* Something is waiting on the Notifications section. A count rather than a
+   dot, and amber rather than red: these are chores, not outages. */
+.ld-badge{margin-left:auto;background:var(--warn,#b45309);color:#fff;border-radius:10px;
+  padding:1px 7px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+@media(max-width:900px){
+  .ld-work{grid-template-columns:1fr}
+  .ld-rail{position:static;flex-direction:row;flex-wrap:wrap}
+  .ld-rail .rl{width:auto}
+  .ld-badge{margin-left:6px}
+}
 .lead-note{border-radius:0 9px 9px 0;border-left:3px solid var(--warn);
   background:var(--warn-bg);color:#6b4a00;padding:11px 14px;margin-bottom:14px;
   font-size:12.8px;line-height:1.6}
@@ -131,6 +198,23 @@ function debounceLeads(){ clearTimeout(lTimer); lTimer=setTimeout(loadLeads,300)
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 
+/* ---- the rail: one section on screen at a time, Client 360's shape ---- */
+var LD_SECTIONS = ['overview','maintenance','notifications'];
+function showSec(key){
+  if(LD_SECTIONS.indexOf(key) === -1){ key = 'overview'; }
+  Array.prototype.forEach.call(document.querySelectorAll('.ld-view'), function(v){
+    v.classList.toggle('on', v.id === 'v-'+key);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('#ldRail .rl'), function(b){
+    b.classList.toggle('on', b.getAttribute('data-sec') === key);
+  });
+  /* replaceState with a bare fragment keeps ?page= and adds no history entry. */
+  try{ history.replaceState(null,'','#'+key); }catch(e){}
+}
+Array.prototype.forEach.call(document.querySelectorAll('#ldRail .rl'), function(b){
+  b.onclick = function(){ showSec(b.getAttribute('data-sec')); };
+});
+
 /* One date format for the whole Hub — hub-dates.js. This table used to print
    a raw ISO slice, which is the exact case that script's own header names. */
 function fmtWhen(v){
@@ -169,13 +253,26 @@ function kpi(label, value, sub, tone){
     '<div class="k-sub">'+(sub||'')+'</div></div>';
 }
 
-function renderWarnings(d){
-  document.getElementById('leadWarn').innerHTML =
-    (d.route_warning
-      ? '<div class="lead-note"><b>'+
-        esc(d.route_warning_title||'Check the delivery route')+'</b>'+
-        esc(d.route_warning)+'</div>' : '')+
-    (d.note ? '<div class="lead-note">'+esc(d.note)+'</div>' : '');
+/* The Notifications section. Everything here is a chore rather than a lead:
+   a delivery route that is down, a retired variable still set. The rail
+   badge carries the count so a reader on Overview knows something is
+   waiting without the warning leading the page — and an empty section says
+   so out loud, because a blank panel cannot be told from one that failed
+   to load. */
+function renderNotices(d){
+  var items = [];
+  if(d.route_warning){
+    items.push('<div class="lead-note"><b>'+
+      esc(d.route_warning_title||'Check the delivery route')+'</b>'+
+      esc(d.route_warning)+'</div>');
+  }
+  if(d.note){ items.push('<div class="lead-note">'+esc(d.note)+'</div>'); }
+  document.getElementById('noteList').innerHTML = items.length
+    ? items.join('')
+    : '<p class="empty">Nothing needs attention right now.</p>';
+  var badge = document.getElementById('noteBadge');
+  badge.hidden = !items.length;
+  badge.textContent = String(items.length);
 }
 
 function renderKpis(d){
@@ -183,7 +280,7 @@ function renderKpis(d){
   document.getElementById('leadKpis').innerHTML =
     kpi('Leads', d.count,
         'captured in the last '+d.days+' days'+
-        (d.with_pdf ? ' · '+d.with_pdf+' with a report' : '')+
+        (d.with_report ? ' · '+d.with_report+' with a report' : '')+
         /* A merged row leaves this list. Saying how many is what tells a
            count that went down apart from a panel that failed to load. */
         (d.merged ? ' · '+d.merged+' absorbed a duplicate' : '')) +
@@ -294,7 +391,7 @@ function suiteCell(l){
 }
 
 function renderLeads(d){
-  renderWarnings(d);
+  renderNotices(d);
   renderKpis(d);
   renderRoute(d);
   renderPages(d);
@@ -485,10 +582,14 @@ function loadDupes(){
     });
 }
 
-function dupeGroup(g, certain){
+/* The radio-group name is per GROUP, never the first lead's id: one lead can
+   head an email group and a company-name group at once, and two groups
+   sharing a name are one radio set — ticking a keeper in the second panel
+   silently cleared it in the first. */
+function dupeGroup(g, certain, gid){
   var rows = g.leads.map(function(l, i){
     return '<label class="lead-check" style="display:block;margin:2px 0">'+
-      '<input type="radio" name="keep-'+esc(g.leads[0].id)+'" value="'+esc(l.id)+'"'+
+      '<input type="radio" name="keep-'+esc(gid)+'" value="'+esc(l.id)+'"'+
       (i === 0 ? ' checked' : '')+'> '+
       '<b>'+esc(l.company || l.name || l.email || l.id)+'</b> '+
       '<span class="muted">'+esc(l.source||'')+' / '+esc(l.page||'')+
@@ -518,11 +619,11 @@ function renderDupes(d){
   host.innerHTML =
     (d.certain.length
       ? '<h4 style="margin:0 0 6px">Same business, on the evidence</h4>'+
-        d.certain.map(function(g){ return dupeGroup(g, true); }).join('')
+        d.certain.map(function(g, i){ return dupeGroup(g, true, 'c'+i); }).join('')
       : '')+
     (d.possible.length
       ? '<h4 style="margin:14px 0 6px">Worth an eyeball</h4>'+
-        d.possible.map(function(g){ return dupeGroup(g, false); }).join('')
+        d.possible.map(function(g, i){ return dupeGroup(g, false, 'p'+i); }).join('')
       : '')+
     '<p class="muted" style="font-size:12px;margin:10px 0 0">'+esc(d.note)+'</p>';
 }
@@ -578,6 +679,9 @@ function retryLeads(){
   if(days && Array.prototype.some.call(sel.options, function(o){ return o.value === days; })){
     sel.value = days;
   }
+  // A refresh or a bookmarked #section keeps its place, the Client 360 rule.
+  var sec = (window.location.hash||'').replace(/^#/,'');
+  if(sec){ showSec(sec); }
 })();
 loadLeads();
 </script>

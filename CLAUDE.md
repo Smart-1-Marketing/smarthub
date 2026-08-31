@@ -861,6 +861,25 @@ for the same reason — the reader is an agency admin who may have no Hub accoun
 in that browser, and a sign-in form in the getting-started tab teaches them the
 app needs one.
 
+**And it opened by recommending the half we had not switched on.** The page
+listed the staff record and the client SSO frame side by side as two menu links
+to add "whichever you need" — on the one screen whose whole job is to be copied
+from, which is the `hub/oauth_redirects.py` failure exactly: a panel printing a
+string nobody should paste. The client surface needs each client's sub-account
+recorded against them first, and without that a client who opens it is told we
+cannot tell whose account they are in — correct, and reading to them as broken.
+
+`client_for_location()` has **exactly one caller**, `hub/suite_sso.py`, so that
+link is load-bearing for nothing: not adding it costs a shortcut to content
+those clients are already emailed, and removes the one surface where getting a
+sub-account wrong shows somebody another client's record. It stays *documented*
+rather than deleted — an absent option reads as one nobody thought of, and the
+route is discoverable from the code either way — but it is drawn as **not
+switched on**, with what has to be true before it is. `test_suite_embed.py`
+asserts the distinction, because the old copy read perfectly well and every URL
+on it was correct: nothing but an assertion separates documented from
+recommended.
+
 **Two of the first assertions written for it could not fail.** The frame header
 rides on the `/suite-app` prefix, so a **404** at that path carries it too —
 "it may be framed" passed with the route deleted. And `PUBLIC_BASE_URL` is
@@ -11374,6 +11393,12 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   a gallery you can search, and nothing
                                    #   filed under a provider nobody declared
+python3 test_client360_layout.py   # the record's cards land in their rail
+                                   #   sections by name, driven in node — a
+                                   #   match list that stops matching piles
+                                   #   every card into Overview with the page
+                                   #   still looking complete — and the four
+                                   #   actions the accordion's toolbar carried
 python3 test_client_images.py      # every module that logs client work is one the
                                    #   record can name; deleting a client image, the
                                    #   count, the one brand
@@ -11420,6 +11445,10 @@ python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
                                    #   they are, and the acknowledgment before filing
+python3 test_commercial_mock.py    # the mark that says a provider is not live:
+                                   #   named where the work is rather than as a chip
+                                   #   on another screen, only for routes that really
+                                   #   report it, and never on the client's page
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
                                    #   three answers, the strictest one wins, a
                                    #   refusal that stops a delivery, and the
