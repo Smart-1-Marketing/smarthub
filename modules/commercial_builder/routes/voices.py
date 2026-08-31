@@ -19,6 +19,38 @@ except Exception:                                    # noqa: BLE001
 
 bp = Blueprint("cb_voices", __name__, url_prefix="/api")
 
+try:
+    from hub import audit as _hub_audit
+    _cb_log = _hub_audit.for_module("commercial_builder")
+except Exception:  # noqa: BLE001 — standalone, no Hub to log into
+    def _cb_log(*_a, **_k):
+        return None
+
+
+def _log(event, client="", detail="", **extra):
+    """Never costs the write it describes. See `routes/review.py:_log`."""
+    try:
+        _cb_log(event, client=client or "", detail=detail, **extra)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# Writes on this blueprint that deliberately record nothing, each with the
+# reason. The line: a read that spends a model call is metered by
+# `hub/quotas.py`, which is where a bill is answered; the activity log
+# answers *what was made for this client*, and only a take that is kept has
+# been made.
+HOUSEKEEPING_ROUTES = {
+    "cast_voices": "ranks the account's voices against what the script needs "
+                   "and returns a shortlist. Nothing is chosen and nothing "
+                   "is stored.",
+    "generate_scene_voiceover": "auditions one scene so a rep can hear the "
+                                "voice before committing to a read. The take "
+                                "is returned and never stored — the full "
+                                "voiceover is the one that is kept, and it "
+                                "records.",
+}
+
 
 @bp.get("/voices")
 def list_voices():
@@ -90,6 +122,13 @@ def save_pronunciation(client_id):
     data = request.get_json(force=True) or {}
     client.pronunciation_dict = data.get("pronunciation_dict") or {}
     db.session.commit()
+    # This writes the same brand-profile field `update_client` writes, and
+    # that one records. Two routes changing one field with only one of them
+    # recorded is the inconsistency this triage exists to close: how a client's
+    # name comes to be said differently is exactly what somebody would go
+    # looking for later.
+    _log("cb_client_updated", client=client.name,
+         detail="Brand profile updated: pronunciation_dict.")
     return jsonify({"ok": True, "pronunciation_dict": client.pronunciation_dict})
 
 
@@ -150,6 +189,16 @@ def generate_full_voiceover(project_id):
     # end. The bytes go to the client's library and the URL onto the project.
     stored = _store_voice_track(project, client, result)
     result.update(stored)
+    # The take that is kept. It goes into the client's own Cloudinary tree and
+    # onto the spot's timeline, which makes it work produced for them rather
+    # than an audition — and whether it reached storage is said rather than
+    # assumed, because `_store_voice_track` answers with the reason when it
+    # could not.
+    _log("commercial_voiceover_recorded", client=client.name,
+         detail=(f"Voiceover recorded for {project.title or 'the spot'}"
+                 + ("." if stored.get("voice_track_url")
+                    else ", but it could not be stored.")),
+         project=project.id)
 
     return jsonify({"ok": True, "voiceover": result,
                     "voice_track_url": (project.music or {}).get("voice_track_url") or "",

@@ -586,6 +586,17 @@ jobs:
             echo "test_rate_card_coverage.py not on this branch — nothing to run."
           fi
 
+      - name: Knack field map tests — what is mapped, and what is assumed
+        # The map is read from the modules that own the ids rather than
+        # restated, a confirmation is retired when its field is repinned, and
+        # nothing in it can write to Knack. Guarded like the steps around it.
+        run: |
+          if [ -f test_knack_map.py ]; then
+            python test_knack_map.py
+          else
+            echo "test_knack_map.py not on this branch — nothing to run."
+          fi
+
       - name: IO record tests — the order as a record, not just a PDF
         # One row per order, a resubmission that updates rather than doubling,
         # and bookkeeping that cannot fail the submit it is bookkeeping for.

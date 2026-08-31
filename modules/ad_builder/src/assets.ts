@@ -289,30 +289,3 @@ export async function validateAsset(
   }
 }
 
-/**
- * Resolve every asset reference on a brand and its concepts to local files.
- * Called before rendering so the pipeline downstream stays filesystem-only.
- */
-export async function materializeAssets(
-  refs: Record<string, string | undefined>,
-  cacheDir: string,
-): Promise<{ resolved: Record<string, string>; errors: string[] }> {
-  const resolved: Record<string, string> = {};
-  const errors: string[] = [];
-  for (const [key, ref] of Object.entries(refs)) {
-    if (!ref) continue;
-    try {
-      let file = await resolveAsset(ref, { cacheDir, label: key });
-      if (key.startsWith('logo')) file = await prepareLogo(file, cacheDir);
-      const check = await validateAsset(file);
-      if (!check.ok && !key.startsWith('logo')) {
-        errors.push(`${key}: ${check.reason}`);
-        continue;
-      }
-      resolved[key] = file;
-    } catch (e: any) {
-      errors.push(`${key}: ${e?.message ?? e}`);
-    }
-  }
-  return { resolved, errors };
-}

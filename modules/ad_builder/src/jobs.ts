@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AnimatedResult, Campaign, RenderResult } from './types';
-import { animatableSizes, animationSupport } from './animation';
+import { animationSupport } from './animation';
 import { renderPackage, renderAnimatedPackage } from './render';
 import { CloudinaryService, slug, type UploadedAsset } from './cloudinary';
 import { buildManifest, contextFor, tagsFor } from './manifest';
