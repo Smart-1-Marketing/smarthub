@@ -124,12 +124,35 @@ test('both halves say the low-confidence sentence the same way', () => {
   // Discovery happens here and in the browser, and a rep reading a project
   // cannot tell which ran. Two spellings would read as two different
   // findings. The constant is the one reading; nothing may restate it.
-  const sources = fs.readdirSync(SRC).filter((f) => f.endsWith('.ts'))
-    .map((f) => fs.readFileSync(path.join(SRC, f), 'utf8'));
-  const literal = sources.filter((s) => s.includes('Brand discovery confidence was low'));
-  assert.equal(literal.length, 1, 'the sentence is written out in exactly one file');
-  assert.ok(literal[0].includes('export const LOW_CONFIDENCE_NOTE'),
-    'and that file is the one declaring the constant');
+  //
+  // Counted as OCCURRENCES, not as files. A first version of this asserted
+  // that one file contains the sentence, which a second copy inside that
+  // same file satisfies -- and restating it in the branch immediately below
+  // the constant is exactly the edit somebody makes.
+  const files = fs.readdirSync(SRC).filter((f) => f.endsWith('.ts'));
+  const hits: string[] = [];
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(SRC, f), 'utf8');
+    for (let i = 0; ; ) {
+      const at = src.indexOf('Brand discovery confidence was low', i);
+      if (at < 0) break;
+      hits.push(f);
+      i = at + 1;
+    }
+  }
+  assert.deepEqual(hits, ['intake.ts'],
+    `the sentence is written out once, in the file that exports it (found in: ${hits.join(', ')})`);
+});
+
+test('the server wires the seam it depends on', () => {
+  // buildCampaign takes the record lookup as an option, so every test above
+  // supplies its own and none of them would notice the one caller failing
+  // to pass one. That is the declared-and-never-wired failure this repo has
+  // paid for most often, and it would be silent here: the option is
+  // optional, so its absence is not a type error either.
+  const server = fs.readFileSync(path.join(SRC, 'server.ts'), 'utf8');
+  assert.match(server, /brandRecord:\s*\(/, 'the intake route passes brandRecord');
+  assert.match(server, /brandCache\.read\(/, 'and it reads our stored discovery record');
 });
 
 test('the intake form no longer posts a warnings array nothing reads', () => {
