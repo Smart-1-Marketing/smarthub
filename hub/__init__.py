@@ -2336,6 +2336,41 @@ def create_hub_app() -> Flask:
             return jsonify(out)
         return jsonify({"error": "Unknown action."}), 400
 
+    @app.route("/api/qa/knack-map/<action>", methods=["POST"])
+    def api_qa_knack_map(action):
+        """Record that a person checked one Knack field against the builder.
+
+        A confirmation is a person, a date and a **field** — the id is stored
+        with it, so repinning that field retires the tick rather than carrying
+        it silently onto a different column.
+
+        Nothing here touches Knack. It writes one small Hub-side overlay.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_map, qa
+        body = request.get_json(silent=True) or {}
+        obj = str(body.get("object") or "").strip()
+        key = str(body.get("key") or "").strip()
+        actor = current_user() or ""
+        if action == "confirm":
+            out = knack_map.confirm(obj, key, str(body.get("field") or ""),
+                                    actor=actor,
+                                    note=str(body.get("note") or ""))
+        elif action == "unconfirm":
+            out = {"ok": bool(knack_map.unconfirm(obj, key)),
+                   "object": obj, "key": key}
+            if not out["ok"]:
+                out["error"] = "That field was not confirmed."
+        else:
+            return jsonify({"ok": False, "error": "Unknown action."}), 400
+        if out.get("ok"):
+            qa.forget("knack-field-map")
+            audit.log("qa", f"knack_map_{action}", actor=actor,
+                      detail=f"{obj}:{key}")
+        return jsonify(out)
+
     @app.route("/api/qa/io-reconcile/<action>", methods=["POST"])
     def api_qa_io_reconcile(action):
         """Settle an insertion order that is never going to appear in Knack.

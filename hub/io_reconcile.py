@@ -210,6 +210,7 @@ def submitted() -> dict:
             "order": order, "client": "", "at": None, "sources": [],
             "actor": "", "partner": "", "start": None, "monthly": 0.0,
             "quote": "", "quote_id": None, "not_delivered": False,
+            "line_count": None,
         })
 
     # The Hub's own record of every order it sent. This is the durable half:
@@ -239,6 +240,8 @@ def submitted() -> dict:
             # the report's own headline bucket, blind to a whole class of IOs.
             row["start"] = row["start"] or _day(io_records.flight_start(rec))
             row["monthly"] = row["monthly"] or float(rec.get("monthly") or 0)
+            if row["line_count"] is None and rec.get("line_count") is not None:
+                row["line_count"] = rec.get("line_count")
             when = _aware(rec.get("submitted_at"))
             if when and (row["at"] is None or when < row["at"]):
                 row["at"] = when
@@ -348,13 +351,16 @@ def landed() -> dict:
                 "error": f"Knack products could not be read "
                          f"({type(exc).__name__})."}
     source = str(got.get("source") or "none")
-    numbers: dict[str, dict] = {}
+    # Every product carrying each number, not the first one found: whether a
+    # campaign was trafficked as one row or six is exactly what the delivery
+    # comparison below has to be able to see.
+    numbers: dict[str, list] = {}
     for r in (got.get("rows") or []):
         if not isinstance(r, dict):
             continue
         key = _norm_io(r.get("io"))
         if key:
-            numbers.setdefault(key, r)
+            numbers.setdefault(key, []).append(r)
     if source not in LIVE_SOURCES:
         return {"numbers": numbers, "measured": False, "source": source,
                 "read_at": None,
@@ -407,15 +413,6 @@ def report(now=None) -> dict:
                 "has_records": bool(sent.get("records"))}
 
     io_only = _io_only_orders()
-    # Numbers the sequence handed out that never became an order. Not a
-    # finding — a rep who starts an IO and thinks better of it is doing
-    # nothing wrong — but it is the only answer there is to "why is there no
-    # order 10407", and the gap is otherwise unexplainable.
-    try:
-        from hub import io_records
-        unused = len(io_records.unused_allocations())
-    except Exception:                                   # noqa: BLE001
-        unused = 0
     marks = settled()
     grace = timedelta(days=GRACE_DAYS)
     read_at = knack.get("read_at")
@@ -478,9 +475,226 @@ def report(now=None) -> dict:
         "log_oldest": sent["log_oldest"],
         "has_records": bool(sent.get("records")),
         "not_delivered": undelivered,
-        "unused_numbers": unused,
         "error": "",
     }
+
+
+# ---------------------------------------------------------- what was bought
+#
+# `report()` above asks whether a campaign exists. This asks whether it is the
+# campaign we sold — the next link, and the one the order record made
+# possible: before `hub/io_records.py` there was nothing on our side to
+# compare against, because the only trace of an order was a log line carrying
+# a number and a client name.
+#
+# **The finding is the money, and the counts are never the finding.** An
+# insertion order of six lines may be trafficked in Knack as six product rows
+# or as one, and nothing readable from here says which convention this book
+# follows. A check that fired on every order because the shop writes one row
+# per campaign is a check somebody switches off within a week — the note
+# `hub/qr_codes.py` makes about a warning that fires on every social spot. So
+# the line counts are printed beside each row as context and no row is ever
+# raised for them; what is compared is the monthly, which is the same number
+# however many rows it was split across.
+#
+# **Both figures are always shown, and so is the difference.** A report that
+# says "discrepancy" without printing the two numbers behind it is one nobody
+# can check, and the first person to find it wrong stops reading the rest.
+#
+# **Over and under are different conversations.** A campaign trafficked for
+# less than the order is delivery somebody is not getting; one trafficked for
+# more is billing nobody wrote an order for. They are counted apart and the
+# row says which.
+
+# House figures. Nobody publishes a tolerance for this, so these are ours and
+# are named as ours on the page: a campaign trafficked to the exact dollar is
+# not the normal case — a rounded rate, a part month at the start of a flight —
+# and calling every one of those a finding is how the list stops being read.
+MONEY_TOLERANCE_PCT = 5.0
+MONEY_TOLERANCE_MIN = 50.0
+TOLERANCE_SOURCE = "house"
+
+
+def _knack_monthly(rows) -> tuple[float, bool, int]:
+    """(total monthly, every row carried one, how many did not).
+
+    A product row with no monthly cost is **not** counted as zero. A blank
+    there would drag the campaign's total down and read as a campaign
+    delivering less than it was sold, which is a finding invented out of a
+    field nobody filled in.
+    """
+    total, blank = 0.0, 0
+    for row in rows or []:
+        raw = row.get("monthly")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = None
+        if raw in (None, "") or value is None:
+            blank += 1
+            continue
+        total += value
+    return round(total, 2), blank == 0, blank
+
+
+def _tolerance(sold: float) -> float:
+    return max(MONEY_TOLERANCE_MIN, abs(sold) * MONEY_TOLERANCE_PCT / 100.0)
+
+
+def delivery(now=None) -> dict:
+    """Orders whose campaign in Knack is not the campaign that was sold."""
+    now = _aware(now) or datetime.now(timezone.utc)
+    sent = submitted()
+    knack = landed()
+
+    if not knack["measured"]:
+        return {"measured": False, "rows": [], "checked": 0, "matched": 0,
+                "under": 0, "over": 0, "unmeasured": [], "waiting": 0,
+                "error": knack["error"], "errors": sent["errors"]}
+
+    marks = settled()
+    grace = timedelta(days=GRACE_DAYS)
+    read_at = knack.get("read_at")
+    rows, unmeasured = [], []
+    checked = matched = under = over = waiting = 0
+
+    for order in sent["orders"]:
+        key = _norm_io(order.get("order"))
+        if not key or key in marks:
+            continue
+        products = knack["numbers"].get(key)
+        if not products:
+            # No campaign at all. That is `report()`'s finding, not this one,
+            # and raising it twice on two screens is how a reader learns the
+            # two reports disagree.
+            continue
+
+        when = order.get("at")
+        if when and read_at is not None and when > read_at:
+            waiting += 1
+            continue
+        if when and (now - when) < grace:
+            # A campaign part-entered is not a campaign short-delivered.
+            waiting += 1
+            continue
+
+        sold = round(float(order.get("monthly") or 0), 2)
+        got_total, complete, blank = _knack_monthly(products)
+        row = {
+            "order": order.get("order", ""),
+            "client": order.get("client", ""),
+            "partner": order.get("partner", ""),
+            "at": when,
+            "start": order.get("start"),
+            "sold": sold,
+            "trafficked": got_total,
+            "difference": round(got_total - sold, 2),
+            "lines_sold": order.get("line_count"),
+            "products": len(products),
+            "blank_monthly": blank,
+            "sources": order.get("sources") or [],
+        }
+
+        if not sold:
+            # The order carried no monthly to compare against — an entry the
+            # activity log wrote before the Hub kept its own records, or an
+            # order whose lines were all one-time. Not measured, never a
+            # finding of zero delivery.
+            row["reason"] = ("no monthly was recorded on our side of this "
+                             "order, so there is nothing to compare the "
+                             "campaign against")
+            unmeasured.append(row)
+            continue
+        if not complete:
+            row["reason"] = (
+                f"{blank} of the {len(products)} product"
+                f"{'' if len(products) == 1 else 's'} under this number "
+                f"{'carries' if blank == 1 else 'carry'} no monthly cost in "
+                "Knack, so the campaign's total is not measurable — a blank "
+                "counted as zero would read as under-delivery")
+            unmeasured.append(row)
+            continue
+
+        checked += 1
+        row["tolerance"] = round(_tolerance(sold), 2)
+        if abs(row["difference"]) <= row["tolerance"]:
+            matched += 1
+            continue
+        row["direction"] = "over" if row["difference"] > 0 else "under"
+        if row["direction"] == "over":
+            over += 1
+        else:
+            under += 1
+        rows.append(row)
+
+    # Worst gap first, in money rather than in percentage: a 4% gap on a
+    # $40,000 campaign is the row to open before a 30% gap on $300.
+    rows.sort(key=lambda r: -abs(r["difference"]))
+    return {
+        "measured": True, "error": "",
+        "rows": rows, "unmeasured": unmeasured,
+        "checked": checked, "matched": matched,
+        "under": under, "over": over, "waiting": waiting,
+        "knack_source": knack["source"],
+        "knack_age_minutes": knack.get("age_minutes"),
+        "errors": sent["errors"],
+    }
+
+
+def delivery_note(data: dict) -> str:
+    """The sentence under the delivery table."""
+    data = data or {}
+    if not data.get("measured"):
+        return (data.get("error")
+                or "The campaigns could not be compared with the orders.")
+    bits = []
+    n = len(data.get("rows") or [])
+    checked = data.get("checked", 0)
+    if n and n == checked == 1:
+        bits.append("The one campaign this could compare is not trafficked at "
+                    "the money its insertion order was written for")
+    elif n and n == checked:
+        bits.append(f"None of the {checked} campaigns this could compare is "
+                    "trafficked at the money its insertion order was written "
+                    "for")
+    elif n:
+        bits.append(f"{n} of the {checked} campaigns this could compare "
+                    f"{'is' if n == 1 else 'are'} not trafficked at the money "
+                    "the insertion order was written for")
+        if data.get("under"):
+            u = data["under"]
+            bits.append(f"{u} {'is' if u == 1 else 'are'} running for less "
+                        "than the order, which is delivery the client is not "
+                        "getting")
+        if data.get("over"):
+            o = data["over"]
+            bits.append(f"{o} {'is' if o == 1 else 'are'} running for more, "
+                        "which is billing nobody wrote an order for")
+    elif checked == 1:
+        bits.append("The one campaign this could compare is trafficked at the "
+                    "money its insertion order was written for")
+    else:
+        bits.append(f"Every one of the {checked} campaigns this could compare "
+                    "is trafficked at the money its insertion order was "
+                    "written for")
+    bits.append(f"“At the money” means within {MONEY_TOLERANCE_PCT:g}% or "
+                f"${MONEY_TOLERANCE_MIN:,.0f}, whichever is larger — our own "
+                "figure, not a published one, because a part first month and a "
+                "rounded rate are ordinary")
+    if data.get("unmeasured"):
+        m = len(data["unmeasured"])
+        bits.append(f"{m} could not be compared at all and "
+                    f"{'is' if m == 1 else 'are'} listed with the reason")
+    if data.get("waiting"):
+        bits.append(f"{data['waiting']} were submitted too recently to judge — "
+                    "a campaign part-entered is not a campaign short-delivered")
+    bits.append("How many product rows a campaign was split into is shown "
+                "beside each order and is never itself a finding: an order of "
+                "six lines may be trafficked as six rows or as one, and "
+                "nothing here can tell which this book does")
+    for err in data.get("errors") or []:
+        bits.append(err)
+    return ". ".join(b[:1].upper() + b[1:] for b in bits if b) + "."
 
 
 def note(data: dict) -> str:
@@ -544,12 +758,6 @@ def note(data: dict) -> str:
         bits.append(f"{n} of {'them' if n > 1 else 'those'} "
                     f"{'was' if n == 1 else 'were'} never taken by Smart 1 "
                     "Suite either, so the order reached neither system")
-    if data.get("unused_numbers"):
-        u = data["unused_numbers"]
-        bits.append(f"{u} order number{'' if u == 1 else 's'} "
-                    f"{'was' if u == 1 else 'were'} handed out and never "
-                    "became an order, which is why the numbering has gaps in "
-                    "it")
     oldest = data.get("log_oldest")
     if oldest and not data.get("has_records"):
         # Only said while the activity log is genuinely the horizon. Once the

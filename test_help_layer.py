@@ -599,6 +599,71 @@ for _name in ("client_proposal.html", "client_gone.html"):
 ok("and it names no tour it cannot drive",
    not re.search(r'data-screen\s*=', _wiz))
 
+
+# ------------------------------------------------------- the IO Builder
+print()
+print("The IO Builder explains the document that bills the client")
+
+# A conversational builder rather than a stepped wizard, so the anchors are
+# the decision points that are static markup: where the campaign is loaded
+# from, the unfinished-order list, the creative checklist, the rates on the
+# report, the two PDFs and Submit. The interview itself asks its questions in
+# words already.
+_IO = os.path.join(ROOT, "modules", "io_builder", "templates", "index.html")
+with open(_IO, encoding="utf-8") as _fh:
+    _io = _fh.read()
+
+_io_keys = sorted(set(re.findall(r"help_dot\('(io_builder\.[\w.]+)'\)", _io)))
+ok("the IO Builder places bubbles", len(_io_keys) >= 5, str(len(_io_keys)))
+_io_dead = sorted(k for k in _io_keys if k not in _known)
+check("and every one resolves in the registry", _io_dead, [])
+
+# Guarded like every helper call in this codebase: io_builder is
+# dispatcher-mounted, so it gets help_dot from install_template_helpers() --
+# and a module whose Jinja env somehow did not must lose the icon rather
+# than the page. (The sweep above asserts this for every template; named
+# here because this file is the one that just gained six.)
+_calls = re.findall(r"\{\{[^}]*help_dot\([^}]*\}\}", _io)
+ok("every call is guarded", all("is defined" in c for c in _calls),
+   str([c[:40] for c in _calls if "is defined" not in c]))
+
+# It renders. A key in the template that never reaches the browser is the
+# same silence as one that resolves to nothing.
+_page = _staff.get("/tools/io/")
+check("the page still builds", _page.status_code, 200)
+_rendered = sorted(set(re.findall(rb'data-help="(io_builder\.[\w.]+)"', _page.data)))
+check("and every key placed reaches the browser",
+      len(_rendered), len(_io_keys))
+
+
+# ------------------------------------------- one key, one entry
+print()
+print("A key registered twice is a key whose earlier copy nobody reads")
+
+# _BY_KEY is {h.key: h for h in REGISTRY} and /api/help/registry builds the
+# same way, so a second _h() for a key silently wins and the first becomes
+# dead copy on a screen that still draws its dot. tour() is worse: it walks
+# REGISTRY as a list, so a duplicated key carrying step= puts one step on the
+# walkthrough twice.
+#
+# Not hypothetical. Two sessions wrote IO Builder help against the same
+# screen from different branches; the merge was textually clean and landed
+# io_builder.report.rates twice, with two different explanations of what the
+# rate on that pane is. Nothing here reported it -- every key resolved, every
+# dot rendered, and the audit counted the tool as covered.
+_reg_keys = [h.key for h in help_registry.REGISTRY]
+_dupes = sorted({k for k in _reg_keys if _reg_keys.count(k) > 1})
+check("no key is registered twice", _dupes, [])
+
+# Said against the list rather than against a set of itself: as_json() is a
+# dict comprehension over REGISTRY, so a collision makes the payload shorter
+# than the registry it was built from and every count either side of it still
+# agrees with the other. Comparing it to len(set(...)) collapses the
+# duplicate on both sides and passes while the entry is being lost, which is
+# the shape of a check nobody can trust.
+check("every registered entry survives into the payload",
+      len(help_registry.as_json()["help"]), len(help_registry.REGISTRY))
+
 import shutil as _shutil                                          # noqa: E402
 _shutil.rmtree(_T, ignore_errors=True)
 

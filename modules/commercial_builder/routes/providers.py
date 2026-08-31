@@ -17,6 +17,17 @@ from ..services import provider_check
 bp = Blueprint("cb_providers", __name__, url_prefix="/api")
 
 
+# Writes on this blueprint that deliberately record nothing, with the reason.
+HOUSEKEEPING_ROUTES = {
+    "verify_providers": "a POST that reads. It asks each provider whether "
+                        "our key works and writes nothing anywhere — a POST "
+                        "because eight outbound calls must not fire on a "
+                        "page load, which is `services/provider_check.py`'s "
+                        "own rule rather than a change to record.",
+}
+
+
+
 @bp.get("/providers")
 def list_providers():
     return jsonify({"ok": True, "providers": provider_check.PROVIDERS,

@@ -17,9 +17,22 @@
  * A note on folder modes. Cloudinary accounts are either in fixed-folder mode,
  * where the folder is a prefix of the public_id, or dynamic-folder mode, where
  * `asset_folder` is independent of the public_id. Search expressions differ:
- * `folder:` in the first, `asset_folder:` in the second. Set
- * CLOUDINARY_FOLDER_MODE to 'fixed' or 'dynamic' to match the account; the
- * search helper below builds the right expression either way.
+ * `folder:` in the first, `asset_folder:` in the second.
+ *
+ * Searching used to pick between them from CLOUDINARY_FOLDER_MODE, and asking
+ * for the wrong one returns **zero** with every screen healthy — an empty
+ * gallery that reads as a client with no assets. That variable is set in this
+ * module's own `render.yaml`, which describes the renderer as a standalone
+ * service; on the Hub it runs as a second process whose Cloudinary settings
+ * `docker-start.sh` derives from CLOUDINARY_URL, and it does not set the mode.
+ * So the default, `fixed`, was answering for an account nobody had checked.
+ *
+ * `folderExpression()` asks for both fields instead, which is what
+ * `hub/video_library.py` settled on after running both against this account:
+ * they answer identically where the mode is right, so the extra clause costs
+ * nothing, and there is no longer a variable that can be silently wrong.
+ * `folderMode` still decides the shape of a dry-run public_id, which is a
+ * different question and a real one.
  */
 
 import * as fs from 'fs';
@@ -62,6 +75,40 @@ export function slug(s: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
+}
+
+/**
+ * The search clause matching one folder tree, in either folder mode.
+ *
+ * Four terms rather than two, and the pair that looks redundant is the point:
+ * Cloudinary publishes a folder as `asset_folder` in dynamic mode and `folder`
+ * in fixed, and asking for only the wrong one returns zero results with the
+ * page looking perfectly healthy. `hub/video_library.py` ran both against this
+ * account and they answer identically, so the extra clause costs nothing --
+ * and it removes a setting that can be silently wrong.
+ *
+ * The exact form uses `=` and the subtree form the trailing wildcard, because
+ * neither alone is enough: an exact match misses everything in a subfolder,
+ * and `"path/*"` misses an asset sitting directly in the folder itself. The
+ * old expression used `:` for both, so the folder's own assets were matched
+ * by a contains rather than an equality.
+ *
+ * A double quote would close the value and turn the rest of the name into
+ * syntax. Every folder reaching here is built from `slug()`, so this is belt
+ * and braces on the day somebody passes a name straight in.
+ */
+export function folderExpression(
+  folder: string,
+  opts: { recursive?: boolean } = {},
+): string {
+  const clean = String(folder ?? '').trim().replace(/^\/+|\/+$/g, '').replace(/"/g, '');
+  if (!clean) return '';
+  const terms = ['asset_folder', 'folder'].flatMap((field) =>
+    opts.recursive === false
+      ? [`${field}="${clean}"`]
+      : [`${field}="${clean}"`, `${field}:"${clean}/*"`],
+  );
+  return terms.join(' OR ');
 }
 
 export class CloudinaryService {
@@ -282,10 +329,8 @@ export class CloudinaryService {
     if (!this.live) return [];
 
     const { recursive = true, max = 500 } = opts;
-    const field = this.folderMode === 'dynamic' ? 'asset_folder' : 'folder';
-    const expression = recursive
-      ? `${field}:"${folder}/*" OR ${field}:"${folder}"`
-      : `${field}:"${folder}"`;
+    const expression = folderExpression(folder, { recursive });
+    if (!expression) return [];
 
     const out: UploadedAsset[] = [];
     let cursor: string | undefined;

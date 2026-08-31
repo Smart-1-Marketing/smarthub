@@ -289,6 +289,13 @@ def revoke_review(project_id, share_id):
     share = ReviewShare.query.filter_by(id=share_id, project_id=project_id).first_or_404()
     share.revoked = True
     db.session.commit()
+    # The destroy half of the pair `send_for_review` already records. A link
+    # that went to a client and was taken back is exactly the event somebody
+    # reconstructs a "they said they never got it" from, and recording only
+    # the send leaves the round looking live for ever.
+    _log("commercial_review_revoked",
+         project=CommercialProject.query.get(share.project_id),
+         detail=f"Round {share.round_no} link revoked.")
     return jsonify({"ok": True, "review": share.to_dict()})
 
 
@@ -394,6 +401,17 @@ def client_comment(token):
                             format=clean["format"])
     db.session.add(comment)
     db.session.commit()
+    # A comment is an answer. `review_spec.inbox()` counts a client who left
+    # four timecoded notes and pressed no button as having replied, and
+    # `client_decide` has always been recorded — so leaving this silent means
+    # a client who answered only in notes is absent from the log while one who
+    # pressed a button is in it, which is the same reply reading two ways.
+    _log("commercial_review_commented",
+         project=CommercialProject.query.get(share.project_id),
+         detail=(f"{clean['reviewer_name']} left a note on round "
+                 f"{share.round_no}"
+                 + (f" at {clean['at_seconds']:.0f}s." if clean["at_seconds"]
+                    is not None else ".")))
     return jsonify({"ok": True, "comment": comment.to_dict()})
 
 
