@@ -1353,6 +1353,7 @@ const DISCOVERY_QUESTIONS=[
  {key:"reputation",label:"Managing reviews and reputation?"},
  {key:"email",label:"Running email campaigns?"},
  {key:"chat",label:"Chat widget on the site?"},
+ {key:"appointments",label:"Taking appointments / bookings online?"},
  {key:"callTracking",label:"Tracking inbound calls?"},
  {key:"texting",label:"Texting customers?"},
 ];
@@ -1396,6 +1397,9 @@ const SUGGESTION_RULES=[
  {key:"socialScheduling",when:["No", "Unknown"],title:"Schedule the month instead of remembering it",
   detail:"Posting by hand is what stops first when the business gets busy, which is exactly when the campaign is working. A month planned and queued in one sitting keeps posting through the weeks nobody has time for it.",
   products:["Smart 1 Suite", "Social Media Management"]},
+ {key:"appointments",when:["No", "Unknown"],title:"Let customers book without calling",
+  detail:"A good share of the people ready to buy are looking after hours, and a booking link turns that intent into an appointment instead of a note to call tomorrow. The Suite's online scheduling puts the calendar on the site and on the Google listing.",
+  products:["Smart 1 Suite"]},
 ];
 /* Which of the discovery answers the Suite license itself closes, mirrored
    from hub/current_marketing.SUITE_FEATURES. `tier` is the lowest tier that
@@ -1406,6 +1410,8 @@ const SUITE_FEATURES=[
   detail:"Every campaign number tracked, recorded and attributed to the channel that produced it, with Missed Call Text Back on the ones nobody picks up."},
  {key:"texting",tier:"Smart 1",feature:"Two-way texting",
   detail:"The texting center, so a lead is answered the way they expect rather than with a voicemail nobody returns."},
+ {key:"appointments",tier:"Smart 1",feature:"Online scheduling",
+  detail:"A booking calendar on the website and the Google listing, so an after-hours visitor becomes an appointment on the books rather than a call that never gets made."},
  {key:"reputation",tier:"Smart 1",feature:"Reputation center",
   detail:"Automated Google review requests after a job, and every review answered from one inbox."},
  /* Both social questions are answered by the same part of the Suite, so they
@@ -3077,7 +3083,7 @@ const STEPS=[
  ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",help:"sales_builder.marketing.answers",
    sub:"Every answer changes the recommendation. Unknown is a real answer — it means we have not confirmed it.",
    html:`<div class="bpanel"><div class="ttl">📋 What's running today</div>
-    <div class="note" style="margin-top:2px">All twelve need an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
+    <div class="note" style="margin-top:2px">Every one needs an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
     <div class="disc2">${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
     ${discoveryUnanswered().length?`<div class="note" style="margin-top:10px;color:#8c2f24"><b>${discoveryUnanswered().length} still unanswered:</b> ${discoveryUnanswered().map(q=>esc(q.label.replace(/\?$/,''))).join(' · ')}</div>`:''}</div>
 
