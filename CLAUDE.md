@@ -9944,6 +9944,41 @@ the panel rendered the missing `checks` array as **"✓ 0 checks OK · no
 issues"** — a green tick over a question that was never asked, for eleven of
 the fourteen people. It says what happened now.
 
+**And three of the rules above were true of this module and false of the two
+screens that draw it.**
+
+*"One row per person"* held until the account table blinked. `identify()`
+enumerates three answers in its own docstring and returned **two bits**, so
+*"more than one account has this name"* and *"we could not ask"* were the
+identical value — and `touch_display()` then keyed a row on the **name** for
+somebody who already had one keyed on their **email**. Two rows, counted
+twice, for the fifteen minutes of the window, drawing two chips with one name
+on them; and `/status` printed *"no account matched this name"* about
+somebody who has one, which is a confident answer to a question that was
+never asked. It carries whether it could look now, and not knowing who
+somebody is writes **nothing**: the row from a minute ago is still inside the
+window and still right, so inventing a second identity is the one thing that
+cannot be recovered from.
+
+*"`active()` reports that it could not look"* — and what it reported was
+`str(exc)`. Both screens interpolate that straight into the page, so a
+SQLAlchemy `OperationalError` puts the **database host, the user it tried to
+authenticate as and the SQL it was running** on the dashboard, which every
+one of the fourteen accounts opens. An exception is not a message, which is
+the rule the image and PDF optimizers were fixed for; it is a sentence now
+and the cause goes to the log.
+
+*"every screen that prints the number says so in those words"* was the whole
+argument for `summary_line()` existing — *"so none of them can print the
+count without the window it was measured over"*. The dashboard's headline
+read **"N signed in now"**, the exact phrase this module's docstring calls a
+confident answer to a question nobody here can answer, with the window
+relegated to an 11.5px grey note beneath it — under a comment in that same
+file claiming the window is never left off the number. Read at the size
+somebody actually reads it, the caveat was not there. The headline says
+*seen recently* and `summary_line()` still gives the exact window below it.
+`test_user_accounts.py` asserts all three, the two templates included.
+
 **Nothing here is a crawler's business.** `hub/no_crawl.py`: `robots.txt`,
 `/llms.txt`, and an `X-Robots-Tag` on every response — added as WSGI middleware
 in `wsgi.py` rather than as a Flask `after_request`, or it would have covered
