@@ -307,45 +307,93 @@ def check_silent_modules() -> list[dict]:
     return out
 
 
+def _reads_request_value(node) -> bool:
+    """Does this expression reach request.args / .values / .form?"""
+    for sub in ast.walk(node):
+        if (isinstance(sub, ast.Attribute)
+                and sub.attr in ("args", "values", "form")
+                and isinstance(sub.value, ast.Name)
+                and sub.value.id == "request"):
+            return True
+    return False
+
+
+def _enclosing_call(tree, node, names) -> bool:
+    """Is `node` inside a call to one of `names` in the same file?"""
+    for outer in ast.walk(tree):
+        if (isinstance(outer, ast.Call) and isinstance(outer.func, ast.Name)
+                and outer.func.id in names
+                and any(x is node for x in ast.walk(outer))):
+            return True
+    return False
+
+
 def check_unclamped_limits() -> list[dict]:
-    """A limit read straight from the query string with no bounds."""
+    """A caller's number parsed or bounded by hand.
+
+    Read from the **AST**, and that is the fix rather than a tidy-up. The
+    text version matched `request.args.get("limit")` and then skipped any
+    window containing `min(`, `max(` or `clamp` — a guard against crying
+    wolf that made it blind to two of the three faults `hub/webargs.py` was
+    written to end:
+
+    * `min(int(request.args.get("limit") or 12), 50)` contains `min(`, so it
+      was skipped — and an upper bound with no lower one over a `[:limit]`
+      is the *second* fault, the one that returns everything but the last
+      five rows as a clean answer;
+    * `max(1, min(1000, int(...)))` contains both, so it was skipped — and
+      with no `try` around it, `?limit=abc` is the *first* fault, a 500.
+
+    It also needed `hub/webargs.py` exempted by name, because that file's
+    docstring quotes the bad pattern to explain it. Prose is not a call
+    site, for the fifth time in this file, and the AST does not need telling.
+
+    Two questions now, each narrow enough to have no false positives, and
+    both empty on the day this went in:
+
+    1. a bare `int()` over a caller's value **outside a try** — the 500;
+    2. a `min()` over a caller's value with no `max()` or `clamp_int()`
+       around it — the wrong answer.
+    """
     out = []
     for rel, src in _sources():
-        # The helper's own docstring quotes the bad pattern as the example
-        # of what not to write. Flagging it would be the check reporting
-        # its own fix as the defect.
-        if rel.replace("\\", "/").endswith("hub/webargs.py"):
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
             continue
-        # The same defect arrives on a form field or a JSON body, not just
-        # the query string, so all three are covered.
-        # Two patterns, because the names mean different things by source.
-        # On a query string "items" and "n" are page sizes; in a JSON body
-        # they are almost always the payload itself — a proposal's line items,
-        # a spot count — and matching those made the check cry wolf on twelve
-        # call sites that were never limits. A check nobody trusts is worse
-        # than no check.
-        pats = (r"""request\.args\.get\(\s*["'](limit|items|per_page|n)["']""",
-                r"""(?:request\.form|body|data)\.get\("""
-                r"""\s*["'](limit|per_page|page_size)["']""")
-        for m in [m for pat in pats for m in re.finditer(pat, src)]:
-            # Look BEHIND as well as ahead: the usual clamp wraps the read
-            # rather than following it — max(1, min(500, int(request.args...)))
-            # — so a forward-only window reports correctly-clamped code as
-            # unclamped. A check that cries wolf gets ignored.
-            line_start = src.rfind("\n", 0, m.start()) + 1
-            window = src[line_start:m.start() + 260]
-            if re.search(r"\bmin\(|\bmax\(|clamp", window):
+        guarded = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Try):
+                for sub in ast.walk(node):
+                    if hasattr(sub, "lineno"):
+                        guarded.add(sub.lineno)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 continue
-            out.append({
-                "file": rel, "module": _module_of(rel),
-                "detail": f"?{m.group(1)}= is used without clamping. "
-                          "?limit=-1 was a 500 on Postgres and a full table "
-                          "dump on SQLite.",
-                "fix": "from hub.webargs import clamp_int — it parses safely "
-                       "and clamps both ends. Do not add another local "
-                       "min()/max(); that is how two files ended up with "
-                       "max(1, max(1, min(...))).",
-            })
+            if (node.func.id == "int" and node.args
+                    and _reads_request_value(node.args[0])
+                    and node.lineno not in guarded):
+                out.append({
+                    "file": rel, "module": _module_of(rel), "line": node.lineno,
+                    "detail": "int() over a value the caller controls, outside "
+                              "a try. ?limit=abc is a 500 and the traceback "
+                              "names a line about pagination.",
+                    "fix": "from hub.webargs import clamp_int — it never "
+                           "raises and clamps both ends.",
+                })
+            elif (node.func.id == "min" and _reads_request_value(node)
+                  and not _enclosing_call(tree, node, {"max", "clamp_int"})):
+                out.append({
+                    "file": rel, "module": _module_of(rel), "line": node.lineno,
+                    "detail": "A ceiling on a caller's number and no floor. "
+                              "?limit=-1 reaches rows[:-1], which returns "
+                              "everything except the last row as a clean "
+                              "answer with nothing saying anything was wrong.",
+                    "fix": "from hub.webargs import clamp_int — it clamps "
+                           "both ends. Do not add another local min()/max(); "
+                           "that is how two files ended up with "
+                           "max(1, max(1, min(...))).",
+                })
     return out
 
 

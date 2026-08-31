@@ -1667,3 +1667,19 @@ jobs:
       # limit is the top N presented as the whole.
       - name: July versus June, and the comparison that answered with June
         run: python3 test_analytics_ask.py
+      # hub/webargs.py is 51 lines reached from twenty files, named by no
+      # test. Its docstring lists three faults it exists to end -- int()
+      # outside a try, an upper bound with no lower one, and the same clamp
+      # written out twice -- and the sweep it implies never finished. Smart 1
+      # Ads bounded its client search above and not below, over a
+      # search_clients() ending [:limit], so ?limit=-5 returned every client
+      # except the last five as a clean answer. The Suite panel's audit log
+      # had both bounds and no try. And the Commercial Builder's stock search
+      # had neither, on a number that goes straight into Pexels and Pixabay
+      # once per expanded query. The helper itself had the OverflowError
+      # guard its own comment describes on the inner branch only, so a real
+      # float infinity -- which json.loads produces from the literal
+      # `Infinity`, and three call sites pass a JSON body straight in -- was
+      # a 500 out of the helper whose first promise is that it never raises.
+      - name: A number a stranger controls
+        run: python3 test_webargs.py
