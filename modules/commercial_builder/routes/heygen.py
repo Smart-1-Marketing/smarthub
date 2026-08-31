@@ -25,6 +25,17 @@ from ..services import heygen_service, cloudinary_service
 
 bp = Blueprint("cb_heygen", __name__, url_prefix="/api")
 
+
+# Writes on this blueprint that deliberately record nothing, with the reason.
+HOUSEKEEPING_ROUTES = {
+    "apply_spokesperson_result": "attaches a clip whose arrival "
+                                 "`spokesperson_status` already recorded. "
+                                 "That route is where the provider's answer "
+                                 "is turned into an asset, and recording the "
+                                 "same clip twice would read as two takes.",
+}
+
+
 # A spokesperson clip is client work, so it belongs on the client's 360
 # record. Guarded so the module still runs standalone.
 try:
