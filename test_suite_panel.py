@@ -287,8 +287,19 @@ check("the in-memory dict survives only as the fallback for no disk at all",
       SRC.count("_idem[key]") > 0 and "except OSError" in SRC)
 
 # The paging values a caller sends are clamped rather than handed upstream.
-check("a paging value is clamped, not passed through",
-      "def _page_arg" in SRC and "max(lo, min(hi, int(" in SRC)
+# Driven rather than matched against the source: this asserted the literal
+# `max(lo, min(hi, int(`, which is the implementation restated in the test --
+# a third thing to keep in step, and it failed the day that expression became
+# a call to hub/webargs.py's shared clamp, on a change that made the code
+# better rather than worse. What matters is the answer the upstream API gets.
+for _raw, _want in (("abc", "20"), ("-3", "1"), ("99999", "500"),
+                    ("37", "37"), ("10.9", "10"), ("", "20")):
+    with sp.app.test_request_context("/?limit=" + _raw):
+        _got = sp._page_arg("limit", 20, 1, 500)
+        check(f"?limit={_raw or '(empty)'} reaches GHL as {_want}",
+              _got == _want)
+        # Still a string: what this returns is forwarded as a query parameter.
+        check(f"...and as a string", isinstance(_got, str))
 
 print(f"\n{'-' * 62}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

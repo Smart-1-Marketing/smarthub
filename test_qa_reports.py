@@ -677,6 +677,108 @@ for key in qa.REPORTS:
 
 
 # ---------------------------------------------------------------------------
+section("A section heading is not a client, and the CSV was exporting it as one")
+
+# Two spellings of "this row is a section heading" on one page: three reports
+# mark the *cell* `{"group": true, "tone": …}` and the renderer draws a
+# coloured band; `no_gtm` wrote a bare string and marked the *row*
+# `row_styles="sub"`, which drew grey text. Same concept, two treatments, two
+# reports apart -- and neither of them legible to the CSV export, which wrote
+# all eight of this page's headings out as data. Active Clients exported 154
+# rows for a book of 151, three of them named "Ending this month (15)" with
+# every other column blank.
+
+_headings = {}
+for _key in qa.REPORTS:
+    try:
+        _r = qa.run(_key)
+    except Exception:                                   # noqa: BLE001
+        continue
+    _rows, _st = _r.get("rows") or [], _r.get("row_styles") or []
+    for _i, _row in enumerate(_rows):
+        if any(str(c).strip() for c in _row[1:]):
+            continue                                    # not a heading shape
+        _c0 = _row[0]
+        _headings.setdefault(_key, []).append(
+            (_i, bool(isinstance(_c0, dict) and _c0.get("group")),
+             _st[_i] if _i < len(_st) else None))
+
+_unmarked = [f"{k} row {i}" for k, v in _headings.items() for i, g, _s in v if not g]
+check("every heading row is marked the one way, on its cell",
+      not _unmarked, "; ".join(_unmarked))
+_sub = [f"{k} row {i}" for k, v in _headings.items() for i, _g, st in v if st == "sub"]
+check("and none of them also carries the row style that meant it",
+      not _sub, "; ".join(_sub) + " -- `sub` is a lesser row (invoice_off's "
+                                 "resemblances), never a heading")
+check("...and the sweep found headings to check at all",
+      sum(len(v) for v in _headings.values()) >= 4,
+      f"{sum(len(v) for v in _headings.values())} heading row(s)")
+
+# The export is lifted out of the page and driven in node against the real
+# payloads, the arrangement `test_menu_layout.py` uses over hub-crumbs.js: a
+# copy of the rule restated here would be a third thing to keep in step.
+_a = PAGE.find("/* ---- csv export")
+_b = PAGE.find("/* ---- end csv export ---- */")
+check("the csv export is marked for lifting", _a >= 0 and _b > _a,
+      "markers moved or gone -- the rest of this section proves nothing")
+
+if _a >= 0 and _b > _a:
+    _payloads = {}
+    for _key in qa.REPORTS:
+        try:
+            _r = qa.run(_key)
+        except Exception:                               # noqa: BLE001
+            continue
+        _payloads[_key] = {"columns": _r.get("columns") or [],
+                           "rows": _r.get("rows") or []}
+    _js = PAGE[_a:_b] + "\nconst P=" + json.dumps(_payloads) + ";\n" + """
+    const out = {};
+    for (const [k, d] of Object.entries(P)) {
+      const lines = toCsv(d);
+      out[k] = {
+        data: lines.length - 1,
+        rows: (d.rows || []).length,
+        headings: (d.rows || []).filter(isGroupRow).length,
+        // a heading that survived: a label with every other field blank
+        leaked: lines.slice(1).filter(l => /^("[^"]*",)*"[^"]*\\(\\d+\\)"(,"")+$/.test(l)).length,
+        total: lines.some(l => l.includes('"TOTAL"')),
+        header: lines[0],
+      };
+    }
+    console.log(JSON.stringify(out));
+    """
+    _f = os.path.join(_TMP, "csv_export.js")
+    with open(_f, "w", encoding="utf-8") as _fh:
+        _fh.write(_js)
+    _proc = subprocess.run(["node", _f], capture_output=True, text=True)
+    check("the lifted export runs in node", _proc.returncode == 0,
+          (_proc.stderr or "")[-300:])
+    if _proc.returncode == 0:
+        _out = json.loads(_proc.stdout.strip().splitlines()[-1])
+        _leak = [k for k, v in _out.items() if v["leaked"]]
+        check("no heading reaches the csv as a data row", not _leak, f"{_leak}")
+        _short = [f'{k}: {v["data"]} lines for {v["rows"]}-{v["headings"]} rows'
+                  for k, v in _out.items()
+                  if v["data"] != v["rows"] - v["headings"]]
+        check("and the csv carries exactly the rows that are not headings",
+              not _short, "; ".join(_short))
+        _grouped = [k for k, v in _out.items() if v["headings"]]
+        check("a report with headings gains a Group column, so nothing is lost",
+              all(_out[k]["header"].startswith('"Group"') for k in _grouped),
+              f'{[(k, _out[k]["header"][:40]) for k in _grouped]}')
+        check("...and one without headings gains no column",
+              all(not v["header"].startswith('"Group"')
+                  for k, v in _out.items() if not v["headings"])),
+        # The scorecards mark TOTAL `group` as well -- it wants the same band
+        # -- so reading the marker alone would drop the one row somebody
+        # downloads the CSV for.
+        check("a TOTAL row is kept, because it is data drawn like a heading",
+              _out.get("sales-scorecard", {}).get("total") is True
+              and _out.get("sales-scorecard", {}).get("headings") == 0,
+              f'{_out.get("sales-scorecard")}')
+
+
+# ---------------------------------------------------------------------------
 section("The dashboard tile that read a refusal as four noughts")
 
 # `/qa/stale-creative` says "Not measured" when the client list or every

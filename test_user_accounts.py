@@ -522,15 +522,31 @@ check("half an hour later they are out of the window",
 check("and the number is never printed without the window it was measured over",
       str(presence.WINDOW_MINUTES) in presence.summary_line(_seen), True)
 
+# That sentence was true of summary_line() and false of the two screens that
+# print it. The dashboard's headline read "N signed in now" -- the exact
+# phrase this module's docstring calls "a confident answer to a question
+# nobody here can answer" -- with the window relegated to an 11.5px grey note
+# beneath it, under a comment claiming the window is never left off the
+# number. Read at the size somebody reads it, the caveat was not there.
+_dash = (ROOT / "hub" / "templates" / "dashboard.html").read_text()
+_stat = (ROOT / "hub" / "templates" / "status.html").read_text()
+check("the dashboard headline does not claim who is signed in now",
+      "signed in now</span>" in _dash, False)
+check("and it still draws summary_line beneath it, the one wording of this",
+      "presence-note" in _dash and "d.line" in _dash, True)
+for _page, _name in ((_dash, "dashboard"), (_stat, "status")):
+    check(f"the {_name} still says how far back it looked",
+          "d.window_minutes" in _page or "d.line" in _page, True)
+
 # Identity: exactly one account or none, never a guess. The module cookie
 # carries a display name and nothing else, so this is the only way back to a
 # person — and two people on this roster are called Todd.
 with hub_app.app_context():
     check("a display name resolves to its one account",
           presence.identify("Michael Hawkins"),
-          ("mhawkins@smart1marketing.com", False))
+          ("mhawkins@smart1marketing.com", False, True))
     check("a name no account carries is the shared password",
-          presence.identify("Shared login"), ("", True))
+          presence.identify("Shared login"), ("", True, True))
 
     # Two accounts, one name. Guessing between them attributes one person's
     # presence to another; calling it a shared-password session is just as
@@ -540,9 +556,70 @@ with hub_app.app_context():
                               password="a-long-enough-phrase", status="active",
                               approved_by="test")
     check("two accounts sharing a name resolve to neither",
-          presence.identify("Pat Twin"), ("", False))
+          presence.identify("Pat Twin"), ("", False, True))
     check("and are emphatically not counted as the shared password",
           presence.identify("Pat Twin")[1], False)
+
+    # The fourth answer, which used to be the same two bits as the third.
+    # "Two accounts share this name" and "the account table would not answer"
+    # both came back ("", False) -- so a blip during a deploy keyed a row on
+    # the NAME for somebody who already had one keyed on their EMAIL, and the
+    # headcount counted them twice for the next fifteen minutes, drawing two
+    # chips with one name. This module's own docstring promises one row per
+    # person.
+    _real_query = _users.User.query
+
+    class _Blip:
+        def filter_by(self, **kw):
+            raise RuntimeError("connection reset")
+
+    _before = presence.Presence.query.count()
+    presence._LAST_WRITE.clear()
+    _users.User.query = _Blip()
+    try:
+        check("a table that would not answer says so",
+              presence.identify("Michael Hawkins"), ("", False, False))
+        check("and is not mistaken for the shared password",
+              presence.identify("Michael Hawkins")[1], False)
+        presence._LAST_WRITE.clear()
+        check("so nothing is written, rather than a second row for one person",
+              presence.touch_display("Michael Hawkins"), False)
+    finally:
+        _users.User.query = _real_query
+    check("the table is exactly as it was",
+          presence.Presence.query.count(), _before)
+    check("and the row they already had still names them",
+          presence.Presence.query.filter_by(
+              key="mhawkins@smart1marketing.com").count(), 1)
+
+    # An exception is not a message. Both screens interpolate `error` into the
+    # page, and a SQLAlchemy OperationalError carries the database host, the
+    # user it authenticated as and the SQL -- on the dashboard, which every
+    # account opens. The rule the two file optimizers were fixed for.
+    _real_pq = presence.Presence.query
+
+    class _Leak:
+        def filter(self, *a, **k):
+            raise RuntimeError(
+                '(psycopg2.OperationalError) connection to server at '
+                '"dpg-secret.oregon-postgres.render.com" (10.0.0.7), port 5432 '
+                'failed: FATAL: password authentication failed for user "hub" '
+                '[SQL: SELECT hub_presence.id FROM hub_presence]')
+
+    presence.Presence.query = _Leak()
+    try:
+        _broken = presence.active()
+    finally:
+        presence.Presence.query = _real_pq
+    check("a table that could not be read is reported", bool(_broken["error"]),
+          True)
+    check("as a sentence", _broken["error"],
+          "the presence table could not be read")
+    for _leak in ("psycopg2", "render.com", "password", "SELECT"):
+        check(f"and never carries {_leak}", _leak in _broken["error"], False)
+    check("the one line every screen prints says not measured",
+          "not measured" in presence.summary_line(_broken), True)
+    check("and no count is claimed alongside it", _broken["count"], 0)
     _actor = _users.by_email("todd@smart1marketing.com")
     for _e in ("pat.twin1@smart1marketing.com", "pat.twin2@smart1marketing.com"):
         _users.delete(_actor, _users.by_email(_e).id)

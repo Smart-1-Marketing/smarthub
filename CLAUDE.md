@@ -834,6 +834,42 @@ any of this — a client has no Hub session at all — and needs HighLevel's SSO
 handshake instead; `SSO_NOT_BUILT` says what that involves and why the location
 id in it is the entire security model.
 
+**And a correct refusal, on the one screen everybody sees first, reads as a
+broken app.** HighLevel frames whatever URL the app is configured with, the
+Getting Started tab was pointed at the Hub root, and `/` is the staff dashboard
+— so the allowlist refused it and the tab filled with *"This Hub page is not
+available inside Smart 1 Suite."* Every layer behaved exactly as designed:
+`framable()` refused a page that must not be framed, `refuse()` named the path
+rather than going blank, and the app was installed in twelve sub-accounts with
+its front door showing an error. **The app simply had no page to point that tab
+at** — `/client360` is a client record and `/suite-app` is the client SSO
+handshake, and neither answers *what is this and how do I use it*.
+
+`/suite-app/start` is that page, and the most useful thing on it is the **two
+menu-link URLs**, because a link aimed at the wrong path is precisely how
+somebody meets that refusal next. It prints them from
+`config.public_base_origin()` read at call time rather than from a typed
+hostname — the `hub/oauth_redirects.py` rule, on another screen whose whole job
+is to be copied from.
+
+**A third route under a prefix whose docstring says two are deliberately the
+whole of it**, so the reason it does not widen that rule is written down rather
+than left to be re-derived: what those two routes are protecting against is
+*somewhere a client could be shown another client's record*, and this page
+reads nothing and renders nothing belonging to anybody. It is outside the login
+for the same reason — the reader is an agency admin who may have no Hub account
+in that browser, and a sign-in form in the getting-started tab teaches them the
+app needs one.
+
+**Two of the first assertions written for it could not fail.** The frame header
+rides on the `/suite-app` prefix, so a **404** at that path carries it too —
+"it may be framed" passed with the route deleted. And `PUBLIC_BASE_URL` is
+unset under test, so `public_base_origin()` is `""` and `bytes.count(b"")` is
+always `>= 2`: the one assertion about the page printing a copyable origin was
+vacuous. Both were found by deleting the route and requiring red, which turned
+up four failures where there should have been six. The test sets a real origin
+now and pins the header check to a 200.
+
 Three things had to move for it, each its own quiet failure. `HubBar` already
 skips the sidebar for an iframe, but the **hub app's own `after_request` did
 not** — and Client 360, the page most worth embedding, is a hub route. Nor was
@@ -1665,6 +1701,32 @@ same branch, with an exemption list that is **empty** — every card on
 `dashboard.html` already branches on `measured`, and this partial was the one
 outlier.
 
+**And a section heading was a client in the CSV.** Two spellings of "this
+row is a heading" on one page: `active_clients`, `prospect_queue` and the
+upsell report mark the **cell** `{"group": true, "tone": …}` and the renderer
+draws a coloured band; `no_gtm` wrote a bare string and marked the **row**
+`row_styles="sub"`, which draws grey text. Same concept, two treatments, two
+reports apart — and neither of them legible to the **export**, which wrote all
+eight of this page's headings out as data. Active Clients downloaded as 154
+rows for a book of 151, three of them named *"Ending this month (15)"* with
+every other column blank, in the file somebody takes to a meeting.
+
+Dropping them is not the fix either, because on two of those reports the band
+**is** the finding — *"Never audited"*, *"No website on file, so nothing to
+audit"* — so a heading thrown away loses the only thing its rows say. The band
+is lifted into a **Group** column and the heading row is not written, so
+nothing is lost and the count matches the note.
+
+**A heading carries a label and nothing else, and that distinction is what
+kept the totals.** The Scorecards mark their **TOTAL** row `group` too — it
+wants the same band on screen — so reading the marker alone drops the one row
+somebody downloads that CSV for. `isGroupRow()` requires the rest of the row
+to be empty, and it is the **one** reading of what a heading is, used by the
+export and available to the renderer, because this page carried two spellings
+already and neither reached the file. It is lifted out of the template and
+driven in **node** against every report's real payload, the arrangement
+`test_menu_layout.py` uses over `hub-crumbs.js`.
+
 **A row with a cell no column names.** The renderer writes one `<th>` per
 entry in `columns` and one `<td>` per cell, so `no_dashboards`' six cells
 against five headings put its Add-dashboard button under the heading belonging
@@ -1735,6 +1797,42 @@ and requires every `seo`/`faq` event to log under a module the record can name.
 The three helper modules beside them (`schema_questions`, `blog_images`,
 `llms_txt`) had been logging under `seo` the whole time, so the section was
 filing half its output as a deliverable and half as housekeeping.
+
+**And the tickets that carry that work to the site deduped on the string
+rather than the page.** `hub/seo_tasks.py` opens by forbidding exactly what it
+did — *"It must never create the same ticket twice … A queue that fills with
+duplicates is a queue people stop reading"* — and then keyed on the **raw
+URL** while the title beside it was `_short()`. So the module already knew how
+to reduce a URL to the page a person means, and used that only for what
+somebody reads:
+
+    https://acme.com/services          Add schema markup to /services
+    https://acme.com/services/         Add schema markup to /services
+    http://acme.com/services           Add schema markup to /services
+    https://www.acme.com/services      Add schema markup to /services
+
+Four tickets, one page, identical titles — unreadable *as* duplicates, which
+is what made them worse than noisy. The URLs arrive from a crawled sitemap or
+a list posted by the browser, so trailing-slash and www variation between a
+crawl and a typed entry is ordinary, and an **http → https migration would
+have duplicated the whole book in one pass**.
+
+`page_key()` is the canonical form: **host and path**, because the store is
+per client and a client with two domains would otherwise collide on
+`/services`; query and fragment dropped, since `?utm_source=x` is the same
+page to somebody adding schema to it. The **path keeps its case and the host
+does not** — a hostname is case-insensitive by specification and a path
+genuinely is not, and merging `/Services` with `/services` would silence a
+ticket for a page that never gets its schema. A duplicate is noise in a queue;
+an absence is work that never reaches the site, so the tie breaks toward the
+duplicate.
+
+**And every key already on disk is a raw URL.** Reading only the canonical one
+would make each of them invisible and raise a second ticket for everything
+already ticketed — a migration wearing a bug fix. `already()` matches the old
+spelling as well, the rule `audit.LOG_NAMES` and `video_library.TAG_ALIASES`
+already work to, and new records are written canonically so the fallback walk
+is for old rows rather than the normal path.
 
 **An editor rebuilt underneath somebody loses what they typed.** Two on the
 SEO client record: the alt-text list and the FAQ draft. Both are a container
@@ -5259,6 +5357,21 @@ all, so a caller reading one — `test_proposal_spec.py` does — would raise on
 the one day the check exists for, rather than reporting that nothing was
 measured. Both branches answer with the same keys now, asserted.
 
+**And a codec list is a ceiling too.** That transcription carried five of the
+nine formats the kit publishes — *"MPG (MPEG-2 / MPEG-4) preferred, plus MOV,
+MP4, WEBM, ProRes, DNxHR, CineForm, HEVC"* — so a **ProRes master, which is
+what a finishing house hands over**, was still refused by the checker. The
+same shape as the 10 MB ceiling it had just replaced, one field along, and
+invisible for the same reason: five real formats look like a complete list.
+`_YOUTUBE_FORMATS` is named once, because every YouTube unit takes the same
+nine and two hand-typed copies is how one of them comes to be missing HEVC.
+
+**A run of nine codecs is the wall the sizes rule already exists for.**
+Printed once per unit across a six-unit buy, on the line a client reads, it
+buries everything else on it. `_describe_unit()` prints five whole — which is
+every other unit in the kit — and past that says how many more, rather than
+pretending the list is all of them.
+
 **What did not move is the rate card.** It sells products called *TrueView*
 and *TrueView - Targeted* — product names on an invoice rather than format
 names in a creative requirement. Renaming one orphans every quote, every IO's
@@ -7678,6 +7791,235 @@ someone rewrites it. It strips the HTML first: scanning raw markup matched
 guidance box still goes to the model unchecked, because most of it is context —
 how they operate, what they are licensed for, how the warranty works.
 
+## A featured image named after a title two posts share
+
+`hub/blog_images.py` generates the image every blog post needs before it can
+be published, holds it `pending` until a person looks at it, and files the
+approved one into the client's gallery. It named the Cloudinary object after
+the post's **title**, with `overwrite=True` and `unique_filename=False` — and
+a title is chosen by a model and is not unique. That is not a coincidence to
+guard against: `hub/seo.py` tops a short plan up from a list of **six**
+fallback titles and **cycles** it, so a client on twelve posts a month gets
+each of those titles twice, verbatim, in one plan. Both posts then generate
+into one object. **Post 3's featured image becomes post 9's picture** — at
+the same URL, in the store, in the client's gallery and on their live site —
+and approving the second overwrote the first's approved, filed copy as well.
+A long title reached the same collision through the 60-character truncation.
+Nothing errors at any point: two posts, one perfectly good photograph.
+
+The post id is unique by construction and was already being written into the
+upload context, so `image_name()` puts it in the name. **Nothing is re-keyed**
+— every existing row carries its own `public_id` and `_promote()` and
+`_file_in_gallery()` read that rather than deriving one, so a post with no id
+falls back to exactly the old spelling: the rule `audit.LOG_NAMES` and
+`video_library.TAG_ALIASES` already work to.
+
+**A badge counting posts the list no longer shows.** `/api/seo/blogs` filters
+`archived` out of the working list and says so in a comment directly above the
+filter; `status()` did not, and its number is drawn as a badge on a Blogs
+section that is **collapsed by default** — the one signal that says somebody
+needs to look at these. Archiving a post with a pending image left *"1 image
+to approve"* above a table with no row to click, amber for ever with nothing
+anywhere to clear it: two readings of which posts are in play, disagreeing on
+one screen, which is the `/api/db/structure` versus `/api/integrity` trap
+wearing a badge. What leaves the badge is **counted rather than dropped** —
+that post's file is still sitting in `pending/` and nobody is going to approve
+it — because a badge that quietly gets shorter cannot be told from one that
+failed to load.
+
+**A 3 MB hero, filed in silence.** `_optimise_bytes()` returns nothing at all
+when Pillow cannot read the bytes and `staged or raw` fell back to the
+original, which is right — an image nobody can shrink is still the image.
+Saying nothing was not: this module's own docstring calls a 3 MB PNG *"a Core
+Web Vitals problem on the very page the post was written to rank"*, and one
+went into the client's gallery with `bytes` recording 3 MB and every screen
+reporting a clean success. `optimised` is on the record now and the note names
+the size, because that is the one number on it somebody would act on.
+
+**And the pending folder's whole purpose was undone by the audit.** Pending
+images live in `seo_images/<client>/Blogs/pending/` *"so an unapproved image is
+never mistaken for a finished asset by anything browsing the gallery"* — and
+`hub/image_audit.reconcile()` lists that tree by prefix like any other, while
+no store it reads had a row for what is in it. So an unapproved image read as
+an **orphan**, on QA → Unattached Images, with a client picker beside it: one
+press files the six-fingered plumber into the client's gallery labelled *"SEO
+images"*. The approved half was safe only by accident, because `file_asset()`
+had already given it a row. `image_audit.STORES` has a reader for the SEO
+stores now, so the audit is told the store has a row rather than the folder
+being quietly skipped — a folder silently left out of a completeness report is
+the same failure the report is about.
+
+**And `gallery_folder` was assigned after the save.** `img` is a reference
+into `store`, so writing to it once `save_store()` had run left the value in
+memory alone: it reached the browser and the next read of the record had never
+heard of it. It saves twice now — once before the gallery write, because a
+gallery that is unavailable must not cost somebody an approval, and once after
+when there is something new to keep.
+
+**`_optimise_and_store()` is deleted rather than left standing.** Sixty-nine
+lines implementing resize-then-convert-then-file, written when approval was
+meant to be the step that optimised; nothing has called it since that work
+moved into `generate()`, and the module's docstring still described its path.
+`test_unwired.py` could never have said so — it skips names beginning with an
+underscore, because a private helper called from inside its own module is the
+ordinary case. `test_blog_images.py` asserts all of it.
+## A number a stranger controls, and the sweep that did not finish
+
+`hub/webargs.py` is fifty-one lines reached from twenty files, and its
+docstring is a list of three faults it was written to end: `int()` outside a
+try (`?limit=abc` is a 500), an upper bound and no lower one (`?limit=-1`
+reaches `rows[:-1]`, *"a wrong answer delivered with no indication anything
+was wrong"*), and the same clamp written out twice by people who could not
+tell whether it was already there.
+
+The helper is right. **The sweep it implies is what did not finish**, and
+each of the three call sites left over is reachable from a URL. Smart 1 Ads
+searched the client list with `limit=min(int(…) or 12, 50)` over a
+`search_clients()` that ends `[:limit]`, so `?limit=-5` returned every client
+except the last five as a clean answer. The Suite panel clamped both ends of
+its audit-log limit and had no try — on the activity log of the panel that
+creates and deletes client sub-accounts, which is the record somebody
+reconstructs an incident from. And the Commercial Builder's stock search had
+**neither**, on a `per_provider` that goes straight into
+`pexels_service.search()` and `pixabay_service.search()` once per expanded
+query: an unbounded caller-controlled fan-out to two billed providers.
+
+**And the check that exists for this found none of them.**
+`check_unclamped_limits()` matched the read as **text** and then skipped any
+window containing `min(`, `max(` or `clamp` — a guard against crying wolf
+that made it blind to precisely the two shapes that were live, because an
+upper bound with no lower one contains `min(` and both-bounds-no-try contains
+both. It also needed `hub/webargs.py` exempted **by name**, because that
+file's docstring quotes the bad pattern to explain it — prose is not a call
+site, for the fifth time in this file, and it duly reported the new test
+file's own fixtures three times over. It reads the AST now and asks two
+narrow questions: a bare `int()` over a caller's value outside a try, and a
+`min()` over one with no `max()` or `clamp_int()` around it. Both empty the
+day it changed.
+
+**The helper's own promise had a hole in exactly the place its comment
+names.** *"OverflowError is here because float() accepts 'inf' and int() then
+refuses it — the one input that still crashed a helper written to make
+crashing impossible."* That guard was on the **inner** branch, which is the
+one the *string* `"inf"` takes; a real `float('inf')` is refused by `int()`
+on the **outer** branch and propagated. Not hypothetical and not only a query
+string: Python's `json.loads` accepts the bare literal `Infinity`, and three
+call sites pass a JSON body value straight in — `google_finder`,
+`video_backgrounds` and the Hub's own blog planner — so `{"limit": Infinity}`
+was a 500 out of the function whose first promise is that it never raises. An
+infinity now takes the documented fallback to the **default** rather than the
+ceiling, which is what `"inf"` and `NaN` already did: `"1e5"` is capped
+because it parses to a real number above the ceiling, and an infinity parses
+to no number at all.
+
+`_page_arg()` in the Suite panel was the third fault standing on its own —
+the same rule, worked out independently and correctly, in a module that could
+have imported it. That one was **not** a defect, and it is worth saying so:
+the only observable difference is the shared rule's own, that a float
+truncates rather than being thrown away for the default.
+`test_suite_panel.py` asserted it by matching the literal `max(lo, min(hi,
+int(` in the source — the implementation restated in the test, a third thing
+to keep in step, which duly failed on a change that made the code better. It
+drives the function now.
+
+## A comparison keyed on a string Google does not send
+
+`hub/analytics_ask.py` turns a plain-English question into a GA4 report, and
+its docstring opens by saying what it replaced: a keyword matcher that
+answered *"how did conversions do in July versus June?"* with a thirty-day
+source/medium table, **"which is worse than refusing — it answers confidently
+with the wrong report."** It was doing the same thing one layer down.
+
+`shape()` decided which period a row belonged to with `tag.endswith("_1")`.
+GA4 values the `dateRange` dimension with the range's **name** where one was
+given, and only falls back to `date_range_0` / `date_range_1` where none was
+— and `_PLAN_SCHEMA_NOTE` *requires* names: *"for a comparison, give exactly
+two dateRanges, each with a name."* So "July" and "June" both tested false,
+both rows landed in the same bucket, and the second overwrote the first.
+
+Dublin at 900 sessions in July against 600 in June rendered as **600**, with
+no previous and no change, and the totals row read **"600, up 100% on 0"**.
+Every figure on the page wrong, and every one of them a real number from the
+property. The identical data with unnamed ranges worked perfectly, so **the
+path that works is the one the planner is told never to take** — which is why
+nothing ever looked broken in development.
+
+`range_index()` reads the name first and the index tag second, and a tag it
+can place in neither is **counted rather than folded into the first**:
+`compared` is the answer to *were the two periods told apart*, `comparing` is
+the answer to *were two asked for*, and only the first may draw a change. The
+old code answered the second question and printed a percentage.
+
+**A time series re-sorted into a ranking.** `shape()` ended with an
+unconditional sort by the first metric, discarding the `orderBys` this module
+had just sent to GA4 and GA4 had honoured — so "sessions by day for July"
+came back in date order and was rendered 2nd, 3rd, 4th, 1st. Every number
+right, and the one thing a time series is for gone. It sorts only when
+nothing was asked for, which is what that default was written to cover.
+
+**And "total" was the total of whatever came back.** GA4 returns totals only
+where `metricAggregations` was requested, which this module does not request,
+so the fallback sums the rows — and under `limit: 25` on a property with
+three hundred cities that is the top 25 presented as the whole. `totals_of`
+says which it is, and Google's own totals row is read where one is there
+rather than being summed over. It reaches the **model's payload** too, with
+`compared` in place of `comparing`: `narrate()` is handed the shaped numbers
+precisely so it cannot introduce a figure the table does not show, and
+handing it a comparison flag for a comparison nothing computed is the
+invented-figure failure `hub/audit_summary.py` exists to refuse, one module
+over. `test_analytics_ask.py` asserts all of it.
+
+## A client's document, published to the agency's own blog
+
+`hub/ghl_blog.py` publishes a client's llms.txt into Smart 1 Suite as a blog
+post — a public URL on somebody's blog, which is as client-facing as anything
+here gets — and `_location()` fell back to `GHL_COMPANY_ID` /
+`SUITE_COMPANY_ID`. That is the mistake `hub/ghl_contacts.py` spends a section
+of its own docstring on (*"companyId is not locationId"*) and that
+`hub/suite_opportunity.py` was fixed for, and **this was the third module to
+make it**: on this deployment those variables hold the same value as the
+company id, so a companyId went out as a locationId and **the client's
+document was published to the agency's own blog**, under the agency's domain,
+titled with the client's name.
+
+Nothing errors, which is the whole difficulty. The agency location is a real
+location with a real blog, real authors and real categories, so the post is
+created, a URL comes back, and the only sign is that it is the wrong blog. The
+location is its own setting now, and a value matching the company id is
+refused **by name** — *"set to the same value as the agency company id"* and
+*"no location is set"* send somebody to two different places.
+
+**A guard switched off by exactly the failure it was written for.**
+`slug_taken()` swallowed every error and answered `False`, and the caller
+reads `False` as *there is no post at that address*. This module's own
+docstring says a missing scope "produces a 401 from HighLevel that looks like
+a bad token" — and `blogs/check-slug.readonly` is the scope whose absence made
+that answer `False`, so a token missing it silently created the second post
+the guard exists to refuse, the one leaving *"two files claiming to describe
+the same client"* in the comment directly above it. It is tri-state now, and
+the publish still goes ahead: refusing every first-time publish over a missing
+read scope is a check somebody switches off, which is the `QR_CODE_RULES`
+lesson. What changed is that the answer carries `slug_checked` and says the
+check did not run, rather than implying it passed.
+
+`check_access()` did not test that scope either — three of the four readable
+ones, and the missing one was the only one whose failure is silent — so it
+reported a token healthy that would go on to publish duplicates.
+
+**And the link was built from the slug we asked for.** HighLevel suffixes a
+collision rather than refusing, and `urlSlug` comes back on the response and
+was never read: the address handed to somebody as the published one pointed at
+a page that is not there. It reads the assigned slug now and says when the two
+differ. A `blog_id` naming nothing fell through to `blogs[0]` the same way —
+a stale id published a client's document to a different blog on a different
+domain, reporting a clean success — and is refused, naming what is actually
+there. A `domain` field arriving with its own scheme composed
+`https://https://…`, which is a dead link presented as the live one.
+
+`test_ghl_blog.py` asserts all of it, including that no refusal carries the
+token: `BlogError`'s own docstring promises that, and a 401 body from
+HighLevel has carried token fragments before.
+
 ## Publishing is a prompt, not a panel and not a button
 
 Every blog post, JSON-LD block, FAQ accordion and alt tag we produce has to be
@@ -9767,6 +10109,41 @@ the panel rendered the missing `checks` array as **"✓ 0 checks OK · no
 issues"** — a green tick over a question that was never asked, for eleven of
 the fourteen people. It says what happened now.
 
+**And three of the rules above were true of this module and false of the two
+screens that draw it.**
+
+*"One row per person"* held until the account table blinked. `identify()`
+enumerates three answers in its own docstring and returned **two bits**, so
+*"more than one account has this name"* and *"we could not ask"* were the
+identical value — and `touch_display()` then keyed a row on the **name** for
+somebody who already had one keyed on their **email**. Two rows, counted
+twice, for the fifteen minutes of the window, drawing two chips with one name
+on them; and `/status` printed *"no account matched this name"* about
+somebody who has one, which is a confident answer to a question that was
+never asked. It carries whether it could look now, and not knowing who
+somebody is writes **nothing**: the row from a minute ago is still inside the
+window and still right, so inventing a second identity is the one thing that
+cannot be recovered from.
+
+*"`active()` reports that it could not look"* — and what it reported was
+`str(exc)`. Both screens interpolate that straight into the page, so a
+SQLAlchemy `OperationalError` puts the **database host, the user it tried to
+authenticate as and the SQL it was running** on the dashboard, which every
+one of the fourteen accounts opens. An exception is not a message, which is
+the rule the image and PDF optimizers were fixed for; it is a sentence now
+and the cause goes to the log.
+
+*"every screen that prints the number says so in those words"* was the whole
+argument for `summary_line()` existing — *"so none of them can print the
+count without the window it was measured over"*. The dashboard's headline
+read **"N signed in now"**, the exact phrase this module's docstring calls a
+confident answer to a question nobody here can answer, with the window
+relegated to an 11.5px grey note beneath it — under a comment in that same
+file claiming the window is never left off the number. Read at the size
+somebody actually reads it, the caveat was not there. The headline says
+*seen recently* and `summary_line()` still gives the exact window below it.
+`test_user_accounts.py` asserts all three, the two templates included.
+
 **Nothing here is a crawler's business.** `hub/no_crawl.py`: `robots.txt`,
 `/llms.txt`, and an `X-Robots-Tag` on every response — added as WSGI middleware
 in `wsgi.py` rather than as a Flask `after_request`, or it would have covered
@@ -10330,6 +10707,22 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_webargs.py            # a caller's number: never a 500, never a
+                                   #   negative slice, and the three call
+                                   #   sites the shared helper never reached
+python3 test_analytics_ask.py      # a GA4 comparison keyed on the tag Google
+                                   #   actually sends, a time series left in
+                                   #   the order it was asked for, and a total
+                                   #   that says what it is the total of
+python3 test_blog_images.py        # one image per post rather than one per
+                                   #   title, a badge that counts the posts
+                                   #   the list still shows, a hero filed at
+                                   #   full size saying so, and a pending
+                                   #   image the audit knows is not an orphan
+python3 test_seo_tasks.py          # one page, however its URL was written:
+                                   #   the ticket dedupe compared the raw
+                                   #   string while the title beside it was
+                                   #   already canonical
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO
@@ -10429,6 +10822,11 @@ python3 test_client_owners.py      # whose client is this, and what is outstandi
                                    #   not be read named rather than counted
                                    #   as nothing
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
+python3 test_ghl_blog.py           # a client's llms.txt published to their
+                                   #   own sub-account rather than the
+                                   #   agency's blog, a duplicate guard that
+                                   #   says when it could not look, and the
+                                   #   address Suite actually assigned
 python3 test_write_attribution.py   # every write into a client's own account
                                    #   has a name against it: in both modules
                                    #   the creating half of a pair was the half

@@ -358,6 +358,46 @@ def _gpt_ads():
                "when": r.get("updated") or r.get("created", ""), "where": ""}
 
 
+def _blog_images():
+    """The featured image on each blog post, approved or still pending.
+
+    `hub/blog_images.py` writes into `seo_images/<client>/Blogs/`, which is a
+    tree this audit lists — and its rows live in the SEO client store, which
+    is not one any reader here asked. An **approved** image is filed into the
+    client gallery, so it was known by that route; a **pending** one is filed
+    nowhere on purpose, and was therefore an orphan: offered on Unattached
+    Images with a client picker, one press away from being put into the
+    client's gallery labelled "SEO images". That is precisely what the
+    `pending/` folder exists to prevent — an unapproved image, six fingers and
+    all, taken for a finished asset — so the audit is told the store has a row
+    for it rather than the folder being quietly skipped.
+
+    Every store here is a table; this one is a file per client, so the clients
+    are read from the SEO book. A book that will not answer raises, and
+    `_read()` carries that as a named failure rather than an empty set — the
+    rule the docstring above gives, since an unreadable store makes everything
+    it knows about look orphaned.
+    """
+    import glob
+    import os
+    from hub import jsonstore, seo
+    base = seo._store_base()
+    for path in sorted(glob.glob(os.path.join(base, "*.json"))):
+        store = jsonstore.read_json(path, default={}) or {}
+        client = store.get("client") or os.path.basename(path)[:-5]
+        for p in ((store.get("blogs") or {}).get("posts") or []):
+            img = p.get("image") or {}
+            pid = str(img.get("public_id") or "").strip()
+            if not pid:
+                continue
+            yield {"id": p.get("id", ""), "client": client, "public_id": pid,
+                   "label": (f"Blog — {p.get('title')}" if p.get("title")
+                             else "Blog image"),
+                   "url": img.get("url", ""),
+                   "when": img.get("approved_at") or img.get("created", ""),
+                   "where": img.get("status", "")}
+
+
 def _prospect_assets():
     """Files kept against a prospect — the lead half of "a client or a lead".
 
@@ -406,6 +446,9 @@ STORES: list[dict] = [
     {"key": "gpt_ads", "label": "GPT ad packs",
      "reader": _gpt_ads,
      "fix": "/tools/gpt-ads/"},
+    {"key": "blog_images", "label": "Blog featured images",
+     "reader": _blog_images,
+     "fix": "/seo/client"},
 ]
 
 

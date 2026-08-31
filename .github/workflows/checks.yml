@@ -1057,7 +1057,17 @@ jobs:
         # not shown the link, that no password or hash reaches /api/users, that
         # the login throttle catches one guess against fourteen addresses as
         # well as fourteen guesses against one, and that robots.txt and the
-        # X-Robots-Tag both keep search and AI crawlers out. Guarded like the
+        # X-Robots-Tag both keep search and AI crawlers out. It also holds the
+        # presence headcount to what hub/presence.py promises: identify() says
+        # when it could not look, rather than answering the same two bits it
+        # answers for "two accounts share this name" — that keyed a second row
+        # on the NAME for somebody who already had one on their EMAIL, so a
+        # database blip counted them twice and drew two chips with one name;
+        # active() reports a sentence rather than a SQLAlchemy exception,
+        # which carries the database host, the user and the SQL onto the
+        # dashboard every account opens; and the dashboard headline no longer
+        # reads "N signed in now", which is the exact phrase that module
+        # exists to refuse. Guarded like the
         # steps around it so this workflow stays mergeable on a branch that
         # predates the file. It *sets* DATABASE_URL, HUB_DATA_DIR and
         # AUDIT_LOG_PATH rather than setdefault-ing them, so it always gets its
@@ -1600,6 +1610,33 @@ jobs:
       # google_access is the one the panel itself marks client-facing.
       - name: The Suite install, and the callback the panel promises
         run: python3 test_ghl_oauth.py
+      # hub/seo_tasks.py raises the web tickets that get schema, FAQs and blog
+      # posts onto a client's live site, and its docstring opens by forbidding
+      # exactly what it did: "It must never create the same ticket twice ... A
+      # queue that fills with duplicates is a queue people stop reading." The
+      # dedupe key was the raw URL while the title beside it was _short(), so
+      # the module already knew how to reduce a URL to a page and used that
+      # only for what somebody reads. Five ordinary spellings of one page --
+      # trailing slash, www, http, query string -- raised five tickets, four
+      # with an identical title. An http -> https migration would have
+      # duplicated the whole book in one pass.
+      - name: One page, however its URL was written
+        run: python3 test_seo_tasks.py
+      # hub/ghl_blog.py publishes a client's llms.txt into Suite as a blog
+      # post -- a public URL on somebody's blog -- and read GHL_COMPANY_ID as
+      # a location fallback. On this deployment that holds the company id, and
+      # a companyId used as a locationId addresses the AGENCY: the client's
+      # document went to the agency's own blog, under the agency's domain,
+      # created successfully because that location has a real blog with real
+      # authors and categories. hub/ghl_contacts.py documents this at length
+      # and hub/suite_opportunity.py was fixed for it; this was the third.
+      # Beside it: slug_taken() answered False when it could not look, which
+      # is what silently disabled the guard against two files describing one
+      # client -- and check_access() never tested that scope; a blog id naming
+      # nothing fell through to blogs[0]; and the URL was built from the slug
+      # we asked for rather than the one Suite assigned.
+      - name: companyId is not locationId, for the third time
+        run: python3 test_ghl_blog.py
       # hub/audit_summary.py grounds every dollar figure in the two paragraphs
       # a prospect reads at the top of their own website audit, which is right
       # — the alternative is a model inventing what somebody spends. It
@@ -1611,3 +1648,48 @@ jobs:
       # cost that audit its opening paragraphs permanently.
       - name: A measured figure, re-typed, is not an invented one
         run: python3 test_audit_summary.py
+      # hub/blog_images.py names a post's Cloudinary object after its TITLE,
+      # with overwrite=True — and hub/seo.py tops a short plan up from six
+      # fallback titles and cycles them, so twelve posts a month holds each
+      # twice, verbatim. Post 3's featured image became post 9's picture, at
+      # one URL, in the store, the gallery and on the client's live site.
+      # Beside it: a badge counting archived posts the working list no longer
+      # shows, amber for ever with no row to click; a 3 MB hero filed at full
+      # size in silence when Pillow could not read it; a pending image the
+      # completeness audit offered as an unattached asset, which is exactly
+      # what the pending/ folder exists to prevent; and a gallery folder
+      # assigned after the save, so it reached the browser and never the disk.
+      - name: One image per post, and a badge you can act on
+        run: python3 test_blog_images.py
+      # hub/analytics_ask.py turns a plain-English question into a GA4 report,
+      # and its docstring says what it replaced: a keyword matcher that
+      # answered "July versus June" with a 30-day table, "which is worse than
+      # refusing -- it answers confidently with the wrong report". It was
+      # doing the same thing a layer down. shape() decided which period a row
+      # belonged to with tag.endswith("_1") -- but GA4 values that dimension
+      # with the range's NAME where one was given, and this module's own
+      # prompt REQUIRES names. So both rows landed in one bucket and the
+      # second overwrote the first: Dublin at 900 in July against 600 in June
+      # rendered as 600, no previous, no change, and a totals row reading "up
+      # 100% on 0". Beside it: an unconditional re-sort that threw away the
+      # orderBys GA4 had just honoured, turning a time series into a ranking;
+      # and a "total" that is the sum of whatever came back, which under a
+      # limit is the top N presented as the whole.
+      - name: July versus June, and the comparison that answered with June
+        run: python3 test_analytics_ask.py
+      # hub/webargs.py is 51 lines reached from twenty files, named by no
+      # test. Its docstring lists three faults it exists to end -- int()
+      # outside a try, an upper bound with no lower one, and the same clamp
+      # written out twice -- and the sweep it implies never finished. Smart 1
+      # Ads bounded its client search above and not below, over a
+      # search_clients() ending [:limit], so ?limit=-5 returned every client
+      # except the last five as a clean answer. The Suite panel's audit log
+      # had both bounds and no try. And the Commercial Builder's stock search
+      # had neither, on a number that goes straight into Pexels and Pixabay
+      # once per expanded query. The helper itself had the OverflowError
+      # guard its own comment describes on the inner branch only, so a real
+      # float infinity -- which json.loads produces from the literal
+      # `Infinity`, and three call sites pass a JSON body straight in -- was
+      # a 500 out of the helper whose first promise is that it never raises.
+      - name: A number a stranger controls
+        run: python3 test_webargs.py

@@ -665,6 +665,11 @@ ADDITIONS = {
 }
 
 
+# Every unit in the kit but YouTube's six publishes five formats or fewer, so
+# this prints those whole and truncates only where the list is genuinely long.
+_FORMATS_SHOWN = 5
+
+
 def _shape_of(unit) -> str:
     """How a unit is specified when it carries no fixed size.
 
@@ -701,7 +706,14 @@ def _describe_unit(unit) -> str:
     length = (f"{seconds[0]}–{seconds[1]}s" if len(seconds) == 2
               and seconds[0] != seconds[1] else
               (f"{seconds[0]}s" if seconds else ""))
-    fmt = "/".join(unit.get("formats") or [])
+    # A run of nine codecs, printed once per unit across a six-unit buy, is the
+    # wall the sizes rule already exists for -- and this is the line a client
+    # reads. Five is every other unit in the kit whole; past that it says how
+    # many more rather than pretending the list is all of them.
+    formats = [str(f) for f in (unit.get("formats") or [])]
+    fmt = ("/".join(formats) if len(formats) <= _FORMATS_SHOWN
+           else "/".join(formats[:_FORMATS_SHOWN])
+                + f" and {len(formats) - _FORMATS_SHOWN} more")
     shape = unit.get("shape") or ""
     if kind in ("video", "audio"):
         bits = [b for b in (", ".join(unit.get("sizes") or []) or shape,
