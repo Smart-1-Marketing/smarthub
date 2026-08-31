@@ -1736,6 +1736,42 @@ The three helper modules beside them (`schema_questions`, `blog_images`,
 `llms_txt`) had been logging under `seo` the whole time, so the section was
 filing half its output as a deliverable and half as housekeeping.
 
+**And the tickets that carry that work to the site deduped on the string
+rather than the page.** `hub/seo_tasks.py` opens by forbidding exactly what it
+did — *"It must never create the same ticket twice … A queue that fills with
+duplicates is a queue people stop reading"* — and then keyed on the **raw
+URL** while the title beside it was `_short()`. So the module already knew how
+to reduce a URL to the page a person means, and used that only for what
+somebody reads:
+
+    https://acme.com/services          Add schema markup to /services
+    https://acme.com/services/         Add schema markup to /services
+    http://acme.com/services           Add schema markup to /services
+    https://www.acme.com/services      Add schema markup to /services
+
+Four tickets, one page, identical titles — unreadable *as* duplicates, which
+is what made them worse than noisy. The URLs arrive from a crawled sitemap or
+a list posted by the browser, so trailing-slash and www variation between a
+crawl and a typed entry is ordinary, and an **http → https migration would
+have duplicated the whole book in one pass**.
+
+`page_key()` is the canonical form: **host and path**, because the store is
+per client and a client with two domains would otherwise collide on
+`/services`; query and fragment dropped, since `?utm_source=x` is the same
+page to somebody adding schema to it. The **path keeps its case and the host
+does not** — a hostname is case-insensitive by specification and a path
+genuinely is not, and merging `/Services` with `/services` would silence a
+ticket for a page that never gets its schema. A duplicate is noise in a queue;
+an absence is work that never reaches the site, so the tie breaks toward the
+duplicate.
+
+**And every key already on disk is a raw URL.** Reading only the canonical one
+would make each of them invisible and raise a second ticket for everything
+already ticketed — a migration wearing a bug fix. `already()` matches the old
+spelling as well, the rule `audit.LOG_NAMES` and `video_library.TAG_ALIASES`
+already work to, and new records are written canonically so the fallback walk
+is for old rows rather than the normal path.
+
 **An editor rebuilt underneath somebody loses what they typed.** Two on the
 SEO client record: the alt-text list and the FAQ draft. Both are a container
 of live inputs redrawn with `innerHTML` — and the trigger is not the typing,
@@ -5344,6 +5380,21 @@ all, so a caller reading one — `test_proposal_spec.py` does — would raise on
 the one day the check exists for, rather than reporting that nothing was
 measured. Both branches answer with the same keys now, asserted.
 
+**And a codec list is a ceiling too.** That transcription carried five of the
+nine formats the kit publishes — *"MPG (MPEG-2 / MPEG-4) preferred, plus MOV,
+MP4, WEBM, ProRes, DNxHR, CineForm, HEVC"* — so a **ProRes master, which is
+what a finishing house hands over**, was still refused by the checker. The
+same shape as the 10 MB ceiling it had just replaced, one field along, and
+invisible for the same reason: five real formats look like a complete list.
+`_YOUTUBE_FORMATS` is named once, because every YouTube unit takes the same
+nine and two hand-typed copies is how one of them comes to be missing HEVC.
+
+**A run of nine codecs is the wall the sizes rule already exists for.**
+Printed once per unit across a six-unit buy, on the line a client reads, it
+buries everything else on it. `_describe_unit()` prints five whole — which is
+every other unit in the kit — and past that says how many more, rather than
+pretending the list is all of them.
+
 **What did not move is the rate card.** It sells products called *TrueView*
 and *TrueView - Targeted* — product names on an invoice rather than format
 names in a creative requirement. Renaming one orphans every quote, every IO's
@@ -7762,6 +7813,129 @@ someone rewrites it. It strips the HTML first: scanning raw markup matched
 `class="guarantee-band"` and flagged a post whose copy never said it. The free
 guidance box still goes to the model unchecked, because most of it is context —
 how they operate, what they are licensed for, how the warranty works.
+
+## A featured image named after a title two posts share
+
+`hub/blog_images.py` generates the image every blog post needs before it can
+be published, holds it `pending` until a person looks at it, and files the
+approved one into the client's gallery. It named the Cloudinary object after
+the post's **title**, with `overwrite=True` and `unique_filename=False` — and
+a title is chosen by a model and is not unique. That is not a coincidence to
+guard against: `hub/seo.py` tops a short plan up from a list of **six**
+fallback titles and **cycles** it, so a client on twelve posts a month gets
+each of those titles twice, verbatim, in one plan. Both posts then generate
+into one object. **Post 3's featured image becomes post 9's picture** — at
+the same URL, in the store, in the client's gallery and on their live site —
+and approving the second overwrote the first's approved, filed copy as well.
+A long title reached the same collision through the 60-character truncation.
+Nothing errors at any point: two posts, one perfectly good photograph.
+
+The post id is unique by construction and was already being written into the
+upload context, so `image_name()` puts it in the name. **Nothing is re-keyed**
+— every existing row carries its own `public_id` and `_promote()` and
+`_file_in_gallery()` read that rather than deriving one, so a post with no id
+falls back to exactly the old spelling: the rule `audit.LOG_NAMES` and
+`video_library.TAG_ALIASES` already work to.
+
+**A badge counting posts the list no longer shows.** `/api/seo/blogs` filters
+`archived` out of the working list and says so in a comment directly above the
+filter; `status()` did not, and its number is drawn as a badge on a Blogs
+section that is **collapsed by default** — the one signal that says somebody
+needs to look at these. Archiving a post with a pending image left *"1 image
+to approve"* above a table with no row to click, amber for ever with nothing
+anywhere to clear it: two readings of which posts are in play, disagreeing on
+one screen, which is the `/api/db/structure` versus `/api/integrity` trap
+wearing a badge. What leaves the badge is **counted rather than dropped** —
+that post's file is still sitting in `pending/` and nobody is going to approve
+it — because a badge that quietly gets shorter cannot be told from one that
+failed to load.
+
+**A 3 MB hero, filed in silence.** `_optimise_bytes()` returns nothing at all
+when Pillow cannot read the bytes and `staged or raw` fell back to the
+original, which is right — an image nobody can shrink is still the image.
+Saying nothing was not: this module's own docstring calls a 3 MB PNG *"a Core
+Web Vitals problem on the very page the post was written to rank"*, and one
+went into the client's gallery with `bytes` recording 3 MB and every screen
+reporting a clean success. `optimised` is on the record now and the note names
+the size, because that is the one number on it somebody would act on.
+
+**And the pending folder's whole purpose was undone by the audit.** Pending
+images live in `seo_images/<client>/Blogs/pending/` *"so an unapproved image is
+never mistaken for a finished asset by anything browsing the gallery"* — and
+`hub/image_audit.reconcile()` lists that tree by prefix like any other, while
+no store it reads had a row for what is in it. So an unapproved image read as
+an **orphan**, on QA → Unattached Images, with a client picker beside it: one
+press files the six-fingered plumber into the client's gallery labelled *"SEO
+images"*. The approved half was safe only by accident, because `file_asset()`
+had already given it a row. `image_audit.STORES` has a reader for the SEO
+stores now, so the audit is told the store has a row rather than the folder
+being quietly skipped — a folder silently left out of a completeness report is
+the same failure the report is about.
+
+**And `gallery_folder` was assigned after the save.** `img` is a reference
+into `store`, so writing to it once `save_store()` had run left the value in
+memory alone: it reached the browser and the next read of the record had never
+heard of it. It saves twice now — once before the gallery write, because a
+gallery that is unavailable must not cost somebody an approval, and once after
+when there is something new to keep.
+
+**`_optimise_and_store()` is deleted rather than left standing.** Sixty-nine
+lines implementing resize-then-convert-then-file, written when approval was
+meant to be the step that optimised; nothing has called it since that work
+moved into `generate()`, and the module's docstring still described its path.
+`test_unwired.py` could never have said so — it skips names beginning with an
+underscore, because a private helper called from inside its own module is the
+ordinary case. `test_blog_images.py` asserts all of it.
+## A client's document, published to the agency's own blog
+
+`hub/ghl_blog.py` publishes a client's llms.txt into Smart 1 Suite as a blog
+post — a public URL on somebody's blog, which is as client-facing as anything
+here gets — and `_location()` fell back to `GHL_COMPANY_ID` /
+`SUITE_COMPANY_ID`. That is the mistake `hub/ghl_contacts.py` spends a section
+of its own docstring on (*"companyId is not locationId"*) and that
+`hub/suite_opportunity.py` was fixed for, and **this was the third module to
+make it**: on this deployment those variables hold the same value as the
+company id, so a companyId went out as a locationId and **the client's
+document was published to the agency's own blog**, under the agency's domain,
+titled with the client's name.
+
+Nothing errors, which is the whole difficulty. The agency location is a real
+location with a real blog, real authors and real categories, so the post is
+created, a URL comes back, and the only sign is that it is the wrong blog. The
+location is its own setting now, and a value matching the company id is
+refused **by name** — *"set to the same value as the agency company id"* and
+*"no location is set"* send somebody to two different places.
+
+**A guard switched off by exactly the failure it was written for.**
+`slug_taken()` swallowed every error and answered `False`, and the caller
+reads `False` as *there is no post at that address*. This module's own
+docstring says a missing scope "produces a 401 from HighLevel that looks like
+a bad token" — and `blogs/check-slug.readonly` is the scope whose absence made
+that answer `False`, so a token missing it silently created the second post
+the guard exists to refuse, the one leaving *"two files claiming to describe
+the same client"* in the comment directly above it. It is tri-state now, and
+the publish still goes ahead: refusing every first-time publish over a missing
+read scope is a check somebody switches off, which is the `QR_CODE_RULES`
+lesson. What changed is that the answer carries `slug_checked` and says the
+check did not run, rather than implying it passed.
+
+`check_access()` did not test that scope either — three of the four readable
+ones, and the missing one was the only one whose failure is silent — so it
+reported a token healthy that would go on to publish duplicates.
+
+**And the link was built from the slug we asked for.** HighLevel suffixes a
+collision rather than refusing, and `urlSlug` comes back on the response and
+was never read: the address handed to somebody as the published one pointed at
+a page that is not there. It reads the assigned slug now and says when the two
+differ. A `blog_id` naming nothing fell through to `blogs[0]` the same way —
+a stale id published a client's document to a different blog on a different
+domain, reporting a clean success — and is refused, naming what is actually
+there. A `domain` field arriving with its own scheme composed
+`https://https://…`, which is a dead link presented as the live one.
+
+`test_ghl_blog.py` asserts all of it, including that no refusal carries the
+token: `BlogError`'s own docstring promises that, and a 401 body from
+HighLevel has carried token fragments before.
 
 ## Publishing is a prompt, not a panel and not a button
 
@@ -10358,6 +10532,15 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_blog_images.py        # one image per post rather than one per
+                                   #   title, a badge that counts the posts
+                                   #   the list still shows, a hero filed at
+                                   #   full size saying so, and a pending
+                                   #   image the audit knows is not an orphan
+python3 test_seo_tasks.py          # one page, however its URL was written:
+                                   #   the ticket dedupe compared the raw
+                                   #   string while the title beside it was
+                                   #   already canonical
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO
@@ -10457,6 +10640,11 @@ python3 test_client_owners.py      # whose client is this, and what is outstandi
                                    #   not be read named rather than counted
                                    #   as nothing
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
+python3 test_ghl_blog.py           # a client's llms.txt published to their
+                                   #   own sub-account rather than the
+                                   #   agency's blog, a duplicate guard that
+                                   #   says when it could not look, and the
+                                   #   address Suite actually assigned
 python3 test_write_attribution.py   # every write into a client's own account
                                    #   has a name against it: in both modules
                                    #   the creating half of a pair was the half
