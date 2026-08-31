@@ -160,6 +160,17 @@ QUOTAS: dict[str, Quota] = {
         "the request, which is why a refused call is recorded with ok=False "
         "rather than dropped. No ceiling until CREATOMATE_MONTHLY_LIMIT is "
         "set."),
+    # Pickaxe bills per use of an assistant, so units here are calls. Same
+    # arrangement as the Commercial Builder trio above: no default allowance,
+    # because Pickaxe prices by plan and publishes no figure this deployment
+    # can cite — the count is real, the limit is not measured until
+    # PICKAXE_MONTHLY_LIMIT is set.
+    "pickaxe": Quota(
+        "pickaxe", "Pickaxe", "calls", 0, 0,
+        "PICKAXE_WARN_AT", "PICKAXE_MONTHLY_LIMIT",
+        "One use per call to a workspace Pickaxe (SEM Quote Help, Audience "
+        "Finder). A call that failed is recorded with ok=False and is out of "
+        "the billable total. No ceiling until PICKAXE_MONTHLY_LIMIT is set."),
     # Google costs nothing and is limited by requests per day, so a monthly
     # allowance would be the wrong shape entirely -- google_estimate() does
     # the per-day, per-API comparison. This row is the monthly total, for
@@ -1267,6 +1278,20 @@ _PROVIDER_MARKERS = {
         "detail": "Calls a Google API without recording it, so its calls do "
                   "not count towards the daily quota shown on /diagnostics.",
         "fix": "Add quotas.record_google(url, module=...) after the response.",
+    },
+    "pickaxe": {
+        # The host AND a requests call, because hub/config.py carries the
+        # host in PICKAXE_BASE's default and calls nothing — a marker on the
+        # string alone would flag the settings file for defining the setting.
+        "calls": lambda src: (("api.pickaxe.co" in src or "pickaxe_base" in src)
+                              and "requests." in src),
+        "recorded": ('record("pickaxe"', "from hub import pickaxe",
+                     "from hub.pickaxe import", "hub.pickaxe"),
+        "detail": "Calls a Pickaxe outside hub/pickaxe.py and without "
+                  "recording it, so a per-use bill never reaches the usage "
+                  "page.",
+        "fix": "Call hub.pickaxe.ask(...), which records every call and "
+               "strips the chat-UI outro.",
     },
 }
 
