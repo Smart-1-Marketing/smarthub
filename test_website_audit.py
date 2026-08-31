@@ -270,6 +270,29 @@ check("an audit with nothing in it answers nothing", wa.discovery_answers({}), [
 check("and says that is not measured rather than all-no",
       "not measured" in wa.discovery_note([]), True)
 
+# The booking question reads two measurements and either one is a yes: a
+# widget on the site, or the booking link Google lets a business put on its
+# own listing. A no only ever claims the half that was measured.
+booking = lambda payload: {a["key"]: a                        # noqa: E731
+                           for a in wa.discovery_answers(payload)
+                           }.get("appointments") or {}
+widget = booking({"booking_widget": {"has_booking_widget": True,
+                                     "booking_widget_apps": "Calendly"}})
+check("a booking widget answers yes", widget.get("answer"), "yes")
+check("and the evidence names the app",
+      "Calendly" in widget.get("evidence", ""), True)
+listing = booking({"booking_widget": {"has_booking_widget": False},
+                   "google_business_profile":
+                       {"booking_link_url": "https://book.acme.com"}})
+check("a booking link on the Google listing is online scheduling too",
+      listing.get("answer"), "yes")
+neither = booking({"booking_widget": {"has_booking_widget": False}})
+check("no widget and no listing link answers no", neither.get("answer"), "no")
+check("and the no claims only the site that was measured",
+      "Google" in neither.get("evidence", ""), False)
+check("a plan that measured neither leaves the question out",
+      booking({}), {})
+
 
 # =====================================================================
 section("What a scan hands the lead store")

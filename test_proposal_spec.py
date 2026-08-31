@@ -1223,7 +1223,7 @@ check("and it is covered once the tier is raised",
       "chat" in {r["key"] for r in cm.suite_coverage(lacking, "Smarter")["covered"]})
 # An unanswered question is not a gap the Suite gets credit for closing.
 check("an unanswered question is not measured, not a gap",
-      {r["key"] for r in cover["not_measured"]} == {"email"},
+      {r["key"] for r in cover["not_measured"]} == {"email", "appointments"},
       [r["key"] for r in cover["not_measured"]])
 # Two questions can want the same part of the Suite. Claimed twice they read
 # as two things the licence buys -- "Social planner" directly above "Social
