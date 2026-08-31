@@ -316,7 +316,10 @@
             done();
             if (!d || !d.requestId) return out(panel, 'bad', (d && d.error) || 'That did not create a build.');
             out(panel, 'ok', 'Created. Opening the build screen…');
-            location.href = '/build?request=' + encodeURIComponent(d.requestId);
+            // An assignment to location cannot be patched the way fetch is,
+            // so this call site carries the mount prefix itself — the same
+            // note projects.html makes on its row click.
+            location.href = (window.S1_BASE || '') + '/build?request=' + encodeURIComponent(d.requestId);
           })
           .catch(function () { done(); out(panel, 'bad', 'That did not create a build. Nothing has changed.'); });
         return;
