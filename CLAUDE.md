@@ -613,6 +613,46 @@ or secret is ever carried — this is pasted into chats, the
 it, including that every one of the six paths is a route the composed app
 actually serves.
 
+**And the panel named a URI the code does not send.** That check asserts what
+the panel *prints* and never asked whether the code agrees — which is the one
+thing worth asserting about it, because the panel exists to say what string to
+paste into a console and a console matches it exactly. `oauth_redirects.py`
+trims `PUBLIC_BASE_URL` to its origin (`_origin()`); the two flows that
+actually *build* a callback appended to the raw value with only a trailing
+slash removed. So with the path this deployment's own linked env group carries
+— the same string as `GOOGLE_ADS_REDIRECT_URI`, which the paragraph above
+already names — the panel said
+`https://smart1.agency/suite/oauth/callback` and `hub/ghl_oauth.py` sent
+`https://smart1.agency/tools/ads/oauth/callback/suite/oauth/callback`.
+Register what the panel says and consent fails on `redirect_uri_mismatch`;
+register what is sent and the panel reports it as wrong. The
+`/api/db/structure` versus `/api/integrity` trap, on the one screen whose
+whole job is to be copied from — and it hit **google_access** too, which that
+same table marks `client_facing` with the note *"a mismatch here fails in
+front of them, for a reason that is nothing to do with them."*
+
+`config.public_base_origin()` is the one reading now, and the field
+`settings.public_base_url` is the origin as well — which fixes the other
+readers that never got the memo, and makes the three modules that had already
+worked it out and written their own `_origin()` (`llms_hosting`,
+`image_picker/provisioning`, `social_planner/links`) no-ops rather than the
+only correct ones. It is read at **call time**, because `settings` is built
+once at import and this is the one variable somebody corrects mid-incident
+after the panel names it — the reasoning `hub/ghl_oauth.py` already gives for
+resolving its scopes per call, applied to the value in the same file that was
+not. `modules/google_access/config.py` keeps the name `PUBLIC_BASE_URL`
+through a module `__getattr__` rather than editing five call sites, the
+`hub/blueprint_guard.py` rule: two of those five build the link a **client**
+is emailed, so the sixth reader added next month is right by default.
+
+**Trimmed and still reported**, which is the whole of it: the warning is what
+tells somebody to fix the variable, and behaving sanely in the meantime is not
+the same as papering over it. `public_base_url_raw` keeps what was actually
+set so the report can quote it. The assertion is a **sweep** — every flow
+whose source is `PUBLIC_BASE_URL` must declare which code builds its URI, and
+one that declares none is a failure rather than a silent skip, so a seventh
+flow cannot join by being unasserted.
+
 **Cloudinary is published two ways and this account sets both.** One
 `CLOUDINARY_URL`, and the three parts `CLOUDINARY_CLOUD_NAME` /
 `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET`. Nine modules configure the SDK
@@ -1604,6 +1644,37 @@ returns one number hides the two that failed, the rule
 `client_urls.accept_many()` works to. `file_orphan()` is its own function
 rather than a branch of `attach()`: there is no store row to update, and the
 absence of one is the finding.
+
+**And the tile on the dashboard read that refusal as four noughts.**
+`build_audit()` computes `measured` for exactly this, and the report page
+draws it — while `scorecard()`, which copies eleven keys out of the same audit
+for the dashboard card, dropped it. So a morning where the client list refused
+drew **0 · 0 · 0 · 0** above System status: every client up to date on
+creative, in four confident zeros, with `/qa/stale-creative` one click away
+saying *Not measured*. Two screens answering one question differently, which
+is the trap `by_client()` avoids one function later by returning a pair.
+
+The card's own note says it fails quietly so the dashboard never goes down
+when it cannot load — right about a fetch that fails, and exactly what made
+this invisible, because **this fetch succeeds**. It draws dashes and names
+which half refused now, since the client list refusing and every creative
+store refusing are different outages; and it stays *visible*, because a card
+that hides itself cannot be told from one that had nothing to report.
+`test_qa_reports.py` sweeps every `_scorecard_*.html` that fetches for the
+same branch, with an exemption list that is **empty** — every card on
+`dashboard.html` already branches on `measured`, and this partial was the one
+outlier.
+
+**A row with a cell no column names.** The renderer writes one `<th>` per
+entry in `columns` and one `<td>` per cell, so `no_dashboards`' six cells
+against five headings put its Add-dashboard button under the heading belonging
+to the value on its left — and the CSV export, which writes `columns` as its
+header row and the cells beneath it, gave every row an unlabelled trailing
+field. The two functions that also emit an action cell head it `""`, which was
+the fix already sitting two functions away. Both invariants are sweeps now:
+one cell per heading on every report, and a handler on the page for every
+action a row puts on a button — a button with no branch does nothing, which on
+a report is indistinguishable from one that failed silently.
 
 **A QA report is named for its finding, not its process.** "Image Audit" tied
 with Image Creator on the bare query `image` and took the top slot off it —
@@ -3741,6 +3812,33 @@ that fires on every social spot). A figure is allowed when it is one we
 measured and refused when it is not: the grounding rule applied to a number
 instead of a name.
 
+**And it compared the string, so the measured figure came back as an invented
+one.** `$2,400` in the facts and `$2400` in the summary are the same amount and
+were two different strings, so a model that merely re-typed a figure it had
+been handed — which is what a model does with a figure — was reported as having
+invented it. `$2,400.00` went the same way. Every consequence below is correct
+on its own and they compound: the **whole summary is discarded** rather than
+patched, the report **renders nothing** because `widget_audit_report.html`
+guards on `summary.text`, the `why` explaining it is read by **no template**,
+and `for_scan()` **stores the refusal** on the stated reasoning that it "will
+not change on the next view" — which is true of a real refusal and false of
+this one. So one dropped comma cost that prospect's audit its opening
+paragraphs *permanently*, for them and for every rep who opened the link, with
+the only record in a JSON blob nothing reads.
+
+Compared as an **amount** now, and the rule is not loosened anywhere: an
+amount nobody measured is still refused, a figure that cannot be parsed is
+still refused rather than passed as measured, and **rounding is still not
+tolerated** — `$2,437` written as `$2,400` is a different amount on a document
+about somebody's money. What is **reported rather than fixed** is that a
+genuine discard is invisible to everybody: `why` reaches no screen, and there
+is no staff view of the summary to put it on, so building one is a feature
+rather than this fix. And `_forbidden()` enforces a discount, a promise, a
+guarantee, a timeline and our own name — **not** product names, which the
+prompt asks for and nothing checks, because a list of product names has to
+match ordinary English ("local listings", "display") and a false positive
+there discards a correct summary, which is the failure being undone here.
+
 **One call per audit, ever.** `for_scan()` writes on the first open and reads
 thereafter — a prospect refreshing, a rep checking the link and the mailed copy
 opened on a phone are three views of a paragraph that cannot have changed.
@@ -4143,6 +4241,43 @@ disagreement is `analytics_ids`' whole point — either the site is running a
 property we do not administer or the record is stale — and flattening it
 destroys the only evidence of it.
 
+**And that disagreement was mostly not one.** GA has two identifiers for one
+property: the **measurement id** `G-XXXXXXX`, which is on the site, in the GTM
+tag and on every report and is therefore what a person types into Knack — and
+the **property id**, a bare number, which is all a GA4 property summary
+returns, because it carries no measurement id at all. `_state()` normalised
+both, found them different, and answered **mismatch**. On this deployment's
+own 610-row registry every one of the 166 recorded GA ids is a `G-` (159) or a
+legacy `UA-` (7) and **not one is a property id**, so for GA the verdict could
+only ever be `mismatch` or `recorded_only`: **`match` was unreachable.** Client
+360 drew a red pill and the advice *"reports built on the wrong property are
+silently wrong"* about properties we administer, correctly recorded, and
+`audit_all()` collected every one into a report whose premise is that each
+entry means somebody's reporting may be pointed at the wrong place — while
+`in_agreement` counted only `match` and so could never count a GA row at all.
+Overstating the problems and understating the agreement, at once.
+
+`not_comparable` is the answer, because that is what is true: nothing here can
+tell whether the two names refer to the same property, and judging it either
+way invents one. It is drawn neutral rather than red or amber — there is
+nothing to act on — and it is **not** counted in `needs_attention`. The
+module's own note under `_norm_ga` had warned about exactly this in the
+abstract: a false mismatch *"is worse than no check at all because it trains
+people to ignore the warning."*
+
+**GTM had the same hole, quieter, and the rule is per platform rather than
+special-cased.** `google_finder` stores `public_id or container_id`, so where
+the API returns no publicId the value lands in the numeric space and produces
+the identical false mismatch — rarer only because publicId is usually present,
+which is a reason to expect it rather than to leave it. What must **keep**
+saying mismatch is asserted just as hard, because a fix that silences the real
+findings with the false one is worse than the bug: two different measurement
+ids, two different property ids, two different containers, and a legacy `UA-`
+id against a live GA4 property, since Universal Analytics stopped processing
+in 2023 and that record is genuinely stale. `bucket_for()` is the one reading
+of which audit column a state lands in, so the client record and the book-wide
+report cannot come to disagree about whether a state is a finding.
+
 Client 360's own "attach a property" button goes through the same path, so
 attaching there records in Knack and clears the orphan too. So does the
 customer picker on the **Google Accounts & Mapping** QA report — the report is
@@ -4489,6 +4624,18 @@ because both modules name `_audit` in comments explaining why it had gone
 uncalled and a check matching text reports the fix as the defect; it resolves
 a module's own `log()` wrapper, the shape `check_work_kinds()` had to learn;
 and it is handed a silent route and required to name it.
+
+**And a wrapper is resolved from its definition, not guessed from its name.**
+The walk hard-coded `_audit` and `log`, which was two modules' spelling and not
+a rule. `modules/seo_images` calls its wrapper `_log`, so a module recording
+five of its seven writes read as recording **none** — a check inventing seven
+findings, which is switched off faster than one that misses them. Worse, the
+same blindness had already produced a **wrong exemption**: Google Finder's
+`api_ga4_ask` logs through `_audit_mod.log(...)`, the walk could not see a
+caller of that name, and it was duly declared as a route that records nothing.
+An exemption covering a call site that never needed one. A wrapper is any
+function in the file that itself reaches the shared logger, however spelled,
+and the both-directions rule is what caught the stale entry.
 
 **A route that writes without a write method is named rather than missed.**
 Google redirects the browser to `oauth_callback`, so it is a `GET` by protocol
@@ -5126,12 +5273,108 @@ tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
 declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
-`linkedin`, `tiktok` and `snapchat` today. The two still on the 2025
-transcription are named in `_KIT_NAMES_PENDING` with what is known to have
-moved (YouTube's *TrueView* is now *Skippable in-stream*), and
-`kit_coverage()` carries them. A backlog named rather than left as an absence
-— a check listing every platform on the day it is written is red on the day
-it is written, and gets switched off.
+`linkedin`, `tiktok`, `snapchat` and `youtube` today. What is still on the
+2025 transcription is named in `_KIT_NAMES_PENDING` and carried by
+`kit_coverage()`. A backlog named rather than left as an absence — a check
+listing every platform on the day it is written is red on the day it is
+written, and gets switched off.
+
+**YouTube was the last of the four, and asked for a format that does not
+exist.** Google repurposed *TrueView* in October 2025 as a **metric** —
+TrueView views, spanning skippable in-stream, in-feed, Shorts and Masthead —
+so the requirement line asked a client to supply a thing with no definition.
+Shorts was absent entirely and only 16:9 was modelled against a kit selling
+16:9, 9:16 and 1:1. And the weight was the half that refused real work: **10
+MB against a published 256 GB**, the kit's own *"wrong by four orders of
+magnitude"* — the third of the four transcriptions to run that way, after
+TikTok's two units and Snapchat's pair.
+
+Six formats now, and **no duration on skippable in-stream at all**: the kit
+publishes *"no maximum, under 3:00 recommended"*, and a ceiling invented from
+a recommendation refuses a cut the kit permits — the `target_bytes` rule
+wearing a stopwatch. `youtube_trueview` keeps its id, because skippable
+in-stream is what TrueView was and `tags_for()` has written
+`unit_youtube_trueview` onto delivered creative: the rule `billboard` follows
+from the IAB retiring the Rising Stars name.
+
+**Native display was that different job, and it is done.** Its first column
+is an *asset* rather than a format, and OpenRTB Native 1.2 sets no character
+limits at all — each seller declares its own per placement — so the kit
+publishes The Trade Desk and Google Demand Gen side by side and says to
+**build to the strictest platform in the plan**. That is what each field
+carries, with the looser platform named in the notes rather than lost: a
+25-character short title because The Trade Desk publishes 25 where Demand Gen
+allows 40, and a 150 KB logo because Demand Gen caps there where The Trade
+Desk does not.
+
+The 2025 model held two units and a single `headline: (15, 55)` /
+`description: (25, 120)` range — which the kit's own update note quotes as the
+thing that is wrong, *"character limits are per-platform, not a single 15–55 /
+25–120 range"* — so a client was told a 55-character headline was fine on a
+platform that takes 25. **Business name** and **call to action** are asset
+fields a native ad renders and nothing here had ever asked for, and the HTML5
+package the section publishes was absent too.
+
+**And that section is where the kit retires a whole category of ours.** One
+sentence under Native Display: *"Tablet Display retired as a category — IAB
+removed device-class ad units. 300x250 and 728x90 serve on tablet as the same
+units."* Four house units here modelled it, and two of them asked a client a
+second time for a file they had already supplied. The third is the one that
+showed: **`tablet_interstitial` at 1024x768** was on every display
+requirement, because 300x250 and 728x90 dedupe against their desktop twins in
+the size run and 1024x768 does not — an extra file, for a placement nobody
+sells inventory for. All four are in `RETIRED_UNITS`, and the **channel is
+unwired from the product map as well as emptied**: named there with no unit
+behind it, `required_units()` reports *"the spec kit maps no unit for this"* —
+a warning about our own dangling entry, printed at the client.
+
+**A third state, because two would have been a lie either way.** Native
+display is transcribed against 2026 and still cannot join `kit_name_drift()`:
+four of its eight rows are character limits carried on the main image rather
+than units, and the HTML5 package sits under its own heading outside the table
+the parser reads, so the name pass would report our own unit as a format the
+kit does not sell. Left in `_KIT_NAMES_PENDING` it would claim a 2025
+transcription that is no longer there; added to `_KIT_NAME_CHECKED` it would
+report a finding that is not one. `_KIT_NAMES_UNCHECKABLE` is the third
+answer, with the reason, and `kit_coverage()` carries all three.
+
+**And the branch that answers when the page cannot be read was missing
+them.** `kit_coverage()`'s not-measured return carried no `names_*` keys at
+all, so a caller reading one — `test_proposal_spec.py` does — would raise on
+the one day the check exists for, rather than reporting that nothing was
+measured. Both branches answer with the same keys now, asserted.
+
+**What did not move is the rate card.** It sells products called *TrueView*
+and *TrueView - Targeted* — product names on an invoice rather than format
+names in a creative requirement. Renaming one orphans every quote, every IO's
+`productConfig` key and the published partner page, which is the migration
+this codebase refuses to do casually.
+
+**And naming the formats exposed the line that had been dissolving them.**
+`units_line()` folds image units into one run of sizes, which is right for a
+display buy — "Leaderboard" *is* 728x90, and eleven labels beside eleven sizes
+is the wall its own comment describes. It is wrong wherever the kit's first
+column is a **Format**, and it had been wrong on every such channel: an X buy
+asked for **nine bare sizes** with Image Ads, Carousel Ads, Conversation
+Button and Spotlight Takeover all dissolved into them; LinkedIn the same
+across six; and native display printed *"1200x628, 200x200"* with nothing
+saying which of the two is the brand logo. That is `_shape_of()`'s own note
+running the other way — there a unit reaches the line as a bare name, here as
+bare sizes with the name gone, and on a format-name channel the name is the
+entire ask.
+
+The discriminator is the published page's own structure rather than a
+judgment. `SIZE_SET_CHANNELS` is derived from `_KIT_SECTIONS` — the three
+sections whose table is Unit / Dimensions / weight, the same three
+`kit_drift()` can read — plus `tablet_display`, which is ours and is the same
+shape. Everywhere else the name leads and its sizes ride with it. Nothing
+about display, DOOH, email, CTV or Meta changed, and **both `ADDITIONS`
+entries are decided before the split** — the radio companion and Snapchat's
+AR filter each sit on a channel that sells no size set, so filtering by
+channel first would have retired the one rule that keeps *"plus a companion
+banner: 300x250"* from reading as the whole requirement.
+`test_proposal_spec.py` asserts both directions, and every new check was
+confirmed red against the real defect first.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
@@ -10054,6 +10297,10 @@ python3 test_prospect_record.py    # the record a scan produces: four kinds of e
                                    #   could not read, files, and converting
 python3 test_unwired.py            # nothing is defined and left uncalled
                                    #   without a reason written down
+python3 test_audit_summary.py      # the paragraphs a prospect reads: a
+                                   #   measured figure re-typed is not an
+                                   #   invented one, and an amount nobody
+                                   #   measured is still refused
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
@@ -10153,6 +10400,11 @@ python3 test_sites_billing.py      # hosting charges joined to sites: unbilled, 
 python3 test_google_links.py       # orphaned GA4/GTM/Search Console accounts
 python3 test_google_access.py      # the paused Ads flow, and who an invite is for
 python3 test_google_index.py       # the Google sweep: no request, and none vs cannot look
+python3 test_analytics_ids.py      # two names for one property are not a
+                                   #   disagreement: the measurement id Knack
+                                   #   holds against the property id Google
+                                   #   returns, and what must keep saying
+                                   #   mismatch
 python3 test_msa_embed.py          # the signing page: public, chrome-free, ours to frame
 python3 test_landing_embeds.py     # the gameplan embeds: framable by us, leads land
 python3 test_calculator_embeds.py  # the calculator embeds: framed, public, chrome-free
@@ -10259,7 +10511,15 @@ python3 test_llms_hosting.py       # a client's llms.txt: robots per user-agent
                                    #   never read as permission
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
-python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
+python3 test_oauth_redirects.py    # every OAuth callback, the hostname each is
+                                   #   built from, and — the half nothing
+                                   #   asserted — that the code sends the
+                                   #   string the panel tells you to register
+python3 test_ghl_oauth.py          # the Suite install: a refresh that keeps
+                                   #   the token it was not given, a disconnect
+                                   #   that does not undo itself, a rotated key
+                                   #   that reads as re-consent rather than a
+                                   #   crash, and a status carrying no secret
 python3 test_site_blocks.py        # the website blocks a page is built from
 python3 test_hub_help_layer.py    # the hub's own tours: offered at all,
                                    #   and a walkthrough button only where a

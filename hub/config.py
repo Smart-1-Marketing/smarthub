@@ -30,6 +30,47 @@ def _s(name: str, default: str = "") -> str:
     return (os.environ.get(name) or default).strip()
 
 
+def _origin_of(value: str) -> str:
+    """The scheme and host of a URL, with any path discarded.
+
+    The same reading hub/oauth_redirects.py already applies when it prints
+    which callback URI to register -- which is the whole reason this exists
+    here. That panel trimmed and the code that builds the URI did not, so the
+    two disagreed about the one string a console matches exactly, and the
+    panel was the one telling the truth.
+
+    Never raises: a value that cannot be parsed comes back as itself with its
+    trailing slash off, because a setting that resolves to nothing is worse
+    than one carrying a path somebody can see in the warning.
+    """
+    value = (value or "").strip().rstrip("/")
+    if not value:
+        return ""
+    try:
+        from urllib.parse import urlsplit
+        parts = urlsplit(value if "://" in value else "https://" + value)
+        if parts.netloc:
+            return f"{parts.scheme}://{parts.netloc}"
+    except Exception:                                 # noqa: BLE001
+        pass
+    return value
+
+
+def public_base_origin() -> str:
+    """The Hub's own origin, read at call time.
+
+    `settings` is a frozen dataclass built once at import, which is right for
+    almost everything here and wrong for the three callback URIs built from
+    this value: a provider matches a redirect URI as an exact string, and
+    PUBLIC_BASE_URL is the one variable somebody corrects mid-incident after
+    seeing the warning below. An import-time snapshot would need a redeploy to
+    take effect -- which is when nobody wants one. That is the reasoning
+    hub/ghl_oauth.py already gives for resolving its scopes per call, applied
+    to the value in the same file that was not.
+    """
+    return _origin_of(_s("PUBLIC_BASE_URL"))
+
+
 def _i(name: str, default: int) -> int:
     try:
         return int(float(_s(name) or default))
@@ -139,7 +180,25 @@ class Settings:
     secret_key: str = field(default_factory=lambda: _alias("secret_key"))
     panel_password: str = field(default_factory=lambda: _s("PANEL_PASSWORD"))
     database_url: str = field(default_factory=lambda: _s("DATABASE_URL"))
-    public_base_url: str = field(default_factory=lambda: _s("PUBLIC_BASE_URL").rstrip("/"))
+    # The ORIGIN, with any path discarded -- not merely the raw value with its
+    # trailing slash off. `placeholder_warnings()` below has explained at
+    # length since it was written that PUBLIC_BASE_URL is the site's origin and
+    # nothing else, that one env group on this deployment carries the Google
+    # Ads OAuth callback in it path and all, and that every URL the Hub builds
+    # is appended to it -- and then this field handed the path straight on to
+    # all fifteen readers. Three of them had worked it out and written their
+    # own `_origin()` (llms_hosting, image_picker/provisioning,
+    # social_planner/links), which is the drift hub/storage.py exists to stop
+    # wearing an origin: three copies, and every reader that never got the memo
+    # silently wrong. Trimming here fixes all of them at once and makes those
+    # three copies no-ops rather than the only correct readers.
+    #
+    # It is trimmed AND still reported: the warning is what tells somebody to
+    # fix the variable, and behaving sanely in the meantime is not the same as
+    # papering over it. `public_base_url_raw` keeps what was actually set, so
+    # the report can quote it.
+    public_base_url: str = field(default_factory=lambda: _origin_of(_s("PUBLIC_BASE_URL")))
+    public_base_url_raw: str = field(default_factory=lambda: _s("PUBLIC_BASE_URL").rstrip("/"))
     data_dir: str = field(default_factory=lambda: _s("HUB_DATA_DIR") or ("/var/data" if os.path.isdir("/var/data") else "data"))
     max_upload_mb: int = field(default_factory=lambda: _i("MAX_UPLOAD_MB", 100))
     # How long a sent proposal's pricing stands. Read by hub/quote_validity.py,

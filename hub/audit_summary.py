@@ -96,14 +96,59 @@ _FORBIDDEN = (
 _MONEY = re.compile(r"\$\s?[\d,]+(?:\.\d+)?")
 
 
+def _money_value(hit: str):
+    """The amount a `$…` string names, or None if it cannot be read.
+
+    None is the safe answer: a figure we cannot parse is one we cannot say we
+    measured, so it stays ungrounded.
+    """
+    raw = str(hit or "").replace("$", "").replace(",", "").replace(" ", "")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ungrounded_money(text: str, facts: list[str]) -> list[str]:
-    """Money in the summary that was not in what we measured."""
+    """Money in the summary that was not in what we measured.
+
+    Compared as an AMOUNT, not as the string it was written in. This used to
+    normalise only whitespace, so a figure the model was handed and merely
+    re-typed came back as invented:
+
+        facts say $2,400   summary writes $2,400      grounded
+        facts say $2,400   summary writes $2400       reported as invented
+        facts say $2,400   summary writes $2,400.00   reported as invented
+
+    Which matters more than it sounds, because of what the rest of this
+    module does about it: the whole summary is discarded (correctly -- editing
+    a figure out leaves a sentence nobody wrote), the report renders the bare
+    tables because `widget_audit_report.html` guards on `summary.text`, the
+    `why` explaining it is read by no template, and `for_scan()` stores the
+    refusal deliberately on the reasoning that it "will not change on the next
+    view". Which is true of a real refusal and false of this one. So one
+    dropped comma cost that prospect's audit its opening paragraphs
+    permanently, for them and for every rep who opened the link, with the only
+    record in a JSON blob nothing reads.
+
+    The rule itself is unchanged and just as strict: a figure that names an
+    amount nobody measured is still reported, and so is one that cannot be
+    parsed. Rounding is NOT tolerated either -- $2,437 written as $2,400 is a
+    different amount on a document about somebody's money, and the point of
+    grounding is that every number came from a measurement.
+    """
     known = set()
     for line in facts or ():
         for hit in _MONEY.findall(line):
-            known.add(hit.replace(" ", ""))
-    return [m for m in _MONEY.findall(text or "")
-            if m.replace(" ", "") not in known]
+            v = _money_value(hit)
+            if v is not None:
+                known.add(v)
+    out = []
+    for hit in _MONEY.findall(text or ""):
+        v = _money_value(hit)
+        if v is None or v not in known:
+            out.append(hit)
+    return out
 
 _SYSTEM = (
     "You are writing two short paragraphs at the top of a website audit that a "

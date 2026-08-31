@@ -286,6 +286,36 @@ def write_route_attribution(source: str) -> dict:
     tree = _ast.parse(source)
     logs, silent, declared = [], [], {}
 
+    # The module's own wrapper, resolved from its **definition** rather than
+    # guessed from its name. `_audit` and `log` were hard-coded, and
+    # `modules/seo_images` calls its wrapper `_log` — so a module that records
+    # seven of its writes read as recording none, which is a check inventing
+    # findings rather than missing them, and the fastest way to have one
+    # switched off. `check_work_kinds()` had to learn the same lesson: a bare
+    # `log()` is a module's own wrapper whose first argument is the event, and
+    # counting only a direct `audit.log(...)` dropped four modules entirely.
+    #
+    # A wrapper is a function in this file that itself reaches the shared
+    # logger, however it is spelled — `audit.log(...)`, `hub_audit.log(...)`,
+    # or a name bound from `audit.for_module(...)`.
+    wrappers = {"_audit", "log"}
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Assign):
+            v = node.value
+            if (isinstance(v, _ast.Call) and isinstance(v.func, _ast.Attribute)
+                    and v.func.attr == "for_module"):
+                for t in node.targets:
+                    if isinstance(t, _ast.Name):
+                        wrappers.add(t.id)
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            for inner in _ast.walk(node):
+                if (isinstance(inner, _ast.Call)
+                        and isinstance(inner.func, _ast.Attribute)
+                        and inner.func.attr == "log"
+                        and "audit" in getattr(inner.func.value, "id", "").lower()):
+                    wrappers.add(node.name)
+                    break
+
     for node in _ast.walk(tree):
         if isinstance(node, _ast.Assign) and any(
                 getattr(t, "id", "") == "HOUSEKEEPING_ROUTES" for t in node.targets):
@@ -302,9 +332,9 @@ def write_route_attribution(source: str) -> dict:
             continue
         writes_a_row = any(
             isinstance(c, _ast.Call) and (
-                (isinstance(c.func, _ast.Name) and c.func.id in ("_audit", "log"))
+                (isinstance(c.func, _ast.Name) and c.func.id in wrappers)
                 or (isinstance(c.func, _ast.Attribute) and c.func.attr == "log"
-                    and getattr(c.func.value, "id", "") == "audit"))
+                    and "audit" in getattr(c.func.value, "id", "").lower()))
             for c in _ast.walk(node))
         (logs if writes_a_row else silent).append(node.name)
 

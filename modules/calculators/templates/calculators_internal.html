@@ -106,7 +106,7 @@ tbody tr.total td{font-weight:800;background:#f8fbff;color:var(--navy)}
 
   <div class="s1-card">
     <div class="s1-head">
-      <h1>{{ calc.title }}</h1>
+      <h1>{{ calc.title }} {{ help_dot('calculators.internal') if help_dot is defined else '' }}</h1>
       <p>{{ calc.tagline }}</p>
       {#
         Said on the page, not only in the code. The public copy of this exact
