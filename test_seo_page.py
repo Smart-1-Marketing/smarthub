@@ -484,6 +484,110 @@ r = signed_in.get("/seo/client")
 check("and no ?name= still goes back to the list rather than 500ing",
       r.status_code, 302)
 
+# ------------------------------------------------------------------------
+section("10. The derived health block, and the rail that draws it")
+
+# The record used to open on four hand-typed checkboxes: a client could have
+# fourteen pages with no schema and still read "Schema updated", because the
+# tick is a claim somebody made and the stores hold the facts. record_health()
+# derives the strip and the what-needs-doing queue from the stores, and these
+# drive it with each state the queue has to tell apart.
+
+STORE = {
+    "sitemap": ["/a", "/b", "/c"],
+    "pages": {"/a": {"approved": True}},
+    "blogs": {"posts": [
+        {"date": "2020-01-05", "posted": False},
+        {"date": "2020-01-12", "posted": True},
+        {"date": "2099-01-01", "posted": False},
+    ]},
+    "alt_text": {"scanned_at": "2026-08-01", "missing_alt": 5, "pages": []},
+    "checks": {"schema": True},
+    "setup": {"completed": True},
+}
+FAQS = [{"url": "/a", "added_to_site": ""}, {"url": "/b", "added_to_site": "2026-08-04"}]
+h = seo.record_health("Health Test Client", STORE, sells=True, faq_pages=FAQS)
+
+check("an overdue post is counted", h["blogs"]["overdue"], 1)
+check("and a post due in the future is not", h["blogs"]["state"], "behind")
+check("schema counts the sitemap pages still unbuilt", h["schema"]["remaining"], 2)
+check("alt text carries the scan's own missing count", h["alt"]["missing"], 5)
+check("a built-not-live FAQ set is waiting", h["faqs"]["waiting"], 1)
+levels = [q["level"] for q in h["queue"]]
+check("the queue carries all four findings", sorted(levels),
+      sorted(["bad", "warn", "warn", "info"]))
+check("worst first, always", levels, sorted(levels, key=["bad", "warn", "info"].index))
+sections_named = {q["section"] for q in h["queue"]}
+check("every row names the section it is fixed on",
+      sections_named, {"blogs", "schema", "alt", "faqs"})
+
+# Absent is not zero: a client with no stores has nothing measured, and the
+# queue must be empty rather than full of confident noughts.
+h0 = seo.record_health("Health Empty Client", {}, sells=False, faq_pages=[])
+check("an unscanned site is 'not measured', never zero missing",
+      h0["alt"]["measured"], False)
+check("no sitemap leaves the schema total unknown", h0["schema"]["total"], None)
+check("and the empty client's queue is empty", h0["queue"], [])
+check("no blogs product reads as its own state, not as behind",
+      h0["blogs"]["state"], "not_sold")
+
+# A source that cannot be read is NAMED, and contributes nothing — "no images
+# are missing alt" and "the alt scan could not be read" are different answers.
+import hub.faq as _faqmod                                       # noqa: E402
+_real_list = _faqmod.list_pages
+_faqmod.list_pages = lambda c: (_ for _ in ()).throw(RuntimeError("store gone"))
+try:
+    hb = seo.record_health("Health Test Client", STORE, sells=True)
+finally:
+    _faqmod.list_pages = _real_list
+check("a failed FAQ read is named", "the FAQ pages could not be read" in hb["unread"])
+check("and raises nothing into the queue",
+      all(q["section"] != "faqs" for q in hb["queue"]))
+check("while the other sources still answer", hb["blogs"]["overdue"], 1)
+
+# The block rides the record's one detail fetch, and a health bug must cost
+# the strip, never the page.
+d_full = seo.client_detail(CLIENT, full=True)
+check("client_detail(full) carries the health block", "health" in d_full)
+_real_health = seo.record_health
+seo.record_health = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+try:
+    d_broken = seo.client_detail(CLIENT, full=True)
+finally:
+    seo.record_health = _real_health
+check("a health build that raises does not take the record down",
+      d_broken.get("health", {}).get("error"),
+      "The health summary could not be built.")
+
+# The workspace template: one section on screen at a time, and the rail's
+# names resolve. Re-read rather than reusing REC — this section edits nothing,
+# but the assertions below are about the file as it stands now.
+import re as _re                                                # noqa: E402
+rail_secs = set(_re.findall(r'data-sec="([a-z]+)"', REC))
+view_ids = set(_re.findall(r'id="view-([a-z]+)"', REC))
+check("every rail entry has a view", rail_secs - view_ids, set())
+check("and every view has a rail entry", view_ids - rail_secs, set())
+check("the record asks for the icon rail the way the wizard tools do",
+      'data-s1hub-collapse="1"' in REC)
+BASE = (ROOT / "hub" / "templates" / "base.html").read_text(encoding="utf-8")
+# The line that starts with <body, not the first "<body" in the file — the
+# comment above the tag says "<body>" in prose, and prose is not a call site.
+_body_line = next((l for l in BASE.splitlines() if l.lstrip().startswith("<body")), "")
+check("and base.html renders that block inside its body tag",
+      "body_attrs" in _body_line)
+check("traffic no longer loads at boot",
+      "safe('traffic', function(){ loadTraffic(); });" not in REC)
+check("nor does the alt table", "safe('alt', function(){ loadAlt(); });" not in REC)
+check("the health strip renders from the one detail payload",
+      "renderHealth(d.health)" in REC)
+
+# On the SERVED page, not just the template — every call site contains the
+# markup whether or not the block was emitted.
+r = signed_in.get("/seo/client?name=" + CLIENT.replace(" ", "%20"))
+check("the served record carries the rail", b"seocRail" in r.data)
+check("and the health strip", b"seocHealth" in r.data)
+check("and the queue card", b"cardNeeds" in r.data)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
