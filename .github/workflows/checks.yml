@@ -1057,7 +1057,17 @@ jobs:
         # not shown the link, that no password or hash reaches /api/users, that
         # the login throttle catches one guess against fourteen addresses as
         # well as fourteen guesses against one, and that robots.txt and the
-        # X-Robots-Tag both keep search and AI crawlers out. Guarded like the
+        # X-Robots-Tag both keep search and AI crawlers out. It also holds the
+        # presence headcount to what hub/presence.py promises: identify() says
+        # when it could not look, rather than answering the same two bits it
+        # answers for "two accounts share this name" — that keyed a second row
+        # on the NAME for somebody who already had one on their EMAIL, so a
+        # database blip counted them twice and drew two chips with one name;
+        # active() reports a sentence rather than a SQLAlchemy exception,
+        # which carries the database host, the user and the SQL onto the
+        # dashboard every account opens; and the dashboard headline no longer
+        # reads "N signed in now", which is the exact phrase that module
+        # exists to refuse. Guarded like the
         # steps around it so this workflow stays mergeable on a branch that
         # predates the file. It *sets* DATABASE_URL, HUB_DATA_DIR and
         # AUDIT_LOG_PATH rather than setdefault-ing them, so it always gets its

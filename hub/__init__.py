@@ -3423,6 +3423,42 @@ def create_hub_app() -> Flask:
                                configured=suite_sso.configured(),
                                why_not=suite_sso.why_not())
 
+    @app.route("/suite-app/start")
+    def suite_app_start():
+        """The app's front door in Suite's own app-detail frame.
+
+        A third route under a prefix whose docstring above says two are
+        deliberately the whole of it -- so the reason it does not widen that
+        rule is worth stating rather than leaving to be re-derived. What that
+        paragraph is protecting against is *somewhere a client could be shown
+        another client's record*, and this page reads nothing and renders
+        nothing belonging to anybody. It is our own copy about our own app.
+
+        It exists because the alternative is what shipped: Suite frames
+        whatever URL the app is configured with, that was the Hub root, and
+        the root is a staff dashboard the allowlist correctly refuses. The
+        refusal is right and it reads to everyone at the agency as the
+        integration being broken -- which is the argument suite_embed.refuse()
+        already makes about a blank frame, one screen earlier. So the fix is
+        somewhere sensible for that tab to point, and the most useful thing on
+        it is the two menu-link URLs, because a link aimed at the wrong path
+        is exactly how somebody meets that refusal next.
+
+        No login: the reader may be an agency admin with no Hub account in
+        that browser, and a sign-in form in the getting-started tab teaches
+        them the app needs one. It inherits the frame header and the chrome
+        exemption from the "/suite-app" prefix already in EMBEDDABLE and
+        CHROMELESS, which is right -- this is the same surface -- and it is
+        named in test_blueprint_guards.py's allowlist rather than arriving
+        there by prefix, so the openness is a decision somebody wrote down.
+        """
+        from . import suite_sso
+        from .config import public_base_origin
+        return render_template("suite_app_start.html",
+                               origin=public_base_origin(),
+                               configured=suite_sso.configured(),
+                               why_not=suite_sso.why_not())
+
     @app.route("/suite-app/session", methods=["POST"])
     def suite_app_session():
         """Turn an SSO payload into somewhere this client may go.

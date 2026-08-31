@@ -834,6 +834,42 @@ any of this — a client has no Hub session at all — and needs HighLevel's SSO
 handshake instead; `SSO_NOT_BUILT` says what that involves and why the location
 id in it is the entire security model.
 
+**And a correct refusal, on the one screen everybody sees first, reads as a
+broken app.** HighLevel frames whatever URL the app is configured with, the
+Getting Started tab was pointed at the Hub root, and `/` is the staff dashboard
+— so the allowlist refused it and the tab filled with *"This Hub page is not
+available inside Smart 1 Suite."* Every layer behaved exactly as designed:
+`framable()` refused a page that must not be framed, `refuse()` named the path
+rather than going blank, and the app was installed in twelve sub-accounts with
+its front door showing an error. **The app simply had no page to point that tab
+at** — `/client360` is a client record and `/suite-app` is the client SSO
+handshake, and neither answers *what is this and how do I use it*.
+
+`/suite-app/start` is that page, and the most useful thing on it is the **two
+menu-link URLs**, because a link aimed at the wrong path is precisely how
+somebody meets that refusal next. It prints them from
+`config.public_base_origin()` read at call time rather than from a typed
+hostname — the `hub/oauth_redirects.py` rule, on another screen whose whole job
+is to be copied from.
+
+**A third route under a prefix whose docstring says two are deliberately the
+whole of it**, so the reason it does not widen that rule is written down rather
+than left to be re-derived: what those two routes are protecting against is
+*somewhere a client could be shown another client's record*, and this page
+reads nothing and renders nothing belonging to anybody. It is outside the login
+for the same reason — the reader is an agency admin who may have no Hub account
+in that browser, and a sign-in form in the getting-started tab teaches them the
+app needs one.
+
+**Two of the first assertions written for it could not fail.** The frame header
+rides on the `/suite-app` prefix, so a **404** at that path carries it too —
+"it may be framed" passed with the route deleted. And `PUBLIC_BASE_URL` is
+unset under test, so `public_base_origin()` is `""` and `bytes.count(b"")` is
+always `>= 2`: the one assertion about the page printing a copyable origin was
+vacuous. Both were found by deleting the route and requiring red, which turned
+up four failures where there should have been six. The test sets a real origin
+now and pins the header check to a 200.
+
 Three things had to move for it, each its own quiet failure. `HubBar` already
 skips the sidebar for an iframe, but the **hub app's own `after_request` did
 not** — and Client 360, the page most worth embedding, is a hub route. Nor was
@@ -9992,6 +10028,41 @@ mini status panel fetches `/api/status`, a General account is refused it, and
 the panel rendered the missing `checks` array as **"✓ 0 checks OK · no
 issues"** — a green tick over a question that was never asked, for eleven of
 the fourteen people. It says what happened now.
+
+**And three of the rules above were true of this module and false of the two
+screens that draw it.**
+
+*"One row per person"* held until the account table blinked. `identify()`
+enumerates three answers in its own docstring and returned **two bits**, so
+*"more than one account has this name"* and *"we could not ask"* were the
+identical value — and `touch_display()` then keyed a row on the **name** for
+somebody who already had one keyed on their **email**. Two rows, counted
+twice, for the fifteen minutes of the window, drawing two chips with one name
+on them; and `/status` printed *"no account matched this name"* about
+somebody who has one, which is a confident answer to a question that was
+never asked. It carries whether it could look now, and not knowing who
+somebody is writes **nothing**: the row from a minute ago is still inside the
+window and still right, so inventing a second identity is the one thing that
+cannot be recovered from.
+
+*"`active()` reports that it could not look"* — and what it reported was
+`str(exc)`. Both screens interpolate that straight into the page, so a
+SQLAlchemy `OperationalError` puts the **database host, the user it tried to
+authenticate as and the SQL it was running** on the dashboard, which every
+one of the fourteen accounts opens. An exception is not a message, which is
+the rule the image and PDF optimizers were fixed for; it is a sentence now
+and the cause goes to the log.
+
+*"every screen that prints the number says so in those words"* was the whole
+argument for `summary_line()` existing — *"so none of them can print the
+count without the window it was measured over"*. The dashboard's headline
+read **"N signed in now"**, the exact phrase this module's docstring calls a
+confident answer to a question nobody here can answer, with the window
+relegated to an 11.5px grey note beneath it — under a comment in that same
+file claiming the window is never left off the number. Read at the size
+somebody actually reads it, the caveat was not there. The headline says
+*seen recently* and `summary_line()` still gives the exact window below it.
+`test_user_accounts.py` asserts all three, the two templates included.
 
 **Nothing here is a crawler's business.** `hub/no_crawl.py`: `robots.txt`,
 `/llms.txt`, and an `X-Robots-Tag` on every response — added as WSGI middleware
