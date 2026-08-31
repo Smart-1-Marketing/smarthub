@@ -417,17 +417,50 @@ def estimated_population(area: dict):
     return None
 
 
+def overlap_factors(areas) -> list[float]:
+    """Per area, the share of its ZIP Codes no earlier area already covers.
+
+    Three 10-mile radii over one metro share most of their people, and a
+    campaign total that sums all three counts the same households two and
+    three times over — on the reach section of a document a client reads.
+    The ZIP lists the campaign already holds are the one signal of how much
+    the areas overlap, so the total scales each area's population by the
+    fraction of its ZIPs that are new: a shared ZIP is counted once, for the
+    first area that claimed it.
+
+    Proportional, which assumes people spread evenly across an area's ZIPs —
+    an approximation, which is why the number stays labelled an estimate
+    everywhere it is shown. An area with no ZIP list cannot be de-duplicated
+    and counts whole (factor 1.0): scaling it by a guess would be worse than
+    the double count, because nothing on screen could say what was removed.
+    Returned in the same order ``normalize()`` returns the areas.
+    """
+    seen: set[str] = set()
+    factors = []
+    for area in normalize(areas):
+        zips = zip_list(area.get("zips"))
+        if not zips:
+            factors.append(1.0)
+            continue
+        fresh = sum(1 for z in zips if z not in seen)
+        seen.update(zips)
+        factors.append(fresh / len(zips))
+    return factors
+
+
 def total_population(areas):
     """Combined reach, or None when no area could be sized.
 
-    Overlapping areas are *not* deducted. Two 10-mile radii five miles apart
-    share most of their population, and this returns the sum of both — which
-    is why the number is labelled an estimate everywhere it is shown and why
-    the AI re-estimate exists. Pretending to de-duplicate would be a guess
-    wearing a precise number's clothes.
+    Overlap between areas is removed on shared ZIP Codes — see
+    ``overlap_factors()``. Areas with no ZIP list are still summed whole,
+    which is why the number is labelled an estimate everywhere it is shown
+    and why the AI re-estimate exists.
     """
-    sized = [p for p in (estimated_population(a) for a in normalize(areas)) if p]
-    return sum(sized) if sized else None
+    rows = normalize(areas)
+    factors = overlap_factors(rows)
+    sized = [p * f for p, f in
+             ((estimated_population(a), f) for a, f in zip(rows, factors)) if p]
+    return round(sum(sized)) if sized else None
 
 
 def unsized(areas) -> list[str]:

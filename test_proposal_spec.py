@@ -84,9 +84,13 @@ check("the narrative is ordered cover-first, next-steps-last",
 check("and the appendices come after it, in order",
       ids[-len(APPENDICES):] == APPENDICES, ids[-len(APPENDICES):])
 for needed in ("summary", "objectives", "friction", "areas", "channels",
-               "mediaplan", "creative", "technology", "reporting", "timeline",
+               "mediaplan", "creative", "technology", "reporting",
                "packages", "roi", "next"):
     check(f"the outline includes {needed}", needed in ids)
+check("the Implementation Timeline is retired from the outline, with the "
+      "reason written down rather than left as an absence",
+      "timeline" not in ids and "timeline" in spec.RETIRED_SECTION_KINDS
+      and spec.RETIRED_SECTION_KINDS["timeline"], ids)
 check("Expected Results & ROI comes after the media plan",
       ids.index("roi") > ids.index("mediaplan"))
 check("every section id is unique", len(ids) == len(set(ids)))
@@ -1472,7 +1476,7 @@ check("only the cover and the ZIP appendix have nothing to write",
       not (UNWRITTEN & set(plan_ids))
       and len(plan_ids) == len(spec.OUTLINE) - len(UNWRITTEN),
       plan_ids)
-for needed in ("mediaplan", "packages", "roi", "reach", "timeline"):
+for needed in ("mediaplan", "packages", "roi", "reach"):
     check(f"the generated section {needed} still takes intro copy",
           needed in plan_ids)
 
@@ -2549,6 +2553,120 @@ _disp_st = {"items": [dict(_disp_row, dollars=4000)], "months": 3}
 check("a display requirement gains no such clause",
       "the kit also sells" not in cn.units_line(_disp_st, cn.medium_of(_disp_row)),
       cn.units_line(_disp_st, cn.medium_of(_disp_row)))
+
+# ---------------------------------------------------------------------------
+section("the Budget Allocation table states a rate or says Managed")
+# ---------------------------------------------------------------------------
+# A percentage, a custom quote or a sentence about the rate card is our
+# pricing described, not a rate stated — on the one table headed Budget
+# Allocation it reads as a figure the client should be able to check and
+# cannot. A quoted CPM/CPV and a flat fee survive; everything else reads
+# Managed.
+check("a quoted CPM keeps its rate",
+      builder._plan_rate({"quoted_rate": 8.5, "rate": "CPM $8.50"}) == "CPM $8.50")
+check("a flat fee keeps its figure, formatted as money rather than a bare "
+      "float", builder._plan_rate({"rate": "250.0"}) == "$250.00 flat",
+      builder._plan_rate({"rate": "250.0"}))
+check("a percentage is Managed",
+      builder._plan_rate({"rate": "15% of monthly spend"}) == "Managed")
+check("a custom quote is Managed",
+      builder._plan_rate({"rate": "Custom quote"}) == "Managed")
+check("an empty rate is Managed", builder._plan_rate({"rate": ""}) == "Managed")
+_plan_state = {"months": 3, "budget": 1500,
+               "items": [{"product": "Category", "category": "DISPLAY",
+                          "rate": "CPM", "rateValue": 4.25, "dollars": 1000},
+                         {"product": "Campaign Management", "category": "",
+                          "rate": "", "dollars": 500}]}
+_plan_rows = builder.media_plan_rows(_plan_state)["rows"]
+check("through the real table: the CPM line states its quoted rate and the "
+      "managed line says Managed",
+      _plan_rows[0]["rate"].startswith("CPM $")
+      and _plan_rows[1]["rate"] == "Managed",
+      [(r["product"], r["rate"]) for r in _plan_rows])
+
+# ---------------------------------------------------------------------------
+section("the Implementation Timeline is off every quote, old ones included")
+# ---------------------------------------------------------------------------
+_legacy = {"client": "Legacy Co", "months": 3, "items": [],
+           "sections": [{"id": "timeline", "title": "Implementation Timeline",
+                         "kind": "timeline", "enabled": True, "body": ""},
+                        {"id": "about", "title": "About", "kind": "text",
+                         "enabled": True, "body": "Written last year."}]}
+builder.ensure_sections(_legacy)
+_kinds = {s["kind"] for s in _legacy["sections"]}
+check("a stored quote loses the retired section on the way through — "
+      "ensure_sections runs on every save and in front of the PDF and Word",
+      "timeline" not in _kinds, sorted(_kinds))
+check("and keeps the copy somebody wrote",
+      any(s.get("body") == "Written last year." for s in _legacy["sections"]))
+check("no renderer carries a timeline branch to print one anyway",
+      'kind == "timeline"' not in open(os.path.join(
+          ROOT, "modules", "sales_builder", "app.py"), encoding="utf-8").read())
+check("and the wizard neither seeds nor draws one",
+      '"timeline"' not in re.search(
+          r"const PROPOSAL_OUTLINE=\[(.*?)\n\];",
+          open(os.path.join(ROOT, "modules", "sales_builder", "templates",
+                            "index.html"), encoding="utf-8").read(),
+          re.S).group(1))
+
+# ---------------------------------------------------------------------------
+section("an industry template is matched on words, never on substrings")
+# ---------------------------------------------------------------------------
+# "rv" is a substring of "services", so every Home Services and Financial
+# Services proposal opened its Executive Summary with the RV Dealers pitch —
+# "marketing that follows the camping calendar" on an HVAC company's
+# document. Found by rendering one. The near-matches that are real stay.
+check("Home Services gets no template rather than the RV Dealers pitch",
+      builder.industry_template({"industry": "Home Services"}) is None)
+check("Financial Services likewise",
+      builder.industry_template({"industry": "Financial Services"}) is None)
+check("Legal still matches Law Firms",
+      (builder.industry_template({"industry": "Legal"}) or {}).get("label")
+      == "Law Firms")
+check("Restaurant / Hospitality still matches its template",
+      (builder.industry_template({"industry": "Restaurant / Hospitality"})
+       or {}).get("label") == "Restaurants & Food Service")
+check("and a genuine RV dealer still gets the RV template",
+      (builder.industry_template({"industry": "RV Dealers"}) or {}).get("label")
+      == "RV Dealers")
+
+# ---------------------------------------------------------------------------
+section("the cover's meta table wraps its labels and drops empty rows")
+# ---------------------------------------------------------------------------
+# From a real proposal: "Monthly campaign investment" was a bare string in a
+# 1.55in column, reportlab does not wrap a bare string, and the label printed
+# over the figure — "investme$8,050", on the cover a client reads first.
+_APP_SRC = open(os.path.join(ROOT, "modules", "sales_builder", "app.py"),
+                encoding="utf-8").read()
+check("both meta cells are Paragraphs, so both wrap",
+      "meta = [[_p(row[0], st_meta), _p(row[1], st_body)] for row in meta]"
+      in _APP_SRC)
+check("and an empty value drops its row rather than printing a labeled "
+      "blank", 'meta = [row for row in meta if str(row[1] or "").strip()]'
+      in _APP_SRC)
+
+_pdf_state = {"client": "Meta Check Co", "months": 3, "objectives": [],
+              "items": [{"product": "Category", "category": "DISPLAY",
+                         "rate": "CPM", "rateValue": 4.25, "dollars": 1000}],
+              "sections": [
+                  {"id": "timeline", "title": "Implementation Timeline",
+                   "kind": "timeline", "enabled": True, "body": ""}]}
+_pq = api("post", "/sales/builder/api/quotes", json={"data": _pdf_state})
+_pqid = _pq["quote"]["id"]
+_pdf = http.get(f"/sales/builder/api/quotes/{_pqid}/pdf")
+check("the PDF builds without the retired section",
+      _pdf.status_code == 200 and _pdf.data[:4] == b"%PDF")
+try:
+    from pypdf import PdfReader as _PR
+    import io as _io2
+    _text = re.sub(r"\s+", " ", "\n".join(
+        p.extract_text() or "" for p in _PR(_io2.BytesIO(_pdf.data)).pages))
+    check("no Implementation Timeline reaches the document, even from a "
+          "quote saved carrying one", "Implementation Timeline" not in _text)
+    check("a quote with no goals prints no empty Campaign Goals row",
+          "Campaign Goals" not in _text)
+except ImportError:                              # pragma: no cover
+    print("  note: pypdf is not installed here, so the PDF text was not read")
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
