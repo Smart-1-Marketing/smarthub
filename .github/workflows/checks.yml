@@ -1468,6 +1468,21 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      # The sample campaigns both radio builders open empty without. Two
+      # things about the seeder are worth holding to an assertion. It must not
+      # write a script the tool would flag -- four of the first eight were
+      # long or short, and one sitting in the library carrying the over-budget
+      # warning demonstrates the failure the grader exists to raise. And
+      # --remove must never delete somebody's work: both modules exist partly
+      # to support promoting a spec piece into a client's ("a spec spot that
+      # wins the business becomes that client's first spot"), the sample mark
+      # survives that promotion, and matching on the mark alone would delete a
+      # real client's spot on the next run. Production holds three Radio Promo
+      # projects, two of them client-attached, so it is asserted rather than
+      # reasoned about.
+      - name: Radio samples — in budget, and never deleting adopted work
+        run: python3 test_radio_samples.py
+
       # Every module's work is attributable, and the two checks that say so
       # both bite. /api/integrity's silent-module check tested whether the
       # STRING "for_module(" appeared in a module's source, which binding the
