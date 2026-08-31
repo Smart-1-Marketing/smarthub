@@ -272,7 +272,13 @@ def ghl_hook_health():
     from hub.users_routes import current_account
     if not current_account():
         return jsonify({"error": "Not signed in."}), 401
-    base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    # The origin, through hub.config: this string is printed for somebody to
+    # paste into a GoHighLevel workflow, and a PUBLIC_BASE_URL carrying a path
+    # would put that path in the middle of the webhook URL -- which then 404s
+    # on every opportunity event, silently, since nobody watches a webhook that
+    # was never delivered.
+    from .config import public_base_origin
+    base = public_base_origin()
     return jsonify({
         "configured": bool(_token()),
         "endpoint": f"{base}/api/hooks/ghl?token=…" if base else

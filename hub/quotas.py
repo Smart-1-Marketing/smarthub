@@ -496,6 +496,58 @@ def openai_cost(month: str | None = None, lookback: int = 200000) -> dict:
     }
 
 
+_OPENAI_ENDPOINTS = ("/v1/chat/completions", "/v1/responses",
+                    "/v1/images/generations")
+_OPENAI_SDK_CALLS = ("chat.completions.create", "responses.create",
+                     "images.generate")
+_OPENAI_RECORDERS = ("note_usage", "note_sdk_usage", "_record(", "record(")
+
+
+def _openai_spends(text: str) -> bool:
+    return (any(e in text for e in _OPENAI_ENDPOINTS)
+            or any(c in text for c in _OPENAI_SDK_CALLS))
+
+
+def openai_spend_unrecorded(src: str) -> bool:
+    """Does this source reach OpenAI somewhere that records nothing?
+
+    Asked per **call site**, not per file. It used to exempt the whole file
+    the moment ``from hub import ai`` appeared anywhere in it -- so Image
+    Creator, whose two text routes go through a helper that records and whose
+    image route posted to ``/v1/images/generations`` and recorded nothing,
+    read as fully tracked. Every image it generated was billed and invisible,
+    behind a check reporting it clean: the string satisfying the check, which
+    is the ``for_module(`` failure one provider over.
+
+    Lifted out of the walk so it can be handed a source: a check that has only
+    ever been green is one nobody can trust.
+    """
+    import ast
+    if not _openai_spends(src):
+        return False
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return False
+    spending, silent = False, False
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = ast.get_source_segment(src, node) or ""
+        if not _openai_spends(body):
+            continue
+        spending = True
+        if not any(r in body for r in _OPENAI_RECORDERS):
+            silent = True
+    # A call at module scope, or one this walk could not place inside a
+    # function, is judged on the file as a whole rather than passed over:
+    # missing a spend is the failure, and a file that names no recorder
+    # anywhere is not recording one.
+    if not spending:
+        return not any(r in src for r in _OPENAI_RECORDERS)
+    return silent
+
+
 def untracked_openai_modules() -> list[str]:
     """Modules calling OpenAI directly, so their spend never reaches this page.
 
@@ -505,6 +557,11 @@ def untracked_openai_modules() -> list[str]:
     import pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
     found = set()
+
+    # Must be an actual *call*, not a mention. demo.py names the guarded
+    # capability "openai.text", diagnostics.py pings /v1/models to check the
+    # key, and ai.py documents the URL in a docstring -- none of them spend
+    # tokens. A detector that flags those trains you to ignore it.
     for p in root.rglob("*.py"):
         if "_attic" in p.parts or "__pycache__" in p.parts:
             continue
@@ -514,21 +571,7 @@ def untracked_openai_modules() -> list[str]:
             src = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        # Must be an actual *call*, not a mention. demo.py names the guarded
-        # capability "openai.text", diagnostics.py pings /v1/models to check
-        # the key, and ai.py documents the URL in a docstring -- none of them
-        # spend tokens. A detector that flags those trains you to ignore it.
-        calls = (
-            "/v1/chat/completions" in src
-            or "/v1/responses" in src
-            or "/v1/images/generations" in src
-            or "chat.completions.create" in src
-            or "responses.create" in src
-        )
-        if not calls:
-            continue
-        if ("hub.ai" in src or "from hub import ai" in src
-                or "from . import ai" in src):
+        if not openai_spend_unrecorded(src):
             continue
         parts = p.relative_to(root).parts
         found.add("/".join(parts) if parts[0] == "hub"

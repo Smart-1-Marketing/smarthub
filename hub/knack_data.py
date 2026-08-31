@@ -75,31 +75,53 @@ def products() -> list[dict]:
 
 
 def products_error() -> str:
-    """Why `products()` came back empty, or "" if it answered.
+    """Why the product rows came back empty, or "" if a source answered.
 
-    An empty product list is not an answer this Hub can have: the export is
-    ten thousand rows and every client report on `/qa` is built by grouping
-    them. `_load()` swallows `OSError` and returns None, so a missing,
-    unreadable or malformed export yields `[]` — indistinguishable, to a
-    caller, from a book with nobody on it. Six reports then rendered a clean
-    empty table and `hub/report_cache.py` stored it as the day's answer:
-    "every client has a dashboard, nobody has lapsed, nobody is missing
-    Analytics, nobody churned", frozen until tomorrow, on a source that was
-    never read.
+    An empty product list is not an answer this Hub can have: the book is ten
+    thousand rows and every client report on `/qa` is built by grouping them.
+    `_load()` swallows `OSError` and returns None, so a missing, unreadable or
+    malformed export yields `[]` — indistinguishable, to a caller, from a book
+    with nobody on it. Six reports then rendered a clean empty table and
+    `hub/report_cache.py` stored it as the day's answer: "every client has a
+    dashboard, nobody has lapsed, nobody is missing Analytics, nobody
+    churned", frozen until tomorrow, on a source that was never read.
+
+    It asks **whichever source answered** rather than the export alone. Those
+    were the same question while `/qa` read the export directly; now that it
+    reads `_product_source()`, asking the export would report a perfectly good
+    live pull as unmeasurable on any deployment whose committed export happens
+    to be absent — refusing to measure on the strength of a file nothing read.
 
     Told apart from a genuinely empty file because they are different things
     to do about it, and returned as a sentence rather than a bool so the
     report can print the reason it is not measured.
     """
+    rows, source, _age = _product_source()
+    if source == "knack":
+        return ""
     if _load("products.json") is None:
         return ("the products export could not be read, so this is not "
                 "measured — which is not the same as there being nothing "
                 "to report")
-    if not products():
+    if not rows:
         return ("the products export was read and holds no rows at all, "
                 "which is a source this report cannot use rather than a "
                 "book with nobody on it")
     return ""
+
+
+def products_note(source: str, age_minutes: int | None) -> str:
+    """Which source answered, in one sentence, so no screen words it its own.
+
+    Lives here rather than in `hub/seo.py`, which is where it was written and
+    whose own comment already said the wording was knack_data's: the SEO list,
+    Client 360 and every client report on `/qa` describe the same two sources,
+    and two descriptions of one staleness is how two screens come to disagree
+    about whether a number can be trusted.
+    """
+    return (f"Live from Knack, {age_minutes} min old." if source == "knack"
+            else "From the committed export in clients_app/data — nothing "
+                 "refreshes it, so this may be out of date.")
 
 
 def export_websites() -> list[dict]:
@@ -726,6 +748,13 @@ def _product_source() -> tuple[list[dict], str, int | None]:
     fallback: stale beats empty, because a client record showing no products
     reads as "this client has none" rather than "we couldn't reach Knack".
     """
+    # Deliberately not memoised, though `products_error()` and
+    # `_client_groups()` now ask within a few lines of each other and a
+    # scorecard asks four times. A minute's memo of the shape `_WEB_CACHE`
+    # uses next door costs about a tenth of a second a day here — the reports
+    # it serves are built once and held by `hub/report_cache.py` — and buys a
+    # window in which a source swapped underneath is invisible to every
+    # caller. `hub/seo.py`'s own test swaps one, and found the memo hiding it.
     try:
         from hub import knack_products
         data = knack_products.rows()

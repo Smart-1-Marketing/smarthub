@@ -50,7 +50,16 @@ WORK_KINDS = {
     "display_ads":          ("Display ads", "Display Ad Builder"),
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
-    "utm_builder":          ("Tracked links", "UTM Builder"),
+    # Keyed on `utm`, which is the name the module actually logs under --
+    # `modules/utm_builder/app.py` does `hub_audit.log("utm", …)`. This table
+    # said `utm_builder`, work_log() drops a module it cannot name, and so
+    # every tracked-link batch was dropped for that reason *as well as* for
+    # naming the client under `detail`. Two independent faults, each enough on
+    # its own, and the tool read on every client record as a tool nobody had
+    # ever used. Declared rather than renamed, the `display_ads` rule:
+    # renaming the log name would orphan every row already written under
+    # `utm`, and `audit.LOG_NAMES` is where that mapping is written down.
+    "utm":                  ("Tracked links", "UTM Builder"),
     "social_planner":       ("Social calendar", "Social Content Planner"),
     "calculators":          ("Calculator published", "Calculators"),
     "google_access":        ("Google access", "Google Access"),
@@ -215,29 +224,41 @@ def _logger_bindings(tree) -> dict:
     return out
 
 
-def _client_log_modules(root=None) -> dict:
-    """``{module name: {files}}`` for every call that logs against a client.
+# The keys work_log() will read a client from. Written down once, here,
+# beside the walk that checks them: work_log() reads this list to decide whose
+# record a row belongs on, and a call site naming the client under any other
+# key writes a row that is kept, indexed, and then dropped on the way to the
+# record it was written for.
+CLIENT_KEYS = ("client", "client_name", "company", "business_name",
+               "tool_client")
 
-    One reader, because there are two callers -- check_work_kinds() asks what
-    it cannot name and stale_work_exemptions() asks what no longer logs, and
-    those are the same walk asked from opposite ends. They each had their own
-    copy of it, which is how the second one came to answer a narrower question
-    than the first: the moment check_work_kinds() learned to resolve a
-    module's `log()` wrapper, the other still could not, and every entry added
-    to NOT_WORK for a wrapper-shaped call site was immediately reported as
-    stale. Two checks asking one question will answer it differently, and both
-    answers end up on the same panel -- the failure
+
+def _log_call_sites(root=None) -> dict:
+    """Every activity-log call site, by the name it logs under.
+
+    ``{log_name: {"files": {...}, "with_client": int, "total": int,
+                  "dirs": {module directory names}}}``
+
+    One walk, three questions. check_work_kinds() asks which names it cannot
+    name; stale_work_exemptions() asks which no longer log; and
+    check_client_attribution() asks whether a name the table *does* know can
+    ever actually carry a client. They had two copies of this between them
+    already, and the moment one learned to resolve a module's log() wrapper
+    and the other did not, every NOT_WORK entry added for a wrapper-shaped
+    call site was reported stale. Two checks asking one question will answer
+    it differently, and both answers end up on the same panel -- the failure
     `jsonstore.unmirrored_json_writers()` exists to close.
     """
     import ast
     import os
 
     base = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    seen: dict[str, set] = {}
+    out: dict[str, dict] = {}
     for folder in ("hub", "modules"):
         for dirpath, dirnames, filenames in os.walk(os.path.join(base, folder)):
             dirnames[:] = [d for d in dirnames
-                           if d not in ("_attic", "node_modules", ".git")]
+                           if d not in ("_attic", "node_modules", ".git",
+                                        "__pycache__")]
             for name in filenames:
                 if not name.endswith(".py"):
                     continue
@@ -247,11 +268,12 @@ def _client_log_modules(root=None) -> dict:
                         tree = ast.parse(fh.read())
                 except (OSError, SyntaxError):
                     continue
+                rel = os.path.relpath(path, base)
+                parts = rel.replace(os.sep, "/").split("/")
+                owning_dir = parts[1] if parts[0] == "modules" and len(parts) > 1 else ""
                 bound = _logger_bindings(tree)
                 for node in ast.walk(tree):
                     if not isinstance(node, ast.Call):
-                        continue
-                    if not any(k.arg == "client" for k in node.keywords):
                         continue
                     f = node.func
                     mod = None
@@ -266,10 +288,39 @@ def _client_log_modules(root=None) -> dict:
                         # A bare log()/_log() whose module name is carried by
                         # whatever bound it, one level up.
                         mod = bound.get(f.id)
-                    if mod:
-                        seen.setdefault(mod, set()).add(
-                            os.path.relpath(path, base))
-    return seen
+                    if not mod:
+                        continue
+                    d = out.setdefault(mod, {"files": set(), "with_client": 0,
+                                             "total": 0, "forwarding": 0,
+                                             "dirs": set()})
+                    d["files"].add(rel)
+                    d["total"] += 1
+                    if owning_dir:
+                        d["dirs"].add(owning_dir)
+                    if any(k.arg in CLIENT_KEYS for k in node.keywords):
+                        d["with_client"] += 1
+                    elif any(k.arg is None for k in node.keywords):
+                        # `**extra` / `**details`: whatever the caller passed,
+                        # which the AST cannot see. This is a module's own
+                        # wrapper forwarding, and its real call sites are
+                        # somewhere else -- reached through an attribute
+                        # (`store.log_event(...)`) rather than a bare name, so
+                        # they are not resolvable from here. Counted apart:
+                        # "we cannot tell" must not be reported as "it never
+                        # does", which is how a check earns a false positive
+                        # and then gets switched off.
+                        d["forwarding"] += 1
+    return out
+
+
+def _client_log_modules(root=None) -> dict:
+    """``{log name: {files}}`` for every call that logs against a client.
+
+    The narrow reading of _log_call_sites() the two older checks want.
+    """
+    return {mod: info["files"]
+            for mod, info in _log_call_sites(root).items()
+            if info["with_client"]}
 
 
 def check_work_kinds(root=None) -> list[dict]:
@@ -325,6 +376,92 @@ def check_work_kinds(root=None) -> list[dict]:
             "fix": (f"Add {mod!r} to WORK_KINDS with how to describe it, or "
                     "to NOT_WORK with the reason it is not a deliverable."),
         })
+    return out
+
+
+def check_client_attribution(root=None) -> list[dict]:
+    """Names this table knows whose rows can never reach a client record.
+
+    `check_work_kinds()` asks the question from one end -- which names log
+    against a client that WORK_KINDS cannot name. This is the other end, and
+    it is the half nothing was asking: a name the table *does* know, whose
+    call sites never put the client anywhere `work_log()` looks.
+
+    Two shapes, both found live and both silent:
+
+      * **The client under the wrong key.** work_log() reads it from
+        CLIENT_KEYS and from nowhere else. `modules/utm_builder` wrote
+        `detail=client` and `modules/bg_remover` wrote `detail=client`, so
+        every tracked-link batch and every cut-out saved against a client was
+        written to the log, kept, indexed -- and dropped on the way to the
+        record it was written for. Nothing errored at any point: the tool's
+        own screens were complete, the row was on disk, and the client record
+        was confidently empty.
+
+      * **The table keyed on the directory rather than the log name.**
+        `utm_builder` logs under `utm`; this table said `utm_builder`, and
+        `work_log()` skips a module it cannot name. That is the `display_ads`
+        failure, and `audit.LOG_NAMES` exists to declare exactly it -- so a
+        module whose directory name is in WORK_KINDS while its *log* name is
+        not is reported here rather than left to be found by somebody opening
+        a client record and noticing.
+
+    A name that never logs at all is not a finding: `calculators` is declared
+    in `audit.NO_ACTIVITY` and several entries here are written by hub/ under
+    a name of their own. This asks only about names something actually writes.
+    """
+    import os
+
+    sites = _log_call_sites(root)
+    out = []
+
+    for mod in sorted(WORK_KINDS):
+        info = sites.get(mod)
+        if not info or not info["total"]:
+            continue                      # writes nothing; not this check's question
+        if info["with_client"]:
+            continue
+        if info["forwarding"] and info["forwarding"] == info["total"]:
+            # Every call site forwards **kwargs, so whether a client is named
+            # is decided by callers this walk cannot reach. modules/ads_builder
+            # is shaped that way -- store.log_event(**details) mirrors into the
+            # Hub, and the client arrives from app.py through the forward.
+            # Not determinable is not a finding.
+            continue
+        out.append({
+            "file": sorted(info["files"])[0],
+            "module": mod,
+            "detail": (f"{mod!r} is in WORK_KINDS, writes "
+                       f"{info['total']} activity row(s), and never names a "
+                       f"client in any key work_log() reads "
+                       f"({', '.join(CLIENT_KEYS)}) — so none of them can "
+                       f"reach the record they were written for"),
+            "fix": (f"Pass client= on the {mod!r} call sites that know one "
+                    "(detail= is not read), or move it to NOT_WORK with the "
+                    "reason it is not work filed against a client."),
+        })
+
+    # And the other shape: a module whose directory name is in WORK_KINDS
+    # while the name it actually logs under is not.
+    for mod, info in sorted(sites.items()):
+        if mod in WORK_KINDS or mod in NOT_WORK:
+            continue
+        for owning in sorted(info["dirs"]):
+            if owning in WORK_KINDS and audit.LOG_NAMES.get(owning) != mod:
+                out.append({
+                    "file": sorted(info["files"])[0],
+                    "module": mod,
+                    "detail": (f"modules/{owning} logs under {mod!r}, but "
+                               f"WORK_KINDS is keyed on {owning!r} — "
+                               "work_log() skips a module it cannot name, so "
+                               "every row this tool writes is dropped before "
+                               "the client record"),
+                    "fix": (f"Key WORK_KINDS on {mod!r} (the name actually "
+                            f"written) and declare audit.LOG_NAMES"
+                            f"[{owning!r}] = {mod!r}. Do not rename the call "
+                            "site: that orphans every row already on disk."),
+                })
+                break
     return out
 
 

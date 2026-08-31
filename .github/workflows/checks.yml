@@ -836,6 +836,18 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: The hub's own tours and walkthrough buttons
+        # That every registered hub tour can actually be offered, and that a
+        # walkthrough button appears only where a scenario for that page
+        # exists. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_hub_help_layer.py ]; then
+            python test_hub_help_layer.py
+          else
+            echo "test_hub_help_layer.py not on this branch — nothing to run."
+          fi
+
       - name: linkcheck helper and sendBeacon coverage tests
         # The helper tables linkcheck resolves URLs through, and that a
         # browser-only pattern never reads Python prose as a call site.
@@ -1529,14 +1541,62 @@ jobs:
       - name: The image and PDF optimizers
         run: python3 test_image_pdf_optimizers.py
 
-      # CLAUDE.md records that `_audit` was bound at the top of Sites Admin and
-      # called nowhere, so deleting a client's live website and connecting a
-      # domain were among the least attributable actions in the Hub. The sweep
-      # that fixed it wired four call sites and stopped: creating a site,
-      # writing brand colors onto a client's live pages, setting what they are
-      # billed, and opening a builder session into their site all stayed
-      # silent. test_activity_logging.py cannot see that — it asks whether a
-      # module logs *at all*, and one call site satisfies it. This asks the
-      # finer question of every write route, with the remainder declared.
-      - name: Sites Admin — every write on a client's site has a name on it
-        run: python3 test_sites_admin.py
+      # The third distinct way a tool's work has gone missing from the client
+      # record. The first two have checks: a name WORK_KINDS cannot name, and
+      # a module that binds a logger and never calls it. This is the one
+      # nothing was asking -- the row is written, the table knows the name,
+      # and the client sits under a key work_log() does not read. UTM Builder
+      # wrote detail=client AND logged under `utm` while the table said
+      # `utm_builder`, so every tracked-link batch was dropped twice over;
+      # Background Remover wrote detail=client too, with the gallery half of
+      # the same fix already done beside it.
+      - name: Work filed against a client reaches that client's record
+        run: python3 test_work_attribution.py
+      # The last two modules no test named except in passing. Each carried a
+      # failure no screen could report: UTM Builder printed the length of its
+      # own page as the match count ("300 of 900" for a search matching 450),
+      # and the CSV button beside it searched five of the eleven fields the
+      # table searched — so a search on a label or a colleague's name handed
+      # back a header row and nothing else, contradicting the table above it.
+      # Background Remover filed every cut-out into a client's gallery with no
+      # dimensions, having measured them two functions earlier; kept its
+      # credit cache in a per-process dict on a paid API across two gunicorn
+      # workers; and set Flask to refuse at 40 MB a batch its own screen
+      # offers at 120, as an HTML 413 the page could only report as "Failed".
+      - name: UTM Builder and Background Remover
+        run: python3 test_utm_bg_tools.py
+      # /api/integrity's silent-module check reads a call rather than an
+      # import now, and the seven modules that had bound hub.audit and never
+      # used it were fixed. That sweep wired a handful of call sites per
+      # module and stopped, and nothing could see the remainder: the check one
+      # level up is satisfied by ONE call site. Sites Admin recorded deleting
+      # a client's website and not creating one; Google Finder recorded
+      # deploying a tag and not deploying a pixel into the same container,
+      # which is the very action CLAUDE.md names. One walk, in hub/audit.py,
+      # holds both -- and each module declares the writes that deliberately
+      # record nothing, so a silent one is a decision rather than an oversight.
+      - name: Every write into a client's own account has a name on it
+        run: python3 test_write_attribution.py
+      # hub/analytics_ids.py compares the GA/GTM ids recorded in Knack against
+      # the ones Google can reach, and its own docstring says a false mismatch
+      # "is worse than no check at all because it trains people to ignore the
+      # warning". It then reported one on every GA row it could see: Knack
+      # holds the G- measurement id and a GA4 property summary returns only the
+      # numeric property id, so the comparison forced a verdict between two
+      # names for one property. On this deployment's own registry that is all
+      # 166 recorded GA ids, and `match` was unreachable — a red pill on the
+      # client record and a report of "reporting may be pointed at the wrong
+      # property" about properties we administer, correctly recorded.
+      - name: Two names for one property is not a disagreement
+        run: python3 test_analytics_ids.py
+      # hub/ghl_oauth.py mints the location-scoped tokens the Suite panel, the
+      # social planner and every sub-account join run on, and no test named it
+      # except the scope table's. Reading it turned up a divergence one layer
+      # out: /diagnostics trims PUBLIC_BASE_URL to its origin before printing
+      # which callback URI to register, and the two flows that BUILD one
+      # appended to the raw value — so with the path this deployment's linked
+      # env group actually carries, the panel named a URI the code never sends.
+      # Register what the panel says and consent fails on redirect_uri_mismatch;
+      # google_access is the one the panel itself marks client-facing.
+      - name: The Suite install, and the callback the panel promises
+        run: python3 test_ghl_oauth.py
