@@ -64,6 +64,7 @@ the template.
 import ast
 import json
 import os
+import re
 import pathlib
 import shutil
 import subprocess
@@ -673,6 +674,236 @@ for group, key, meta in qa.EXTRAS:
 for key in qa.REPORTS:
     code = staff.get(f"/qa/{key}", follow_redirects=False).status_code
     check(f"/qa/{key} renders", code < 400, f"HTTP {code}")
+
+
+# ---------------------------------------------------------------------------
+section("A section heading is not a client, and the CSV was exporting it as one")
+
+# Two spellings of "this row is a section heading" on one page: three reports
+# mark the *cell* `{"group": true, "tone": …}` and the renderer draws a
+# coloured band; `no_gtm` wrote a bare string and marked the *row*
+# `row_styles="sub"`, which drew grey text. Same concept, two treatments, two
+# reports apart -- and neither of them legible to the CSV export, which wrote
+# all eight of this page's headings out as data. Active Clients exported 154
+# rows for a book of 151, three of them named "Ending this month (15)" with
+# every other column blank.
+
+_headings = {}
+for _key in qa.REPORTS:
+    try:
+        _r = qa.run(_key)
+    except Exception:                                   # noqa: BLE001
+        continue
+    _rows, _st = _r.get("rows") or [], _r.get("row_styles") or []
+    for _i, _row in enumerate(_rows):
+        if any(str(c).strip() for c in _row[1:]):
+            continue                                    # not a heading shape
+        _c0 = _row[0]
+        _headings.setdefault(_key, []).append(
+            (_i, bool(isinstance(_c0, dict) and _c0.get("group")),
+             _st[_i] if _i < len(_st) else None))
+
+_unmarked = [f"{k} row {i}" for k, v in _headings.items() for i, g, _s in v if not g]
+check("every heading row is marked the one way, on its cell",
+      not _unmarked, "; ".join(_unmarked))
+_sub = [f"{k} row {i}" for k, v in _headings.items() for i, _g, st in v if st == "sub"]
+check("and none of them also carries the row style that meant it",
+      not _sub, "; ".join(_sub) + " -- `sub` is a lesser row (invoice_off's "
+                                 "resemblances), never a heading")
+check("...and the sweep found headings to check at all",
+      sum(len(v) for v in _headings.values()) >= 4,
+      f"{sum(len(v) for v in _headings.values())} heading row(s)")
+
+# The export is lifted out of the page and driven in node against the real
+# payloads, the arrangement `test_menu_layout.py` uses over hub-crumbs.js: a
+# copy of the rule restated here would be a third thing to keep in step.
+_a = PAGE.find("/* ---- csv export")
+_b = PAGE.find("/* ---- end csv export ---- */")
+check("the csv export is marked for lifting", _a >= 0 and _b > _a,
+      "markers moved or gone -- the rest of this section proves nothing")
+
+if _a >= 0 and _b > _a:
+    _payloads = {}
+    for _key in qa.REPORTS:
+        try:
+            _r = qa.run(_key)
+        except Exception:                               # noqa: BLE001
+            continue
+        _payloads[_key] = {"columns": _r.get("columns") or [],
+                           "rows": _r.get("rows") or []}
+    _js = PAGE[_a:_b] + "\nconst P=" + json.dumps(_payloads) + ";\n" + """
+    const out = {};
+    for (const [k, d] of Object.entries(P)) {
+      const lines = toCsv(d);
+      out[k] = {
+        data: lines.length - 1,
+        rows: (d.rows || []).length,
+        headings: (d.rows || []).filter(isGroupRow).length,
+        // a heading that survived: a label with every other field blank
+        leaked: lines.slice(1).filter(l => /^("[^"]*",)*"[^"]*\\(\\d+\\)"(,"")+$/.test(l)).length,
+        total: lines.some(l => l.includes('"TOTAL"')),
+        header: lines[0],
+      };
+    }
+    console.log(JSON.stringify(out));
+    """
+    _f = os.path.join(_TMP, "csv_export.js")
+    with open(_f, "w", encoding="utf-8") as _fh:
+        _fh.write(_js)
+    _proc = subprocess.run(["node", _f], capture_output=True, text=True)
+    check("the lifted export runs in node", _proc.returncode == 0,
+          (_proc.stderr or "")[-300:])
+    if _proc.returncode == 0:
+        _out = json.loads(_proc.stdout.strip().splitlines()[-1])
+        _leak = [k for k, v in _out.items() if v["leaked"]]
+        check("no heading reaches the csv as a data row", not _leak, f"{_leak}")
+        _short = [f'{k}: {v["data"]} lines for {v["rows"]}-{v["headings"]} rows'
+                  for k, v in _out.items()
+                  if v["data"] != v["rows"] - v["headings"]]
+        check("and the csv carries exactly the rows that are not headings",
+              not _short, "; ".join(_short))
+        _grouped = [k for k, v in _out.items() if v["headings"]]
+        check("a report with headings gains a Group column, so nothing is lost",
+              all(_out[k]["header"].startswith('"Group"') for k in _grouped),
+              f'{[(k, _out[k]["header"][:40]) for k in _grouped]}')
+        check("...and one without headings gains no column",
+              all(not v["header"].startswith('"Group"')
+                  for k, v in _out.items() if not v["headings"])),
+        # The scorecards mark TOTAL `group` as well -- it wants the same band
+        # -- so reading the marker alone would drop the one row somebody
+        # downloads the CSV for.
+        check("a TOTAL row is kept, because it is data drawn like a heading",
+              _out.get("sales-scorecard", {}).get("total") is True
+              and _out.get("sales-scorecard", {}).get("headings") == 0,
+              f'{_out.get("sales-scorecard")}')
+
+
+# ---------------------------------------------------------------------------
+section("The dashboard tile that read a refusal as four noughts")
+
+# `/qa/stale-creative` says "Not measured" when the client list or every
+# creative store refuses -- `build_audit()` computes the flag and the report
+# page draws it. `scorecard()` copies eleven keys out of that audit for the
+# dashboard tile and dropped it, so the same morning drew **0 in every band**
+# on the dashboard: every client up to date on creative, in four confident
+# noughts, with the report one click away saying the opposite.
+#
+# The tile's own note says it fails quietly so the dashboard never goes down
+# when the card cannot load. That is right about a fetch that fails, and it is
+# what made this invisible -- this fetch succeeds.
+
+from hub import stale_creative as _sc                            # noqa: E402
+
+_sc_real = _sc._registry_clients
+try:
+    _sc._registry_clients = lambda *a, **k: []
+    _sc._CACHE.update({"data": None, "at": 0.0})
+    _card = _sc.scorecard()
+    check("the tile's payload says so when the client list refuses",
+          _card.get("measured") is False, repr(_card.get("measured")))
+    check("and which half refused, because they are different outages",
+          _card.get("clients_measured") is False
+          and _card.get("sources_measured") is True,
+          f'clients_measured={_card.get("clients_measured")!r} '
+          f'sources_measured={_card.get("sources_measured")!r}')
+    check("...while every band is a nought, which is why the flag is the answer",
+          _card.get("clients") == 0 and _card.get("needs_attention") == 0)
+finally:
+    _sc._registry_clients = _sc_real
+    _sc._CACHE.update({"data": None, "at": 0.0})
+
+_card_ok = _sc.scorecard()
+check("a real run still reads as measured",
+      _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
+check("and still carries the counts the tile draws",
+      _card_ok.get("clients") and _card_ok.get("edges"),
+      repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
+
+# The tile has to read it. A payload carrying the flag and a card ignoring it
+# is the same nought on the same dashboard.
+_TILE = pathlib.Path(ROOT, "hub", "templates",
+                     "_scorecard_stale_creative.html").read_text()
+check("the tile branches on measured before it draws a number",
+      "d.measured === false" in _TILE,
+      "the card draws d[data-k] straight from the payload")
+check("and says it is not measured rather than hiding, which reads as clean",
+      "Not measured" in _TILE and "card.hidden = false" in _TILE)
+
+# The sweep, so the next tile cannot drop it either: any dashboard partial
+# fetching a Hub API must either branch on `measured` or be named here with
+# the reason its source cannot refuse.
+# Empty, which is the only way this was worth adding: every dashboard card
+# on `dashboard.html` already branches on `measured` -- the prospect queue,
+# the proposal pipeline, the social scoreboard, My Clients and the presence
+# line all do -- and this partial was the one outlier. An entry here would
+# name a tile whose source genuinely cannot refuse, with the reason.
+_TILE_EXEMPT: dict = {}
+_missing = []
+for _t in sorted(pathlib.Path(ROOT, "hub", "templates").glob("_scorecard_*.html")):
+    _src = _t.read_text(encoding="utf-8", errors="ignore")
+    if "fetch(" not in _src:
+        continue
+    if "measured" in _src or _t.name in _TILE_EXEMPT:
+        continue
+    _missing.append(_t.name)
+check("every dashboard tile that fetches says when it could not measure",
+      not _missing, ", ".join(_missing))
+_stale_exempt = [k for k in _TILE_EXEMPT
+                 if not pathlib.Path(ROOT, "hub", "templates", k).exists()]
+check("and no exemption names a tile that is gone",
+      not _stale_exempt, f"{_stale_exempt}")
+
+
+# ---------------------------------------------------------------------------
+section("A row the page can draw: one cell per heading, one handler per button")
+
+# `renderTable()` writes one <th> per entry in `columns` and one <td> per cell
+# in a row, so the two have to be the same length — a row with a cell no
+# column names puts that cell under the heading belonging to the value on its
+# left, and the CSV export writes `columns` as its header row and the cells
+# beneath it, so every row gains an unlabelled trailing field. `no_dashboards`
+# was six cells against five headings: its Add-dashboard button. The two
+# functions that also emit an action cell head it `""`, which is the fix.
+_shape = []
+for _key in qa.REPORTS:
+    try:
+        _r = qa.run(_key)
+    except Exception:                                   # noqa: BLE001
+        continue                                        # covered above
+    _cols = _r.get("columns") or []
+    for _i, _row in enumerate(_r.get("rows") or []):
+        if len(_row) != len(_cols):
+            _shape.append(f"{_key} row {_i}: {len(_row)} cells, {len(_cols)} columns")
+            break
+    _styles = _r.get("row_styles")
+    if _styles is not None and len(_styles) != len(_r.get("rows") or []):
+        _shape.append(f"{_key}: {len(_styles)} row_styles, "
+                      f"{len(_r.get('rows') or [])} rows")
+check("every report's rows carry one cell per column",
+      not _shape, "; ".join(_shape))
+
+# And a button the page has no branch for is a button that does nothing, which
+# on a report is indistinguishable from one that failed silently. Every form
+# the handler is written in is matched, or the check reports a live action as
+# dead and gets switched off for it.
+_handled = set(re.findall(r"""action\s*===\s*['"]([\w-]+)['"]""", PAGE))
+_handled |= set(re.findall(r"""case\s*['"]([\w-]+)['"]""", PAGE))
+_emitted = set()
+for _key in qa.REPORTS:
+    try:
+        _r = qa.run(_key)
+    except Exception:                                   # noqa: BLE001
+        continue
+    for _row in (_r.get("rows") or []):
+        for _c in _row:
+            if isinstance(_c, dict):
+                for _a in (_c.get("actions") or []):
+                    _emitted.add((_key, str(_a.get("action") or "")))
+_dead = sorted(f"{k}:{a}" for k, a in _emitted if a not in _handled)
+check("every action a report puts on a row has a handler on the page",
+      not _dead, "; ".join(_dead))
+check("...and the sweep found buttons to check at all",
+      len(_emitted) >= 3, f"{len(_emitted)} action(s) emitted")
 
 
 # ---------------------------------------------------------------------------

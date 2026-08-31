@@ -25,7 +25,7 @@ empty, and image assignment only fills slots with no image.
 
 **It does not post.** Phase 1 ends at a CSV, which Social Planner ingests under
 Bulk Upload. Pushing through the Social Planner API needs
-`social-media-posting.write` on the marketplace app, and adding a scope to
+`socialplanner/post.write` on the marketplace app, and adding a scope to
 `hub/ghl_oauth.py` requires re-consent at the agency — a one-time manual step
 that has to happen before any code depending on it is worth writing. Ending at
 the CSV means the whole drafting pipeline is in production and earning its keep

@@ -1063,7 +1063,44 @@ def check_ghl_scope_coverage() -> list[dict]:
 
 
 
+def check_ghl_scope_names() -> list[dict]:
+    """A scope this Hub asks for that HighLevel's console does not list.
+
+    Three of the nineteen were wrong when the console's own list was finally
+    read: two named a `social-media-posting.*` family that does not exist, and
+    `forms/submissions.readonly` was inherited from the original DEFAULT_SCOPES
+    and never questioned because it was already in the code.
+
+    None of them is visible before consent. HighLevel grants what it recognises
+    and says nothing about the rest, so a made-up name is silently dropped --
+    and the worst of the three was also the string hub/suite_accounts.py gated
+    the Social Planner push on, which would have reported "not granted" for
+    ever, including after a consent that granted the real scope.
+
+    Advisory rather than blocking: AVAILABLE is a snapshot of a list HighLevel
+    publishes no endpoint for and extends as it ships features, so a name
+    missing from it means "not in the list we captured", never "does not
+    exist". A finding is a prompt to re-read the console, not a broken build.
+    """
+    try:
+        from . import ghl_scopes
+    except Exception:                               # noqa: BLE001
+        return []
+    return [{
+        "file": "hub/ghl_scopes.py", "module": "hub",
+        "detail": f"{name!r} is requested but is not in the scope list captured "
+                  f"from HighLevel's console on {ghl_scopes.AVAILABLE_CAPTURED}. "
+                  "A name HighLevel does not recognize is dropped at consent "
+                  "without an error.",
+        "fix": "Check the name against the app's scope picker. If HighLevel has "
+               "added it since, add it to AVAILABLE with the new capture date.",
+    } for name in ghl_scopes.unknown_requested()]
+
+
+
 CHECKS = [
+    ("ghl_scope_names", "A GHL scope name the console does not list", "medium",
+     check_ghl_scope_names),
     ("ghl_scope_coverage", "A GHL write with no scope declared for it", "high",
      check_ghl_scope_coverage),
     ("pdf_resource_type", "PDF uploaded as an image type", "high", check_pdf_resource_type),

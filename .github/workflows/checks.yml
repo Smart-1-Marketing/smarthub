@@ -1600,3 +1600,54 @@ jobs:
       # google_access is the one the panel itself marks client-facing.
       - name: The Suite install, and the callback the panel promises
         run: python3 test_ghl_oauth.py
+      # hub/seo_tasks.py raises the web tickets that get schema, FAQs and blog
+      # posts onto a client's live site, and its docstring opens by forbidding
+      # exactly what it did: "It must never create the same ticket twice ... A
+      # queue that fills with duplicates is a queue people stop reading." The
+      # dedupe key was the raw URL while the title beside it was _short(), so
+      # the module already knew how to reduce a URL to a page and used that
+      # only for what somebody reads. Five ordinary spellings of one page --
+      # trailing slash, www, http, query string -- raised five tickets, four
+      # with an identical title. An http -> https migration would have
+      # duplicated the whole book in one pass.
+      - name: One page, however its URL was written
+        run: python3 test_seo_tasks.py
+      # hub/ghl_blog.py publishes a client's llms.txt into Suite as a blog
+      # post -- a public URL on somebody's blog -- and read GHL_COMPANY_ID as
+      # a location fallback. On this deployment that holds the company id, and
+      # a companyId used as a locationId addresses the AGENCY: the client's
+      # document went to the agency's own blog, under the agency's domain,
+      # created successfully because that location has a real blog with real
+      # authors and categories. hub/ghl_contacts.py documents this at length
+      # and hub/suite_opportunity.py was fixed for it; this was the third.
+      # Beside it: slug_taken() answered False when it could not look, which
+      # is what silently disabled the guard against two files describing one
+      # client -- and check_access() never tested that scope; a blog id naming
+      # nothing fell through to blogs[0]; and the URL was built from the slug
+      # we asked for rather than the one Suite assigned.
+      - name: companyId is not locationId, for the third time
+        run: python3 test_ghl_blog.py
+      # hub/audit_summary.py grounds every dollar figure in the two paragraphs
+      # a prospect reads at the top of their own website audit, which is right
+      # — the alternative is a model inventing what somebody spends. It
+      # compared the formatted string, so the measured figure re-typed without
+      # its comma came back as invented. The whole summary is then discarded,
+      # the report renders nothing, the `why` is read by no template, and
+      # for_scan() stores the refusal because it "will not change on the next
+      # view" — true of a real refusal, false of this one. One dropped comma
+      # cost that audit its opening paragraphs permanently.
+      - name: A measured figure, re-typed, is not an invented one
+        run: python3 test_audit_summary.py
+      # hub/blog_images.py names a post's Cloudinary object after its TITLE,
+      # with overwrite=True — and hub/seo.py tops a short plan up from six
+      # fallback titles and cycles them, so twelve posts a month holds each
+      # twice, verbatim. Post 3's featured image became post 9's picture, at
+      # one URL, in the store, the gallery and on the client's live site.
+      # Beside it: a badge counting archived posts the working list no longer
+      # shows, amber for ever with no row to click; a 3 MB hero filed at full
+      # size in silence when Pillow could not read it; a pending image the
+      # completeness audit offered as an unattached asset, which is exactly
+      # what the pending/ folder exists to prevent; and a gallery folder
+      # assigned after the save, so it reached the browser and never the disk.
+      - name: One image per post, and a badge you can act on
+        run: python3 test_blog_images.py

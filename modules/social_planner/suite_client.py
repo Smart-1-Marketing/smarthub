@@ -7,7 +7,7 @@ the shape Suite expects and hands it over.
 
 ## Why the CSV is still the default path
 
-Pushing needs `social-media-posting.write` on the marketplace app, and
+Pushing needs `socialplanner/post.write` on the marketplace app, and
 **requested is not granted**. HighLevel grants the scopes it recognises at
 consent and says nothing about the rest, so a Suite connection that reports
 Connected can be missing this scope entirely and every push 401s later looking

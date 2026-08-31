@@ -149,6 +149,15 @@ _DOOH_COMMON: dict[str, Any] = {
     "formats": ["jpg", "jpeg", "png", "mp4", "html5"],
 }
 
+# The kit publishes nine: "MPG (MPEG-2 / MPEG-4) preferred, plus MOV, MP4,
+# WEBM, ProRes, DNxHR, CineForm, HEVC". Named once because every YouTube unit
+# takes the same list, and carried whole because a master delivered as ProRes
+# -- which is what a finishing house hands over -- was refused by a checker
+# that knew five of them. That is the ceiling failure this module keeps
+# recording, wearing a codec.
+_YOUTUBE_FORMATS = ["mpg", "mpeg", "mp4", "mov", "webm",
+                    "prores", "dnxhr", "cineform", "hevc"]
+
 UNITS: list[dict[str, Any]] = [
     # ---- Desktop display -------------------------------------------------
     {"id": "leaderboard", "channel": "desktop_display", "name": "Leaderboard",
@@ -191,27 +200,72 @@ UNITS: list[dict[str, Any]] = [
      "size": (300, 250), **_DISPLAY_COMMON},
     {"id": "mobile_html5", "channel": "mobile_display", "name": "HTML5 package", **_HTML5},
 
-    # ---- Tablet display --------------------------------------------------
-    # The kit publishes no tablet section. These four are house guidance --
-    # the desktop weights against tablet dimensions -- and are marked as such
-    # rather than left to read as transcribed, which is the rule
-    # `HOUSE_LEGIBILITY` in services/abcd_service.py works to.
-    {"source": "house", "id": "tablet_rectangle", "channel": "tablet_display", "name": "Tablet Rectangle",
-     "size": (300, 250), **_DISPLAY_COMMON},
-    {"source": "house", "id": "tablet_leaderboard", "channel": "tablet_display", "name": "Tablet Leaderboard",
-     "size": (728, 90), **_DISPLAY_COMMON},
-    {"source": "house", "id": "tablet_interstitial", "channel": "tablet_display", "name": "Tablet Interstitial",
-     "size": (1024, 768), **_DISPLAY_COMMON},
-    {"id": "tablet_html5", "channel": "tablet_display", "name": "HTML5 package", **_HTML5},
+    # ---- Tablet display: retired -------------------------------------------
+    # These four were house guidance -- desktop weights against tablet
+    # dimensions -- carried because the kit published no tablet section. The
+    # 2026 kit does now, in one sentence under Native Display: "Tablet Display
+    # retired as a category -- IAB removed device-class ad units. 300x250 and
+    # 728x90 serve on tablet as the same units." They are in RETIRED_UNITS.
 
-    # ---- Native display --------------------------------------------------
-    {"id": "native_image", "channel": "native_display", "name": "Native Image",
-     "kind": "image", "size": (1200, 628), "max_bytes": 750 * KB,
+    # ---- Native display ----------------------------------------------------
+    # Transcribed against the 2026 kit, which is per platform: The Trade Desk
+    # and Google Demand Gen declare different sizes and different character
+    # limits for the same asset, because OpenRTB Native 1.2 sets none and each
+    # seller declares its own. The kit's instruction is to "build to the
+    # strictest platform in the plan", so that is what each field carries and
+    # the looser platform is named in the notes.
+    #
+    # The old `headline: (15, 55)` / `description: (25, 120)` is quoted by the
+    # kit's own update note as the thing that is wrong -- "character limits
+    # are per-platform, not a single 15-55 / 25-120 range" -- so a client was
+    # being told a headline of 55 was fine where The Trade Desk takes 25.
+    {"id": "native_image", "channel": "native_display", "name": "Main image",
+     "kind": "image", "size": (1200, 627), "max_bytes": 750 * KB,
      "formats": ["gif", "jpg", "jpeg", "png"],
-     "text": {"headline": (15, 55), "description": (25, 120)}},
-    {"id": "native_logo", "channel": "native_display", "name": "Brand Logo",
-     "kind": "image", "size": (200, 200), "max_bytes": 750 * KB,
-     "formats": ["gif", "jpg", "jpeg", "png"]},
+     # Strictest wins: TTD's 25-character short title against Demand Gen's 40.
+     "text": {"short_title": 25, "long_title": 90,
+              "short_description": 90, "long_description": 140},
+     "notes": ["The Trade Desk publishes 1200x627 (1.91:1).",
+               "Google Demand Gen requires 1.91:1, 1:1 and 4:5 — all three, "
+               "not a choice between them.",
+               "Character limits are declared per seller per placement. "
+               "These are the strictest in the plan: Demand Gen allows a "
+               "40-character short title, and publishes no long description.",
+               "1:1 and 4:5 are first-class native ratios now rather than "
+               "optional extras."]},
+    {"id": "native_logo", "channel": "native_display", "name": "Brand logo",
+     "kind": "image", "size": (200, 200), "max_bytes": 150 * KB,
+     "formats": ["gif", "jpg", "jpeg", "png"],
+     "notes": ["The Trade Desk publishes 200x200 (1:1).",
+               "Google Demand Gen takes 1:1 and 4:1, capped at 150 KB — the "
+               "stricter of the two weights, so it is the one carried."]},
+    # Two asset fields the kit publishes that nothing here ever asked for. A
+    # native ad renders them; a client who is not asked simply does not supply
+    # them, and whoever traffics the campaign types something in.
+    {"id": "native_business_name", "channel": "native_display",
+     "name": "Business name", "kind": "text", "text": {"total": 25},
+     "notes": ["Google Demand Gen only; The Trade Desk publishes no business "
+               "name field."]},
+    {"id": "native_cta", "channel": "native_display",
+     "name": "Call to action", "kind": "text", "text": {"total": 15},
+     "notes": ["The Trade Desk only; Google Demand Gen publishes no CTA "
+               "character limit.",
+               "New in the 2026 kit."]},
+    {"id": "native_html5", "channel": "native_display",
+     "name": "HTML5 package", "kind": "package", "formats": ["zip"],
+     "max_bytes": 300 * KB,
+     "notes": ["Raw HTML5 files zipped, or a third-party ad tag.",
+               "Initial-load weight is platform-specific: The Trade Desk "
+               "allows 300 KB initial load, 200 KB recommended. Display & "
+               "Video 360 allows 5 MB total download across at most 100 "
+               "files, measured gzipped across font, image, audio, video, "
+               "CSS and HTML combined.",
+               "The IAB caps file requests at 10 during initial load; DV360 "
+               "permits up to 100 HTTP calls per ad. Unlimited after user "
+               "interaction.",
+               "Clicks must open in a new window or tab.",
+               "Must not use any element designed to misleadingly generate a "
+               "click, and must not lead to malware, spyware or viruses."]},
 
     # ---- Video -----------------------------------------------------------
     {"id": "standard_video", "channel": "standard_video", "name": "Standard Video",
@@ -235,7 +289,7 @@ UNITS: list[dict[str, Any]] = [
     # third transcription of four to run that way.
     {"id": "youtube_trueview", "channel": "youtube",
      "name": "Skippable in-stream", "kind": "video",
-     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      # No duration: the kit publishes "no maximum, under 3:00 recommended",
      # and a ceiling invented from the recommendation would refuse a cut the
@@ -255,7 +309,7 @@ UNITS: list[dict[str, Any]] = [
                "for the campaign type."]},
     {"id": "youtube_nonskippable", "channel": "youtube",
      "name": "Non-skippable in-stream", "kind": "video",
-     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      "duration": (7, 30),
      "notes": [":07 to :15 is standard; :16 to :30 runs on CTV.",
@@ -263,13 +317,13 @@ UNITS: list[dict[str, Any]] = [
                "cut over :30 is a reservation buy rather than a free choice.",
                "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_bumper", "channel": "youtube", "name": "Bumper",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      "duration": (0, 6),
      "notes": ["Non-skippable.",
                "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_in_feed", "channel": "youtube", "name": "In-feed video",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      "text": {"headline": 40, "description": 35},
      "notes": ["Formerly TrueView Discovery.",
@@ -278,14 +332,14 @@ UNITS: list[dict[str, Any]] = [
                "JPG, GIF or PNG.",
                "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_shorts", "channel": "youtube", "name": "YouTube Shorts",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "ratios": [(9, 16)], "max_bytes": 256 * GB, "duration": (0, 180),
      "notes": ["The feed shows the first :60 only; under :60 recommended.",
                ":06 to :60 in Video Reach campaigns, :10 to :30 for action.",
                "CTA overlay copy: headline 40, description 90, channel "
                "description 90."]},
     {"id": "youtube_masthead", "channel": "youtube", "name": "Masthead",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "size": (1920, 1080), "max_bytes": 256 * GB,
      "notes": ["Any length; over :10 recommended.",
                "Companion banner 300x60, 5:1, under 150 KB — desktop only.",
@@ -751,6 +805,31 @@ RETIRED_UNITS = [
      "kind": "image", "retired": "The kit specs TikTok images by ratio now, "
                                  "and 1200x628 survives only as the "
                                  "horizontal Carousel Ads option."},
+    # The IAB removed device-class ad units, so there is no tablet unit to
+    # ask for -- 300x250 and 728x90 serve on tablet as the desktop units the
+    # client has already supplied. Out of UNITS so nothing asks twice, still
+    # in BY_ID so a row carrying `unit_tablet_rectangle` resolves.
+    {"id": "tablet_rectangle", "channel": "tablet_display",
+     "name": "Tablet Rectangle", "kind": "image",
+     "retired": "Tablet Display is retired as a category — the IAB removed "
+                "device-class ad units. Superseded by Medium Rectangle "
+                "(300x250), which serves on tablet as the same unit."},
+    {"id": "tablet_leaderboard", "channel": "tablet_display",
+     "name": "Tablet Leaderboard", "kind": "image",
+     "retired": "Tablet Display is retired as a category — the IAB removed "
+                "device-class ad units. Superseded by Leaderboard (728x90), "
+                "which serves on tablet as the same unit."},
+    {"id": "tablet_interstitial", "channel": "tablet_display",
+     "name": "Tablet Interstitial", "kind": "image",
+     "retired": "Tablet Display is retired as a category — the IAB removed "
+                "device-class ad units, and 1024x768 has no replacement. It "
+                "was the one tablet size that did not dedupe against a "
+                "desktop unit, so it was the extra file every display "
+                "requirement asked for."},
+    {"id": "tablet_html5", "channel": "tablet_display",
+     "name": "HTML5 package", "kind": "package",
+     "retired": "Tablet Display is retired as a category. The desktop and "
+                "mobile HTML5 packages are the same ask."},
     {"id": "tiktok_profile", "channel": "tiktok", "name": "Profile Image",
      "kind": "image", "retired": "Custom Identity is being retired — from "
                                  "January 2026 the avatar is inherited from "
@@ -877,9 +956,12 @@ _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     (r"signage|out of home|\bdooh\b|billboard", ["dooh"]),
     (r"e-?mail|admail", ["email"]),
     (r"online video|pre-?roll|\bvideo\b", ["standard_video"]),
+    # No tablet: the IAB removed device-class ad units and the kit retired the
+    # category. Left here it would name a channel with no unit behind it, and
+    # `required_units()` reports that as "the spec kit maps no unit for this"
+    # -- a warning about our own dangling entry, printed at the client.
     (r"display|programmatic|retarget|geo-?fenc|location lookback|"
-     r"ip target|data targeted", ["desktop_display", "mobile_display",
-                                  "tablet_display"]),
+     r"ip target|data targeted", ["desktop_display", "mobile_display"]),
     (r"mobile", ["mobile_display"]),
 ]
 
@@ -934,10 +1016,11 @@ _KIT_SECTIONS = {"desktop-display": "desktop_display",
 # reaching the line as a bare name, running the other way: here the shape is
 # all that arrives and the *name* is what went missing.
 #
-# `tablet_display` is ours rather than the kit's -- the kit publishes no
-# tablet section, which is why those four units carry `source: "house"` --
-# and it is the same shape as the two display sections beside it.
-SIZE_SET_CHANNELS = frozenset(_KIT_SECTIONS.values()) | {"tablet_display"}
+# It was `| {"tablet_display"}` for one release, described here as "ours
+# rather than the kit's, because the kit publishes no tablet section". The
+# 2026 kit publishes one sentence about it and that sentence retires the whole
+# category, so there is no tablet channel left to fold.
+SIZE_SET_CHANNELS = frozenset(_KIT_SECTIONS.values())
 
 # ...and that sentence covered three sections of twenty-three while the check
 # answered "no drift", which is a clean bill of health about seven per cent of
@@ -1029,12 +1112,26 @@ _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
 # the way `help_audit.demo_targets()` lists its 55 steps rather than failing
 # the build on them. Each is a client being asked for a format under a name
 # its platform has changed or dropped.
-_KIT_NAMES_PENDING = {
-    "native_display": "the kit's asset list is per-platform (The Trade Desk "
-                      "and Google Demand Gen) and names 8 assets to our 2. "
-                      "Its first column is a field to supply rather than a "
-                      "format to buy, so it is a different transcription "
-                      "from the four above rather than more of the same",
+_KIT_NAMES_PENDING: dict[str, str] = {}
+
+# Transcribed against 2026, and still outside the name pass, with the reason.
+# That is a different state from either of the two above and needs saying:
+# left in _KIT_NAMES_PENDING it would claim a 2025 transcription that is no
+# longer there, and added to _KIT_NAME_CHECKED it would report a finding that
+# is not one.
+#
+# Native display's first column is an *asset* rather than a format -- half its
+# rows are character limits, which this module carries on the main image
+# rather than as units of their own -- and the section publishes HTML5
+# packaging under its own heading, outside the table the parser reads. So the
+# name pass would report our HTML5 package unit as a format the kit does not
+# sell, which is the crying wolf `UNCHECKED` exists to avoid.
+_KIT_NAMES_UNCHECKABLE = {
+    "native_display": "the section's table is an asset list, not a format "
+                      "list — four of its eight rows are character limits "
+                      "carried on the main image, and the HTML5 package the "
+                      "section also publishes sits outside that table, so "
+                      "the name pass would report it as drift",
 }
 
 
@@ -1123,7 +1220,9 @@ def kit_coverage() -> dict:
     if error:
         return {"measured": False, "error": error, "sections": 0,
                 "checked": [], "unread": [], "not_modelled": [],
-                "undeclared": [], "stale": []}
+                "undeclared": [], "stale": [],
+                "names_checked": [], "names_pending": {},
+                "names_unchecked": {}}
     modelled = {e["id"] for e in _KIT_NOT_MODELLED}
     declared = set(_KIT_SECTIONS) | set(_KIT_UNREAD) | modelled
     return {
@@ -1144,6 +1243,11 @@ def kit_coverage() -> dict:
         # as an absence.
         "names_checked": sorted(_KIT_NAME_CHECKED.values()),
         "names_pending": dict(sorted(_KIT_NAMES_PENDING.items())),
+        # Transcribed, and outside the name pass for a stated reason. Neither
+        # a backlog nor a clean bill: a third state, because it is the one a
+        # reader would otherwise infer wrongly from the absence of the other
+        # two.
+        "names_unchecked": dict(sorted(_KIT_NAMES_UNCHECKABLE.items())),
     }
 
 

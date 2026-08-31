@@ -1645,6 +1645,63 @@ returns one number hides the two that failed, the rule
 rather than a branch of `attach()`: there is no store row to update, and the
 absence of one is the finding.
 
+**And the tile on the dashboard read that refusal as four noughts.**
+`build_audit()` computes `measured` for exactly this, and the report page
+draws it — while `scorecard()`, which copies eleven keys out of the same audit
+for the dashboard card, dropped it. So a morning where the client list refused
+drew **0 · 0 · 0 · 0** above System status: every client up to date on
+creative, in four confident zeros, with `/qa/stale-creative` one click away
+saying *Not measured*. Two screens answering one question differently, which
+is the trap `by_client()` avoids one function later by returning a pair.
+
+The card's own note says it fails quietly so the dashboard never goes down
+when it cannot load — right about a fetch that fails, and exactly what made
+this invisible, because **this fetch succeeds**. It draws dashes and names
+which half refused now, since the client list refusing and every creative
+store refusing are different outages; and it stays *visible*, because a card
+that hides itself cannot be told from one that had nothing to report.
+`test_qa_reports.py` sweeps every `_scorecard_*.html` that fetches for the
+same branch, with an exemption list that is **empty** — every card on
+`dashboard.html` already branches on `measured`, and this partial was the one
+outlier.
+
+**And a section heading was a client in the CSV.** Two spellings of "this
+row is a heading" on one page: `active_clients`, `prospect_queue` and the
+upsell report mark the **cell** `{"group": true, "tone": …}` and the renderer
+draws a coloured band; `no_gtm` wrote a bare string and marked the **row**
+`row_styles="sub"`, which draws grey text. Same concept, two treatments, two
+reports apart — and neither of them legible to the **export**, which wrote all
+eight of this page's headings out as data. Active Clients downloaded as 154
+rows for a book of 151, three of them named *"Ending this month (15)"* with
+every other column blank, in the file somebody takes to a meeting.
+
+Dropping them is not the fix either, because on two of those reports the band
+**is** the finding — *"Never audited"*, *"No website on file, so nothing to
+audit"* — so a heading thrown away loses the only thing its rows say. The band
+is lifted into a **Group** column and the heading row is not written, so
+nothing is lost and the count matches the note.
+
+**A heading carries a label and nothing else, and that distinction is what
+kept the totals.** The Scorecards mark their **TOTAL** row `group` too — it
+wants the same band on screen — so reading the marker alone drops the one row
+somebody downloads that CSV for. `isGroupRow()` requires the rest of the row
+to be empty, and it is the **one** reading of what a heading is, used by the
+export and available to the renderer, because this page carried two spellings
+already and neither reached the file. It is lifted out of the template and
+driven in **node** against every report's real payload, the arrangement
+`test_menu_layout.py` uses over `hub-crumbs.js`.
+
+**A row with a cell no column names.** The renderer writes one `<th>` per
+entry in `columns` and one `<td>` per cell, so `no_dashboards`' six cells
+against five headings put its Add-dashboard button under the heading belonging
+to the value on its left — and the CSV export, which writes `columns` as its
+header row and the cells beneath it, gave every row an unlabelled trailing
+field. The two functions that also emit an action cell head it `""`, which was
+the fix already sitting two functions away. Both invariants are sweeps now:
+one cell per heading on every report, and a handler on the page for every
+action a row puts on a button — a button with no branch does nothing, which on
+a report is indistinguishable from one that failed silently.
+
 **A QA report is named for its finding, not its process.** "Image Audit" tied
 with Image Creator on the bare query `image` and took the top slot off it —
 `search_index` breaks an equal score alphabetically, so a name is a ranking
@@ -1704,6 +1761,42 @@ and requires every `seo`/`faq` event to log under a module the record can name.
 The three helper modules beside them (`schema_questions`, `blog_images`,
 `llms_txt`) had been logging under `seo` the whole time, so the section was
 filing half its output as a deliverable and half as housekeeping.
+
+**And the tickets that carry that work to the site deduped on the string
+rather than the page.** `hub/seo_tasks.py` opens by forbidding exactly what it
+did — *"It must never create the same ticket twice … A queue that fills with
+duplicates is a queue people stop reading"* — and then keyed on the **raw
+URL** while the title beside it was `_short()`. So the module already knew how
+to reduce a URL to the page a person means, and used that only for what
+somebody reads:
+
+    https://acme.com/services          Add schema markup to /services
+    https://acme.com/services/         Add schema markup to /services
+    http://acme.com/services           Add schema markup to /services
+    https://www.acme.com/services      Add schema markup to /services
+
+Four tickets, one page, identical titles — unreadable *as* duplicates, which
+is what made them worse than noisy. The URLs arrive from a crawled sitemap or
+a list posted by the browser, so trailing-slash and www variation between a
+crawl and a typed entry is ordinary, and an **http → https migration would
+have duplicated the whole book in one pass**.
+
+`page_key()` is the canonical form: **host and path**, because the store is
+per client and a client with two domains would otherwise collide on
+`/services`; query and fragment dropped, since `?utm_source=x` is the same
+page to somebody adding schema to it. The **path keeps its case and the host
+does not** — a hostname is case-insensitive by specification and a path
+genuinely is not, and merging `/Services` with `/services` would silence a
+ticket for a page that never gets its schema. A duplicate is noise in a queue;
+an absence is work that never reaches the site, so the tie breaks toward the
+duplicate.
+
+**And every key already on disk is a raw URL.** Reading only the canonical one
+would make each of them invisible and raise a second ticket for everything
+already ticketed — a migration wearing a bug fix. `already()` matches the old
+spelling as well, the rule `audit.LOG_NAMES` and `video_library.TAG_ALIASES`
+already work to, and new records are written canonically so the fallback walk
+is for old rows rather than the normal path.
 
 **An editor rebuilt underneath somebody loses what they typed.** Two on the
 SEO client record: the alt-text list and the FAQ draft. Both are a container
@@ -3722,6 +3815,33 @@ that fires on every social spot). A figure is allowed when it is one we
 measured and refused when it is not: the grounding rule applied to a number
 instead of a name.
 
+**And it compared the string, so the measured figure came back as an invented
+one.** `$2,400` in the facts and `$2400` in the summary are the same amount and
+were two different strings, so a model that merely re-typed a figure it had
+been handed — which is what a model does with a figure — was reported as having
+invented it. `$2,400.00` went the same way. Every consequence below is correct
+on its own and they compound: the **whole summary is discarded** rather than
+patched, the report **renders nothing** because `widget_audit_report.html`
+guards on `summary.text`, the `why` explaining it is read by **no template**,
+and `for_scan()` **stores the refusal** on the stated reasoning that it "will
+not change on the next view" — which is true of a real refusal and false of
+this one. So one dropped comma cost that prospect's audit its opening
+paragraphs *permanently*, for them and for every rep who opened the link, with
+the only record in a JSON blob nothing reads.
+
+Compared as an **amount** now, and the rule is not loosened anywhere: an
+amount nobody measured is still refused, a figure that cannot be parsed is
+still refused rather than passed as measured, and **rounding is still not
+tolerated** — `$2,437` written as `$2,400` is a different amount on a document
+about somebody's money. What is **reported rather than fixed** is that a
+genuine discard is invisible to everybody: `why` reaches no screen, and there
+is no staff view of the summary to put it on, so building one is a feature
+rather than this fix. And `_forbidden()` enforces a discount, a promise, a
+guarantee, a timeline and our own name — **not** product names, which the
+prompt asks for and nothing checks, because a list of product names has to
+match ordinary English ("local listings", "display") and a false positive
+there discards a correct summary, which is the failure being undone here.
+
 **One call per audit, ever.** `for_scan()` writes on the first open and reads
 thereafter — a prospect refreshing, a rep checking the link and the mailed copy
 opened on a phone are three views of a paragraph that cannot have changed.
@@ -4508,6 +4628,18 @@ uncalled and a check matching text reports the fix as the defect; it resolves
 a module's own `log()` wrapper, the shape `check_work_kinds()` had to learn;
 and it is handed a silent route and required to name it.
 
+**And a wrapper is resolved from its definition, not guessed from its name.**
+The walk hard-coded `_audit` and `log`, which was two modules' spelling and not
+a rule. `modules/seo_images` calls its wrapper `_log`, so a module recording
+five of its seven writes read as recording **none** — a check inventing seven
+findings, which is switched off faster than one that misses them. Worse, the
+same blindness had already produced a **wrong exemption**: Google Finder's
+`api_ga4_ask` logs through `_audit_mod.log(...)`, the walk could not see a
+caller of that name, and it was duly declared as a route that records nothing.
+An exemption covering a call site that never needed one. A wrapper is any
+function in the file that itself reaches the shared logger, however spelled,
+and the both-directions rule is what caught the stale entry.
+
 **A route that writes without a write method is named rather than missed.**
 Google redirects the browser to `oauth_callback`, so it is a `GET` by protocol
 and a method-based walk cannot classify it — while what it does is store a
@@ -5168,9 +5300,67 @@ in-stream is what TrueView was and `tags_for()` has written
 `unit_youtube_trueview` onto delivered creative: the rule `billboard` follows
 from the IAB retiring the Rising Stars name.
 
-`native_display` is the one left pending, and the note now says **why it is a
-different job** rather than more of the same: its first column is a field to
-supply (Main image, Brand logo, Short title…) rather than a format to buy.
+**Native display was that different job, and it is done.** Its first column
+is an *asset* rather than a format, and OpenRTB Native 1.2 sets no character
+limits at all — each seller declares its own per placement — so the kit
+publishes The Trade Desk and Google Demand Gen side by side and says to
+**build to the strictest platform in the plan**. That is what each field
+carries, with the looser platform named in the notes rather than lost: a
+25-character short title because The Trade Desk publishes 25 where Demand Gen
+allows 40, and a 150 KB logo because Demand Gen caps there where The Trade
+Desk does not.
+
+The 2025 model held two units and a single `headline: (15, 55)` /
+`description: (25, 120)` range — which the kit's own update note quotes as the
+thing that is wrong, *"character limits are per-platform, not a single 15–55 /
+25–120 range"* — so a client was told a 55-character headline was fine on a
+platform that takes 25. **Business name** and **call to action** are asset
+fields a native ad renders and nothing here had ever asked for, and the HTML5
+package the section publishes was absent too.
+
+**And that section is where the kit retires a whole category of ours.** One
+sentence under Native Display: *"Tablet Display retired as a category — IAB
+removed device-class ad units. 300x250 and 728x90 serve on tablet as the same
+units."* Four house units here modelled it, and two of them asked a client a
+second time for a file they had already supplied. The third is the one that
+showed: **`tablet_interstitial` at 1024x768** was on every display
+requirement, because 300x250 and 728x90 dedupe against their desktop twins in
+the size run and 1024x768 does not — an extra file, for a placement nobody
+sells inventory for. All four are in `RETIRED_UNITS`, and the **channel is
+unwired from the product map as well as emptied**: named there with no unit
+behind it, `required_units()` reports *"the spec kit maps no unit for this"* —
+a warning about our own dangling entry, printed at the client.
+
+**A third state, because two would have been a lie either way.** Native
+display is transcribed against 2026 and still cannot join `kit_name_drift()`:
+four of its eight rows are character limits carried on the main image rather
+than units, and the HTML5 package sits under its own heading outside the table
+the parser reads, so the name pass would report our own unit as a format the
+kit does not sell. Left in `_KIT_NAMES_PENDING` it would claim a 2025
+transcription that is no longer there; added to `_KIT_NAME_CHECKED` it would
+report a finding that is not one. `_KIT_NAMES_UNCHECKABLE` is the third
+answer, with the reason, and `kit_coverage()` carries all three.
+
+**And the branch that answers when the page cannot be read was missing
+them.** `kit_coverage()`'s not-measured return carried no `names_*` keys at
+all, so a caller reading one — `test_proposal_spec.py` does — would raise on
+the one day the check exists for, rather than reporting that nothing was
+measured. Both branches answer with the same keys now, asserted.
+
+**And a codec list is a ceiling too.** That transcription carried five of the
+nine formats the kit publishes — *"MPG (MPEG-2 / MPEG-4) preferred, plus MOV,
+MP4, WEBM, ProRes, DNxHR, CineForm, HEVC"* — so a **ProRes master, which is
+what a finishing house hands over**, was still refused by the checker. The
+same shape as the 10 MB ceiling it had just replaced, one field along, and
+invisible for the same reason: five real formats look like a complete list.
+`_YOUTUBE_FORMATS` is named once, because every YouTube unit takes the same
+nine and two hand-typed copies is how one of them comes to be missing HEVC.
+
+**A run of nine codecs is the wall the sizes rule already exists for.**
+Printed once per unit across a six-unit buy, on the line a client reads, it
+buries everything else on it. `_describe_unit()` prints five whole — which is
+every other unit in the kit — and past that says how many more, rather than
+pretending the list is all of them.
 
 **What did not move is the rate card.** It sells products called *TrueView*
 and *TrueView - Targeted* — product names on an invoice rather than format
@@ -7590,6 +7780,129 @@ someone rewrites it. It strips the HTML first: scanning raw markup matched
 `class="guarantee-band"` and flagged a post whose copy never said it. The free
 guidance box still goes to the model unchecked, because most of it is context —
 how they operate, what they are licensed for, how the warranty works.
+
+## A featured image named after a title two posts share
+
+`hub/blog_images.py` generates the image every blog post needs before it can
+be published, holds it `pending` until a person looks at it, and files the
+approved one into the client's gallery. It named the Cloudinary object after
+the post's **title**, with `overwrite=True` and `unique_filename=False` — and
+a title is chosen by a model and is not unique. That is not a coincidence to
+guard against: `hub/seo.py` tops a short plan up from a list of **six**
+fallback titles and **cycles** it, so a client on twelve posts a month gets
+each of those titles twice, verbatim, in one plan. Both posts then generate
+into one object. **Post 3's featured image becomes post 9's picture** — at
+the same URL, in the store, in the client's gallery and on their live site —
+and approving the second overwrote the first's approved, filed copy as well.
+A long title reached the same collision through the 60-character truncation.
+Nothing errors at any point: two posts, one perfectly good photograph.
+
+The post id is unique by construction and was already being written into the
+upload context, so `image_name()` puts it in the name. **Nothing is re-keyed**
+— every existing row carries its own `public_id` and `_promote()` and
+`_file_in_gallery()` read that rather than deriving one, so a post with no id
+falls back to exactly the old spelling: the rule `audit.LOG_NAMES` and
+`video_library.TAG_ALIASES` already work to.
+
+**A badge counting posts the list no longer shows.** `/api/seo/blogs` filters
+`archived` out of the working list and says so in a comment directly above the
+filter; `status()` did not, and its number is drawn as a badge on a Blogs
+section that is **collapsed by default** — the one signal that says somebody
+needs to look at these. Archiving a post with a pending image left *"1 image
+to approve"* above a table with no row to click, amber for ever with nothing
+anywhere to clear it: two readings of which posts are in play, disagreeing on
+one screen, which is the `/api/db/structure` versus `/api/integrity` trap
+wearing a badge. What leaves the badge is **counted rather than dropped** —
+that post's file is still sitting in `pending/` and nobody is going to approve
+it — because a badge that quietly gets shorter cannot be told from one that
+failed to load.
+
+**A 3 MB hero, filed in silence.** `_optimise_bytes()` returns nothing at all
+when Pillow cannot read the bytes and `staged or raw` fell back to the
+original, which is right — an image nobody can shrink is still the image.
+Saying nothing was not: this module's own docstring calls a 3 MB PNG *"a Core
+Web Vitals problem on the very page the post was written to rank"*, and one
+went into the client's gallery with `bytes` recording 3 MB and every screen
+reporting a clean success. `optimised` is on the record now and the note names
+the size, because that is the one number on it somebody would act on.
+
+**And the pending folder's whole purpose was undone by the audit.** Pending
+images live in `seo_images/<client>/Blogs/pending/` *"so an unapproved image is
+never mistaken for a finished asset by anything browsing the gallery"* — and
+`hub/image_audit.reconcile()` lists that tree by prefix like any other, while
+no store it reads had a row for what is in it. So an unapproved image read as
+an **orphan**, on QA → Unattached Images, with a client picker beside it: one
+press files the six-fingered plumber into the client's gallery labelled *"SEO
+images"*. The approved half was safe only by accident, because `file_asset()`
+had already given it a row. `image_audit.STORES` has a reader for the SEO
+stores now, so the audit is told the store has a row rather than the folder
+being quietly skipped — a folder silently left out of a completeness report is
+the same failure the report is about.
+
+**And `gallery_folder` was assigned after the save.** `img` is a reference
+into `store`, so writing to it once `save_store()` had run left the value in
+memory alone: it reached the browser and the next read of the record had never
+heard of it. It saves twice now — once before the gallery write, because a
+gallery that is unavailable must not cost somebody an approval, and once after
+when there is something new to keep.
+
+**`_optimise_and_store()` is deleted rather than left standing.** Sixty-nine
+lines implementing resize-then-convert-then-file, written when approval was
+meant to be the step that optimised; nothing has called it since that work
+moved into `generate()`, and the module's docstring still described its path.
+`test_unwired.py` could never have said so — it skips names beginning with an
+underscore, because a private helper called from inside its own module is the
+ordinary case. `test_blog_images.py` asserts all of it.
+## A client's document, published to the agency's own blog
+
+`hub/ghl_blog.py` publishes a client's llms.txt into Smart 1 Suite as a blog
+post — a public URL on somebody's blog, which is as client-facing as anything
+here gets — and `_location()` fell back to `GHL_COMPANY_ID` /
+`SUITE_COMPANY_ID`. That is the mistake `hub/ghl_contacts.py` spends a section
+of its own docstring on (*"companyId is not locationId"*) and that
+`hub/suite_opportunity.py` was fixed for, and **this was the third module to
+make it**: on this deployment those variables hold the same value as the
+company id, so a companyId went out as a locationId and **the client's
+document was published to the agency's own blog**, under the agency's domain,
+titled with the client's name.
+
+Nothing errors, which is the whole difficulty. The agency location is a real
+location with a real blog, real authors and real categories, so the post is
+created, a URL comes back, and the only sign is that it is the wrong blog. The
+location is its own setting now, and a value matching the company id is
+refused **by name** — *"set to the same value as the agency company id"* and
+*"no location is set"* send somebody to two different places.
+
+**A guard switched off by exactly the failure it was written for.**
+`slug_taken()` swallowed every error and answered `False`, and the caller
+reads `False` as *there is no post at that address*. This module's own
+docstring says a missing scope "produces a 401 from HighLevel that looks like
+a bad token" — and `blogs/check-slug.readonly` is the scope whose absence made
+that answer `False`, so a token missing it silently created the second post
+the guard exists to refuse, the one leaving *"two files claiming to describe
+the same client"* in the comment directly above it. It is tri-state now, and
+the publish still goes ahead: refusing every first-time publish over a missing
+read scope is a check somebody switches off, which is the `QR_CODE_RULES`
+lesson. What changed is that the answer carries `slug_checked` and says the
+check did not run, rather than implying it passed.
+
+`check_access()` did not test that scope either — three of the four readable
+ones, and the missing one was the only one whose failure is silent — so it
+reported a token healthy that would go on to publish duplicates.
+
+**And the link was built from the slug we asked for.** HighLevel suffixes a
+collision rather than refusing, and `urlSlug` comes back on the response and
+was never read: the address handed to somebody as the published one pointed at
+a page that is not there. It reads the assigned slug now and says when the two
+differ. A `blog_id` naming nothing fell through to `blogs[0]` the same way —
+a stale id published a client's document to a different blog on a different
+domain, reporting a clean success — and is refused, naming what is actually
+there. A `domain` field arriving with its own scheme composed
+`https://https://…`, which is a dead link presented as the live one.
+
+`test_ghl_blog.py` asserts all of it, including that no refusal carries the
+token: `BlogError`'s own docstring promises that, and a 401 body from
+HighLevel has carried token fragments before.
 
 ## Publishing is a prompt, not a panel and not a button
 
@@ -10123,6 +10436,10 @@ python3 test_prospect_record.py    # the record a scan produces: four kinds of e
                                    #   could not read, files, and converting
 python3 test_unwired.py            # nothing is defined and left uncalled
                                    #   without a reason written down
+python3 test_audit_summary.py      # the paragraphs a prospect reads: a
+                                   #   measured figure re-typed is not an
+                                   #   invented one, and an amount nobody
+                                   #   measured is still refused
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
@@ -10180,6 +10497,15 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_blog_images.py        # one image per post rather than one per
+                                   #   title, a badge that counts the posts
+                                   #   the list still shows, a hero filed at
+                                   #   full size saying so, and a pending
+                                   #   image the audit knows is not an orphan
+python3 test_seo_tasks.py          # one page, however its URL was written:
+                                   #   the ticket dedupe compared the raw
+                                   #   string while the title beside it was
+                                   #   already canonical
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO
@@ -10279,6 +10605,11 @@ python3 test_client_owners.py      # whose client is this, and what is outstandi
                                    #   not be read named rather than counted
                                    #   as nothing
 python3 test_ghl_scopes.py         # the Suite app's scopes, and the granted-vs-requested diff
+python3 test_ghl_blog.py           # a client's llms.txt published to their
+                                   #   own sub-account rather than the
+                                   #   agency's blog, a duplicate guard that
+                                   #   says when it could not look, and the
+                                   #   address Suite actually assigned
 python3 test_write_attribution.py   # every write into a client's own account
                                    #   has a name against it: in both modules
                                    #   the creating half of a pair was the half
