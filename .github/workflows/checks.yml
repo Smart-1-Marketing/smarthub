@@ -1600,3 +1600,17 @@ jobs:
       # google_access is the one the panel itself marks client-facing.
       - name: The Suite install, and the callback the panel promises
         run: python3 test_ghl_oauth.py
+      # modules/scans is the second largest module in the Hub and the most
+      # client-facing thing in it, and only its placement admin was tested.
+      # Booting the visitor's own path found four. The callback token went
+      # into a query string unencoded, so a `+` came back as a space and every
+      # callback was refused 403 while the row stayed `running` — and the
+      # widget carried its own copy of that URL builder, so the fix would have
+      # landed in two of three. Both poll loops read `ready` and never
+      # `status`, so a run already at `error` or `unconfigured` was polled to
+      # the ceiling and then told it was still running. Two pages promised to
+      # email a report, and there is no mail sender in this Hub. And a second
+      # unlock rewrote the contact on somebody else's run while the lead it
+      # pointed at kept the first name.
+      - name: What a prospect on somebody else's website is told
+        run: python3 test_scan_run.py

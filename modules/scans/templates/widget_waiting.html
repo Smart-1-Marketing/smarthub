@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Your report is on its way</title>
 <meta name="robots" content="noindex" />
-<meta http-equiv="refresh" content="30" />
+{% if not stopped %}<meta http-equiv="refresh" content="30" />{% endif %}
 <style>
   body { margin:0; background:#F3F7FA; color:#25364B; font:16px/1.6 'Segoe UI',system-ui,sans-serif; }
   .wrap { max-width:560px; margin:0 auto; padding:60px 20px; text-align:center; }
@@ -21,16 +21,21 @@
 <body>
 <div class="wrap">
   <div class="card">
-    {% if status == "error" %}
-      <h1>We hit a snag on the deep scan</h1>
-      <p>Your details reached us safely and someone will follow up. Nothing is lost.</p>
+    {#- Which statuses are over is the server's answer, not a spelling
+        matched here: `error` was tested and `unconfigured` was not, so a
+        deployment with no Insites key drew a spinner and a 30-second refresh
+        for ever, on a run where no audit was ever bought. And the page no
+        longer refreshes itself once there is nothing left to wait for. -#}
+    {% if stopped %}
+      <h1>We could not finish the deep scan</h1>
+      <p>{{ message }}</p>
     {% else %}
       <div class="scanwrap">{{ mark.scan_mark("44px", "Building your report") }}</div>
       <h1>Your full report is being built</h1>
       <p>We're checking {{ lead.domain }} against every AI assistant, your Google
         listing, your structured data and 70+ other signals.</p>
-      <p>This page refreshes itself — or close it and open the link in your email
-        when it lands.</p>
+      <p>This page refreshes itself — or keep this link and open it again in a
+        few minutes.</p>
     {% endif %}
   </div>
   <div class="brand">Smart 1 Marketing</div>
