@@ -115,7 +115,7 @@ for path, scope in (("hub/ghl_contacts.py", "contacts.write"),
                     ("hub/ghl_blog.py", "blogs/post.write"),
                     ("modules/image_picker/ghl.py", "medias.write"),
                     ("modules/social_planner/suite_client.py",
-                     "social-media-posting.write")):
+                     "socialplanner/post.write")):
     check(f"{path} is covered by {scope}", scope in names, True)
     entry = ghl_scopes.by_name(scope)
     check(f"{scope} names {path} as a caller",
@@ -123,7 +123,7 @@ for path, scope in (("hub/ghl_contacts.py", "contacts.write"),
 
 check("the eight read scopes the app already runs on are still asked for",
       all(n in names for n in (
-          "locations.readonly", "forms.readonly", "forms/submissions.readonly",
+          "locations.readonly", "forms.readonly",
           "contacts.readonly", "opportunities.readonly", "calendars.readonly",
           "conversations.readonly", "users.readonly")), True)
 
@@ -155,9 +155,9 @@ check("a full grant is known", full["known"], True)
 
 # Drop the one Social Planner is waiting on.
 partial = ghl_scopes.compare(
-    " ".join(n for n in names if n != "social-media-posting.write"))
+    " ".join(n for n in names if n != "socialplanner/post.write"))
 check("the missing scope is listed",
-      partial["missing"], ["social-media-posting.write"])
+      partial["missing"], ["socialplanner/post.write"])
 check("and the feature it costs is named, not just the string",
       any("Social Planner" in f for f in partial["blocked"]), True)
 check("the row is not reported as complete", bool(partial["missing"]), True)
@@ -178,12 +178,17 @@ check("and not in missing_unverified",
 check("the advice is to grant it, not to re-spell it",
       "Marketplace" in missing_known["detail"], True)
 
-missing_guess = ghl_scopes.compare(
-    " ".join(n for n in names if n != "medias.write"))
-check("an unconfirmed string lands in missing_unverified",
-      missing_guess["missing_unverified"], ["medias.write"])
-check("and the advice is to check the spelling first",
-      "wrong" in missing_guess["detail"], True)
+check("every requested scope exists in HighLevel's own console list",
+      ghl_scopes.unknown_requested(), [])
+check("the console list was captured whole", len(ghl_scopes.AVAILABLE), 97)
+# The three names this Hub had wrong until the console list was read. Each
+# would have been caught at the moment it was written.
+for dead in ("social-media-posting.write", "social-media-posting.readonly",
+             "forms/submissions.readonly"):
+    check(f"{dead} is known not to be a real scope", ghl_scopes.known(dead), False)
+    check(f"and is no longer requested", dead in names, False)
+check("the social family uses HighLevel's spelling",
+      ghl_scopes.SCOPE_SOCIAL_WRITE, "socialplanner/post.write")
 
 check("a scope granted but never asked for is surfaced",
       ghl_scopes.compare(" ".join(names) + " snapshots.readonly")["unexpected"],
@@ -244,7 +249,7 @@ from hub import ghl_oauth  # noqa: E402
 
 ghl_oauth._save({
     "access_token": "tok", "refresh_token": "ref", "company_id": "co",
-    "scope": " ".join(n for n in names if n != "social-media-posting.write"),
+    "scope": " ".join(n for n in names if n != "socialplanner/post.write"),
     "expires_at": __import__("time").time() + 3600,
 })
 st = ghl_oauth.status()
