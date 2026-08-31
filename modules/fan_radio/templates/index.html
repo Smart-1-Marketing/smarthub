@@ -269,30 +269,47 @@
   }
 
   /* ---------------------------------------------------- client picker */
-  var sug = null;
+  // Every keystroke fires a fetch and the answers land after later
+  // keystrokes have already run -- on the live service a three-letter query
+  // takes five seconds and a full name one, so the stale answer arrives
+  // LAST. Each resolution used to append its own panel while only the
+  // newest was ever removed, and a click on a stale panel set the value and
+  // then threw on sug.remove(): stacked panels covering the form, swallowing
+  // clicks, with no way to dismiss them. A sequence number drops every
+  // answer but the latest, the panel a click lands in is the one it closes,
+  // and pressing anywhere outside puts the form back.
+  var sug = null, sugSeq = 0;
+  function closeSug(){ if(sug){ sug.remove(); sug = null; } }
   $("client").addEventListener("input", function(){
-    var q = this.value.trim();
-    if(sug){ sug.remove(); sug = null; }
+    var q = this.value.trim(), seq = ++sugSeq;
+    closeSug();
     if(q.length < 2) return;
     api("/api/clients?q=" + encodeURIComponent(q)).then(function(j){
+      if(seq !== sugSeq) return;   // a later keystroke owns the box now
+      closeSug();
       if(!j.clients.length) return;
-      sug = document.createElement("div");
-      sug.className = "sug";
-      sug.innerHTML = j.clients.map(function(c){
+      var panel = document.createElement("div");
+      panel.className = "sug";
+      panel.innerHTML = j.clients.map(function(c){
         return '<div data-n="' + esc(c.name) + '" data-u="' + esc(c.url) + '">'
-          + esc(c.name) + ' <span style="color:#64748b">· ' + (c.products||0)
+          + esc(c.name) + ' <span style="color:#64748b">· ' + esc(c.products||0)
           + ' product(s)</span></div>'; }).join("");
-      $("client").parentNode.appendChild(sug);
-      sug.querySelectorAll("div").forEach(function(row){
+      $("client").parentNode.appendChild(panel);
+      sug = panel;
+      panel.querySelectorAll("div[data-n]").forEach(function(row){
         row.onclick = function(){
           $("client").value = row.getAttribute("data-n");
           if(!$("company").value) $("company").value = row.getAttribute("data-n");
           if(!$("url").value && row.getAttribute("data-u"))
             $("url").value = row.getAttribute("data-u");
-          sug.remove(); sug = null;
+          panel.remove();
+          if(sug === panel) sug = null;
         };
       });
     }).catch(function(){});
+  });
+  document.addEventListener("pointerdown", function(e){
+    if(sug && !sug.contains(e.target) && e.target !== $("client")) closeSug();
   });
 
   /* ------------------------------------------------------------ slots */

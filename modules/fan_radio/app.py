@@ -270,9 +270,17 @@ def api_clients():
             clients_registry.all_clients()[:12]
     except Exception:                                 # noqa: BLE001
         return jsonify({"ok": True, "clients": [], "registry": False})
+    # `products` on a registry row is the LIST of product names --
+    # product_count is the number. Passed through raw, the browser joined
+    # the list into "RETARGETING: Website Retargeting,..." and printed it
+    # where a count belongs.
     return jsonify({"ok": True, "registry": True, "clients": [
         {"name": r.get("name"), "slug": r.get("slug"),
-         "url": r.get("url") or "", "products": r.get("products") or 0}
+         "url": r.get("url") or "",
+         "products": r.get("product_count")
+         if r.get("product_count") is not None
+         else (len(r["products"]) if isinstance(r.get("products"), (list, tuple, set))
+               else r.get("products") or 0)}
         for r in rows]})
 
 
