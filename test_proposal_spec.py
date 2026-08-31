@@ -2167,9 +2167,13 @@ section("A format name is the ask where the kit publishes a format name")
 # judgment: three sections are Unit / Dimensions / weight, and those are the
 # ones where the size is the unit.
 check("the size-set channels are the kit's own Unit/Dimensions/weight ones",
-      cs.SIZE_SET_CHANNELS == {"desktop_display", "mobile_display", "dooh",
-                               "tablet_display"},
+      cs.SIZE_SET_CHANNELS == {"desktop_display", "mobile_display", "dooh"},
       sorted(cs.SIZE_SET_CHANNELS))
+# It carried tablet_display for one release, on the reasoning that the kit
+# published no tablet section so the units were ours. The 2026 kit publishes
+# one sentence about it, and that sentence retires the category.
+check("...and tablet is not among them, because the IAB retired the category",
+      "tablet_display" not in cs.SIZE_SET_CHANNELS)
 
 
 def _req_line(product, category):
@@ -2185,7 +2189,7 @@ for _fmt in ("Image Ads", "Carousel Ads", "Conversation Button",
 
 _nat = _req_line("Native Display", "NATIVE")
 check("native display says which one is the logo",
-      "Brand Logo (200x200" in _nat, _nat[:160])
+      "Brand logo (200x200" in _nat, _nat[:160])
 
 # ...and nothing that was already right moved.
 _disp = _req_line("Run of Network", "DISPLAY")
@@ -2205,6 +2209,125 @@ _snap = _req_line("Snapchat - Paid Social Media Advertising",
 check("and the AR filter is still an addition rather than the whole ask",
       "plus an AR filter" in _snap and _snap.startswith("Single Image Ads"),
       _snap[:120])
+
+
+# ---------------------------------------------------------------------------
+section("Tablet Display is a category the IAB removed")
+# ---------------------------------------------------------------------------
+# Four house units -- desktop weights against tablet dimensions -- carried
+# because the kit published no tablet section. The 2026 kit publishes one
+# sentence about it, under Native Display: "Tablet Display retired as a
+# category — IAB removed device-class ad units. 300x250 and 728x90 serve on
+# tablet as the same units."
+#
+# Two of the four asked a client a second time for a file they had already
+# supplied. The third asked for a 1024x768 nobody sells inventory for -- and
+# it was the one that showed, because 300x250 and 728x90 dedupe against their
+# desktop twins in the size run and 1024x768 does not.
+for _tid in ("tablet_rectangle", "tablet_leaderboard",
+             "tablet_interstitial", "tablet_html5"):
+    check(f"{_tid!r} still resolves by id", _tid in cs.BY_ID)
+    check(f"...and {_tid!r} is not asked of a client",
+          _tid not in {u["id"] for u in cs.UNITS})
+    check(f"...and says why", bool(cs.BY_ID.get(_tid, {}).get("retired")))
+
+_disp_line = _req_line("Run of Network", "DISPLAY")
+check("a display requirement no longer asks for the tablet interstitial",
+      "1024x768" not in _disp_line, _disp_line)
+for _still in ("728x90", "300x250", "160x600", "320x50"):
+    check(f"...and still asks for {_still}", _still in _disp_line)
+
+# The channel had to be unwired as well as emptied. Named in the product map
+# with no unit behind it, required_units() reports "the spec kit maps no unit
+# for this" -- a warning about our own dangling entry, printed at the client.
+_mapped = {c for r in rc.products()
+           for c in (cs.channels_for_product(r.get("product", ""),
+                                             r.get("category", "")) or [])}
+check("no product maps to a channel with nothing behind it",
+      _mapped <= {u["channel"] for u in cs.UNITS},
+      sorted(_mapped - {u["channel"] for u in cs.UNITS}))
+check("and the display requirement carries no not-measured clause",
+      "maps no unit" not in _disp_line, _disp_line)
+
+
+# ---------------------------------------------------------------------------
+section("Native display is eight assets, declared per platform")
+# ---------------------------------------------------------------------------
+# OpenRTB Native 1.2 sets no character limits -- each seller declares its own
+# per placement -- so the kit publishes The Trade Desk and Google Demand Gen
+# side by side and says to build to the strictest in the plan. The 2025 model
+# held one image, one logo and a single 15-55 / 25-120 range, which the kit's
+# own update note quotes as the thing that is wrong.
+_nat_units = {u["name"]: u for u in cs.UNITS
+              if u["channel"] == "native_display"}
+check("the five supplied assets are modeled",
+      set(_nat_units) == {"Main image", "Brand logo", "Business name",
+                          "Call to action", "HTML5 package"},
+      sorted(_nat_units))
+
+_main = cs.BY_ID.get("native_image", {})
+check("the main image is the 1200x627 The Trade Desk publishes",
+      tuple(_main.get("size") or ()) == (1200, 627), _main.get("size"))
+# The strictest platform wins, and the looser one is named rather than lost.
+# .get() throughout: an assertion that raises on the field it is checking
+# takes every check after it out of the run, which is how a bite test comes
+# back as a crash rather than as a finding.
+check("the short title is TTD's 25 rather than Demand Gen's 40",
+      _main.get("text", {}).get("short_title") == 25, _main.get("text"))
+check("the retired single range is gone",
+      not {"headline", "description"} & set(_main.get("text") or {}),
+      _main.get("text"))
+check("...and Demand Gen's looser limit is named rather than dropped",
+      any("40-character" in n for n in _main.get("notes", [])))
+check("Demand Gen's three required ratios are named",
+      any("1.91:1, 1:1 and 4:5" in n for n in _main.get("notes", [])))
+
+_logo = cs.BY_ID.get("native_logo", {})
+check("the logo carries the stricter 150 KB of the two platforms",
+      _logo.get("max_bytes") == 150 * cs.KB, _logo.get("max_bytes"))
+
+# Two fields a native ad renders that nothing here ever asked for, and the
+# HTML5 package the section publishes under its own heading.
+check("the business name is asked for, at Demand Gen's 25",
+      cs.BY_ID.get("native_business_name", {}).get("text", {}).get("total")
+      == 25)
+check("the call to action is asked for, at The Trade Desk's 15",
+      cs.BY_ID.get("native_cta", {}).get("text", {}).get("total") == 15)
+check("the HTML5 package carries The Trade Desk's 300 KB initial load",
+      cs.BY_ID.get("native_html5", {}).get("max_bytes") == 300 * cs.KB)
+
+# Transcribed, and outside the name pass for a stated reason. That is a third
+# state: left in names_pending it would claim a 2025 transcription that is no
+# longer there, and added to names_checked it would report a finding that is
+# not one -- our HTML5 package unit, whose name the section publishes outside
+# the table the parser reads.
+_ncov = cs.kit_coverage()
+check("native display is no longer claimed to be on the 2025 transcription",
+      "native_display" not in _ncov["names_pending"], _ncov["names_pending"])
+check("...and is declared as transcribed-but-unchecked, with a reason",
+      _ncov["names_unchecked"].get("native_display", "").strip() != "",
+      _ncov["names_unchecked"])
+check("...and every such entry names a channel that exists",
+      set(_ncov["names_unchecked"]) <= {u["channel"] for u in cs.UNITS},
+      sorted(set(_ncov["names_unchecked"]) - {u["channel"] for u in cs.UNITS}))
+check("...and no channel is in two of the three states at once",
+      not (set(_ncov["names_checked"]) & set(_ncov["names_unchecked"]))
+      and not (set(_ncov["names_pending"]) & set(_ncov["names_unchecked"])))
+
+# The unmeasured branch answers with the same keys as the measured one. It
+# did not: a page that could not be read returned no names_* keys at all, so
+# a caller reading one raised rather than reporting that nothing was measured.
+_unmeasured = set(cs.kit_coverage())
+_saved_page = cs._KIT_PAGE
+try:
+    cs._KIT_PAGE = _saved_page.with_name("no-such-kit-page.html")
+    _blank = cs.kit_coverage()
+finally:
+    cs._KIT_PAGE = _saved_page
+check("a kit page that cannot be read is not measured",
+      _blank["measured"] is False and _blank["error"])
+check("...and answers with the same keys rather than raising on the caller",
+      set(_blank) == _unmeasured, sorted(_unmeasured ^ set(_blank)))
 
 # A real file still lands on a sensible unit -- Polls carries no media at all
 # and must never be what a file is judged against.

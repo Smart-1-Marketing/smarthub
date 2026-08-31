@@ -2375,8 +2375,15 @@ function renderWork(d){
 
 function renderAnalyticsIds(d){
   var host=document.getElementById('c-analytics-ids'); if(!host||!d) return;
+  /* not_comparable is deliberately neutral rather than red or amber: it is
+     not a finding and there is nothing to act on. Knack holds the G-
+     measurement id and Google reports the numeric property id, which are two
+     names for one property — this used to render as a red "mismatch" on every
+     client whose GA is recorded and reachable, which is the false positive
+     analytics_ids' own docstring says trains people to ignore the warning. */
   var pill={match:'#e7f6ef|#147d52', mismatch:'#feeceb|#b42318',
             recorded_only:'#fff4d7|#a06a00', live_only:'#e0f2fe|#075985',
+            not_comparable:'#eef1f4|#475569',
             missing:'#eef1f4|#64748b'};
   host.innerHTML = d.rows.map(function(r){
     var col=(pill[r.state]||pill.missing).split('|');

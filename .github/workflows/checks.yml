@@ -1577,6 +1577,18 @@ jobs:
       # record nothing, so a silent one is a decision rather than an oversight.
       - name: Every write into a client's own account has a name on it
         run: python3 test_write_attribution.py
+      # hub/analytics_ids.py compares the GA/GTM ids recorded in Knack against
+      # the ones Google can reach, and its own docstring says a false mismatch
+      # "is worse than no check at all because it trains people to ignore the
+      # warning". It then reported one on every GA row it could see: Knack
+      # holds the G- measurement id and a GA4 property summary returns only the
+      # numeric property id, so the comparison forced a verdict between two
+      # names for one property. On this deployment's own registry that is all
+      # 166 recorded GA ids, and `match` was unreachable — a red pill on the
+      # client record and a report of "reporting may be pointed at the wrong
+      # property" about properties we administer, correctly recorded.
+      - name: Two names for one property is not a disagreement
+        run: python3 test_analytics_ids.py
       # hub/ghl_oauth.py mints the location-scoped tokens the Suite panel, the
       # social planner and every sub-account join run on, and no test named it
       # except the scope table's. Reading it turned up a divergence one layer
@@ -1588,3 +1600,14 @@ jobs:
       # google_access is the one the panel itself marks client-facing.
       - name: The Suite install, and the callback the panel promises
         run: python3 test_ghl_oauth.py
+      # hub/audit_summary.py grounds every dollar figure in the two paragraphs
+      # a prospect reads at the top of their own website audit, which is right
+      # — the alternative is a model inventing what somebody spends. It
+      # compared the formatted string, so the measured figure re-typed without
+      # its comma came back as invented. The whole summary is then discarded,
+      # the report renders nothing, the `why` is read by no template, and
+      # for_scan() stores the refusal because it "will not change on the next
+      # view" — true of a real refusal, false of this one. One dropped comma
+      # cost that audit its opening paragraphs permanently.
+      - name: A measured figure, re-typed, is not an invented one
+        run: python3 test_audit_summary.py

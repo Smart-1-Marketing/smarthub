@@ -55,12 +55,18 @@ HOUSEKEEPING_ROUTES = {
     "api_ga4_seo_snapshot": "the same",
     "api_ga4_webmaster_row": "the same",
     "api_ga4_monthly_summary": "the same",
-    "api_ga4_ask": "the same, with the answer written by a model",
     "api_ga4_channels": "the same",
     "api_ga4_compare": "the same",
     "save_report": "saves a report into our own table, not the client's Google account",
     "api_refresh": "re-reads Google into our own index",
 }
+# `api_ga4_ask` was on this list and should not have been: it logs, through
+# `_audit_mod.log(...)`, and the walk could not see that when the list was
+# written -- it matched `audit.log` by the exact name of the caller. So a
+# route that records was declared as one that does not, which is an exemption
+# covering a call site that never needed one. The walk resolves the wrapper
+# from its definition now, and the check reads both directions, which is what
+# found this.
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("google-account-finder")
