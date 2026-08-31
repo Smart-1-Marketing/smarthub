@@ -736,6 +736,50 @@ check("Fan Radio's log name is one the client work log can name",
       "fan_radio" in client_brand.WORK_KINDS, True)
 
 
+# =====================================================================
+section("The client picker is offered a count, not a list run together")
+# =====================================================================
+# A registry row's `products` is the LIST of product names and
+# `product_count` is the number. Fan Radio's picker route passed the list
+# through, so the dropdown printed "RETARGETING: Website Retargeting,
+# Search Engine Marketing (Pay Per Click),... product(s)" where a count
+# belongs -- and the panel it filled was tall enough to bury the row a
+# person was trying to click.
+
+class _StubRegistry:
+    @staticmethod
+    def search_clients(q, limit=12):
+        return [
+            {"name": "Monogram Homes", "slug": "monogram-homes",
+             "url": "https://monogramhomes.example",
+             "products": ["RETARGETING: Website Retargeting",
+                          "Search Engine Marketing (Pay Per Click)"],
+             "product_count": 2},
+            # A row from an older reader with no product_count and a list.
+            {"name": "Monarca Academy", "slug": "monarca", "url": "",
+             "products": ["Programmatic Display"]},
+            # And one with nothing at all.
+            {"name": "Monarch Behavioral Health", "slug": "monarch", "url": ""},
+        ]
+
+    @staticmethod
+    def all_clients():
+        return _StubRegistry.search_clients("")
+
+
+_real_registry = fan_app.clients_registry
+try:
+    fan_app.clients_registry = _StubRegistry
+    _pick = fan_app.app.test_client().get("/api/clients?q=mon").get_json()
+finally:
+    fan_app.clients_registry = _real_registry
+
+check("the route answers", _pick.get("ok"), True)
+_counts = [c["products"] for c in _pick.get("clients", [])]
+check("every products value is a number",
+      [isinstance(v, int) for v in _counts], [True, True, True])
+check("and it is the count, not the joined names", _counts, [2, 1, 0])
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
