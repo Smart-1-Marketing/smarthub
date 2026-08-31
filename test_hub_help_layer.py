@@ -179,6 +179,89 @@ check("and each call is guarded, so a module without the global loses the "
       (ROOT / "hub/templates/seo_webmaster.html").read_text(encoding="utf-8")
       .count("if help_dot is defined"), len(_placed))
 
+# ---------------------------------------------------------------- the
+# injector, which answers the same question for a page that does not extend
+# base.html. It answered it from a hand-typed slug map -- a second description
+# of where a scenario lives, and it had drifted in both directions: three
+# entries named a module whose only scenario is written for a different page,
+# and `qa` matched on the FIRST URL SEGMENT. Measured on the running app that
+# put the button on /qa/client-owners and /qa/unattached-images, offering
+# qa.billing_audit, whose four targets are 0 of 4 present there.
+#
+# A sweep rather than the two that were wrong: naming those proves nothing
+# about the next page added under a prefix somebody maps.
+_written = {(sc.path or "/").rstrip("/") or "/" for sc in demos.SCENARIOS}
+_offered_wrongly, _swept = [], 0
+for _rule in wsgi.hub_app.url_map.iter_rules():
+    _p = str(_rule.rule)
+    # Ending the session mid-sweep would return every page after it as the
+    # sign-in form -- a sweep that quietly stops sweeping, reporting a clean
+    # answer about the part it still covers. Found by measuring rather than
+    # guessed: it is `/signout` that does it here, and `/logout` beside it.
+    if _p in ("/signout", "/logout", "/signin", "/login"):
+        continue
+    if "<" in _p or "GET" not in _rule.methods or _p.startswith(("/api", "/static")):
+        continue
+    try:
+        _r = client.get(_p, follow_redirects=True)
+    except Exception:
+        continue
+    if _r.status_code != 200:
+        continue
+    # Content type, not the body: /hub-demo.js contains the string
+    # `data-module` in its own source and is not a page.
+    if "text/html" not in (_r.headers.get("Content-Type") or ""):
+        continue
+    _swept += 1
+    _html = _r.get_data(as_text=True)
+    _tag = re.search(r"<body[^>]*>", _html)
+    _tag = _tag.group(0) if _tag else ""
+    _m = re.search(r'data-module="([^"]*)"', _tag)
+    _mod = _m.group(1) if _m else ""
+    # Judge where the request LANDED, not where it was aimed: /seo/client with
+    # no ?name= redirects to /seo, which carries its own module perfectly
+    # correctly.
+    _landed = getattr(getattr(_r, "request", None), "path", _p) or _p
+    _landed = _landed.rstrip("/") or "/"
+    # The two ways a page opts out, both of which the launcher itself honours.
+    # A sweep that ignores them reports a correctly opted-out page as a
+    # finding, and a check with false positives is one somebody switches off.
+    _opted_out = ('data-demo="off"' in _tag or "data-demo-start" in _html)
+    # A module with no scenario at all draws no button: the launcher returns
+    # early on an empty list. Not this check's business, and calling it a
+    # finding would start it red over a page that is right today.
+    _has_any = any(sc.module == _mod for sc in demos.SCENARIOS)
+    if _mod and _has_any and not _opted_out and _landed not in _written:
+        _offered_wrongly.append(f"{_p} -> {_mod}")
+check("every hub page was swept for a walkthrough button", _swept > 30, True)
+# A sweep that signed itself out would report a clean answer about the pages
+# it reached before that, which is the shape this whole check exists to catch.
+check("and it still held its session at the end",
+      client.get("/qa", follow_redirects=True).status_code == 200
+      and b"data-module" in client.get("/qa", follow_redirects=True).get_data(),
+      True)
+check("no page offers a walkthrough written for a different page",
+      sorted(_offered_wrongly), [])
+
+# The other direction: a page a walkthrough WAS written for must still carry
+# it, or removing the map would have retired the feature rather than aimed it.
+for _path, _mod in (("/qa", "qa"), ("/tools/tickets/", "tickets"),
+                    ("/tools/calculators/", "calculators"),
+                    ("/tools/image-picker/", "image_picker")):
+    _t, _ = body_of(_path)
+    check(f"{_path} still offers its own walkthrough", attr(_t, "data-module"), _mod)
+
+# client_owners.html declares no module on purpose and CLAUDE.md says why.
+# The injector put one back, which is the opt-out being overruled by the
+# thing it was opted out of.
+_t, _ = body_of("/qa/client-owners")
+# Absent and empty are both "no module" to the launcher, which tests the
+# attribute for truthiness. The template declares none, so after the fix there
+# is no attribute at all -- which is the opt-out being left alone rather than
+# overruled with an empty one.
+check("a page that opted out of the launcher stays opted out",
+      attr(_t, "data-module") or "", "")
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

@@ -2,7 +2,7 @@
 {% block title %}Google Access{% endblock %}
 
 {% block body %}
-<h1>Google Access</h1>
+<h1>Google Access {{ help_dot('google_access.admin.intro') if help_dot is defined else '' }}</h1>
 <p class="sub">Send a client one link. They sign in with Google once and we are added to their accounts.</p>
 
 {% if missing %}
@@ -33,7 +33,7 @@
 </div>
 
 <div class="card">
-  <h2>New access request</h2>
+  <h2>New access request {{ help_dot('google_access.admin.new') if help_dot is defined else '' }}</h2>
   <form id="newForm">
     <p class="muted" style="margin:0 0 8px">Who is this for?</p>
     <div class="seg">
@@ -94,7 +94,7 @@
 </div>
 
 <div class="card">
-  <h2>Requests</h2>
+  <h2>Requests {{ help_dot('google_access.admin.requests') if help_dot is defined else '' }}</h2>
   {% if not requests %}
     <p class="muted">Nothing yet. Create a link above and it will show here.</p>
   {% else %}

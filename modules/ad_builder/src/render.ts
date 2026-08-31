@@ -24,7 +24,7 @@ import { compose, resolveColor, reverseLogoOnBackdrop } from './svg';
 import { rasterise } from './raster';
 import { rollUp, runQa } from './qa';
 import { applyBlockStyles, type StyleOverrides } from './block-style';
-import { getPlatform, getTemplate } from './registry';
+import { getPlatform, getTemplate, renderableSizes } from './registry';
 import {
   animationFindings,
   animationSupport,
@@ -254,11 +254,11 @@ export interface RenderPackageOptions {
 
 /** Render every size a template and platform have in common. */
 export async function renderPackage(opts: RenderPackageOptions): Promise<RenderResult[]> {
-  const template = getTemplate(opts.concept.layoutFamily);
-  const platform = getPlatform(opts.platform);
-  const sizes =
-    opts.sizes ??
-    (Object.keys(template.sizes) as SizeKey[]).filter((s) => platform.sizes[s]);
+  // renderableSizes() is the one reading of "what do this template and this
+  // platform have in common". It was written for exactly this and had no
+  // caller, while this line said the same thing a second time -- which is how
+  // ALL_SIZES came to list eight of the fifteen sizes now bought.
+  const sizes = opts.sizes ?? renderableSizes(opts.concept.layoutFamily, opts.platform);
 
   const results: RenderResult[] = [];
   for (const size of sizes) {

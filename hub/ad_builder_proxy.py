@@ -300,6 +300,36 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
 
     app.register_blueprint(bp)
 
+    # ---------------- the renderer's own paths, arriving at the Hub root ----
+    # Every page the renderer serves links from the site root — href="/projects",
+    # location.href = '/build?...' — and src/basepath.ts rewrites those under
+    # the mount. What the shim cannot reach is a URL that left the app whole:
+    # the static proof_<id>.html files written to the render disk carry the
+    # same nav with no shim on them, old links sit in browser history, and a
+    # person who remembers "/projects" types it at the Hub. All of those
+    # landed on a bare 404 that read as the whole tool holding nothing —
+    # https://smart1.agency/projects, "Not Found" — which is the
+    # `/storyboard`-still-redirects rule from the Commercial Builder, one
+    # module over: a URL in browser history that 404s reads as the tool being
+    # broken, not the URL being wrong.
+    #
+    # Only the three staff screens are rescued. `/diagnostics` is the Hub's
+    # own page and `/embed` is the Hub's marketing-site embed, so neither is
+    # this module's to claim; and the redirect answers a stranger with a 302
+    # into a path AuthGuard's proxy gate already covers, so it exposes
+    # nothing (test_blueprint_guards.py counts only a 200 as reachable).
+    def _lost_screen(screen: str):
+        from flask import redirect
+        q = request.query_string.decode()
+        return redirect(f"{url_prefix}/{screen}" + (f"?{q}" if q else ""))
+
+    for _screen in ("projects", "build", "presets"):
+        app.add_url_rule(
+            f"/{_screen}",
+            endpoint=f"display_ads_lost_{_screen}",
+            view_func=(lambda screen=_screen: _lost_screen(screen)),
+        )
+
 
 def _explain(title: str, body: str) -> str:
     """A readable page rather than a bare 502.

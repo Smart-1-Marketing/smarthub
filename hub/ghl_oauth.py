@@ -184,8 +184,22 @@ def connected() -> bool:
 
 
 def redirect_uri() -> str:
-    base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
-    return f"{base}/suite/oauth/callback"
+    """The callback string HighLevel matches exactly.
+
+    Through hub.config, which returns the ORIGIN. Read straight off
+    os.environ with only a trailing slash removed, a PUBLIC_BASE_URL carrying
+    a path -- which one env group on this deployment does, holding the Google
+    Ads callback, path and all -- built
+    `https://smart1.agency/tools/ads/oauth/callback/suite/oauth/callback`,
+    while /diagnostics printed `https://smart1.agency/suite/oauth/callback`
+    because hub/oauth_redirects.py trims. So the panel whose entire job is to
+    say what to register at the console named a URI this function never sends:
+    register what it says and consent fails on redirect_uri_mismatch, register
+    what is sent and the panel reports it as wrong. Two readings of one
+    question, and the panel was the one telling the truth.
+    """
+    from .config import public_base_origin
+    return f"{public_base_origin()}/suite/oauth/callback"
 
 
 def authorize_url(state: str) -> str:

@@ -23,7 +23,7 @@ import * as path from 'node:path';
 import sharp from 'sharp';
 import type { Brand, Campaign, CreativeConcept, CopySet, SizeKey } from './types';
 import { discoverBrand, mapPayload, normalizeDomain } from './brandfetch';
-import { materializeAssets, resolveAsset, prepareLogo, validateAsset } from './assets';
+import { resolveAsset, prepareLogo, validateAsset } from './assets';
 import { contrastRatio, hexLuminance } from './raster';
 import { fontIsAvailable } from './fonts';
 import { validateCampaign, type Finding } from './validate';

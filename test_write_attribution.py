@@ -93,6 +93,18 @@ TRIAGED = {
         "guards": ("login_required", "require_csrf()"),
         "guard_exempt": {"login"},
     },
+    "seo_images": {
+        "path": "modules/seo_images/app.py",
+        # Its wrapper is called `_log`, which is why this module is here: the
+        # walk hard-coded `_audit` and `log`, so a module recording five of
+        # its seven writes read as recording none. A check that invents
+        # findings is switched off faster than one that misses them.
+        "must_log": ["api_finalize", "api_save_one", "api_gallery_update",
+                     "api_add_house_client", "api_delete_house_client"],
+        "after_provider": {},
+        "guards": (),
+        "guard_exempt": set(),
+    },
     "google_finder": {
         "path": "modules/google_finder/app.py",
         "must_log": ["disconnect", "gtm_deploy_event",
@@ -109,10 +121,91 @@ TRIAGED = {
         "guards": (),
         "guard_exempt": set(),
     },
+    # Nine files rather than one, which is why `path` takes a list: this
+    # module is a blueprint package and its writes are spread over the wizard,
+    # the client record, the review link and the render queue. Merging them is
+    # right — `HOUSEKEEPING_ROUTES` is per file because that is where the
+    # reason belongs, and the question "is every write here attributable" is
+    # about the module.
+    "commercial_builder": {
+        # A **glob**, not a list of the nine files that had writes the day
+        # this was written. `pages.py` and `stock.py` have none today, so a
+        # hand-list would have left them off and a write route added to
+        # either next month would have been invisible to the sweep -- which
+        # is the "a sweep that quietly stops sweeping" failure this whole
+        # change is about, one level up from the walk it fixed. Finding no
+        # files is asserted as a failure below, so the glob cannot silently
+        # stop matching either.
+        "path_glob": "modules/commercial_builder/routes/*.py",
+        # The two deletes and the two creates, because in both earlier
+        # triages the *creating* half of a create/destroy pair was the half
+        # left out — and here neither half of either pair was recorded. The
+        # rest are the moments something reaches the client: a cut submitted
+        # and approved, a link sent and taken back, an answer arriving, a
+        # voiceover kept, footage uploaded, a sign-off given.
+        "must_log": ["create_client", "update_client", "adopt_hub_client",
+                     "delete_client", "start_commercial", "delete_project",
+                     "submit_render", "approve_render", "acknowledge_compliance",
+                     "send_for_review", "revoke_review", "client_decide",
+                     "client_comment", "save_pronunciation",
+                     "generate_full_voiceover", "upload_scene_asset",
+                     "generate_ai_video"],
+        "after_provider": {},
+        "guards": (),
+        "guard_exempt": set(),
+    },
 }
 
-SOURCES = {name: (ROOT / cfg["path"]).read_text() for name, cfg in TRIAGED.items()}
-WALKS = {name: audit.write_route_attribution(src) for name, src in SOURCES.items()}
+
+def _paths(cfg):
+    """Every file a module is spread across: named, or matched from disk.
+
+    A single-file module names its one path; a blueprint package globs its
+    routes directory, so the sweep covers a file added to it without anybody
+    remembering to widen a list.
+    """
+    pattern = cfg.get("path_glob")
+    if pattern:
+        found = sorted(str(p.relative_to(ROOT)) for p in ROOT.glob(pattern)
+                       if p.name != "__init__.py")
+        return found
+    raw = cfg["path"]
+    return [raw] if isinstance(raw, str) else list(raw)
+
+
+# Per module, every file it is spread across. A single-file module is a
+# one-entry list, so nothing below has to branch on which shape it got.
+FILES = {name: [(p, (ROOT / p).read_text()) for p in _paths(cfg)]
+         for name, cfg in TRIAGED.items()}
+
+
+def _merge(walks):
+    out = {"logs": [], "silent": [], "declared": {}}
+    for w in walks:
+        out["logs"] += w["logs"]
+        out["silent"] += w["silent"]
+        out["declared"].update(w["declared"])
+    out["logs"] = sorted(set(out["logs"]))
+    out["silent"] = sorted(set(out["silent"]))
+    return out
+
+
+WALKS = {name: _merge([audit.write_route_attribution(src) for _, src in files])
+         for name, files in FILES.items()}
+
+
+def _find(name, fn):
+    """The function and the source it came from, in whichever file holds it.
+
+    `ast.get_source_segment` needs the exact text the node was parsed from, so
+    the pair travels together rather than the caller guessing which file to
+    read it back out of.
+    """
+    for _, src in FILES[name]:
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, ast.FunctionDef) and node.name == fn:
+                return node, src
+    return None, ""
 
 
 # ---------------------------------------------------------------------------
@@ -123,9 +216,17 @@ check("the walk is shared rather than copied per module",
 for name, walk in WALKS.items():
     # Finding no routes is a failure, not a clean sweep: a walk that quietly
     # stops walking reports a clean bill of health about nothing.
+    # Finding no routes is a failure, not a clean sweep -- but the floor is a
+    # handful rather than a big number: seo_images has seven writes and a
+    # threshold set from the largest module would have excused an empty walk
+    # over a small one.
     check(f"{name}: the write routes were found",
-          len(walk["logs"]) + len(walk["silent"]) > 8, True)
+          len(walk["logs"]) + len(walk["silent"]) >= 5, True)
     check(f"{name}: and its declaration was read", len(walk["declared"]) > 0, True)
+    # A glob that stops matching reports a clean bill of health about
+    # nothing, which is the same failure the walk itself had.
+    check(f"{name}: the files it is spread across were found",
+          len(FILES[name]) > 0, True)
 
 
 # ---------------------------------------------------------------------------
@@ -151,22 +252,19 @@ for name, walk in WALKS.items():
 
     # Routes that write without a write method: a GET the walk cannot classify.
     for fn in TRIAGED[name].get("writes_but_not_a_write_method", []):
-        node = next(n for n in ast.walk(ast.parse(SOURCES[name]))
-                    if isinstance(n, ast.FunctionDef) and n.name == fn)
-        body = ast.get_source_segment(SOURCES[name], node) or ""
+        node, fsrc = _find(name, fn)
+        body = ast.get_source_segment(fsrc, node) if node else ""
         check(f"  {name}.{fn} records who did it, though it is a GET",
-              "_audit(" in body)
+              "_audit(" in (body or ""))
 
 
 # ---------------------------------------------------------------------------
 section("A refused change is not recorded as a made one")
 # ---------------------------------------------------------------------------
 for name, cfg in TRIAGED.items():
-    tree = ast.parse(SOURCES[name])
     for fn, provider_call in cfg["after_provider"].items():
-        node = next(n for n in ast.walk(tree)
-                    if isinstance(n, ast.FunctionDef) and n.name == fn)
-        body = ast.get_source_segment(SOURCES[name], node) or ""
+        node, fsrc = _find(name, fn)
+        body = ast.get_source_segment(fsrc, node) if node else ""
         check(f"{name}.{fn} logs only after the provider answered",
               body.index(provider_call) < body.index("_audit("))
 
@@ -177,18 +275,18 @@ section("The guards in front of those writes are still on all of them")
 for name, cfg in TRIAGED.items():
     if not cfg["guards"]:
         continue
-    tree = ast.parse(SOURCES[name])
     walk = WALKS[name]
     writes = set(walk["logs"]) | set(walk["silent"])
     dec_guard, body_guard = cfg["guards"]
     missing_dec, missing_body = [], []
-    for node in ast.walk(tree):
+    for _path, fsrc in FILES[name]:
+      for node in ast.walk(ast.parse(fsrc)):
         if not isinstance(node, ast.FunctionDef) or node.name not in writes:
             continue
         if node.name in cfg["guard_exempt"]:
             continue
         decs = [d.id for d in node.decorator_list if isinstance(d, ast.Name)]
-        body = ast.get_source_segment(SOURCES[name], node) or ""
+        body = ast.get_source_segment(fsrc, node) or ""
         if dec_guard not in decs:
             missing_dec.append(node.name)
         if body_guard not in body:
@@ -237,6 +335,29 @@ _PROSE = _SILENT.replace("    client.rename",
 check("a docstring naming _audit does not count as calling it",
       "rename_project" in audit.write_route_attribution(_PROSE)["silent"])
 
+# A wrapper is resolved from its DEFINITION, not guessed from its name.
+# `_audit` and `log` were hard-coded, and modules/seo_images calls its wrapper
+# `_log` -- so a module recording five of its seven writes read as recording
+# none. A check that invents findings is switched off faster than one that
+# misses them, which is the note QR_CODE_RULES already makes.
+_ODDLY_NAMED = """
+from hub import audit as hub_audit
+
+def _log(event, **extra):
+    hub_audit.log("mod", event, **extra)
+
+@app.post("/rename")
+def rename_project(pid):
+    client.rename(pid)
+    _log("renamed", project=pid)
+    return "ok"
+"""
+check("a wrapper called something else is still a call",
+      "rename_project" in audit.write_route_attribution(_ODDLY_NAMED)["logs"])
+_UNWRAPPED = _ODDLY_NAMED.replace('    _log("renamed", project=pid)\n', "")
+check("and without it the same route is named",
+      "rename_project" in audit.write_route_attribution(_UNWRAPPED)["silent"])
+
 # A module's own log() wrapper is a call -- the shape radio_promo and
 # landing_ads use, which check_work_kinds() had to learn to resolve.
 _WRAPPED = _SILENT.replace('    client.rename(pid, request.form.get("name"))',
@@ -252,18 +373,20 @@ section("Both modules still log under a name the client record can place")
 from hub import client_brand                                        # noqa: E402
 
 for name in TRIAGED:
-    check(f"{name} binds the shared logger",
-          f'for_module("{name}")' in SOURCES[name])
-    # Only a module that files a row *against a client* has to be a name the
-    # record can place -- that is what check_work_kinds() asks. Google Finder
-    # records a google_login and never a client, so it is outside that
-    # question rather than missing from it, and asserting otherwise would be
-    # inventing a rule this Hub does not have.
-    files_client_work = "client=" in SOURCES[name]
-    if files_client_work:
-        check(f"  and {name} is a name the client record can place",
-              name in client_brand.WORK_KINDS
-              or name in getattr(client_brand, "NOT_WORK", {}))
+    # Two spellings, both correct: a bound logger, or the shared one called
+    # with the module name. Asserting only the first is the kind of narrowness
+    # that made the walk miss `_log` in the first place.
+    # Every file of the module, because one that binds the logger and one
+    # that does not are both ordinary — what must be true is that the module
+    # reaches the shared log under its own name from somewhere.
+    joined = "\n".join(fsrc for _p, fsrc in FILES[name])
+    check(f"{name} reaches the shared log under its own name",
+          f'for_module("{name}")' in joined or f'log("{name}"' in joined)
+    # A module that is already a name the client record can place must stay
+    # one. Whether a module *should* file client work is not this file's
+    # question -- check_work_kinds() asks that, from the call sites.
+    if name in client_brand.WORK_KINDS or name in getattr(client_brand, "NOT_WORK", {}):
+        check(f"  and {name} is still a name the client record can place", True)
     else:
         check(f"  {name} files no client work, so it needs no entry",
               name not in client_brand.WORK_KINDS)

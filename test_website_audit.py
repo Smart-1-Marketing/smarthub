@@ -651,6 +651,45 @@ check("the merge route reports a lead it cannot find", r.status_code, 400)
 r = c.get("/api/leads/duplicates")
 check("and the duplicates route answers", r.status_code, 200)
 
+# A survivor with no date must not swallow the donors' dates: min() over a
+# list containing "" is "", and the earliest arrival — the field a follow-up
+# queue sorts on — was quietly discarded exactly when the survivor needed it.
+old_dt = "2024-01-05T09:00:00+00:00"
+nodate = leads.capture("website_audit", "tool", {"email": "lee@fifth.com"})
+dated = leads.capture("scan_widget", "home", {"email": "lee@fifth.com"})
+for row_id, created in ((nodate["id"], ""), (dated["id"], old_dt)):
+    stored = next(r for r in leads._read_all() if r["id"] == row_id)
+    stored["created"] = created
+    leads._update(stored)
+res = leads.merge(nodate["id"], [dated["id"]], actor="tester")
+check("a dateless survivor takes the donor's arrival date",
+      res["lead"]["created"], old_dt)
+
+# The window the label claims is the window the rows cover. The route allows
+# up to 730 days and the cutoff used to stop at 365 while echoing the raw
+# number — a wrong label over right rows.
+aged = leads.capture("website_audit", "tool", {"email": "old@sixth.com"})
+stored = next(r for r in leads._read_all() if r["id"] == aged["id"])
+stored["created"] = (datetime.now(timezone.utc)
+                     - timedelta(days=400)).isoformat(timespec="seconds")
+leads._update(stored)
+in_two_years = {l["id"] for l in leads.listing(days=730)["leads"]}
+in_one_year = {l["id"] for l in leads.listing(days=365)["leads"]}
+check("a 400-day-old lead is inside the 730-day window",
+      aged["id"] in in_two_years, True)
+check("and outside the 365-day one", aged["id"] in in_one_year, False)
+check("an absurd window is reported clamped, not echoed",
+      leads.listing(days=9999)["days"], 730)
+
+# "With a report" counts what the Report column offers: the website audit
+# produces a page rather than a PDF, and counting only pdf_url said "N with
+# a report" over a table plainly offering more.
+before = leads.listing(days=7)["with_report"]
+leads.capture("website_audit", "tool", {"email": "aud@seventh.com"},
+              meta={"audit_url": "https://smart1.agency/scans/r/tok123"})
+check("a lead whose report is an audit page counts as having a report",
+      leads.listing(days=7)["with_report"], before + 1)
+
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)

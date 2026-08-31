@@ -54,6 +54,20 @@ still nothing, and no coordination needed.
   no route at all. Every entry point swallows, and `active()` reports that it
   could not look rather than returning an empty list, because "nobody is
   signed in" and "we could not read the table" are different answers.
+* **What it reports is a sentence, never the exception.** Both screens that
+  draw this interpolate `error` straight into the page, and a SQLAlchemy
+  `OperationalError` carries the database host, the user it tried to
+  authenticate as, and the SQL — on the dashboard, which every account opens.
+  An exception is not a message, which is the rule the image and PDF
+  optimizers were fixed for; the cause goes to the log.
+* **Not knowing who somebody is never writes a second identity for them.**
+  `identify()` used to answer `("", False)` both for "two accounts share this
+  name" and for "the account table would not answer", so a blip during a
+  deploy keyed a row on the *name* for somebody who already had one keyed on
+  their *email* — two rows, two chips with one name, and a headcount one too
+  high for a quarter of an hour. It carries whether it could look, and
+  `touch_display()` writes nothing when it could not: the row from a minute
+  ago is still inside the window and still right.
 * **A read needs an application context.** `AuthGuard` is WSGI middleware and
   runs without one; it pushes the hub app's context around the write. This is
   the trap `hub/google_index.py` has at length — a swallowed
@@ -174,7 +188,20 @@ def active(window_minutes: int = WINDOW_MINUTES, now=None) -> dict:
     try:
         rows = Presence.query.filter(Presence.last_seen >= cutoff).all()
     except Exception as exc:                            # noqa: BLE001
-        out["error"] = str(exc)
+        # A sentence, not the exception. Both screens that draw this
+        # interpolate `error` straight into the page, and a SQLAlchemy
+        # OperationalError carries the database host, the user it tried to
+        # authenticate as and the SQL it was running -- printed on the
+        # dashboard, which every account opens. An exception is not a
+        # message: the same rule the two file optimizers were fixed for, and
+        # the cause belongs in the log, which is where it goes.
+        out["error"] = "the presence table could not be read"
+        try:
+            import logging
+            logging.getLogger(__name__).warning(
+                "presence.active could not read the table: %s", exc)
+        except Exception:                               # noqa: BLE001
+            pass
         return out
     people = []
     for row in rows:
@@ -225,7 +252,15 @@ def touch_display(name: str) -> bool:
     if not due("env:" + name):
         return False
     _LAST_WRITE["env:" + name] = _time.monotonic()
-    email, shared = identify(name)
+    email, shared, looked = identify(name)
+    if not looked:
+        # A row keyed on the name for somebody whose row is keyed on their
+        # email is a second person in the headcount and a second chip with
+        # their name on it. Whatever was written up to a minute ago is still
+        # inside the window and still right, so the honest thing is to leave
+        # it: not knowing who somebody is is not a reason to invent an
+        # identity for them.
+        return False
     return touch(name=name, email=email, shared=shared)
 
 
@@ -249,10 +284,11 @@ def touch_from_environ(environ, app) -> bool:
         return False
 
 
-def identify(name: str) -> tuple[str, bool]:
-    """(email, is a shared-password session) for a display name.
+def identify(name: str) -> tuple[str, bool, bool]:
+    """(email, is a shared-password session, we were able to look).
 
-    Three answers, not two, and the third is why this is not a bool:
+    **Four** answers, not two, and the fourth is why this carries a third
+    value rather than the two bits it used to:
 
       * exactly one account with that name — that is who it is;
       * **no** account with that name — a `PANEL_PASSWORD` session, which is
@@ -260,15 +296,24 @@ def identify(name: str) -> tuple[str, bool]:
       * more than one — a real person whose name two accounts share. We
         cannot say which, and we must not guess: two people here are called
         Todd. It is emphatically *not* a shared session, so it is recorded
-        under the name alone and counted as somebody.
+        under the name alone and counted as somebody;
+      * **we could not ask.** That used to return `("", False)`, which is the
+        same value as "two accounts share this name" — so a database blip
+        during a deploy keyed the row on the *name* for somebody who already
+        had one keyed on their *email*, and the headcount counted them twice
+        for the next fifteen minutes, drawing two chips with one name on
+        them. The docstring at the top of this module promises **one row per
+        person**. It also made `/status` print "no account matched this name"
+        about somebody who has one — a confident answer to a question that
+        was never asked.
     """
     try:
         from hub.users import User
         rows = User.query.filter_by(name=(name or "").strip()).all()
     except Exception:                                   # noqa: BLE001
-        # We could not look. Not knowing who somebody is must not promote
-        # them to "the emergency shared password is in use".
-        return "", False
+        # Not knowing who somebody is must not promote them to "the emergency
+        # shared password is in use", nor invent a second identity for them.
+        return "", False, False
     if len(rows) == 1:
-        return (rows[0].email or ""), False
-    return "", not rows
+        return (rows[0].email or ""), False, True
+    return "", not rows, True

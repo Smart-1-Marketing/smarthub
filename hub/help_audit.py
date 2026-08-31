@@ -94,6 +94,39 @@ def _sources(root: str | None = None):
                     yield os.path.join(dirpath, name)
 
 
+def _spellings(kind: str, name: str) -> tuple:
+    """How a walkthrough's target would actually be written in markup.
+
+    `demo_targets()` used to credit a target with a bare `name in everything`,
+    which any file containing the word satisfies. `data-demo='unmatched'` read
+    as anchored because the word "unmatched" appears in another tool's prose,
+    and `data-demo='client-name'` because something, somewhere, has a class of
+    that name — so twenty-two steps that drive nothing read as anchored, and
+    two whole walkthroughs read as working while every driving step in them
+    resolved to no element at all. The attribute has to be there, not the word.
+    """
+    attr = {"data-demo": "data-demo", "id": "id", "name": "name"}.get(kind)
+    if not attr:
+        return ()
+    return (f'{attr}="{name}"', f"{attr}='{name}'")
+
+
+def _module_of(path: str, base: str) -> str:
+    """Which tool a file belongs to, for the `elsewhere` reading.
+
+    `modules/<name>/...` is that module; anything under `hub/` is the hub
+    itself, which is the module name the hub's own scenarios carry. Anything
+    else belongs to no tool and is left out rather than guessed at.
+    """
+    rel = os.path.relpath(path, base).replace(os.sep, "/")
+    if rel.startswith("modules/"):
+        parts = rel.split("/")
+        return parts[1] if len(parts) > 2 else ""
+    if rel.startswith("hub/"):
+        return "hub"
+    return ""
+
+
 def placements(root: str | None = None) -> tuple[dict, dict]:
     """(literal key -> files, runtime-built key -> files).
 
@@ -203,6 +236,11 @@ def check_dead_bubbles(root: str | None = None) -> list[dict]:
 _SEL_ID = re.compile(r"#([A-Za-z0-9_-]+)")
 _SEL_DATA = re.compile(r"""\[data-demo=["']([^"']+)["']\]""")
 _SEL_NAME = re.compile(r"""\[name=["']([^"']+)["']\]""")
+# A tour step is anchored by `data-tour`, and a walkthrough step may be too --
+# `hub/help.py`'s steps use it and seven of Smart 1 Ads' driving steps name one.
+# Left out, 39 anchors in this repo were tested by nothing: renaming one out
+# from under the step that drives it changed no count anywhere.
+_SEL_TOUR = re.compile(r"""\[data-tour=["']([^"']+)["']\]""")
 
 # A hook can be **derived** rather than typed, exactly as a help key can. The
 # QA index writes `data-demo="qa-report-{{ key }}"` once for every report it
@@ -239,6 +277,8 @@ def _needs(selector: str) -> list[tuple[str, str]]:
         out.append(("data-demo", m.group(1)))
     for m in _SEL_NAME.finditer(selector or ""):
         out.append(("name", m.group(1)))
+    for m in _SEL_TOUR.finditer(selector or ""):
+        out.append(("data-tour", m.group(1)))
     return out
 
 
@@ -265,10 +305,24 @@ def demo_targets(root: str | None = None) -> dict:
             continue
     everything = "\n".join(blob)
 
+    # The same text again, per module, so a target can be told from one that
+    # exists only in a different tool. See `elsewhere` below.
+    per_module: dict = {}
+    for path in _sources(base):
+        mod = _module_of(path, base)
+        if not mod:
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                per_module.setdefault(mod, []).append(fh.read())
+        except OSError:
+            continue
+    per_module = {k: "\n".join(v) for k, v in per_module.items()}
+
     built = _runtime_demo_prefixes(everything)
 
     def _found(kind: str, name: str) -> bool:
-        if name in everything:
+        if any(sp in everything for sp in _spellings(kind, name)):
             return True
         if kind == "data-demo" and any(name.startswith(p) for p in built):
             on_prefix.add(name)
@@ -281,41 +335,88 @@ def demo_targets(root: str | None = None) -> dict:
     # first was actually verified.
     on_prefix: set = set()
 
-    rows, steps, missing = [], 0, 0
+    rows, steps, missing, untestable = [], 0, 0, []
+    strays: list = []
     for scenario in demos.SCENARIOS:
-        gone = []
+        gone, vague, testable = [], [], 0
+        here = per_module.get(getattr(scenario, "module", ""), "")
         for i, step in enumerate(getattr(scenario, "steps", []), 1):
             selector = getattr(step, "selector", "") or ""
             if not selector:
                 continue
             steps += 1
-            absent = [f"{kind} {name!r}" for kind, name in _needs(selector)
+            wants = _needs(selector)
+            # A selector carrying nothing that identifies an element -- an
+            # `input[type='file']` -- is not a step this check has verified;
+            # it is one it cannot speak to. Counted as anchored, it was a tick
+            # over a question nobody asked, and it is the reason
+            # `client360.proposal` cleared the floor below while driving
+            # nothing: three dead hooks and one selector that matches a file
+            # input on any page in the Hub.
+            if not wants:
+                vague.append({"step": i, "title": getattr(step, "title", ""),
+                              "selector": selector})
+                untestable.append(f"{getattr(scenario, 'key', '')}: {selector}")
+                continue
+            testable += 1
+            absent = [f"{kind} {name!r}" for kind, name in wants
                       if not _found(kind, name)]
             if absent:
                 missing += 1
                 gone.append({"step": i, "title": getattr(step, "title", ""),
                              "selector": selector, "absent": absent})
+            elif here and not any(
+                    sp in here for kind, name in wants
+                    for sp in _spellings(kind, name)):
+                # A selector naming nothing this can look for never reaches
+                # here -- the untestable branch above takes it, which is what
+                # the `and wants` guard this used to carry was for. Reaching
+                # this branch means `wants` is non-empty, so `not any([])`
+                # cannot fire and report an unlookable selector as anchored in
+                # the wrong place.
+                #
+                # Found, but nowhere in the tool the walkthrough drives. The
+                # "anywhere" reading above is deliberate — a screen's markup is
+                # written by half a dozen scripts and tying a target to one
+                # template would report a runtime-drawn hook as missing — but
+                # "anywhere" also credits a step whose only match is in a
+                # different tool, and that step drives nothing when the
+                # walkthrough runs. It is not counted as missing, because the
+                # element may still be drawn here at runtime; it is named, the
+                # way a target accepted on a prefix is.
+                strays.append({"scenario": getattr(scenario, "key", ""),
+                               "module": getattr(scenario, "module", ""),
+                               "step": i, "title": getattr(step, "title", ""),
+                               "selector": selector})
         rows.append({
             "key": getattr(scenario, "key", ""),
             "module": getattr(scenario, "module", ""),
             "title": getattr(scenario, "title", ""),
             "steps": len(getattr(scenario, "steps", [])),
             "unanchored": gone,
+            "untestable": vague,
             # A scenario every one of whose driving steps is missing does not
             # drive anything at all -- a different thing from one with a step
             # or two out of date, and the only one worth retiring rather than
-            # repairing.
-            "dead": bool(gone) and len(gone) == len(
-                [s for s in getattr(scenario, "steps", [])
-                 if getattr(s, "selector", "")]),
+            # repairing. Measured against the steps this check can actually
+            # speak to: a selector it cannot test is not evidence that the
+            # scenario drives something, so it neither clears this floor nor
+            # -- where every step is one -- asserts the scenario is dead.
+            "dead": bool(gone) and len(gone) == testable,
         })
     return {
         "scenarios": len(rows),
         "steps": steps,
         "unanchored": missing,
-        "rows": [r for r in rows if r["unanchored"]],
-        "clean": [r["key"] for r in rows if not r["unanchored"]],
+        "rows": [r for r in rows if r["unanchored"] or r["untestable"]],
+        # "nothing missing" and "nothing we could look at" must not render
+        # alike, so a scenario carrying an untestable step is not called clean.
+        "clean": [r["key"] for r in rows
+                  if not r["unanchored"] and not r["untestable"]],
+        "untestable": sorted(untestable),
         "runtime": sorted(on_prefix),
         "runtime_prefixes": built,
+        # Anchored, but not in the module the scenario drives.
+        "elsewhere": strays,
         "measured": True,
     }

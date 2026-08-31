@@ -277,6 +277,15 @@
     postHeight();
   }
 
+  function stopped(msg){
+    /* The report link is deliberately NOT shown: there is nothing behind it
+       and never will be, and offering it is the same wrong answer one press
+       further on. */
+    $('waitBox').innerHTML = '<b>We could not finish this audit</b><p></p>';
+    $('waitBox').querySelector('p').textContent = msg;
+    postHeight();
+  }
+
   function poll(token, n){
     /* Twenty tries at ten seconds is a little over three minutes, which is the
        upper end of how long an audit takes. Giving up shows the link rather
@@ -295,6 +304,11 @@
         .then(function(r){ return r.json(); })
         .then(function(j){
           if (j.ok && j.ready) { ready(); return; }
+          /* A run the server calls stopped will never become ready, so the
+             giving-up copy below -- which points at a link and says it will
+             be there -- would be a confident wrong answer rather than a wait.
+             Which statuses those are is the server's to decide. */
+          if (j.ok && j.stopped) { stopped(j.message || ''); return; }
           poll(token, n + 1);
         })
         .catch(function(){ poll(token, n + 1); });

@@ -185,6 +185,24 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
        what to act on this week. The reasons come from the payload rather than
        being typed here, so what a screen offers cannot drift from what the
        write accepts. */
+    /* Confirming one Knack field mapping against the live builder. A person,
+       a date and a *field* — never an object: "we checked object_153" is the
+       kind of assurance nobody can act on later, and the point is to be able
+       to say which of the eighteen were actually looked at. */
+    if(c && typeof c==='object' && c.knack_confirm!==undefined){
+      var st = c.state || 'no';
+      var lbl = st==='yes' ? 'Confirmed' : st==='superseded' ? 'Re-confirm' : 'Confirm';
+      return '<span class="qa-kmap" data-ref="'+esc(c.knack_confirm)+'" data-state="'+esc(st)+'">'+
+        (st==='yes'
+          ? '<span class="pill ok" style="margin-right:6px">\u2713</span>'
+          : st==='superseded'
+            ? '<span class="pill warn" style="margin-right:6px">superseded</span>' : '')+
+        (c.detail? '<span style="font-size:11px;color:#64748b;margin-right:6px">'+
+                   esc(c.detail)+'</span>' : '')+
+        '<button class="qa-kmap-go">'+esc(lbl)+'</button> '+
+        (st==='yes'? '<button class="qa-kmap-undo">Undo</button> ':'')+
+        '<span class="qa-kmap-msg" style="font-size:11px;color:#64748b"></span></span>';
+    }
     if(c && typeof c==='object' && c.io_settle!==undefined){
       var iro = (data&&data.settle_reasons||[]).map(function(r){
         return '<option value="'+esc(r.key)+'">'+esc(r.label)+'</option>';
@@ -677,15 +695,62 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
     if(e.target===this) this.classList.remove('open');
   };
 
-  csvBtn.onclick = function(){
-    if(!data || !data.rows) return;
+  /* ---- csv export (pure; lifted by test_qa_reports.py) ----
+     A section heading is a row on screen and is not a record. Exported as one
+     it gave Active Clients 154 rows for a book of 151, three of them named
+     "Ending this month (15)" with every other column blank -- and on the two
+     reports where the band IS the finding ("Never audited", "No website on
+     file") dropping it instead would lose the only thing the row said.
+     So the band is lifted into a column of its own and the heading row is
+     not written. `isGroupRow` is the one reading of what a heading is, used
+     by the export and by the renderer alike, because this page carried two
+     spellings of it and neither reached here. ---- */
+  function isGroupRow(row){
+    /* A heading carries a label and nothing else. The scorecards mark their
+       TOTAL row `group` as well -- it wants the same band on screen -- and
+       reading the marker alone would drop the totals out of the export,
+       which is the figure somebody downloads the CSV for. So the rest of the
+       row has to be empty, which is what makes it a heading rather than a
+       row that happens to be drawn like one. */
+    var cells = row || [];
+    var head = -1;
+    for(var i = 0; i < cells.length; i++){
+      var c = cells[i];
+      if(c && typeof c === 'object' && c.group){ head = i; break; }
+    }
+    if(head < 0) return false;
+    return !cells.some(function(c, i){
+      if(i === head) return false;
+      var t = (c && typeof c === 'object') ? c.text : c;
+      return String(t == null ? '' : t).trim() !== '';
+    });
+  }
+  function toCsv(data){
     function cv(c){
       var s = (c && typeof c==='object') ? c.text : c;
       s = String(s==null?'':s).replace(/^[▼▲]\s*/,'');
       return '"'+s.replace(/"/g,'""')+'"';
     }
-    var lines = [data.columns.map(cv).join(',')];
-    data.rows.forEach(function(r){ lines.push(r.map(cv).join(',')); });
+    var rows = data.rows || [];
+    var grouped = rows.some(isGroupRow);
+    var lines = [(grouped ? cv('Group')+',' : '') + (data.columns||[]).map(cv).join(',')];
+    var band = '';
+    rows.forEach(function(r){
+      if(isGroupRow(r)){
+        var head = (r || []).filter(function(c){
+          return c && typeof c === 'object' && c.group; })[0];
+        band = (head && head.text) || '';
+        return;
+      }
+      lines.push((grouped ? cv(band)+',' : '') + r.map(cv).join(','));
+    });
+    return lines;
+  }
+  /* ---- end csv export ---- */
+
+  csvBtn.onclick = function(){
+    if(!data || !data.rows) return;
+    var lines = toCsv(data);
     var blob = new Blob(["﻿"+lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -703,6 +768,37 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
      text: the styles never applied and the scripts never ran. Moved here so
      they do. -->
 <script>
+/* Confirming (or retiring) one Knack field mapping. */
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest('.qa-kmap-go, .qa-kmap-undo');
+  if(!b) return;
+  var host = b.closest('.qa-kmap');
+  if(!host) return;
+  var parts = (host.dataset.ref||'').split('|');
+  var undo  = b.classList.contains('qa-kmap-undo');
+  var msg   = host.querySelector('.qa-kmap-msg');
+  if(parts.length < 3){ msg.textContent='Nothing to confirm.'; return; }
+  if(!undo && !confirm('Confirm ' + parts[1] + ' = ' + parts[2] + ' on ' +
+      parts[0] + '?\n\nOnly do this once you have checked the id against the '
+      + 'live Knack builder. Your name is recorded against it.')) return;
+  b.disabled = true; msg.textContent = 'Saving\u2026';
+  fetch('/api/qa/knack-map/' + (undo ? 'unconfirm' : 'confirm'),
+    {method:'POST', credentials:'same-origin',
+     headers:{'Content-Type':'application/json'},
+     body: JSON.stringify({object: parts[0], key: parts[1], field: parts[2]})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d || !d.ok){
+        msg.textContent = (d && d.error) || 'Could not save.';
+        b.disabled = false; return;
+      }
+      /* The row stays and goes quiet: the report is held for the day, so
+         removing it would claim a rebuild that has not happened. */
+      msg.textContent = undo ? 'Confirmation removed' : 'Confirmed \u2713';
+    })
+    .catch(function(){ msg.textContent = 'Could not save.'; b.disabled = false; });
+});
+
 /* Settling an insertion order. Its own listener rather than a `.qa-act`
    button, because the row carries a reason and a note beside the press and an
    action button carries only a client. */

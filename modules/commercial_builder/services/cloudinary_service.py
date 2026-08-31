@@ -51,9 +51,31 @@ def is_live():
 
 
 def _ensure_configured():
+    """Point the SDK at the account, through the Hub where there is one.
+
+    `hub.storage.configure()` is the one reading now. This function kept its
+    own, and the two had already drifted in the way that matters: the Hub
+    composes `CLOUDINARY_URL` from the three-part credential group and exports
+    it (`hub/config.export_cloudinary_url()`), so a deployment given only the
+    three parts is configured there and was configured here by a second,
+    hand-written branch — right today, and one edit away from not being.
+
+    The local branch survives as a **fallback**, because this module is
+    written to run with no Hub to import and a service that refuses to
+    configure at all is worse than one that duplicates four lines. Kept as a
+    named function rather than inlined: `services/provider_check.py` calls it
+    to ping the account, and that is a legitimate direct use of the SDK.
+    """
     global _CONFIGURED
     if _CONFIGURED or not _SDK_AVAILABLE:
         return
+    try:
+        from hub import storage
+        storage.configure()
+        _CONFIGURED = True
+        return
+    except Exception:  # noqa: BLE001 — standalone, or the Hub failed to import
+        pass
     if os.environ.get("CLOUDINARY_URL"):
         cloudinary.config(cloudinary_url=os.environ["CLOUDINARY_URL"])
     elif os.environ.get("CLOUDINARY_CLOUD_NAME"):
@@ -193,11 +215,30 @@ def _file_in_gallery(client_name, category, asset, filename):
 
 
 def list_client_assets(client_slug, category):
+    """What is already in this client's tree, for the picker to offer first.
+
+    Through `hub.storage.manifest()`, which took a folder prefix for exactly
+    this — the shared reader pages properly, where the copy this replaced
+    asked for one page of 100 and reported it as the whole folder. A client
+    with more than a hundred photographs was quietly shown some of them.
+
+    Falls back to the SDK directly with no Hub to import, the way
+    `_ensure_configured()` does and for the same reason.
+    """
     if not is_live():
         return []
     _ensure_configured()
+    prefix = f"{client_folder(client_slug, category)}/"
     try:
-        result = cloudinary.api.resources(type="upload", prefix=f"{client_folder(client_slug, category)}/",
+        from hub import storage
+        rows = storage.manifest("commercials", max_results=500, prefix=prefix)
+        return [{"secure_url": r.get("secure_url"), "public_id": r.get("public_id"),
+                 "format": r.get("format"), "created_at": r.get("created_at")}
+                for r in rows]
+    except Exception:  # noqa: BLE001 — standalone, or the listing failed
+        pass
+    try:
+        result = cloudinary.api.resources(type="upload", prefix=prefix,
                                            max_results=100)
         return [{"secure_url": r.get("secure_url"), "public_id": r.get("public_id"),
                  "format": r.get("format"), "created_at": r.get("created_at")}

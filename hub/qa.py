@@ -506,8 +506,15 @@ def no_dashboards() -> dict:
             rows.append(r)
             styles.append(None)
     return {
+        # Six cells, so six headings. The action cell is headed `""` the way
+        # `skipped_dashboards()` heads its own two functions up: the renderer
+        # draws one <td> per cell against one <th> per column, so a row
+        # carrying a cell no column names puts the Add-dashboard button under
+        # a heading belonging to the value on its left — and the CSV export,
+        # which writes `columns` as its header row and the cells beneath it,
+        # gave every row an unlabelled trailing field.
         "columns": ["Partner", "Client", "Live products",
-                    "Products", "Monthly"],
+                    "Products", "Monthly", ""],
         "rows": rows,
         "row_styles": styles,
         "note": (f"{total} active clients with no Smart 1 Dashboard link on any "
@@ -928,16 +935,28 @@ def no_gtm() -> dict:
         ]
         (priority if is_priority else suggested).append(row)
     rows, styles = [], []
+
+    # A heading cell, the way `active_clients()`, `prospect_queue` and the
+    # upsell report already write one. This wrote a bare string and marked the
+    # row `row_styles="sub"` instead, so one page carried two spellings of
+    # "this row is a section heading" -- drawn two different ways, a coloured
+    # band there and grey text here, and neither of them legible to the CSV
+    # export, which wrote all eight of this page's headings out as client
+    # rows. `sub` means a lesser row now and nothing else: `invoice_off()`
+    # uses it for a resemblance, which is a different thing entirely.
+    def _heading(text: str, tone: str = "later") -> None:
+        rows.append([{"text": text, "group": True, "tone": tone}]
+                    + [""] * 4)
+        styles.append(None)
+
     if priority:
-        rows.append([f"Running display / audio / SEO / paid search / retargeting — needs GTM ({len(priority)})",
-                     "", "", "", ""])
-        styles.append("sub")
+        _heading("Running display / audio / SEO / paid search / retargeting "
+                 f"— needs GTM ({len(priority)})", "now")
         for r in priority:
             rows.append(r)
             styles.append(None)
     if suggested:
-        rows.append([f"Suggested clients for GTM ({len(suggested)})", "", "", "", ""])
-        styles.append("sub")
+        _heading(f"Suggested clients for GTM ({len(suggested)})")
         for r in suggested:
             rows.append(r)
             styles.append(None)
@@ -2321,6 +2340,225 @@ def io_reconcile_report() -> dict:
     }
 
 
+
+def io_delivery_report() -> dict:
+    """Campaigns trafficked for different money than the order was written for.
+
+    The next link after Orders With No Campaign, and the one the order record
+    made possible: before `hub/io_records.py` there was nothing on our side to
+    compare against. That report asks whether a campaign exists; this asks
+    whether it is the campaign we sold.
+
+    The finding is the **money**. How many product rows a campaign was split
+    into is printed beside each order and is never itself raised — an order of
+    six lines may be trafficked as six rows or as one, nothing readable from
+    here says which convention this book follows, and a check that fired on
+    every order because of it is one somebody switches off within a week.
+    """
+    from . import io_reconcile
+
+    data = io_reconcile.delivery()
+    note = io_reconcile.delivery_note(data)
+    if not data.get("measured"):
+        return {"columns": ["Order"], "rows": [], "row_styles": [],
+                "measured": False, "error": data.get("error", ""),
+                "note": note}
+
+    columns = ["Order", "Client", "On the order", "In Knack", "Difference",
+               "Rows", "Partner", "Submitted"]
+    rows, styles = [], []
+
+    def _rowcount(row):
+        """Context, never a finding — see the note above."""
+        sold = row.get("lines_sold")
+        got = row.get("products")
+        if sold in (None, ""):
+            return f"{got} in Knack"
+        return f"{sold} sold \u2192 {got} in Knack"
+
+    def _when(row):
+        at = row.get("at")
+        return at.strftime("%b %-d, %Y") if at else "not recorded"
+
+    for row in data["rows"]:
+        client = str(row.get("client") or "")
+        diff = row.get("difference") or 0
+        rows.append([
+            str(row.get("order") or ""),
+            _c360_link(client) if client else "(no client name)",
+            _money(row.get("sold")),
+            _money(row.get("trafficked")),
+            # The words carry the direction, so a sign in front of them is
+            # noise — and the currency stays, because this is money.
+            _money(abs(diff)) + (" a month more than the order" if diff > 0
+                                 else " a month less than the order"),
+            _rowcount(row),
+            str(row.get("partner") or "") or "\u2014",
+            _when(row),
+        ])
+        # Under-delivery is red: it is money a client paid for and is not
+        # getting. Over is amber: real, and a billing conversation rather than
+        # a delivery one.
+        styles.append("bad" if row.get("direction") == "under" else "warn")
+
+    if data.get("unmeasured"):
+        rows.append([{"group": f"Could not be compared "
+                               f"({len(data['unmeasured'])})",
+                      "tone": "later"}, "", "", "", "", "", "", ""])
+        styles.append(None)
+        for row in data["unmeasured"]:
+            client = str(row.get("client") or "")
+            rows.append([
+                str(row.get("order") or ""),
+                _c360_link(client) if client else "(no client name)",
+                _money(row.get("sold")) if row.get("sold") else "\u2014",
+                # Never the partial total: the row's whole point is that the
+                # campaign's money could not be measured, and printing a
+                # figure beside that sentence invites somebody to read it as
+                # one.
+                "\u2014",
+                str(row.get("reason") or ""),
+                _rowcount(row),
+                str(row.get("partner") or "") or "\u2014",
+                _when(row),
+            ])
+            styles.append(None)
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        "measured": True,
+        "note": note,
+    }
+
+
+
+def knack_field_map() -> dict:
+    """Every Knack object and field this Hub knows about, and who owns each.
+
+    The running record of what is mapped and what is still somebody's
+    assumption, so that pushing more into Knack is a reviewed step rather than
+    a hopeful one. A field id pinned to the wrong column writes into the wrong
+    place on a live record — and Knack refuses the *whole* record over one bad
+    value, so an unconfirmed mapping costs the write rather than the field.
+
+    Nothing here is restated: `hub/knack_map.py` reads each mapping from the
+    module that owns it, so a field repinned in `knack_products` shows up here
+    without anybody editing a table.
+    """
+    from . import knack_map
+
+    rows_in = knack_map.fields()
+    checked = knack_map.verify()
+    live = {(r["object"], r["key"]): r for r in (checked.get("rows") or [])}
+    summary = knack_map.summary()
+
+    columns = ["Field", "Id", "How", "Read / written", "Knack says",
+               "Confirmed"]
+    rows, styles = [], []
+
+    by_object = {}
+    for row in rows_in:
+        by_object.setdefault(row["object"], []).append(row)
+
+    for obj, meta in knack_map.OBJECTS.items():
+        group = by_object.get(obj)
+        label = f"{meta['name']} ({obj})"
+        if meta.get("discovered"):
+            label = f"{meta['name']} (object discovered from its own ids)"
+        if not group:
+            # An object with no mapping to show is still on the record: one
+            # matched by label, and one read for its records rather than its
+            # fields, are each a fact about how much of Knack is pinned.
+            why = ("its fields are matched by label rather than pinned"
+                   if meta["how"] == knack_map.BY_LABEL else
+                   "read for its records, not for its fields")
+            rows.append([{"group": f"{label} — {why}",
+                          "tone": "now" if meta["how"] == knack_map.BY_LABEL
+                                  else "later"}, "", "", "", "", ""])
+            styles.append(None)
+            continue
+        done = sum(1 for r in group if r["confirmed"])
+        rows.append([{"group": f"{label} — {done} of {len(group)} confirmed "
+                               f"· {meta['tool']}",
+                      "tone": "later"}, "", "", "", "", ""])
+        styles.append(None)
+        for row in group:
+            seen = live.get((obj, row["key"]))
+            if seen is None:
+                says = "not measured"
+            elif seen["found"]:
+                says = f"{seen['knack_label']} ({seen['knack_type']})"
+            else:
+                says = "NOT ON THIS OBJECT"
+            rows.append([
+                row["key"],
+                row["field"],
+                row["how"],
+                "written" if row["written"] else "read",
+                says,
+                {"knack_confirm": f"{obj}|{row['key']}|{row['field']}",
+                 "state": ("superseded" if row["superseded"]
+                           else "yes" if row["confirmed"] else "no"),
+                 "detail": (f"{row['confirmed_by'] or 'not recorded'} · "
+                            f"{row['confirmed_at'][:10]}" if row["confirmed"]
+                           else f"was confirmed as {row['was_confirmed_as']}"
+                           if row["superseded"] else "")},
+            ])
+            # A field the Hub writes and nobody has confirmed is the row this
+            # report exists for. One it only reads is worth confirming and is
+            # not urgent, so it is not drawn as a fault.
+            if seen is not None and not seen["found"]:
+                styles.append("bad")
+            elif row["superseded"]:
+                styles.append("warn")
+            elif row["written"] and not row["confirmed"]:
+                styles.append("warn")
+            else:
+                styles.append(None)
+
+    note = (f"{summary['fields']} field mappings across {summary['objects']} "
+            f"Knack objects. {summary['written']} of them are written by this "
+            f"Hub and {summary['written_unconfirmed']} of those have not been "
+            "confirmed against the live builder by anybody \u2014 which is the "
+            "list to work down before more is pushed into Knack, because a "
+            "value Knack refuses costs the whole record rather than the "
+            "field.")
+    if summary["unpinned_objects"]:
+        note += (" " + ", ".join(summary["unpinned_objects"])
+                 + " is still matched by label rather than pinned: a renamed "
+                   "label breaks that silently, which is the state object_107 "
+                   "was in before its ids were pinned.")
+    if summary["superseded"]:
+        note += (f" {summary['superseded']} confirmation"
+                 f"{'' if summary['superseded'] == 1 else 's'} "
+                 f"{'was' if summary['superseded'] == 1 else 'were'} given for "
+                 "an id the code no longer pins, so "
+                 f"{'it has' if summary['superseded'] == 1 else 'they have'} "
+                 "been retired rather than carried onto a different column.")
+    if not checked.get("measured"):
+        note += (" " + (checked.get("error") or "The live builder could not be "
+                        "read.") + " The map is still worth reviewing on "
+                 "paper; what is missing is what Knack calls each id.")
+    for err in checked.get("errors") or []:
+        note += " " + err + "."
+    note += (" Nothing on this page writes to Knack: it reads the schema, and "
+             "a confirmation is a Hub-side note of who checked what.")
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_styles": styles,
+        # Deliberately measured even with no Knack: the map itself is the
+        # answer this report exists to give, and the live check is the half
+        # that is missing. Reporting the whole thing unmeasurable would hide
+        # the record somebody is meant to work down.
+        "measured": True,
+        "note": note,
+    }
+
+
 # Whole tools rather than table-returning functions, and every one of them
 # answers "what is wrong / what do we owe" -- which is the question the QA page
 # exists for. They were on the Tools page under a group called "Client Work",
@@ -2424,6 +2662,26 @@ REPORTS = {
         "ico": "&#9679;",
         "fn": active_clients,
         "group": "Clients",
+    },
+    "knack-field-map": {
+        "title": "Knack Field Map",
+        "desc": "Every Knack object and field this Hub reads or writes, which "
+                "tool owns it, what Knack itself calls the id, and whether "
+                "anybody has confirmed the mapping \u2014 the record to work "
+                "down before more is pushed into Knack.",
+        "ico": "&#128279;",
+        "fn": knack_field_map,
+        "group": "Data Quality",
+    },
+    "io-money-mismatch": {
+        "title": "Campaigns Not At Order Value",
+        "desc": "Insertion orders whose campaign in Knack is trafficked for "
+                "different money than the order was written for \u2014 under, "
+                "which is delivery the client is not getting, and over, which "
+                "is billing nobody wrote an order for.",
+        "ico": "&#9878;",
+        "fn": io_delivery_report,
+        "group": "Data Quality",
     },
     "io-not-in-knack": {
         "title": "Orders With No Campaign",

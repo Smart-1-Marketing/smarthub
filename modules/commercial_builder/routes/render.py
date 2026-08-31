@@ -10,6 +10,15 @@ from ..services import qc_service, creatomate_service, cloudinary_service
 
 bp = Blueprint("cb_render", __name__, url_prefix="/api/projects/<int:project_id>")
 
+# Writes on this blueprint that deliberately record nothing, with the reason.
+HOUSEKEEPING_ROUTES = {
+    "run_qc": "scores the blueprint and stores the findings against the "
+              "draft. A check somebody runs repeatedly while editing, and "
+              "the two things that leave this file — a render submitted and "
+              "a cut approved and filed — both record.",
+}
+
+
 # A rendered commercial is a deliverable, so it belongs on the client's 360
 # record alongside their images, quotes and scans. Guarded so the module still
 # runs standalone.

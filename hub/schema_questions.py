@@ -6,8 +6,14 @@ specific fields (price range, service area, accepts reservations, founding
 date) that a ten-field set never covers.
 
 So: **35 questions across seven groups**, each answered from the Hub's own
-records first, then the client's website, then a web search. Only what can't
-be found is put to a human.
+records first and then, for whatever is left, one AI call. Only what still
+cannot be found is put to a human.
+
+Reading the client's own website and running a web search were both planned
+and neither is built. That is said here, and the two confidence levels for
+them are **not reported as zero**: `site: 0` on the panel reads as *their
+website had nothing on it*, when nothing ever looked — the difference this
+codebase treats as the whole point. `NOT_BUILT` names them.
 
 ## Why unanswered questions block approval
 
@@ -126,8 +132,18 @@ ALIASES = {
 }
 
 
-def _lookup(known: dict, key: str):
-    """First non-blank value under the question key or any known alias."""
+def _lookup(known: dict, key: str, typed: dict | None = None):
+    """First real value under the question key or any known alias.
+
+    `typed` is what a person saved through `save_answers()`, and it is checked
+    first and held to the looser test: their answer is the best source there
+    is, and it is the one place "none" means "none".
+    """
+    typed = typed or {}
+    for name in ALIASES.get(key, (key,)):
+        v = typed.get(name)
+        if not _blank(v, typed=True):
+            return v
     for name in ALIASES.get(key, (key,)):
         v = known.get(name)
         if not _blank(v):
@@ -135,9 +151,38 @@ def _lookup(known: dict, key: str):
     return None
 
 
-def _blank(v) -> bool:
+# Planned and not built. Named rather than left as two confidence levels that
+# are always zero: `site: 0` on the panel reads as "their website had nothing
+# on it", which is a claim about the client rather than about us.
+NOT_BUILT = {
+    "site": "Reading the answers off the client's own website is not built. "
+            "Nothing here fetches their pages.",
+    "search": "Answering from a web search is not built. The AI call is told "
+              "to use only what it is given and not to look anything up.",
+}
+
+# A human typing "none" is answering the question. Asked whether the business
+# has won any awards, holds any licenses or belongs to any trade association,
+# "none" is the true answer for most small businesses -- and these strings
+# were read as *nothing was filled in*, so the answer was stored, read back as
+# blank, and marked NEED ANSWER again. The reviewer typed it, saved it,
+# reloaded, and approval was still blocked, for ever, by a question they had
+# answered. On the module whose docstring says "The block is the feature".
+_JUNK = ("n/a", "none", "unknown", "-")
+
+
+def _blank(v, typed: bool = False) -> bool:
+    """Is there no answer here?
+
+    `typed=True` for a value a person saved: only whitespace is missing then.
+    The junk list is for values coming off a *record*, where "n/a" means
+    nobody filled the field in -- the opposite of what it means when somebody
+    types it into the question "does it hold any licenses?".
+    """
     s = str(v or "").strip()
-    return not s or s.upper() == NEED or s.lower() in ("n/a", "none", "unknown", "-")
+    if not s or s.upper() == NEED:
+        return True
+    return not typed and s.lower() in _JUNK
 
 
 def build(client: str, use_ai: bool = True) -> dict:
@@ -151,19 +196,26 @@ def build(client: str, use_ai: bool = True) -> dict:
 
     store = seo.load_store(client) or {}
     known = dict(store.get("business_info") or {})
-    known.update({k: v for k, v in (store.get("answers") or {}).items() if v})
+    # Kept apart rather than merged in: what a person typed is the one source
+    # where "none" is an answer instead of an empty field.
+    typed = {k: v for k, v in (store.get("answers") or {}).items() if v}
     try:
         known.update({k: v for k, v in (context(client).get("fields") or {}).items() if v})
     except Exception:                                   # noqa: BLE001
         pass
 
-    industry = str(known.get("industry") or known.get("category") or "")
+    industry = str(typed.get("industry") or known.get("industry")
+                   or typed.get("category") or known.get("category") or "")
     asked = [q for q in QUESTIONS if applies(q, industry)]
 
     rows, unknown = [], []
     for key, question, group, _only in asked:
-        val = _lookup(known, key)
-        if not _blank(val):
+        # `is None` rather than a second _blank(): _lookup has already asked
+        # whether there is an answer, and asking again here -- with the strict
+        # rule, because this call site cannot know the value came from a
+        # person -- is what undid the fix the first time. One reading.
+        val = _lookup(known, key, typed)
+        if val is not None:
             rows.append({"key": key, "question": question, "group": group,
                          "answer": str(val).strip(), "confidence": "known",
                          "source": "Already on the client record."})
@@ -192,23 +244,59 @@ def build(client: str, use_ai: bool = True) -> dict:
 
     rows.sort(key=lambda r: (GROUPS.index(r["group"]) if r["group"] in GROUPS else 9,
                              r["key"]))
+    blocking = _blocking(rows)
     needed = [r for r in rows if r["confidence"] == "needed"]
     return {
         "client": client, "industry": industry,
         "questions": rows,
         "total": len(rows),
-        "answered": len(rows) - len(needed),
-        "need_answer": len(needed),
-        "need_keys": [r["key"] for r in needed],
-        "can_approve": not needed,
+        "answered": len(rows) - len(blocking),
+        "need_answer": len(blocking),
+        "need_keys": [r["key"] for r in blocking],
+        "can_approve": not blocking,
+        # Only the levels this can actually produce. `site` and `search` were
+        # reported as 0 by a build that never looks at either, which reads as
+        # a fact about the client's website rather than about us; NOT_BUILT
+        # names them instead.
         "by_confidence": {c: sum(1 for r in rows if r["confidence"] == c)
-                          for c in ("known", "site", "search", "ai", "needed")},
-        "note": (f"{len(needed)} question(s) marked {NEED}. Schema can't be "
-                 f"approved until each has a real answer — structured data is "
-                 f"read by machines as fact, so a plausible guess is worse "
-                 f"than an empty field."
-                 if needed else "Every question answered. Ready to approve."),
+                          for c in ("known", "ai", "needed")},
+        "not_built": dict(NOT_BUILT),
+        "note": _note(blocking, needed),
     }
+
+
+def _blocking(rows: list[dict]) -> list[dict]:
+    """The rows that stop a schema being approved.
+
+    An **AI answer blocks too**, and that is the fix rather than a
+    tightening. `can_approve()` re-derived the whole set with `use_ai=False`,
+    which turns every inference back into a NEED ANSWER -- so the panel's own
+    GET said *"Every question answered. Ready to approve."* in green while the
+    POST beside it answered *"N still marked NEED ANSWER, so approval stays
+    blocked."* in red. Two readings of one question on one panel, which is the
+    `/api/db/structure` versus `/api/integrity` trap.
+
+    Blocking is the reading that matches what this module says it is for: an
+    inference is "always worth checking", structured data is read by machines
+    as fact, and a plausible guess is worse than an empty field. Saving an AI
+    answer is the check -- it becomes one a person typed, and unblocks.
+    """
+    return [r for r in rows if r["confidence"] in ("needed", "ai")]
+
+
+def _note(blocking: list[dict], needed: list[dict]) -> str:
+    if not blocking:
+        return "Every question answered. Ready to approve."
+    unchecked = len(blocking) - len(needed)
+    parts = []
+    if needed:
+        parts.append(f"{len(needed)} question(s) marked {NEED}")
+    if unchecked:
+        parts.append(f"{unchecked} answered by AI and not yet checked")
+    return (" and ".join(parts) + ". Schema can't be approved until each has "
+            "a real answer — structured data is read by machines as fact, so "
+            "a plausible guess is worse than an empty field. Saving an AI "
+            "answer is how you confirm it.")
 
 
 def _ask_ai(client: str, known: dict, unknown: list) -> dict:
@@ -288,9 +376,16 @@ def save_answers(client: str, answers: dict, actor: str = "") -> dict:
 
 
 def can_approve(client: str) -> dict:
-    """Whether the schema may be approved, and what's blocking it."""
+    """Whether the schema may be approved, and what's blocking it.
+
+    `use_ai=False` because this runs on every save and a model call there is
+    a cost nobody asked for — and it now gives the *same verdict* as the
+    panel either way, which is the point: without AI those rows are `needed`,
+    with it they are `ai`, and `_blocking()` counts both. The two readings
+    could not agree before, so the same screen said "Ready to approve" on
+    load and "approval stays blocked" on save.
+    """
     d = build(client, use_ai=False)
     return {"can_approve": d["can_approve"], "need_answer": d["need_answer"],
-            "blocking": [r["question"] for r in d["questions"]
-                         if r["confidence"] == "needed"][:10],
+            "blocking": [r["question"] for r in _blocking(d["questions"])][:10],
             "note": d["note"]}

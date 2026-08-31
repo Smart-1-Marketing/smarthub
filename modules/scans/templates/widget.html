@@ -184,7 +184,7 @@
   var SLUG = {{ w.slug|tojson }};
   var SOURCE = {{ source|tojson }};
   var API = "../api/w/" + encodeURIComponent(SLUG);
-  var token = "", pollTimer = null, tries = 0;
+  var token = "", reportUrl = "", pollTimer = null, tries = 0;
 
   function $(id){ return document.getElementById(id); }
   function esc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
@@ -300,7 +300,8 @@
       $('fullList').innerHTML = (j.findings || []).map(function(f){
         return findingLi(f, true);
       }).join('');
-      if (j.report_url) $('openReport').href = j.report_url;
+      if (j.report_url) { reportUrl = j.report_url;
+                          $('openReport').href = j.report_url; }
       pollStatus();
       postHeight();
     }).catch(function(){
@@ -312,23 +313,41 @@
   };
 
   // ---- the deep scan, once the lead is captured
+  /* Three answers, not two. `ready` is the report. `stopped` is a run that
+     will never produce one -- the server decides which statuses those are,
+     because a second list here would be a second answer to one question. And
+     giving up on the clock now says where the report will be rather than that
+     we will email it: there is no mail sender in this Hub, so that was a
+     promise to a stranger that nothing here could keep. */
+  function stopPolling(title, sub, showLink){
+    $('deepTitle').textContent = title;
+    $('deepSub').textContent = sub;
+    if (showLink && reportUrl){
+      var a = $('openReport');
+      a.href = reportUrl; a.classList.remove('hide');
+    }
+    postHeight();
+  }
+
   function pollStatus(){
     if (tries++ > 40) {                       // ~10 minutes, then stop asking
-      $('deepTitle').textContent = 'Your deep scan is still running';
-      $('deepSub').textContent = 'It is taking longer than usual. We\'ll email '
-        + 'your report the moment it lands.';
-      postHeight(); return;
+      stopPolling('Your deep scan is still running',
+        'It is taking longer than usual. It is not lost — open the link '
+        + 'below in a few minutes and it will be there.', true);
+      return;
     }
     fetch(API + '/status?token=' + encodeURIComponent(token))
       .then(function(r){ return r.json(); })
       .then(function(j){
         if (j.ok && j.ready){
-          $('deepTitle').textContent = 'Your full AI visibility report is ready';
-          $('deepSub').textContent = 'Every check we ran, what it means, and what '
-            + 'to fix first — yours to keep.';
-          var a = $('openReport');
-          a.href = j.report_url; a.classList.remove('hide');
-          postHeight();
+          reportUrl = j.report_url || reportUrl;
+          stopPolling('Your full AI visibility report is ready',
+            'Every check we ran, what it means, and what to fix first '
+            + '— yours to keep.', true);
+          return;
+        }
+        if (j.ok && j.stopped){
+          stopPolling('We could not finish the deep scan', j.message || '', false);
           return;
         }
         pollTimer = setTimeout(pollStatus, 15000);

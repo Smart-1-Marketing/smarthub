@@ -616,6 +616,10 @@ def required_units(state, medium: str) -> dict:
                 "kind": unit.get("kind") or "image",
                 "channel": creative_specs.CHANNEL_LABELS.get(
                     unit.get("channel", ""), unit.get("channel", "")),
+                # The id as well as the label: `units_line()` decides whether
+                # a size run or a name is the ask from the channel, and a
+                # label is a display string that can be reworded.
+                "channel_id": unit.get("channel", ""),
                 "sizes": [f"{w}x{h}" for w, h in pairs if w and h],
                 "shape": _shape_of(unit),
                 "formats": [str(f).upper() for f in (unit.get("formats") or [])],
@@ -661,6 +665,11 @@ ADDITIONS = {
 }
 
 
+# Every unit in the kit but YouTube's six publishes five formats or fewer, so
+# this prints those whole and truncates only where the list is genuinely long.
+_FORMATS_SHOWN = 5
+
+
 def _shape_of(unit) -> str:
     """How a unit is specified when it carries no fixed size.
 
@@ -697,14 +706,26 @@ def _describe_unit(unit) -> str:
     length = (f"{seconds[0]}–{seconds[1]}s" if len(seconds) == 2
               and seconds[0] != seconds[1] else
               (f"{seconds[0]}s" if seconds else ""))
-    fmt = "/".join(unit.get("formats") or [])
+    # A run of nine codecs, printed once per unit across a six-unit buy, is the
+    # wall the sizes rule already exists for -- and this is the line a client
+    # reads. Five is every other unit in the kit whole; past that it says how
+    # many more rather than pretending the list is all of them.
+    formats = [str(f) for f in (unit.get("formats") or [])]
+    fmt = ("/".join(formats) if len(formats) <= _FORMATS_SHOWN
+           else "/".join(formats[:_FORMATS_SHOWN])
+                + f" and {len(formats) - _FORMATS_SHOWN} more")
     shape = unit.get("shape") or ""
     if kind in ("video", "audio"):
         bits = [b for b in (", ".join(unit.get("sizes") or []) or shape,
                             fmt, length) if b]
         return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
     if unit.get("sizes"):
-        return ", ".join(unit["sizes"])
+        # Named as well as sized. An image unit with fixed sizes only reaches
+        # here when its channel sells formats rather than a size set, and
+        # there the name is what the client picks between -- "1200x628,
+        # 200x200" says nothing about which of the two is the brand logo.
+        bits = [b for b in (", ".join(unit["sizes"]), fmt) if b]
+        return f"{unit['label']} ({', '.join(bits)})"
     # An image with no fixed size is described the way the video above is:
     # by the shape it is specified in and what it may be delivered as. Named
     # alone it says nothing a client can act on.
@@ -714,6 +735,8 @@ def _describe_unit(unit) -> str:
 
 def units_line(state, medium: str) -> str:
     """What one medium needs, in one line for a rep or a client document."""
+    from . import creative_specs
+
     result = required_units(state, medium)
     if not result["measured"]:
         return result.get("note") or "Sizes not measured."
@@ -729,10 +752,23 @@ def units_line(state, medium: str) -> str:
     # document read never said an image was needed at all. That is this
     # function's own audio rule running the other way -- there it is a unit
     # described by the wrong terms, here it is one described by none.
-    images = [u for u in result["units"]
-              if (u.get("kind") or "image") == "image" and u.get("sizes")]
-    others = [u for u in result["units"]
-              if (u.get("kind") or "image") != "image" or not u.get("sizes")]
+    # ...and the same thing from the other end: an image unit whose NAME is
+    # the ask must not be folded into the run either. Only the channels the
+    # kit publishes as a Unit / Dimensions / weight table sell a size set;
+    # everywhere else the first column is a Format, and a run of bare sizes
+    # dissolved X's Image Ads, Carousel Ads, Conversation Button and
+    # Spotlight Takeover into nine numbers a client could not attribute to
+    # anything.
+    sized = [u for u in result["units"]
+             if (u.get("kind") or "image") == "image" and u.get("sizes")]
+    # Decided before the split, or filtering by channel retires it: both
+    # ADDITIONS entries sit on channels that sell no size set.
+    addition = ADDITIONS.get(sized[0].get("id")) if len(sized) == 1 else None
+    images = sized if addition else [
+        u for u in sized
+        if u.get("channel_id") in creative_specs.SIZE_SET_CHANNELS]
+    folded = {u["id"] for u in images}
+    others = [u for u in result["units"] if u["id"] not in folded]
     # Desktop, mobile and tablet each carry their own "HTML5 package" unit,
     # so describing all three printed the same words three times.
     described = list(dict.fromkeys(_describe_unit(u) for u in others))
@@ -758,7 +794,6 @@ def units_line(state, medium: str) -> str:
     # AR filter as the whole requirement. Each names itself, because "a
     # companion banner" is a true sentence about one of them and not the
     # other.
-    addition = ADDITIONS.get(images[0].get("id")) if len(images) == 1 else None
     if not sizes:
         parts = described
     elif addition and described:
