@@ -1250,7 +1250,7 @@ function render(g,q){
   // QuickBooks invoices — attached customer wins; shows customer-since in header
   function renderQb(d,attachedNote){
     if(!d.configured){$('c-qb').innerHTML='<div class="empty">QuickBooks not configured — set QB_CLIENT_ID / QB_CLIENT_SECRET. <a href="/status">Status →</a></div>';return}
-    if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect">Connect QuickBooks →</a></div>';return}
+    if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect" target="_blank" rel="noopener">Connect QuickBooks →</a></div>';return}
     if(d.error){$('c-qb').innerHTML='<div class="empty">QuickBooks error: '+esc(d.error)+'</div>';return}
     const custs=d.customers||[];
     if(!custs.length){
@@ -2141,7 +2141,7 @@ function c360Traffic(propertyId,googleLogin){
         // leaving the reader with an error they can't act on.
         $('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+
           ' <a class="btn-primary" style="margin-left:8px;padding:6px 14px;font-size:13px;text-decoration:none" href="'+esc(d.reconnect_url||'/google/login')+
-          '">Reconnect Google</a></div>';return}
+          '" target="_blank" rel="noopener">Reconnect Google</a></div>';return}
       if(d.error){$('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
       const cur=d.current||{},prev=d.previous||{},del=d.deltas||{};
       const rows=[

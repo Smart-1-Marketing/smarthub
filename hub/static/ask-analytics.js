@@ -200,7 +200,7 @@
         if (d.needs_reauth) {
           say('<div class="s1ask-card s1ask-err">' + esc(d.error || "")
             + ' <a href="' + esc(d.reconnect_url || "/google/login")
-            + '">Reconnect Google</a></div>');
+            + '" target="_blank" rel="noopener">Reconnect Google</a></div>');
           return;
         }
         if (!res.ok) {
