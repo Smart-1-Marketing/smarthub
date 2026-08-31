@@ -10987,6 +10987,12 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   a gallery you can search, and nothing
                                    #   filed under a provider nobody declared
+python3 test_client360_layout.py   # the record's cards land in their rail
+                                   #   sections by name, driven in node — a
+                                   #   match list that stops matching piles
+                                   #   every card into Overview with the page
+                                   #   still looking complete — and the four
+                                   #   actions the accordion's toolbar carried
 python3 test_client_images.py      # every module that logs client work is one the
                                    #   record can name; deleting a client image, the
                                    #   count, the one brand

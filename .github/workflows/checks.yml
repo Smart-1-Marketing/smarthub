@@ -873,6 +873,20 @@ jobs:
             echo "test_seo_page.py not on this branch — nothing to run."
           fi
 
+      - name: Client 360 workspace layout
+        # The record's cards are moved into rail sections by title, and the
+        # matching is driven in node against the template's own card titles —
+        # if it stops matching, every card piles into Overview with the page
+        # still looking complete. Also holds the actions the accordion's
+        # toolbar used to carry. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_client360_layout.py ]; then
+            python test_client360_layout.py
+          else
+            echo "test_client360_layout.py not on this branch — nothing to run."
+          fi
+
       - name: Image download and shared zip builder tests
         # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
         # picker's gallery download now that it runs on the shared builder.
