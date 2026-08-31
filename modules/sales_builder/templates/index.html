@@ -2257,7 +2257,7 @@ function pill(kind,v){const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};
  if(!m[kind])return;toggle(m[kind],v);saveSoon();renderStep();}
 function addCustom(kind,id){const el=document.getElementById(id);const v=(el.value||'').trim();if(!v)return;const m={exc:S.exclusions,aud:S.audiences,kpi:S.kpis};if(!m[kind].includes(v))m[kind].push(v);el.value='';saveSoon();renderStep();}
 function goal(k){toggle(S.objectives,k);S.items=[];S.kpis=[];saveSoon();renderStep();}
-/* The Measurement step's choices. The catalogue is the IO builder's own
+/* The Measurement step's choices. The catalog is the IO builder's own
    benchmark table, handed over by the server (CFG.kpi_choices, from
    hub/kpi_framework.py) rather than restated here -- a second list of what a
    KPI can be is the drift the benchmark mirror test exists to stop. The
@@ -2275,7 +2275,7 @@ function kpiChoiceGroups(){
  (((kpiPlan()||{}).rows)||[]).filter(r=>r.matched).forEach(r=>{const key=r.kpi.toLowerCase();if(!byKpi[key])byKpi[key]={kpi:r.kpi,expected:r.expected};});
  const plan=take(Object.values(byKpi));
  const goal=take([...new Set(S.objectives.flatMap(o=>objectiveKPIs[o]||[]))].map(k=>({kpi:k,expected:''})));
- const cat=take(((CFG.kpi_choices||{}).catalogue)||[]);
+ const cat=take(((CFG.kpi_choices||{}).catalog)||[]);
  const groups=[];
  if(plan.length)groups.push({title:"What the products on the plan are measured on",rows:plan});
  if(goal.length)groups.push({title:"Suggested by the campaign goals",rows:goal});
