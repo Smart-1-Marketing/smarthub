@@ -3027,6 +3027,45 @@ somebody to judge which ages matter. A walkthrough describing a tool that
 does not exist is worse than one describing none, because a rep believes it,
 so the step is rewritten rather than anchored to the nearest thing.
 
+**And the floor it stands on could be cleared by a selector that tests
+nothing.** `_needs()` reads a step's selector for an `#id`, a `[data-demo]` or
+a `[name]`, and a selector carrying none of those returned **no requirement at
+all** — so `absent` was empty, the step counted as anchored, and the check had
+put a tick over a question nobody asked. Four steps were written
+`input[type='file']`, which matches a file input on any page in the Hub and
+identifies nothing.
+
+That is what let **`client360.proposal`** clear *no scenario may drive none of
+its steps*: three of its four hooks are in no template, and the fourth was that
+selector, so three-of-four is not four-of-four and the floor passed a
+walkthrough that drives nothing. **`bg_remover.logo_cutout` was hiding behind
+the identical selector** and had four dead hooks — so the floor was reporting
+one clean sweep over two scenarios that could not drive a single step between
+them. Absent data reading as a measurement, in the check written to find
+exactly that.
+
+A selector the check cannot test is its own state now — counted apart, drawn
+under the *unverified* pill the runtime-prefix rule already has, and it
+**clears nothing**: `dead` is measured against the steps that carry something
+testable, so an untestable step neither proves a scenario drives something nor,
+where every step is one, asserts that it drives nothing.
+
+**And `data-tour` was a whole attribute the parser had never heard of.** It is
+how a tour step anchors and how seven of Smart 1 Ads' driving steps anchor too,
+and **39 anchors in this repo were tested by nothing**: renaming one out from
+under the step that drives it changed no count on any screen. It is read like
+`data-demo` now.
+
+Both scenarios are repaired rather than retired, and the two repairs are
+different jobs. `client360.proposal`'s hooks were simply never placed, so they
+are placed. `bg_remover.logo_cutout` described a free **"Remove white
+background"** button that runs in the browser — and that tool has never had
+one: its free option is a *preview* cut at a quarter of a megapixel, too small
+to deliver and exactly big enough to see whether the edges came out clean. The
+advice was right and the control was imaginary, so the steps are rewritten
+against the tool that exists — Web Tickets' *"Sort by age"* rule, because a rep
+believes a walkthrough.
+
 **A hook can be derived, and a substring search calls a derived hook dead.**
 The QA index writes `data-demo="qa-report-{{ key }}"` once for every report it
 lists, so a scenario naming a report added next month is anchored without that
@@ -9954,8 +9993,10 @@ python3 test_help_layer.py         # every bubble placed has help behind it, bot
                                    #   ways one is placed, a key built at runtime
                                    #   named rather than guessed at, the
                                    #   walkthrough saying which step it cannot
-                                   #   run, and coverage measured against the
-                                   #   tiles rather than a list that went stale
+                                   #   run, a selector that tests nothing
+                                   #   clearing no floor, and coverage measured
+                                   #   against the tiles rather than a list
+                                   #   that went stale
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete

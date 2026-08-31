@@ -78,14 +78,14 @@
   <div class="card">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <h2 style="margin:0">Images</h2>
-      <span class="credits" id="credits"></span>
+      <span class="credits" id="credits" data-demo="credit-balance"></span>
     </div>
     <div class="drop" id="drop" style="margin-top:12px">
       <div class="big">&#9986;</div>
       <div><b>Drop images here</b> or click to choose</div>
       <div class="hint" id="picked">JPG · PNG · WebP &middot; up to 10 at once, 12 MB each</div>
     </div>
-    <input type="file" id="files" accept="image/jpeg,image/png,image/webp" multiple hidden>
+    <input type="file" id="files" data-demo="cutout-file" accept="image/jpeg,image/png,image/webp" multiple hidden>
 
     <div class="grid" style="margin-top:16px">
       <div>
@@ -99,7 +99,7 @@
       </div>
       <div>
         <label class="f">Cut-out resolution</label>
-        <select id="quality">
+        <select id="quality" data-demo="cutout-quality">
           <option value="preview">Preview — 0.25 MP (free)</option>
           <option value="auto" selected>Auto — best available (1 credit)</option>
           <option value="full">Full resolution (1 credit)</option>
@@ -141,7 +141,7 @@
       </div>
     </div>
     <div id="errors"></div>
-    <div class="results" id="results"></div>
+    <div class="results" id="results" data-demo="cutout-results"></div>
   </div>
 
   <div class="verfoot">Smart 1 Hub &middot; Background Remover &middot; <b>{{ version }}</b></div>
