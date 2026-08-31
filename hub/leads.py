@@ -664,9 +664,12 @@ def merge(into_id: str, from_ids: list[str], actor: str = "") -> dict:
 
     # The earliest arrival is when this prospect actually came in. Keeping the
     # survivor's own date would report a lead from March as a lead from May,
-    # which is the one field a follow-up queue is sorted on.
-    earliest = min([survivor.get("created") or ""]
-                   + [d.get("created") or "" for d in donors if d.get("created")])
+    # which is the one field a follow-up queue is sorted on. Empty stamps are
+    # dropped before the min: a survivor with no date used to make the whole
+    # min "" and quietly discard the donors' perfectly good dates.
+    stamps = [s for s in ([survivor.get("created") or ""]
+                          + [dn.get("created") or "" for dn in donors]) if s]
+    earliest = min(stamps) if stamps else ""
     if earliest:
         survivor["first_seen"] = earliest
         survivor["created"] = earliest
@@ -790,7 +793,13 @@ def retry_undelivered(limit: int = 50) -> dict:
 def listing(days: int = 30, source: str = "", page: str = "",
             undelivered_only: bool = False) -> dict:
     """The lead panel."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, min(365, days)))
+    # Clamped once and reported back clamped. The route allows up to 730 (the
+    # same ceiling merge_candidates takes), and this used to cap the cutoff at
+    # 365 while echoing the raw number — so ?days=730 answered with a year of
+    # rows under a label claiming two, a wrong label over right rows, which is
+    # harder to notice than either being wrong alone.
+    days = max(1, min(730, days))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     # A row that has been merged into another is not a second lead. It is kept
     # in the file rather than deleted -- see merge() -- so it is filtered here
     # instead, and counted, because a panel that quietly gets shorter cannot be
@@ -821,7 +830,13 @@ def listing(days: int = 30, source: str = "", page: str = "",
         "leads": rows[:500], "count": len(rows),
         "undelivered": undelivered,
         "converted": sum(1 for r in rows if r.get("converted_at")),
-        "with_pdf": sum(1 for r in rows if r.get("pdf_url")),
+        # A report is a PDF *or* an audit page — the website audit produces a
+        # page, not a PDF, and counting only pdf_url made the KPI say "3 with
+        # a report" over a table whose Report column plainly offered more.
+        "with_report": sum(
+            1 for r in rows
+            if r.get("pdf_url") or (r.get("meta") or {}).get("audit_url")
+            or (r.get("meta") or {}).get("report_url")),
         "by_page": sorted(by_page.items(), key=lambda kv: -kv[1]),
         "sources": sorted({r.get("source") for r in rows if r.get("source")}),
         "days": days,
