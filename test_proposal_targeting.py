@@ -1008,6 +1008,135 @@ check("and offers the way round it rather than only reporting failure",
 builder._openai_response = _real_ai
 
 # ---------------------------------------------------------------------------
+section("the step rail: fourteen steps down the side, forward gated")
+# ---------------------------------------------------------------------------
+# The wizard's own gating logic, lifted from between the STEPRAIL markers and
+# run in node against staged states -- a copy restated here would be a second
+# description of what "complete" means. The predicates it calls are stubbed
+# to controllable answers, because each is already tested where it lives.
+_sb_now = open(_TPL, encoding="utf-8").read()
+check("the rail exists and renderStep repaints it",
+      'id="steprail"' in _sb_now and _sb_now.count("drawStepRail()") >= 2)
+check("a locked jump names the step to finish rather than refusing silently",
+      "before jumping ahead" in _sb_now)
+
+_rail = _src.split("/* STEPRAIL:BEGIN */", 1)[1].split("/* STEPRAIL:END */", 1)[0]
+_rail_js = os.path.join(_TMP, "steprail.js")
+open(_rail_js, "w", encoding="utf-8").write(
+    "var S={};var step=0;\n"
+    "function discoveryReady(){return !!S._disc;}\n"
+    "function areaComplete(a){return !!(a&&a.ok);}\n"
+    "function creativeUnresolved(){return S._cre||[];}\n"
+    + _rail + """
+const out={};
+S={objectives:[],client:"",kpis:[],items:[],budget:0,targetAreas:[]};
+out.freshFirst=firstIncomplete();
+out.freshAllowed=[stepAllowed(0),stepAllowed(1),stepAllowed(5)];
+S.objectives=["Lead Generation"];
+out.afterGoal=firstIncomplete();
+S.client="Riverstone";S.clientMode="new";
+out.afterClient=firstIncomplete();
+S._disc=true;
+out.afterDiscovery=firstIncomplete();
+S.targetAreas=[{ok:true}];
+out.afterAreas=firstIncomplete();
+S.kpis=["Cost per lead"];
+out.afterKpis=firstIncomplete();
+S.budget=5000;
+out.afterBudget=firstIncomplete();
+S.items=[{}];
+out.afterItems=firstIncomplete();
+out.lastNeverDone=stepDone(STEP_META.length-1)===false;
+out.metaCount=STEP_META.length;
+// A reopened quote can land mid-wizard with an earlier step unfinished: the
+// step the rep is standing on stays reachable, the one past it does not.
+S={objectives:[],client:"",kpis:[],items:[],budget:0,targetAreas:[]};
+step=5;
+out.resumed=[stepAllowed(5),stepAllowed(4),stepAllowed(6)];
+// A predicate that throws reads as not done, never as done.
+S={objectives:{not:"an array"}};
+out.throwing=stepDone(0)===false;
+console.log(JSON.stringify(out));
+""")
+try:
+    _rr = json.loads(_sub.run(["node", _rail_js], capture_output=True, text=True,
+                              timeout=30, check=True).stdout)
+    _sc = _re.search(r"const STEP_COUNT=(\d+);", _sb_now)
+    check("the rail has one row per wizard step — a rail with 13 rows on a "
+          "14-step wizard is a step nobody can reach",
+          _sc and _rr["metaCount"] == int(_sc.group(1)),
+          (_rr["metaCount"], _sc and _sc.group(1)))
+    check("a fresh quote can reach step 1 and nothing past it",
+          _rr["freshFirst"] == 0 and _rr["freshAllowed"] == [True, False, False],
+          _rr)
+    check("each answered step opens exactly the next unanswered one",
+          [_rr["afterGoal"], _rr["afterClient"], _rr["afterDiscovery"],
+           _rr["afterAreas"], _rr["afterKpis"], _rr["afterBudget"]]
+          == [1, 3, 5, 6, 8, 9], _rr)
+    check("a complete campaign opens the wizard through to Review",
+          _rr["afterItems"] == _rr["metaCount"] - 1, _rr)
+    check("Review is never ticked — the finish is not 'done' by being "
+          "scrolled to", _rr["lastNeverDone"] is True, _rr)
+    check("a reopened quote keeps the step it stands on, back always works, "
+          "and forward is still gated",
+          _rr["resumed"] == [True, True, False], _rr)
+    check("a predicate that throws reads as not done rather than taking the "
+          "rail down", _rr["throwing"] is True, _rr)
+except FileNotFoundError:                        # pragma: no cover - no node
+    print("  note: node is not installed here, so the rail logic was not driven")
+
+# ---------------------------------------------------------------------------
+section("two searches on the audience step, and each says what it looks for")
+# ---------------------------------------------------------------------------
+check("Find competitors and Find places are separate buttons",
+      "toggleFind('competitor')" in _sb_now and "toggleFind('place')" in _sb_now
+      and ">🥊 Find competitors<" in _sb_now and ">📍 Find places<" in _sb_now)
+check("opening a panel runs nothing — the search is its own press",
+      "function toggleFind(mode){FINDT[mode].open=!FINDT[mode].open;"
+      "drawCompetitors();}" in _sb_now)
+check("the competitor search says it wants companies relevant to the "
+      "industry and services, in the defined geo",
+      "industry and services" in _sb_now
+      and "inside the geo defined on this campaign" in _sb_now)
+check("the places search says it wants locations whose visitors are a good "
+      "target audience — and that it is not always relevant",
+      "good target audience" in _sb_now
+      and "Not every campaign needs this one" in _sb_now)
+check("each search asks the server for its own kinds",
+      'kinds:["competitor"]' in _sb_now and 'kinds:["venue","place"]' in _sb_now
+      and "kinds:M.kinds" in _sb_now)
+
+# The server tells the model the same statement the button made. The default
+# search (no kinds) carries no focus line, so the older assertions above
+# stay true of it.
+_FOCUS_SEEN = {}
+
+
+def _focus_ai(prompt, max_output_tokens=6000):
+    _FOCUS_SEEN["p"] = prompt
+    return json.dumps({"targets": []})
+
+
+builder._openai_response = _focus_ai
+api("post", "/sales/builder/api/find-targets",
+    json={"client": "X", "areas": state["targetAreas"], "kinds": ["competitor"]})
+check("a competitors-only search is told competitors only, no venues",
+      "COMPETITORS ONLY" in _FOCUS_SEEN["p"]
+      and "Do not list venues" in _FOCUS_SEEN["p"])
+api("post", "/sales/builder/api/find-targets",
+    json={"client": "X", "areas": state["targetAreas"],
+          "kinds": ["venue", "place"]})
+check("a places-only search is told target-audience locations, no competitors",
+      "PLACES ONLY" in _FOCUS_SEEN["p"]
+      and "good target audience" in _FOCUS_SEEN["p"]
+      and "Do not list competitor businesses" in _FOCUS_SEEN["p"])
+api("post", "/sales/builder/api/find-targets",
+    json={"client": "X", "areas": state["targetAreas"]})
+check("the combined search carries no focus line at all",
+      "Focus:" not in _FOCUS_SEEN["p"])
+builder._openai_response = _real_ai
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)
