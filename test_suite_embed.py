@@ -46,6 +46,11 @@ TMP = tempfile.mkdtemp(prefix="s1embed_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
 os.environ.setdefault("SECRET_KEY", "embed-test-secret")
+# A real origin, because the getting-started page exists to be copied
+# from. Left unset, public_base_origin() is "" and bytes.count(b"") is
+# always >= 2 -- the assertion below could never fail, which is the
+# dead check this repo keeps having to undo.
+os.environ["PUBLIC_BASE_URL"] = "https://hub.example.test"
 
 from hub import auth, suite_embed as embed  # noqa: E402
 
@@ -209,6 +214,71 @@ check("and warns about the cross-client failure",
       "worst outcome" in embed.SSO_NOT_BUILT, True)
 check("and says the location id must not be trusted from a query string",
       "query string" in embed.SSO_NOT_BUILT, True)
+
+
+# --------------------------------------- the front door
+section("The app has somewhere for Suite's own tab to point")
+
+# What shipped without this: the getting-started tab was configured with the
+# Hub root, the root is a staff dashboard the allowlist correctly refuses, and
+# the refusal filled the tab. Every layer was behaving; the app simply had no
+# front door. So the assertions are about the three properties that make one
+# usable inside that frame, each of which fails silently on its own.
+_start = c.get("/suite-app/start", headers={"Sec-Fetch-Dest": "iframe"})
+check("the getting-started page is reachable inside a frame",
+      _start.status_code, 200)
+check("and is not the refusal",
+      b"not available inside Smart 1 Suite" in _start.data, False)
+
+# It inherits both from the "/suite-app" prefix. Asserted rather than assumed:
+# a page that loads and then refuses to be framed is a blank tab, and one that
+# arrives wearing the staff sidebar is a second nav inside Suite's own.
+# The header on the served response, not the predicate: framable() is what
+# actually decides, and a page that 200s and is then refused by the browser
+# is a blank tab with nothing anywhere saying why.
+_csp = _start.headers.get("Content-Security-Policy") or ""
+check("it may be framed", "frame-ancestors" in _csp and _start.status_code == 200,
+      True)
+check("and X-Frame-Options is not left standing to override it",
+      "X-Frame-Options" in _start.headers, False)
+# Asserted on the SERVED page, not on the allowlist: an entry proves somebody
+# intended the exemption, never that it reached the response -- the rule this
+# repo applies to the wait mark on every public route.
+check("and no feedback tab reaches it", b"s1hub-feed" in _start.data, False)
+check("nor the staff sidebar", b"hub-sidebar" in _start.data, False)
+
+# The whole point of the page is being copied from, so it must print the
+# origin this deployment actually answers on rather than a typed-in host --
+# the hub/oauth_redirects.py rule, where a panel named one callback and the
+# code sent another.
+from hub.config import public_base_origin as _origin
+_org = _origin()
+check("the test has a real origin to look for", bool(_org), True)
+check("it prints its URLs from the live origin",
+      _start.data.count(_org.encode()) >= 2, True)
+check("naming the staff surface", b"/client360" in _start.data, True)
+check("and the client surface", b"/suite-app" in _start.data, True)
+
+# The client surface is DOCUMENTED and not RECOMMENDED, and the difference has
+# to be visible on the page rather than only in our heads: this is the one
+# screen whose whole job is to be copied from, so listing both as equal options
+# is it telling every reader to configure the half we deliberately left off.
+# Asserted because the failure is silent -- the old copy read perfectly well
+# and every URL on it was correct.
+check("the client surface is drawn as not switched on",
+      b'class="card off"' in _start.data and b"Not switched on" in _start.data,
+      True)
+check("and the page offers one link rather than a choice of two",
+      b"whichever" in _start.data.lower(), False)
+# Why it is off, not merely that it is: an instruction with no reason attached
+# is one somebody overrides the first time a client asks for it.
+check("naming what has to be true before it is turned on",
+      b"sub&#8209;account has to be recorded" in _start.data, True)
+
+# The read-only consequence is the one thing about an embedded page that has
+# to be said rather than discovered -- suite_embed's own docstring says so.
+check("and it says embedded pages are read-only",
+      b"read" in _start.data and b"only" in _start.data, True)
 
 
 # ------------------------------------------------------------------- summary

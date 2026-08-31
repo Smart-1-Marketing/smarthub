@@ -80,7 +80,10 @@
     var q = ($('q').value || '').trim();
     if (!q) { $('results').innerHTML = ''; return; }
     // Keep the query in the URL so the results page is shareable/refreshable.
-    history.replaceState(null, '', '/search?q=' + encodeURIComponent(q));
+    // replaceState is not patched by the basepath shim, and a root-absolute
+    // path here rewrites the address bar to a URL outside the mount — which
+    // works until somebody refreshes or shares it, and then 404s.
+    history.replaceState(null, '', (window.S1_BASE || '') + '/search?q=' + encodeURIComponent(q));
     $('results').innerHTML = '<p class="hint"><span class="spinner"></span> Searching…</p>';
     fetch(API + '/api/campaign-search?q=' + encodeURIComponent(q), { headers: headers({}) })
       .then(function (r) { if (r.status === 401) { showGate(); throw new Error('code'); } return r.json(); })

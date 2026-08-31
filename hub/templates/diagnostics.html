@@ -937,13 +937,30 @@ function renderHelpAudit(d){
         "and not verified."+
         '<em class="diag-fix">'+esc(w.runtime.join("  "))+'</em>'));
     }
+    /* A selector naming nothing that identifies an element is a step this
+       check cannot speak to, not one it has verified. Counted as anchored it
+       was a tick over a question nobody asked -- and it is what let a
+       scenario with three dead hooks clear the drives-none-of-its-steps
+       floor on a fourth that matches a file input on any page in the Hub. */
+    if((w.untestable||[]).length){
+      out.push(row("unverified","vague","Nothing to test",
+        esc(String(w.untestable.length))+" step"+
+        (w.untestable.length===1?"":"s")+" name a selector carrying no id, "+
+        "name, <code>data-demo</code> or <code>data-tour</code> &mdash; so "+
+        "whether the element is there was never asked. They neither count as "+
+        "anchored nor clear the floor below."+
+        '<em class="diag-fix">'+esc(w.untestable.join("  "))+'</em>'));
+    }
     rows.forEach(function(r){
+      var vague=(r.untestable||[]).length;
       out.push(row(r.dead?"warn":"off", r.dead?"none":"some", r.key,
         esc(r.title||"")+" &mdash; "+esc(String((r.unanchored||[]).length))+
         " of "+esc(String(r.steps||0))+" step"+(r.steps===1?"":"s")+
         (r.dead?", which is every one it drives":"")+
+        (vague?"; "+esc(String(vague))+" more could not be tested":"")+
         '<em class="diag-fix">'+
-        esc((r.unanchored||[]).map(function(u){return u.selector;}).join("  "))+
+        esc((r.unanchored||[]).concat(r.untestable||[])
+            .map(function(u){return u.selector;}).join("  "))+
         '</em>'));
     });
   }

@@ -1,17 +1,150 @@
-"""Client Brand Profile endpoints (spec section 2)."""
+"""Client Brand Profile endpoints (spec section 2).
+
+**A change to a client's own record needs a name against it.** Sites Admin
+recorded deleting a client's website and not creating one, and Google Finder
+recorded deploying a tag and not deploying a pixel into the same container —
+in both, the *creating* half of a create/destroy pair was the half left out.
+This file was worse than either: it created, updated, adopted and destroyed a
+client and recorded none of it, so the brand profile a rep spent an afternoon
+on appeared from nowhere and left the same way.
+
+And what it destroyed was not one row. `Client.projects` cascades, so one
+unconfirmed DELETE took every project, scene and render job with it — while
+the render approvals, the review shares and the compliance acknowledgments,
+which are keyed on a project and are *not* in that cascade, stayed behind
+pointing at ids that no longer resolve. Those three are the records that
+exist precisely for the day a client says **"we never signed off on that"**,
+and they were being left as fragments naming nothing while the thing they
+described was gone. The route answered `{"ok": true}` and said nothing about
+any of it.
+
+So a client with work behind them is refused, with the counts named, and a
+`confirm` carrying the client's exact name is what forces it — the rule
+`modules/image_picker` already applies to deleting a gallery, where the name
+is typed rather than an OK button pressed. Refusing outright is what would
+have been wrong: a check that refuses the correct thing is one somebody
+switches off, and switching this off costs the recording too.
+"""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link
+from .. import client_link, teardown
 from ..db import db
 from ..models import Client
 from ..services import openai_service, cloudinary_service
+
+try:
+    from hub import audit as _hub_audit
+    _cb_log = _hub_audit.for_module("commercial_builder")
+except Exception:  # noqa: BLE001 — standalone, no Hub to log into
+    def _cb_log(*_a, **_k):
+        return None
+
+# Writes on this blueprint that deliberately record nothing, each with the
+# reason. Declared rather than left as an absence, so the remainder is a
+# decision somebody made rather than one nobody has noticed yet — and an
+# entry naming a route that is gone, or one that has since started logging,
+# is a caller's to reject.
+HOUSEKEEPING_ROUTES = {
+    "analyze_website": "reads the client's public site and fills a form in "
+                       "the browser; nothing is written until Save, which is "
+                       "create_client or update_client and is recorded there.",
+    "upload_client_asset": "stores a logo the rep is still choosing between. "
+                           "What reaches the client's record is the "
+                           "`logo_url` on the profile, written by "
+                           "update_client.",
+}
+
 
 bp = Blueprint("cb_clients", __name__, url_prefix="/api/clients")
 
 
 def _slugify(name):
     return "-".join("".join(c if c.isalnum() else " " for c in name.lower()).split())
+
+
+def _log(event, client=None, detail="", **extra):
+    """Never costs the write it describes.
+
+    `audit.log()`'s first positional is `module` and `for_module` binds it —
+    the trap CLAUDE.md names twice. The detail is built by the caller and
+    passed in, because `submit_render` proved the swallow protects the *call*
+    and not the arguments: an f-string over an attribute the model does not
+    have raises before the guard can apply.
+    """
+    try:
+        _cb_log(event, client=client or "", detail=detail, **extra)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+bp = Blueprint("cb_clients", __name__, url_prefix="/api/clients")
+
+
+def _slugify(name):
+    return "-".join("".join(c if c.isalnum() else " " for c in name.lower()).split())
+
+
+def _log(event, client=None, detail="", **extra):
+    """Never costs the write it describes.
+
+    `audit.log()`'s first positional is `module` and `for_module` binds it —
+    the trap CLAUDE.md names twice. The detail is built by the caller and
+    passed in, because `submit_render` proved the swallow protects the *call*
+    and not the arguments: an f-string over an attribute the model does not
+    have raises before the guard can apply.
+    """
+    try:
+        _cb_log(event, client=client or "", detail=detail, **extra)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _work_behind(client_id):
+    """What would go with this client, counted before anything is deleted.
+
+    Read as counts rather than rows: this answers a refusal and an activity
+    entry, and neither is improved by carrying a client's whole book into a
+    response or a log line.
+    """
+    out = {"projects": 0, "scenes": 0, "render_jobs": 0, "approved_cuts": 0,
+           "review_rounds": 0, "compliance_acks": 0, "variations": 0}
+    try:
+        pids = [row[0] for row in db.session.query(CommercialProject.id)
+                .filter(CommercialProject.client_id == client_id).all()]
+        out["projects"] = len(pids)
+        if not pids:
+            return out
+        for key, model in (("scenes", Scene), ("render_jobs", RenderJob),
+                           ("approved_cuts", RenderApproval),
+                           ("review_rounds", ReviewShare),
+                           ("compliance_acks", ComplianceAck)):
+            out[key] = (model.query
+                        .filter(model.project_id.in_(pids)).count())
+        out["variations"] = (Variation.query.filter(
+            Variation.parent_project_id.in_(pids)
+            | Variation.child_project_id.in_(pids)).count())
+    except Exception:  # noqa: BLE001 — a count that cannot be taken must not
+        pass                                  # cost the refusal it informs.
+    return out
+
+
+def _work_summary(counts):
+    """The counts as a sentence, naming only what is actually there."""
+    parts = []
+    for key, one, many in (("projects", "spot", "spots"),
+                           ("approved_cuts", "approved cut", "approved cuts"),
+                           ("review_rounds", "review round", "review rounds"),
+                           ("compliance_acks", "compliance sign-off",
+                            "compliance sign-offs")):
+        n = counts.get(key) or 0
+        if n:
+            parts.append(f"{n} {one if n == 1 else many}")
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
 @bp.get("")
@@ -51,6 +184,10 @@ def create_client():
     client.pronunciation_dict = data.get("pronunciation_dict") or {}
     db.session.add(client)
     db.session.commit()
+    # After the commit, so a create the database refused is not written down
+    # as one that happened — the shape `approve_render` already uses.
+    _log("cb_client_created", client=client.name,
+         detail=f"Brand profile created for {client.name}.")
     return jsonify({"ok": True, "client": client.to_dict()}), 201
 
 
@@ -74,15 +211,53 @@ def update_client(client_id):
     if "pronunciation_dict" in data:
         client.pronunciation_dict = data["pronunciation_dict"]
     db.session.commit()
+    # Which fields moved, not their values: this is a brand profile, and the
+    # entry is read into a page. "Somebody changed the preferred voice" is
+    # what a reader needs; the value is on the record.
+    touched = sorted(k for k in data
+                     if k in ("website", "logo_url", "primary_color",
+                              "secondary_color", "phone", "address", "cta",
+                              "tagline", "industry", "service_area",
+                              "brand_voice", "preferred_voiceover_id",
+                              "preferred_music_style",
+                              "preferred_spokesperson_id", "fonts",
+                              "pronunciation_dict"))
+    _log("cb_client_updated", client=client.name,
+         detail=(f"Brand profile updated: {', '.join(touched)}."
+                 if touched else "Brand profile saved with no changes."))
     return jsonify({"ok": True, "client": client.to_dict()})
 
 
 @bp.delete("/<int:client_id>")
 def delete_client(client_id):
     client = Client.query.get_or_404(client_id)
+    # The name is read **before** the delete and it is the row's own, never a
+    # name the caller passed: an activity entry naming the wrong client is
+    # worse than one naming none, which is what `modules/suite_panel` had to
+    # undo on the route that deletes a Suite sub-account.
+    name = client.name
+    pids = teardown.project_ids_for_client(client_id)
+    counts = teardown.work_behind(pids)
+    summary = teardown.summarize(counts)
+
+    if summary and not teardown.confirmed(request, name):
+        return jsonify({"ok": False,
+                        "error": teardown.confirmation_error(name, summary),
+                        "needs_confirmation": True, "client": name,
+                        "counts": counts}), 409
+
+    removed_orphans = teardown.sweep_orphans(pids)
     db.session.delete(client)
     db.session.commit()
-    return jsonify({"ok": True})
+    # After the commit. This entry is the only record that the deletion
+    # happened and the only place the counts survive, so it is what somebody
+    # reconstructs from.
+    _log("cb_client_deleted", client=name,
+         detail=("Client and brand profile deleted"
+                 + (f", with {summary}." if summary else ".")),
+         counts=counts)
+    return jsonify({"ok": True, "client": name, "counts": counts,
+                    "removed_orphans": removed_orphans})
 
 
 @bp.post("/analyze-website")
@@ -205,6 +380,14 @@ def adopt_hub_client():
                     phone=profile["phone"] or None, industry=profile["industry"] or None)
     db.session.add(client)
     db.session.commit()
+    # Adopting is the moment a commercial becomes attributable to a client on
+    # the Hub's books, so it is the join worth recording — and it is recorded
+    # only where a row was actually created, because returning an existing
+    # profile changes nothing and an entry for it would read as a second
+    # adoption of a client already adopted.
+    _log("cb_client_adopted", client=client.name,
+         detail=(f"Brand profile created for {client.name} from the Hub "
+                 f"client list."))
     return jsonify({"ok": True, "client": client.to_dict(), "created": True, "note": ""}), 201
 
 

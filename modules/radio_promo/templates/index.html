@@ -81,7 +81,7 @@
 
   <!-- 1. SETUP -->
   <div class="card" id="c-setup">
-    <h2><span class="n">1</span> Who is this for?</h2>
+    <h2><span class="n">1</span> Who is this for? {{ help_dot('radio_promo.build.setup') if help_dot is defined else '' }}</h2>
     <div class="modes">
       <div class="mode on" id="m-spec" onclick="setMode('spec')">
         <b>Spec spot</b><span>No client attached. For pitching. Files under <code>spec/</code>
@@ -147,7 +147,7 @@
     <div id="briefBox"></div>
     <div class="tones" id="toneList"></div>
     <div class="rowbar">
-      <button class="btn" id="scriptBtn" onclick="writeScripts()" disabled>Write the :15 and :30</button>
+      <button class="btn" id="scriptBtn" data-demo="rp-generate" onclick="writeScripts()" disabled>Write the :15 and :30</button>
       <span class="msg" id="briefMsg"></span>
     </div>
   </div>
@@ -169,7 +169,7 @@
 
   <!-- 4. CAST -->
   <div class="card off" id="c-cast">
-    <h2><span class="n">4</span> Cast</h2>
+    <h2><span class="n">4</span> Cast {{ help_dot('radio_promo.build.cast') if help_dot is defined else '' }}</h2>
     <div id="castPicks"></div>
     <div class="rowbar">
       <button class="btn" onclick="matchVoices()">Find matching voices</button>
@@ -178,12 +178,12 @@
       <button class="btn sec sm" onclick="voiceById()">Add</button>
       <span class="msg" id="castMsg"></span>
     </div>
-    <div id="voiceList" style="margin-top:12px"></div>
+    <div id="voiceList" data-demo="rp-voice" style="margin-top:12px"></div>
   </div>
 
   <!-- 5. BOOTH -->
   <div class="card off" id="c-booth">
-    <h2><span class="n">5</span> Booth</h2>
+    <h2><span class="n">5</span> Booth {{ help_dot('radio_promo.build.booth') if help_dot is defined else '' }}</h2>
     <div id="boothBox"></div>
     <div class="rowbar">
       <button class="btn sec" onclick="makeBanner()">Generate companion banner</button>

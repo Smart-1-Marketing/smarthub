@@ -19,7 +19,12 @@
    data-module has no `or 'hub'` default any more: the launcher tests it for
    truthiness, so a default put a Client 360 walkthrough on fifteen pages it
    could not drive. Both values are decided in hub/__init__.py. #}
-<body{% if hub_tour_screen %} data-screen="{{ hub_tour_screen }}"{% endif %} data-module="{{ hub_demo_module or '' }}">
+{# body_attrs lets a page that extends this file declare attributes on the
+   body it does not own — today that is data-s1hub-collapse="1", the same flag
+   the Proposal Builder's own <body> carries, read by the sidebar script in
+   hub/sidebar.py. The block renders inside the tag, before the sidebar's
+   inline script runs, so the flag is always there by the time it is read. #}
+<body{% if hub_tour_screen %} data-screen="{{ hub_tour_screen }}"{% endif %} data-module="{{ hub_demo_module or '' }}"{% block body_attrs %}{% endblock %}>
 <div class="shell">
   {# Single source of truth: hub/sidebar.py — the same nav the HubBar
      middleware injects into every mounted module. There used to be a second

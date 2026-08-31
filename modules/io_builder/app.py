@@ -673,15 +673,6 @@ def api_client_upload_link():
 def next_order_number():
     try:
         order_number, storage, warning = _next_order_number()
-        # The sequence hands a number out at the start of the wizard, so an
-        # abandoned IO burns one and leaves a gap in the numbering that
-        # nobody can explain months later. Recording the allocation is the
-        # only thing that makes that answerable; it is a note, not an order.
-        try:
-            from hub import io_records
-            io_records.note_allocated(order_number)
-        except Exception:  # noqa: BLE001
-            pass           # allocation must never fail over its own note
         return jsonify({
             "ok": True,
             "order_number": order_number,

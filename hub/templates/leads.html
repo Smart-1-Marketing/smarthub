@@ -40,7 +40,10 @@
       is on evidence that identifies a business exactly (one email address, one
       website); an exact company name on its own is offered as <i>possible</i>
       and nothing more, because two franchises of one brand carry one name.
-      Nothing merges by itself.</p>
+      Nothing merges by itself. Rows the evidence cannot group &mdash; a
+      different email on each visit, a business with no website &mdash; can
+      still be combined by hand: tick them in the table below and press
+      <b>Combine</b>.</p>
   </div>
 </div>
 
@@ -63,6 +66,7 @@
     </div>
   </div>
   <div class="lead-pages" id="leadPages" hidden></div>
+  <div id="combineBar" hidden></div>
   <div class="card-b flush" id="leadTable">
     <p class="empty">Loading&hellip; <span class="spin"></span></p>
   </div>
@@ -110,6 +114,12 @@ button.lp-chip:hover{border-color:var(--brand);color:var(--brand)}
 .lead-sub{color:var(--muted);font-size:11.5px;margin-top:2px}
 .k-value.warnv{color:var(--warn)}
 .k-value.badv{color:var(--danger)}
+/* The hand-picked combine. A narrow column of checkboxes, and a bar that
+   only appears once there is something to do with them. */
+.lead-selcol{width:28px}
+#combineBar{padding:10px 18px;border-bottom:1px solid var(--line-soft);
+  font-size:12.8px}
+#combineBar .lead-note{margin-bottom:0}
 </style>
 {% endblock %}
 
@@ -173,7 +183,7 @@ function renderKpis(d){
   document.getElementById('leadKpis').innerHTML =
     kpi('Leads', d.count,
         'captured in the last '+d.days+' days'+
-        (d.with_pdf ? ' · '+d.with_pdf+' with a report' : '')+
+        (d.with_report ? ' · '+d.with_report+' with a report' : '')+
         /* A merged row leaves this list. Saying how many is what tells a
            count that went down apart from a panel that failed to load. */
         (d.merged ? ' · '+d.merged+' absorbed a duplicate' : '')) +
@@ -288,6 +298,9 @@ function renderLeads(d){
   renderKpis(d);
   renderRoute(d);
   renderPages(d);
+  // Accumulated rather than replaced: a row ticked and then filtered out of
+  // view is still selected, and the combine picker still needs its details.
+  d.leads.forEach(function(l){ if(l.id) LEAD_BY_ID[l.id] = l; });
 
   if(!d.leads.length){
     document.getElementById('leadTable').innerHTML =
@@ -296,6 +309,7 @@ function renderLeads(d){
   }
   document.getElementById('leadTable').innerHTML =
     '<table class="lead-t"><thead><tr>'+
+    '<th class="lead-selcol" title="Tick two or more rows to combine them"></th>'+
     ['Captured','Name','Contact','Page','Report','Suite','Client'].map(function(h){
       // The table is drawn from a fetch, so these bubbles arrive after load.
       // hub-help.js watches for that; a dot added here behaves like any other.
@@ -308,6 +322,9 @@ function renderLeads(d){
     '</tr></thead><tbody>'+
     d.leads.map(function(l){
       return '<tr>'+
+        '<td class="lead-selcol"><input type="checkbox" data-sel="'+esc(l.id||'')+'" '+
+          'onchange="selLead(this)"'+(SEL.has(l.id)?' checked':'')+
+          ' aria-label="Select '+esc(l.name||l.company||'lead')+' to combine"></td>'+
         '<td>'+fmtWhen(l.created)+'</td>'+
         '<td><div class="lead-name"><a href="/prospect/'+esc(l.id||'')+'">'+
           esc(l.name||l.company||'open')+'</a></div>'+
@@ -353,6 +370,105 @@ function convertLead(id){
   }).catch(function(){ say('That could not be linked.',''); });
 }
 
+/* ---- combining rows somebody picked by hand ----
+   The duplicates panel proposes groups only on evidence that identifies a
+   business exactly (one email, one website), which is right — and it means
+   two rows a person can see are one business (a different email on each
+   visit, a business with no website) could never be combined at all. The
+   checkboxes are that way: tick the rows, pick which one to keep, and the
+   merge goes through the same /api/leads/merge the duplicates panel uses,
+   with the same refusals — two rows converted to different clients are
+   refused by name rather than guessed between. */
+var SEL = new Set();
+var LEAD_BY_ID = {};
+
+function selLead(el){
+  var id = el.getAttribute('data-sel');
+  if(!id) return;
+  if(el.checked) SEL.add(id); else SEL.delete(id);
+  drawCombineBar();
+}
+
+function combineRow(l, checked){
+  return '<label class="lead-check" style="display:block;margin:2px 0">'+
+    '<input type="radio" name="combine-keep" value="'+esc(l.id)+'"'+
+    (checked ? ' checked' : '')+'> '+
+    '<b>'+esc(l.company || l.name || l.email || l.id)+'</b> '+
+    '<span class="muted">'+esc(l.source||'')+' / '+esc(l.page||'')+
+    ' &middot; '+esc(String(l.created||'').slice(0,10))+
+    (l.contact_id ? ' &middot; in Suite' : '')+
+    (l.client ? ' &middot; '+esc(l.client) : '')+'</span></label>';
+}
+
+function drawCombineBar(){
+  var bar = document.getElementById('combineBar');
+  if(SEL.size < 2){
+    bar.hidden = SEL.size === 0;
+    bar.innerHTML = SEL.size === 1
+      ? '<span class="muted">1 row selected — tick at least one more to '+
+        'combine them.</span>'
+      : '';
+    return;
+  }
+  bar.hidden = false;
+  bar.innerHTML = SEL.size+' rows selected. '+
+    '<button class="btn-ghost" onclick="openCombine()">Combine into one '+
+    'lead&hellip;</button> '+
+    '<button class="btn-ghost" onclick="clearCombine()">Clear</button>';
+}
+
+function clearCombine(){
+  SEL.clear();
+  Array.prototype.forEach.call(
+    document.querySelectorAll('#leadTable input[data-sel]'),
+    function(el){ el.checked = false; });
+  drawCombineBar();
+}
+
+function openCombine(){
+  var rows = [];
+  SEL.forEach(function(id){ if(LEAD_BY_ID[id]) rows.push(LEAD_BY_ID[id]); });
+  if(rows.length < 2){ drawCombineBar(); return; }
+  // Oldest first, and the oldest is offered as the keeper: it is the row
+  // this prospect actually came in on — the same default the duplicates
+  // panel uses.
+  rows.sort(function(a,b){ return String(a.created||'') < String(b.created||'') ? -1 : 1; });
+  document.getElementById('combineBar').innerHTML =
+    '<div class="lead-note info"><b>Which one do we keep?</b>'+
+    rows.map(function(l,i){ return combineRow(l, i === 0); }).join('')+
+    '<div style="margin-top:6px">'+
+    '<button class="btn-ghost" onclick="combineSelected(this)">Merge into '+
+    'the one I picked</button> '+
+    '<button class="btn-ghost" onclick="drawCombineBar()">Back</button> '+
+    '<span class="muted" style="font-size:12px">The one you keep holds its '+
+    'own details and only fills its blanks. Nothing is deleted.</span>'+
+    '</div></div>';
+}
+
+function combineSelected(btn){
+  var picked = document.querySelector('#combineBar input[name=combine-keep]:checked');
+  if(!picked){ say('Pick which one to keep.',''); return; }
+  var others = [];
+  SEL.forEach(function(id){ if(id !== picked.value) others.push(id); });
+  if(!others.length) return;
+  btn.disabled = true;
+  fetch('/api/leads/merge',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({into: picked.value, from: others})})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      btn.disabled = false;
+      if(!j.ok){ say(esc(j.error||'That could not be merged.'),'warnv'); return; }
+      say(esc(j.note)+(j.suite_note ? ' '+esc(j.suite_note) : ''), 'ok');
+      clearCombine();
+      loadLeads();
+    })
+    .catch(function(){
+      btn.disabled = false;
+      say('That could not be merged.','warnv');
+    });
+}
+
 /* Duplicates are proposed and a person presses. An automatic merge on a name
    is how one company's inquiry is filed under another, which is the worst
    outcome available to this panel. */
@@ -369,10 +485,14 @@ function loadDupes(){
     });
 }
 
-function dupeGroup(g, certain){
+/* The radio-group name is per GROUP, never the first lead's id: one lead can
+   head an email group and a company-name group at once, and two groups
+   sharing a name are one radio set — ticking a keeper in the second panel
+   silently cleared it in the first. */
+function dupeGroup(g, certain, gid){
   var rows = g.leads.map(function(l, i){
     return '<label class="lead-check" style="display:block;margin:2px 0">'+
-      '<input type="radio" name="keep-'+esc(g.leads[0].id)+'" value="'+esc(l.id)+'"'+
+      '<input type="radio" name="keep-'+esc(gid)+'" value="'+esc(l.id)+'"'+
       (i === 0 ? ' checked' : '')+'> '+
       '<b>'+esc(l.company || l.name || l.email || l.id)+'</b> '+
       '<span class="muted">'+esc(l.source||'')+' / '+esc(l.page||'')+
@@ -402,11 +522,11 @@ function renderDupes(d){
   host.innerHTML =
     (d.certain.length
       ? '<h4 style="margin:0 0 6px">Same business, on the evidence</h4>'+
-        d.certain.map(function(g){ return dupeGroup(g, true); }).join('')
+        d.certain.map(function(g, i){ return dupeGroup(g, true, 'c'+i); }).join('')
       : '')+
     (d.possible.length
       ? '<h4 style="margin:14px 0 6px">Worth an eyeball</h4>'+
-        d.possible.map(function(g){ return dupeGroup(g, false); }).join('')
+        d.possible.map(function(g, i){ return dupeGroup(g, false, 'p'+i); }).join('')
       : '')+
     '<p class="muted" style="font-size:12px;margin:10px 0 0">'+esc(d.note)+'</p>';
 }

@@ -144,11 +144,26 @@
     if (status) params.set('status', status);
 
     fetch('/api/projects?' + params.toString())
-      .then(function (r) { return r.json(); })
-      .then(function (data) { render(data.projects || []); })
-      .catch(function () {
-        $('results').innerHTML = '<div class="empty"><h2>Could not load projects</h2><p>Check the admin token and try again.</p></div>';
-      });
+      // A refusal here is JSON too — auth.denied() answers 401 and 429 with
+      // {error: ...} — so reading .projects off it rendered "No projects
+      // found" over a request that failed: an empty book and a book we could
+      // not open are different answers, and only the first means there is
+      // nothing to see. The server's own sentence is shown rather than an
+      // invented diagnosis.
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok || (res.d && res.d.error)) { fail(res.d && res.d.error); return; }
+        render((res.d && res.d.projects) || []);
+      })
+      .catch(function () { fail(); });
+  }
+
+  function fail(why) {
+    $('count').textContent = '';
+    $('results').innerHTML =
+      '<div class="empty"><h2>Could not load projects</h2><p>' +
+      (why ? esc(why) : 'Check the admin token and try again.') +
+      '</p></div>';
   }
 
   function render(list) {

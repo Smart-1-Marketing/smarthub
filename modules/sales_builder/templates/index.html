@@ -4334,17 +4334,35 @@ async function runConvert(){
  if(qs.get('audit')){
   await startNewProposal();
   S.url=(qs.get('audit')||'').trim();
+  /* Two spellings of who this is for, because they mean different things.
+     ?client= is a client already on the books (Client 360, the audit tool
+     with a client picked) and opens the existing-client search attached to
+     that name. ?company= is the prospect record's: a lead is a business
+     nobody has on file yet, and naming it as `client` would open a search
+     of the client list that finds nothing. */
   const named=(qs.get('client')||'').trim();
+  const company=(qs.get('company')||'').trim();
   if(named){S.client=named;S.clientMode="existing";}
+  else if(company){S.client=company;S.clientMode="new";}
   else{S.clientMode="new";}
+  /* The lead's own contact details. The prospect record already holds who
+     to talk to; arriving without them meant retyping what was on the
+     screen behind you -- the gap ?prefill=1 closed for Client 360. */
+  let carried = named || company ? 1 : 0;
+  [['contactName','clientContactName'],['contactEmail','clientContactEmail'],
+   ['contactPhone','clientContactPhone']].forEach(([k,f])=>{
+   const v=(qs.get(k)||'').trim();
+   if(v){S[f]=v;carried++;}
+  });
   saveNow();
   step=1;                       // Customer & Industry, where the panel lives
   renderStep();
   await loadAudit();
   const age=(AUDIT&&AUDIT.age)||{};
-  toast(age.stale
+  const carriedNote = carried ? " Details were carried over from the record." : "";
+  toast((age.stale
    ? "This audit is "+age.age_days+" days old — run a new one before quoting from it."
-   : "Audit read. Press “Use these answers” to take what it measured.");
+   : "Audit read. Press “Use these answers” to take what it measured.")+carriedNote);
   return;
  }
  nav('dashboard');

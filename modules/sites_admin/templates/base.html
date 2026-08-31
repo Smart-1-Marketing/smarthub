@@ -6,7 +6,19 @@
   <title>{% block title %}Sites — Smart 1 Hub{% endblock %}</title>
   <link rel="stylesheet" href="{{url_for('static',filename='styles.css')}}">
 </head>
-<body data-module="sites_admin">
+{#
+  data-s1hub-collapse starts the Hub sidebar as an icon rail, the flag the
+  Proposal Builder's wizard and both client records carry. The portfolio
+  table is 1050px before it scrolls, and 224px of nav nobody is reading
+  while they work is what turns that into a horizontal scroll on a laptop.
+  A stored preference still wins in both directions.
+
+  What is deliberately NOT here is a section rail like the two client
+  records grew: these are eight small screens whose second-level navigation
+  is the sub-nav below, and a rail over one table and two cards would be
+  structure with nothing to organize.
+#}
+<body data-module="sites_admin" data-s1hub-collapse="1">
 {#
   No dark branded header. This module is mounted inside the Hub, so the page
   already carries the Hub's own sidebar — a second bar reading "Smart 1 Sites
