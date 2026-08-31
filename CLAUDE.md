@@ -1548,6 +1548,37 @@ returns one number hides the two that failed, the rule
 rather than a branch of `attach()`: there is no store row to update, and the
 absence of one is the finding.
 
+**And the tile on the dashboard read that refusal as four noughts.**
+`build_audit()` computes `measured` for exactly this, and the report page
+draws it — while `scorecard()`, which copies eleven keys out of the same audit
+for the dashboard card, dropped it. So a morning where the client list refused
+drew **0 · 0 · 0 · 0** above System status: every client up to date on
+creative, in four confident zeros, with `/qa/stale-creative` one click away
+saying *Not measured*. Two screens answering one question differently, which
+is the trap `by_client()` avoids one function later by returning a pair.
+
+The card's own note says it fails quietly so the dashboard never goes down
+when it cannot load — right about a fetch that fails, and exactly what made
+this invisible, because **this fetch succeeds**. It draws dashes and names
+which half refused now, since the client list refusing and every creative
+store refusing are different outages; and it stays *visible*, because a card
+that hides itself cannot be told from one that had nothing to report.
+`test_qa_reports.py` sweeps every `_scorecard_*.html` that fetches for the
+same branch, with an exemption list that is **empty** — every card on
+`dashboard.html` already branches on `measured`, and this partial was the one
+outlier.
+
+**A row with a cell no column names.** The renderer writes one `<th>` per
+entry in `columns` and one `<td>` per cell, so `no_dashboards`' six cells
+against five headings put its Add-dashboard button under the heading belonging
+to the value on its left — and the CSV export, which writes `columns` as its
+header row and the cells beneath it, gave every row an unlabelled trailing
+field. The two functions that also emit an action cell head it `""`, which was
+the fix already sitting two functions away. Both invariants are sweeps now:
+one cell per heading on every report, and a handler on the page for every
+action a row puts on a button — a button with no branch does nothing, which on
+a report is indistinguishable from one that failed silently.
+
 **A QA report is named for its finding, not its process.** "Image Audit" tied
 with Image Creator on the bare query `image` and took the top slot off it —
 `search_index` breaks an equal score alphabetically, so a name is a ranking
