@@ -50,7 +50,10 @@
 </head>
 <body data-module="pdf_optimizer">
   <main class="card">
-    <h1>PDF Optimizer</h1>
+    <!-- This page is a static file served by send_file, so there is no Jinja
+         and no help_dot() global here: the span below is the exact markup
+         help_dot() emits, mounted by hub-help.js like any other bubble. -->
+    <h1>PDF Optimizer <span data-help="pdf_optimizer.tool.intro"></span></h1>
     <p class="sub">Reduce PDF file size while keeping text and vector content intact whenever possible.</p>
 
     <div class="drop">
@@ -58,7 +61,7 @@
       <input id="file" type="file" accept="application/pdf,.pdf">
     </div>
 
-    <label for="quality">Optimization level</label>
+    <label for="quality">Optimization level <span data-help="pdf_optimizer.tool.level"></span></label>
     <select id="quality">
       <option value="web" selected>Web Optimized — Recommended</option>
       <option value="maximum">Maximum Compression</option>

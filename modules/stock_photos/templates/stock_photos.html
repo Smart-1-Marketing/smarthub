@@ -71,7 +71,7 @@
 <body data-module="stock_photos"{% if has_tour is defined and has_tour("stock.search") %} data-screen="stock.search"{% endif %}>
 <div class="wrap s1d-page">
   <a class="back" href="/creative">&larr; Creative</a>
-  <h1>Stock Photo Search</h1>
+  <h1>Stock Photo Search {{ help_dot('stock_photos.search.intro') if help_dot is defined else '' }}</h1>
   <p class="sub">One search across <b>Pexels</b>, <b>Pixabay</b>, <b>Unsplash</b> and
     <b>our own library</b> &mdash; the Cloudinary folders we have already filled, including
     everything beneath them. Photos we own are listed first and badged, because they cost
@@ -80,7 +80,7 @@
   <div class="card">
     <div class="searchrow">
       <div>
-        <label class="f" for="q">Search</label>
+        <label class="f" for="q">Search {{ help_dot('stock_photos.search.sources') if help_dot is defined else '' }}</label>
         <input type="search" id="q" placeholder="roofing crew, dental office, summer patio&hellip;"
                autocomplete="off">
       </div>
