@@ -1661,3 +1661,18 @@ jobs:
       # assigned after the save, so it reached the browser and never the disk.
       - name: One image per post, and a badge you can act on
         run: python3 test_blog_images.py
+      # hub/landing_images.py picks the pictures on a page a prospect reads,
+      # and its docstring ends "a page may be short, it may not lie".
+      # from_site() regexed every image URL out of a 400 KB scan payload and
+      # labelled all of them `their site` -- with no domain check at all.
+      # Against a realistic payload six came back and five were somebody
+      # else's: the scan vendor's screenshot, a Facebook card, a Google
+      # static map, a Google ad creative and another agency's Cloudinary
+      # folder, any of which could be the hero of a landing page presented as
+      # the client's own premises. Beside it: a picture off their site
+      # carries no dimensions, and pick() read a missing `wide` as True, so
+      # the hero floor was skipped for the source this module prefers; and
+      # `source` said "their site" whenever the site search returned
+      # anything, however much of what was picked came from a stock library.
+      - name: A picture is theirs, or it is not on the page as theirs
+        run: python3 test_landing_images.py

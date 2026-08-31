@@ -78,18 +78,50 @@ def _wide_enough(img: dict, minimum: int) -> bool:
     return w >= minimum and (h == 0 or w >= h)
 
 
-def from_site(brief: dict) -> list[dict]:
-    """Pictures a scan already found on the client's own website."""
+def theirs(image_url: str, website: str) -> bool:
+    """Is this picture actually on the client's own site?
+
+    A scan payload is 440 fields of whatever the crawler saw, and the image
+    URLs in it belong to all sorts of people: the scan vendor's own
+    screenshots, a Facebook social card, a Google static map, an ad creative,
+    **another agency's Cloudinary folder**. The regex below matched every one
+    and labelled them all `their site` — so any of them could become the hero
+    of a landing page presented as the client's own premises, which is the
+    one thing the docstring at the top of this file says stock may never be.
+
+    That is `client_urls.NOT_A_WEBSITE` one module over, and it is not
+    hypothetical there either: on this deployment's own product export *every
+    single* click-thru domain turned out to be a file host.
+
+    A subdomain counts — `cdn.`, `www.`, `images.` are ordinarily theirs —
+    and `hub/client_context.canonical_domain()` is the one reading of what a
+    domain means, so this cannot drift from every other join in the Hub.
+    """
+    from hub.client_context import canonical_domain
+    theirs_domain = canonical_domain(website)
+    host = canonical_domain(image_url)
+    if not theirs_domain or not host:
+        return False
+    return host == theirs_domain or host.endswith("." + theirs_domain)
+
+
+def from_site(brief: dict) -> dict:
+    """Pictures a scan already found on the client's own website.
+
+    Returns `{"images": [...], "rejected": n}` rather than a bare list: what
+    is dropped is counted, because a list that quietly gets shorter cannot be
+    told from a site that has no pictures on it.
+    """
     url = str(brief.get("website") or "").strip()
     if not url:
-        return []
+        return {"images": [], "rejected": 0}
     try:
         from modules.scans.app import latest_payload_for_domain
         import json as _json
         blob = _json.dumps(latest_payload_for_domain(url) or {})[:400000]
     except Exception:                                       # noqa: BLE001
-        return []
-    seen, out = set(), []
+        return {"images": [], "rejected": 0}
+    seen, out, rejected = set(), [], 0
     # og:image first where the payload carries one -- a site's own social
     # card is the picture its owner chose to represent it.
     for m in re.finditer(r'"(https://[^"]+?\.(?:jpg|jpeg|png|webp))"', blob, re.I):
@@ -97,10 +129,19 @@ def from_site(brief: dict) -> list[dict]:
         if u in seen or "logo" in u.lower() or "icon" in u.lower():
             continue
         seen.add(u)
-        out.append({"url": u, "alt": "", "credit": "", "source": "their site"})
+        if not theirs(u, url):
+            rejected += 1
+            continue
+        out.append({"url": u, "alt": "", "credit": "", "source": "their site",
+                    # Not measured, rather than assumed. The payload carries
+                    # no dimensions for these, and `pick()` used to read a
+                    # missing `wide` as True -- so _MIN_HERO_WIDE was skipped
+                    # entirely for the source this module prefers, and a
+                    # thumbnail off their page could be the full-bleed hero.
+                    "wide": None})
         if len(out) >= 6:
             break
-    return out
+    return {"images": out, "rejected": rejected}
 
 
 def stock(brief: dict, want: int = 6) -> list[dict]:
@@ -143,17 +184,24 @@ def pick(brief: dict, benefits: int = 0) -> dict:
     default state of a fresh deployment, and a landing page that renders as
     broken image icons is worse than one with none.
     """
-    site = from_site(brief)
+    found = from_site(brief)
+    site = found["images"]
     pool = site + stock(brief, want=max(4, benefits + 2))
 
-    empty = {"hero": None, "cards": [], "band": None,
-             "credits": [], "source": "", "available": False}
+    empty = {"hero": None, "cards": [], "band": None, "credits": [],
+             "source": "", "available": False,
+             "not_theirs": found["rejected"]}
     if not pool:
         return empty
 
+    # `is not False` rather than a default of True. A stock image measured and
+    # found narrow is still skipped, exactly as before; one off their own site
+    # carries None because nothing measured it, and their site still comes
+    # first -- which is this module's stated order and the reason the old
+    # default read as harmless.
     used, hero, band = set(), None, None
     for img in pool:
-        if img.get("wide", True) and img["url"] not in used:
+        if img.get("wide") is not False and img["url"] not in used:
             hero = img
             used.add(img["url"])
             break
@@ -170,14 +218,23 @@ def pick(brief: dict, benefits: int = 0) -> dict:
         used.add(c["url"])
 
     for img in pool:
-        if img["url"] not in used and img.get("wide", True):
+        if img["url"] not in used and img.get("wide") is not False:
             band = img
             break
 
+    picked = [i for i in ([hero] + cards + ([band] if band else [])) if i]
     credits = sorted({f"{i['credit']} ({i['source']})"
-                      for i in ([hero] + cards + ([band] if band else []))
-                      if i and i.get("credit")})
+                      for i in picked if i.get("credit")})
+    # What the set IS, not what it was searched for. This said "their site"
+    # whenever the site search returned anything at all, however much of what
+    # was actually picked came from a stock library -- and captioning stock as
+    # the client's own work is the one thing the docstring at the top of this
+    # file rules out.
+    kinds = {i.get("source") for i in picked}
+    source = ("their site" if kinds == {"their site"} else
+              "their site and stock" if "their site" in kinds else "stock")
     return {"hero": hero, "cards": cards, "band": band,
             "credits": credits,
-            "source": "their site" if site else "stock",
+            "source": source,
+            "not_theirs": found["rejected"],
             "available": True}
