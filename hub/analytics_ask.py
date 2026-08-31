@@ -201,6 +201,38 @@ def plan(question: str, *, history: list | None = None,
             "explain": str(got.get("explain") or "")[:300]}
 
 
+def range_index(tag: str, ranges: list) -> int | None:
+    """Which of the requested date ranges a GA4 row belongs to, or None.
+
+    This is the whole of the comparison, and it was `tag.endswith("_1")`.
+
+    GA4 values the `dateRange` dimension with the range's **name** where one
+    was given, and only falls back to `date_range_0` / `date_range_1` where
+    none was — and `_PLAN_SCHEMA_NOTE` *requires* names: "for a comparison,
+    give exactly two dateRanges, each with a name". So "July" and "June" both
+    tested false, both rows landed in the same bucket, and the second
+    overwrote the first.
+
+    What that produced, from real numbers, on the report whose entire purpose
+    is the comparison: Dublin at 900 in July against 600 in June rendered as
+    **600, with no previous and no change** — the older period's figure shown
+    as the current one — and the totals row read **"600, up 100% on 0"**. The
+    identical data with unnamed ranges worked perfectly, so the path that
+    works is the one the planner is told never to take.
+    """
+    tag = str(tag or "")
+    for i, r in enumerate(ranges):
+        if r.get("name") and tag == r["name"]:
+            return i
+    if tag.startswith("date_range_"):
+        try:
+            i = int(tag.rsplit("_", 1)[-1])
+        except ValueError:
+            return None
+        return i if 0 <= i < len(ranges) else None
+    return None
+
+
 def shape(report: dict, request: dict) -> dict:
     """GA4's response as columns and rows, with comparisons worked out.
 
@@ -218,6 +250,7 @@ def shape(report: dict, request: dict) -> dict:
         return ranges[i].get("name") or f"{ranges[i]['startDate']}–{ranges[i]['endDate']}"
 
     buckets: dict[tuple, dict] = {}
+    unaligned = 0
     for row in report.get("rows", []) or []:
         dvals = [d.get("value", "") for d in row.get("dimensionValues", [])]
         mvals = []
@@ -229,13 +262,20 @@ def shape(report: dict, request: dict) -> dict:
         which = 0
         if comparing and dvals:
             # GA4 appends the range as the last dimension value.
-            tag = dvals[-1]
-            which = 1 if tag.endswith("_1") else 0
+            which = range_index(dvals[-1], ranges)
+            if which is None:
+                # A row we cannot place in a period. Counted rather than
+                # quietly folded into the first: a comparison built out of
+                # rows that may be from either side is the confident wrong
+                # answer this whole function exists to produce correctly.
+                unaligned += 1
+                which = 0
             dvals = dvals[:len(dim_names)]
         key = tuple(dvals)
         b = buckets.setdefault(key, {"dims": dvals, "a": None, "b": None})
         b["a" if which == 0 else "b"] = mvals
 
+    aligned = comparing and not unaligned
     rows = []
     for b in buckets.values():
         cur = b["a"] or [0.0] * len(met_names)
@@ -243,7 +283,7 @@ def shape(report: dict, request: dict) -> dict:
         cells = []
         for i, m in enumerate(met_names):
             cell = {"metric": m, "value": cur[i]}
-            if comparing and prev is not None:
+            if aligned and prev is not None:
                 was = prev[i]
                 cell["previous"] = was
                 cell["change_pct"] = (round((cur[i] - was) / was * 100, 1)
@@ -252,13 +292,27 @@ def shape(report: dict, request: dict) -> dict:
         rows.append({"dims": b["dims"], "cells": cells})
 
     primary = met_names[0] if met_names else ""
-    rows.sort(key=lambda r: -(r["cells"][0]["value"] if r["cells"] else 0))
+    # Only when nothing was asked for. GA4 honoured the orderBys this module
+    # sent it, and re-sorting by the first metric threw that away -- so
+    # "sessions by day for July", ordered by date on the way out and ordered
+    # by date on the way back, was rendered as a ranking: 2nd, 3rd, 4th, 1st.
+    # Every number right, the one thing a time series is for gone.
+    if not request.get("orderBys"):
+        rows.sort(key=lambda r: -(r["cells"][0]["value"] if r["cells"] else 0))
 
+    # GA4 supplies totals only where metricAggregations was asked for, which
+    # this module does not ask for; summing the rows is the fallback and it is
+    # the total of the rows that came back, which is not the property's total
+    # once `limit` has cut the list off. Said rather than left to be read as
+    # the whole -- the SEO gallery's "Showing 1 of 7", one report along.
+    ga_totals = _reported_totals(report, met_names)
+    limit = int(request.get("limit") or 0)
+    capped = bool(limit) and len(rows) >= limit
     totals = []
     for i, m in enumerate(met_names):
         cur = sum(r["cells"][i]["value"] for r in rows)
-        t = {"metric": m, "value": cur}
-        if comparing:
+        t = {"metric": m, "value": ga_totals.get(m, cur)}
+        if aligned:
             was = sum(r["cells"][i].get("previous") or 0 for r in rows)
             t["previous"] = was
             t["change_pct"] = (round((cur - was) / was * 100, 1)
@@ -269,12 +323,31 @@ def shape(report: dict, request: dict) -> dict:
         "dimensions": dim_names,
         "metrics": met_names,
         "comparing": comparing,
+        "compared": aligned,
+        "unaligned_rows": unaligned,
         "range_labels": [label(i) for i in range(len(ranges))],
         "rows": rows[:MAX_LIMIT],
         "totals": totals,
+        "totals_of": ("everything measured" if ga_totals else
+                      "the rows shown" if capped else "all the rows"),
         "primary": primary,
         "row_count": len(rows),
+        "note": ("The two periods could not be told apart in what Google "
+                 "returned, so this is not a comparison." if unaligned else ""),
     }
+
+
+def _reported_totals(report: dict, met_names: list) -> dict:
+    """GA4's own totals row, where one was returned. Never invented."""
+    out: dict[str, float] = {}
+    for row in (report.get("totals") or [])[:1]:
+        for i, mv in enumerate(row.get("metricValues", []) or []):
+            if i < len(met_names):
+                try:
+                    out[met_names[i]] = float(mv.get("value") or 0)
+                except (TypeError, ValueError):
+                    pass
+    return out
 
 
 def narrate(question: str, title: str, shaped: dict) -> str:
@@ -288,8 +361,18 @@ def narrate(question: str, title: str, shaped: dict) -> str:
         payload = {
             "question": question, "title": title,
             "dimensions": shaped["dimensions"], "metrics": shaped["metrics"],
-            "comparing": shaped["comparing"], "ranges": shaped["range_labels"],
+            # `comparing` is what was asked for; `compared` is whether the two
+            # periods could actually be told apart in what Google returned.
+            # Handing over the first alone invites a sentence about a change
+            # nothing computed -- the invented-figure failure hub/audit_summary
+            # exists to refuse, one module over.
+            "comparing": bool(shaped.get("compared")),
+            "ranges": shaped["range_labels"],
             "totals": shaped["totals"],
+            # What the totals are the total OF, in the model's own payload:
+            # a capped report's sum is the top N, and "sessions were 1,600"
+            # about a property that had 50,000 is a figure nobody measured.
+            "totals_cover": shaped.get("totals_of", ""),
             "top_rows": [{"dims": r["dims"],
                           "cells": [{k: c.get(k) for k in
                                      ("metric", "value", "previous", "change_pct")}
@@ -302,7 +385,10 @@ def narrate(question: str, title: str, shaped: dict) -> str:
               "manager in two or three sentences. Use only the numbers given. "
               "Never invent a figure, a cause, or a recommendation that the "
               "data does not support. If a change is large, say so plainly. "
-              "Round sensibly. No preamble."},
+              "`totals_cover` says what the totals are the total of -- where "
+              "it is 'the rows shown', say so rather than calling it the "
+              "whole. Where `comparing` is false, do not describe a change "
+              "between periods. Round sensibly. No preamble."},
              {"role": "user", "content": json.dumps(payload)}],
             module="analytics_ask", purpose="narrate",
             temperature=0.2, max_tokens=260).strip()

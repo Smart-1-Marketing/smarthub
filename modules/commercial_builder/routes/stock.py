@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request
 
+from hub.webargs import clamp_int
+
 from ..config import ASSET_SOURCE_PRIORITY
 from ..services import openai_service, pexels_service, pixabay_service
 
@@ -29,7 +31,11 @@ def search():
     if not query:
         return jsonify({"ok": False, "error": "q is required"}), 400
 
-    per_provider = int(request.args.get("per_provider", 8))
+    # Straight to two billed providers, once per expanded query, so an
+    # unbounded caller number here is a fan-out somebody else invoices us for
+    # -- and `int()` outside a try made ?per_provider=abc a 500. The three
+    # faults hub/webargs.py was written to end, all present on one line.
+    per_provider = clamp_int(request.args.get("per_provider"), 8, 1, 50)
     output_format = request.args.get("format")
     orientation = _ORIENTATION_MAP.get(output_format)
     use_ai_queries = request.args.get("expand", "false").lower() == "true"
