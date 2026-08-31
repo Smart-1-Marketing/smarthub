@@ -575,6 +575,15 @@ BASE = (ROOT / "hub" / "templates" / "base.html").read_text(encoding="utf-8")
 _body_line = next((l for l in BASE.splitlines() if l.lstrip().startswith("<body")), "")
 check("and base.html renders that block inside its body tag",
       "body_attrs" in _body_line)
+# hub-accordion.js reorders EVERY .card into the first card's parent on
+# /seo* and /client360 — on a page whose cards live in per-section views
+# that tears all of them into the first view. The workspace root carries the
+# opt-out marker and the accordion honors it before touching anything.
+ACC = (ROOT / "hub" / "static" / "hub-accordion.js").read_text(encoding="utf-8")
+check("the workspace opts out of the card accordion",
+      'data-s1-workspace="1"' in REC)
+check("and the accordion honors the marker before it reorders anything",
+      "[data-s1-workspace]" in ACC and "if (workspace()) return;" in ACC)
 check("traffic no longer loads at boot",
       "safe('traffic', function(){ loadTraffic(); });" not in REC)
 check("nor does the alt table", "safe('alt', function(){ loadAlt(); });" not in REC)
