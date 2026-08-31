@@ -3696,6 +3696,33 @@ that fires on every social spot). A figure is allowed when it is one we
 measured and refused when it is not: the grounding rule applied to a number
 instead of a name.
 
+**And it compared the string, so the measured figure came back as an invented
+one.** `$2,400` in the facts and `$2400` in the summary are the same amount and
+were two different strings, so a model that merely re-typed a figure it had
+been handed — which is what a model does with a figure — was reported as having
+invented it. `$2,400.00` went the same way. Every consequence below is correct
+on its own and they compound: the **whole summary is discarded** rather than
+patched, the report **renders nothing** because `widget_audit_report.html`
+guards on `summary.text`, the `why` explaining it is read by **no template**,
+and `for_scan()` **stores the refusal** on the stated reasoning that it "will
+not change on the next view" — which is true of a real refusal and false of
+this one. So one dropped comma cost that prospect's audit its opening
+paragraphs *permanently*, for them and for every rep who opened the link, with
+the only record in a JSON blob nothing reads.
+
+Compared as an **amount** now, and the rule is not loosened anywhere: an
+amount nobody measured is still refused, a figure that cannot be parsed is
+still refused rather than passed as measured, and **rounding is still not
+tolerated** — `$2,437` written as `$2,400` is a different amount on a document
+about somebody's money. What is **reported rather than fixed** is that a
+genuine discard is invisible to everybody: `why` reaches no screen, and there
+is no staff view of the summary to put it on, so building one is a feature
+rather than this fix. And `_forbidden()` enforces a discount, a promise, a
+guarantee, a timeline and our own name — **not** product names, which the
+prompt asks for and nothing checks, because a list of product names has to
+match ordinary English ("local listings", "display") and a false positive
+there discards a correct summary, which is the failure being undone here.
+
 **One call per audit, ever.** `for_scan()` writes on the first open and reads
 thereafter — a prospect refreshing, a rep checking the link and the mailed copy
 opened on a phone are three views of a paragraph that cannot have changed.
@@ -10060,6 +10087,10 @@ python3 test_prospect_record.py    # the record a scan produces: four kinds of e
                                    #   could not read, files, and converting
 python3 test_unwired.py            # nothing is defined and left uncalled
                                    #   without a reason written down
+python3 test_audit_summary.py      # the paragraphs a prospect reads: a
+                                   #   measured figure re-typed is not an
+                                   #   invented one, and an amount nobody
+                                   #   measured is still refused
 python3 test_website_audit.py      # the spend block that leads the audit, the customer
                                    #   placement, the lead every scan files, merging two
                                    #   rows that are one prospect
