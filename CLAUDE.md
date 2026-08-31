@@ -1665,6 +1665,32 @@ same branch, with an exemption list that is **empty** — every card on
 `dashboard.html` already branches on `measured`, and this partial was the one
 outlier.
 
+**And a section heading was a client in the CSV.** Two spellings of "this
+row is a heading" on one page: `active_clients`, `prospect_queue` and the
+upsell report mark the **cell** `{"group": true, "tone": …}` and the renderer
+draws a coloured band; `no_gtm` wrote a bare string and marked the **row**
+`row_styles="sub"`, which draws grey text. Same concept, two treatments, two
+reports apart — and neither of them legible to the **export**, which wrote all
+eight of this page's headings out as data. Active Clients downloaded as 154
+rows for a book of 151, three of them named *"Ending this month (15)"* with
+every other column blank, in the file somebody takes to a meeting.
+
+Dropping them is not the fix either, because on two of those reports the band
+**is** the finding — *"Never audited"*, *"No website on file, so nothing to
+audit"* — so a heading thrown away loses the only thing its rows say. The band
+is lifted into a **Group** column and the heading row is not written, so
+nothing is lost and the count matches the note.
+
+**A heading carries a label and nothing else, and that distinction is what
+kept the totals.** The Scorecards mark their **TOTAL** row `group` too — it
+wants the same band on screen — so reading the marker alone drops the one row
+somebody downloads that CSV for. `isGroupRow()` requires the rest of the row
+to be empty, and it is the **one** reading of what a heading is, used by the
+export and available to the renderer, because this page carried two spellings
+already and neither reached the file. It is lifted out of the template and
+driven in **node** against every report's real payload, the arrangement
+`test_menu_layout.py` uses over `hub-crumbs.js`.
+
 **A row with a cell no column names.** The renderer writes one `<th>` per
 entry in `columns` and one `<td>` per cell, so `no_dashboards`' six cells
 against five headings put its Add-dashboard button under the heading belonging
