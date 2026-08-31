@@ -183,7 +183,7 @@ function renderKpis(d){
   document.getElementById('leadKpis').innerHTML =
     kpi('Leads', d.count,
         'captured in the last '+d.days+' days'+
-        (d.with_pdf ? ' · '+d.with_pdf+' with a report' : '')+
+        (d.with_report ? ' · '+d.with_report+' with a report' : '')+
         /* A merged row leaves this list. Saying how many is what tells a
            count that went down apart from a panel that failed to load. */
         (d.merged ? ' · '+d.merged+' absorbed a duplicate' : '')) +
@@ -485,10 +485,14 @@ function loadDupes(){
     });
 }
 
-function dupeGroup(g, certain){
+/* The radio-group name is per GROUP, never the first lead's id: one lead can
+   head an email group and a company-name group at once, and two groups
+   sharing a name are one radio set — ticking a keeper in the second panel
+   silently cleared it in the first. */
+function dupeGroup(g, certain, gid){
   var rows = g.leads.map(function(l, i){
     return '<label class="lead-check" style="display:block;margin:2px 0">'+
-      '<input type="radio" name="keep-'+esc(g.leads[0].id)+'" value="'+esc(l.id)+'"'+
+      '<input type="radio" name="keep-'+esc(gid)+'" value="'+esc(l.id)+'"'+
       (i === 0 ? ' checked' : '')+'> '+
       '<b>'+esc(l.company || l.name || l.email || l.id)+'</b> '+
       '<span class="muted">'+esc(l.source||'')+' / '+esc(l.page||'')+
@@ -518,11 +522,11 @@ function renderDupes(d){
   host.innerHTML =
     (d.certain.length
       ? '<h4 style="margin:0 0 6px">Same business, on the evidence</h4>'+
-        d.certain.map(function(g){ return dupeGroup(g, true); }).join('')
+        d.certain.map(function(g, i){ return dupeGroup(g, true, 'c'+i); }).join('')
       : '')+
     (d.possible.length
       ? '<h4 style="margin:14px 0 6px">Worth an eyeball</h4>'+
-        d.possible.map(function(g){ return dupeGroup(g, false); }).join('')
+        d.possible.map(function(g, i){ return dupeGroup(g, false, 'p'+i); }).join('')
       : '')+
     '<p class="muted" style="font-size:12px;margin:10px 0 0">'+esc(d.note)+'</p>';
 }
