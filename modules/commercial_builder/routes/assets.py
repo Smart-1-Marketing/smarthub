@@ -12,6 +12,23 @@ from ..services import openai_service, cloudinary_service, runway_service
 
 bp = Blueprint("cb_assets", __name__, url_prefix="/api")
 
+
+# Writes on this blueprint that deliberately record nothing, each with the
+# reason. The line this file records on is whether a **file reaches the
+# client's own Cloudinary tree**: `generate_ai_video` and the upload do, and
+# they record; pointing a scene at something that is already there, or at a
+# draft the sweep will remove, does not.
+HOUSEKEEPING_ROUTES = {
+    "generate_ai_footage": "draws options to choose between. Billed, and the "
+                           "bill is `hub/quotas.py`'s answer — nothing is "
+                           "kept, so nothing has been made for the client "
+                           "yet.",
+    "choose_ai_option": "points a scene at one of those drafts. The clip it "
+                        "chooses is recorded when it is generated as video.",
+    "use_client_asset": "attaches something already in the client's library. "
+                        "No file is stored, and the asset was recorded by "
+                        "whichever tool put it there.",
+}
 # A generated clip is client work, so it belongs on the client's 360 record.
 try:
     from hub import audit as _hub_audit
@@ -87,6 +104,13 @@ def upload_scene_asset(project_id, scene_id):
     scene.asset_url = result.get("secure_url")
     scene.asset_thumb_url = result.get("secure_url")
     db.session.commit()
+    # A file that reaches the client's own Cloudinary tree, which is the line
+    # this module records on: `use_client_asset` beside it points a scene at
+    # something already there and stores nothing, so it does not.
+    _cb_log("commercial_asset_uploaded", client=client.name,
+            detail=(f"Footage uploaded to scene {scene.order_index + 1} of "
+                    f"{project.title or 'the spot'}."),
+            project=project_id)
     return jsonify({"ok": True, "asset": result, "scene": scene.to_dict()})
 
 
