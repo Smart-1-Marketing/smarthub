@@ -405,10 +405,16 @@ fetch('/api/presence').then(r=>r.json()).then(d=>{
     return '<span class="'+cls+'" title="'+esc(p.name)+' — last seen '+esc(when)+'">'
       +'<span class="pav">'+esc(ini(p.name))+'</span>'+esc(me?'You':p.name)+'</span>';
   }).join('');
-  host.innerHTML='<span class="presence-n">&#128100; '+fmt(d.count)+' signed in now</span>'
+  // "Signed in now" is the phrase hub/presence.py exists to refuse: there is
+  // no session table, so nothing here is ever told that somebody has left,
+  // and a number under those words is a confident answer to a question this
+  // Hub cannot answer. The comment that used to sit here said the window is
+  // never left off the number -- and it was, into an 11.5px grey line under a
+  // headline that read "signed in now". The headline carries it now, and the
+  // note underneath gives the exact window from summary_line(), so the one
+  // sentence every screen prints is still the only wording of it.
+  host.innerHTML='<span class="presence-n">&#128100; '+fmt(d.count)+' seen recently</span>'
     +(people.length?('<div class="presence-who">'+chips+'</div>'):'')
-    // The window is never left off the number: this Hub is never told when
-    // somebody leaves, so "signed in now" means exactly this and nothing more.
     +'<div class="presence-note">'+esc(d.line||'')+'</div>';
 }).catch(()=>{
   const host=$('presence');
