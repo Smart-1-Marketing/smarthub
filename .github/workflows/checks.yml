@@ -1600,6 +1600,18 @@ jobs:
       # google_access is the one the panel itself marks client-facing.
       - name: The Suite install, and the callback the panel promises
         run: python3 test_ghl_oauth.py
+      # hub/seo_tasks.py raises the web tickets that get schema, FAQs and blog
+      # posts onto a client's live site, and its docstring opens by forbidding
+      # exactly what it did: "It must never create the same ticket twice ... A
+      # queue that fills with duplicates is a queue people stop reading." The
+      # dedupe key was the raw URL while the title beside it was _short(), so
+      # the module already knew how to reduce a URL to a page and used that
+      # only for what somebody reads. Five ordinary spellings of one page --
+      # trailing slash, www, http, query string -- raised five tickets, four
+      # with an identical title. An http -> https migration would have
+      # duplicated the whole book in one pass.
+      - name: One page, however its URL was written
+        run: python3 test_seo_tasks.py
       # hub/audit_summary.py grounds every dollar figure in the two paragraphs
       # a prospect reads at the top of their own website audit, which is right
       # — the alternative is a model inventing what somebody spends. It
