@@ -286,6 +286,39 @@ ok("some walkthroughs are clean, so this is not reporting everything",
 check("no walkthrough drives none of the steps it names",
       [r["key"] for r in DEMO["rows"] if r["dead"]], [])
 
+# A target is credited by the ATTRIBUTE being there, not by the word.
+# `_found()` used to test `name in everything`, so data-demo='unmatched' was
+# reported as anchored because the word "unmatched" appears in another tool's
+# prose, and data-demo='client-name' because something somewhere has a class
+# of that name. Twenty-two steps read as anchored while driving nothing, and
+# two whole walkthroughs -- Image Creator's and the UTM builder's -- read as
+# working while every driving step in them resolved to no element at all.
+# That is the failure this audit exists to report, hiding inside the audit.
+_sp = help_audit._spellings("data-demo", "unmatched")
+_prose = "<p>3 unmatched projects</p>"
+_real = "<div data-demo=\"unmatched\"></div>"
+ok("a bare word does not anchor a step",
+   not any(x in _prose for x in _sp), _prose)
+ok("and the attribute does", any(x in _real for x in _sp), _real)
+ok("both quotings count",
+   any(x in "<b data-demo='unmatched'>" for x in _sp))
+ok("a selector kind it cannot look for asks for nothing",
+   help_audit._spellings("class", "x") == ())
+
+# The two that drove nothing at all, now anchored. Named rather than merely
+# counted: the point is that these screens can now be walked.
+for _key in ("image_creator.promo_post", "utm.campaign_links",
+             "pdf_optimizer.compress", "calculators.publish",
+             "fan_radio.spot", "radio_promo.first_spot"):
+    ok(f"{_key} drives at least one step it names",
+       _key not in [r["key"] for r in DEMO["rows"] if r["dead"]])
+
+# Anchored, but nowhere in the tool the walkthrough drives. Reported rather
+# than counted as missing -- the element may still be drawn at runtime -- the
+# way a target accepted on a prefix already is.
+ok("a target that only exists in another tool is named",
+   isinstance(DEMO.get("elsewhere"), list), str(type(DEMO.get("elsewhere"))))
+
 # A selector carrying nothing that identifies an element -- an
 # `input[type='file']` -- is a step this check cannot speak to, and counting
 # it as anchored was a tick over a question nobody asked. It is what let
