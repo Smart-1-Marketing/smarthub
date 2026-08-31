@@ -70,13 +70,21 @@ class Scope(NamedTuple):
 # --------------------------------------------------------------------------
 # Reads — the set the app already requests, all proven in production.
 # --------------------------------------------------------------------------
+# Named so callers gate on the table rather than restating the string.
+# hub/suite_accounts.py held its own copy and drifted onto a non-existent name.
+SCOPE_SOCIAL_WRITE = "socialplanner/post.write"
+SCOPE_SOCIAL_READ = "socialplanner/post.readonly"
+
 READ: tuple[Scope, ...] = (
     Scope("locations.readonly", "Sub-account lookup, and every domain-keyed join",
           ("modules/suite_panel/app.py", "hub/ghl_contacts.py", "hub/diagnostics.py"), True),
-    Scope("forms.readonly", "Forms on a client's sub-account",
+    # One scope, two endpoints. There is no forms/submissions scope in the
+    # console; this Hub asked for one for months and it was marked known-good
+    # purely because it was already in the original DEFAULT_SCOPES.
+    # hub/ghl_forms.py's own docstring said forms.readonly all along.
+    Scope("forms.readonly", "Forms on a sub-account, and their submission counts",
           ("hub/ghl_forms.py",), True),
-    Scope("forms/submissions.readonly", "Form submission counts on Client 360",
-          ("hub/ghl_forms.py",), True),
+
     Scope("contacts.readonly", "Finding the contact a proposal is filed against",
           ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
     Scope("opportunities.readonly", "Pipeline discovery, and the opportunity list",
@@ -103,9 +111,9 @@ WRITE: tuple[Scope, ...] = (
     # sites rather than re-reading a hand-written list.
     Scope("opportunities.write", "Filing a delivered proposal as an opportunity, "
           "and moving an accounting request's stage",
-          ("hub/suite_opportunity.py", "hub/qa.py"), False),
+          ("hub/suite_opportunity.py", "hub/qa.py"), True),
     Scope("medias.write", "Pushing a client's images into their Suite media library",
-          ("modules/image_picker/ghl.py", "modules/suite_panel/app.py"), False),
+          ("modules/image_picker/ghl.py", "modules/suite_panel/app.py"), True),
 
     # The blog set. hub/ghl_blog.py names all six in its own docstring and
     # publishes through them today, so the strings are transcribed rather than
@@ -130,11 +138,16 @@ WRITE: tuple[Scope, ...] = (
     # suite_client.py is where the POST actually happens; app.py orchestrates.
     # The table named only app.py while the pipe moved beneath it, which reads
     # as coverage and is not.
-    Scope("social-media-posting.write", "Social Planner publishing instead of exporting a CSV",
+    # The family is socialplanner/<thing>.<verb>. It was social-media-posting.*
+    # here until HighLevel's own console list was read on 2026-08-30 -- a name
+    # that does not exist, which hub/suite_accounts.py was also gating the push
+    # on, so publishing() would have answered "not granted" for ever, including
+    # after a consent that granted the real scope.
+    Scope(SCOPE_SOCIAL_WRITE, "Social Planner publishing instead of exporting a CSV",
           ("modules/social_planner/app.py",
-           "modules/social_planner/suite_client.py"), False),
-    Scope("social-media-posting.readonly", "Reading back what Social Planner scheduled",
-          ("modules/social_planner/app.py",), False),
+           "modules/social_planner/suite_client.py"), True),
+    Scope(SCOPE_SOCIAL_READ, "Reading back what Social Planner scheduled",
+          ("modules/social_planner/app.py",), True),
 )
 
 REQUESTED: tuple[Scope, ...] = READ + WRITE
@@ -158,6 +171,138 @@ NOT_REQUESTED: tuple[tuple[str, str], ...] = (
      "read-only with no create path, so a scope buys visibility into "
      "automations nobody builds from here. Add it when something reads them."),
 )
+
+
+# --------------------------------------------------------------------------
+# Every scope HighLevel's own console offers, transcribed from the app's scope
+# picker on 2026-08-30. 97 entries.
+#
+# This exists because "is that a real scope name?" was, until now, a question
+# nobody here could answer. The set was assembled from what our own modules had
+# authenticated with plus best readings of the rest, and three of nineteen were
+# wrong -- including one inherited from the original DEFAULT_SCOPES and marked
+# as known-good because it was already in the code. Membership of this list is
+# now what `known()` means, so the answer comes from HighLevel rather than from
+# our own confidence.
+#
+# It is a **snapshot**, not a live read: HighLevel publishes no endpoint for it
+# and adds scopes as it ships features (agent-studio, voice-ai and brand-boards
+# are all recent). A name absent from here is therefore "not in the list we
+# captured", never "does not exist" -- which is why unknown_requested() is a
+# finding to look at rather than an automatic failure.
+# --------------------------------------------------------------------------
+AVAILABLE: frozenset = frozenset({
+    # Ad Publishing
+    "adPublishing.readonly", "adPublishing.write",
+    # AI Agent Studio
+    "agent-studio.readonly", "agent-studio.write",
+    # Associations
+    "associations.write", "associations.readonly",
+    "associations/relation.readonly", "associations/relation.write",
+    # Blogs
+    "blogs/post.write", "blogs/post-update.write", "blogs/check-slug.readonly",
+    "blogs/category.readonly", "blogs/author.readonly", "blogs/list.readonly",
+    # Brand Boards
+    "brand-boards/design-kit.readonly", "brand-boards/design-kit.write",
+    "brand-boards/voices.readonly", "brand-boards/voices.write",
+    # Businesses
+    "businesses.readonly", "businesses.write",
+    # Calendars
+    "calendars.readonly",
+    # Campaigns
+    "campaigns.readonly",
+    # Chat Widget
+    "chat-widget.readonly", "chat-widget.write",
+    # Companies
+    "companies.readonly",
+    # Contacts
+    "contacts.readonly", "contacts.write",
+    # Conversations
+    "conversations.readonly",
+    # Custom Fields
+    "locations/customFields.readonly", "locations/customFields.write",
+    # Custom Menus
+    "custom-menu-link.readonly", "custom-menu-link.write",
+    # Developer Marketplace
+    "charges.readonly", "charges.write",
+    "marketplace-installer-details.readonly",
+    "marketplace-external-auth-migration.write",
+    # Emails
+    "emails/builder.write", "emails/builder.readonly",
+    "emails/schedule.readonly", "emails/schedule.write",
+    "emails/templates.readonly", "emails/templates.write",
+    "emails/campaigns.readonly", "emails/campaigns.write",
+    "emails/stats.readonly",
+    # Files
+    "files.readonly",
+    # Forms  -- note there is NO forms/submissions scope; forms.readonly covers
+    # both the form list and its submissions.
+    "forms.readonly", "forms.write",
+    # Knowledge Base
+    "knowledge-bases.write", "knowledge-bases.readonly",
+    # Lc Email
+    "lc-email.readonly",
+    # Locations
+    "locations.write", "locations.readonly",
+    "locations/customValues.readonly", "locations/customValues.write",
+    "locations/tasks.readonly", "locations/tasks.write",
+    "recurring-tasks.readonly", "recurring-tasks.write",
+    "locations/tags.readonly", "locations/tags.write",
+    "locations/templates.readonly",
+    # Medias -- write only; there is no medias.readonly
+    "medias.write",
+    # Oauth
+    "oauth.write", "oauth.readonly",
+    # Objects
+    "objects/schema.readonly", "objects/schema.write",
+    "objects/record.readonly", "objects/record.write",
+    # Opportunities
+    "opportunities.readonly", "opportunities.write",
+    # Social Planner -- the family is socialplanner/<thing>.<verb>, NOT
+    # social-media-posting.*, which is what this Hub asked for until today.
+    "socialplanner/oauth.readonly", "socialplanner/oauth.write",
+    "socialplanner/post.readonly", "socialplanner/post.write",
+    "socialplanner/account.readonly", "socialplanner/account.write",
+    "socialplanner/csv.readonly", "socialplanner/csv.write",
+    "socialplanner/category.readonly", "socialplanner/category.write",
+    "socialplanner/tag.readonly", "socialplanner/tag.write",
+    "socialplanner/statistics.readonly",
+    "socialplanner/comments.readonly", "socialplanner/comments.write",
+    "socialplanner/watermarks.readonly", "socialplanner/watermarks.write",
+    # Twilio Account -- note ".read", not ".readonly"
+    "twilioaccount.read",
+    # Users
+    "users.readonly",
+    # Voice AI
+    "voice-ai-dashboard.readonly",
+    "voice-ai-agents.readonly", "voice-ai-agents.write",
+    "voice-ai-agent-goals.readonly", "voice-ai-agent-goals.write",
+    # Wordpress
+    "wordpress.site.readonly",
+    # Workflows
+    "workflows.readonly",
+})
+
+AVAILABLE_CAPTURED = "2026-08-30"
+
+
+def known(name: str) -> bool:
+    """Does HighLevel's own console list this scope?
+
+    The replacement for a hand-kept `verified` flag. That flag meant "somebody
+    was confident", and confidence is what got `forms/submissions.readonly`
+    into the set and kept it there.
+    """
+    return name in AVAILABLE
+
+
+def unknown_requested() -> list[str]:
+    """Requested scopes HighLevel's console does not list.
+
+    Would have caught all three of the errors found on 2026-08-30 at the moment
+    they were written, rather than at consent.
+    """
+    return [n for n in requested_names() if n not in AVAILABLE]
 
 
 # --------------------------------------------------------------------------

@@ -48,8 +48,13 @@ __all__ = ["location_for", "client_for_location", "token_for",
 
 # The scope a Social Planner write needs. Named here rather than spelled out
 # at each call site so the gate and the request list cannot drift.
-SCOPE_PUBLISH = "social-media-posting.write"
-SCOPE_READ = "social-media-posting.readonly"
+# Read from the scope table rather than restated, so a name corrected there
+# cannot leave this gate testing a string HighLevel has never heard of. It did
+# exactly that until 2026-08-30: both constants named social-media-posting.*,
+# which is not a HighLevel scope, so publishing() would have answered "not
+# granted" for ever -- including after a consent that granted the real scope.
+from hub.ghl_scopes import SCOPE_SOCIAL_WRITE as SCOPE_PUBLISH
+from hub.ghl_scopes import SCOPE_SOCIAL_READ as SCOPE_READ
 
 
 def _answer(state: str, detail: str, **extra) -> dict:
@@ -216,7 +221,7 @@ def publishing() -> dict:
     A granted scope list is not the scope list we asked for — `hub/ghl_scopes.py`
     says so at length. HighLevel grants what it recognises at consent and says
     nothing about the rest, so a token that reports Connected can be missing
-    `social-media-posting.write` entirely and every push 401s months later
+    `socialplanner/post.write` entirely and every push 401s months later
     looking exactly like a bad token.
 
     So this is asked *before* a push rather than discovered by one, and it is
