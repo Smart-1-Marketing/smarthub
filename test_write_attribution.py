@@ -128,15 +128,15 @@ TRIAGED = {
     # reason belongs, and the question "is every write here attributable" is
     # about the module.
     "commercial_builder": {
-        "path": ["modules/commercial_builder/routes/clients.py",
-                 "modules/commercial_builder/routes/projects.py",
-                 "modules/commercial_builder/routes/review.py",
-                 "modules/commercial_builder/routes/render.py",
-                 "modules/commercial_builder/routes/voices.py",
-                 "modules/commercial_builder/routes/assets.py",
-                 "modules/commercial_builder/routes/scripts.py",
-                 "modules/commercial_builder/routes/heygen.py",
-                 "modules/commercial_builder/routes/providers.py"],
+        # A **glob**, not a list of the nine files that had writes the day
+        # this was written. `pages.py` and `stock.py` have none today, so a
+        # hand-list would have left them off and a write route added to
+        # either next month would have been invisible to the sweep -- which
+        # is the "a sweep that quietly stops sweeping" failure this whole
+        # change is about, one level up from the walk it fixed. Finding no
+        # files is asserted as a failure below, so the glob cannot silently
+        # stop matching either.
+        "path_glob": "modules/commercial_builder/routes/*.py",
         # The two deletes and the two creates, because in both earlier
         # triages the *creating* half of a create/destroy pair was the half
         # left out — and here neither half of either pair was recorded. The
@@ -158,6 +158,17 @@ TRIAGED = {
 
 
 def _paths(cfg):
+    """Every file a module is spread across: named, or matched from disk.
+
+    A single-file module names its one path; a blueprint package globs its
+    routes directory, so the sweep covers a file added to it without anybody
+    remembering to widen a list.
+    """
+    pattern = cfg.get("path_glob")
+    if pattern:
+        found = sorted(str(p.relative_to(ROOT)) for p in ROOT.glob(pattern)
+                       if p.name != "__init__.py")
+        return found
     raw = cfg["path"]
     return [raw] if isinstance(raw, str) else list(raw)
 
@@ -212,6 +223,10 @@ for name, walk in WALKS.items():
     check(f"{name}: the write routes were found",
           len(walk["logs"]) + len(walk["silent"]) >= 5, True)
     check(f"{name}: and its declaration was read", len(walk["declared"]) > 0, True)
+    # A glob that stops matching reports a clean bill of health about
+    # nothing, which is the same failure the walk itself had.
+    check(f"{name}: the files it is spread across were found",
+          len(FILES[name]) > 0, True)
 
 
 # ---------------------------------------------------------------------------
