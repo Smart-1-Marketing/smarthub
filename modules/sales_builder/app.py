@@ -1412,7 +1412,7 @@ def _body_flowables(text, style) -> list:
 # Sections whose generated table a rep may leave out or replace by hand.
 # `text` and `cover` carry no table, so offering them the control would make
 # the button mean nothing.
-TABLE_KINDS = ("areas", "reach", "friction", "channels", "creative", "timeline",
+TABLE_KINDS = ("areas", "reach", "friction", "channels", "creative",
                "kpis", "mediaplan", "packages", "roi", "growth", "zips")
 
 
@@ -1805,7 +1805,7 @@ def _creative_phrase(row):
 # from what the document actually contains rather than from a page count we
 # would only learn after building it once.
 _SECTION_WEIGHT = {"mediaplan": 3, "packages": 3, "roi": 4, "areas": 2,
-                   "channels": 3, "creative": 2, "timeline": 2, "friction": 2,
+                   "channels": 3, "creative": 2, "friction": 2,
                    "reach": 1, "kpis": 1, "cover": 0}
 
 TYPE_SCALE_MIN = 0.82
@@ -1901,10 +1901,20 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
             ["Monthly campaign investment", _money(q.monthly_budget)],
             [f"Total campaign investment ({q.months} months)",
              _money(q.total_budget)]]
-    meta = [[row[0], _p(row[1], st_body)] for row in meta]
-    t = Table(meta, colWidths=[1.55 * inch, 5.85 * inch])
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, -1), SOFT), ("TEXTCOLOR", (0, 0), (0, -1), NAVY),
-                           ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+    # An empty row is dropped rather than printed as a labelled blank -- a
+    # "Campaign Goals" row with nothing beside it reads as a question the
+    # document forgot to answer, on the first thing a client sees.
+    meta = [row for row in meta if str(row[1] or "").strip()]
+    # Both cells are Paragraphs so both WRAP. The label used to be a bare
+    # string in a 1.55in column, and reportlab does not wrap a bare string:
+    # "Monthly campaign investment" ran under the value column and printed
+    # over the figure -- "investme$8,050", on the cover of a real proposal.
+    st_meta = ParagraphStyle("ML", parent=st_body, textColor=NAVY,
+                             fontName="Helvetica-Bold", spaceAfter=0)
+    meta = [[_p(row[0], st_meta), _p(row[1], st_body)] for row in meta]
+    t = Table(meta, colWidths=[2.15 * inch, 5.25 * inch])
+    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, -1), SOFT),
+                           ("FONTSIZE", (0, 0), (-1, -1), 8.5),
                            ("GRID", (0, 0), (-1, -1), 0.4, LINE), ("VALIGN", (0, 0), (-1, -1), "TOP"),
                            ("LEFTPADDING", (0, 0), (-1, -1), 6), ("TOPPADDING", (0, 0), (-1, -1), 5),
                            ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
@@ -1980,8 +1990,10 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                                         ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
                 story.append(at)
                 if len(areas) > 1:
-                    story.append(_p("Populations are shown per area and are not de-duplicated "
-                                    "where areas overlap.", st_small))
+                    story.append(_p("Populations are shown per area. Where areas share "
+                                    "ZIP Codes, the campaign totals count the shared "
+                                    "ZIPs once rather than adding the overlap again.",
+                                    st_small))
             targets = targets_of_interest(state)
             if targets:
                 rows = [["Who we are going after", "What we want from them",
@@ -2155,14 +2167,6 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                                             2.2 * inch], repeatRows=1)
                 kt.setStyle(_head_style())
                 story.append(kt)
-        elif kind == "timeline":
-            rows = [["Phase", "What happens"]]
-            for phase in hub_spec.TIMELINE:
-                rows.append([_p(f"{phase['phase']}\n{phase['title']}", st_small),
-                             _p(phase["detail"], st_small)])
-            tt = Table(rows, colWidths=[1.7 * inch, 5.7 * inch], repeatRows=1)
-            tt.setStyle(_head_style())
-            story.append(tt)
         elif kind == "roi":
             # The KPI framework, not a table of impressions.
             #
@@ -2372,6 +2376,10 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                        ("Monthly campaign investment", _money(q.monthly_budget)),
                        (f"Total campaign investment ({q.months} months)",
                         _money(q.total_budget))]:
+        # An empty row is dropped, the same reading the PDF's cover applies:
+        # a labelled blank is a question the document forgot to answer.
+        if not str(val or "").strip():
+            continue
         row = table.add_row().cells
         row[0].text = label
         row[1].text = str(val or "")
@@ -2508,9 +2516,6 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                 d.add_paragraph(f"{row['label']} — {_money(row['spend'])} campaign. "
                                 f"{_creative_phrase(row)}. "
                                 f"Needs: {hub_creative.units_line(state, row['medium'])}")
-        elif kind == "timeline":
-            for phase in hub_spec.TIMELINE:
-                d.add_paragraph(f"{phase['phase']} · {phase['title']} — {phase['detail']}")
         elif kind == "roi":
             plan = hub_kpi.framework(state)
             if plan["measured"]:
@@ -2610,7 +2615,7 @@ def quote_docx(qid):
 # Sections the AI may write copy for. The table-backed ones take an intro
 # paragraph above their generated table; only the cover has nothing to say.
 WRITABLE_KINDS = ("text", "friction", "areas", "reach", "channels", "mediaplan",
-                  "creative", "packages", "kpis", "roi", "timeline", "growth")
+                  "creative", "packages", "kpis", "roi", "growth")
 
 
 def writable_sections(state):
@@ -2634,7 +2639,15 @@ def industry_template(state):
         return hub_industries.INDUSTRIES[raw]
     for key, entry in hub_industries.INDUSTRIES.items():
         label = str(entry.get("label") or "").lower()
-        if raw == label or (len(raw) > 3 and (raw in label or key in raw)):
+        # The key is matched on WORD boundaries, never as a substring: "rv"
+        # is a substring of "services", so every Home Services and Financial
+        # Services proposal opened its Executive Summary with the RV Dealers
+        # pitch — "marketing that follows the camping calendar" on an HVAC
+        # company's document, found by rendering one. hub/client_key.py's
+        # rule, wearing an industry label.
+        if raw == label or (len(raw) > 3 and
+                            (raw in label
+                             or re.search(rf"\b{re.escape(key)}\b", raw))):
             return entry
     return None
 
@@ -2858,6 +2871,31 @@ def campaign_cost(state) -> dict:
     }
 
 
+_FLAT_RATE_RE = re.compile(
+    r"^\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(?:flat|one[- ]time|/mo|per month|monthly)?$",
+    re.IGNORECASE)
+
+
+def _plan_rate(row) -> str:
+    """What the Budget Allocation table's rate column says for one line.
+
+    A quoted CPM/CPV keeps its rate ("CPM $8.50") and a flat fee keeps its
+    figure, formatted as money. Everything else is "Managed": a percentage,
+    a custom quote or a sentence about the card is our pricing described,
+    not a rate stated, and on this table it reads as a figure the client
+    should be able to check and cannot.
+    """
+    if row.get("quoted_rate"):
+        return row.get("rate") or "Managed"
+    m = _FLAT_RATE_RE.match(str(row.get("rate") or "").strip())
+    if m:
+        try:
+            return f"${float(m.group(1).replace(',', '')):,.2f} flat"
+        except ValueError:
+            pass
+    return "Managed"
+
+
 def media_plan_rows(state) -> dict:
     """The media plan as every renderer draws it, computed once.
 
@@ -2880,6 +2918,15 @@ def media_plan_rows(state) -> dict:
     for r in est["rows"]:
         units, label = r.get("units"), r.get("unit_label") or ""
         unit = label.replace("/month", "").strip()
+        # The rate column carries a rate a client can do arithmetic with -- a
+        # quoted CPM/CPV or a flat fee -- and says "Managed" for everything
+        # else. The card's own strings for the rest ("15% of gross", "Custom
+        # quote", a sentence about the rate card) describe our pricing rather
+        # than state a rate, and on the one table headed Budget Allocation
+        # they read as figures a client should be able to check and cannot.
+        # A bare flat number is formatted on the way through, because "250.0"
+        # printed at a client is the bare-float failure one release back.
+        rate = _plan_rate(r)
         if not units:
             # Never a zero and never a dash on its own: a fee that buys no
             # impressions is a different statement from one nobody priced.
@@ -2895,7 +2942,7 @@ def media_plan_rows(state) -> dict:
         one_time = (r.get("basis") or "monthly") == "one_time"
         rows.append({
             "product": r["product"], "category": r["category"],
-            "rate": r["rate"] or "Managed",
+            "rate": rate,
             # `expected_results()` spreads a one-time cost across the flight,
             # which is right for its own arithmetic and wrong in a column
             # headed Monthly: a $1,500 shoot shown as $250 a month made the
@@ -2981,6 +3028,16 @@ def ensure_sections(state):
     """
     existing = state.get("sections")
     if existing:
+        # A retired section comes OFF a stored quote here, whatever release
+        # saved it -- this runs on every save and in front of the PDF and the
+        # Word export, so a quote nobody re-opens still stops printing it.
+        # Matched on the kind, because the id is editable and the kind is
+        # what the renderers dispatch on.
+        retired = [sec for sec in existing if isinstance(sec, dict)
+                   and str(sec.get("kind")) in hub_spec.RETIRED_SECTION_KINDS]
+        if retired:
+            existing = [sec for sec in existing if sec not in retired]
+            state["sections"] = existing
         have = {str(sec.get("id")) for sec in existing if isinstance(sec, dict)}
         seeded = _seeded_sections(state)
         for spec in hub_spec.OUTLINE:
@@ -3376,7 +3433,6 @@ def api_proposal_spec():
                      "purpose": s["purpose"], "required": s["id"] in hub_spec.REQUIRED}
                     for s in hub_spec.OUTLINE],
         "saas_tiers": hub_spec.SAAS_TIERS,
-        "timeline": hub_spec.TIMELINE,
         "next_steps": hub_spec.NEXT_STEPS,
         "comp_confirm_under": hub_creative.COMP_CONFIRM_UNDER,
         "typical_production": hub_creative.TYPICAL_PRODUCTION,
@@ -3881,7 +3937,16 @@ def api_estimate_audience():
 
     out, totals = [], {"pop": 0, "aud": 0, "hh": 0, "dev": 0}
     measured = 0
-    for area in areas:
+    # Each area keeps its own full figures -- that is the per-area question
+    # this route exists to answer -- and the TOTALS remove the overlap on
+    # shared ZIP Codes, because three radii over one metro count the same
+    # households three times and the total is the number the reach section
+    # prints on the client's document. hub_areas.overlap_factors() is the one
+    # reading of how much is shared; an area with no ZIP list counts whole,
+    # and the note below says which of the two happened.
+    factors = hub_areas.overlap_factors(areas)
+    deduped = False
+    for area, factor in zip(areas, factors):
         row = by_id.get(area["id"]) or {}
         population = int(row.get("population") or 0) or (hub_areas.estimated_population(area) or 0)
         if not population:
@@ -3896,15 +3961,23 @@ def api_estimate_audience():
         out.append({"id": area["id"], "label": hub_areas.label(area), "measured": True,
                     "pop": population, "aud": audience, "hh": households, "dev": devices,
                     "ai": bool(row), "rationale": str(row.get("rationale") or "")})
-        totals["pop"] += population
-        totals["aud"] += audience
-        totals["hh"] += households
-        totals["dev"] += devices
+        if factor < 1.0:
+            deduped = True
+        totals["pop"] += round(population * factor)
+        totals["aud"] += round(audience * factor)
+        totals["hh"] += round(households * factor)
+        totals["dev"] += round(devices * factor)
 
     note = ""
-    if len(areas) > 1:
-        note = ("Areas are totalled without deducting overlap, so nearby areas "
-                "double-count the people they share.")
+    if deduped:
+        note = ("Where areas share ZIP Codes, the shared ZIPs are counted once "
+                "in these totals — the per-area figures above still show each "
+                "area whole.")
+    elif len(areas) > 1 and any(f == 1.0 and not hub_areas.zip_list(a.get("zips"))
+                                for a, f in zip(areas, factors)):
+        note = ("An area with no ZIP list cannot be checked for overlap, so "
+                "these totals may double-count people that nearby areas share. "
+                "Finding the ZIP Codes on each area fixes that.")
     unmeasured = [row["label"] for row in out if not row["measured"]]
     return jsonify({"ok": True, "areas": out, "ai": ai_used,
                     "totals": totals if measured else None,
