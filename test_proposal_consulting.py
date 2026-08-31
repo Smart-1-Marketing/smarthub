@@ -89,11 +89,12 @@ io_tpl = open(IO_TPL, encoding="utf-8").read()
 
 C = product_intake.CONSULTING
 DESC = "Quarterly brand strategy workshop, two days on site."
+DISPLAY = sb.CONSULTING_DISPLAY
 
 
 def line(**over):
     row = {"product": C["product"], "category": C["category"],
-           "label": C["category"] + " — " + C["product"],
+           "label": C["category"] + " — " + sb.CONSULTING_DISPLAY,
            "basis": "monthly", "termMonths": 6, "dollars": 5000,
            "description": DESC}
     row.update(over)
@@ -163,8 +164,12 @@ try:
     moved = sb.consulting_spec()
     check("renaming CONSULTING moves the served spec",
           moved.get("product") == "Renamed Strategy Work", moved.get("product"))
-    check("and the label is rebuilt from it rather than stored",
-          str(moved.get("label") or "").endswith("Renamed Strategy Work"), moved.get("label"))
+    # The label is built from the DISPLAY name, not the product string --
+    # that is the whole point of the rename, so it must not follow a rename
+    # of the join. What must follow is `product`, asserted above.
+    check("the label keeps following the display name, not the join",
+          str(moved.get("label") or "").endswith(sb.CONSULTING_DISPLAY),
+          moved.get("label"))
 finally:
     product_intake.CONSULTING = real
 check("the definition was put back",
@@ -209,15 +214,50 @@ state = {"months": 6, "items": [line(), {
     "basis": "monthly", "dollars": 3000}]}
 plan = sb.media_plan_rows(state)
 rows = {r.get("product", ""): r for r in plan.get("rows") or []}
-consult = [r for k, r in rows.items() if C["product"] in k]
+consult = [r for k, r in rows.items() if DISPLAY in k]
 check("the consulting line is on the media plan", len(consult) == 1)
 check("carrying its description", bool(consult) and consult[0].get("description") == DESC,
       consult[0].get("description") if consult else "")
 check("a card line carries none",
-      all(not r.get("description") for k, r in rows.items() if C["product"] not in k))
+      all(not r.get("description") for k, r in rows.items() if DISPLAY not in k))
 check("and it reports no impressions rather than a plausible number",
       bool(consult) and consult[0].get("delivery") == "Not impression-based",
       consult[0].get("delivery") if consult else "")
+
+# ---------------------------------------------------------------------------
+section("Two consulting products, and a client can tell them apart")
+
+# main's #316 sells a monthly RETAINER (state["consulting"] -- Suite coaching,
+# priced from hours, recurring beside the licence). This is the ENGAGEMENT.
+# Both are real products; what must never happen is a client reading two
+# charges under names they cannot separate.
+check("the engagement reads under its own name",
+      DISPLAY == "Strategy Engagement", DISPLAY)
+check("which is not the retainer's name",
+      "Consulting & Strategy" not in DISPLAY, DISPLAY)
+
+# The rename is presentation ONLY. The product string is the join -- the IO
+# matches the catch-all on it exactly -- so it must not have moved with it.
+check("the product string underneath is untouched",
+      sb.consulting_spec()["product"] == C["product"] == "Consulting & Strategic Services")
+check("and still matches the IO byte-for-byte",
+      bool(io_const) and io_const.group(1) == sb.consulting_spec()["product"])
+check("the label a plan row carries uses the display name",
+      sb.consulting_spec()["label"].endswith(DISPLAY),
+      sb.consulting_spec().get("label"))
+check("is_consulting() still keys on the product string, not the display name",
+      sb.is_consulting({"product": C["product"]})
+      and not sb.is_consulting({"product": DISPLAY}))
+
+# The client's media plan reads the engagement; the IO still gets the join.
+_row = [r for k, r in
+        {r.get("product", ""): r for r in
+         sb.media_plan_rows({"months": 6, "items": [line()]}).get("rows") or []}.items()]
+check("the media plan row prints the display name",
+      bool(_row) and _row[0].get("product") == DISPLAY,
+      _row[0].get("product") if _row else "")
+check("and never the raw product string",
+      bool(_row) and _row[0].get("product") != C["product"])
 
 # ---------------------------------------------------------------------------
 section("It is not a channel, and it needs no creative")
@@ -316,7 +356,9 @@ check("the wizard offers a control for it",
 check("and refuses an empty description by name",
       "only thing that says what was sold" in wiz)
 check("the plan step warns about a line left undescribed",
-      "Consulting line" in wiz and "meaning nothing" in wiz)
+      "Strategy engagement" in wiz and "meaning nothing" in wiz)
+check("and the control says which of the two consulting products this is not",
+      "retainer quoted on the Investment step" in wiz)
 
 print("\n" + "=" * 62)
 print("%d passed, %d failed" % (PASS, FAIL))

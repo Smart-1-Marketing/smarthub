@@ -5431,6 +5431,32 @@ engagements at two prices is the ordinary case — a strategy workshop and a
 quarterly review — and every other line on the plan dedupes on a product
 string all of these share.
 
+**And there are two consulting products, which is a thing to know before
+renaming either.** `state["consulting"]` is a monthly **retainer** — Suite
+coaching and campaign strategy, priced from estimated hours, riding beside the
+licence in the Investment Summary because it is recurring platform work a
+paused campaign does not stop. This is the other one: a single **engagement**,
+scoped and priced on its own, quoted on the media plan and trafficked as an
+insertion-order line. Both are real, and they arrived from two directions
+within a day of each other.
+
+What that cost is the name. A client reading *"Consulting & Strategy"* in the
+Investment Summary and *"Consulting & Strategic Services"* on the media plan
+cannot tell which charge is which — two names for what reads as one thing,
+which is the drift most of the rules in this file exist to refuse. So the
+engagement is a **Strategy Engagement** everywhere a person reads it:
+the plan editor, the preview, the PDF, the Word export.
+
+**The product string underneath does not move with it.** It is the join — the
+IO recognises the catch-all by that exact name, `product_intake` owns it, and
+renaming it would orphan every line already quoted under it. `audit.LOG_NAMES`
+and `video_library.TAG_ALIASES`' rule, one document over: the stored name
+stays and the displayed one changes. `is_consulting()` keys on the product
+string rather than the display name for the same reason, and
+`test_proposal_consulting.py` asserts both halves — that the client's row
+prints the display name, and that the join is byte-identical to the IO's
+constant regardless.
+
 ### One product, one name — or the IO quietly carries 88 of 90
 
 Two products were both called **Google Grant** — a $125 one-time setup fee and

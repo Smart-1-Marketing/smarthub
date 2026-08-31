@@ -780,18 +780,43 @@ def api_config():
     })
 
 
+# What a person reads, kept apart from what the insertion order matches on.
+#
+# The Proposal Builder sells two things with "consulting" in the name and they
+# are not the same product: `state["consulting"]` is a monthly RETAINER --
+# Suite coaching and campaign strategy, priced from hours, riding beside the
+# licence in the Investment Summary because it is recurring platform work that
+# a paused campaign does not stop. This is the other one: a single ENGAGEMENT,
+# scoped and priced on its own, quoted on the media plan and trafficked as an
+# insertion-order line.
+#
+# Both belong on the card, and a client reading "Consulting & Strategy" in one
+# place and "Consulting & Strategic Services" in another cannot tell which
+# charge is which -- two names for what reads as one thing, which is the drift
+# this codebase spends most of its rules refusing. So the ENGAGEMENT is called
+# a Strategy Engagement everywhere a person reads it.
+#
+# The product string underneath does NOT move. It is the join: the IO
+# recognises the catch-all by that exact name, `product_intake` owns it, and
+# renaming it would orphan every line already quoted under it -- the rule
+# `audit.LOG_NAMES` and `video_library.TAG_ALIASES` already work to, where the
+# stored name stays and the displayed one changes.
+CONSULTING_DISPLAY = "Strategy Engagement"
+
+
 def consulting_spec() -> dict:
     """The catch-all line as the wizard needs it, from the one definition.
 
-    `hub.product_intake.CONSULTING` is the whole of it. What is added here is
-    the label shape the plan's own rows use (`category — product`), because
-    every other line on the plan carries one and a row without it sorts and
-    renders as a different kind of thing.
+    `hub.product_intake.CONSULTING` is the whole of the join. What is added
+    here is presentation: the name a person reads, and the label shape the
+    plan's own rows use (`category — name`), because every other line on the
+    plan carries one and a row without it renders as a different kind of thing.
     """
     spec = dict(hub_intake.CONSULTING)
     return {"product": spec["product"], "category": spec["category"],
             "listed_rate": spec.get("listed_rate") or "",
-            "label": f'{spec["category"]} — {spec["product"]}',
+            "display": CONSULTING_DISPLAY,
+            "label": f'{spec["category"]} — {CONSULTING_DISPLAY}',
             "description_hint": spec.get("description") or ""}
 
 
@@ -2824,8 +2849,15 @@ def expected_results(state):
             unpriced.append(hub_rate_card.quote_label(item.get("product"),
                                                       item.get("category")))
         rows.append({
-            "product": hub_rate_card.quote_label(item.get("product"),
-                                                 item.get("category")),
+            # The engagement reads as a Strategy Engagement on the client's
+            # document; the product string stays underneath as the IO's join.
+            # Without this the media plan says "Consulting & Strategic
+            # Services" a few inches from the Investment Summary's "Consulting
+            # & Strategy" retainer, and a client cannot tell the two charges
+            # apart.
+            "product": (CONSULTING_DISPLAY if is_consulting(item)
+                        else hub_rate_card.quote_label(item.get("product"),
+                                                       item.get("category"))),
             "category": item.get("category") or "",
             "medium": hub_creative.medium_of(item),
             "quoted_rate": quoted,
