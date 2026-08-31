@@ -342,7 +342,13 @@ $('saveAll').onclick = async () => {
     $('saveAll').disabled = false;
     if(d.error){ $('saveMsg').className='msg err'; $('saveMsg').textContent = d.error; return; }
     $('saveMsg').className='msg ok';
-    $('saveMsg').textContent = 'Saved '+d.saved+(d.skipped?' · '+d.skipped+' already existed':'')+' ✓';
+    /* A cap that drops the oldest links is not allowed to do it quietly:
+       what falls off the end is a tagged URL nobody can trace back to a
+       campaign, which is the thing this tool exists to prevent. */
+    $('saveMsg').textContent = 'Saved '+d.saved
+      +(d.skipped?' · '+d.skipped+' already existed':'')
+      +(d.dropped?' · '+d.dropped+' of the oldest dropped, the archive holds '
+                 +d.max_links:'')+' ✓';
     loadTable();
   }catch(e){ $('saveAll').disabled=false; $('saveMsg').className='msg err'; $('saveMsg').textContent='Failed'; }
 };
@@ -354,7 +360,18 @@ async function loadTable(){
   try{
     const d = await fetch('api/links'+(q?'?q='+encodeURIComponent(q):'')).then(r=>r.json());
     savedRows = d.links||[];
-    $('tableMeta').textContent = q ? savedRows.length+' of '+d.total : d.total+' saved';
+    /* Three numbers, and the table draws only the first. `matched` is how many
+       the search found and `links` is the page of them we were sent, so a
+       search matching 450 must not read "300 of 900" -- the page reporting
+       its own length as the match count. Where the two differ the table is
+       showing part of what matched, and it says so rather than leaving
+       somebody to conclude there were 300. */
+    const matched = (d.matched === undefined) ? savedRows.length : d.matched;
+    const partial = matched > savedRows.length
+      ? ' · showing the first ' + savedRows.length : '';
+    $('tableMeta').textContent = q
+      ? matched + ' of ' + d.total + partial
+      : d.total + ' saved' + partial;
     renderTable();
   }catch(e){ $('tableWrap').innerHTML = '<div class="empty">Couldn\'t load saved links.</div>'; }
 }

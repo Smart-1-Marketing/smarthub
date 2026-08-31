@@ -42,6 +42,7 @@ So each check below is a way the estimate could lie:
 import json
 import os
 import shutil
+import pathlib
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -54,7 +55,7 @@ TMP = tempfile.mkdtemp(prefix="s1apiusage_test_")
 LOG = os.path.join(TMP, "audit.jsonl")
 os.environ["AUDIT_LOG_PATH"] = LOG
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + os.path.join(TMP, "db.sqlite3"))
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
 # The estimates read these; pin them so the assertions below are about the
 # arithmetic and not about whatever the environment happens to carry.
 os.environ["ELEVENLABS_USD_PER_1K_CREDITS"] = "0.22"
@@ -298,6 +299,52 @@ check("every provider is scanned", sorted(blind),
 for provider, found in blind.items():
     check(f"no unrecorded {provider} call sites",
           [f["file"] for f in found], [])
+
+
+# ---------------------------------------------- 11b. and OpenAI, per call site
+section("The OpenAI check asks per call site, not per file")
+# It exempted the whole file the moment `from hub import ai` appeared anywhere
+# in it. Image Creator's two text routes go through a helper that records, and
+# its image route posted straight to /v1/images/generations and recorded
+# nothing -- so every image it generated was billed at the per-image rate and
+# invisible on the usage page, behind a check reporting the module clean. That
+# is the `for_module(` failure one provider over: the string satisfying the
+# check.
+check("the repository has no unrecorded OpenAI call site",
+      quotas.untracked_openai_modules(), [])
+
+# Handed the shape that was live, it must say so -- a check that has only ever
+# been green is one nobody can trust.
+_SILENT_IMAGE = """
+import requests
+
+def generate(prompt):
+    r = requests.post("https://api.openai.com/v1/images/generations", json={})
+    return r.json()
+
+def rewrite(text):
+    from hub import ai
+    r = requests.post("https://api.openai.com/v1/chat/completions", json={})
+    ai.note_usage("m", r.json())
+    return r.json()
+"""
+check("a silent image call in a file that records elsewhere is named",
+      quotas.openai_spend_unrecorded(_SILENT_IMAGE), True)
+check("and the same call once it records is not",
+      quotas.openai_spend_unrecorded(
+          _SILENT_IMAGE.replace("    return r.json()\n\ndef rewrite",
+                                "    note_usage('m', r.json())\n    return r.json()\n\ndef rewrite")),
+      False)
+check("a file that never reaches OpenAI is not asked",
+      quotas.openai_spend_unrecorded("x = 1\n"), False)
+# An images response carries no usage block, so the model name is what makes
+# the spend priceable at all -- openai_cost() prices anything named gpt-image*
+# per image, and without the name there is nothing to price.
+_img = pathlib.Path(ROOT, "modules", "image_creator", "app.py").read_text()
+check("Image Creator passes the model when it records an image",
+      "model=model" in _img and 'purpose="image"' in _img, True)
+check("and records a refused call too, so a spent allowance is visible",
+      "_note(False)" in _img, True)
 
 # Brandfetch joined the table late, and the two things that make it worth
 # having are the two it could most easily get wrong.

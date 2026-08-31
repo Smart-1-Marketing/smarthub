@@ -30,6 +30,38 @@ except Exception:  # noqa: BLE001
         return None
 
 
+# Write routes that deliberately record nothing, each with the reason.
+#
+# `_audit` was bound at the top of this module and called nowhere, which
+# CLAUDE.md records: deploying a tag into somebody else's Tag Manager
+# container was among the least attributable actions in the Hub. The sweep
+# that fixed it wired `disconnect` and `gtm_deploy_event` and stopped — so
+# `oauth_callback`, which is the moment the Hub *gains* a refresh token for
+# somebody else's Google account, `gtm_deploy_pixel`, which puts arbitrary
+# code in a container we do not own, and `api_gsc_bulk_add`, which adds
+# properties to their Search Console, all stayed silent. Two of those are the
+# creating half of a pair whose destroying half was already logged.
+#
+# The rest are POSTs that read: GA4's Data API takes a POST for `runReport`,
+# so every analysis route here is a POST that changes nothing at Google. They
+# are written down rather than left as an absence — the rule
+# `audit.NO_ACTIVITY` and `compliance_spec.NOT_ENFORCED` work to — so a silent
+# write is a decision somebody made rather than one nobody noticed.
+# `test_google_finder.py` holds it in both directions.
+HOUSEKEEPING_ROUTES = {
+    "api_gtm_inspect": "reads a container and changes nothing in it",
+    "gtm_generate_events": "drafts tag definitions for a person to review; deploying them is gtm_deploy_event, which logs",
+    "api_ga4_anomalies": "a GA4 runReport, which is a POST that reads",
+    "api_ga4_seo_snapshot": "the same",
+    "api_ga4_webmaster_row": "the same",
+    "api_ga4_monthly_summary": "the same",
+    "api_ga4_ask": "the same, with the answer written by a model",
+    "api_ga4_channels": "the same",
+    "api_ga4_compare": "the same",
+    "save_report": "saves a report into our own table, not the client's Google account",
+    "api_refresh": "re-reads Google into our own index",
+}
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("google-account-finder")
 
@@ -1164,6 +1196,13 @@ def oauth_callback():
 
         if refresh_token:
             save_account(email, refresh_token)
+            # `disconnect` has been logged since _audit was wired in and
+            # connecting was not, so the record showed Google accounts being
+            # removed by somebody and appearing from nowhere. This is the
+            # moment the Hub gains a refresh token for somebody else's
+            # Google account -- the grant every write above is made under.
+            _audit("google_account_connected", google_login=email,
+                   reconnect=bool(existing))
 
         session.pop("oauth_state", None)
         CACHE.pop(email, None)
@@ -1461,6 +1500,16 @@ def gtm_deploy_pixel():
             )
             conn.commit()
 
+            # The sibling of gtm_deploy_event, which has been logged since
+            # _audit was wired into this module -- and this one was missed.
+            # CLAUDE.md names deploying a tag into somebody else's Tag Manager
+            # container as one of the least attributable actions in the Hub,
+            # and a custom pixel is the freest-form version of it: arbitrary
+            # code, on a container we do not own. Logged after Google accepted
+            # it, so a refused deploy is never recorded as a made one.
+            _audit("gtm_pixel_deployed", google_login=google_login,
+                   account_id=account_id, container_id=container_id,
+                   tag_name=tag_name, tag_id=created_tag.get("tagId"))
             return jsonify({"ok": True, "created_tag_id": created_tag["tagId"], "message": f"Successfully deployed custom pixel '{tag_name}' to GTM container {container_id}."})
     except Exception as exc:
         logger.warning("Failed deploying custom pixel to GTM: %s", exc)
@@ -1506,6 +1555,14 @@ def api_gsc_bulk_add():
             except Exception as e:
                 results.append({"site_url": site_url, "status": "FAILED", "details": str(e)})
 
+        # A write into somebody else's Search Console, and a bulk one: what is
+        # recorded is what Google actually accepted rather than what was asked
+        # for, because a run where four of five properties failed and one was
+        # added is not the same event as five that worked.
+        _added = [r["site_url"] for r in results if r.get("status") == "SUCCESS"]
+        _audit("gsc_properties_added", google_login=google_login,
+               added=len(_added), refused=len(results) - len(_added),
+               sites=", ".join(_added[:10])[:400] or None)
         return jsonify({"ok": True, "results": results})
     except Exception as exc:
         return jsonify({"error": f"Bulk Search Console operation failed: {exc}"}), 500

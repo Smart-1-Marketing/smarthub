@@ -12,7 +12,14 @@
 <link rel="stylesheet" href="/assets/hub-detail.css">
   <link rel="stylesheet" href="/hub-help.css">
 </head>
-<body data-module="{{ hub_demo_module or 'hub' }}">
+{# data-screen is what lets hub-help.js OFFER a tour, and this tag carried
+   none -- so seven hub screens had steps registered and anchored and not one
+   could ever be reached. prospect.html and website_audit.html work only
+   because they own their own <body> rather than extending this file.
+   data-module has no `or 'hub'` default any more: the launcher tests it for
+   truthiness, so a default put a Client 360 walkthrough on fifteen pages it
+   could not drive. Both values are decided in hub/__init__.py. #}
+<body{% if hub_tour_screen %} data-screen="{{ hub_tour_screen }}"{% endif %} data-module="{{ hub_demo_module or '' }}">
 <div class="shell">
   {# Single source of truth: hub/sidebar.py — the same nav the HubBar
      middleware injects into every mounted module. There used to be a second
