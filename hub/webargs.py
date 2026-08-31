@@ -37,14 +37,22 @@ def clamp_int(raw, default: int, low: int = 1, high: int = 200) -> int:
     if isinstance(raw, bool):
         raw = None
     try:
+        # OverflowError is on this branch too, and that is the whole of the
+        # fix. It was on the inner one only — written for the string "inf",
+        # which reaches it — while a real float("inf") is refused by int()
+        # *here*, on the outer branch, and propagated: a 500 out of the helper
+        # whose first promise is that it never raises. Not hypothetical, and
+        # not only a query string: three call sites pass a **JSON body** value
+        # straight in (`google_finder`, `video_backgrounds` and the Hub's own
+        # blog planner), and Python's json.loads accepts the bare literal
+        # `Infinity`, so {"limit": Infinity} is a float infinity by the time
+        # it gets here.
         value = int(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         try:
             # "10.9" and 10.9 both mean 10. Rejecting the string while
             # accepting the float would be an arbitrary distinction.
-            # OverflowError is here because float() accepts "inf" and int()
-            # then refuses it — the one input that still crashed a helper
-            # written to make crashing impossible.
+            # float() accepts "inf" and int() then refuses it.
             value = int(float(raw))
         except (TypeError, ValueError, OverflowError):
             value = int(default)
