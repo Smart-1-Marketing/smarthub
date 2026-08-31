@@ -57,6 +57,7 @@ from . import (api_readiness, campaign_ai, client_link, export, google_ads,
                keyword_plan, landing_page, logo as logo_lookup, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
+from hub.webargs import clamp_int
 
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
@@ -493,8 +494,14 @@ def api_clients():
     behaves the same when the module is run standalone, where it reports the
     list as unavailable instead of 404ing into the Hub app.
     """
-    return jsonify(client_link.search(request.args.get("q", ""),
-                                      limit=min(int(request.args.get("limit") or 12), 50)))
+    # An upper bound and no lower one: search_clients ends `[:limit]`, so
+    # ?limit=-5 returned every client except the last five, as a clean answer
+    # with nothing saying anything was wrong. hub/webargs.py names that as the
+    # second of the three faults it exists to end, and `int()` outside a try
+    # as the first.
+    return jsonify(client_link.search(
+        request.args.get("q", ""),
+        limit=clamp_int(request.args.get("limit"), 12, 1, 50)))
 
 
 @app.get("/api/budget-check")

@@ -161,12 +161,12 @@
 
   <!-- ---------------- step 1 ---------------- -->
   <section class="card" id="setup">
-    <h2>Which page?</h2>
+    <h2>Which page? {{ help_dot('page_images.scan.page') if help_dot is defined else '' }}</h2>
     <p class="hint">The page is read live. Nothing on the client's site is changed —
       optimized copies are saved into their SEO images.</p>
     <div class="grid">
       <div>
-        <label for="company">Client or company {{ help_dot('seo_images.upload.details') if help_dot is defined else '' }}</label>
+        <label for="company">Client or company {{ help_dot('page_images.scan.client') if help_dot is defined else '' }}</label>
         <input type="text" id="company" placeholder="Smart 1 Marketing" autocomplete="off">
       </div>
       <div>
@@ -178,7 +178,7 @@
         <input type="text" id="pagename" placeholder="Home" autocomplete="off">
       </div>
       <div>
-        <label for="url">Page address {{ help_dot('seo_images.results.copy_tag') if help_dot is defined else '' }}</label>
+        <label for="url">Page address</label>
         <input type="url" id="url" placeholder="https://client.com/services" autocomplete="off">
       </div>
     </div>
@@ -214,7 +214,7 @@
 
   <!-- ---------------- step 3 ---------------- -->
   <section class="card hidden" id="review">
-    <h2>Check the names before they save</h2>
+    <h2>Check the names before they save {{ help_dot('page_images.review.names') if help_dot is defined else '' }}</h2>
     <p class="hint">Filenames and alt text are written for this client and this page.
       Change anything that isn't right, or skip an image to leave it out.</p>
     <div id="rows"></div>
@@ -228,7 +228,7 @@
 
   <!-- ---------------- step 4 ---------------- -->
   <section class="card hidden" id="done">
-    <h2>Saved</h2>
+    <h2>Saved {{ help_dot('page_images.review.saved') if help_dot is defined else '' }}</h2>
     <p class="hint" id="doneSummary"></p>
     <div id="results"></div>
     <div class="actionbar">

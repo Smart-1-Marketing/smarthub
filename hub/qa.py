@@ -506,8 +506,15 @@ def no_dashboards() -> dict:
             rows.append(r)
             styles.append(None)
     return {
+        # Six cells, so six headings. The action cell is headed `""` the way
+        # `skipped_dashboards()` heads its own two functions up: the renderer
+        # draws one <td> per cell against one <th> per column, so a row
+        # carrying a cell no column names puts the Add-dashboard button under
+        # a heading belonging to the value on its left — and the CSV export,
+        # which writes `columns` as its header row and the cells beneath it,
+        # gave every row an unlabelled trailing field.
         "columns": ["Partner", "Client", "Live products",
-                    "Products", "Monthly"],
+                    "Products", "Monthly", ""],
         "rows": rows,
         "row_styles": styles,
         "note": (f"{total} active clients with no Smart 1 Dashboard link on any "
@@ -928,16 +935,28 @@ def no_gtm() -> dict:
         ]
         (priority if is_priority else suggested).append(row)
     rows, styles = [], []
+
+    # A heading cell, the way `active_clients()`, `prospect_queue` and the
+    # upsell report already write one. This wrote a bare string and marked the
+    # row `row_styles="sub"` instead, so one page carried two spellings of
+    # "this row is a section heading" -- drawn two different ways, a coloured
+    # band there and grey text here, and neither of them legible to the CSV
+    # export, which wrote all eight of this page's headings out as client
+    # rows. `sub` means a lesser row now and nothing else: `invoice_off()`
+    # uses it for a resemblance, which is a different thing entirely.
+    def _heading(text: str, tone: str = "later") -> None:
+        rows.append([{"text": text, "group": True, "tone": tone}]
+                    + [""] * 4)
+        styles.append(None)
+
     if priority:
-        rows.append([f"Running display / audio / SEO / paid search / retargeting — needs GTM ({len(priority)})",
-                     "", "", "", ""])
-        styles.append("sub")
+        _heading("Running display / audio / SEO / paid search / retargeting "
+                 f"— needs GTM ({len(priority)})", "now")
         for r in priority:
             rows.append(r)
             styles.append(None)
     if suggested:
-        rows.append([f"Suggested clients for GTM ({len(suggested)})", "", "", "", ""])
-        styles.append("sub")
+        _heading(f"Suggested clients for GTM ({len(suggested)})")
         for r in suggested:
             rows.append(r)
             styles.append(None)
