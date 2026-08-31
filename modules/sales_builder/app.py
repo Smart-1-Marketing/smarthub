@@ -753,6 +753,13 @@ def api_config():
         # Planner made about its calendar, for the same reason.
         "creative_sizes": _creative_sizes(),
         "rate_rules": hub_rate_card.rate_rules_for_js(),
+        # The KPI choices the Measurement step offers — the IO builder's own
+        # benchmark table, served for the same reason the sizes above are:
+        # the per-product half already reaches the page as kpi_framework.rows
+        # on the quote payload, and this is the static half, so a fresh quote
+        # with no goals and no plan still gets a full choice list rather than
+        # an empty pill row over an "Add a KPI…" box.
+        "kpi_choices": hub_kpi.choices(),
     })
 
 
