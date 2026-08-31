@@ -206,6 +206,18 @@ def record(payload: dict, *, delivered: bool = False, error: str = "",
                             "to file the record under."}
 
         row = get(order) or {}
+        # When the number was taken and by whom. note_allocated() files that
+        # in _allocations.json, and these two fields sat on every record with
+        # nothing ever writing them — "" twice, reading as "not recorded"
+        # about a fact the store was holding. Joined on the first write only:
+        # a row that already carries an allocation keeps it, and a lookup
+        # that fails costs the two fields and never the record.
+        alloc = {}
+        if not row.get("allocated_at"):
+            try:
+                alloc = allocations().get(key) or {}
+            except Exception:                           # noqa: BLE001
+                alloc = {}
         submissions = list(row.get("submissions") or [])
         submissions.append({"at": _now(), "by": _text(actor, 60),
                             "delivered": bool(delivered),
@@ -237,8 +249,8 @@ def record(payload: dict, *, delivered: bool = False, error: str = "",
                                        or (row.get("suite") or {}).get("at", "")),
                       "error": _text(error, 300),
                       "status": status},
-            "allocated_at": row.get("allocated_at", ""),
-            "allocated_by": row.get("allocated_by", ""),
+            "allocated_at": row.get("allocated_at") or _text(alloc.get("at"), 40),
+            "allocated_by": row.get("allocated_by") or _text(alloc.get("by"), 60),
         })
 
         import json

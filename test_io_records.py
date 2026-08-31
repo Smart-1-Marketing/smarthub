@@ -200,6 +200,24 @@ check("an allocation is a note, never a row in the order list — a listing "
       "that mixed them would report work nobody sent",
       "10500" not in [r["order"] for r in io_records.listing()["rows"]])
 
+# The order row carries when its number was taken and by whom. Both fields
+# were on every record from the day the store was written, and nothing ever
+# wrote them: note_allocated() files the note in _allocations.json and
+# record() only carried the fields forward from a row that never had them —
+# so every record said "" twice, which reads as "not recorded" about a fact
+# the store was holding three lines away.
+io_records.note_allocated("10501", "Debi")
+io_records.record(order("10501", client="Allocation Check Co"),
+                  delivered=True, actor="Todd")
+alloc_row = io_records.get("10501")
+check("the record carries when its number was allocated and by whom",
+      bool(alloc_row["allocated_at"]) and alloc_row["allocated_by"] == "Debi",
+      (alloc_row["allocated_at"], alloc_row["allocated_by"]))
+resub = io_records.record(order("10501", client="Allocation Check Co"),
+                          delivered=True, actor="Kim")
+check("and a resubmission keeps the original allocation rather than "
+      "re-deriving it", io_records.get("10501")["allocated_by"] == "Debi")
+
 # ---------------------------------------------------------------------------
 section("Bookkeeping never fails the thing it is bookkeeping for")
 

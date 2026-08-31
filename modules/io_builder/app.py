@@ -679,7 +679,11 @@ def next_order_number():
         # only thing that makes that answerable; it is a note, not an order.
         try:
             from hub import io_records
-            io_records.note_allocated(order_number)
+            # Whose press took the number, when the wizard knows. The record
+            # joins this onto the order row, so an allocated_by nobody sent
+            # stays "" — "not recorded" is the true answer there.
+            _who = (request.get_json(silent=True) or {}).get("salesContact")
+            io_records.note_allocated(order_number, str(_who or ""))
         except Exception:  # noqa: BLE001
             pass           # allocation must never fail over its own note
         return jsonify({
