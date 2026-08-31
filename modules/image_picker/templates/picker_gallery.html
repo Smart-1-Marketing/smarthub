@@ -49,7 +49,7 @@
 
 <main class="wrap">
   <section class="intro">
-    <h2>Saved images</h2>
+    <h2>Saved images {{ help_dot('image_picker.gallery.saved') if help_dot is defined else '' }}</h2>
     <p>Everything this client has saved, where it lives, and whether it reached their Smart 1 Suite media library.</p>
   </section>
 
@@ -58,7 +58,7 @@
   {% include "_upload_panel.html" %}
 
   <section class="panel">
-    <div class="panel-head"><h2>Library</h2><span class="hint" id="count"></span></div>
+    <div class="panel-head"><h2>Library {{ help_dot('image_picker.gallery.library') if help_dot is defined else '' }}</h2><span class="hint" id="count"></span></div>
     {#- A search box, because until now this gallery had none: a client who
         sends forty photographs leaves forty thumbnails, and finding the one
         of the storefront meant scrolling. It searches the alt text, the

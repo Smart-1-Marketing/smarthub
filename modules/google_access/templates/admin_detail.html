@@ -25,7 +25,7 @@
 </div>
 
 <div class="card">
-  <h2>Access</h2>
+  <h2>Access {{ help_dot('google_access.detail.grants') if help_dot is defined else '' }}</h2>
   <table>
     <thead><tr><th>Service</th><th>Status</th><th>Role</th><th>What we're on</th><th></th></tr></thead>
     <tbody>
