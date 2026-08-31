@@ -244,7 +244,9 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     // logo-tools.ts opens with this as rule 1: "Any logo that is not already
     // transparent must have its background removed before compositing -- a
     // white box around a logo on a coloured ad looks broken." Nothing asked.
-    // hasTransparency() was written for it and had no caller anywhere.
+    // hasTransparency() was written for it and had no caller anywhere; it
+    // is gone now, superseded by the flat-plate reader below, which answers
+    // the same question and can also say what colour the plate is.
     //
     // The contrast check below could not catch it either, and read BETTER on
     // the broken ad: logoInkLuminance() averages every opaque pixel, so on a

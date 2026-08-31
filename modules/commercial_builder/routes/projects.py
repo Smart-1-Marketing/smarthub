@@ -3,7 +3,7 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link, compliance_spec, cost_spec, library_spec
+from .. import client_link, compliance_spec, cost_spec, library_spec, teardown
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
@@ -34,6 +34,57 @@ try:  # deliverables belong on the client's 360 record
 except Exception:  # noqa: BLE001
     def _cb_log(*_a, **_k):
         return None
+
+
+def _log_project(event, client="", detail="", **extra):
+    """Never costs the write it describes.
+
+    `audit.log()`'s first positional is `module` and `for_module` binds it —
+    the trap CLAUDE.md names twice. The detail is built by the caller and
+    passed in, because `submit_render` proved the swallow protects the *call*
+    and not its arguments: an f-string over an attribute the model does not
+    have raises before the guard can apply.
+    """
+    try:
+        _cb_log(event, client=client or "", detail=detail, **extra)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# Writes on this blueprint that deliberately record nothing, each with the
+# reason. Declared rather than left as an absence, so the remainder is a
+# decision somebody made rather than one nobody has noticed yet — and an
+# entry naming a route that is gone, or one that has since started logging,
+# is a caller's to reject.
+#
+# The line they all sit on: this file is the **wizard**, and a wizard step is
+# somebody still working. What reaches a client's record is a spot that was
+# started, a render that was submitted, a cut that was approved, a sign-off
+# that was given and a spot that was deleted — and every one of those is
+# recorded. Writing a row for each keystroke between them would bury those
+# five in a hundred autosaves, which is the noise that gets a log ignored.
+HOUSEKEEPING_ROUTES = {
+    "save_brief": "an autosave of the wizard's own form; the spot it belongs "
+                  "to was recorded when it was started.",
+    "generate_concepts": "drafts three concepts to choose between. Nothing "
+                         "is chosen and nothing reaches the client.",
+    "select_concept": "picks one of those drafts. A step inside the wizard, "
+                      "not a deliverable leaving it.",
+    "generate_script": "writes the blueprint into the draft the rep is "
+                       "still editing.",
+    "expand_narration": "rewrites one scene's narration in place.",
+    "set_music": "a setting on the draft, changed as often as it is "
+                 "listened to.",
+    "set_cta": "the same, for the end card.",
+    "create_campaign": "groups the lengths of one spot so they share a "
+                       "concept; the spots themselves were recorded at "
+                       "start_commercial.",
+    "expand_campaign": "adds another length to that group, which reaches "
+                       "start_commercial's own recording.",
+    "create_variation": "links a spot to the one it was cut down from. A "
+                        "relationship between two rows that are each already "
+                        "recorded.",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +186,16 @@ def start_commercial():
         projects.append(project)
     db.session.commit()
 
+    # After the commit, so a start the database refused is not written down as
+    # work that began. The creating half of a create/destroy pair is the half
+    # both earlier triages found missing, and here it is the moment a spot
+    # starts existing against a client at all.
+    _lengths = ", ".join(":%02d" % p.length_seconds for p in projects)
+    _n = len(projects)
+    _log_project("cb_commercial_started", client=client.name,
+                 detail=(f"{_n} spot{'' if _n == 1 else 's'} started for "
+                         f"{client.name} on {platform}: {_lengths}."))
+
     # What each length is going to cost, and what the published spec says about
     # running it on this buy — both said now rather than after the work.
     notes = []
@@ -219,10 +280,40 @@ def get_structure_guide(project_id):
 
 @bp.delete("/<int:project_id>")
 def delete_project(project_id):
+    """The client delete's failure, one level down and identically.
+
+    `CommercialProject` cascades to its scenes and render jobs and reaches
+    none of the three tables that record what a person attested — the
+    approvals, the review rounds and the compliance sign-offs. Deleting a
+    spot left those pointing at an id that no longer resolves, recorded
+    nothing, and answered `{"ok": true}` with no count of what had gone.
+    `teardown` is the one reading of all of it, so this route and the client
+    one cannot come to disagree about what deleting means.
+    """
     project = CommercialProject.query.get_or_404(project_id)
+    # Read before the delete, and the row's own rather than anything the
+    # caller passed — the `suite_panel` rule.
+    title = project.title or f"Spot {project.id}"
+    client_name = getattr(getattr(project, "client", None), "name", "") or ""
+    counts = teardown.work_behind([project.id])
+    # A spot does not weigh itself — see `teardown.summarize`.
+    summary = teardown.summarize(counts, include_projects=False)
+
+    if summary and not teardown.confirmed(request, title):
+        return jsonify({"ok": False,
+                        "error": teardown.confirmation_error(title, summary),
+                        "needs_confirmation": True, "project": title,
+                        "counts": counts}), 409
+
+    removed_orphans = teardown.sweep_orphans([project.id])
     db.session.delete(project)
     db.session.commit()
-    return jsonify({"ok": True})
+    _log_project("cb_commercial_deleted", client=client_name,
+                 detail=(f"{title} deleted"
+                         + (f", with {summary}." if summary else ".")),
+                 counts=counts)
+    return jsonify({"ok": True, "project": title, "counts": counts,
+                    "removed_orphans": removed_orphans})
 
 
 # ---------------------------------------------------------------------------

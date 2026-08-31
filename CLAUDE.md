@@ -2788,6 +2788,32 @@ mood — it is a search for *announcer, commercial, broadcast, promo* in the tex
 ElevenLabs publishes, and a screen that says so lets somebody pick differently
 before listening to three wrong voices.
 
+**And the read path was the last thing here still doing its own
+Cloudinary.** The write path moved onto `hub/storage.py` when `upload_asset`
+learned to take bytes; `_ensure_configured()` and `list_client_assets()` did
+not, which left this module carrying a second answer to *how do we reach the
+account* and a second answer to *how do we list a folder*. The configure had
+already drifted in the way that matters: `hub/config.export_cloudinary_url()`
+composes `CLOUDINARY_URL` from the three-part credential group and exports it
+for exactly this, so a deployment given only the three parts was configured in
+the Hub and configured **here by a separate hand-written branch** — right
+today, and one edit away from not being. `hub/storage.configure()` is public
+now for the legitimate direct uses (`services/provider_check.py` pings the
+account to tell a refused key from an unreachable one), and the local branch
+survives only as the standalone fallback this module is written to have.
+
+**The listing was quietly showing some of a client's photographs.** It asked
+`cloudinary.api.resources` for `max_results=100` with no paging and reported
+what came back as the whole folder — the truncation `connection_choices()`
+already pays for one form up, where 500 of several thousand records came back
+in a complete-looking `<select>`. `hub/storage.manifest()` takes a `prefix`
+now rather than only a bucket, so the shared reader — which pages properly —
+answers this too. Extending the shared one rather than leaving the copy in
+place is the rule that file exists for: the next fix to paging, or to what a
+row carries, lands once. `manifest()`'s own caller is the orphaned-asset
+audit, so the check asserts a prefixed row still carries everything that audit
+reads.
+
 **A provider's asset URL is signed and expires.** A HeyGen clip linked
 directly plays today and 404s next week. Finished clips are mirrored into
 Cloudinary through `cloudinary_service.upload_asset`, the way rendered
@@ -3169,6 +3195,39 @@ narration above it is still correct and still worth reading, and only the
 driving cannot happen — and the button that could only do nothing is not
 drawn, because a button pressed once with no effect makes the whole
 walkthrough read as broken rather than one step of it.
+
+**And the audit was crediting a word rather than an attribute.** `_found()`
+tested `name in everything` — a bare substring against every template and
+script in the repo — so `data-demo='unmatched'` read as anchored because the
+word *unmatched* appears in another tool's prose, and
+`data-demo='client-name'` because something, somewhere, has a class of that
+name. Twenty-two steps that drive nothing read as anchored, and **two whole
+walkthroughs read as working while every driving step in them resolved to no
+element at all**: Image Creator's and the UTM builder's, which is the Smart 1
+Ads failure the floor below exists to catch, hiding inside the check that
+would have caught it. `_spellings()` is what the audit looks for now — the
+attribute in either quoting — and a selector kind it cannot look for asks for
+nothing rather than matching everything.
+
+Both are anchored now, along with the PDF optimizer, the calculators and the
+two radio builders: twenty-one hooks, seven of them in
+`modules/image_creator/static/editor.js`, because that tool's panels are drawn
+by script when the rail is clicked and `hub-demo.js` repaints on a debounced
+`MutationObserver` for exactly that shape. Two more scenarios drive controls
+that are **not there to anchor** — Background Remover's walkthrough offers a
+free "remove white background" option beside the paid one and the tool has a
+single button, and its step 4 asks for a preview it never draws. That is the
+Web Tickets *"Sort by age"* case: a walkthrough describing a tool that does
+not exist is worse than one describing none, so those want rewriting rather
+than a hook pointed at the nearest thing.
+
+**`elsewhere` is the third answer.** Asking whether the element exists
+*anywhere* is deliberate and stays — a walkthrough drives a screen whose
+markup half a dozen scripts write — but *anywhere* also credits a step whose
+only match is in a different tool, and that step drives nothing when the
+walkthrough runs. Those are named rather than counted as missing, since the
+element may still be drawn at runtime, the way a target accepted on a prefix
+already is.
 
 **Fifty-five of the 165 steps that name an element named one that is in no
 template**, across eighteen of the twenty-eight scenarios. That is a
@@ -4759,6 +4818,83 @@ nobody can act on is the one people learn to skip, which is the note
 `help_audit.demo_targets()` already makes about the walkthrough backlog. The
 modules that have been triaged declare their remainder and are held to it; the
 rest is a list somebody works down, module by module.
+
+**And the walk stopped one level short of its own stated rule.** Its comment
+says a wrapper is *"a function in this file that itself reaches the shared
+logger, however it is spelled"* — and the code counted a function calling
+`audit.log(...)` by **attribute** and stopped there. A module that binds
+`_cb_log = audit.for_module(...)` and then wraps *that* in a helper had every
+route calling the helper reported silent. Four read that way, all four
+recording their work perfectly well: the Commercial Builder's `submit_render`,
+`send_for_review` and `client_decide`, and `image_audit.api_image_attach_many`,
+which is the bulk attach that files orphaned images onto a client. That is a
+check **inventing** findings rather than missing them — the failure the
+paragraph above already names once about `_audit` and `log` being hard-coded —
+and it is worse here than a gap, because the whole point of the walk is to let
+a module be triaged: a triage built on that answer declares a **logging** route
+as housekeeping, and the declaration is then held in both directions against a
+lie. The set is closed transitively now, and it terminates because a pass that
+adds nothing stops it.
+
+## Deleting a client destroyed four tables and recorded none of it
+
+`modules/commercial_builder` was the module the walk had been quietest about,
+and triaging it found the same shape both earlier triages found, twice over:
+it recorded **four** of its forty-three write routes, and the creating *and*
+destroying halves of both its create/destroy pairs were among the thirty-nine.
+A brand profile a rep spent an afternoon on appeared from nowhere and left the
+same way.
+
+**What the destroying half destroyed was not one row, and half of it did not
+go.** `Client.projects` cascades and `CommercialProject` cascades to its scenes
+and render jobs, so one unconfirmed DELETE took all of that. What it did not
+take are the three tables keyed on a **project** that sit outside every one of
+those relationships — the render approvals, the review shares with their
+decisions and comments, and the compliance acknowledgments. Those stayed
+behind pointing at ids that no longer resolve, which is not a record: a
+compliance sign-off naming a project nobody can look up says nothing, and
+those three are precisely the rows that exist for the day a client says **"we
+never signed off on that"**. The route answered `{"ok": true}`, carried no
+count of what had gone, and wrote nothing to the activity log — so the only
+account of the deletion was the absence it left. Verified by running it rather
+than read off the models.
+
+`teardown.py` is the one reading of what a delete takes with it, because
+`delete_project` had the identical failure one level down and would otherwise
+have grown an identical fix — two readings of one question drift the day
+either is edited. Four rules in it. **Nothing in it may raise**: a count that
+cannot be taken must not cost the refusal it informs, and a sweep that fails
+must not strand the delete somebody asked for. **The name is read before the
+delete and it is the row's own**, never one the caller passed — the record
+`modules/suite_panel` had to undo on the route that deletes a sub-account. A
+client with work behind them is **refused with the counts named**, and a
+`confirm` carrying their exact name is the way through, the rule
+`modules/image_picker` applies to deleting a gallery: refusing outright would
+be a check somebody switches off, and switching this off costs the recording
+too. And **a spot does not weigh itself** — counted, every delete of an
+untouched draft would come back asking the rep to type its title, which is the
+friction that gets a confirmation clicked through without being read, and then
+it is not a confirmation.
+
+**The line the module records on is written down rather than left to
+judgment**, because it is what decides all twenty-five declarations: a route
+records when a file reaches the **client's own Cloudinary tree** or changes
+their **own record**, and does not when it moves a draft forward. So the kept
+voiceover records and the audition beside it does not; the upload records and
+pointing a scene at an asset already in the library does not; and
+`save_pronunciation` records, because it writes the same brand-profile field
+`update_client` writes and two routes changing one field with only one of them
+recorded is exactly what somebody would go looking for later. `client_comment`
+was the subtler one: `review_spec.inbox()` already counts a client who left
+four timecoded notes and pressed no button as having **answered**, so leaving
+it silent while `client_decide` records means one reply reads two ways
+depending on which control the client used.
+
+Eighteen routes record and twenty-five are declared with their reason; nothing
+is undeclared. `test_write_attribution.py` sweeps it like the other two — its
+`path` takes a **list** now, because this module is a blueprint package and
+`HOUSEKEEPING_ROUTES` belongs per file where the reason is, while the question
+*is every write here attributable* is about the module.
 
 ## Two guards on one client account, and both worked about half the time
 
@@ -10485,6 +10621,46 @@ of fourteen steps gaining an explanation is invisible to it, because what a
 tool's screens are is not derivable from anything the Hub holds. Per-tool is
 the honest granularity; the finer answer would need a list, and a list is
 what the audit had before.
+
+**And the second one down that list is the document that bills the client.**
+The IO Builder is a conversation rather than a stepped wizard, so the anchors
+are the decisions that are static markup — where the campaign is loaded from,
+the unfinished-order list, the creative checklist, the rates on the report,
+the two PDFs and Submit — and the interview asks its own questions in words
+already. Each entry is on a trap this file names: a line carried from a
+proposal arrives at the **quoted** rate rather than the card's buy-side one,
+so the order bills what the proposal promised; the fee fields take an amount,
+a percentage, INCLUDED or NONE and not a sentence; the browser draft is
+instant and the server copy is what survives a different machine, with a
+colleague's unfinished order listed rather than hidden, because hiding it is
+how the same IO gets built twice.
+
+**And two of them were written twice, from two branches, against the same
+screen.** Two sessions explained this tool in parallel; both merges were
+textually clean, and what landed was `io_builder.report.rates` registered
+**twice**, with two different accounts of what the rate on that pane is. One
+said every rate comes off the shared card — true of where the number is
+derived from, and the exact confusion `lineForIO()`'s own comment exists to
+undo, since it sends `sellRateOf()` and the pane shows $8.50 where the card
+lists $4.25. `_BY_KEY` is `{h.key: h for h in REGISTRY}`, so the later entry
+silently won and the earlier became dead copy behind a dot that still drew;
+`tour()` walks the list instead, so a duplicated key carrying `step=` would
+have put one step on a walkthrough twice. Nothing reported any of it — every
+key resolved, every dot rendered, and `help_coverage` counted the tool as
+covered, which is the whole difficulty: a collision here reads as success
+from every direction. `test_help_layer.py` asserts a key is registered once
+and that **every registered entry survives into `as_json()`** — said against
+`len(REGISTRY)` rather than against a set of the same keys, because both
+sides of that comparison collapse the duplicate and the check passes while
+the entry is being lost.
+
+**And what submitting does not do is the one worth saying out loud.** It
+files the order, sends it to Suite and registers a genuinely new business as
+an overlay — and it does not set the campaign up. An order whose products
+never arrive looks exactly like one that was handled, which is why
+`hub/io_reconcile.py` exists; the bubble names that report, so the tool says
+where its own blind spot is answered rather than leaving a rep to find out
+when a client asks why nothing ran.
 
 ### Who is signed in, and what that number is allowed to claim
 

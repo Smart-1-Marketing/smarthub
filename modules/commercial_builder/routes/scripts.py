@@ -12,6 +12,24 @@ from ..services import openai_service
 bp = Blueprint("cb_scripts", __name__, url_prefix="/api/projects/<int:project_id>/scenes")
 
 
+# Writes on this blueprint that deliberately record nothing, each with the
+# reason. Every route here edits the storyboard of a spot that is still being
+# written: the spot was recorded when it was started and again when a cut of
+# it was submitted or approved, and a row per scene edit between those would
+# bury both under the wizard's own keystrokes.
+HOUSEKEEPING_ROUTES = {
+    "update_scene": "edits one scene of a draft.",
+    "delete_scene": "removes one. Nothing outside the draft is keyed on a "
+                    "scene, so this destroys no record of anything anybody "
+                    "attested — which is the distinction `teardown` draws "
+                    "for the two deletes that do.",
+    "duplicate_scene": "copies one within the same draft.",
+    "reorder_scenes": "changes the order of the board.",
+    "regenerate_scene": "rewrites one scene's copy in place.",
+}
+
+
+
 def _resequence(project):
     """Recompute contiguous start/end times from each scene's own duration,
     in current order_index order, so total always equals the project length."""

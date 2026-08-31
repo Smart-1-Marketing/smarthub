@@ -1113,6 +1113,150 @@ for step in ("blueprint", "voice", "cta"):
     check(f"/{step}'s sidebar is an element, not text in a script", f.found, True)
 
 
+section("Deleting takes what it says, and says what it took")
+# One unconfirmed DELETE used to answer {"ok": true} and destroy the client,
+# every project, every scene and every render job — while the render
+# approvals, the review shares and the compliance acknowledgments, which are
+# keyed on a project and in no cascade, stayed behind pointing at ids that no
+# longer resolve. Those three are the records that exist for the day a client
+# says "we never signed off on that". Nothing was recorded anywhere.
+from modules.commercial_builder import teardown as cb_teardown          # noqa: E402
+from modules.commercial_builder.models import (                         # noqa: E402
+    Client as Client_cls, ComplianceAck as ComplianceAck_cls,
+    RenderApproval as RenderApproval_cls, ReviewShare as ReviewShare_cls,
+    Scene as Scene_cls)
+from hub import audit as _audit_mod                                     # noqa: E402
+
+
+def _seed_client(name, slug, with_work=True):
+    """A client, and optionally a spot carrying one of each kept record."""
+    with hub_app.app_context():
+        c = Client_cls(name=name, slug=slug)
+        cb_db.session.add(c)
+        cb_db.session.commit()
+        cid = c.id
+        if not with_work:
+            return cid, None
+        pr = CommercialProject_cls(client_id=cid, title=f"{name} spot",
+                                   length_seconds=30)
+        cb_db.session.add(pr)
+        cb_db.session.commit()
+        prid = pr.id
+        cb_db.session.add(Scene_cls(project_id=prid, order_index=0))
+        job = RenderJob_cls(project_id=prid, format="ctv_16x9",
+                            status="succeeded")
+        cb_db.session.add(job)
+        cb_db.session.commit()
+        cb_db.session.add(RenderApproval_cls(project_id=prid,
+                                             render_job_id=job.id,
+                                             approved_by="Todd"))
+        cb_db.session.add(ReviewShare_cls(project_id=prid,
+                                          token=f"tok-{slug}", round_no=1))
+        cb_db.session.add(ComplianceAck_cls(project_id=prid,
+                                            acknowledged_by="Todd",
+                                            findings_key="k"))
+        cb_db.session.commit()
+        return cid, prid
+
+
+def _kept_rows(prid):
+    """The three records no cascade reaches, counted."""
+    with hub_app.app_context():
+        return (RenderApproval_cls.query.filter_by(project_id=prid).count()
+                + ReviewShare_cls.query.filter_by(project_id=prid).count()
+                + ComplianceAck_cls.query.filter_by(project_id=prid).count())
+
+
+_cid, _prid = _seed_client("Teardown Co", "teardown-co")
+_refused = client.delete(f"{MOUNT}/api/clients/{_cid}")
+check("a client with work behind them is not deleted on one press",
+      _refused.status_code, 409)
+# Read with guards. A KeyError here takes every check after it out of the
+# run, and a file that stops early is how a regression hides behind a green
+# tail — the trap CLAUDE.md names about an assertion that raises on a missing
+# field, which is precisely what the bite run for this section found.
+_body = _refused.get_json() or {}
+check("the refusal names what would go",
+      (_body.get("counts") or {}).get("compliance_acks"), 1)
+# A refusal that does not say how to proceed is a wall, and a wall is what
+# gets a guard switched off — the QR_CODE_RULES lesson.
+check("and it names the way through",
+      "confirm=" in (_body.get("error") or ""), True)
+check("nothing was deleted", _kept_rows(_prid), 3)
+with hub_app.app_context():
+    check("the client is still there",
+          Client_cls.query.get(_cid) is not None, True)
+
+_wrong = client.delete(f"{MOUNT}/api/clients/{_cid}",
+                       data=json.dumps({"confirm": "Some Other Co"}),
+                       headers={"Content-Type": "application/json"})
+check("a confirmation naming a different client is refused",
+      _wrong.status_code, 409)
+
+_gone = client.delete(f"{MOUNT}/api/clients/{_cid}",
+                      data=json.dumps({"confirm": "Teardown Co"}),
+                      headers={"Content-Type": "application/json"})
+check("the exact name goes ahead", _gone.status_code, 200)
+# The half that was silently wrong: the cascade never reached these, so they
+# survived as fragments naming a project nobody could look up.
+check("and the records outside the cascade go with it", _kept_rows(_prid), 0)
+_gone_body = _gone.get_json() or {}
+check("the response says how many were swept",
+      (_gone_body.get("removed_orphans") or 0) >= 3, True)
+check("and it says what went",
+      (_gone_body.get("counts") or {}).get("projects"), 1)
+
+# A client nobody has done work for is a row somebody is tidying up. Asking
+# them to type a name for it is friction with nothing behind it, and a
+# confirmation people click through without reading is not a confirmation.
+_empty_cid, _ = _seed_client("Tidy Co", "tidy-co", with_work=False)
+_tidied = client.delete(f"{MOUNT}/api/clients/{_empty_cid}")
+check("a client with no work still deletes on one press",
+      _tidied.status_code, 200)
+
+# The activity entry is the only record the deletion happened and the only
+# place the counts survive, so it is what somebody reconstructs from — and it
+# carries the row's OWN name, never one the caller passed, which is what
+# modules/suite_panel had to undo on the route that deletes a sub-account.
+_rows = [e for e in _audit_mod.read(400)
+         if e.get("type") == "cb_client_deleted"]
+check("the deletion reached the activity log", len(_rows) >= 2, True)
+check("under the client's own name",
+      sorted({e.get("client") for e in _rows}), ["Teardown Co", "Tidy Co"])
+
+# The same failure one level down, and the same reading of it: a spot does
+# not weigh itself, or every delete of an untouched draft would come back
+# asking the rep to type its title.
+_cid2, _prid2 = _seed_client("Spot Teardown Co", "spot-teardown-co")
+_p_refused = client.delete(f"{MOUNT}/api/projects/{_prid2}")
+check("a spot with a sign-off behind it is not deleted on one press",
+      _p_refused.status_code, 409)
+check("and the refusal does not count the spot as its own baggage",
+      "1 spot" not in ((_p_refused.get_json() or {}).get("error") or ""), True)
+with hub_app.app_context():
+    _draft = CommercialProject_cls(client_id=_cid2, title="Untouched draft",
+                                   length_seconds=15)
+    cb_db.session.add(_draft)
+    cb_db.session.commit()
+    _draft_id = _draft.id
+check("an untouched draft still deletes on one press",
+      client.delete(f"{MOUNT}/api/projects/{_draft_id}").status_code, 200)
+
+# teardown is one reading, not two: both routes would otherwise have grown
+# their own idea of what deleting means.
+check("both deletes read one teardown",
+      "teardown" in (ROOT / "modules/commercial_builder/routes/clients.py").read_text()
+      and "teardown" in (ROOT / "modules/commercial_builder/routes/projects.py").read_text(),
+      True)
+# Nothing in it may raise: a count that cannot be taken must not cost the
+# refusal it informs, and a sweep that fails must not strand the delete.
+check("a teardown count over nothing answers rather than raising",
+      cb_teardown.work_behind([])["projects"], 0)
+check("and a sweep over nothing answers 0", cb_teardown.sweep_orphans([]), 0)
+check("an empty count summarizes to nothing to weigh",
+      cb_teardown.summarize({}), "")
+
+
 section("The guard is still in front of all of it")
 anon = werkzeug.test.Client(application)
 check("a page redirects to login", anon.get(MOUNT + "/").status_code in (301, 302), True)
@@ -1123,6 +1267,87 @@ check("and so do the new ones",
       anon.get(MOUNT + "/api/clients/hub-search?q=a").status_code, 401)
 check("including the spec preview",
       anon.get(MOUNT + "/api/projects/spec-preview?lengths=30").status_code, 401)
+
+
+# ---------------------------------------------------------------------------
+# 12. The Cloudinary read path goes through the shared service
+#
+# CLAUDE.md's standing rule: never leave a module you have just touched still
+# doing its own Cloudinary. The write path moved last change; this is the read
+# path and the configure, which were the last direct SDK use in the module.
+# ---------------------------------------------------------------------------
+section("Listing a client's tree goes through hub.storage, and pages")
+import types                                                            # noqa: E402
+import hub.storage as _storage                                          # noqa: E402
+from modules.commercial_builder.services import cloudinary_service as _cs  # noqa: E402
+
+check("hub.storage offers a public configure()", callable(
+    getattr(_storage, "configure", None)), True)
+# Called by provider_check to ping the account, and by this module. It must be
+# safe to call with Cloudinary unconfigured, or a deployment with no key would
+# 500 on the panel that exists to say the key is missing.
+try:
+    _storage.configure(); _storage.configure()
+    _cfg_ok = True
+except Exception:                                                       # noqa: BLE001
+    _cfg_ok = False
+check("and it is idempotent and safe unconfigured", _cfg_ok, True)
+
+_seen = {}
+
+
+class _FakeAPI:
+    @staticmethod
+    def resources(**kw):
+        _seen.update(kw)
+        return {"resources": [{"public_id": "acme/photos/a", "secure_url": "u",
+                               "format": "jpg", "created_at": "t", "bytes": 1}],
+                "next_cursor": None}
+
+
+# Patched on the module object, not in sys.modules: `from hub import storage`
+# binds the attribute on the package, so replacing the entry alone leaves the
+# real one in play — the trap the QR upload's own test hit.
+_real_cloudinary, _real_ready, _real_configured = (
+    _storage.cloudinary, _storage.ready, _storage._configured)
+_storage.cloudinary = types.SimpleNamespace(api=_FakeAPI, config=lambda **k: None)
+_storage.ready = lambda: True
+_storage._configured = True
+try:
+    rows = _storage.manifest("commercials", prefix="acme/photos/")
+    check("manifest lists the folder it was given", _seen.get("prefix"), "acme/photos/")
+    # The orphaned-asset audit reads these; a prefix must not narrow the row.
+    check("and a row still carries what the audit needs",
+          all(k in rows[0] for k in ("public_id", "secure_url", "format", "bytes")), True)
+    _seen.clear()
+    check("no prefix still means the bucket's own folder",
+          bool(_storage.manifest("commercials")) and _seen.get("prefix") != "acme/photos/", True)
+
+    _seen.clear()
+    _real_live, _cs._CONFIGURED = _cs.is_live, True
+    _cs.is_live = lambda: True
+    listed = _cs.list_client_assets("acme", "photo")
+    check("list_client_assets reads the client's own folder",
+          _seen.get("prefix"), "acme/photos/")
+    # Read with a guard rather than listed[0]: an assertion that raises on the
+    # empty case takes every check after it out of the run, which is how a
+    # regression hides behind a test file that stopped early.
+    check("and returns the picker's shape",
+          sorted(listed[0]) if listed else [],
+          ["created_at", "format", "public_id", "secure_url"])
+    # It asked for one page of 100 and reported it as the whole folder, so a
+    # client with more photographs than that was quietly shown some of them.
+    check("asking for one page of 100 is gone", _seen.get("max_results") == 100, False)
+    _cs.is_live = _real_live
+finally:
+    _storage.cloudinary, _storage.ready, _storage._configured = (
+        _real_cloudinary, _real_ready, _real_configured)
+
+# The point of the migration: no second reading of how to reach the account.
+_cs_src = (ROOT / "modules/commercial_builder/services/cloudinary_service.py").read_text()
+check("the module still names hub.storage for the listing",
+      "storage.manifest(" in _cs_src, True)
+check("and for the configure", "storage.configure()" in _cs_src, True)
 
 
 # ------------------------------------------------------------------- summary

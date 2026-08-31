@@ -298,6 +298,23 @@ def write_route_attribution(source: str) -> dict:
     # A wrapper is a function in this file that itself reaches the shared
     # logger, however it is spelled — `audit.log(...)`, `hub_audit.log(...)`,
     # or a name bound from `audit.for_module(...)`.
+    #
+    # And **reaching it through another wrapper is still reaching it**, which
+    # is the half the first version left out: it counted a function calling
+    # `audit.log(...)` by attribute and stopped, so a module that binds
+    # `_cb_log = audit.for_module(...)` and then wraps *that* in a helper had
+    # every route calling the helper reported silent. Four routes read that
+    # way — the Commercial Builder's `submit_render`, `send_for_review` and
+    # `client_decide`, and `image_audit.api_image_attach_many` — every one of
+    # them recording its work perfectly well. That is a check inventing
+    # findings rather than missing them, the failure the paragraph above
+    # already names once, and it is worse than a gap here: a module triaged
+    # on this answer would declare a logging route as housekeeping.
+    #
+    # So the set is closed rather than gathered in one pass. It terminates
+    # because a pass that adds nothing stops it, and a function is added at
+    # most once — mutual recursion between two helpers settles rather than
+    # spinning.
     wrappers = {"_audit", "log"}
     for node in _ast.walk(tree):
         if isinstance(node, _ast.Assign):
@@ -307,14 +324,28 @@ def write_route_attribution(source: str) -> dict:
                 for t in node.targets:
                     if isinstance(t, _ast.Name):
                         wrappers.add(t.id)
-        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-            for inner in _ast.walk(node):
-                if (isinstance(inner, _ast.Call)
-                        and isinstance(inner.func, _ast.Attribute)
-                        and inner.func.attr == "log"
-                        and "audit" in getattr(inner.func.value, "id", "").lower()):
-                    wrappers.add(node.name)
-                    break
+
+    def _reaches_logger(fn) -> bool:
+        for inner in _ast.walk(fn):
+            if not isinstance(inner, _ast.Call):
+                continue
+            f = inner.func
+            if (isinstance(f, _ast.Attribute) and f.attr == "log"
+                    and "audit" in getattr(f.value, "id", "").lower()):
+                return True
+            if isinstance(f, _ast.Name) and f.id in wrappers:
+                return True
+        return False
+
+    defs = [n for n in _ast.walk(tree)
+            if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))]
+    grew = True
+    while grew:
+        grew = False
+        for node in defs:
+            if node.name not in wrappers and _reaches_logger(node):
+                wrappers.add(node.name)
+                grew = True
 
     for node in _ast.walk(tree):
         if isinstance(node, _ast.Assign) and any(

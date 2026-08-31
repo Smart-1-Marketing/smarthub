@@ -242,12 +242,12 @@ PANELS.photos = host => {
     ${off.length ? '<div class="warn">Not searching '+off.join(', ')+
       ' — no API key set. The other providers still work.</div>' : ''}
     <div class="row" style="margin-bottom:8px">
-      <input type="search" id="phQ" placeholder="Search stock photos…" value="${esc(photoState.q)}">
+      <input type="search" id="phQ" data-demo="photo-search" placeholder="Search stock photos…" value="${esc(photoState.q)}">
       <span data-help="image_creator.photos.search"></span>
       <button class="btn sm" id="phGo" style="flex:none">Search</button>
     </div>
     ${AI_ON ? `<div class="sect">
-      <button class="btn sec sm" id="phAI" style="width:100%">✨ Describe it instead</button>
+      <button class="btn sec sm" id="phAI" data-demo="describe-search" style="width:100%">✨ Describe it instead</button>
       <span data-help="image_creator.photos.describe"></span>
       <div class="hint">Say what you need in plain English and AI will work out the search terms.</div>
     </div>` : ''}
@@ -638,7 +638,7 @@ PANELS.logos = host => {
   host.innerHTML = `
     ${BF_ON ? '' : '<div class="warn">Brandfetch has no API key, so lookups fall back to whatever the Hub already cached.</div>'}
     <div class="row" style="margin-bottom:8px">
-      <input type="search" id="loQ" placeholder="nike.com or Nike">
+      <input type="search" id="loQ" data-demo="logo-search" placeholder="nike.com or Nike">
       <button class="btn sm" id="loGo" style="flex:none">Find</button>
     </div>
     <div class="sect">
@@ -836,7 +836,7 @@ async function iconSearch(){
 /* ---------- Text ---------- */
 PANELS.text = host => {
   host.innerHTML = `
-    <button class="btn" id="txH" style="margin-bottom:7px">+ Add heading</button>
+    <button class="btn" id="txH" data-demo="text-input" style="margin-bottom:7px">+ Add heading</button>
     <button class="btn sec" id="txS" style="margin-bottom:7px">+ Add subheading</button>
     <button class="btn sec" id="txB" style="margin-bottom:12px">+ Add body text</button>
     <div class="sect">
@@ -1166,7 +1166,7 @@ function syncProps(){
         <button class="btn sec sm" id="pCrop">Crop</button>
         ${(o.cropX||o.cropY) ? '<button class="btn sec sm" id="pCropReset">Reset crop</button>' : ''}
       </div>
-      <button class="btn sec sm" id="pAsBg" style="width:100%;margin-top:8px">Set as background</button>
+      <button class="btn sec sm" id="pAsBg" data-demo="fill-canvas" style="width:100%;margin-top:8px">Set as background</button>
     </div>` : ''}
     <div class="pgroup">
       <div class="t">Arrange</div>
