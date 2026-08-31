@@ -10,6 +10,7 @@ when it isn't connected.
 """
 import datetime as _dt
 import json
+import threading as _threading
 import os
 import re
 
@@ -45,12 +46,93 @@ def _c360_link(client: str) -> dict:
     return {"text": client, "href": "/client360?q=" + quote(client)}
 
 
+_SRC = _threading.local()
+
+
+def _products() -> list[dict]:
+    """The product rows every client report here is built from, live first.
+
+    These reports read `knack_data.products()` — the hand-committed export
+    that nothing refreshes — while Client 360 read the same object live
+    through `_product_source()`. So the Hub held a current answer and a stale
+    one to "what is this client running", and `/qa` took the stale one: the
+    `hub/seo.py` failure, one page later, and silent in the same way, because
+    a short list looks exactly like a complete one.
+
+    The source that answered is recorded for `run()` to print. It is a
+    thread-local rather than a return value because a dozen call sites read
+    the grouping and none of them wants a tuple; and thread-local rather than
+    a plain module dict because two requests must not be able to hand each
+    other a staleness note about a read they did not make.
+    """
+    rows, source, age = knack_data._product_source()
+    _SRC.source, _SRC.age = source, age
+    return rows
+
+
+def _source_note() -> str:
+    """The sentence for whichever source the last `_products()` read, or ""."""
+    source = getattr(_SRC, "source", "")
+    return knack_data.products_note(source, getattr(_SRC, "age", None)) if source else ""
+
+
+_MONTH_MEMO: dict = {}
+
+
+def _billing_this_month(r: dict) -> bool:
+    """Did this IO deliver in the current calendar month?
+
+    The row's own `thisM` used to answer this, and two reports still read it
+    per row rather than through `_client_groups()`. It is an export-only flag
+    describing the month the export was generated for, so both of them would
+    have gone quiet the moment this page started reading Knack live — the
+    same trap the grouping above describes, in the two places the grouping
+    does not cover.
+
+    Bounds are memoised on the month rather than recomputed: `no_gtm` asks
+    this of every row on the book.
+    """
+    ym = _dt.date.today().strftime("%Y%m")
+    b = _MONTH_MEMO.get(ym)
+    if b is None:
+        b = _MONTH_MEMO[ym] = _month_bounds(ym)
+    return _active_in_month(r, b[0], b[1])
+
+
 def _client_groups() -> dict:
     """{client_name: {"rows": [...], "partner", "sales", "live": [...],
         "thisM": bool, "lastM": bool, "this_total", "last_total",
-        "live_total", "has_dash": bool, "last_end": date|None}}"""
+        "live_total", "has_dash": bool, "last_end": date|None}}
+
+    **`thisM` and `lastM` are computed here, not read off the row.** They are
+    Knack's own flags and they exist only on the export — `knack_products`'
+    live rows carry neither — so simply pointing this at the live source
+    would set both False on every row and every report built on them would go
+    quiet rather than wrong: "billed this month" would read $0 for the whole
+    book, `lost_by_partner` would report that nobody has ever churned, and
+    `stale_90` would lose the guard that keeps a client we are billing off
+    the lapsed list. Four confident wrong answers to fix one staleness
+    problem, which is why this could not be the one-line swap it looks like.
+
+    The other half is that the flags do not mean what a report reads them as.
+    They describe **the month the export was generated for**, and nothing
+    recomputes them — so on a deployment whose export has slipped a month,
+    "billed this month" is a true statement about a month that has passed,
+    printed under a heading that says otherwise, with `export_state()` knowing
+    it and no report on this page asking.
+
+    `knack_data.ran_in_month()` answers the same question from the dates and
+    the status, which live rows do carry, against the calendar rather than
+    against whenever somebody last exported. On this deployment's own export
+    the two agree exactly — 373 of 373 rows for this month and 510 of 510 for
+    last — which is the evidence that this changes no number today, and the
+    reason it is worth doing before it does.
+    """
+    today = _dt.date.today()
+    tstart, tend = _month_bounds(today.strftime("%Y%m"))
+    lstart, lend = _month_bounds(_prev_ym(today.strftime("%Y%m")))
     groups: dict[str, dict] = {}
-    for r in knack_data.products():
+    for r in _products():
         client = str(r.get("client", "")).strip()
         if not client:
             continue
@@ -66,10 +148,10 @@ def _client_groups() -> dict:
         if r.get("sales"):
             g["sales"].add(str(r["sales"]).strip())
         m = _num(r.get("monthly"))
-        if r.get("thisM"):
+        if _active_in_month(r, tstart, tend):
             g["thisM"] = True
             g["this_total"] += m
-        if r.get("lastM"):
+        if _active_in_month(r, lstart, lend):
             g["lastM"] = True
             g["last_total"] += m
         if knack_data.is_running(r):
@@ -392,7 +474,8 @@ def no_dashboards() -> dict:
             continue
         total += 1
         prods = sorted({str(r.get("product") or "") for r in g["live"]} or
-                       {str(r.get("product") or "") for r in g["rows"] if r.get("thisM")})
+                       {str(r.get("product") or "") for r in g["rows"]
+                        if _billing_this_month(r)})
         partner = _join(g["partners"])
         by_partner.setdefault(partner, []).append([
             partner if partner != "—" else "(no partner)",
@@ -576,7 +659,7 @@ def _month_rollup(field: str, ym: str) -> dict:
     """{who: {"clients": {client: budget}, "products": n, "revenue": x}}"""
     mstart, mend = _month_bounds(ym)
     by: dict[str, dict] = {}
-    for r in knack_data.products():
+    for r in _products():
         who = str(r.get(field, "")).strip()
         client = str(r.get("client", "")).strip()
         if not who or not client:
@@ -600,7 +683,7 @@ def _scorecard(field: str, month: str = "") -> dict:
     """Salesperson / partner scorecard for any of the last 12 months.
     Rows with zero active clients are hidden; each row is colored by the
     person's revenue vs the previous month (green up / yellow flat / red down)."""
-    # `_month_rollup()` groups `knack_data.products()` directly rather than
+    # `_month_rollup()` groups `_products()` directly rather than
     # through `_client_groups()`, so it needs the same guard: an export that
     # could not be read makes every salesperson and every partner disappear,
     # which renders as a scorecard nobody is on rather than as a source that
@@ -829,7 +912,7 @@ def no_gtm() -> dict:
             found_on_site += 1
             cov["scan_gtm"] = scan_gtm
         active_products = {str(r.get("product") or "").lower() for r in g["rows"]
-                           if knack_data.is_running(r) or r.get("thisM")}
+                           if knack_data.is_running(r) or _billing_this_month(r)}
         is_priority = any(any(k in p for k in GTM_PRIORITY_KEYWORDS) for p in active_products)
         row = [
             _c360_link(name),
@@ -1362,7 +1445,7 @@ def assign_invoice_partner(customer: str, partner: str):
 
 def partner_list() -> list[str]:
     return sorted({str(r.get("partner", "")).strip()
-                   for r in knack_data.products() if str(r.get("partner", "")).strip()},
+                   for r in _products() if str(r.get("partner", "")).strip()},
                   key=str.lower)
 
 
@@ -2724,13 +2807,31 @@ MONTHLY = ("sales-scorecard", "partner-scorecard")
 
 
 def run(key: str, month: str = "") -> dict:
+    """One report, with the source it read named on it.
+
+    A stale export looks exactly like live data on screen, which is the whole
+    reason `/qa` reading it went unnoticed — so a report built from the
+    product book says which source answered, the sentence
+    `knack_data.products_note()` gives the SEO list and Client 360.
+
+    It is appended here rather than in each report because the set of reports
+    built from products is not a list anybody would keep in step: `_products()`
+    records the read, so a report that asks gets the sentence and one that
+    does not gets nothing, without a table naming which is which. A report
+    that could not measure is left alone — its note already says why it is not
+    measured, and a staleness note under that describes rows nobody drew.
+    """
     meta = REPORTS.get(key)
     if not meta:
         raise KeyError(key)
+    _SRC.source, _SRC.age = "", None
     if key in MONTHLY:
         out = meta["fn"](month)
     else:
         out = meta["fn"]()
+    note = _source_note()
+    if note and out.get("measured") is not False:
+        out["note"] = (str(out.get("note") or "").strip() + " " + note).strip()
     out["key"] = key
     out["title"] = meta["title"]
     return out

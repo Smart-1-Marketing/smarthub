@@ -658,14 +658,14 @@ def _parse_mdY(s):
 
 
 # Which source answered, in one sentence, so no screen words it its own way.
-# The wording is knack_data's — the products card on Client 360 has said this
-# about the same two sources since it was fixed, and two descriptions of one
-# staleness is how the SEO list and the client record come to disagree about
-# whether a number can be trusted.
+# The comment above this used to say "the wording is knack_data's" while the
+# string lived here, which is how a second copy starts: `/qa`'s client reports
+# describe the same two sources, and a third screen wording it again is the
+# drift `hub/storage.py` exists to stop. It is knack_data's now in fact as
+# well as in the comment, and this stays as the name three call sites here
+# already import.
 def products_note(source: str, age_minutes: int | None) -> str:
-    return (f"Live from Knack, {age_minutes} min old." if source == "knack"
-            else "From the committed export in clients_app/data — nothing "
-                 "refreshes it, so this may be out of date.")
+    return knack_data.products_note(source, age_minutes)
 
 
 def seo_clients_result() -> tuple[list[dict], str, int | None]:
