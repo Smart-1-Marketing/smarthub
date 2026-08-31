@@ -68,16 +68,16 @@
       <option value="high">High Quality</option>
     </select>
 
-    <button id="btn" type="button">Optimize PDF</button>
+    <button id="btn" data-demo="optimize" type="button">Optimize PDF</button>
     <div id="status" class="status"></div>
 
-    <section id="result" class="result">
+    <section id="result" data-demo="pdf-result" class="result">
       <div class="grid">
         <div class="metric"><span>Original</span><strong id="original">—</strong></div>
         <div class="metric"><span>Optimized</span><strong id="optimized">—</strong></div>
         <div class="metric"><span>Savings</span><strong id="savings">—</strong></div>
       </div>
-      <a id="download" class="download" href="#">Download Optimized PDF</a>
+      <a id="download" data-demo="pdf-download" class="download" href="#">Download Optimized PDF</a>
     </section>
   </main>
 

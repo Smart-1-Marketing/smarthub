@@ -94,6 +94,39 @@ def _sources(root: str | None = None):
                     yield os.path.join(dirpath, name)
 
 
+def _spellings(kind: str, name: str) -> tuple:
+    """How a walkthrough's target would actually be written in markup.
+
+    `demo_targets()` used to credit a target with a bare `name in everything`,
+    which any file containing the word satisfies. `data-demo='unmatched'` read
+    as anchored because the word "unmatched" appears in another tool's prose,
+    and `data-demo='client-name'` because something, somewhere, has a class of
+    that name — so twenty-two steps that drive nothing read as anchored, and
+    two whole walkthroughs read as working while every driving step in them
+    resolved to no element at all. The attribute has to be there, not the word.
+    """
+    attr = {"data-demo": "data-demo", "id": "id", "name": "name"}.get(kind)
+    if not attr:
+        return ()
+    return (f'{attr}="{name}"', f"{attr}='{name}'")
+
+
+def _module_of(path: str, base: str) -> str:
+    """Which tool a file belongs to, for the `elsewhere` reading.
+
+    `modules/<name>/...` is that module; anything under `hub/` is the hub
+    itself, which is the module name the hub's own scenarios carry. Anything
+    else belongs to no tool and is left out rather than guessed at.
+    """
+    rel = os.path.relpath(path, base).replace(os.sep, "/")
+    if rel.startswith("modules/"):
+        parts = rel.split("/")
+        return parts[1] if len(parts) > 2 else ""
+    if rel.startswith("hub/"):
+        return "hub"
+    return ""
+
+
 def placements(root: str | None = None) -> tuple[dict, dict]:
     """(literal key -> files, runtime-built key -> files).
 
@@ -272,10 +305,24 @@ def demo_targets(root: str | None = None) -> dict:
             continue
     everything = "\n".join(blob)
 
+    # The same text again, per module, so a target can be told from one that
+    # exists only in a different tool. See `elsewhere` below.
+    per_module: dict = {}
+    for path in _sources(base):
+        mod = _module_of(path, base)
+        if not mod:
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
+                per_module.setdefault(mod, []).append(fh.read())
+        except OSError:
+            continue
+    per_module = {k: "\n".join(v) for k, v in per_module.items()}
+
     built = _runtime_demo_prefixes(everything)
 
     def _found(kind: str, name: str) -> bool:
-        if name in everything:
+        if any(sp in everything for sp in _spellings(kind, name)):
             return True
         if kind == "data-demo" and any(name.startswith(p) for p in built):
             on_prefix.add(name)
@@ -289,8 +336,10 @@ def demo_targets(root: str | None = None) -> dict:
     on_prefix: set = set()
 
     rows, steps, missing, untestable = [], 0, 0, []
+    strays: list = []
     for scenario in demos.SCENARIOS:
         gone, vague, testable = [], [], 0
+        here = per_module.get(getattr(scenario, "module", ""), "")
         for i, step in enumerate(getattr(scenario, "steps", []), 1):
             selector = getattr(step, "selector", "") or ""
             if not selector:
@@ -316,6 +365,29 @@ def demo_targets(root: str | None = None) -> dict:
                 missing += 1
                 gone.append({"step": i, "title": getattr(step, "title", ""),
                              "selector": selector, "absent": absent})
+            elif here and not any(
+                    sp in here for kind, name in wants
+                    for sp in _spellings(kind, name)):
+                # A selector naming nothing this can look for never reaches
+                # here -- the untestable branch above takes it, which is what
+                # the `and wants` guard this used to carry was for. Reaching
+                # this branch means `wants` is non-empty, so `not any([])`
+                # cannot fire and report an unlookable selector as anchored in
+                # the wrong place.
+                #
+                # Found, but nowhere in the tool the walkthrough drives. The
+                # "anywhere" reading above is deliberate — a screen's markup is
+                # written by half a dozen scripts and tying a target to one
+                # template would report a runtime-drawn hook as missing — but
+                # "anywhere" also credits a step whose only match is in a
+                # different tool, and that step drives nothing when the
+                # walkthrough runs. It is not counted as missing, because the
+                # element may still be drawn here at runtime; it is named, the
+                # way a target accepted on a prefix is.
+                strays.append({"scenario": getattr(scenario, "key", ""),
+                               "module": getattr(scenario, "module", ""),
+                               "step": i, "title": getattr(step, "title", ""),
+                               "selector": selector})
         rows.append({
             "key": getattr(scenario, "key", ""),
             "module": getattr(scenario, "module", ""),
@@ -344,5 +416,7 @@ def demo_targets(root: str | None = None) -> dict:
         "untestable": sorted(untestable),
         "runtime": sorted(on_prefix),
         "runtime_prefixes": built,
+        # Anchored, but not in the module the scenario drives.
+        "elsewhere": strays,
         "measured": True,
     }

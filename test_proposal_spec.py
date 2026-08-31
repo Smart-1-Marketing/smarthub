@@ -1086,6 +1086,116 @@ check("the first month includes the one-time cost",
       invest["first_month"] == 599 + 6900 + 750, invest["first_month"])
 
 # ---------------------------------------------------------------------------
+section("Consulting & Strategy rides the quote like the license does")
+# ---------------------------------------------------------------------------
+check("the total row says what it includes, and without consulting that is "
+      "licensing alone", invest["includes"] == "licensing", invest["includes"])
+c_state = dict(state)
+c_state["consulting"] = {"include": True, "custom": False,
+                         "monthly": 1050, "listed": 1050, "hours": 7}
+c_invest = builder.investment_lines(c_state, _Q())
+c_line = [l for l in c_invest["lines"] if l["kind"] == "consulting"]
+check("switched on, it is its own line", len(c_line) == 1,
+      [l["kind"] for l in c_invest["lines"]])
+check("the hours the price was built from are on the label — the figure "
+      "shows what it is made of",
+      c_line and "hrs/mo" in c_line[0]["label"], c_line)
+check("it recurs for the term, exactly as the license does",
+      c_invest["campaign_total"] == invest["campaign_total"] + 1050 * 6,
+      (c_invest["campaign_total"], invest["campaign_total"]))
+check("and the total row stops understating what it includes",
+      c_invest["includes"] == "licensing & consulting", c_invest["includes"])
+c_state["consulting"] = {"include": True, "custom": True,
+                         "monthly": 800, "listed": 1050, "hours": 7}
+c_adj = [l for l in builder.investment_lines(c_state, _Q())["lines"]
+         if l["kind"] == "consulting"][0]
+check("an edited price wins and is marked adjusted beside the suggested one",
+      c_adj["amount"] == 800 and c_adj["listed"] == 1050
+      and c_adj["adjusted"] is True, c_adj)
+
+# ---------------------------------------------------------------------------
+section("the Suite lists users, and the products a proposal can introduce")
+# ---------------------------------------------------------------------------
+check("a tier's specs name users and nothing else — no contact, email or "
+      "text allowances on a line a client reads",
+      all("user" in t["specs"] and "contact" not in t["specs"]
+          and "email" not in t["specs"] and "text" not in t["specs"]
+          for t in spec.SAAS_TIERS),
+      [t["specs"] for t in spec.SAAS_TIERS])
+_SB = open(os.path.join(ROOT, "modules", "sales_builder", "templates",
+                        "index.html"), encoding="utf-8").read()
+_tiers_js = re.search(r"const SUITE_TIERS=\[(.*?)\n\];", _SB, re.S).group(1)
+check("the wizard's own tier cards say the same thing",
+      "contacts" not in _tiers_js and "emails" not in _tiers_js
+      and "texts" not in _tiers_js and _tiers_js.count("users") == 3, _tiers_js)
+_SUITE_PRODUCT_NAMES = [
+    "Call Tracking", "Texting", "Reputation Center", "Social Planner",
+    "Webchat", "Online Scheduling", "Form Tracking", "Media Library",
+    "Brand Kit", "Email Newsletters", "Marketing Dashboards", "Surveys",
+    "QR Codes", "Countdown Timers", "Centralized Social Dashboard"]
+_products_js = re.search(r"const SUITE_PRODUCTS=\[(.*?)\n\];", _SB, re.S)
+check("all fifteen Suite products are on offer, by name",
+      _products_js and all(f'name:"{n}"' in _products_js.group(1)
+                           for n in _SUITE_PRODUCT_NAMES),
+      [n for n in _SUITE_PRODUCT_NAMES
+       if not (_products_js and f'name:"{n}"' in _products_js.group(1))])
+check("each carries a suggestion rule and the hours the consulting price "
+      "is built from",
+      _products_js and _products_js.group(1).count("suggest:") == 15
+      and _products_js.group(1).count("hours:") == 15)
+check("a suggestion is offered, never auto-selected — selection is a press",
+      "toggleSuiteProduct(" in _SB and "takeSuiteSuggestions(" in _SB)
+check("the consulting rate is named as ours on the panel",
+      "our standard consulting rate" in _SB
+      and "not a published benchmark" in _SB)
+
+# ---------------------------------------------------------------------------
+section("the cover always carries the industry trends block")
+# ---------------------------------------------------------------------------
+t_known = spec.industry_trends("Healthcare / Dental")
+check("a written-up industry answers with its own entry",
+      t_known["matched"] is True and t_known["trends"] and t_known["help"]
+      and t_known["budget"], sorted(t_known.keys()))
+t_unknown = spec.industry_trends("Beekeeping")
+check("an unknown industry gets the general entry rather than a hole on "
+      "the first page — and says it is the fallback",
+      t_unknown["matched"] is False and t_unknown["trends"]
+      and t_unknown["budget"], t_unknown["matched"])
+check("the budget guidance is labeled as Smart 1's own, never a published "
+      "benchmark", "not a published benchmark" in spec.TRENDS_NOTE
+      and t_unknown["note"] == spec.TRENDS_NOTE)
+check("no trend quotes a statistic nobody measured",
+      not any(re.search(r"\d+\s*%|\d+ percent", line)
+              for entry in [spec.GENERAL_TRENDS, *spec.INDUSTRY_TRENDS.values()]
+              for line in [*entry["trends"], entry["help"], entry["budget"]]))
+check("every wizard industry the table knows is a wizard spelling",
+      set(spec.INDUSTRY_TRENDS) <=
+      set(re.findall(r'"([^"]+)"',
+                     re.search(r"const INDUSTRIES=\[(.*?)\];", _SB).group(1))),
+      sorted(spec.INDUSTRY_TRENDS))
+check("the page reads the served table rather than a mirror",
+      "CFG.industry_trends" in _SB and "coverTrendsHtml" in _SB)
+
+# ---------------------------------------------------------------------------
+section("the document's layout: numbered headers, and ZIPs beside the map")
+# ---------------------------------------------------------------------------
+_APP = open(os.path.join(ROOT, "modules", "sales_builder", "app.py"),
+            encoding="utf-8").read()
+check("the PDF numbers its sections over the enabled ones",
+      "_sec_header(" in _APP and "sec_no += 1" in _APP)
+check("the preview numbers them the same way",
+      "secno" in _SB and "s.enabled?(++_no):null" in _SB.replace(" ", ""))
+check("the map takes two thirds of the row with the targeted ZIPs beside it, "
+      "in both renderers",
+      "MAP_ZIP_W" in _APP and "_zip_column_rows" in _APP
+      and "dmaprow" in _SB and "zipSideList" in _SB)
+check("the ZIP column is bounded and points at the full list rather than "
+      "truncating in silence",
+      "ZIP_COL_PER_AREA" in _APP
+      and "The complete list is in ZIP Codes Targeted" in _APP
+      and "The complete list is in ZIP Codes Targeted" in _SB)
+
+# ---------------------------------------------------------------------------
 section("a proposal cannot lose its required sections")
 # ---------------------------------------------------------------------------
 old_shape = {"client": "Legacy Co", "months": 3, "items": [],
@@ -1223,7 +1333,7 @@ check("and it is covered once the tier is raised",
       "chat" in {r["key"] for r in cm.suite_coverage(lacking, "Smarter")["covered"]})
 # An unanswered question is not a gap the Suite gets credit for closing.
 check("an unanswered question is not measured, not a gap",
-      {r["key"] for r in cover["not_measured"]} == {"email"},
+      {r["key"] for r in cover["not_measured"]} == {"email", "appointments"},
       [r["key"] for r in cover["not_measured"]])
 # Two questions can want the same part of the Suite. Claimed twice they read
 # as two things the licence buys -- "Social planner" directly above "Social

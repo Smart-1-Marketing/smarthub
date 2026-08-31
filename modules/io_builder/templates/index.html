@@ -277,14 +277,14 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
   <button class="secondary" onclick="openCreativeManager()">Creative</button>
   <button class="secondary" onclick="openEditor()">Edit</button>
   <button class="secondary" onclick="restart()">Reset</button>
-  <button class="secondary" onclick="generateStoredPDF('internal')">Internal PDF</button>
+  <button class="secondary" onclick="generateStoredPDF('internal')">Internal PDF</button>{{ help_dot('io_builder.pdf.two') if help_dot is defined else '' }}
   <button class="secondary" onclick="generateStoredPDF('client')">Customer PDF</button>
   <button class="secondary" onclick="copyCustomerRequirements()">Copy Customer</button>
   <button class="secondary" onclick="emailClientPDF()">Email Client PDF</button>
   <button class="secondary" onclick="downloadJSON()">Data Export</button>
   <button class="secondary" onclick="document.getElementById('importJson').click()">Load / Duplicate (JSON)</button>
   <input id="importJson" type="file" accept="application/json,.json" style="display:none">
-  <button class="submit-io-btn" onclick="submitCompletedIO()">Submit Finished IO</button>
+  <button class="submit-io-btn" onclick="submitCompletedIO()">Submit Finished IO</button>{{ help_dot('io_builder.submit.finished') if help_dot is defined else '' }}
   <button onclick="window.print()">Print IO</button>
  </div>
  <div id="submitStatus" class="submit-status"></div>
@@ -295,7 +295,7 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
   </div>
 
   <div class="section">
-   <div class="section-title">Campaign Overview {{ help_dot('io_builder.report.rates') if help_dot is defined else '' }}</div>
+   <div class="section-title">Campaign Overview {{ help_dot('io_builder.report.overview') if help_dot is defined else '' }}</div>
    <div class="grid">
     <div class="field"><div class="label">Today's Date</div><div class="value" id="f-date">—</div></div>
     <div class="field"><div class="label">IO Type</div><div class="value" id="f-io-type">—</div></div>
@@ -353,7 +353,7 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
   </div>
 
   <div class="section">
-   <div class="section-title">Media Plan & Estimated Delivery</div>
+   <div class="section-title">Media Plan & Estimated Delivery {{ help_dot('io_builder.report.rates') if help_dot is defined else '' }}</div>
    <table>
     <thead><tr><th>Product</th><th>Campaign Dates</th><th>Monthly Spend / Schedule</th><th>Rate</th><th>Monthly Delivery</th><th>Total Campaign Budget</th></tr></thead>
     <tbody id="mediaRows"><tr><td colspan="6" class="empty">Products will appear as they are added.</td></tr></tbody>
@@ -378,7 +378,7 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
   </div>
 
   <div class="section">
-   <div class="section-title">Creative Checklist</div>
+   <div class="section-title">Creative Checklist {{ help_dot('io_builder.creative.checklist') if help_dot is defined else '' }}</div>
    <!-- The link the client sends their own assets through. It sits at the top
         of the checklist because this is the screen a rep is on when they
         realize they need something from the client; sending them to another

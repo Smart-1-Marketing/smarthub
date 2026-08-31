@@ -861,6 +861,25 @@ for the same reason — the reader is an agency admin who may have no Hub accoun
 in that browser, and a sign-in form in the getting-started tab teaches them the
 app needs one.
 
+**And it opened by recommending the half we had not switched on.** The page
+listed the staff record and the client SSO frame side by side as two menu links
+to add "whichever you need" — on the one screen whose whole job is to be copied
+from, which is the `hub/oauth_redirects.py` failure exactly: a panel printing a
+string nobody should paste. The client surface needs each client's sub-account
+recorded against them first, and without that a client who opens it is told we
+cannot tell whose account they are in — correct, and reading to them as broken.
+
+`client_for_location()` has **exactly one caller**, `hub/suite_sso.py`, so that
+link is load-bearing for nothing: not adding it costs a shortcut to content
+those clients are already emailed, and removes the one surface where getting a
+sub-account wrong shows somebody another client's record. It stays *documented*
+rather than deleted — an absent option reads as one nobody thought of, and the
+route is discoverable from the code either way — but it is drawn as **not
+switched on**, with what has to be true before it is. `test_suite_embed.py`
+asserts the distinction, because the old copy read perfectly well and every URL
+on it was correct: nothing but an assertion separates documented from
+recommended.
+
 **Two of the first assertions written for it could not fail.** The frame header
 rides on the `/suite-app` prefix, so a **404** at that path carries it too —
 "it may be framed" passed with the route deleted. And `PUBLIC_BASE_URL` is
@@ -3195,6 +3214,39 @@ narration above it is still correct and still worth reading, and only the
 driving cannot happen — and the button that could only do nothing is not
 drawn, because a button pressed once with no effect makes the whole
 walkthrough read as broken rather than one step of it.
+
+**And the audit was crediting a word rather than an attribute.** `_found()`
+tested `name in everything` — a bare substring against every template and
+script in the repo — so `data-demo='unmatched'` read as anchored because the
+word *unmatched* appears in another tool's prose, and
+`data-demo='client-name'` because something, somewhere, has a class of that
+name. Twenty-two steps that drive nothing read as anchored, and **two whole
+walkthroughs read as working while every driving step in them resolved to no
+element at all**: Image Creator's and the UTM builder's, which is the Smart 1
+Ads failure the floor below exists to catch, hiding inside the check that
+would have caught it. `_spellings()` is what the audit looks for now — the
+attribute in either quoting — and a selector kind it cannot look for asks for
+nothing rather than matching everything.
+
+Both are anchored now, along with the PDF optimizer, the calculators and the
+two radio builders: twenty-one hooks, seven of them in
+`modules/image_creator/static/editor.js`, because that tool's panels are drawn
+by script when the rail is clicked and `hub-demo.js` repaints on a debounced
+`MutationObserver` for exactly that shape. Two more scenarios drive controls
+that are **not there to anchor** — Background Remover's walkthrough offers a
+free "remove white background" option beside the paid one and the tool has a
+single button, and its step 4 asks for a preview it never draws. That is the
+Web Tickets *"Sort by age"* case: a walkthrough describing a tool that does
+not exist is worse than one describing none, so those want rewriting rather
+than a hook pointed at the nearest thing.
+
+**`elsewhere` is the third answer.** Asking whether the element exists
+*anywhere* is deliberate and stays — a walkthrough drives a screen whose
+markup half a dozen scripts write — but *anywhere* also credits a step whose
+only match is in a different tool, and that step drives nothing when the
+walkthrough runs. Those are named rather than counted as missing, since the
+element may still be drawn at runtime, the way a target accepted on a prefix
+already is.
 
 **Fifty-five of the 165 steps that name an element named one that is in no
 template**, across eighteen of the twenty-eight scenarios. That is a
@@ -10623,6 +10675,46 @@ tool's screens are is not derivable from anything the Hub holds. Per-tool is
 the honest granularity; the finer answer would need a list, and a list is
 what the audit had before.
 
+**And the second one down that list is the document that bills the client.**
+The IO Builder is a conversation rather than a stepped wizard, so the anchors
+are the decisions that are static markup — where the campaign is loaded from,
+the unfinished-order list, the creative checklist, the rates on the report,
+the two PDFs and Submit — and the interview asks its own questions in words
+already. Each entry is on a trap this file names: a line carried from a
+proposal arrives at the **quoted** rate rather than the card's buy-side one,
+so the order bills what the proposal promised; the fee fields take an amount,
+a percentage, INCLUDED or NONE and not a sentence; the browser draft is
+instant and the server copy is what survives a different machine, with a
+colleague's unfinished order listed rather than hidden, because hiding it is
+how the same IO gets built twice.
+
+**And two of them were written twice, from two branches, against the same
+screen.** Two sessions explained this tool in parallel; both merges were
+textually clean, and what landed was `io_builder.report.rates` registered
+**twice**, with two different accounts of what the rate on that pane is. One
+said every rate comes off the shared card — true of where the number is
+derived from, and the exact confusion `lineForIO()`'s own comment exists to
+undo, since it sends `sellRateOf()` and the pane shows $8.50 where the card
+lists $4.25. `_BY_KEY` is `{h.key: h for h in REGISTRY}`, so the later entry
+silently won and the earlier became dead copy behind a dot that still drew;
+`tour()` walks the list instead, so a duplicated key carrying `step=` would
+have put one step on a walkthrough twice. Nothing reported any of it — every
+key resolved, every dot rendered, and `help_coverage` counted the tool as
+covered, which is the whole difficulty: a collision here reads as success
+from every direction. `test_help_layer.py` asserts a key is registered once
+and that **every registered entry survives into `as_json()`** — said against
+`len(REGISTRY)` rather than against a set of the same keys, because both
+sides of that comparison collapse the duplicate and the check passes while
+the entry is being lost.
+
+**And what submitting does not do is the one worth saying out loud.** It
+files the order, sends it to Suite and registers a genuinely new business as
+an overlay — and it does not set the campaign up. An order whose products
+never arrive looks exactly like one that was handled, which is why
+`hub/io_reconcile.py` exists; the bubble names that report, so the tool says
+where its own blind spot is answered rather than leaving a rep to find out
+when a client asks why nothing ran.
+
 ### Who is signed in, and what that number is allowed to claim
 
 `hub/presence.py`, the top of the **System status** card on the dashboard, and
@@ -11341,6 +11433,12 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   a gallery you can search, and nothing
                                    #   filed under a provider nobody declared
+python3 test_client360_layout.py   # the record's cards land in their rail
+                                   #   sections by name, driven in node — a
+                                   #   match list that stops matching piles
+                                   #   every card into Overview with the page
+                                   #   still looking complete — and the four
+                                   #   actions the accordion's toolbar carried
 python3 test_client_images.py      # every module that logs client work is one the
                                    #   record can name; deleting a client image, the
                                    #   count, the one brand
@@ -11387,6 +11485,10 @@ python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
                                    #   they are, and the acknowledgment before filing
+python3 test_commercial_mock.py    # the mark that says a provider is not live:
+                                   #   named where the work is rather than as a chip
+                                   #   on another screen, only for routes that really
+                                   #   report it, and never on the client's page
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
                                    #   three answers, the strictest one wins, a
                                    #   refusal that stops a delivery, and the

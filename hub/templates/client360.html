@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Client 360 — Smart 1 Hub{% endblock %}
+{# The icon rail. A client record is a full-width workbench of cards and
+   tables — same flag the SEO record and the Proposal Builder's wizard carry,
+   and a stored preference still wins in both directions. Inside the Smart 1
+   Suite frame there is no sidebar at all, so this changes nothing there. #}
+{% block body_attrs %} data-s1hub-collapse="1"{% endblock %}
 {% block content %}
+<style>
+/* The workspace shell: a rail of section names, one group of cards on screen
+   at a time. The cards themselves are untouched — render() builds them
+   exactly as it always has and sectionize() moves each into its section. */
+.c360-work{display:grid;grid-template-columns:190px minmax(0,1fr);gap:14px;align-items:start}
+.c360-rail{position:sticky;top:12px;background:#fff;border:1px solid var(--line,#e2e8f0);
+  border-radius:12px;padding:7px;display:flex;flex-direction:column;gap:1px}
+.c360-rail .rl{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:0;
+  background:none;border-radius:8px;cursor:pointer;font:600 13px 'Segoe UI',system-ui,sans-serif;
+  color:#1e293b;text-align:left}
+.c360-rail .rl:hover{background:#f4f6fa}
+.c360-rail .rl.on{background:#eff4ff;color:#1d4ed8}
+.c360-surface{min-width:0}
+.c360-view{display:none}
+.c360-view.on{display:block;margin-bottom:14px}
+.c360-view > .grid-2:empty::after{content:"Nothing in this section for this client.";
+  display:block;padding:14px;color:#64748b;font-size:13px}
+.c360-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.c360-actions button{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA;border-radius:7px;
+  padding:6px 12px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer}
+.c360-actions button:hover{background:#e2eef8}
+.c360-actions button.s1-acc-group.on{border-color:#b7e0c2;background:#eaf7ee;color:#1c7a3e}
+@media(max-width:900px){
+  .c360-work{grid-template-columns:1fr}
+  .c360-rail{position:static;flex-direction:row;flex-wrap:wrap}
+  .c360-rail .rl{width:auto}
+}
+</style>
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
 <form class="c360-search" onsubmit="run();return false" hidden>
@@ -62,6 +95,68 @@ function googleTools(platform,name,rid){
   return [['Open Google Finder','/google/?q='+q]];
 }
 const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href="${h}">${t} →</a>`).join('')+'</div>';
+
+/* ---------- sections: the rail, one group of cards at a time ----------
+   render() still builds every card exactly as it always has, into a hidden
+   staging grid — sectionize() then moves each card into its section by the
+   card's own title, the reading hub-accordion.js used for its ordering. A
+   card whose title matches nothing lands on Overview rather than vanishing,
+   so a card added later is findable without being registered here. Moving a
+   node keeps its identity, so every follow-up fetch writing into
+   $('c-google') and friends is untouched — and the moves are synchronous,
+   before any of those fetches can resolve. hub-accordion.js sees the
+   data-s1-workspace marker and stays off this page: its reorder() appends
+   every .card into the first card's parent, which here would pile all
+   twenty-two into the first section. */
+/* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
+const C360_SECTIONS=[
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','smart 1 suite','proposals','client notes']},
+  {key:'billing',  label:'Billing',           match:['invoices']},
+  {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
+  {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
+  {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
+  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions']},
+  {key:'work',     label:'Work & requests',   match:['work for this','web tickets']},
+];
+function c360SectionFor(title){
+  const t=String(title||'').toLowerCase();
+  // A match at the START of the title wins, the accordion's own rule —
+  // otherwise "brand" claims any card whose title merely contains the word.
+  for(const s of C360_SECTIONS){ if(s.match.some(m=>t.indexOf(m)===0)) return s.key; }
+  for(const s of C360_SECTIONS){ if(s.match.some(m=>t.indexOf(m)>-1)) return s.key; }
+  return 'overview';
+}
+/* ---- end c360 sections ---- */
+function showC360Section(key){
+  window.__c360sec=key;
+  const work=document.querySelector('.c360-work'); if(!work) return;
+  document.querySelectorAll('.c360-view').forEach(v=>
+    v.classList.toggle('on', key==='all'||v.id==='v360-'+key));
+  document.querySelectorAll('#c360Rail .rl').forEach(r=>
+    r.classList.toggle('on', r.dataset.sec===key));
+  /* replaceState with a bare fragment keeps ?q= and adds no history entry. */
+  try{ history.replaceState(null,'','#'+key); }catch(e){}
+  window.scrollTo(0,0);
+}
+function sectionize(){
+  const stage=$('c360Stage'), rail=$('c360Rail'), surf=$('c360Surface');
+  if(!stage||!rail||!surf) return;
+  surf.innerHTML=C360_SECTIONS.map(s=>
+    `<section class="c360-view" id="v360-${s.key}"><div class="grid-2"></div></section>`).join('');
+  stage.querySelectorAll('.grid-2 > .card').forEach(card=>{
+    const h=card.querySelector('.card-h h3');
+    surf.querySelector('#v360-'+c360SectionFor(h?h.textContent:'')+' > .grid-2').appendChild(card);
+  });
+  stage.remove();
+  rail.innerHTML=C360_SECTIONS.map(s=>
+    `<button type="button" class="rl" data-sec="${s.key}">${esc(s.label)}</button>`).join('')
+    +'<button type="button" class="rl" data-sec="all" title="Every card on one page — the old layout">Everything</button>';
+  rail.querySelectorAll('.rl').forEach(b=>{ b.onclick=()=>showC360Section(b.dataset.sec); });
+  // A refresh, a bookmarked #section, or a re-render after picking another
+  // group member keeps its place.
+  const want=(location.hash||'').replace(/^#/,'')||window.__c360sec||'overview';
+  showC360Section(want==='all'||C360_SECTIONS.some(s=>s.key===want)?want:'overview');
+}
 
 async function run(){
   const q=$('q').value.trim();
@@ -126,7 +221,26 @@ function render(g,q){
   head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
 
-  let html=head+'<div class="grid-2">';
+  /* Page actions. hub-accordion.js used to bolt these onto its
+     Expand/Collapse bar; the accordion stays off this page now (see
+     sectionize above), so the record carries its own row. They act on the
+     whole record, which is why they sit above the rail rather than in a
+     card. The group button keeps the s1-acc-group class because
+     loadGroup() and S1GroupLabel() address it by that name. */
+  head+='<div class="c360-actions">'
+    +'<button type="button" onclick="ioStart(\'new\')">New IO</button>'
+    +'<button type="button" onclick="ioStart(\'renewal\')">Renew IO</button>'
+    +'<button type="button" onclick="ioStart(\'proposal\')">IO from proposal</button>'
+    +'<button type="button" class="s1-acc-group" onclick="openGroupModal()" '
+    +'title="Merge another company\'s records into this one">&#128279; Group</button>'
+    +'</div>';
+
+  let html=head
+    +'<div class="c360-work" data-s1-workspace="1">'
+    +'<nav class="c360-rail" id="c360Rail" aria-label="Record sections"></nav>'
+    +'<div class="c360-surface" id="c360Surface"></div>'
+    +'</div>'
+    +'<div id="c360Stage" hidden><div class="grid-2">';
 
   // ---------- Smart 1 Team: products & IOs ----------
   const clientsLink='/clients?q='+encodeURIComponent(name);
@@ -399,8 +513,9 @@ function render(g,q){
   // ---------- Web Tickets (Smart 1 Team) + Notes ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Web Tickets</h3><a class="open-link" id="c-tickets-new" style="cursor:pointer">+ New web ticket</a></div><div class="card-b" id="c-tickets"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
-  html+='</div>';
+  html+='</div></div>';               // close the staging grid and its wrapper
   $('results').innerHTML=html;
+  sectionize();                       // move every card into its section
 
   const term=(name||q);
 
@@ -1135,7 +1250,7 @@ function render(g,q){
   // QuickBooks invoices — attached customer wins; shows customer-since in header
   function renderQb(d,attachedNote){
     if(!d.configured){$('c-qb').innerHTML='<div class="empty">QuickBooks not configured — set QB_CLIENT_ID / QB_CLIENT_SECRET. <a href="/status">Status →</a></div>';return}
-    if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect">Connect QuickBooks →</a></div>';return}
+    if(!d.connected){$('c-qb').innerHTML='<div class="empty">QuickBooks not connected yet. <a href="/qb/connect" target="_blank" rel="noopener">Connect QuickBooks →</a></div>';return}
     if(d.error){$('c-qb').innerHTML='<div class="empty">QuickBooks error: '+esc(d.error)+'</div>';return}
     const custs=d.customers||[];
     if(!custs.length){
@@ -2026,7 +2141,7 @@ function c360Traffic(propertyId,googleLogin){
         // leaving the reader with an error they can't act on.
         $('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+
           ' <a class="btn-primary" style="margin-left:8px;padding:6px 14px;font-size:13px;text-decoration:none" href="'+esc(d.reconnect_url||'/google/login')+
-          '">Reconnect Google</a></div>';return}
+          '" target="_blank" rel="noopener">Reconnect Google</a></div>';return}
       if(d.error){$('c-traffic').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
       const cur=d.current||{},prev=d.previous||{},del=d.deltas||{};
       const rows=[

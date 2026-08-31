@@ -286,6 +286,39 @@ ok("some walkthroughs are clean, so this is not reporting everything",
 check("no walkthrough drives none of the steps it names",
       [r["key"] for r in DEMO["rows"] if r["dead"]], [])
 
+# A target is credited by the ATTRIBUTE being there, not by the word.
+# `_found()` used to test `name in everything`, so data-demo='unmatched' was
+# reported as anchored because the word "unmatched" appears in another tool's
+# prose, and data-demo='client-name' because something somewhere has a class
+# of that name. Twenty-two steps read as anchored while driving nothing, and
+# two whole walkthroughs -- Image Creator's and the UTM builder's -- read as
+# working while every driving step in them resolved to no element at all.
+# That is the failure this audit exists to report, hiding inside the audit.
+_sp = help_audit._spellings("data-demo", "unmatched")
+_prose = "<p>3 unmatched projects</p>"
+_real = "<div data-demo=\"unmatched\"></div>"
+ok("a bare word does not anchor a step",
+   not any(x in _prose for x in _sp), _prose)
+ok("and the attribute does", any(x in _real for x in _sp), _real)
+ok("both quotings count",
+   any(x in "<b data-demo='unmatched'>" for x in _sp))
+ok("a selector kind it cannot look for asks for nothing",
+   help_audit._spellings("class", "x") == ())
+
+# The two that drove nothing at all, now anchored. Named rather than merely
+# counted: the point is that these screens can now be walked.
+for _key in ("image_creator.promo_post", "utm.campaign_links",
+             "pdf_optimizer.compress", "calculators.publish",
+             "fan_radio.spot", "radio_promo.first_spot"):
+    ok(f"{_key} drives at least one step it names",
+       _key not in [r["key"] for r in DEMO["rows"] if r["dead"]])
+
+# Anchored, but nowhere in the tool the walkthrough drives. Reported rather
+# than counted as missing -- the element may still be drawn at runtime -- the
+# way a target accepted on a prefix already is.
+ok("a target that only exists in another tool is named",
+   isinstance(DEMO.get("elsewhere"), list), str(type(DEMO.get("elsewhere"))))
+
 # A selector carrying nothing that identifies an element -- an
 # `input[type='file']` -- is a step this check cannot speak to, and counting
 # it as anchored was a tick over a question nobody asked. It is what let
@@ -598,6 +631,71 @@ for _name in ("client_proposal.html", "client_gone.html"):
 # the hand-typed-list check all read structure for the same reason.
 ok("and it names no tour it cannot drive",
    not re.search(r'data-screen\s*=', _wiz))
+
+
+# ------------------------------------------------------- the IO Builder
+print()
+print("The IO Builder explains the document that bills the client")
+
+# A conversational builder rather than a stepped wizard, so the anchors are
+# the decision points that are static markup: where the campaign is loaded
+# from, the unfinished-order list, the creative checklist, the rates on the
+# report, the two PDFs and Submit. The interview itself asks its questions in
+# words already.
+_IO = os.path.join(ROOT, "modules", "io_builder", "templates", "index.html")
+with open(_IO, encoding="utf-8") as _fh:
+    _io = _fh.read()
+
+_io_keys = sorted(set(re.findall(r"help_dot\('(io_builder\.[\w.]+)'\)", _io)))
+ok("the IO Builder places bubbles", len(_io_keys) >= 5, str(len(_io_keys)))
+_io_dead = sorted(k for k in _io_keys if k not in _known)
+check("and every one resolves in the registry", _io_dead, [])
+
+# Guarded like every helper call in this codebase: io_builder is
+# dispatcher-mounted, so it gets help_dot from install_template_helpers() --
+# and a module whose Jinja env somehow did not must lose the icon rather
+# than the page. (The sweep above asserts this for every template; named
+# here because this file is the one that just gained six.)
+_calls = re.findall(r"\{\{[^}]*help_dot\([^}]*\}\}", _io)
+ok("every call is guarded", all("is defined" in c for c in _calls),
+   str([c[:40] for c in _calls if "is defined" not in c]))
+
+# It renders. A key in the template that never reaches the browser is the
+# same silence as one that resolves to nothing.
+_page = _staff.get("/tools/io/")
+check("the page still builds", _page.status_code, 200)
+_rendered = sorted(set(re.findall(rb'data-help="(io_builder\.[\w.]+)"', _page.data)))
+check("and every key placed reaches the browser",
+      len(_rendered), len(_io_keys))
+
+
+# ------------------------------------------- one key, one entry
+print()
+print("A key registered twice is a key whose earlier copy nobody reads")
+
+# _BY_KEY is {h.key: h for h in REGISTRY} and /api/help/registry builds the
+# same way, so a second _h() for a key silently wins and the first becomes
+# dead copy on a screen that still draws its dot. tour() is worse: it walks
+# REGISTRY as a list, so a duplicated key carrying step= puts one step on the
+# walkthrough twice.
+#
+# Not hypothetical. Two sessions wrote IO Builder help against the same
+# screen from different branches; the merge was textually clean and landed
+# io_builder.report.rates twice, with two different explanations of what the
+# rate on that pane is. Nothing here reported it -- every key resolved, every
+# dot rendered, and the audit counted the tool as covered.
+_reg_keys = [h.key for h in help_registry.REGISTRY]
+_dupes = sorted({k for k in _reg_keys if _reg_keys.count(k) > 1})
+check("no key is registered twice", _dupes, [])
+
+# Said against the list rather than against a set of itself: as_json() is a
+# dict comprehension over REGISTRY, so a collision makes the payload shorter
+# than the registry it was built from and every count either side of it still
+# agrees with the other. Comparing it to len(set(...)) collapses the
+# duplicate on both sides and passes while the entry is being lost, which is
+# the shape of a check nobody can trust.
+check("every registered entry survives into the payload",
+      len(help_registry.as_json()["help"]), len(help_registry.REGISTRY))
 
 import shutil as _shutil                                          # noqa: E402
 _shutil.rmtree(_T, ignore_errors=True)

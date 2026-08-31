@@ -1573,14 +1573,24 @@ REGISTRY: list[Help] = [
        "nothing and the draft is there from any machine. Reset is the "
        "one press that clears the saved draft too — its "
        "confirmation says so, and that sentence is true."),
-    _h("io_builder.report.rates", "The same card the proposal quoted from",
-       "This pane is the insertion order as it stands, and every rate "
-       "on it comes off the shared Smart 1 rate card — the same "
-       "card the Proposal Builder quotes from, so the document a client "
-       "signed and the order that bills them cannot price one product "
-       "two ways. The order number was allocated the moment the wizard "
-       "started, which is why an abandoned IO leaves a gap in the "
-       "numbering rather than a duplicate."),
+    _h("io_builder.report.rates", "The rate here is what the client pays",
+       "Every line comes off the shared Smart 1 rate card — the same card "
+       "the Proposal Builder quotes from, so the document a client signed "
+       "and the order that bills them cannot price one product two ways. "
+       "What is printed here is the quoted rate rather than the card's own "
+       "listed one: the listed number is the buy-side rate, and a CPM line "
+       "is sold at twice it. The management and creative fee fields want an "
+       "amount, a percentage, INCLUDED or NONE. NONE is a real answer and "
+       "is flagged for confirmation rather than refused; what they cannot "
+       "take is a sentence, because a fee field holding prose reaches "
+       "whoever bills the campaign as nothing at all."),
+    _h("io_builder.report.overview", "One order, one number",
+       "The order number was allocated the moment the wizard started, "
+       "which is why an abandoned IO leaves a gap in the numbering rather "
+       "than a duplicate — a number handed out is not yet an order, and "
+       "only submitting makes it one. Resubmitting a correction revises "
+       "this same order rather than filing a second one, and the date it "
+       "keeps is the first submission’s."),
     _h("io_builder.creative.manager", "Checked against the published spec",
        "Every file is validated against the S1M creative spec kit "
        "— the published sizes, weights and durations the people "
@@ -1590,6 +1600,32 @@ REGISTRY: list[Help] = [
        "is a real answer and is recorded as an outstanding item, "
        "instead of reading as nothing needed."),
 
+    _h("io_builder.creative.checklist", "What the client still has to send",
+       "What each product on this order needs before it can run, and the "
+       "client's own upload link at the top of it \u2014 send them that rather "
+       "than asking for photographs by email, and what they upload lands in "
+       "their gallery where every other tool can already see it. Files "
+       "delivered through the Creative manager are checked against the S1M "
+       "creative spec kit, so a size the platform would refuse is caught "
+       "here rather than at delivery."),
+
+    _h("io_builder.submit.finished", "What submitting does, and what it does not",
+       "Submitting files the order in the activity log, sends it to Smart 1 "
+       "Suite, and registers the business as a client if nobody here has "
+       "heard of them yet \u2014 an overlay of our own, never a write to Knack, "
+       "so the day the real record appears it wins. What it does **not** do "
+       "is set the campaign up: that is somebody trafficking it, and an "
+       "order whose products never arrive looks exactly like one that was "
+       "handled. **QA \u2192 Orders With No Campaign** is the report that "
+       "catches those, so an order signed in March cannot sit unbuilt "
+       "until a client asks why nothing ran."),
+
+    _h("io_builder.pdf.two", "Two documents from one record",
+       "The customer PDF is what the client signs; the internal one carries "
+       "what the campaign team needs and the client does not. They are "
+       "generated from the same record rather than edited apart, so they "
+       "cannot come to disagree about what was sold \u2014 which is why a "
+       "correction goes back through the interview rather than into a PDF."),
     # ---------------- Landing Page Maker ----------------
     _h("landing_maker.pages.intro", "The page, the ads and the IO agree",
        "Builds a campaign page from a proposal: the client, the "

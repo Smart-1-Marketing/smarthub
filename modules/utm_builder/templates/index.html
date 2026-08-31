@@ -94,7 +94,7 @@
   <div class="card">
     <h2><span class="n">1</span> Destination</h2>
     <label class="f">Landing page URL {{ help_dot('utm.form.source') if help_dot is defined else '' }}</label>
-    <input type="url" id="url" placeholder="coolairco.com/ac-repair" value="{{ url }}">
+    <input type="url" id="url" name="url" placeholder="coolairco.com/ac-repair" value="{{ url }}">
     <div class="hint">Any existing non-UTM query parameters are kept; existing UTM tags are replaced.</div>
 
     <div class="grid" style="margin-top:14px">
@@ -118,7 +118,7 @@
       <div>
         <label class="f">Campaign <span style="color:var(--bad)">*</span>{{ help_dot('utm.form.campaign') if help_dot is defined else '' }}
           <a class="manage" data-manage="utm_campaign">edit list</a></label>
-        <input type="text" id="utm_campaign" placeholder="spring-promo" list="campaignList">
+        <input type="text" id="utm_campaign" name="utm_campaign" placeholder="spring-promo" list="campaignList">
         <datalist id="campaignList"></datalist>
       </div>
       <div>
@@ -150,13 +150,13 @@
         <label class="f">Source <span style="color:var(--bad)">*</span>
           <a class="manage" data-manage="utm_source">edit list</a></label>
         <div class="picks" id="sourcePicks"></div>
-        <input type="text" id="sourceCustom" placeholder="or type one…" style="margin-top:8px">
+        <input type="text" id="sourceCustom" name="utm_source" placeholder="or type one…" style="margin-top:8px">
       </div>
       <div>
         <label class="f">Medium <span style="color:var(--bad)">*</span>{{ help_dot('utm.form.medium') if help_dot is defined else '' }}
           <a class="manage" data-manage="utm_medium">edit list</a></label>
         <div class="picks" id="mediumPicks"></div>
-        <input type="text" id="mediumCustom" placeholder="or type one…" style="margin-top:8px">
+        <input type="text" id="mediumCustom" name="utm_medium" placeholder="or type one…" style="margin-top:8px">
       </div>
     </div>
     <div class="hint">Pick several of each to build every combination at once &mdash; one campaign across
@@ -170,9 +170,9 @@
   <!-- ---------- Result ---------- -->
   <div class="card" id="resultCard" style="display:none">
     <h2><span class="n">4</span> Built links <span class="msg" id="builtCount"></span></h2>
-    <div id="builtList"></div>
+    <div id="builtList" data-demo="utm-preview"></div>
     <div style="margin-top:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button class="btn" id="saveAll">Save to this client</button>
+      <button class="btn" id="saveAll" data-demo="utm-save">Save to this client</button>
       <button class="btn sec" id="copyAll">Copy all</button>
       <span class="msg" id="saveMsg"></span>
     </div>

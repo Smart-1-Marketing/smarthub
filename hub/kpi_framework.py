@@ -83,6 +83,33 @@ _ALWAYS = ("Cost per lead", "Lead-to-close rate, reported in the Smart 1 Suite")
 MAX_METRICS = 10
 
 
+def choices() -> dict:
+    """The KPI choices the Measurement step offers, so picking one is a press
+    rather than a thing somebody has to type into a box.
+
+    Derived from BENCHMARKS — the IO builder's own table, the one this module
+    transcribes — rather than typed out again: a second list of what a KPI can
+    be is exactly the drift the mirror test exists to stop, and a choice list
+    that disagreed with the framework judging it would offer a KPI the order
+    is not measured on. Each choice carries the expected range beside it,
+    because "Video Completion Rate — 95%–99%" is a choice somebody can make
+    and a bare label is not.
+
+    `always` is what every campaign reports whatever is picked — the Suite
+    metrics `success_metrics()` appends unconditionally. Carried so a screen
+    can *say* so rather than offering them as choices, since a choice that is
+    reported either way is not a choice.
+    """
+    seen, catalog = set(), []
+    for _pattern, kpi, expected in BENCHMARKS:
+        key = kpi.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        catalog.append({"kpi": kpi, "expected": expected})
+    return {"catalog": catalog, "always": list(_ALWAYS)}
+
+
 def benchmark_for(category: str = "", product: str = "") -> dict:
     """What one product is measured on, and what a normal result looks like."""
     subject = f"{category or ''} {product or ''}".lower()

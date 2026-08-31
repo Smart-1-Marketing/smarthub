@@ -764,6 +764,19 @@ def api_config():
         # so a hand-typed copy in this template is a silent dropped line the
         # day either end is edited.
         "consulting": consulting_spec(),
+        # The cover's industry-trends block, served rather than mirrored: the
+        # PDF and the Word export read hub_spec.industry_trends() directly,
+        # and the preview reads this -- one table, three renderers.
+        "industry_trends": {"note": hub_spec.TRENDS_NOTE,
+                            "general": hub_spec.GENERAL_TRENDS,
+                            "industries": hub_spec.INDUSTRY_TRENDS},
+        # The KPI choices the Measurement step offers — the IO builder's own
+        # benchmark table, served for the same reason the sizes above are:
+        # the per-product half already reaches the page as kpi_framework.rows
+        # on the quote payload, and this is the static half, so a fresh quote
+        # with no goals and no plan still gets a full choice list rather than
+        # an empty pill row over an "Add a KPI…" box.
+        "kpi_choices": hub_kpi.choices(),
     })
 
 
@@ -1180,6 +1193,62 @@ GOLD = rl_colors.HexColor("#e5a323")
 LINE = rl_colors.HexColor("#d5dee9")
 SOFT = rl_colors.HexColor("#eef3f8")
 MUTED = rl_colors.HexColor("#53657a")
+GOLD = rl_colors.HexColor("#e5a323")
+
+
+def _sec_header(title: str, number: int, st_h2) -> list:
+    """A numbered section header: gold number chip, navy title, ruled under.
+
+    Every section used to open with a bare bold line, which on a
+    fourteen-section document made the Executive Summary and the ZIP appendix
+    read with identical weight. The number is computed over the ENABLED
+    sections at build time rather than stored, so hiding a section renumbers
+    the ones after it — a stored number would say "07" on the fifth heading
+    the day somebody hid two sections, on a document a client reads. The
+    preview draws the same treatment from the same rule
+    (test_proposal_spec.py holds the two together).
+    """
+    chip = ParagraphStyle("secno", parent=st_h2, alignment=TA_CENTER,
+                          textColor=rl_colors.white, spaceBefore=0, spaceAfter=0)
+    ttl = ParagraphStyle("sect", parent=st_h2, spaceBefore=0, spaceAfter=0)
+    t = Table([[Paragraph(f"<b>{number:02d}</b>", chip),
+                Paragraph(f"<b>{xml_escape(title)}</b>", ttl)]],
+              colWidths=[0.42 * inch, 6.98 * inch])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), GOLD),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.9, LINE),
+        ("LEFTPADDING", (1, 0), (1, 0), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
+    space_before = getattr(st_h2, "spaceBefore", 12) or 12
+    space_after = getattr(st_h2, "spaceAfter", 5) or 5
+    return [Spacer(1, space_before), t, Spacer(1, space_after)]
+
+
+def _trends_flowables(state, st_body, st_small) -> list:
+    """The cover's standing block: what is moving in this client's category,
+    how Smart 1 answers it, and how budgets like this are usually crafted.
+
+    Read from `hub_spec.industry_trends()` — a table, never a model call,
+    because this is the first thing a client reads (the reasoning is on the
+    table itself). Always present: an unknown industry gets the general
+    entry rather than a hole on the first page.
+    """
+    t = hub_spec.industry_trends(state.get("industry"))
+    lead = ParagraphStyle("trlead", parent=st_body, textColor=NAVY,
+                          spaceBefore=6, spaceAfter=2)
+    out = [Paragraph(f"<b>What is happening in "
+                     f"{xml_escape(t['industry'] if t['matched'] else 'digital marketing')}</b>",
+                     lead)]
+    for line in t["trends"]:
+        out += _body_flowables("• " + line, st_body)
+    out.append(Paragraph("<b>How Smart 1 helps</b>", lead))
+    out.append(Paragraph(xml_escape(t["help"]), st_body))
+    out.append(Paragraph("<b>How budgets like this are usually crafted</b>", lead))
+    out.append(Paragraph(xml_escape(t["budget"]), st_body))
+    out.append(Paragraph(xml_escape(t["note"]), st_small))
+    return out
 
 
 # The one tag generated copy is allowed to carry. `clean_ai_text` normalises
@@ -1288,8 +1357,59 @@ MAP_MAX_W = 7.4 * inch
 MAP_MAX_H = 4.3 * inch
 
 
-def _map_flowables(png: bytes, meta: dict, small_style) -> list:
-    """The map, sized to the text column, with what it leaves out named.
+# The map's share of the row when the ZIP column sits beside it: two thirds,
+# with the targeted ZIPs in the remaining third. Bounded per area and in
+# total, because a reportlab table row does not split across pages -- an
+# unbounded DMA list beside the picture is the one flowable the frame cannot
+# place, and it takes the whole PDF with it. The full list still prints in
+# ZIP Codes Targeted, which is what the truncation note points at.
+MAP_ZIP_W = 4.85 * inch
+ZIP_COL_W = 2.45 * inch
+ZIP_COL_PER_AREA = 24
+ZIP_COL_MAX_AREAS = 4
+
+
+def _zip_column_rows(state) -> list:
+    """(label, zips) per complete area, for the column beside the map."""
+    rows = []
+    for area in campaign_areas(state):
+        zips = hub_areas.zip_list(area.get("zips"))
+        if zips:
+            rows.append((hub_areas.label(area), zips))
+    return rows
+
+
+def _zip_column_flowables(zip_rows, small_style) -> list:
+    """The 1/3 column: which ZIPs the campaign targets, per area, bounded."""
+    lead = ParagraphStyle("zc", parent=small_style, textColor=NAVY)
+    out = [Paragraph("<b>ZIP Codes targeted</b>", lead)]
+    for label, zips in zip_rows[:ZIP_COL_MAX_AREAS]:
+        shown = ", ".join(zips[:ZIP_COL_PER_AREA])
+        more = len(zips) - ZIP_COL_PER_AREA
+        out.append(Paragraph(
+            f"<b>{xml_escape(label)}</b> · {len(zips)} ZIP "
+            f"Code{'' if len(zips) == 1 else 's'}<br/>{xml_escape(shown)}"
+            + (f" <i>+{more} more</i>" if more > 0 else ""), small_style))
+    left_out = len(zip_rows) - ZIP_COL_MAX_AREAS
+    if left_out > 0:
+        out.append(Paragraph(f"<i>+{left_out} more area"
+                             f"{'' if left_out == 1 else 's'}</i>", small_style))
+    if left_out > 0 or any(len(z) > ZIP_COL_PER_AREA for _, z in zip_rows):
+        out.append(Paragraph("The complete list is in ZIP Codes Targeted, at "
+                             "the back of this proposal.", small_style))
+    return out
+
+
+def _map_flowables(png: bytes, meta: dict, small_style, zip_rows=None) -> list:
+    """The map at two thirds of the row, the targeted ZIPs in the third
+    beside it, and what the picture leaves out named underneath.
+
+    The ZIP column exists because the picture and the list answer the same
+    question at two zoom levels -- where the campaign runs, and exactly which
+    ZIPs that means -- and a client reads them together. A campaign with no
+    ZIPs anywhere (a DMA, a state, a national buy) gets the full-width map it
+    always had: a two-thirds picture beside an empty column is a layout
+    holding space for nothing.
 
     The caveat line is deliberately short and factual. It exists because a
     map showing two rings on a campaign that also covers a whole DMA is a
@@ -1312,10 +1432,25 @@ def _map_flowables(png: bytes, meta: dict, small_style) -> list:
     # a flowable the page frame cannot place at all. `target_map` keeps the
     # crop landscape now and this is the guarantee at the other end, because a
     # map that cannot be placed takes the whole PDF with it.
-    scale = min(MAP_MAX_W / max(1, width), MAP_MAX_H / max(1, height))
+    zip_rows = zip_rows or []
+    max_w = MAP_ZIP_W if zip_rows else MAP_MAX_W
+    scale = min(max_w / max(1, width), MAP_MAX_H / max(1, height))
     image = RLImage(BytesIO(png), width=width * scale, height=height * scale)
     image.hAlign = "CENTER"
-    block = [image]
+    if zip_rows:
+        row = Table([[image, _zip_column_flowables(zip_rows, small_style)]],
+                    colWidths=[MAP_ZIP_W + 0.1 * inch, ZIP_COL_W])
+        row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BACKGROUND", (1, 0), (1, 0), SOFT),
+            ("LEFTPADDING", (1, 0), (1, 0), 8),
+            ("RIGHTPADDING", (1, 0), (1, 0), 8),
+            ("TOPPADDING", (1, 0), (1, 0), 6),
+            ("BOTTOMPADDING", (1, 0), (1, 0), 6),
+            ("LEFTPADDING", (0, 0), (0, 0), 0)]))
+        block = [row]
+    else:
+        block = [image]
     covered = [row["label"] for row in meta.get("not_plotted") or []
                if row.get("kind") in hub_map.NOT_DRAWN]
     if covered:
@@ -1575,6 +1710,35 @@ def investment_lines(state, q):
                       # is a discount nobody can renew.
                       "listed": float(listed.get("monthly") or 0),
                       "adjusted": abs(quoted - float(listed.get("monthly") or 0)) > 0.001})
+    # Consulting & Strategy rides beside the licence, never inside it: it is
+    # Smart 1's time working the Suite products with the client every month,
+    # priced from the hours the wizard estimated and editable by the rep. Like
+    # the Suite it is recurring platform work rather than media, so pausing
+    # the campaign does not stop it -- which is exactly why it is its own
+    # line. The hours ride into the label so the client can see what the
+    # figure is made of.
+    consulting = state.get("consulting") or {}
+    if consulting.get("include"):
+        try:
+            c_listed = float(consulting.get("listed") or 0)
+        except (TypeError, ValueError):
+            c_listed = 0.0
+        try:
+            c_amount = float(consulting["monthly"]) \
+                if consulting.get("monthly") is not None else c_listed
+        except (TypeError, ValueError):
+            c_amount = c_listed
+        try:
+            c_hours = float(consulting.get("hours") or 0)
+        except (TypeError, ValueError):
+            c_hours = 0.0
+        label = "Consulting & Strategy — monthly Suite coaching and campaign strategy"
+        if c_hours > 0:
+            label += f" (~{c_hours:g} hrs/mo)"
+        lines.append({"label": label, "amount": c_amount,
+                      "recurs": "Monthly", "kind": "consulting",
+                      "listed": c_listed,
+                      "adjusted": abs(c_amount - c_listed) > 0.001})
     lines.append({"label": "Campaign media & services",
                   "amount": round(monthly_media, 2),
                   "recurs": "Monthly", "kind": "media"})
@@ -1610,14 +1774,25 @@ def investment_lines(state, q):
     plan_one_time = sum(r["amount"] for r in cost["one_time_lines"])
     campaign_media = (cost["campaign"] if cost["has_plan"]
                       else monthly_media * months)
-    suite_monthly = sum(l["amount"] for l in lines
-                        if l["recurs"] == "Monthly" and l["kind"] == "saas")
-    campaign_total = (campaign_media + suite_monthly * months
+    # The licence and the consulting retainer both recur for the whole term,
+    # so both multiply by months the way the licence always has -- one bucket,
+    # or the campaign total quietly stops covering the newer of the two lines.
+    platform_monthly = sum(l["amount"] for l in lines
+                           if l["recurs"] == "Monthly"
+                           and l["kind"] in ("saas", "consulting"))
+    campaign_total = (campaign_media + platform_monthly * months
                       + (one_time - plan_one_time))
     return {"lines": lines, "recurring_monthly": round(recurring, 2),
             "one_time": round(one_time, 2),
             "first_month": round(recurring + one_time, 2),
             "campaign_total": round(campaign_total, 2),
+            # What the total-campaign row says it includes. Computed here and
+            # read by the PDF, the preview and the review screen alike --
+            # "including licensing" over a total that also carries consulting
+            # is a label understating the number directly beside it.
+            "includes": ("licensing & consulting"
+                         if any(l["kind"] == "consulting" for l in lines)
+                         else "licensing"),
             "months": months}
 
 
@@ -1813,13 +1988,21 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
     story += [t]
 
     # Sections (editable in the builder; sensible defaults if absent)
+    sec_no = 0
     for sec in state.get("sections") or []:
         if not sec.get("enabled", True):
             continue
-        story.append(Paragraph(xml_escape(sec.get("title") or ""), st_h2))
+        sec_no += 1
+        story += _sec_header(sec.get("title") or "", sec_no, st_h2)
         if sec.get("body"):
             story += _body_flowables(sec.get("body"), st_body)
         kind = sec.get("kind")
+        # The cover always carries the industry-trends block -- what is moving
+        # in this category, how Smart 1 answers it, and how budgets like this
+        # are usually crafted. Standing content, not a table a rep can
+        # exclude: it is the reason the rest of the document exists.
+        if kind == "cover":
+            story += _trends_flowables(state, st_body, st_small)
         # Excluded or hand-edited, decided once. A branch per kind is how the
         # setting comes to be honoured by eleven of the twelve.
         table_plan = section_table(sec)
@@ -1848,7 +2031,8 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
             # which is why the picture never stands alone.
             png, map_meta = campaign_map(state)
             if png:
-                story += _map_flowables(png, map_meta, st_small)
+                story += _map_flowables(png, map_meta, st_small,
+                                        zip_rows=_zip_column_rows(state))
             if areas:
                 rows = [["Target area", "Coverage", "Est. population"]]
                 for area in areas:
@@ -1970,7 +2154,8 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
             rows.append(["Total first month", _money(invest["first_month"]), ""])
             # Named as including the licence, because the cover and the media
             # plan both print a campaign total that deliberately does not.
-            rows.append([f"Total campaign ({q.months} mo, including licensing)",
+            rows.append([f"Total campaign ({q.months} mo, including "
+                         f"{invest.get('includes') or 'licensing'})",
                          _money(invest["campaign_total"]), ""])
             it = Table(rows, colWidths=[4.2 * inch, 1.6 * inch, 1.6 * inch], repeatRows=1)
             style = _head_style_rows()
@@ -2281,15 +2466,29 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
         row[1].text = str(val or "")
         row[0].paragraphs[0].runs[0].font.bold = True
 
+    sec_no = 0
     for sec in state.get("sections") or []:
         if not sec.get("enabled", True):
             continue
-        h = d.add_heading(sec.get("title") or "", level=2)
+        # Numbered the way the PDF numbers them -- over the enabled sections,
+        # at build time -- so the Word copy and the PDF of one proposal do
+        # not disagree about which section is 07.
+        sec_no += 1
+        h = d.add_heading(f"{sec_no:02d}  {sec.get('title') or ''}", level=2)
         for run in h.runs:
             run.font.color.rgb = NAVY_D
         if sec.get("body"):
             _docx_body(d, sec.get("body"))
         kind = sec.get("kind")
+        if kind == "cover":
+            # The same standing trends block the PDF carries on the cover.
+            t = hub_spec.industry_trends(state.get("industry"))
+            _docx_body(d, "What is happening in "
+                       + (t["industry"] if t["matched"] else "digital marketing")
+                       + "\n" + "\n".join("• " + line for line in t["trends"])
+                       + "\nHow Smart 1 helps\n" + t["help"]
+                       + "\nHow budgets like this are usually crafted\n"
+                       + t["budget"] + "\n" + t["note"])
         if kind == "areas":
             png, map_meta = campaign_map(state)
             if png:
@@ -3635,6 +3834,22 @@ def api_find_targets():
                                               "return national brands."}), 400
     kinds = [k for k in (body.get("kinds") or ["competitor", "venue", "place"])
              if k in hub_areas.PLACE_KINDS] or list(hub_areas.PLACE_KINDS)
+    # The two searches the wizard offers are different questions, and the
+    # prompt says which is being asked -- the same statement the button shows
+    # the rep before they press it, so what the model is told and what the
+    # person was promised cannot drift apart.
+    focus = ""
+    if kinds == ["competitor"]:
+        focus = ("Focus: COMPETITORS ONLY. Name companies relevant to this "
+                 "client's industry and services -- businesses competing for "
+                 "the same customers -- inside the target areas given. Do not "
+                 "list venues or general places of interest.\n")
+    elif "competitor" not in kinds:
+        focus = ("Focus: PLACES ONLY. Name locations whose visitors would be "
+                 "a good target audience for this client to reach -- venues, "
+                 "campuses, employers, retail parks and event sites where "
+                 "their customers already gather -- inside the target areas "
+                 "given. Do not list competitor businesses.\n")
     already = [str((r or {}).get("name") or "").strip()
                for r in (body.get("existing") or []) if isinstance(r, dict)]
     prompt = (
@@ -3655,8 +3870,8 @@ def api_find_targets():
         "competitor = a business that takes this client's customers. "
         "venue = somewhere their customers gather (a stadium, an arena, an "
         "expo center, a campus). place = any other location worth fencing (a "
-        "retail park, a hospital, an employer, an event site).\n\n"
-        + FIND_TARGETS_RULES)
+        "retail park, a hospital, an employer, an event site).\n"
+        + focus + "\n" + FIND_TARGETS_RULES)
     try:
         raw = _json_from_ai(_openai_response(prompt, 6000))
     except Exception as exc:                            # noqa: BLE001

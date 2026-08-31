@@ -160,7 +160,7 @@ table.wm-t tfoot td{background:#f8fafc;font-weight:800;border-top:2px solid #e2e
     }
     if (r.err) {
       return '<td colspan="5" class="wm-err">' + esc(r.err)
-        + (r.needs_reauth ? ' <a href="/google/login">Reconnect Google</a>' : '') + '</td>';
+        + (r.needs_reauth ? ' <a href="/google/login" target="_blank" rel="noopener">Reconnect Google</a>' : '') + '</td>';
     }
     if (!r.data) {
       return '<td colspan="5" class="wm-pending">Pulling from Google Analytics…</td>';
