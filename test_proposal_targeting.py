@@ -601,6 +601,42 @@ check("a campaign with no KPI says so rather than printing an empty framework",
       kpi.framework({})["measured"] is False and "Measurement step"
       in kpi.framework({})["note"])
 
+# The Measurement step offers choices rather than a text box, and the choices
+# are this same table — choices() derives them from BENCHMARKS rather than
+# keeping a second list of what a KPI can be, which is the drift the mirror
+# checks above exist to stop.
+_choices = kpi.choices()
+check("every distinct KPI in the benchmark table is offered as a choice",
+      [c["kpi"] for c in _choices["catalogue"]]
+      == list(dict.fromkeys(k for _, k, _ in kpi.BENCHMARKS)),
+      _choices["catalogue"])
+check("each choice carries the range it would be judged against",
+      all(c["expected"] for c in _choices["catalogue"]),
+      _choices["catalogue"])
+check("the always-reported Suite metrics are carried apart, never as choices",
+      _choices["always"] == kpi.success_metrics({})
+      and not any(c["kpi"] in _choices["always"]
+                  for c in _choices["catalogue"]),
+      _choices)
+_cfg = api("get", "/sales/builder/api/config")
+check("the page is handed the choices on /api/config, never a restated copy",
+      (_cfg or {}).get("kpi_choices") == _choices, (_cfg or {}).keys())
+
+_SB_TEMPLATE = open(os.path.join(ROOT, "modules", "sales_builder",
+                                 "templates", "index.html"),
+                    encoding="utf-8").read()
+check("the Measurement step draws its choices from the served table",
+      "CFG.kpi_choices" in _SB_TEMPLATE and "kpiChoiceGroups" in _SB_TEMPLATE)
+check("and the plan-derived group reads the server's own framework rows",
+      "kpiPlan()" in _SB_TEMPLATE.split("function kpiChoiceGroups()", 1)[1]
+      .split("return groups;", 1)[0])
+# Matched as a call, because the template's own comment names benchmarkFor to
+# explain why there is no copy of it — and prose is not a call site.
+check("without the proposal builder growing a benchmarkFor mirror of its own",
+      "benchmarkFor(" not in _SB_TEMPLATE)
+check("a KPI typed by hand still renders as a selected pill",
+      "Added by hand" in _SB_TEMPLATE)
+
 # ---------------------------------------------------------------------------
 section("researching who to target")
 # ---------------------------------------------------------------------------
