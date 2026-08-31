@@ -10089,6 +10089,10 @@ python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
                                    #   they are, and the acknowledgment before filing
+python3 test_commercial_mock.py    # the mark that says a provider is not live:
+                                   #   named where the work is rather than as a chip
+                                   #   on another screen, only for routes that really
+                                   #   report it, and never on the client's page
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
                                    #   three answers, the strictest one wins, a
                                    #   refusal that stops a delivery, and the
