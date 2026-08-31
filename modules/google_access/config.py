@@ -69,7 +69,47 @@ GOOGLE_CLIENT_SECRET = _env("GOOGLE_ACCESS_CLIENT_SECRET") or HUB_CLIENT_SECRET
 
 # Public base URL of the Hub, used to build the OAuth redirect URI.
 # Must exactly match an Authorized redirect URI in the Google Cloud console.
-PUBLIC_BASE_URL = _env("PUBLIC_BASE_URL").rstrip("/")
+#
+# The ORIGIN, through hub.config, which is the same reading
+# hub/oauth_redirects.py applies when it prints which URI to register. With
+# only a trailing slash removed, a PUBLIC_BASE_URL carrying a path built
+# `<base>/tools/ads/oauth/callback/connect/callback` while the panel printed
+# `<origin>/connect/callback` -- and the comment twelve lines above this one
+# already says what that costs: "A missing redirect URI is a
+# redirect_uri_mismatch in front of the customer, not a log line." This is the
+# one of the six flows the panel itself marks client-facing.
+# Read at CALL time, not bound at import: this is the one variable somebody
+# corrects mid-incident after the diagnostics panel names it, and a module-level
+# snapshot would need a redeploy to take effect. `PUBLIC_BASE_URL` stays as a
+# name because `status()` and the admin page read it, but it is a property of
+# the module rather than a value frozen at import.
+def _public_base_url() -> str:
+    try:
+        from hub.config import public_base_origin
+        return public_base_origin()
+    except Exception:                                 # noqa: BLE001
+        from urllib.parse import urlsplit
+        raw = _env("PUBLIC_BASE_URL").rstrip("/")
+        if not raw:
+            return ""
+        p = urlsplit(raw if "://" in raw else "https://" + raw)
+        return f"{p.scheme}://{p.netloc}" if p.netloc else raw
+
+
+def __getattr__(name: str):
+    """`config.PUBLIC_BASE_URL` resolves when it is read, not at import.
+
+    A module-level __getattr__ rather than five edited call sites, for the
+    reason hub/blueprint_guard.py sits on the blueprint rather than on forty
+    views: the sixth reader added next month is right by default instead of
+    having to remember. Two of the five build the link a CLIENT is emailed to
+    grant us access, so a path carried into them is a 404 in front of a
+    customer -- the failure this file's own comment about redirect_uri_mismatch
+    already describes, one URL along.
+    """
+    if name == "PUBLIC_BASE_URL":
+        return _public_base_url()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # --- Who we add ------------------------------------------------------------
 # The agency Google account that gets added to each client property.
@@ -188,7 +228,9 @@ def scopes_for(service_keys):
 def redirect_uri():
     # Lives on the public blueprint, not under /tools, so the Hub's AuthGuard
     # never intercepts Google's redirect and bounces the client to a login.
-    return f"{PUBLIC_BASE_URL}/connect/callback"
+    # _public_base_url(), not the bare name: a module __getattr__ covers
+    # readers OUTSIDE the module and not a global lookup inside it.
+    return f"{_public_base_url()}/connect/callback"
 
 
 def oauth_client_source():
@@ -212,7 +254,7 @@ def configured():
         missing.append("GOOGLE_ACCESS_CLIENT_ID")
     if not GOOGLE_CLIENT_SECRET:
         missing.append("GOOGLE_ACCESS_CLIENT_SECRET")
-    if not PUBLIC_BASE_URL:
+    if not _public_base_url():
         missing.append("PUBLIC_BASE_URL")
     if not AGENCY_EMAIL:
         missing.append("GOOGLE_ACCESS_AGENCY_EMAIL")

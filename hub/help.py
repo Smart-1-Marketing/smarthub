@@ -776,6 +776,28 @@ REGISTRY: list[Help] = [
        "slightly different name.",
        step=1, selector="[data-tour='seo-list']"),
 
+    # The webmaster dashboard had no bubble and no tour on it at all: 450
+    # lines of sortable table whose every number is drawn from a fetch, and
+    # three different reasons a cell can be blank. The three below are the
+    # questions the page cannot answer about itself.
+    _h("hub.webmaster.roster", "Who is on this list",
+       "Every client with a live SEO product, the same roster the SEO client "
+       "list is built from \u2014 so a client missing here is missing there "
+       "too, and the cause is the product, not this page.",
+       step=1, selector="[data-tour='wm-roster']"),
+    _h("hub.webmaster.property", "Why a row has no numbers",
+       "Traffic comes from the Analytics property attached to that client. "
+       "No property attached, Google refused the read, and still fetching are "
+       "three different blanks and the row says which \u2014 none of them "
+       "means the client had no visitors.",
+       step=2, selector="[data-tour='wm-numbers']"),
+    _h("hub.webmaster.attach", "Attaching a property",
+       "Attaching here records it against the client, so the next sweep and "
+       "Client 360 both see it. A property that disagrees with the one on "
+       "the website record is left alone rather than overwritten \u2014 that "
+       "disagreement is the finding.",
+       step=3, selector="[data-tour='wm-attach']"),
+
     # ---------------- Creative ----------------
     _h("hub.creative.pick", "Which of these you want",
        "Image Creator is the full editor for making something new. Client "
@@ -1297,6 +1319,102 @@ REGISTRY: list[Help] = [
        "waiting, nothing yet sent, and a table that could not be read are "
        "three different situations and only two of them mean there is "
        "nothing to do."),
+
+    # ---------------- Google Finder ----------------
+    # Six tiles on /tools and not one of them had any explanation behind it,
+    # which hub/help_coverage.py reports as half the tool book. The screens
+    # here are unusual in one way worth saying out loud on each of them: what
+    # they show is the *stored index* the scheduler sweeps every three hours,
+    # not a live read of Google -- so an empty platform is as likely to mean
+    # "that token was refused" as "there is nothing there", and the sweep's
+    # own per-platform note is the only thing that tells them apart.
+    _h("google_finder.overview", "What this is a list of",
+       "Every GA4 property, Tag Manager container, Search Console site and "
+       "Business Profile that any connected Google login can see, swept into "
+       "one index and joined to a client where we can work out whose it is. "
+       "It is the stored sweep rather than a live read, so it is up to three "
+       "hours old and Refresh forces it. Read the per-platform note before "
+       "you read a count: a login whose token was refused shows the same "
+       "empty list as one that genuinely owns nothing, and only the note "
+       "separates them. Resources this could not put a name to are not lost "
+       "— they are the orphan list on Match Google Accounts, which is "
+       "where you say whose they are.",
+       link="/tools/google-match", link_text="Match Google Accounts"),
+    _h("google_finder.ga4", "Comparing two periods, and what the AI adds",
+       "Runs one GA4 property over a chosen period against a comparison "
+       "period and writes the read-out. The filters narrow what is being "
+       "compared before the model sees it — a source/medium or a page "
+       "path filter changes the numbers themselves, not just the wording, so "
+       "set those first. The persona and sentiment presets change only how "
+       "the finding is phrased, never the figures underneath it. What comes "
+       "back is a draft for somebody who knows the account: it explains the "
+       "movement in the data it was given and cannot know about the sale, "
+       "the outage or the campaign that caused it."),
+    _h("google_finder.gtm", "Deploying a pixel into somebody's container",
+       "Finds the Tag Manager containers a login can reach and writes a tag "
+       "into one of them. It lands in the container's workspace, not "
+       "live — publishing is still a deliberate press inside Tag "
+       "Manager, which is what keeps a wrong paste off a client's site. "
+       "Check the account and container are the ones you mean before you "
+       "deploy: containers are routinely named after the agency that built "
+       "them rather than the business, which is the same trap that used to "
+       "file thirty-seven franchises under their media partner. Tag Manager "
+       "rate-limits harder than the other platforms, so a sweep here paces "
+       "itself and an account that was throttled carries its previous "
+       "reading rather than reporting nothing."),
+    _h("google_finder.search_console", "Adding domains and sitemaps in bulk",
+       "Takes a list of domains and their sitemaps and registers them "
+       "against one Google account in Search Console, one per line, instead "
+       "of a dozen trips through their UI. It is the same verification "
+       "Google would ask for either way — a domain the account cannot "
+       "already prove it owns will be refused by Google, and that refusal is "
+       "reported per line rather than failing the batch. Nothing here "
+       "removes a property."),
+    _h("google_finder.business_profile", "Why this one is often switched off",
+       "Generates the links that send a client straight to the review or "
+       "listing action you want them to take, rather than to the profile and "
+       "a hunt. The Business Profile APIs need per-project access granted by "
+       "Google on top of the ordinary OAuth scope, so this platform sits "
+       "behind its own switch and reads as *not asked* rather than *empty* "
+       "when it is off — those are different answers, and only one of "
+       "them is something to chase."),
+    _h("google_finder.history", "What was asked, and what was written",
+       "Two different records, searchable side by side: the audit log of "
+       "what this tool actually did — every sweep, deployment and "
+       "attachment, with who and when — and the reports somebody saved "
+       "out of GA4 Tools. Come here when a property changed hands, a tag "
+       "appeared that nobody remembers deploying, or you want the read-out "
+       "from last quarter without running the comparison again and getting "
+       "slightly different numbers."),
+
+    # ---------------- Media calculators ----------------
+    # Five tiles on /tools with nothing behind them. The fact worth putting on
+    # the screen is the one thing true of all of them and stated on none: the
+    # staff copy and the copy a prospect opens are the same fields and the same
+    # catalog.run(), differing only in whether the plan is withheld until a
+    # contact is captured. They look almost identical and are one URL apart,
+    # which is exactly how a rep ends up filing a live client as a fresh lead.
+    _h("calculators.index", "What these are, and where else they run",
+       "Media calculators that size a buy from a budget and a market \u2014 "
+       "reach, frequency and delivery, at the rates we actually sell at. Each "
+       "one runs in three places off this same code: the staff page here, a "
+       "public link an ad can point at, and framed inside a page on "
+       "smart1marketing.com. There is one implementation of the arithmetic, "
+       "so the three cannot quote a client different numbers; what differs is "
+       "only whether the plan is shown straight away or held back until "
+       "somebody has left their details."),
+    _h("calculators.internal", "This is the staff copy, and it captures nothing",
+       "Same fields and the same arithmetic as the version a prospect opens, "
+       "with the whole plan returned in one go rather than held back behind a "
+       "name, an email and a phone number. Nothing here is stored: no "
+       "estimate, no contact, and nothing sent to Smart 1 Suite. That is the "
+       "point of it \u2014 sizing a buy for a client of eleven years' standing "
+       "through the public form meant typing some contact into it, and "
+       "whatever got typed landed in the leads panel reading exactly like a "
+       "live prospect. The client-facing copy is one URL away and looks "
+       "almost identical, so check which one you are on before you send a "
+       "link: this page is behind the staff login and a prospect cannot open "
+       "it."),
 
 ]
 
