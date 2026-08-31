@@ -93,6 +93,18 @@ TRIAGED = {
         "guards": ("login_required", "require_csrf()"),
         "guard_exempt": {"login"},
     },
+    "seo_images": {
+        "path": "modules/seo_images/app.py",
+        # Its wrapper is called `_log`, which is why this module is here: the
+        # walk hard-coded `_audit` and `log`, so a module recording five of
+        # its seven writes read as recording none. A check that invents
+        # findings is switched off faster than one that misses them.
+        "must_log": ["api_finalize", "api_save_one", "api_gallery_update",
+                     "api_add_house_client", "api_delete_house_client"],
+        "after_provider": {},
+        "guards": (),
+        "guard_exempt": set(),
+    },
     "google_finder": {
         "path": "modules/google_finder/app.py",
         "must_log": ["disconnect", "gtm_deploy_event",
@@ -123,8 +135,12 @@ check("the walk is shared rather than copied per module",
 for name, walk in WALKS.items():
     # Finding no routes is a failure, not a clean sweep: a walk that quietly
     # stops walking reports a clean bill of health about nothing.
+    # Finding no routes is a failure, not a clean sweep -- but the floor is a
+    # handful rather than a big number: seo_images has seven writes and a
+    # threshold set from the largest module would have excused an empty walk
+    # over a small one.
     check(f"{name}: the write routes were found",
-          len(walk["logs"]) + len(walk["silent"]) > 8, True)
+          len(walk["logs"]) + len(walk["silent"]) >= 5, True)
     check(f"{name}: and its declaration was read", len(walk["declared"]) > 0, True)
 
 
@@ -237,6 +253,29 @@ _PROSE = _SILENT.replace("    client.rename",
 check("a docstring naming _audit does not count as calling it",
       "rename_project" in audit.write_route_attribution(_PROSE)["silent"])
 
+# A wrapper is resolved from its DEFINITION, not guessed from its name.
+# `_audit` and `log` were hard-coded, and modules/seo_images calls its wrapper
+# `_log` -- so a module recording five of its seven writes read as recording
+# none. A check that invents findings is switched off faster than one that
+# misses them, which is the note QR_CODE_RULES already makes.
+_ODDLY_NAMED = """
+from hub import audit as hub_audit
+
+def _log(event, **extra):
+    hub_audit.log("mod", event, **extra)
+
+@app.post("/rename")
+def rename_project(pid):
+    client.rename(pid)
+    _log("renamed", project=pid)
+    return "ok"
+"""
+check("a wrapper called something else is still a call",
+      "rename_project" in audit.write_route_attribution(_ODDLY_NAMED)["logs"])
+_UNWRAPPED = _ODDLY_NAMED.replace('    _log("renamed", project=pid)\n', "")
+check("and without it the same route is named",
+      "rename_project" in audit.write_route_attribution(_UNWRAPPED)["silent"])
+
 # A module's own log() wrapper is a call -- the shape radio_promo and
 # landing_ads use, which check_work_kinds() had to learn to resolve.
 _WRAPPED = _SILENT.replace('    client.rename(pid, request.form.get("name"))',
@@ -252,18 +291,17 @@ section("Both modules still log under a name the client record can place")
 from hub import client_brand                                        # noqa: E402
 
 for name in TRIAGED:
-    check(f"{name} binds the shared logger",
-          f'for_module("{name}")' in SOURCES[name])
-    # Only a module that files a row *against a client* has to be a name the
-    # record can place -- that is what check_work_kinds() asks. Google Finder
-    # records a google_login and never a client, so it is outside that
-    # question rather than missing from it, and asserting otherwise would be
-    # inventing a rule this Hub does not have.
-    files_client_work = "client=" in SOURCES[name]
-    if files_client_work:
-        check(f"  and {name} is a name the client record can place",
-              name in client_brand.WORK_KINDS
-              or name in getattr(client_brand, "NOT_WORK", {}))
+    # Two spellings, both correct: a bound logger, or the shared one called
+    # with the module name. Asserting only the first is the kind of narrowness
+    # that made the walk miss `_log` in the first place.
+    src = SOURCES[name]
+    check(f"{name} reaches the shared log under its own name",
+          f'for_module("{name}")' in src or f'log("{name}"' in src)
+    # A module that is already a name the client record can place must stay
+    # one. Whether a module *should* file client work is not this file's
+    # question -- check_work_kinds() asks that, from the call sites.
+    if name in client_brand.WORK_KINDS or name in getattr(client_brand, "NOT_WORK", {}):
+        check(f"  and {name} is still a name the client record can place", True)
     else:
         check(f"  {name} files no client work, so it needs no entry",
               name not in client_brand.WORK_KINDS)
