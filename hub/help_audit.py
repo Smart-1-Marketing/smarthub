@@ -203,6 +203,11 @@ def check_dead_bubbles(root: str | None = None) -> list[dict]:
 _SEL_ID = re.compile(r"#([A-Za-z0-9_-]+)")
 _SEL_DATA = re.compile(r"""\[data-demo=["']([^"']+)["']\]""")
 _SEL_NAME = re.compile(r"""\[name=["']([^"']+)["']\]""")
+# A tour step is anchored by `data-tour`, and a walkthrough step may be too --
+# `hub/help.py`'s steps use it and seven of Smart 1 Ads' driving steps name one.
+# Left out, 39 anchors in this repo were tested by nothing: renaming one out
+# from under the step that drives it changed no count anywhere.
+_SEL_TOUR = re.compile(r"""\[data-tour=["']([^"']+)["']\]""")
 
 # A hook can be **derived** rather than typed, exactly as a help key can. The
 # QA index writes `data-demo="qa-report-{{ key }}"` once for every report it
@@ -239,6 +244,8 @@ def _needs(selector: str) -> list[tuple[str, str]]:
         out.append(("data-demo", m.group(1)))
     for m in _SEL_NAME.finditer(selector or ""):
         out.append(("name", m.group(1)))
+    for m in _SEL_TOUR.finditer(selector or ""):
+        out.append(("data-tour", m.group(1)))
     return out
 
 
@@ -281,15 +288,29 @@ def demo_targets(root: str | None = None) -> dict:
     # first was actually verified.
     on_prefix: set = set()
 
-    rows, steps, missing = [], 0, 0
+    rows, steps, missing, untestable = [], 0, 0, []
     for scenario in demos.SCENARIOS:
-        gone = []
+        gone, vague, testable = [], [], 0
         for i, step in enumerate(getattr(scenario, "steps", []), 1):
             selector = getattr(step, "selector", "") or ""
             if not selector:
                 continue
             steps += 1
-            absent = [f"{kind} {name!r}" for kind, name in _needs(selector)
+            wants = _needs(selector)
+            # A selector carrying nothing that identifies an element -- an
+            # `input[type='file']` -- is not a step this check has verified;
+            # it is one it cannot speak to. Counted as anchored, it was a tick
+            # over a question nobody asked, and it is the reason
+            # `client360.proposal` cleared the floor below while driving
+            # nothing: three dead hooks and one selector that matches a file
+            # input on any page in the Hub.
+            if not wants:
+                vague.append({"step": i, "title": getattr(step, "title", ""),
+                              "selector": selector})
+                untestable.append(f"{getattr(scenario, 'key', '')}: {selector}")
+                continue
+            testable += 1
+            absent = [f"{kind} {name!r}" for kind, name in wants
                       if not _found(kind, name)]
             if absent:
                 missing += 1
@@ -301,20 +322,26 @@ def demo_targets(root: str | None = None) -> dict:
             "title": getattr(scenario, "title", ""),
             "steps": len(getattr(scenario, "steps", [])),
             "unanchored": gone,
+            "untestable": vague,
             # A scenario every one of whose driving steps is missing does not
             # drive anything at all -- a different thing from one with a step
             # or two out of date, and the only one worth retiring rather than
-            # repairing.
-            "dead": bool(gone) and len(gone) == len(
-                [s for s in getattr(scenario, "steps", [])
-                 if getattr(s, "selector", "")]),
+            # repairing. Measured against the steps this check can actually
+            # speak to: a selector it cannot test is not evidence that the
+            # scenario drives something, so it neither clears this floor nor
+            # -- where every step is one -- asserts the scenario is dead.
+            "dead": bool(gone) and len(gone) == testable,
         })
     return {
         "scenarios": len(rows),
         "steps": steps,
         "unanchored": missing,
-        "rows": [r for r in rows if r["unanchored"]],
-        "clean": [r["key"] for r in rows if not r["unanchored"]],
+        "rows": [r for r in rows if r["unanchored"] or r["untestable"]],
+        # "nothing missing" and "nothing we could look at" must not render
+        # alike, so a scenario carrying an untestable step is not called clean.
+        "clean": [r["key"] for r in rows
+                  if not r["unanchored"] and not r["untestable"]],
+        "untestable": sorted(untestable),
         "runtime": sorted(on_prefix),
         "runtime_prefixes": built,
         "measured": True,

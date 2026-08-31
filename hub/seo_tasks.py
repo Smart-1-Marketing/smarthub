@@ -78,12 +78,72 @@ def _tasks(store: dict) -> dict:
     return store.setdefault("seo_tasks", {})
 
 
+def page_key(url: str) -> str:
+    """One page, however its URL happens to have been written.
+
+    The dedupe key was the raw URL string, and the title beside it was
+    `_short()` -- so the module already knew how to reduce a URL to the page a
+    person means, and used that for what somebody reads while comparing the
+    unreduced string. Five ordinary spellings of one page therefore raised
+    five tickets, four of them with an identical title:
+
+        https://acme.com/services          Add schema markup to /services
+        https://acme.com/services/         Add schema markup to /services
+        http://acme.com/services           Add schema markup to /services
+        https://www.acme.com/services      Add schema markup to /services
+        https://acme.com/services?utm=x    Add schema markup to /services?utm=x
+
+    Which is the thing this module's own docstring opens by forbidding: "It
+    must never create the same ticket twice ... A queue that fills with
+    duplicates is a queue people stop reading." The URLs reach it from a
+    crawled sitemap or a list posted by the browser, so trailing-slash and
+    www variation between a crawl and a typed entry is ordinary, and an
+    http -> https migration would duplicate the whole book at once.
+
+    Host AND path, because the store is per client and a client with two
+    domains would otherwise collide on `/services`. The query string is
+    dropped: `?utm_source=x` is the same page to somebody adding schema to it.
+    """
+    s = str(url or "").strip()
+    if not s:
+        return ""
+    s = s.split("#", 1)[0].split("?", 1)[0]
+    s = s.split("://", 1)[-1]
+    host, _, path = s.partition("/")
+    host = host.lower().removeprefix("www.")
+    path = "/" + path.strip("/")
+    return host + (path if path != "/" else "")
+
+
 def already(store: dict, kind: str, key: str) -> dict | None:
-    return _tasks(store).get(kind, {}).get(str(key))
+    """The ticket already raised for this thing, under either spelling.
+
+    The stored keys were raw URLs, and every record written before this
+    carries one. Reading the canonical key alone would make all of them
+    invisible and raise a second ticket for everything already ticketed --
+    the migration this codebase refuses everywhere else (`audit.LOG_NAMES`,
+    `video_library.TAG_ALIASES`): match the old spelling rather than
+    re-indexing what is already on disk.
+    """
+    rows = _tasks(store).get(kind, {})
+    hit = rows.get(str(key))
+    if hit is not None:
+        return hit
+    canon = page_key(key)
+    if not canon:
+        return None
+    for stored_key, row in rows.items():
+        if page_key(stored_key) == canon:
+            return row
+    return None
 
 
 def _record(store: dict, kind: str, key: str, value: dict) -> None:
-    _tasks(store).setdefault(kind, {})[str(key)] = value
+    # Written under the canonical key, so the next spelling of the same page
+    # finds it without the walk above. The raw URL stays on the row, because
+    # that is what the ticket body quotes.
+    rows = _tasks(store).setdefault(kind, {})
+    rows[page_key(key) or str(key)] = {**value, "url": str(key)}
 
 
 def _short(url: str) -> str:

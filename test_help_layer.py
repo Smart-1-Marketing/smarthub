@@ -286,10 +286,38 @@ ok("some walkthroughs are clean, so this is not reporting everything",
 check("no walkthrough drives none of the steps it names",
       [r["key"] for r in DEMO["rows"] if r["dead"]], [])
 
+# A selector carrying nothing that identifies an element -- an
+# `input[type='file']` -- is a step this check cannot speak to, and counting
+# it as anchored was a tick over a question nobody asked. It is what let
+# `client360.proposal` clear the floor above: three hooks in no template and
+# one selector matching a file input on any page in the Hub. Reported apart,
+# and it clears nothing.
+ok("a selector naming nothing to test is counted apart",
+   isinstance(DEMO.get("untestable"), list))
+ok("...and every such step says which scenario it is in",
+   all(":" in u for u in DEMO["untestable"]), str(DEMO["untestable"]))
+ok("...and a scenario carrying one is not called clean",
+   all(r["key"] not in DEMO["clean"]
+       for r in DEMO["rows"] if r.get("untestable")))
+
+# `data-tour` is how a tour step anchors, and seven walkthrough steps use it
+# too. Left out of the parser, 39 anchors in this repo were tested by nothing:
+# renaming one out from under the step that drives it changed no count.
+ok("a data-tour anchor is a requirement the check reads",
+   ("data-tour", "wm-roster") in help_audit._needs("[data-tour='wm-roster']"))
+
 # The five that did. Named rather than merely counted: the point is that these
 # screens can now be walked, not that a number went down.
 for _key in ("seo.faq_and_schema", "qa.stale_creative", "landing_ads.from_page",
-             "tickets.triage", "qa.billing_audit"):
+             "tickets.triage", "qa.billing_audit",
+             # The two the floor above could not see until an untestable
+             # selector stopped counting as a driven step. `client360.proposal`
+             # had its hooks placed; `bg_remover.logo_cutout` described a free
+             # "remove white background" button the tool has never had, so it
+             # was rewritten against the preview cut that actually is free --
+             # the Web Tickets "sort by age" rule, since a rep believes a
+             # walkthrough.
+             "client360.proposal", "bg_remover.logo_cutout"):
     ok(f"{_key} drives every step it names", _key in DEMO["clean"],
        str([r["key"] for r in DEMO["rows"] if r["key"] == _key]))
 
@@ -420,12 +448,11 @@ try:
        [m["prefix"] for m in _bit] == ["website_audit"], str(_bit))
     ok("and names the screen the help is actually under",
        _bit and _bit[0]["registered"] == ["hub.website_audit"], str(_bit))
-    # The twenty-three tools nobody has written help for are NOT this finding.
-    # "Nobody wrote it" and "it is written under another name" are different
-    # jobs, and reporting the first as the second is a list somebody
-    # re-triages on every run.
-    ok("a tool that genuinely has no help is not reported as mislabeled",
-       "gpt_ads" not in [m["prefix"] for m in _bit], str(_bit))
+    # A tool with no help written was never this finding -- "nobody wrote
+    # it" and "it is written under another name" are different jobs. Every
+    # tiled tool carries help now, so the rule is held by the equality
+    # above: the doctored list is exactly the doctored prefix, nothing
+    # riding along with it.
 finally:
     help_coverage.PREFIXES.clear()
     help_coverage.PREFIXES.update(_saved)
@@ -488,9 +515,20 @@ _staff = Client(wsgi.application)
 _staff.post("/login", data={"password": "test"})
 _r = _staff.get("/api/help/coverage")
 check("and a signed-in reader gets the coverage", _r.status_code, 200)
-ok("which names what is missing rather than answering none",
-   len(_r.get_json()["missing"]) > 0,
-   "an empty answer here is what the hand-typed list used to give")
+# `missing` was asserted non-empty here once -- proof the route had stopped
+# reading the hand-typed list that always answered []. The backlog it named
+# has since been written down to zero, so a true empty is now the correct
+# answer, and the discriminator is the shape only a measured report has:
+# measured, a real tile count, and every tile accounted for in exactly one
+# bucket. The hand-typed list could produce none of those.
+_body = _r.get_json()["coverage"]
+ok("which measured the tiles rather than reading a hand-typed list",
+   _body.get("measured") is True and _body.get("tools", 0) >= 40
+   and _body["tools"] == sum(len(_body.get(k, [])) for k in
+                             ("covered", "missing", "unmapped",
+                              "client_facing")),
+   "an unmeasured answer, or a tile in no bucket, is the hand-typed "
+   "list back again")
 
 # And it is on the panel the other two halves are on, rather than being a
 # report reachable only over the API. Bubbles, walkthroughs and coverage are
@@ -596,6 +634,35 @@ check("the page still builds", _page.status_code, 200)
 _rendered = sorted(set(re.findall(rb'data-help="(io_builder\.[\w.]+)"', _page.data)))
 check("and every key placed reaches the browser",
       len(_rendered), len(_io_keys))
+
+
+# ------------------------------------------- one key, one entry
+print()
+print("A key registered twice is a key whose earlier copy nobody reads")
+
+# _BY_KEY is {h.key: h for h in REGISTRY} and /api/help/registry builds the
+# same way, so a second _h() for a key silently wins and the first becomes
+# dead copy on a screen that still draws its dot. tour() is worse: it walks
+# REGISTRY as a list, so a duplicated key carrying step= puts one step on the
+# walkthrough twice.
+#
+# Not hypothetical. Two sessions wrote IO Builder help against the same
+# screen from different branches; the merge was textually clean and landed
+# io_builder.report.rates twice, with two different explanations of what the
+# rate on that pane is. Nothing here reported it -- every key resolved, every
+# dot rendered, and the audit counted the tool as covered.
+_reg_keys = [h.key for h in help_registry.REGISTRY]
+_dupes = sorted({k for k in _reg_keys if _reg_keys.count(k) > 1})
+check("no key is registered twice", _dupes, [])
+
+# Said against the list rather than against a set of itself: as_json() is a
+# dict comprehension over REGISTRY, so a collision makes the payload shorter
+# than the registry it was built from and every count either side of it still
+# agrees with the other. Comparing it to len(set(...)) collapses the
+# duplicate on both sides and passes while the entry is being lost, which is
+# the shape of a check nobody can trust.
+check("every registered entry survives into the payload",
+      len(help_registry.as_json()["help"]), len(help_registry.REGISTRY))
 
 import shutil as _shutil                                          # noqa: E402
 _shutil.rmtree(_T, ignore_errors=True)

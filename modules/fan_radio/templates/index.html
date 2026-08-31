@@ -89,7 +89,7 @@
 
   <!-- 1 ------------------------------------------------------------- -->
   <div class="card" id="setup">
-    <h2><span class="n">1</span> Who this is for</h2>
+    <h2><span class="n">1</span> Who this is for {{ help_dot('fan_radio.build.setup') if help_dot is defined else '' }}</h2>
     <div class="row" style="margin-bottom:12px">
       <label class="f" style="margin:0">
         <input type="radio" name="scope" value="client" checked> Client
@@ -163,7 +163,7 @@
 
   <!-- 3 ------------------------------------------------------------- -->
   <div class="card" id="writecard" style="display:none">
-    <h2><span class="n">3</span> Write the spots</h2>
+    <h2><span class="n">3</span> Write the spots {{ help_dot('fan_radio.build.spots') if help_dot is defined else '' }}</h2>
     <div id="slots" class="grid3"></div>
     <div style="margin-top:13px">
       <label class="f" for="steer">Steer this batch <span class="opt">— optional</span></label>
@@ -195,7 +195,7 @@
 
   <!-- 6 ------------------------------------------------------------- -->
   <div class="card" id="sharecard" style="display:none">
-    <h2><span class="n">6</span> Send it to the client</h2>
+    <h2><span class="n">6</span> Send it to the client {{ help_dot('fan_radio.build.share') if help_dot is defined else '' }}</h2>
     <div class="grid">
       <div><label class="f">Page headline <span class="opt">— optional</span></label>
         <input id="s_head" type="text" placeholder="Your fall radio spots"></div>

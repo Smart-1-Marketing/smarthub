@@ -21,6 +21,7 @@ from flask import Flask, jsonify, redirect, request, send_file
 
 from hub import audit
 from hub import auth as hub_auth
+from hub.webargs import clamp_int
 
 app = Flask(__name__)
 
@@ -101,11 +102,13 @@ def _page_arg(name, default, lo=1, hi=500):
     Passing ?limit= straight through hands a stranger's number to the upstream
     API — ?limit=-1 or ?limit=999999 is their problem to reject, and how they
     reject it is not something this panel should discover in production.
+
+    The parse itself is `hub/webargs.py`'s -- this had worked the rule out
+    independently and correctly, which is exactly the drift that file exists
+    to stop: the next improvement to it should land once. Still a string,
+    because what this returns is forwarded as a query parameter.
     """
-    try:
-        return str(max(lo, min(hi, int(request.args.get(name, default)))))
-    except (TypeError, ValueError):
-        return str(default)
+    return str(clamp_int(request.args.get(name), default, lo, hi))
 
 
 def send_error(err):
@@ -855,7 +858,12 @@ def api_delete_location(loc_id):
 
 @app.route("/api/audit")
 def api_audit():
-    limit = max(1, min(1000, int(request.args.get("limit") or 300)))
+    # Both bounds were here and the try was not, so ?limit=abc was a 500 on
+    # the activity log of the panel that creates and deletes client
+    # sub-accounts -- the one screen somebody reads to reconstruct what
+    # happened. This module already clamps the limits it forwards upstream
+    # through _bounded(); this is the same rule on its own route.
+    limit = clamp_int(request.args.get("limit"), 300, 1, 1000)
     return jsonify({"entries": audit.read(limit=limit, module="suite")})
 
 
