@@ -616,7 +616,12 @@ def required_units(state, medium: str) -> dict:
                 "kind": unit.get("kind") or "image",
                 "channel": creative_specs.CHANNEL_LABELS.get(
                     unit.get("channel", ""), unit.get("channel", "")),
+                # The id as well as the label: `units_line()` decides whether
+                # a size run or a name is the ask from the channel, and a
+                # label is a display string that can be reworded.
+                "channel_id": unit.get("channel", ""),
                 "sizes": [f"{w}x{h}" for w, h in pairs if w and h],
+                "shape": _shape_of(unit),
                 "formats": [str(f).upper() for f in (unit.get("formats") or [])],
                 "seconds": list(duration) if len(duration) == 2 else [],
             })
@@ -650,6 +655,36 @@ def required_units(state, medium: str) -> dict:
             "source": getattr(creative_specs, "SPEC_KIT_URL", "")}
 
 
+# A sized image unit that is an optional extra beside the buy's real ask,
+# rather than the ask itself. Named first it reads as the whole requirement,
+# which is how somebody sends a banner and no audio. Each carries the words it
+# is announced with, so the sentence is true of the unit it describes.
+ADDITIONS = {
+    "radio_companion": "a companion banner",
+    "snap_ar_filter": "an AR filter",
+}
+
+
+def _shape_of(unit) -> str:
+    """How a unit is specified when it carries no fixed size.
+
+    Every social unit is in that position: the kit publishes a ratio and a
+    resolution to build at rather than one exact size, because the platform
+    accepts a range. Without this the unit reaches the requirement line as a
+    bare name -- "or Single Image Ads", with nothing saying 9:16 or 1080x1920
+    -- which is the same silence as vanishing, one step less complete.
+    """
+    if unit.get("size") or unit.get("sizes"):
+        return ""
+    ratios = unit.get("ratios") or []
+    shape = " or ".join(f"{w}:{h}" for w, h in ratios)
+    build = unit.get("min_size")
+    if build:
+        built = f"build at {build[0]}x{build[1]}"
+        return f"{shape}, {built}" if shape else built
+    return shape
+
+
 def _describe_unit(unit) -> str:
     """One spec-kit unit in the terms it is actually specified in.
 
@@ -667,16 +702,29 @@ def _describe_unit(unit) -> str:
               and seconds[0] != seconds[1] else
               (f"{seconds[0]}s" if seconds else ""))
     fmt = "/".join(unit.get("formats") or [])
+    shape = unit.get("shape") or ""
     if kind in ("video", "audio"):
-        bits = [b for b in (", ".join(unit.get("sizes") or []), fmt, length) if b]
+        bits = [b for b in (", ".join(unit.get("sizes") or []) or shape,
+                            fmt, length) if b]
         return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
     if unit.get("sizes"):
-        return ", ".join(unit["sizes"])
-    return unit["label"]
+        # Named as well as sized. An image unit with fixed sizes only reaches
+        # here when its channel sells formats rather than a size set, and
+        # there the name is what the client picks between -- "1200x628,
+        # 200x200" says nothing about which of the two is the brand logo.
+        bits = [b for b in (", ".join(unit["sizes"]), fmt) if b]
+        return f"{unit['label']} ({', '.join(bits)})"
+    # An image with no fixed size is described the way the video above is:
+    # by the shape it is specified in and what it may be delivered as. Named
+    # alone it says nothing a client can act on.
+    bits = [b for b in (shape, fmt) if b]
+    return f"{unit['label']} ({', '.join(bits)})" if bits else unit["label"]
 
 
 def units_line(state, medium: str) -> str:
     """What one medium needs, in one line for a rep or a client document."""
+    from . import creative_specs
+
     result = required_units(state, medium)
     if not result["measured"]:
         return result.get("note") or "Sizes not measured."
@@ -692,10 +740,23 @@ def units_line(state, medium: str) -> str:
     # document read never said an image was needed at all. That is this
     # function's own audio rule running the other way -- there it is a unit
     # described by the wrong terms, here it is one described by none.
-    images = [u for u in result["units"]
-              if (u.get("kind") or "image") == "image" and u.get("sizes")]
-    others = [u for u in result["units"]
-              if (u.get("kind") or "image") != "image" or not u.get("sizes")]
+    # ...and the same thing from the other end: an image unit whose NAME is
+    # the ask must not be folded into the run either. Only the channels the
+    # kit publishes as a Unit / Dimensions / weight table sell a size set;
+    # everywhere else the first column is a Format, and a run of bare sizes
+    # dissolved X's Image Ads, Carousel Ads, Conversation Button and
+    # Spotlight Takeover into nine numbers a client could not attribute to
+    # anything.
+    sized = [u for u in result["units"]
+             if (u.get("kind") or "image") == "image" and u.get("sizes")]
+    # Decided before the split, or filtering by channel retires it: both
+    # ADDITIONS entries sit on channels that sell no size set.
+    addition = ADDITIONS.get(sized[0].get("id")) if len(sized) == 1 else None
+    images = sized if addition else [
+        u for u in sized
+        if u.get("channel_id") in creative_specs.SIZE_SET_CHANNELS]
+    folded = {u["id"] for u in images}
+    others = [u for u in result["units"] if u["id"] not in folded]
     # Desktop, mobile and tablet each carry their own "HTML5 package" unit,
     # so describing all three printed the same words three times.
     described = list(dict.fromkeys(_describe_unit(u) for u in others))
@@ -714,12 +775,17 @@ def units_line(state, medium: str) -> str:
     # the client as an optional companion to the video. That is the sentence
     # above running the other way: named as the whole requirement it costs the
     # spot, named as a companion it costs the image.
-    companion = (len(images) == 1
-                 and images[0].get("id") == "radio_companion")
+    # Keyed on the unit, and there is now more than one of them: Snapchat's
+    # AR Filters is the same shape as the radio companion -- an optional
+    # extra with a size of its own, on a buy whose ask is a 9:16 spot. It is
+    # the only sized image unit there, so leading with 945x2048 announced an
+    # AR filter as the whole requirement. Each names itself, because "a
+    # companion banner" is a true sentence about one of them and not the
+    # other.
     if not sizes:
         parts = described
-    elif companion and described:
-        parts = described + [f"plus a companion banner: {sizes[0]}"]
+    elif addition and described:
+        parts = described + [f"plus {addition}: {', '.join(sizes)}"]
     elif described:
         parts = [", ".join(sizes)] + [f"or {d}" for d in described]
     else:

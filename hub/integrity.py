@@ -1131,6 +1131,21 @@ CHECKS = [
     # the sixth -- and the fix is one line.
     ("unnamed_client_work", "Client work the record cannot name", "high",
      _client_brand.check_work_kinds),
+    # The same question from the other end, and the half nothing was asking.
+    # check_work_kinds() finds a name that logs against a client and the table
+    # cannot name. This finds a name the table *does* know whose rows can
+    # never carry a client at all -- because the call site puts it under a key
+    # work_log() does not read (`detail=`), or because the table is keyed on
+    # the module directory while the module logs under a different name.
+    #
+    # High, and it went in green. Both shapes were live: every tracked-link
+    # batch and every cut-out saved against a client was written to the log,
+    # kept, and dropped before the record it was written for. Nothing errored
+    # at any point -- the tool's own screens complete, the row on disk, the
+    # client record confidently empty, which is the failure this whole corner
+    # of the codebase keeps having to undo.
+    ("client_attribution", "Work filed under a key the record cannot read",
+     "high", _client_brand.check_client_attribution),
     ("stale_work_exemptions", "A not-a-deliverable exemption outlived its "
      "call site", "medium", lambda: [
          {"file": "hub/client_brand.py", "module": m,
