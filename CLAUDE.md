@@ -613,6 +613,46 @@ or secret is ever carried — this is pasted into chats, the
 it, including that every one of the six paths is a route the composed app
 actually serves.
 
+**And the panel named a URI the code does not send.** That check asserts what
+the panel *prints* and never asked whether the code agrees — which is the one
+thing worth asserting about it, because the panel exists to say what string to
+paste into a console and a console matches it exactly. `oauth_redirects.py`
+trims `PUBLIC_BASE_URL` to its origin (`_origin()`); the two flows that
+actually *build* a callback appended to the raw value with only a trailing
+slash removed. So with the path this deployment's own linked env group carries
+— the same string as `GOOGLE_ADS_REDIRECT_URI`, which the paragraph above
+already names — the panel said
+`https://smart1.agency/suite/oauth/callback` and `hub/ghl_oauth.py` sent
+`https://smart1.agency/tools/ads/oauth/callback/suite/oauth/callback`.
+Register what the panel says and consent fails on `redirect_uri_mismatch`;
+register what is sent and the panel reports it as wrong. The
+`/api/db/structure` versus `/api/integrity` trap, on the one screen whose
+whole job is to be copied from — and it hit **google_access** too, which that
+same table marks `client_facing` with the note *"a mismatch here fails in
+front of them, for a reason that is nothing to do with them."*
+
+`config.public_base_origin()` is the one reading now, and the field
+`settings.public_base_url` is the origin as well — which fixes the other
+readers that never got the memo, and makes the three modules that had already
+worked it out and written their own `_origin()` (`llms_hosting`,
+`image_picker/provisioning`, `social_planner/links`) no-ops rather than the
+only correct ones. It is read at **call time**, because `settings` is built
+once at import and this is the one variable somebody corrects mid-incident
+after the panel names it — the reasoning `hub/ghl_oauth.py` already gives for
+resolving its scopes per call, applied to the value in the same file that was
+not. `modules/google_access/config.py` keeps the name `PUBLIC_BASE_URL`
+through a module `__getattr__` rather than editing five call sites, the
+`hub/blueprint_guard.py` rule: two of those five build the link a **client**
+is emailed, so the sixth reader added next month is right by default.
+
+**Trimmed and still reported**, which is the whole of it: the warning is what
+tells somebody to fix the variable, and behaving sanely in the meantime is not
+the same as papering over it. `public_base_url_raw` keeps what was actually
+set so the report can quote it. The assertion is a **sweep** — every flow
+whose source is `PUBLIC_BASE_URL` must declare which code builds its URI, and
+one that declares none is a failure rather than a silent skip, so a seventh
+flow cannot join by being unasserted.
+
 **Cloudinary is published two ways and this account sets both.** One
 `CLOUDINARY_URL`, and the three parts `CLOUDINARY_CLOUD_NAME` /
 `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET`. Nine modules configure the SDK
@@ -5078,12 +5118,65 @@ tag; leaving them in would go on asking.
 
 `kit_name_drift()` is the check, at **high**, and it covers only the channels
 declared transcribed against 2026 — `_KIT_NAME_CHECKED`, which is `x`,
-`linkedin`, `tiktok` and `snapchat` today. The two still on the 2025
-transcription are named in `_KIT_NAMES_PENDING` with what is known to have
-moved (YouTube's *TrueView* is now *Skippable in-stream*), and
-`kit_coverage()` carries them. A backlog named rather than left as an absence
-— a check listing every platform on the day it is written is red on the day
-it is written, and gets switched off.
+`linkedin`, `tiktok`, `snapchat` and `youtube` today. What is still on the
+2025 transcription is named in `_KIT_NAMES_PENDING` and carried by
+`kit_coverage()`. A backlog named rather than left as an absence — a check
+listing every platform on the day it is written is red on the day it is
+written, and gets switched off.
+
+**YouTube was the last of the four, and asked for a format that does not
+exist.** Google repurposed *TrueView* in October 2025 as a **metric** —
+TrueView views, spanning skippable in-stream, in-feed, Shorts and Masthead —
+so the requirement line asked a client to supply a thing with no definition.
+Shorts was absent entirely and only 16:9 was modelled against a kit selling
+16:9, 9:16 and 1:1. And the weight was the half that refused real work: **10
+MB against a published 256 GB**, the kit's own *"wrong by four orders of
+magnitude"* — the third of the four transcriptions to run that way, after
+TikTok's two units and Snapchat's pair.
+
+Six formats now, and **no duration on skippable in-stream at all**: the kit
+publishes *"no maximum, under 3:00 recommended"*, and a ceiling invented from
+a recommendation refuses a cut the kit permits — the `target_bytes` rule
+wearing a stopwatch. `youtube_trueview` keeps its id, because skippable
+in-stream is what TrueView was and `tags_for()` has written
+`unit_youtube_trueview` onto delivered creative: the rule `billboard` follows
+from the IAB retiring the Rising Stars name.
+
+`native_display` is the one left pending, and the note now says **why it is a
+different job** rather than more of the same: its first column is a field to
+supply (Main image, Brand logo, Short title…) rather than a format to buy.
+
+**What did not move is the rate card.** It sells products called *TrueView*
+and *TrueView - Targeted* — product names on an invoice rather than format
+names in a creative requirement. Renaming one orphans every quote, every IO's
+`productConfig` key and the published partner page, which is the migration
+this codebase refuses to do casually.
+
+**And naming the formats exposed the line that had been dissolving them.**
+`units_line()` folds image units into one run of sizes, which is right for a
+display buy — "Leaderboard" *is* 728x90, and eleven labels beside eleven sizes
+is the wall its own comment describes. It is wrong wherever the kit's first
+column is a **Format**, and it had been wrong on every such channel: an X buy
+asked for **nine bare sizes** with Image Ads, Carousel Ads, Conversation
+Button and Spotlight Takeover all dissolved into them; LinkedIn the same
+across six; and native display printed *"1200x628, 200x200"* with nothing
+saying which of the two is the brand logo. That is `_shape_of()`'s own note
+running the other way — there a unit reaches the line as a bare name, here as
+bare sizes with the name gone, and on a format-name channel the name is the
+entire ask.
+
+The discriminator is the published page's own structure rather than a
+judgment. `SIZE_SET_CHANNELS` is derived from `_KIT_SECTIONS` — the three
+sections whose table is Unit / Dimensions / weight, the same three
+`kit_drift()` can read — plus `tablet_display`, which is ours and is the same
+shape. Everywhere else the name leads and its sizes ride with it. Nothing
+about display, DOOH, email, CTV or Meta changed, and **both `ADDITIONS`
+entries are decided before the split** — the radio companion and Snapchat's
+AR filter each sit on a channel that sells no size set, so filtering by
+channel first would have retired the one rule that keeps *"plus a companion
+banner: 300x250"* from reading as the whole requirement.
+`test_proposal_spec.py` asserts both directions, and every new check was
+confirmed red against the real defect first.
 
 **And a name check cannot see a number, which is how LinkedIn was refusing
 files the kit told the client to send.** Its 2025 model held five formats to
@@ -10214,7 +10307,15 @@ python3 test_llms_hosting.py       # a client's llms.txt: robots per user-agent
                                    #   never read as permission
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
-python3 test_oauth_redirects.py    # every OAuth callback, and the hostname each is built from
+python3 test_oauth_redirects.py    # every OAuth callback, the hostname each is
+                                   #   built from, and — the half nothing
+                                   #   asserted — that the code sends the
+                                   #   string the panel tells you to register
+python3 test_ghl_oauth.py          # the Suite install: a refresh that keeps
+                                   #   the token it was not given, a disconnect
+                                   #   that does not undo itself, a rotated key
+                                   #   that reads as re-consent rather than a
+                                   #   crash, and a status carrying no secret
 python3 test_site_blocks.py        # the website blocks a page is built from
 python3 test_hub_help_layer.py    # the hub's own tours: offered at all,
                                    #   and a walkthrough button only

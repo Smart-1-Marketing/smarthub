@@ -1589,3 +1589,14 @@ jobs:
       # property" about properties we administer, correctly recorded.
       - name: Two names for one property is not a disagreement
         run: python3 test_analytics_ids.py
+      # hub/ghl_oauth.py mints the location-scoped tokens the Suite panel, the
+      # social planner and every sub-account join run on, and no test named it
+      # except the scope table's. Reading it turned up a divergence one layer
+      # out: /diagnostics trims PUBLIC_BASE_URL to its origin before printing
+      # which callback URI to register, and the two flows that BUILD one
+      # appended to the raw value — so with the path this deployment's linked
+      # env group actually carries, the panel named a URI the code never sends.
+      # Register what the panel says and consent fails on redirect_uri_mismatch;
+      # google_access is the one the panel itself marks client-facing.
+      - name: The Suite install, and the callback the panel promises
+        run: python3 test_ghl_oauth.py

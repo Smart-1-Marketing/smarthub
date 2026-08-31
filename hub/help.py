@@ -1329,6 +1329,35 @@ REGISTRY: list[Help] = [
        "from last quarter without running the comparison again and getting "
        "slightly different numbers."),
 
+    # ---------------- Media calculators ----------------
+    # Five tiles on /tools with nothing behind them. The fact worth putting on
+    # the screen is the one thing true of all of them and stated on none: the
+    # staff copy and the copy a prospect opens are the same fields and the same
+    # catalog.run(), differing only in whether the plan is withheld until a
+    # contact is captured. They look almost identical and are one URL apart,
+    # which is exactly how a rep ends up filing a live client as a fresh lead.
+    _h("calculators.index", "What these are, and where else they run",
+       "Media calculators that size a buy from a budget and a market \u2014 "
+       "reach, frequency and delivery, at the rates we actually sell at. Each "
+       "one runs in three places off this same code: the staff page here, a "
+       "public link an ad can point at, and framed inside a page on "
+       "smart1marketing.com. There is one implementation of the arithmetic, "
+       "so the three cannot quote a client different numbers; what differs is "
+       "only whether the plan is shown straight away or held back until "
+       "somebody has left their details."),
+    _h("calculators.internal", "This is the staff copy, and it captures nothing",
+       "Same fields and the same arithmetic as the version a prospect opens, "
+       "with the whole plan returned in one go rather than held back behind a "
+       "name, an email and a phone number. Nothing here is stored: no "
+       "estimate, no contact, and nothing sent to Smart 1 Suite. That is the "
+       "point of it \u2014 sizing a buy for a client of eleven years' standing "
+       "through the public form meant typing some contact into it, and "
+       "whatever got typed landed in the leads panel reading exactly like a "
+       "live prospect. The client-facing copy is one URL away and looks "
+       "almost identical, so check which one you are on before you send a "
+       "link: this page is behind the staff login and a prospect cannot open "
+       "it."),
+
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}
