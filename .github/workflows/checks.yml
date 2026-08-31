@@ -1612,6 +1612,21 @@ jobs:
       # duplicated the whole book in one pass.
       - name: One page, however its URL was written
         run: python3 test_seo_tasks.py
+      # hub/ghl_blog.py publishes a client's llms.txt into Suite as a blog
+      # post -- a public URL on somebody's blog -- and read GHL_COMPANY_ID as
+      # a location fallback. On this deployment that holds the company id, and
+      # a companyId used as a locationId addresses the AGENCY: the client's
+      # document went to the agency's own blog, under the agency's domain,
+      # created successfully because that location has a real blog with real
+      # authors and categories. hub/ghl_contacts.py documents this at length
+      # and hub/suite_opportunity.py was fixed for it; this was the third.
+      # Beside it: slug_taken() answered False when it could not look, which
+      # is what silently disabled the guard against two files describing one
+      # client -- and check_access() never tested that scope; a blog id naming
+      # nothing fell through to blogs[0]; and the URL was built from the slug
+      # we asked for rather than the one Suite assigned.
+      - name: companyId is not locationId, for the third time
+        run: python3 test_ghl_blog.py
       # hub/audit_summary.py grounds every dollar figure in the two paragraphs
       # a prospect reads at the top of their own website audit, which is right
       # — the alternative is a model inventing what somebody spends. It
