@@ -222,10 +222,10 @@ def mislabeled_prefixes() -> list[dict]:
     copy gets written a second time. That is exactly what happened to the
     Website Audit tool the release after it was given six bubbles and a tour.
 
-    A prefix matching nothing is *ordinarily correct* -- fourteen tiled tools
-    have genuinely never had help written -- so the finding is narrower than
-    that: a prefix that resolves to no screen **while the registry holds one
-    whose name contains it**. That is a label that names the wrong thing, and
+    A prefix matching nothing is *ordinarily correct* -- a tool is tiled
+    before its help is written, and at one point fourteen tiled tools had
+    none -- so the finding is narrower than that: a prefix that resolves to
+    no screen **while the registry holds one whose name contains it**. That is a label that names the wrong thing, and
     it is the only case where "no help written" is a wrong answer rather than
     a true one.
     """

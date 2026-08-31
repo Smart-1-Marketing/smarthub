@@ -6,7 +6,7 @@
   <div class="wrap">
     <div class="mark">S1</div>
     <div>
-      <h1>Client Image Uploads</h1>
+      <h1>Client Image Uploads {{ help_dot('image_picker.admin.intro') if help_dot is defined else '' }}</h1>
       <div class="sub">Clients pick photos · saves to the client gallery + Smart 1 Suite</div>
     </div>
     <div class="top-actions">
@@ -43,7 +43,7 @@
 
   <section class="panel">
     <div class="panel-head">
-      <h2>Add a client</h2>
+      <h2>Add a client {{ help_dot('image_picker.admin.add') if help_dot is defined else '' }}</h2>
       <span class="hint">The share link works without a login — send it straight to the client.</span>
     </div>
     <div class="kindrow">

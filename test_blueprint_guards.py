@@ -126,6 +126,12 @@ PUBLIC: dict[str, str] = {
     "/suite-app": "the Smart 1 Suite SSO frame. A client has no Hub account; "
                   "it renders nothing of theirs until the handshake proves "
                   "which sub-account they are in (hub/suite_sso.py)",
+    "/suite-app/start": "the app's own getting-started tab, framed by Suite "
+                        "for whoever installed it. Our copy about our app -- "
+                        "it reads nothing and renders nothing belonging to a "
+                        "client. Public because that reader may have no Hub "
+                        "account, and a sign-in form there teaches them the "
+                        "app needs one",
     "/tools/calculators/embed.js": "the resizer a host page loads beside an "
                                    "embedded calculator",
 

@@ -42,6 +42,28 @@ HUB_TOUR_SCREENS = {
 }
 
 
+def _demo_module_for(path: str) -> str:
+    """Which walkthrough belongs to this page, or "" -- one reading, two
+    callers.
+
+    `_inject_demo_module()` answers it for a hub page and the `after_request`
+    injector answers it for a blueprint-registered one, and the injector used
+    to answer it from a hand-typed slug map instead. Two descriptions of where
+    a scenario lives is the drift this codebase keeps paying for, and this one
+    had already drifted in both directions before anybody read it.
+
+    Matched on the scenario's own path and nothing looser. A walkthrough drives
+    ONE page: matched on a URL segment it lands on every page under a prefix,
+    and matched on a prefix it lands on a tool's sub-pages -- neither of which
+    is the screen the steps were written against. There is no default, because
+    an empty string is falsy and that is exactly what the launcher tests.
+    """
+    from . import demos
+    want = (path or "/").rstrip("/") or "/"
+    return next((sc.module for sc in demos.SCENARIOS
+                 if ((sc.path or "/").rstrip("/") or "/") == want), "")
+
+
 MODULES = [
     {"key": "clients", "label": "Clients", "href": "/clients", "tag": "Knack"},
     {"key": "google", "label": "Google", "href": "/google/", "tag": "GA4 · GTM"},
@@ -205,10 +227,9 @@ def create_hub_app() -> Flask:
         never otherwise. There is no default -- an empty string is falsy, which
         is exactly what the launcher tests.
         """
-        from . import demos, help as _help
+        from . import help as _help
         path = (request.path or "/").rstrip("/") or "/"
-        module = next((sc.module for sc in demos.SCENARIOS
-                       if ((sc.path or "/").rstrip("/") or "/") == path), "")
+        module = _demo_module_for(path)
         screen = HUB_TOUR_SCREENS.get(path, "")
         if screen and not _help.has_tour(screen):
             screen = ""          # registered nothing yet: say nothing
@@ -3437,6 +3458,42 @@ def create_hub_app() -> Flask:
                                configured=suite_sso.configured(),
                                why_not=suite_sso.why_not())
 
+    @app.route("/suite-app/start")
+    def suite_app_start():
+        """The app's front door in Suite's own app-detail frame.
+
+        A third route under a prefix whose docstring above says two are
+        deliberately the whole of it -- so the reason it does not widen that
+        rule is worth stating rather than leaving to be re-derived. What that
+        paragraph is protecting against is *somewhere a client could be shown
+        another client's record*, and this page reads nothing and renders
+        nothing belonging to anybody. It is our own copy about our own app.
+
+        It exists because the alternative is what shipped: Suite frames
+        whatever URL the app is configured with, that was the Hub root, and
+        the root is a staff dashboard the allowlist correctly refuses. The
+        refusal is right and it reads to everyone at the agency as the
+        integration being broken -- which is the argument suite_embed.refuse()
+        already makes about a blank frame, one screen earlier. So the fix is
+        somewhere sensible for that tab to point, and the most useful thing on
+        it is the two menu-link URLs, because a link aimed at the wrong path
+        is exactly how somebody meets that refusal next.
+
+        No login: the reader may be an agency admin with no Hub account in
+        that browser, and a sign-in form in the getting-started tab teaches
+        them the app needs one. It inherits the frame header and the chrome
+        exemption from the "/suite-app" prefix already in EMBEDDABLE and
+        CHROMELESS, which is right -- this is the same surface -- and it is
+        named in test_blueprint_guards.py's allowlist rather than arriving
+        there by prefix, so the openness is a decision somebody wrote down.
+        """
+        from . import suite_sso
+        from .config import public_base_origin
+        return render_template("suite_app_start.html",
+                               origin=public_base_origin(),
+                               configured=suite_sso.configured(),
+                               why_not=suite_sso.why_not())
+
     @app.route("/suite-app/session", methods=["POST"])
     def suite_app_session():
         """Turn an SSO payload into somewhere this client may go.
@@ -6179,22 +6236,23 @@ def create_hub_app() -> Flask:
             # Tag <body> so the walkthrough launcher knows which tool it's on.
             # Only when the page hasn't already declared one.
             if b"data-module=" not in body and b"<body" in body:
-                seg = path.strip("/").split("/")
-                slug = seg[1] if len(seg) > 1 and seg[0] == "tools" else (seg[0] if seg else "")
-                mod = {"tickets": "tickets", "calculators": "calculators",
-                       "page-images": "page_image_optimizer",
-                       "google-access": "google_access",
-                       "image-picker": "image_picker",
-                       "sites-match": "sites_admin",
-                       "domains": "sites_admin",
-                       "google-match": "google_access",
-                       # /my-clients is deliberately absent: no walkthrough
-                       # is registered for it, and data-module is what floats
-                       # the "Walk me through this" button onto a page. A
-                       # button that offers a tour nobody wrote is the
-                       # silence Smart 1 Ads shipped on Settings and Live
-                       # campaigns.
-                       "stale-creative": "qa", "qa": "qa"}.get(slug, "")
+                # Derived from where the scenarios actually are, never from a
+                # hand-typed slug map. The map this replaced was a second
+                # description of where a walkthrough lives, and it had already
+                # drifted in both directions: `sites-match`, `domains` and
+                # `google-match` named a module whose only scenario is written
+                # for a different page, and `qa` matched on the FIRST URL
+                # SEGMENT, so it tagged every /qa/* page. Measured on the
+                # running app, that put the button on `/qa/client-owners` and
+                # `/qa/unattached-images` -- offering `qa.billing_audit`, whose
+                # four targets are 0 of 4 present there, so it rang nothing on
+                # every step. `client_owners.html` declares no module on
+                # purpose and says why; the injector put one back.
+                #
+                # A walkthrough drives ONE page, so the match is the scenario's
+                # own path and nothing looser: a sub-page of a tool is not the
+                # screen the steps were written against.
+                mod = _demo_module_for(path)
                 if mod:
                     body = re.sub(rb"<body\b",
                                   b'<body data-module="' + mod.encode() + b'"',

@@ -166,7 +166,7 @@ REGISTRY: list[Help] = [
        "goes to kinds nobody has answered on, or the mix converges on "
        "whatever they liked first and stops learning."),
     _h("social.requests.suite", "Pushing to Smart 1 Suite",
-       "Posting from here needs the social-media-posting.write scope on the "
+       "Posting from here needs the socialplanner/post.write scope on the "
        "Suite app, and HighLevel grants what it recognizes at consent "
        "without saying anything about the rest — so it is checked before a "
        "push rather than discovered by one. Until the agency re-consents, "
@@ -1357,6 +1357,345 @@ REGISTRY: list[Help] = [
        "almost identical, so check which one you are on before you send a "
        "link: this page is behind the staff login and a prospect cannot open "
        "it."),
+
+    # ------------- The twelve tools the coverage report named -------------
+    # hub/help_coverage.py measures the tiles on Creative and Client Tools
+    # against this registry, and twelve tiled tools had no help written at
+    # all -- the backlog that report exists to hold, written down to zero
+    # here. Every key is placed by the tool's own staff template, guarded
+    # `if help_dot is defined` like every call in this Hub; the PDF
+    # Optimizer's page is a static file with no Jinja, so it carries the raw
+    # span help_dot() emits instead. None of it reaches a client-facing
+    # page -- Fan Radio's /r/ link, the picker's /pick/ page, Google
+    # Access's /connect flow and the built landing pages are outside the
+    # help layer on purpose, because a staff note on a page a client reads
+    # is an internal note in front of somebody we are selling to.
+
+    # ---------------- Image Optimizer & Resizer ----------------
+    _h("image_optimizer.tool.intro", "What this tool is for",
+       "One image to an exact size, format and weight, handed straight "
+       "back. For a batch renamed and filed for SEO use the SEO Image "
+       "Pipeline; for images already live on a client's page use the Page "
+       "Image Optimizer. This is the one-off — a 300x250 for an ad "
+       "slot, a hero cut down before it goes anywhere, a logo at the size "
+       "a directory demands. A file that cannot be read is refused in "
+       "plain words, and that answer is about the file rather than the "
+       "tool."),
+    _h("image_optimizer.tool.crop", "Crop first, then size",
+       "Cropping runs before the resize, so the width and height below "
+       "describe the cropped area rather than the original. Pick the "
+       "shape here and the exact pixels underneath; the ratio presets are "
+       "the slots these images usually end up in. On an animated GIF the "
+       "crop is applied to every frame, so the animation survives it."),
+    _h("image_optimizer.tool.resize", "Cap the pixels before anything else",
+       "Dimensions matter more than format or quality: a 6000-pixel "
+       "camera photo converted without a resize is still 6000 pixels "
+       "wide, and still enormous. Set the size the image will actually be "
+       "displayed at and most of the saving follows from that alone. Lock "
+       "aspect ratio keeps the shape while you type either number; the "
+       "presets are the sizes this Hub is asked for most."),
+    _h("image_optimizer.tool.output", "Format, and what a target size can promise",
+       "JPG for photographs, PNG for graphics and anything that needs "
+       "transparency, GIF only for animation — an animated GIF saved "
+       "as a GIF keeps its animation, and saved as PNG or JPG it becomes "
+       "its first frame. A target size is honored by stepping quality and "
+       "then dimensions down, and the stepping stops at a 160-pixel short "
+       "side: a very small target can come back larger than asked, and "
+       "what downloads is the closest the format could honestly get."),
+
+    # ---------------- Page Image Optimizer ----------------
+    _h("page_images.scan.page", "The page is read, never touched",
+       "Paste the address and the page is fetched live: every image on it "
+       "is listed with its current weight and what optimizing would save. "
+       "Nothing on the client's site is changed — the optimized "
+       "copies are saved into their SEO images, and putting them on the "
+       "page is a separate job this tool hands you the finished tags "
+       "for."),
+    _h("page_images.scan.client", "Who the saved copies are filed under",
+       "The company name decides whose record the saved images land on, "
+       "and it goes to the AI with each picture so the new filenames and "
+       "alt text are written for this business rather than generically. "
+       "Spell it the way the client record does — a name typed "
+       "differently files the work where nobody looks for it."),
+    _h("page_images.review.names", "Nothing saves until you have read these",
+       "The filename and the alt text are the two things a search engine "
+       "reads about an image, and both were written by a model — "
+       "which is why they are shown here first. Fix anything that is not "
+       "right, or skip an image to leave it out; only what is on this "
+       "list when you press save is written anywhere."),
+    _h("page_images.review.saved", "What saved actually means",
+       "The optimized copies are in the client's SEO images — the "
+       "same archive Client 360's image card reads — with the tags "
+       "ready to copy. The live page still carries the old files: "
+       "swapping them in happens in the client's own CMS, which is why "
+       "the finished tags are handed to you here rather than left to be "
+       "reconstructed later."),
+
+    # ---------------- Client Image Uploads ----------------
+    _h("image_picker.admin.intro", "A page the client uploads through",
+       "Every client row has a share link that works without a login "
+       "— send it and their photographs arrive in a gallery filed "
+       "against their record and pushed on to Smart 1 Suite, instead of "
+       "arriving by email. The same link is offered from Client 360, the "
+       "IO Builder's creative checklist and both requirement PDFs, all "
+       "reading one address — so wherever the ask happens, the link "
+       "is the same one."),
+    _h("image_picker.admin.add", "Matched exactly, or created on purpose",
+       "An existing client is looked up so the gallery files against "
+       "their record — matched exactly and never on a substring, "
+       "because a link that collects one client's photographs into "
+       "another client's gallery is worse than no link, and a name that "
+       "could mean two clients proposes neither. A prospect gets a "
+       "gallery with no client record behind it, which is the point: "
+       "nothing is invented to file them under."),
+    _h("image_picker.gallery.saved", "Reported apart, on purpose",
+       "Each file says where it lives and whether it reached the "
+       "client's Smart 1 Suite media library — separately, because "
+       "“saved here” and “in the Suite” are different "
+       "outcomes and one tick covering both is how somebody learns not "
+       "to trust the tick."),
+    _h("image_picker.gallery.library", "Search what is in the picture",
+       "The search reads the alt text, the filename, the folder and what "
+       "a vision model saw in the picture — the last one is what "
+       "makes it work on the forty files nobody captioned. It runs on "
+       "the server over the whole library, so the answer is about "
+       "everything saved rather than about the rows this page happened "
+       "to load. Deleting removes the stored copy, and for a photograph "
+       "a client sent us that is often the only copy — the "
+       "confirmation says so."),
+
+    # ---------------- Landing Page Ads ----------------
+    _h("landing_ads.build.intro", "One brief, every format",
+       "One read of the page produces one shared brief, and the Google "
+       "headline, the Meta and TikTok hooks, the banner lines and the "
+       ":30 audio script are all written from it. That is the point of "
+       "one tool rather than four: every format makes the same promise, "
+       "and none of them promises something the page will not honor."),
+    _h("landing_ads.build.setup", "Spec or attached, and whose words win",
+       "Spec files under spec/ with no client attached — for "
+       "pitching, or for our own campaigns; attached files under the "
+       "client's name and shows on their record. The audience box "
+       "overrides what the page implies, so use it when the campaign is "
+       "aimed narrower than the page reads, and notes for the writer "
+       "steer the emphasis without changing the facts the page "
+       "supplies."),
+    _h("landing_ads.build.pages", "Set the live URL once",
+       "Each Smart 1 landing page is read from its live URL, and that "
+       "URL is recorded here once rather than pasted per campaign — "
+       "a page with no URL on file cannot be read, and says so instead "
+       "of being guessed at. Every campaign built after that uses the "
+       "address on this list."),
+
+    # ---------------- Stock Photo Search ----------------
+    _h("stock_photos.search.intro", "Four sources, and why ours lead",
+       "Pexels, Pixabay, Unsplash and our own Cloudinary folders, "
+       "searched in one pass. Photos we already own sort first and are "
+       "badged, because they cost nothing, carry no third-party license "
+       "and are often already the client's own brand — they used to "
+       "be reachable only by scrolling the Cloudinary console, which is "
+       "done by nobody. The license line appears only on the three "
+       "sources that need one."),
+    _h("stock_photos.search.sources", "Three kinds of empty",
+       "“Nothing matched”, “that source refused” and "
+       "“that folder is not in Cloudinary yet” are different "
+       "answers and the page says which — only the first means "
+       "change your search. A source with no key set is shown disabled "
+       "and explained rather than hidden, so “why is there no "
+       "Unsplash” has an answer on the screen. Copy and download go "
+       "through the Hub so a use is recorded — Unsplash's terms "
+       "require a ping when a photo is actually used rather than "
+       "browsed."),
+
+    # ---------------- Radio Promo ----------------
+    _h("radio_promo.build.setup", "Spec now, theirs later",
+       "A spec spot has no client attached and files under spec/ — "
+       "it is written to win the business, and attaching it to a client "
+       "later loses nothing, which is the normal path: the spec spot "
+       "wins the account and the spot becomes theirs. The required "
+       "disclaimer is read verbatim and counts against the word budget, "
+       "so a long one buys a shorter sell."),
+    _h("radio_promo.build.cast", "Cast by ear, not by list",
+       "The ranking reads the labels ElevenLabs publishes against what "
+       "you asked for, and it is a ranking, never a filter — a "
+       "voice can come out on top having matched nothing, because a "
+       "cloned voice carries no labels at all. Play the samples before "
+       "you cast: a wrong voice is cheap to swap here and expensive to "
+       "notice at the render."),
+    _h("radio_promo.build.booth", "The voice is handed different words",
+       "What the voice reads is not quite what is on screen, on "
+       "purpose: numbers are said as words, and a web address or an "
+       "email is spelled out the way it is said aloud — because "
+       "“visit example.com” handed to a voice raw comes out "
+       "wrong exactly where the whole call to action lives. The runtime "
+       "is checked against the slot, with a one-button tighten when the "
+       "read comes in long."),
+
+    # ---------------- Fan Radio ----------------
+    _h("fan_radio.build.setup", "Football flavor, nobody's trademark",
+       "The local team is context only: it tells the writer which "
+       "market and schedule it is writing around, and every word of it "
+       "goes onto the block list rather than into the copy — "
+       "league, club, bowl, school and fan-slogan marks are all scanned "
+       "for before a spot can be delivered. A spec spot is never pushed "
+       "to the Suite."),
+    _h("fan_radio.build.spots", "The scan, and the post-game problem",
+       "Every script is checked against the trademark block list before "
+       "it can go anywhere; a hit fails the spot and the writer is "
+       "re-asked once, told exactly what it broke. Post-game spots are "
+       "result-neutral by default — a spot voiced on Wednesday "
+       "cannot know Saturday's score, so copy that quietly assumes one "
+       "is flagged, with “if it went well” / “if it "
+       "didn't” alternates for the station to swap in."),
+    _h("fan_radio.build.share", "One link, and the client answers on it",
+       "One share link per project — random token, no login — "
+       "where the client plays every spot, approves, or comments "
+       "against the one it is about. Their feedback is written down "
+       "before anything else happens and lands back on this screen "
+       "against the spot it belongs to, so a change request cannot live "
+       "only in an email thread. The page carries none of the Hub's own "
+       "chrome, because what they open is theirs to read."),
+
+    # ---------------- IO Builder ----------------
+    _h("io_builder.start.sources", "Load what exists, and mind the drafts",
+       "A delivered proposal, a client's record, an uploaded document "
+       "or a fresh start — whatever is loaded is shown and "
+       "confirmed in the interview, because a proposal quotes a price "
+       "and an insertion order bills it. Unfinished IOs are listed here "
+       "too, a colleague's included and marked whose: an interruption "
+       "on one machine resumes on another, and a half-built order "
+       "hidden away is how the same IO gets built twice. Discarding a "
+       "draft is its own deliberate press, with the name in the "
+       "confirmation."),
+    _h("io_builder.chat.progress", "Your place is kept, on the server",
+       "The interview asks one thing at a time and the order on the "
+       "right builds as you answer. Everything autosaves to the server "
+       "as well as to this browser, so closing the laptop mid-IO costs "
+       "nothing and the draft is there from any machine. Reset is the "
+       "one press that clears the saved draft too — its "
+       "confirmation says so, and that sentence is true."),
+    _h("io_builder.report.rates", "The same card the proposal quoted from",
+       "This pane is the insertion order as it stands, and every rate "
+       "on it comes off the shared Smart 1 rate card — the same "
+       "card the Proposal Builder quotes from, so the document a client "
+       "signed and the order that bills them cannot price one product "
+       "two ways. The order number was allocated the moment the wizard "
+       "started, which is why an abandoned IO leaves a gap in the "
+       "numbering rather than a duplicate."),
+    _h("io_builder.creative.manager", "Checked against the published spec",
+       "Every file is validated against the S1M creative spec kit "
+       "— the published sizes, weights and durations the people "
+       "buying this inventory work from — and a refusal names the "
+       "unit and the published ceiling rather than saying "
+       "“invalid file”. “Creative is coming later” "
+       "is a real answer and is recorded as an outstanding item, "
+       "instead of reading as nothing needed."),
+
+    # ---------------- Landing Page Maker ----------------
+    _h("landing_maker.pages.intro", "The page, the ads and the IO agree",
+       "Builds a campaign page from a proposal: the client, the "
+       "products being sold and their brand are read rather than "
+       "retyped, so the page says what the proposal says. What it "
+       "builds is a public page on its own link with none of the Hub's "
+       "chrome on it — it is what a prospect reads, and it is "
+       "often pasted onto the client's own domain."),
+    _h("landing_maker.pages.new", "A client's page, or a sample for a prospect",
+       "A client page is built from their proposal, which is why the "
+       "client is asked first — “which proposal” is only "
+       "answerable once you know whose. A prospect page is a sample "
+       "built to win them, and it captures leads exactly the way a "
+       "client page does, so a sample you send can bring one in before "
+       "anything is signed."),
+    _h("landing_maker.pages.built", "Open the link, not this list",
+       "A built page is served without the staff sidebar, the help "
+       "layer or the feedback tab — deliberately, since a client "
+       "or a prospect is who reads it — so what you see from "
+       "inside the Hub is not quite what they see. Check a page by "
+       "opening its own link, the one you would actually send."),
+
+    # ---------------- PDF Optimizer ----------------
+    _h("pdf_optimizer.tool.intro", "What an error here is about",
+       "Compression runs through Ghostscript and qpdf, keeping text "
+       "and vector content sharp and re-compressing the images inside. "
+       "When something goes wrong, the answer says which kind of wrong "
+       "it is: a refusal in plain words is about your file, and a 503 "
+       "pointing at the status page means this deployment is missing "
+       "its tools — no document will work until that is fixed, and "
+       "it is nothing to do with the PDF you are holding."),
+    _h("pdf_optimizer.tool.level", "What the levels trade",
+       "The levels differ in how hard the images inside the PDF are "
+       "re-compressed — text and vector artwork stay sharp at "
+       "every one of them. Web Optimized suits anything read on a "
+       "screen; Maximum Compression squeezes hardest and visibly costs "
+       "photograph quality; High Quality keeps the images closest to "
+       "the original. If the result is still large, the images were "
+       "already compressed about as far as they honestly go."),
+
+    # ---------------- GPT Ads Builder ----------------
+    _h("gpt_ads.pack.client", "Start from what the Hub knows",
+       "Pick a client and the pack opens with their brand and their "
+       "offer already read from the Hub — the point of building it "
+       "here rather than in a document is that nothing is retyped and "
+       "nothing is invented. Campaign is what this ad is for, in words "
+       "ad operations will recognize when they read the brief."),
+    _h("gpt_ads.pack.readiness", "Measured, never ticked",
+       "Every requirement here is answered by measuring rather than by "
+       "a checkbox: the image's pixels are read off the bytes — "
+       "1:1 is required and fails, the recommended 256 square only "
+       "warns — and the landing page is fetched: status, redirect "
+       "chain, and whether it declares a viewport, which is what was "
+       "actually measured rather than “mobile-friendly”. A "
+       "check that could not run says not measured and never shows a "
+       "tick. The ZIP still exports with items outstanding — they "
+       "are printed at the top of the brief, so ad ops sees the gap "
+       "rather than assuming they caused it."),
+    _h("gpt_ads.pack.copy", "The copy checks are code",
+       "A price, a percentage, a phone number or a deadline that "
+       "appears in the copy and in none of the offer or brand fields a "
+       "person typed is a block — a model inventing “$50 off "
+       "through Friday” gets the client a phone call about an "
+       "offer they never ran. An expiry date already in the past "
+       "blocks too. Superlatives and over-length lines only warn, "
+       "because the character limits are house guidance: the "
+       "requirement sheet publishes none, and going over is not a "
+       "rejection anybody has published."),
+
+    # ---------------- Google Access ----------------
+    _h("google_access.admin.intro", "One link, and what is not on it",
+       "The client signs in with Google once and we are granted their "
+       "Analytics, Tag Manager, Search Console and Business Profile "
+       "— no screen-share, no password in an email. Google Ads is "
+       "deliberately absent: Google offers no “add this "
+       "email” for Ads, only a manager-link invitation needing "
+       "credentials this deployment does not hold, and a tickbox that "
+       "consents and then fails at our end is worse than a missing "
+       "feature."),
+    _h("google_access.admin.new", "Existing is matched; new becomes a lead",
+       "An existing client is matched against the client list exactly "
+       "— never on a substring — and a name that matches "
+       "nothing is refused with New named as the way out, rather than "
+       "filed where nothing joins to it. A genuinely new business is "
+       "written through the lead store on the way past, so the "
+       "prospect we just asked for access exists somewhere sales can "
+       "see them — which is why an email or a phone number is "
+       "asked for."),
+    _h("google_access.admin.requests", "What a row can tell you",
+       "Status is per request, and “signed in as” is the "
+       "Google account that actually consented — worth a glance "
+       "before chasing a failed grant, because a grant can only reach "
+       "what that account itself administers, so the wrong sign-in is "
+       "the first thing to rule out. A request created while a service "
+       "was still offered keeps that service on its row, labeled "
+       "paused, and can still be closed out."),
+    _h("google_access.detail.grants", "Granted is per service, not per request",
+       "Each service is granted on its own and can fail on its own "
+       "— one row refusing must not read as the whole request "
+       "failing. Analytics, Tag Manager and Search Console are granted "
+       "by API once the client consents; Business Profile may be in "
+       "manual mode, where the client gets written instructions "
+       "instead, because Google gates those APIs behind its own "
+       "allowlist. A service since retired still shows here and can "
+       "still be marked, so a row nobody can close does not read as "
+       "waiting for ever."),
 
 ]
 

@@ -30,6 +30,7 @@ import threading
 import time as _time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote as _urlquote
 
 from flask import (Flask, jsonify, make_response, redirect,
                    render_template, request, Response)
@@ -714,10 +715,25 @@ def latest_payload_for_domain(url_or_host: str) -> dict:
 
 def _callback_url(public_id: str):
     """Where Insites should POST the finished audit, or None if we have no
-    public URL to be called back on (local dev)."""
+    public URL to be called back on (local dev).
+
+    The token is **percent-encoded**, because it is a secret somebody typed
+    into Render rather than a string this code chose. Interpolated raw, a `+`
+    comes back as a space and an `&` or `#` truncates the value at the
+    receiving end, so `compare_digest` fails and every callback is refused
+    403 -- and `api_callback` deliberately leaves a refused row *running*, so
+    the audit we paid for never attaches, the visitor's page polls until it
+    gives up, and nothing anywhere says why. This is also where the
+    `SCANS_CALLBACK_TOKEN="abc"` quoting trap lands: the quotes survive the
+    round trip, and the characters around them are what do not.
+
+    One reader, called from all three places a scan is started. The widget
+    path had its own copy of these two lines, which is how the encoding fix
+    would otherwise have landed in two of the three.
+    """
     if not PUBLIC_BASE_URL:
         return None
-    tok = f"?token={CALLBACK_TOKEN}" if CALLBACK_TOKEN else ""
+    tok = f"?token={_urlquote(CALLBACK_TOKEN, safe='')}" if CALLBACK_TOKEN else ""
     return f"{PUBLIC_BASE_URL}/scans/api/callback/{public_id}{tok}"
 
 
@@ -1645,10 +1661,7 @@ def _start_widget_scan(db, row) -> None:
         row.scan_status = "running"
         db.commit()
 
-    on_completion = None
-    if PUBLIC_BASE_URL:
-        tok = f"?token={CALLBACK_TOKEN}" if CALLBACK_TOKEN else ""
-        on_completion = f"{PUBLIC_BASE_URL}/scans/api/callback/{public_id}{tok}"
+    on_completion = _callback_url(public_id)
     try:
         resp = insites_client.start_audit(
             key, on_completion=on_completion, name=row.company or "",
@@ -1776,9 +1789,18 @@ def api_widget_unlock(slug):
                                 "Too many submissions from one place. Try "
                                 f"again in about {max(1, wait // 60)} minutes."}), 429
 
-        row.name, row.email = contact["name"], contact["email"]
-        row.phone, row.company = contact["phone"], contact["company"]
-        row.unlocked_at = row.unlocked_at or _now()
+        # Written on the FIRST unlock only, the rule `unlocked_at` beside it
+        # already follows. The lead reaches Smart 1 Suite once and is never
+        # re-delivered, so a second submission that overwrote these fields
+        # would leave the run row naming one person and the lead it points at
+        # naming another -- and the run row is the evidence of where that lead
+        # came from, read by the placement list and printed on the report page.
+        # Anybody holding the token can post this route, so the second name is
+        # not necessarily a typo being corrected.
+        if first_unlock:
+            row.name, row.email = contact["name"], contact["email"]
+            row.phone, row.company = contact["phone"], contact["company"]
+            row.unlocked_at = _now()
         db.commit()
 
         try:
@@ -1901,9 +1923,38 @@ def api_widget_audit(slug):
         db.close()
 
 
+# A run in one of these is over, and there is nothing left to wait for.
+# `error` is a provider that refused; `unconfigured` is an Insites key this
+# deployment does not have, so no audit was ever bought and no callback is
+# coming. Both are written by `_start_widget_scan`, and neither can become
+# `complete` on its own.
+STOPPED_SCAN_STATUSES = ("error", "unconfigured")
+
+# What a visitor is told when it has. Deliberately one sentence and not an
+# apology: their details did reach us, which is the part that matters to them,
+# and somebody follows up by hand. It never promises an email -- there is no
+# mail sender in this Hub, and a promise nothing can keep is worse than
+# saying nothing.
+STOPPED_MESSAGE = ("We could not finish the deep scan on this one. Your "
+                   "details reached us safely and somebody will follow it up "
+                   "\u2014 nothing is lost.")
+
+
+def scan_stopped(status: str) -> bool:
+    return (status or "") in STOPPED_SCAN_STATUSES
+
+
 @app.route("/api/w/<slug>/status")
 def api_widget_status(slug):
-    """Step 3 — has the paid audit landed yet? Polled by the widget."""
+    """Step 3 — has the paid audit landed yet? Polled by the widget.
+
+    Three answers, not two. `ready` is the report; `stopped` is a run that
+    will never produce one; anything else is still working. Both pages used
+    to read `ready` alone, so a run that had already failed was polled to the
+    ceiling and then told it was "still running" -- which is the one thing it
+    was not, on a page a prospect reads on a client's website. The status was
+    on this response the whole time and nothing looked at it.
+    """
     db = SessionLocal()
     try:
         row = _run_by_token(db, request.args.get("token"))
@@ -1915,9 +1966,13 @@ def api_widget_status(slug):
         if s is not None and s.status != row.scan_status:
             row.scan_status = s.status
             db.commit()
+        status = row.scan_status or "pending"
         ready = bool(s is not None and s.status == "complete")
-        return jsonify({"ok": True, "status": row.scan_status or "pending",
+        stopped = bool(not ready and scan_stopped(status))
+        return jsonify({"ok": True, "status": status,
                         "ready": ready,
+                        "stopped": stopped,
+                        "message": STOPPED_MESSAGE if stopped else "",
                         "report_url": f"/scans/r/{row.token}" if ready else "",
                         "pdf_url": f"/scans/r/{row.token}.pdf" if ready else ""})
     finally:
@@ -2013,7 +2068,8 @@ def widget_report(token):
             if payload is None:
                 return render_template("widget_waiting.html",
                                        lead=row.as_row(),
-                                       status=row.scan_status or "pending")
+                                       stopped=scan_stopped(row.scan_status),
+                                       message=STOPPED_MESSAGE)
             return render_template("widget_audit_report.html", a=payload,
                                    token=token, lead=row.as_row())
         r, row = _lead_report(db, token)
@@ -2021,7 +2077,8 @@ def widget_report(token):
             return "That report link isn't valid.", 404
         if r is None:
             return render_template("widget_waiting.html", lead=row.as_row(),
-                                   status=row.scan_status or "pending")
+                                   stopped=scan_stopped(row.scan_status),
+                                   message=STOPPED_MESSAGE)
         return render_template("widget_report.html", r=r, token=token,
                                lead=row.as_row())
     finally:

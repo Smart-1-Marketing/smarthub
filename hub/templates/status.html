@@ -68,7 +68,11 @@ async function loadPresence(){
     const when=p.minutes_ago<1?'just now':(p.minutes_ago+' min ago');
     const who=p.shared
       ? '<span class="pill warn">shared password</span>'
-      : (p.email?'<span class="muted">'+esc(p.email)+'</span>':'<span class="muted">no account matched this name</span>');
+      /* No email and not shared means exactly one thing now: more than one
+         account answers to this name, so we will not guess which. It used to
+         mean that OR that the account table could not be read at all, and
+         this line said "no account matched" about somebody who has one. */
+      : (p.email?'<span class="muted">'+esc(p.email)+'</span>':'<span class="muted">more than one account has this name</span>');
     return `<tr><td style="width:230px"><b>${esc(p.name)}</b></td>
       <td style="width:120px" class="muted">${esc(when)}</td><td>${who}</td></tr>`;
   }).join('');

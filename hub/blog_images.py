@@ -24,12 +24,35 @@ fingers, a storefront can carry an invented brand name, and neither is
 something to discover on a client's live site. Approve, regenerate with a
 note, or delete.
 
-## Approval triggers the optimise step
+## Optimising happens on the way in, and says when it could not
 
-An approved image goes through the same resize-then-convert path as every
-other client image — capped, WebP, into a `Blogs` folder in the client's
-gallery. A 3 MB PNG hero is a Core Web Vitals problem on the very page the
-post was written to rank.
+Every image is capped and converted to WebP before it is stored, rather than
+at approval: holding a multi-megabyte payload in the client store would bloat
+every read of that record, and approving would then pay for a second
+Cloudinary operation to do what the first could have done. A 3 MB PNG hero is
+a Core Web Vitals problem on the very page the post was written to rank.
+
+`_optimise_bytes()` returns nothing at all when Pillow cannot read the bytes,
+and the original was stored in its place **in silence** — so a 3 MB hero went
+into the client's gallery with `bytes` recording 3 MB and every screen
+reporting a clean success. `optimised` is on the image now and the note says
+so, because that is the one number on this record somebody would act on.
+
+## One image per post, not one per title
+
+The Cloudinary object was named from the post's **title**, `overwrite=True`
+and `unique_filename=False` — so two posts that slugify alike share one
+object, and the second one generated silently replaces the first's picture at
+the same URL. That is not a coincidence to guard against: the planner's
+fallback titles **cycle through six**, so any plan needing more than six
+top-up titles holds each of them twice, verbatim, in one month. Approving the
+second then overwrites the first's approved, filed image as well.
+
+The post id is unique by construction and was already being written into the
+upload context, so it is in the name now. Nothing is re-keyed: every existing
+row carries its own `public_id`, and `_promote()` and `_file_in_gallery()`
+read that rather than deriving it — the rule this codebase applies to
+`audit.LOG_NAMES` and `video_library.TAG_ALIASES`.
 """
 from __future__ import annotations
 
@@ -49,6 +72,24 @@ BASE_PROMPT = (
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def image_name(post: dict) -> str:
+    """What one post's image is called in Cloudinary.
+
+    The title alone is not a name: it is chosen by a model, it is not unique,
+    and `_stage()` uploads with `overwrite=True`. The id is what makes it one
+    object per post; the slug stays in front of it so the folder is readable
+    by somebody looking at the account rather than a column of numbers.
+
+    A post with no id falls back to the slug alone — that is the shape every
+    row written before this carries, and inventing an id for it would rename
+    an object the store already points at.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-",
+                  str(post.get("title") or "post").lower()).strip("-")[:60]
+    pid = str(post.get("id") or "").strip()
+    return f"{slug}-{pid}" if pid else (slug or "post")
 
 
 def _strip_html(html: str, limit: int = 900) -> str:
@@ -104,8 +145,20 @@ def generate(client: str, post_id, extra: str = "", actor: str = "") -> dict:
                          f"Check OPENAI_IMAGE_MODEL on Render."}
     if not raw:
         return {"error": "The image model returned nothing."}
+    # Pillow answers with nothing at all when it cannot read the bytes, and
+    # falling back to the original is right -- an image nobody can shrink is
+    # still the image. Doing it silently is not: what gets stored is then the
+    # 3 MB hero this module exists to prevent, with `bytes` recording 3 MB and
+    # every screen reporting a clean success.
     staged = _optimise_bytes(raw)
-    preview = _stage(client, post, staged or raw, pending=True)
+    data = staged or raw
+    preview = _stage(client, post, data, pending=True)
+    note = preview.get("note", "")
+    if not staged:
+        big = f" It is {len(raw) // 1024} KB." if len(raw) > 400_000 else ""
+        note = (note + " " if note else "") + (
+            "Stored at full size -- it could not be converted, so this one "
+            "was not optimized." + big).strip()
 
     history = post.get("image_history") or []
     if post.get("image"):
@@ -113,10 +166,10 @@ def generate(client: str, post_id, extra: str = "", actor: str = "") -> dict:
                         for k in ("url", "prompt", "created", "status")})
     post["image"] = {
         "url": preview.get("url", ""), "public_id": preview.get("public_id", ""),
-        "bytes": len(staged or raw),
+        "bytes": len(data), "optimised": bool(staged),
         "prompt": prompt, "extra": extra, "created": _now(),
         "status": "pending", "by": actor,
-        "note": preview.get("note", ""),
+        "note": note,
     }
     post["image_history"] = history[-4:]        # keep a few, not all
     seo.save_store(client, store)
@@ -146,10 +199,16 @@ def approve(client: str, post_id, actor: str = "") -> dict:
         img["gallery_url"] = saved["url"]
         img["url"] = saved["url"]               # serve the optimised one
         img.pop("b64", None)                    # don't keep the raw payload
+    # Saved before the gallery write, because a gallery that is unavailable
+    # must not cost somebody an approval -- and saved again afterwards,
+    # because `img` is a reference into `store` and assigning to it once the
+    # file has been written left `gallery_folder` in memory alone: the value
+    # reached the browser, the next read of the record had never heard of it.
     seo.save_store(client, store)
     filed = _file_in_gallery(client, post, img, saved)
     if filed:
         img["gallery_folder"] = filed
+        seo.save_store(client, store)
     audit.log("seo", "blog_image_approved", actor=actor or None,
               client=client, post=post_id, folder=FOLDER)
     return {"ok": True, "image": img, "stored": saved,
@@ -229,8 +288,7 @@ def _stage(client: str, post: dict, data: bytes, pending: bool = False) -> dict:
     Pending images go to a `pending/` subfolder so an unapproved image is
     never mistaken for a finished asset by anything browsing the gallery.
     """
-    slug = re.sub(r"[^a-z0-9]+", "-",
-                  str(post.get("title") or "post").lower()).strip("-")[:60]
+    slug = image_name(post)
     try:
         import cloudinary.uploader
         from hub.config import settings
@@ -278,75 +336,14 @@ def _promote(client: str, post: dict, img: dict) -> dict:
                         f"({type(exc).__name__})."}
 
 
-def _optimise_and_store(client: str, post: dict, img: dict) -> dict:
-    """Resize, convert to WebP, and file under Blogs in the client gallery.
-
-    Resize BEFORE converting: WebP alone leaves a 1536px hero at 1536px, which
-    was the v1.5.0 finding. A featured image that slows the page defeats the
-    post.
-    """
-    import base64
-    import io
-    try:
-        from PIL import Image
-    except Exception:                                   # noqa: BLE001
-        return {"note": "Pillow unavailable — stored unoptimized."}
-
-    raw = b""
-    if img.get("b64"):
-        try:
-            raw = base64.b64decode(img["b64"])
-        except Exception:                               # noqa: BLE001
-            raw = b""
-    if not raw and img.get("url"):
-        try:
-            import requests
-            r = requests.get(img["url"], timeout=25)
-            raw = r.content if r.ok else b""
-        except Exception:                               # noqa: BLE001
-            raw = b""
-    if not raw:
-        return {"note": "Couldn't retrieve the image bytes to optimize."}
-
-    try:
-        im = Image.open(io.BytesIO(raw))
-        im = im.convert("RGB")
-        im.thumbnail((1600, 1600), Image.LANCZOS)       # cap first
-        buf = io.BytesIO()
-        im.save(buf, "WEBP", quality=82, method=6)
-        data = buf.getvalue()
-    except Exception as exc:                            # noqa: BLE001
-        return {"note": f"Couldn't optimize ({type(exc).__name__})."}
-
-    slug = re.sub(r"[^a-z0-9]+", "-",
-                  str(post.get("title") or "post").lower()).strip("-")[:60]
-    try:
-        import cloudinary.uploader
-        from hub.config import settings
-        if not settings.cloudinary_ready:
-            return {"bytes": len(data),
-                    "note": "Optimized, but Cloudinary isn't configured so it "
-                            "wasn't filed in the gallery."}
-        folder = f"{settings.folder('seo_images')}/{_slug(client)}/{FOLDER}"
-        res = cloudinary.uploader.upload(
-            data, folder=folder, public_id=slug, resource_type="image",
-            overwrite=False, unique_filename=True,
-            context={"client": client, "kind": "blog-featured",
-                     "post": str(post.get("id"))})
-        # One Cloudinary operation, for the credit estimate on /diagnostics.
-        try:
-            from hub import quotas as _q
-            _q.record_asset(module="blog_images", nbytes=len(data),
-                            detail=res.get("public_id", ""))
-        except Exception:                     # noqa: BLE001
-            pass
-        return {"url": res.get("secure_url"), "bytes": len(data),
-                "folder": folder,
-                "note": f"Optimized to {len(data)//1024} KB and filed under "
-                        f"{FOLDER}."}
-    except Exception as exc:                            # noqa: BLE001
-        return {"bytes": len(data),
-                "note": f"Optimized but not filed ({type(exc).__name__})."}
+# `_optimise_and_store()` stood here: a second, unreached implementation of
+# resize-then-convert-then-file, written when approval was meant to be the
+# step that optimised. Nothing has called it since the work moved into
+# `generate()`, and it is deleted rather than left as a 69-line description
+# of a path the module no longer takes -- the reader who finds it next
+# believes it. `test_unwired.py` could never have said so: it skips names
+# beginning with an underscore, because a private helper called from inside
+# its own module is the ordinary case.
 
 
 def _slug(v: str) -> str:
@@ -354,17 +351,40 @@ def _slug(v: str) -> str:
 
 
 def status(client: str) -> dict:
-    """Which posts have images, and which are waiting on a human."""
+    """Which posts have images, and which are waiting on a human.
+
+    This is the one number that says "somebody needs to look at these", and it
+    is drawn as a badge on a Blogs section that is collapsed by default — so
+    it has to count exactly the posts the section can show. It counted every
+    post whose status is `written`, and archiving does not change that status:
+    `/api/seo/blogs` filters `archived` out of the working list and this did
+    not, so archiving a post with a pending image left a badge reading "1
+    image to approve" above a table with no row to click. Amber for ever, and
+    nothing anywhere to clear it — two readings of which posts are in play,
+    disagreeing on one screen.
+
+    What is left over is counted rather than dropped: an archived post with a
+    pending image has a file sitting in `pending/` that nobody will now
+    approve or delete, and a badge that silently gets shorter cannot be told
+    from one that failed to load.
+    """
     from hub import seo
-    posts = ((seo.load_store(client) or {}).get("blogs") or {}).get("posts") or []
+    every = ((seo.load_store(client) or {}).get("blogs") or {}).get("posts") or []
+    posts = [p for p in every if not p.get("archived")]
     written = [p for p in posts if p.get("status") == "written"]
     pending = [p for p in written if (p.get("image") or {}).get("status") == "pending"]
     approved = [p for p in written if (p.get("image") or {}).get("status") == "approved"]
     none_yet = [p for p in written if not p.get("image")]
+    stranded = [p for p in every if p.get("archived")
+                and (p.get("image") or {}).get("status") == "pending"]
+    note = (f"{len(pending)} image(s) waiting for approval." if pending else
+            f"{len(none_yet)} written post(s) have no image yet." if none_yet
+            else "Every written post has an approved image.")
+    if stranded:
+        note += (f" {len(stranded)} more sit on archived posts, which are not "
+                 f"on the working list — nobody is going to approve those.")
     return {"written": len(written), "pending": len(pending),
             "approved": len(approved), "without_image": len(none_yet),
+            "archived_pending": len(stranded),
             "pending_ids": [p.get("id") for p in pending],
-            "note": (f"{len(pending)} image(s) waiting for approval."
-                     if pending else
-                     f"{len(none_yet)} written post(s) have no image yet."
-                     if none_yet else "Every written post has an approved image.")}
+            "note": note}
