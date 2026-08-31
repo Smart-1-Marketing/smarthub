@@ -100,14 +100,14 @@ def choices() -> dict:
     can *say* so rather than offering them as choices, since a choice that is
     reported either way is not a choice.
     """
-    seen, catalogue = set(), []
+    seen, catalog = set(), []
     for _pattern, kpi, expected in BENCHMARKS:
         key = kpi.lower()
         if key in seen:
             continue
         seen.add(key)
-        catalogue.append({"kpi": kpi, "expected": expected})
-    return {"catalogue": catalogue, "always": list(_ALWAYS)}
+        catalog.append({"kpi": kpi, "expected": expected})
+    return {"catalog": catalog, "always": list(_ALWAYS)}
 
 
 def benchmark_for(category: str = "", product: str = "") -> dict:

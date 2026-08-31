@@ -607,16 +607,16 @@ check("a campaign with no KPI says so rather than printing an empty framework",
 # checks above exist to stop.
 _choices = kpi.choices()
 check("every distinct KPI in the benchmark table is offered as a choice",
-      [c["kpi"] for c in _choices["catalogue"]]
+      [c["kpi"] for c in _choices["catalog"]]
       == list(dict.fromkeys(k for _, k, _ in kpi.BENCHMARKS)),
-      _choices["catalogue"])
+      _choices["catalog"])
 check("each choice carries the range it would be judged against",
-      all(c["expected"] for c in _choices["catalogue"]),
-      _choices["catalogue"])
+      all(c["expected"] for c in _choices["catalog"]),
+      _choices["catalog"])
 check("the always-reported Suite metrics are carried apart, never as choices",
       _choices["always"] == kpi.success_metrics({})
       and not any(c["kpi"] in _choices["always"]
-                  for c in _choices["catalogue"]),
+                  for c in _choices["catalog"]),
       _choices)
 _cfg = api("get", "/sales/builder/api/config")
 check("the page is handed the choices on /api/config, never a restated copy",
