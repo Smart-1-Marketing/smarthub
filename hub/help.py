@@ -166,7 +166,7 @@ REGISTRY: list[Help] = [
        "goes to kinds nobody has answered on, or the mix converges on "
        "whatever they liked first and stops learning."),
     _h("social.requests.suite", "Pushing to Smart 1 Suite",
-       "Posting from here needs the social-media-posting.write scope on the "
+       "Posting from here needs the socialplanner/post.write scope on the "
        "Suite app, and HighLevel grants what it recognizes at consent "
        "without saying anything about the rest — so it is checked before a "
        "push rather than discovered by one. Until the agency re-consents, "
