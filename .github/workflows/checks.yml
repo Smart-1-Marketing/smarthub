@@ -302,6 +302,20 @@ jobs:
             echo "test_commercial_review.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder mock-mode tests
+        # The mark that says a provider is not live. Every one of these
+        # routes already answered `live: false` or `mock: true` and nothing
+        # in the browser read it, so a spot built entirely from templates
+        # looked exactly like one a model wrote. Skip-rather-than-fail, like
+        # its siblings: a branch cut before this file exists should not fail
+        # on its absence.
+        run: |
+          if [ -f test_commercial_mock.py ]; then
+            python test_commercial_mock.py
+          else
+            echo "test_commercial_mock.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder advertising-rule tests
         # Which published rules a spot's copy engages, and the two ways the
         # feature would be worse than absent: a tool that claims a spot is
