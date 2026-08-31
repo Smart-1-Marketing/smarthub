@@ -4513,6 +4513,18 @@ uncalled and a check matching text reports the fix as the defect; it resolves
 a module's own `log()` wrapper, the shape `check_work_kinds()` had to learn;
 and it is handed a silent route and required to name it.
 
+**And a wrapper is resolved from its definition, not guessed from its name.**
+The walk hard-coded `_audit` and `log`, which was two modules' spelling and not
+a rule. `modules/seo_images` calls its wrapper `_log`, so a module recording
+five of its seven writes read as recording **none** — a check inventing seven
+findings, which is switched off faster than one that misses them. Worse, the
+same blindness had already produced a **wrong exemption**: Google Finder's
+`api_ga4_ask` logs through `_audit_mod.log(...)`, the walk could not see a
+caller of that name, and it was duly declared as a route that records nothing.
+An exemption covering a call site that never needed one. A wrapper is any
+function in the file that itself reaches the shared logger, however spelled,
+and the both-directions rule is what caught the stale entry.
+
 **A route that writes without a write method is named rather than missed.**
 Google redirects the browser to `oauth_callback`, so it is a `GET` by protocol
 and a method-based walk cannot classify it — while what it does is store a
