@@ -718,6 +718,28 @@ REGISTRY: list[Help] = [
        "slightly different name.",
        step=1, selector="[data-tour='seo-list']"),
 
+    # The webmaster dashboard had no bubble and no tour on it at all: 450
+    # lines of sortable table whose every number is drawn from a fetch, and
+    # three different reasons a cell can be blank. The three below are the
+    # questions the page cannot answer about itself.
+    _h("hub.webmaster.roster", "Who is on this list",
+       "Every client with a live SEO product, the same roster the SEO client "
+       "list is built from \u2014 so a client missing here is missing there "
+       "too, and the cause is the product, not this page.",
+       step=1, selector="[data-tour='wm-roster']"),
+    _h("hub.webmaster.property", "Why a row has no numbers",
+       "Traffic comes from the Analytics property attached to that client. "
+       "No property attached, Google refused the read, and still fetching are "
+       "three different blanks and the row says which \u2014 none of them "
+       "means the client had no visitors.",
+       step=2, selector="[data-tour='wm-numbers']"),
+    _h("hub.webmaster.attach", "Attaching a property",
+       "Attaching here records it against the client, so the next sweep and "
+       "Client 360 both see it. A property that disagrees with the one on "
+       "the website record is left alone rather than overwritten \u2014 that "
+       "disagreement is the finding.",
+       step=3, selector="[data-tour='wm-attach']"),
+
     # ---------------- Creative ----------------
     _h("hub.creative.pick", "Which of these you want",
        "Image Creator is the full editor for making something new. Client "
@@ -1306,6 +1328,35 @@ REGISTRY: list[Help] = [
        "appeared that nobody remembers deploying, or you want the read-out "
        "from last quarter without running the comparison again and getting "
        "slightly different numbers."),
+
+    # ---------------- Media calculators ----------------
+    # Five tiles on /tools with nothing behind them. The fact worth putting on
+    # the screen is the one thing true of all of them and stated on none: the
+    # staff copy and the copy a prospect opens are the same fields and the same
+    # catalog.run(), differing only in whether the plan is withheld until a
+    # contact is captured. They look almost identical and are one URL apart,
+    # which is exactly how a rep ends up filing a live client as a fresh lead.
+    _h("calculators.index", "What these are, and where else they run",
+       "Media calculators that size a buy from a budget and a market \u2014 "
+       "reach, frequency and delivery, at the rates we actually sell at. Each "
+       "one runs in three places off this same code: the staff page here, a "
+       "public link an ad can point at, and framed inside a page on "
+       "smart1marketing.com. There is one implementation of the arithmetic, "
+       "so the three cannot quote a client different numbers; what differs is "
+       "only whether the plan is shown straight away or held back until "
+       "somebody has left their details."),
+    _h("calculators.internal", "This is the staff copy, and it captures nothing",
+       "Same fields and the same arithmetic as the version a prospect opens, "
+       "with the whole plan returned in one go rather than held back behind a "
+       "name, an email and a phone number. Nothing here is stored: no "
+       "estimate, no contact, and nothing sent to Smart 1 Suite. That is the "
+       "point of it \u2014 sizing a buy for a client of eleven years' standing "
+       "through the public form meant typing some contact into it, and "
+       "whatever got typed landed in the leads panel reading exactly like a "
+       "live prospect. The client-facing copy is one URL away and looks "
+       "almost identical, so check which one you are on before you send a "
+       "link: this page is behind the staff login and a prospect cannot open "
+       "it."),
 
 ]
 

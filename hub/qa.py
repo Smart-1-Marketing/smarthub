@@ -506,8 +506,15 @@ def no_dashboards() -> dict:
             rows.append(r)
             styles.append(None)
     return {
+        # Six cells, so six headings. The action cell is headed `""` the way
+        # `skipped_dashboards()` heads its own two functions up: the renderer
+        # draws one <td> per cell against one <th> per column, so a row
+        # carrying a cell no column names puts the Add-dashboard button under
+        # a heading belonging to the value on its left — and the CSV export,
+        # which writes `columns` as its header row and the cells beneath it,
+        # gave every row an unlabelled trailing field.
         "columns": ["Partner", "Client", "Live products",
-                    "Products", "Monthly"],
+                    "Products", "Monthly", ""],
         "rows": rows,
         "row_styles": styles,
         "note": (f"{total} active clients with no Smart 1 Dashboard link on any "

@@ -365,20 +365,48 @@ def api_ai_image():
                "prompt": full[:3800], "size": size, "n": 1}
     if body.get("transparent"):
         payload["background"] = "transparent"
+    model = payload["model"]
+
+    def _note(ok):
+        """Record the spend. An image is billed per press and this route was
+        recording nothing, so every generation here was invisible on the usage
+        page -- while the two text routes beside it, which go through
+        `_openai_json`, were tracked. `untracked_openai_modules()` read the
+        *file* and found `from hub import ai` in that helper, so the whole
+        module was exempted and the check reported it clean: the string
+        satisfying the check, which is the `for_module(` failure one provider
+        over.
+
+        The model is passed explicitly because an images response carries no
+        `usage` block -- `openai_cost()` prices anything named `gpt-image*`
+        per image, and without the name there is nothing to price. A refused
+        call keeps its row with `ok=False`: it spent nothing and is out of
+        every billable total, but a wall of them is what a spent allowance
+        looks like from this side.
+        """
+        try:
+            from hub import ai as _hub_ai
+            _hub_ai.note_usage("image_creator", {}, model=model,
+                               purpose="image", ok=ok)
+        except Exception:                             # noqa: BLE001
+            pass
+
     try:
         r = _rq.post("https://api.openai.com/v1/images/generations",
                      headers={"Authorization": f"Bearer {key}",
                               "Content-Type": "application/json"},
                      json=payload, timeout=180)
         if not r.ok:
+            _note(False)
             return jsonify({"error": f"OpenAI {r.status_code}: {r.text[:200]}"}), 502
         item = (r.json().get("data") or [{}])[0]
+        _note(True)
     except Exception as exc:                          # noqa: BLE001
+        _note(False)
         return jsonify({"error": str(exc)}), 502
 
     if item.get("b64_json"):
-        fmt = "png" if body.get("transparent") else "png"
-        return jsonify({"image": f"data:image/{fmt};base64,{item['b64_json']}"})
+        return jsonify({"image": f"data:image/png;base64,{item['b64_json']}"})
     if item.get("url"):
         return jsonify({"image": item["url"], "needs_proxy": True})
     return jsonify({"error": "No image came back."}), 502
