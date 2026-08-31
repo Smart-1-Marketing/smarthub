@@ -11,9 +11,13 @@
  * rejecting a customer's only photo helps no one. Only genuinely unusable
  * input (not an image, zero bytes) is refused.
  *
- * 150 KB is the source budget the brief specified. It is deliberately below
- * Google's 150 KB *delivered-creative* limit too, so a hero image can never
- * be the reason a finished ad blows its platform ceiling.
+ * 150 KB is the source budget the brief specified. It is the same number as
+ * Google's delivered-creative ceiling rather than below it -- this file used
+ * to say "deliberately below", which is not a thing 150 can be than 150. What
+ * actually keeps a finished ad inside its platform limit is the quality ladder
+ * `render.ts` steps on the composed raster; this budget keeps a 6 MB phone
+ * photo from being the input to that, which is a different job and worth
+ * having, just not the one the sentence claimed.
  */
 
 import * as fs from 'node:fs';
@@ -22,6 +26,12 @@ import sharp from 'sharp';
 
 export const MAX_IMAGE_BYTES = 150 * 1024;
 
+/** Bytes as a person reads them. `toFixed(0)` printed a 600-byte logo as
+ *  "0 KB", which is not a size anybody can act on. */
+function kb(bytes: number): string {
+  return bytes < 10 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${Math.round(bytes / 1024)} KB`;
+}
+
 export interface FitResult {
   /** Path to the written, under-budget image. */
   file: string;
@@ -29,7 +39,17 @@ export interface FitResult {
   width: number;
   height: number;
   format: string;
-  /** True if the image had to be compressed or downscaled to fit. */
+  /**
+   * True if the image genuinely had to be reduced: it arrived over budget, or
+   * over the dimension cap, or the first encode was still too big.
+   *
+   * It used to be `encoded.length !== original.length`, which is true of very
+   * nearly every image -- the file is always re-encoded, so the bytes always
+   * differ. So a 600-byte logo came back `reencoded: true` with a note saying
+   * it had been "optimized ... to meet the 150 KB limit", about a file that
+   * was 0.4% of that limit and had needed nothing. The field's own description
+   * said "had to", and the value meant "we did".
+   */
   reencoded: boolean;
   /** Human note when something was done to the file, for surfacing in the UI. */
   note?: string;
@@ -62,10 +82,13 @@ export async function fitImageToBudget(
   const keepAlpha = opts.keepAlpha ?? (meta.hasAlpha && meta.format === 'png');
   const maxDim = opts.maxDimension ?? 2000; // no source needs to exceed this for display ads
 
+  const originalBytes = typeof input === 'string' ? fs.statSync(input).size : input.length;
+
   // First pass: cap dimensions (a 6000px photo is pure waste for a 970px ad).
   let width = meta.width;
   let height = meta.height;
-  if (Math.max(width, height) > maxDim) {
+  const capped = Math.max(meta.width, meta.height) > maxDim;
+  if (capped) {
     const s = maxDim / Math.max(width, height);
     width = Math.round(width * s);
     height = Math.round(height * s);
@@ -80,11 +103,10 @@ export async function fitImageToBudget(
 
   // Try progressively harder: drop quality, then dimensions, until under budget.
   let buf = await encode(width, height, 82);
-  let reencoded = buf.length !== (typeof input === 'string' ? fs.statSync(input).size : input.length);
+  const squeezed = buf.length > MAX_IMAGE_BYTES;
   let quality = 82;
   let guard = 0;
   while (buf.length > MAX_IMAGE_BYTES && guard++ < 12) {
-    reencoded = true;
     if (quality > 40) {
       quality -= 12;
     } else {
@@ -100,10 +122,28 @@ export async function fitImageToBudget(
     throw new Error('Could not compress this image under 150 KB — please use a simpler or smaller image.');
   }
 
+  // This function exists to make a file smaller, and on a high-entropy source
+  // already saved hard -- a Pixabay `webformatURL`, a low-quality photo -- a
+  // q82 re-encode comes back *larger*. It was written out anyway, and the note
+  // then read "Optimized from 52 KB to 137 KB". Where the input already fits
+  // the budget, is inside the dimension cap and is already the format we would
+  // write, the original bytes are the better answer and are kept.
+  // Note this asks nothing about whether the ladder had to run. It routinely
+  // does -- the q82 first pass on such a source overshoots the budget, the
+  // loop pulls it back under, and the answer is still larger than what we were
+  // handed. Work having been done is not a reason to prefer a worse result.
+  const sameFormat = keepAlpha ? meta.format === 'png' : meta.format === 'jpeg';
+  const keepOriginal =
+    buf.length > originalBytes && !capped && sameFormat && originalBytes <= MAX_IMAGE_BYTES;
+  if (keepOriginal) {
+    buf = typeof input === 'string' ? fs.readFileSync(input) : input;
+  }
+
   const finalMeta = await sharp(buf).metadata();
   fs.writeFileSync(outFile, buf);
 
-  const originalBytes = typeof input === 'string' ? fs.statSync(input).size : input.length;
+  // Keeping the original means nothing was achieved, whatever the ladder did.
+  const reencoded = !keepOriginal && (originalBytes > MAX_IMAGE_BYTES || capped || squeezed);
   return {
     file: outFile,
     bytes: buf.length,
@@ -111,8 +151,6 @@ export async function fitImageToBudget(
     height: finalMeta.height ?? height,
     format: keepAlpha ? 'png' : 'jpg',
     reencoded,
-    note: reencoded
-      ? `Optimized from ${(originalBytes / 1024).toFixed(0)} KB to ${(buf.length / 1024).toFixed(0)} KB to meet the 150 KB limit.`
-      : undefined,
+    note: reencoded ? `Optimized from ${kb(originalBytes)} to ${kb(buf.length)} to meet the 150 KB limit.` : undefined,
   };
 }
