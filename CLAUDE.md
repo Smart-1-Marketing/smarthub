@@ -3196,6 +3196,91 @@ somebody to judge which ages matter. A walkthrough describing a tool that
 does not exist is worse than one describing none, because a rep believes it,
 so the step is rewritten rather than anchored to the nearest thing.
 
+**And the floor it stands on could be cleared by a selector that tests
+nothing.** `_needs()` reads a step's selector for an `#id`, a `[data-demo]` or
+a `[name]`, and a selector carrying none of those returned **no requirement at
+all** — so `absent` was empty, the step counted as anchored, and the check had
+put a tick over a question nobody asked. Four steps were written
+`input[type='file']`, which matches a file input on any page in the Hub and
+identifies nothing.
+
+That is what let **`client360.proposal`** clear *no scenario may drive none of
+its steps*: three of its four hooks are in no template, and the fourth was that
+selector, so three-of-four is not four-of-four and the floor passed a
+walkthrough that drives nothing. **`bg_remover.logo_cutout` was hiding behind
+the identical selector** and had four dead hooks — so the floor was reporting
+one clean sweep over two scenarios that could not drive a single step between
+them. Absent data reading as a measurement, in the check written to find
+exactly that.
+
+A selector the check cannot test is its own state now — counted apart, drawn
+under the *unverified* pill the runtime-prefix rule already has, and it
+**clears nothing**: `dead` is measured against the steps that carry something
+testable, so an untestable step neither proves a scenario drives something nor,
+where every step is one, asserts that it drives nothing.
+
+**And `data-tour` was a whole attribute the parser had never heard of.** It is
+how a tour step anchors and how seven of Smart 1 Ads' driving steps anchor too,
+and **39 anchors in this repo were tested by nothing**: renaming one out from
+under the step that drives it changed no count on any screen. It is read like
+`data-demo` now.
+
+Both scenarios are repaired rather than retired, and the two repairs are
+different jobs. `client360.proposal`'s hooks were simply never placed, so they
+are placed. `bg_remover.logo_cutout` described a free **"Remove white
+background"** button that runs in the browser — and that tool has never had
+one: its free option is a *preview* cut at a quarter of a megapixel, too small
+to deliver and exactly big enough to see whether the edges came out clean. The
+advice was right and the control was imaginary, so the steps are rewritten
+against the tool that exists — Web Tickets' *"Sort by age"* rule, because a rep
+believes a walkthrough.
+
+**And the injector answering the same question kept a second description of
+it.** A page that does not extend `base.html` — a blueprint-registered tool,
+`client_owners.html`, `unattached_images.html` — is tagged by the hub app's own
+`after_request`, and that tagged it from a **hand-typed slug map** rather than
+from where the scenarios are. It had drifted in both directions before anybody
+read it: three entries named a module whose only scenario is written for a
+different page, and `qa` matched on the **first URL segment**, so it claimed
+every path under `/qa`.
+
+Measured on the running app, four pages carried a button that could not work —
+`/qa/client-owners`, `/qa/unattached-images`, `/tools/calculators/leads` and
+`/tools/tickets/setup`, each offered its module's *first* scenario, written for
+the index page. On `/qa/client-owners` that is `qa.billing_audit`, whose four
+targets are **0 of 4** present there: it rings nothing on every step. And
+`client_owners.html` declares no module **on purpose** — this file says why, a
+few sections up — so the injector was overruling an opt-out with the very thing
+it opted out of.
+
+`_demo_module_for()` is the one reading now and both callers use it. Matched on
+the scenario's **own path** and nothing looser: matched on a segment it lands on
+every page under a prefix, and matched on a prefix it lands on a tool's
+sub-pages, and neither is the screen the steps were written against — a
+walkthrough drives one page.
+
+**The sweep that proves it had to survive itself.** `test_hub_help_layer.py`
+requests every hub page and fails any that offers a walkthrough written for
+another — and the first version signed itself out partway through, because
+`/signout` is a GET like any other, so every page after it came back as the
+sign-in form and was skipped. It reported two wrongly-tagged pages where there
+were four. A sweep that quietly stops sweeping, in the check written to catch a
+map that had quietly stopped matching. It skips the auth routes and asserts it
+still held its session at the end. It also models the two real opt-outs —
+`data-demo="off"` and a page's own `[data-demo-start]`, both of which the
+launcher honours — and judges where a request **landed** rather than where it
+was aimed, since `/seo/client` with no `?name=` redirects to `/seo` and that
+page's module is its own. A check with false positives is one somebody switches
+off.
+
+One thing it deliberately does not report: `website_audit.html` declares
+`data-module="website_audit"` and **no scenario is registered for that module
+at all**. `autoLauncher()` returns early on an empty list, so no button is
+drawn and the page is right today. Calling it a finding would start the check
+red over a page nothing is wrong with — the `has_tour()` shape one layer over,
+and worth knowing before somebody registers a `website_audit` scenario for a
+different screen.
+
 **A hook can be derived, and a substring search calls a derived hook dead.**
 The QA index writes `data-demo="qa-report-{{ key }}"` once for every report it
 lists, so a scenario naming a report added next month is anchored without that
@@ -10640,8 +10725,10 @@ python3 test_help_layer.py         # every bubble placed has help behind it, bot
                                    #   ways one is placed, a key built at runtime
                                    #   named rather than guessed at, the
                                    #   walkthrough saying which step it cannot
-                                   #   run, and coverage measured against the
-                                   #   tiles rather than a list that went stale
+                                   #   run, a selector that tests nothing
+                                   #   clearing no floor, and coverage measured
+                                   #   against the tiles rather than a list
+                                   #   that went stale
 python3 test_target_areas.py       # target areas, delivery, the Suite push
 python3 test_lead_delivery.py      # one write path per lead
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
@@ -10903,8 +10990,10 @@ python3 test_ghl_oauth.py          # the Suite install: a refresh that keeps
                                    #   crash, and a status carrying no secret
 python3 test_site_blocks.py        # the website blocks a page is built from
 python3 test_hub_help_layer.py    # the hub's own tours: offered at all,
-                                   #   and a walkthrough button only
-                                   #   where a scenario can run
+                                   #   and a walkthrough button only where a
+                                   #   scenario is written for that page --
+                                   #   swept across every hub page, by a sweep
+                                   #   that does not sign itself out partway
 python3 test_linkcheck_helpers.py # the URLs linkcheck could not see: a
                                    #   module's own request helper, and
                                    #   sendBeacon; and prose is not a
