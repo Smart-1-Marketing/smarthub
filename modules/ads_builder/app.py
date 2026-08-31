@@ -53,8 +53,9 @@ from flask import (Flask, jsonify, make_response, redirect, render_template,
 from . import VERSION, VERSION_DATE
 from hub import target_areas
 
-from . import (api_readiness, campaign_ai, client_link, export, google_ads,
-               keyword_plan, landing_page, logo as logo_lookup, spec, store)
+from . import (api_readiness, campaign_ai, client_link, copy_ideas, export,
+               google_ads, keyword_plan, landing_page, logo as logo_lookup,
+               spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 from hub.webargs import clamp_int
@@ -774,6 +775,63 @@ def api_analyse_tiers(public_id):
     campaign["budgetTiers"] = tiers
     _save(public_id, campaign)
     return jsonify({"tiers": tiers})
+
+
+# ------------------------------------------------------- the Pickaxe workshop
+# Ad copy ideas, extension ideas and SEM quote help — internal working notes
+# on the proposal screen, saved on the campaign so a colleague opening the
+# same proposal reads what was already drafted rather than paying for a second
+# draft. Nothing any of them writes reaches the client estimate.
+
+@app.post("/api/proposals/<public_id>/analyse/ad-copy")
+def api_ad_copy_ideas(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    ideas = copy_ideas.ad_copy_ideas(campaign)
+    ideas["generated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    campaign["adCopyIdeas"] = ideas
+    _save(public_id, campaign)
+    store.log_event("AD_COPY_DRAFTED", current_user(),
+                    proposal=public_id, client=proposal["client_name"])
+    return jsonify({"ideas": ideas})
+
+
+@app.post("/api/proposals/<public_id>/analyse/ad-extensions")
+def api_ad_extension_ideas(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    # Re-fetch rather than reuse what generation saw, the analyse/landing-page
+    # rule: the extension ideas are read off the page's own copy, and the
+    # point of pressing the button is the page as it stands now.
+    observed = landing_page.observe(campaign.get("websiteUrl"))
+    campaign["landingPageObserved"] = observed
+    ideas = copy_ideas.extension_ideas(campaign, observed)
+    ideas["generated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    campaign["adExtensionIdeas"] = ideas
+    _save(public_id, campaign)
+    store.log_event("AD_EXTENSIONS_DRAFTED", current_user(),
+                    proposal=public_id, client=proposal["client_name"])
+    return jsonify({"ideas": ideas})
+
+
+@app.post("/api/proposals/<public_id>/analyse/sem-quote")
+def api_sem_quote(public_id):
+    proposal, err = _campaign_or_404(public_id)
+    if err:
+        return err
+    campaign = proposal["campaign"]
+    answer = copy_ideas.sem_quote(campaign, user=current_user())
+    answer["generated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    campaign["semQuote"] = answer
+    _save(public_id, campaign)
+    store.log_event("SEM_QUOTE_DRAFTED", current_user(),
+                    proposal=public_id, client=proposal["client_name"],
+                    source=answer.get("source"))
+    return jsonify({"answer": answer})
 
 
 # --------------------------------------------------- measured cost per click

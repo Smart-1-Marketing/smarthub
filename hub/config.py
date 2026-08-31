@@ -213,6 +213,19 @@ class Settings:
     openai_timeout: int = field(default_factory=lambda: _i("OPENAI_TIMEOUT", 90))
     openai_retries: int = field(default_factory=lambda: _i("OPENAI_RETRIES", 2))
 
+    # ---- Pickaxe ----
+    # The agency's Pickaxe workspace ("Smart 1 Test") holds two assistants with
+    # knowledge bases the Hub cannot restate — SEM Quote Help and Audience
+    # Finder — and hub/pickaxe.py calls those live. One spelling only, per the
+    # ALIASES note above: nothing is set anywhere yet, so there is no drift for
+    # an alias to fix. PICKAXE_WORKSPACE_ID is only needed with a Personal API
+    # key; a workspace-scoped key already knows its workspace.
+    pickaxe_key: str = field(default_factory=lambda: _s("PICKAXE_API_KEY"))
+    pickaxe_base: str = field(default_factory=lambda: _s("PICKAXE_BASE", "https://api.pickaxe.co").rstrip("/"))
+    pickaxe_workspace_id: str = field(default_factory=lambda: _s("PICKAXE_WORKSPACE_ID"))
+    pickaxe_timeout: int = field(default_factory=lambda: _i("PICKAXE_TIMEOUT", 90))
+    pickaxe_retries: int = field(default_factory=lambda: _i("PICKAXE_RETRIES", 2))
+
     # ---- Cloudinary ----
     # Cloudinary publishes the credential two ways and this Render account sets
     # both: one CLOUDINARY_URL, and the three parts CLOUDINARY_CLOUD_NAME /
@@ -320,6 +333,10 @@ class Settings:
     @property
     def openai_ready(self) -> bool:
         return bool(self.openai_key)
+
+    @property
+    def pickaxe_ready(self) -> bool:
+        return bool(self.pickaxe_key)
 
     def folder(self, kind: str) -> str:
         """Canonical Cloudinary folder for an asset kind.
@@ -529,6 +546,9 @@ class Settings:
                 "CLOUDINARY_API_SECRET — assets persist to local disk only."),
             row("OpenAI", self.openai_ready, False,
                 "OPENAI_API_KEY — AI naming, FAQ, schema and copy fall back to templates."),
+            row("Pickaxe", self.pickaxe_ready, False,
+                "PICKAXE_API_KEY — Pickaxe-backed helpers (SEM quote help) fall "
+                "back to the Hub's own AI."),
             row("Pexels", bool(self.pexels_key), False, f"{self.spellings('pexels_key')} — stock search provider."),
             row("Pixabay", bool(self.pixabay_key), False, f"{self.spellings('pixabay_key')} — stock search provider."),
             row("Unsplash", bool(self.unsplash_key), False, f"{self.spellings('unsplash_key')} — stock search provider."),
