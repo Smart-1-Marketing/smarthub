@@ -9816,6 +9816,39 @@ the folder's own assets were matched by a contains rather than an equality.
 `folderMode` still decides the shape of a dry-run public_id, which is a
 different question and a real one.
 
+**And fixing the search left the folder with two readings of itself.**
+`folderExpression()` trims a trailing slash before it builds its clause; the
+gallery's *heading* and its *output filename* took the string exactly as
+handed in. That asymmetry is the whole failure, because the README's own
+folder tree prints the folder **with** a trailing slash -- so pasting it
+searched the right tree, found the right assets, and then wrote them to
+`gallery_.html`, which is the same file for every project: build a second
+gallery and it silently replaces the first, with a success line naming the
+file it had just overwritten. The heading went the same way, `slice(-2)` on
+`[..., 'summer-solar', '']` giving *"summer-solar — "* -- the client's name
+gone and a dash left hanging. A doubled separator does it to the heading
+alone, since `pop()` cannot see an empty segment in the middle.
+`normalizeFolder()` is the one reading now, and `folderExpression()` reads it
+too rather than keeping its own.
+
+**And a relative path is relative to the page that carries it.** A dry run's
+manifest holds no hosted URL, so a simulated asset is drawn from a file on
+this disk -- `path.relative()` against `out/reports`, hard-coded, whatever
+`--out` had actually been given. A gallery written anywhere else had **every
+image broken** and still printed the file it had written. The output path is
+decided before the assets are built now and `assetsFromManifest()` takes the
+directory, because the page's own location is the only thing that path can be
+computed from. It was right for the default, which is exactly why it stood.
+
+`main()` is guarded on `require.main` so importing the file for its helpers
+does not run the command -- unguarded, a test that imports it throws on an
+empty argv and calls `process.exit(1)` on the test runner.
+`tests/gallery.test.ts` asserts all of it, and one of its assertions had to be
+retargeted first: the doubled-separator case was pinned on the *filename*,
+where `pop()` is immune to an empty middle segment, so it was a property that
+could not fail -- the same shape as pinning a rounding bug on a figure too
+large to round to zero.
+
 **The scan photographed their website and nobody was shown the photograph.**
 `website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
 so an operator judging brand colour on a dark canvas had to open the client's
