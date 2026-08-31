@@ -408,6 +408,54 @@ check("the panel row carries the meta the cell reads",
       row["meta"]["audit_url"], "/scans/scan/sc1")
 
 
+# =====================================================================
+section("Starting a proposal carries the prospect, not just the domain")
+# =====================================================================
+# The link into the Proposal Builder used to pass ?audit=<domain> and nothing
+# else, so a rep landed on the customer step retyping the business name and
+# the contact details off the screen behind them — the gap the ?prefill= path
+# from Client 360 was built to close, open again one record over.
+
+record = (ROOT / "hub" / "templates" / "prospect.html").read_text()
+check("the proposal link is built by one helper",
+      "function proposalHref(" in record, True)
+check("read by the header strip and the proposals card alike",
+      record.count("esc(proposalHref(l))"), 2)
+check("and no call site still builds the bare-domain link by hand",
+      record.count("/sales/builder/"), 1)
+for param in ("company", "contactName", "contactEmail", "contactPhone"):
+    check(f"it carries {param}", f"'{param}'" in record, True)
+check("a converted prospect names the client, so the builder attaches",
+      "q.set('client', l.client)" in record, True)
+
+builder = (ROOT / "modules" / "sales_builder" / "templates"
+           / "index.html").read_text()
+check("the builder reads the new-business name",
+      "qs.get('company')" in builder, True)
+check("and opens it as a new client rather than a search that finds nothing",
+      'S.client=company;S.clientMode="new"' in builder, True)
+for param in ("contactName", "contactEmail", "contactPhone"):
+    check(f"the builder's ?audit= branch reads {param}",
+          f"['{param}','client{param[0].upper()}{param[1:]}']" in builder, True)
+
+# =====================================================================
+section("The lead list can combine rows somebody picked by hand")
+# =====================================================================
+# The duplicates panel proposes groups only on exact evidence — one email,
+# one website — which is right, and it means two rows a person can see are
+# one business could never be combined at all. The checkboxes are that way,
+# through the same merge endpoint with the same refusals.
+
+check("each row carries a checkbox", 'data-sel=' in panel, True)
+check("the picker asks which row to keep", 'name="combine-keep"' in panel, True)
+check("and the merge goes through the shared endpoint",
+      panel.count("'/api/leads/merge'"), 2)
+check("nothing is deleted, and the panel says so where the press happens",
+      panel.count("Nothing is deleted"), 2)
+check("the prose tells somebody the checkboxes exist",
+      "tick them in the table below" in panel, True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

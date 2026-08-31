@@ -191,6 +191,24 @@
     wire();
   }
 
+  /* The link into the Proposal Builder carries what this record already
+     knows. It used to pass the domain and nothing else, so a rep landed on
+     the customer step retyping the business name and the contact details
+     off the screen behind them -- the same failure the ?prefill= path from
+     Client 360 was built to end. A converted prospect names the client so
+     the builder attaches to the record; an unconverted one is a new
+     business, and naming it as `client` would read as "search the client
+     list for this", which finds nothing. */
+  function proposalHref(l){
+    var q = new URLSearchParams({audit: l.domain||''});
+    if(l.converted_at && l.client){ q.set('client', l.client); }
+    else if(l.company || l.name){ q.set('company', l.company || l.name); }
+    if(l.name)  q.set('contactName',  l.name);
+    if(l.email) q.set('contactEmail', l.email);
+    if(l.phone) q.set('contactPhone', l.phone);
+    return '/sales/builder/?'+q.toString();
+  }
+
   function strip(l){
     var contact = [
       l.email ? '<a href="mailto:'+esc(l.email)+'">'+esc(l.email)+'</a>' : '',
@@ -230,7 +248,7 @@
       + (l.domain
           ? '<a class="btn" href="/tools/website-audit?domain='+encodeURIComponent(l.domain)
             +'">Open the audit tool &rarr;</a>'
-            +'<a class="btn" href="/sales/builder/?audit='+encodeURIComponent(l.domain)
+            +'<a class="btn" href="'+esc(proposalHref(l))
             +'">Start a proposal &rarr;</a>'
           : '')
       +'</div><div id="convertBox" style="flex-basis:100%"></div></div>';
@@ -377,7 +395,7 @@
     }
     var l = (d.lead||{});
     var acts = l.domain
-      ? '<a class="btn" href="/sales/builder/?audit='+encodeURIComponent(l.domain)
+      ? '<a class="btn" href="'+esc(proposalHref(l))
         +'">New proposal &rarr;</a>' : '';
     return card('Sales','','Proposals', body, acts, false, 'proposals');
   }
