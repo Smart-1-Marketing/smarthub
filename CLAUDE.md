@@ -6525,12 +6525,13 @@ the row is capped, and a row too large drops its **lines** rather than being
 refused — who and how much are what it exists for, and a record refused for
 size is an order with no trace at all.
 
-**And a number handed out is not an order.** The sequence issues one at the
-*start* of the wizard, so an abandoned IO burns a number and leaves a gap in
-the numbering somebody in accounting eventually asks about.
-`note_allocated()` is the only thing that makes that answerable, and it stays a
-**note** rather than a row: an allocation is not an order, and a listing that
-mixed them would report work nobody sent.
+**And a number handed out that never became an order is deliberately not
+tracked.** The sequence issues one at the *start* of the wizard, so an
+abandoned IO burns a number and leaves a gap in the numbering — and nobody
+here asks about those. A note recording them was built and then removed:
+machinery kept alive for a question nobody puts is machinery to maintain, and
+this file already counts five integration points that were declared and never
+wired. This store records orders that were sent.
 
 **The reconciliation reads the durable half now**, so its note stops saying the
 activity log is the horizon — that sentence was true and would have gone on
@@ -6549,6 +6550,70 @@ route is under `/api/client/` because `hub/suite_embed.EMBEDDABLE` allowlists
 that prefix — a card pointed anywhere else renders on every screen except
 inside the Suite frame, and fails silently there. `test_io_records.py` asserts
 all of it.
+
+### What is mapped in Knack, and what is still somebody's assumption
+
+`hub/knack_map.py` and **QA → Data Quality → Knack Field Map**. Knack is the
+system of record and this Hub reaches into it from nine modules, and there was
+no one description of what it thinks each object and field is — so "which
+mappings have we confirmed?" could only be answered by reading nine files and
+holding the answer in your head. That question matters far more the moment
+more is pushed into Knack: a field id pinned to the wrong column writes into
+the wrong place on a live record, and Knack refuses the **whole** record over
+one bad value, so an unconfirmed mapping costs the write rather than the field.
+
+**It is not a second copy of the field ids.** Nine modules pin them and each
+owns its own; a copy here is the drift `hub/config.py`'s ALIASES table and the
+two rate cards have each paid for. `fields()` imports from the owning module —
+`knack_api.field_ids()`, `knack_api.SUPPORT_FIELDS`, `knack_websites.FIELDS`,
+`ad_copy.field_ids()`, the `knack_products` constants — so a field repinned
+there moves here with no edit, and one that stops existing cannot linger in a
+table nobody re-read. `test_knack_map.py` asserts that by repinning a constant
+and requiring the map to follow, and asserts the file carries no `field_<n>`
+literal of its own.
+
+**What lives here is the part no module holds**: which object each map belongs
+to, which tool creates the records, whether the ids are pinned or matched by
+label, and whether a person has confirmed the mapping against the live builder.
+Today that is **110 fields across 7 objects, 64 of them written**.
+
+**A field is confirmed once, against the object, and every tool inherits it.**
+Object 135's monthly cost is read by Client 360, the scorecards, the billing
+reports and the IO reconciliation; checking it four times is four chances to
+disagree. So a confirmation is keyed on object and field rather than on tool.
+
+**A confirmation is a person, a date and a field** — never an object. "We
+checked object_153" is the kind of assurance nobody can act on later, and the
+point is to be able to say which of the eighteen were looked at. **The id is
+stored with it**, so repinning a field *retires* the tick and the row says
+**superseded** rather than carrying a confirmation from one column silently
+onto another, which is the single way this record could become worse than
+having none.
+
+**A field matched by label is a finding, not a mapping.** `object_140`
+(Campaign Change Requests) is still matched by label and is a **write target**;
+`hub/knack_api.py`'s own comment says why that is dangerous — a renamed label
+breaks label matching silently, which is exactly the state `object_107` was in
+before its ids were pinned. It is reported as unpinned rather than listed as
+though it were confirmed.
+
+**Without Knack the live check is not measured, and the report is still
+measured.** `verify()` reads the schema and says what Knack calls each id; with
+no credentials it refuses rather than drawing ticks nobody earned. But the
+report itself still answers, because the map *is* what it exists to show and
+calling the whole thing unmeasurable would hide the record somebody is meant to
+work down. The two halves are said apart.
+
+**Nothing here writes to Knack.** It reads the schema and writes one small
+Hub-side overlay of confirmations; the test asserts that from the AST, and that
+the module does not import `requests` so it could not reach an API by accident.
+
+**The five write paths in daily use are not gated on this.** Tickets, campaign
+support, ad copy, the dashboard-URL button and the website record are live, and
+switching them off until a hundred and ten rows are ticked would break working
+tools to make a record tidy. What the map does is say which of them are running
+on a mapping nobody has confirmed — 64 of 64 today — so that is a list to work
+down rather than a gate that fires on the wrong day.
 
 ### An order we sent, and the campaign nobody set up
 
@@ -6629,6 +6694,56 @@ reading. `test_io_reconcile.py` asserts all of it, from the AST rather than
 the text — this module's own docstring names Suite and `io_clients.py` as the
 things it does not touch, and a check reading prose as a call site reports the
 explanation as the defect.
+
+### And is it the campaign we sold?
+
+`hub/io_reconcile.delivery()` and **QA → Data Quality → Campaigns Not At Order
+Value**. *Orders With No Campaign* asks whether a campaign exists; this asks
+whether it is the one that was sold. It is the next link, and the one
+`hub/io_records.py` made possible — before the order record there was nothing
+on our side to compare against, because the only trace of an order was a log
+line carrying a number and a client name.
+
+**The finding is the money, and the counts are never the finding.** An
+insertion order of six lines may be trafficked in Knack as six product rows or
+as one, and nothing readable from here says which convention this book
+follows. A check that fired on every order because the shop writes one row per
+campaign is a check somebody switches off within a week — the note
+`hub/qr_codes.py` makes about a warning that fires on every social spot. So
+the line counts are printed beside each row as context and no row is ever
+raised for them; what is compared is the **monthly**, which is the same number
+however many rows it was split across.
+
+**Both figures are always shown, and so is the difference.** A report that
+says "discrepancy" without printing the two numbers behind it is one nobody
+can check, and the first person who finds it wrong stops reading the rest.
+
+**Over and under are different conversations.** A campaign trafficked for less
+than the order is delivery a client paid for and is not getting, and is drawn
+red; one trafficked for more is billing nobody wrote an order for, and is
+amber. They are counted apart and the row says which.
+
+**A tolerance, and it is ours.** Nobody publishes one, so
+`MONEY_TOLERANCE_PCT` / `MONEY_TOLERANCE_MIN` carry `TOLERANCE_SOURCE =
+"house"` and the page says so in words — the rule `HOUSE_LEGIBILITY` in
+`services/abcd_service.py` already works to. A campaign trafficked to the
+exact dollar is not the normal case: a rounded rate and a part first month are
+ordinary, and calling every one of those a finding is how a list stops being
+read.
+
+**A product row with no monthly cost is never counted as zero.** A blank there
+would drag the campaign's total down and read as under-delivery invented out
+of a field nobody filled in, so an order with any such row is *not measured*
+and is listed with the reason — and its "In Knack" cell is a dash rather than
+the partial total, because a figure printed beside that sentence is one
+somebody reads as the answer.
+
+**An order with no campaign at all is left to the other report.** Raising the
+same order on two screens is how a reader learns the two disagree. It
+inherits the rest: the products must have come from a live Knack read, an
+order newer than that read or inside `GRACE_DAYS` is not judged (a campaign
+part-entered is not a campaign short-delivered), and a settled order is out of
+both. `test_io_reconcile.py` asserts all of it.
 
 ### A price with no end on it
 
@@ -10954,9 +11069,13 @@ python3 test_menu_layout.py        # the three index pages: every tool tiled onc
                                    #   computes the same plan and captures nothing
 python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
                                    #   one reading, and counts that land on rows
+python3 test_knack_map.py          # what is mapped in Knack and what is
+                                   #   assumed: read from the owning modules,
+                                   #   a confirmation retired when repinned
 python3 test_io_reconcile.py       # the orders we sent against the campaigns
                                    #   Knack has: a stale source never reads as
-                                   #   proof, and a row can be settled
+                                   #   proof, a row can be settled, and the
+                                   #   money a campaign is trafficked at
 python3 test_io_records.py         # the order written down: one row per
                                    #   number, a resubmission that revises it,
                                    #   and bookkeeping that cannot fail a submit

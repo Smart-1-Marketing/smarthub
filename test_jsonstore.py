@@ -434,6 +434,14 @@ _RERUNS_CLEAN = (
     # assertions out of this file with it -- which is the loss the note
     # above predicts, so this one keeps setdefault and is listed here.
     "test_detail_ui.py",
+    # Left in the shape deliberately too, and the file says why in its own
+    # words: it starts its rows from a known state and never asserts on the
+    # totals, because jsonstore keys its mirror *relative to the data root* --
+    # so hub/knack_map_confirmed.json is one key however many temporary
+    # directories there are, and a confirmation an earlier run made is
+    # restored into this one. Re-run four times against one shared Postgres
+    # here, identical every time.
+    "test_knack_map.py",
     "test_prospect_explainer.py",
 )
 

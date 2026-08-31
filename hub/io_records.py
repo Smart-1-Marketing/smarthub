@@ -53,12 +53,11 @@ has to answer is who, what, when, how much, and where the document is. Lines
 are capped and so is the row, because this is the only copy and it lives on a
 5 GB disk shared with everything else.
 
-**An allocated number that never became an order is recorded too.** The
-sequence hands a number out at the start of the wizard, so an abandoned IO
-burns one and leaves a gap somebody in accounting eventually asks about.
-`note_allocated()` is what makes that answerable, and it is deliberately a
-*note* rather than a row of its own: an allocation is not an order, and a
-listing that mixed them would report work that was never sent.
+**An allocated number that never became an order is deliberately not
+recorded.** The sequence hands a number out at the start of the wizard, so an
+abandoned IO burns one and leaves a gap in the numbering — and nobody here
+asks about those, so a note tracking them would be machinery kept alive for a
+question that is never put. This file records orders that were sent.
 
 **Nothing is written to Knack, to Smart 1 Suite or to a quote.** This is the
 Hub writing down what the Hub did.
@@ -83,10 +82,6 @@ MAX_BYTES = 256_000
 # How many submissions of one order to remember. A correction or two is
 # ordinary; a hundred is not a history anybody reads.
 MAX_HISTORY = 20
-# Allocated numbers to keep. The sequence only goes up, so this is a window on
-# the recent ones rather than a ledger of every number ever issued.
-MAX_ALLOCATIONS = 500
-
 _KEY_RE = re.compile(r"[^0-9A-Za-z_-]+")
 
 
@@ -237,8 +232,6 @@ def record(payload: dict, *, delivered: bool = False, error: str = "",
                                        or (row.get("suite") or {}).get("at", "")),
                       "error": _text(error, 300),
                       "status": status},
-            "allocated_at": row.get("allocated_at", ""),
-            "allocated_by": row.get("allocated_by", ""),
         })
 
         import json
@@ -280,7 +273,7 @@ def _rows() -> list[dict]:
         return []
     out = []
     for name in names:
-        if not name.endswith(".json") or name == "_allocations.json":
+        if not name.endswith(".json"):
             continue
         row = get(name[:-5])
         if row:
@@ -353,59 +346,3 @@ def _match_key(name) -> str:
         return normalise_name(str(name or ""))
     except Exception:                                   # noqa: BLE001
         return str(name or "").strip().lower()
-
-
-# ------------------------------------------------------- allocated, not sent
-def _alloc_path() -> str:
-    return os.path.join(_dir(), "_allocations.json")
-
-
-def note_allocated(order, actor: str = "") -> bool:
-    """Remember that this number was handed out. Never raises.
-
-    The sequence issues a number at the *start* of the wizard, so an
-    abandoned IO burns one and leaves a gap in the numbering that nobody can
-    explain later. Recording the allocation is what makes that answerable —
-    and it stays a note rather than an order row, because an allocation is not
-    an order and a listing that mixed them would report work nobody sent.
-    """
-    key = key_for(order)
-    if not key:
-        return False
-    try:
-        rows = jsonstore.read_json(_alloc_path(), default={})
-        if not isinstance(rows, dict):
-            rows = {}
-        if key not in rows:
-            rows[key] = {"order": _text(order, 40), "at": _now(),
-                         "by": _text(actor, 60)}
-        if len(rows) > MAX_ALLOCATIONS:
-            keep = sorted(rows.items(), key=lambda kv: str(kv[1].get("at") or ""),
-                          reverse=True)[:MAX_ALLOCATIONS]
-            rows = dict(keep)
-        # Durable: an allocation cannot be rebuilt from anything. The
-        # sequence only reports the next number, never what became of the
-        # last one.
-        jsonstore.write_json(_alloc_path(), rows)
-        return True
-    except Exception as exc:                            # noqa: BLE001
-        log.warning("io allocation note failed: %s", exc)
-        return False
-
-
-def allocations() -> dict:
-    rows = jsonstore.read_json(_alloc_path(), default={})
-    return rows if isinstance(rows, dict) else {}
-
-
-def unused_allocations() -> list[dict]:
-    """Numbers handed out that never became an order.
-
-    Not a finding on its own — a rep who starts an IO and thinks better of it
-    is doing nothing wrong — but it is the only answer there is to "why is
-    there no order 10407", and without it the gap is unexplainable.
-    """
-    sent = {key_for(r.get("order")) for r in _rows()}
-    out = [dict(v) for k, v in allocations().items() if k not in sent]
-    out.sort(key=lambda r: str(r.get("at") or ""), reverse=True)
-    return out
