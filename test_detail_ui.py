@@ -139,6 +139,11 @@ check("...nor styles one", "header .brand" in SUITE, False)
 # What each of them does still need: a second level of navigation.
 check("Sites keeps its sections, as the shared tab strip",
       "s1d-subnav" in SITES_BASE, True)
+# The portfolio table is 1050px before it scrolls; the icon-rail default is
+# what keeps that off a horizontal scroll on a laptop — the same flag both
+# client records and the wizard tools carry.
+check("Sites starts the Hub sidebar as an icon rail",
+      'data-s1hub-collapse="1"' in SITES_BASE, True)
 check("Suite keeps its tabs, as the same strip", "tabs s1d-subnav" in SUITE, True)
 # The script drives those tabs and has written `active` since they were an
 # underline bar. The stylesheet accommodates the page, not the other way round.
