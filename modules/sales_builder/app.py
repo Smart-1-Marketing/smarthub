@@ -84,6 +84,7 @@ from hub import creative_needs as hub_creative
 from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
 from hub import kpi_framework as hub_kpi
+from hub import product_intake as hub_intake
 from hub import proposal_spec as hub_spec
 from hub import quote_validity as hub_validity
 from hub import rate_card as hub_rate_card
@@ -753,7 +754,83 @@ def api_config():
         # Planner made about its calendar, for the same reason.
         "creative_sizes": _creative_sizes(),
         "rate_rules": hub_rate_card.rate_rules_for_js(),
+        # The catch-all line, served for the same reason -- and here the
+        # reason is sharper than convenience. `hub.product_intake.CONSULTING`
+        # is deliberately NOT a row in data/rate_card.json: that file is the
+        # wholesale card, `check_drift()` holds it against the IO template's
+        # embedded copy, and inventing a product inside it would make both of
+        # those lie. It is a line the Hub writes, so the Hub is where it is
+        # defined -- and the IO recognises it by its product string exactly,
+        # so a hand-typed copy in this template is a silent dropped line the
+        # day either end is edited.
+        "consulting": consulting_spec(),
     })
+
+
+def consulting_spec() -> dict:
+    """The catch-all line as the wizard needs it, from the one definition.
+
+    `hub.product_intake.CONSULTING` is the whole of it. What is added here is
+    the label shape the plan's own rows use (`category — product`), because
+    every other line on the plan carries one and a row without it sorts and
+    renders as a different kind of thing.
+    """
+    spec = dict(hub_intake.CONSULTING)
+    return {"product": spec["product"], "category": spec["category"],
+            "listed_rate": spec.get("listed_rate") or "",
+            "label": f'{spec["category"]} — {spec["product"]}',
+            "description_hint": spec.get("description") or ""}
+
+
+def is_consulting(item) -> bool:
+    """Whether a plan line is the catch-all rather than a card product.
+
+    Read from the product string rather than a flag on the row, because that
+    string is what the insertion order matches on and a row saved before the
+    flag existed still has to answer.
+    """
+    return (str((item or {}).get("product") or "").strip()
+            == hub_intake.CONSULTING["product"])
+
+
+def consulting_unresolved(state) -> list:
+    """Consulting lines that cannot yet go on an insertion order.
+
+    The rule is `product_intake.question_for()`'s, not a second copy of it:
+    a consulting line with no description is one the trafficking team cannot
+    action, because the product string is the same on every such line and the
+    description is the only thing that says what was sold. It is a *question*
+    rather than a refusal, which is the shape that module already chose -- a
+    rep mid-thought must be able to put the line on the plan and answer this
+    afterwards.
+    """
+    out = []
+    for item in (state or {}).get("items") or []:
+        if not is_consulting(item):
+            continue
+        entry = hub_intake.as_consulting(
+            str(item.get("label") or item.get("product") or ""),
+            str(item.get("description") or ""))
+        # `question_for()` asks in the order the IO intake needs answers, and
+        # the basis and the term come before the description. A plan line
+        # always has both, so they travel -- without them the question comes
+        # back as "monthly or one-time?" about a line whose basis is on the
+        # screen, which is a question nobody can act on.
+        basis = str(item.get("basis") or "monthly")
+        entry["basis"] = basis
+        if basis == hub_intake.MONTHLY:
+            entry["term_months"] = (item.get("termMonths")
+                                    or item.get("term_months") or 1)
+        # as_consulting() falls the description back to the query, which is
+        # right for the IO intake -- there the query is what the rep typed off
+        # the proposal. Here the query is our own product string, so that
+        # fallback would answer the question with the name of the thing being
+        # asked about. Asked on the description alone.
+        if not str(item.get("description") or "").strip():
+            entry["description"] = ""
+            out.append({"label": str(item.get("label") or entry["product"]),
+                        "question": hub_intake.question_for(entry)})
+    return out
 
 
 def _creative_sizes() -> dict:
@@ -1841,7 +1918,19 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                 rows = [[*plan["columns"][:4], f"Total ({plan['months']} mo)",
                          plan["columns"][5]]]
                 for r in plan["rows"]:
-                    rows.append([_p(r["product"], st_small),
+                    # The catch-all line's description rides in the Product
+                    # cell, because that column is where a reader looks to see
+                    # what they are buying and every consulting row prints the
+                    # same product string. Which rows carry one is the
+                    # server's decision; each renderer only draws it, the way
+                    # monthly_label already works.
+                    # _p() escapes the whole string and turns a newline into
+                    # a line break, so the description is passed as text
+                    # rather than as markup -- built as markup here it would
+                    # have printed the tags at the client.
+                    rows.append([_p(r["product"] + ("\n" + r["description"]
+                                                    if r.get("description") else ""),
+                                    st_small),
                                  _p(r["category"], st_small),
                                  _p(r["rate"], st_small),
                                  (r["monthly_label"] if r["monthly_label"]
@@ -2262,7 +2351,8 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                 hdr[i].paragraphs[0].runs[0].font.bold = True
             for r in plan["rows"]:
                 row = t2.add_row().cells
-                row[0].text = r["product"]
+                row[0].text = (r["product"] + "\n" + r["description"]
+                               if r.get("description") else r["product"])
                 row[1].text = r["category"]
                 row[2].text = r["rate"]
                 row[3].text = r["monthly_label"] or _money(r["monthly"])
@@ -2549,6 +2639,13 @@ def expected_results(state):
             "units": units,
             "unit_label": delivery.get("unit_label") or "",
             "note": delivery.get("note") or "",
+            # Only the catch-all line carries one, and for that line it is the
+            # whole of what was sold: every consulting row on every proposal
+            # prints the same product string, so without this the client's
+            # media plan reads "Consulting & Strategic Services — $5,000" and
+            # says nothing about the engagement they are agreeing to.
+            "description": (str(item.get("description") or "").strip()
+                            if is_consulting(item) else ""),
         })
 
     totals["campaign"] = round(sum(r["campaign"] for r in rows), 2)
@@ -2708,6 +2805,7 @@ def media_plan_rows(state) -> dict:
             "campaign": r["campaign"],
             "units": units, "unit_label": label, "delivery": delivery,
             "basis": r.get("basis") or "monthly",
+            "description": r.get("description") or "",
         })
     # The totals are campaign_cost()'s, so this table, the cover, the
     # investment summary, the insertion order and the dashboard all print one

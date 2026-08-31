@@ -2901,7 +2901,8 @@ function mediaPlanEditor(){
  const note=(S._mediaPlan||{}).note||"";
  return `<table class="dtbl editable"><thead><tr><th>Product</th><th>Category</th><th>Rate</th><th style="text-align:right">Monthly</th><th style="text-align:right">Total (${months} mo)</th><th>Delivery / mo</th><th></th></tr></thead><tbody>`
   +S.items.map((it,ix)=>{const pr=planRowFor(ix);return `<tr>
-    <td><b>${esc(it.product)}</b></td><td>${esc(it.category)}</td>
+    <td><b>${esc(it.product)}</b>${(pr&&pr.description)||(it.description||'')
+      ? `<div class="note" style="margin-top:2px">${esc((pr&&pr.description)||it.description)}</div>` : ''}</td><td>${esc(it.category)}</td>
     <td>${pr?esc(pr.rate):esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
     <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)">${(it.basis||"monthly")==="one_time"?'<small class="tiny" style="display:block">one-time</small>':''}</td>
     <td style="text-align:right">${pr?money(pr.campaign):'<span style="opacity:.6">…</span>'}</td>
@@ -3159,6 +3160,8 @@ const STEPS=[
    html:'<div id="prodList"></div>'+
     '<div class="addrow"><select id="addCat">'+productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')+'</select><button class="btn btn-ghost" onclick="addItem()">+ Add category</button></div>'+
     '<div class="addrow"><select id="addProd">'+productPickerHtml()+'</select><button class="btn btn-ghost" onclick="addSpecificItem(document.getElementById(\'addProd\').value)">+ Add a specific product</button></div>'+
+    '<div class="addrow"><input id="addConsult" placeholder="Consulting or strategy work \u2014 what does the engagement cover?" style="flex:1" onkeydown="if(event.key===\'Enter\'){addConsulting();event.preventDefault();}"><button class="btn btn-ghost" onclick="addConsulting()">+ Add consulting</button></div>'+
+    '<div class="note" style="margin-top:-4px">Not a rate-card product \u2014 strategy and consulting work is quoted per engagement, and what you type here is the only thing on the proposal and the insertion order that says what was sold.</div>'+
     '<div id="discoWrap"></div>'+
     '<div id="reconfigWrap"></div><div id="guardWrap"></div>'+
     '<div class="bpanel"><div class="ttl">💡 Sample ROI by product (internal only)</div><div id="roiTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div><div class="note">Illustrative category benchmarks — not shown to the client unless you include them.</div></div>',
@@ -3699,6 +3702,10 @@ function drawRoi(){const h=document.getElementById('roiTags');if(!h)return;h.inn
 function drawGuards(){const w=document.getElementById('guardWrap');if(!w)return;const g=guardrailsJs();
  const need=creativeUnresolved();
  let html=g.length?`<div class="warnbox"><b>🛡 IO guardrail warnings (not blocks)</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:"";
+ const vague=S.items.filter(i=>isConsultingLine(i)&&!(i.description||"").trim());
+ if(vague.length)html+=`<div class="warnbox" style="margin-top:10px"><b>✎ Consulting line${vague.length===1?"":"s"} with nothing said</b><br>`
+  +`Every consulting line quotes the same product name, so the description is the only thing that says what was sold — `
+  +`${vague.length===1?"one line has":vague.length+" lines have"} none, and would reach the client and the insertion order meaning nothing.</div>`;
  if(need.length)html+=`<div class="gap" style="margin-top:10px"><b>🎬 Creative still to confirm</b><br>`
   +need.map(m=>"This plan runs "+esc(MEDIUM_LABEL[m].split(" (")[0].toLowerCase())+" — the next step asks who is supplying the "+(m==="display"||m==="retargeting"?"banners":"spot")+".").join("<br>")+`</div>`;
  w.innerHTML=html;}
@@ -3720,6 +3727,48 @@ function addSpecificItem(label){
  S.items.push({label:p.label,category:p.category,product:p.product,rate:p.rateType,rateValue:p.rateValue,
                sellRate:startingRate(p.rateValue,p.rateType),pctSeed:15,dollars:0});
  applySeeds();flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+/* The one line that is not on the rate card.
+
+   `hub/product_intake.CONSULTING` defines it and CFG.consulting carries it
+   down the wire, so nothing here is hand-typed: the insertion order matches
+   the catch-all on its product string exactly, and a copy in this template
+   is a line the IO silently drops the day either end is edited. It is
+   deliberately NOT added to `rateCard` -- that array mirrors the wholesale
+   card, `check_drift()` holds the two against each other, and a product
+   invented inside it would make both of them lie.
+
+   The description is required rather than optional, which is the rule
+   `product_intake.question_for()` already states: every consulting line ever
+   quoted prints the same product string, so with no description the client
+   reads "Consulting & Strategic Services -- $5,000" and trafficking reads a
+   line it cannot action. Refused by name rather than added blank, because a
+   line that reports a clean success and arrives meaningless is the failure
+   this whole feature exists to close. */
+function addConsulting(){
+ const c=CFG.consulting;
+ if(!c||!c.product){toast("The consulting line is not configured on this deployment.");return;}
+ const el=document.getElementById('addConsult');
+ const description=((el&&el.value)||'').trim();
+ if(!description){
+  toast("Say what the engagement covers \u2014 that sentence is the only thing that says what was sold.");
+  if(el)el.focus();
+  return;}
+ /* More than one engagement is ordinary -- a strategy workshop and a
+    quarterly review are two things sold at two prices -- so these dedupe on
+    the description rather than on the product string every one of them
+    shares. */
+ if(S.items.some(i=>isConsultingLine(i)&&(i.description||'').trim().toLowerCase()===description.toLowerCase())){
+  toast("That engagement is already on the plan.");return;}
+ S.items.push({label:c.label,category:c.category,product:c.product,
+               rate:null,rateValue:null,sellRate:null,
+               description:description,pctSeed:15,dollars:0});
+ if(el)el.value='';
+ applySeeds();syncBudgetToPlan();buildPackages();
+ flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
+/* Read from the product string, never a flag: that string is what the IO
+   matches on, and a line saved before any flag existed still has to answer. */
+function isConsultingLine(i){
+ return !!(CFG.consulting&&(i||{}).product===CFG.consulting.product);}
 function productPickerHtml(){
  const groups={};rateCard.forEach(x=>{(groups[x.category]=groups[x.category]||[]).push(x);});
  return Object.keys(groups).sort().map(cat=>
@@ -4075,6 +4124,14 @@ function lineForIO(i,months,withRate){
  if(withRate){const sr=sellRateOf(i);
   row.listedRate=i.rate?(i.rate+" $"+(sr!=null?sr.toFixed(2):(i.rateValue||""))):"Managed/flat";}
  if(i.basis==="one_time")row.note="One-time cost of "+money(+i.dollars||0)+".";
+ /* The catch-all line's description is the whole of what was sold: every
+    consulting row carries the same product string, so a row without it is one
+    trafficking cannot action. The IO's own intake already understood this and
+    put the sentence on special instructions -- that branch runs only for an
+    uploaded proposal, so a Hub proposal converted straight through arrived
+    with the product name and nothing else. */
+ if(isConsultingLine(i)&&(i.description||"").trim()){
+  row.consulting=true;row.description=(i.description||"").trim();}
  return row;}
 
 /* ============================================================
@@ -4197,7 +4254,13 @@ function ioDataPayload(){
   "Provide access for tracking verification (GA4 / site access)"+(a.ga4==="No"?" — GA4 needs to be installed":""),
   "Confirm the landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
   "Review and sign the insertion order"];
+ /* The catch-all line's engagement, first, under its own product heading.
+    The internal PDF is what trafficking reads and it draws internalRequirements
+    per product, so the description lands beside the line it describes rather
+    than needing a section of its own in the IO -- and without it that document
+    carries a product name every consulting line shares and a budget. */
  const internalRequirements=items.map(i=>({title:i.product+" — "+i.category,items:[
+  ...(i.consulting&&i.description?["Engagement: "+i.description]:[]),
   (i.basis==="one_time"
     ? "One-time cost: "+money(i.campaignBudget)
     : "Monthly budget: "+money(i.budget)+" for "+i.termMonths+" month"+(i.termMonths===1?"":"s")
@@ -4243,8 +4306,17 @@ function ioDataPayload(){
   internalWarnings:["Converted from proposal "+q.quote_number+" in Smart 1 Sales Builder."],
   customerRequirements,internalRequirements,
   mediaMixRecommendation:{},naming:{},campaignOwner:a.salesContact,
+  specialInstructions:consultingInstructions(items),
   sourceQuote:q.quote_number};
 }
+/* Written in the same shape the IO's own intake builds, so trafficking reads
+   the engagement in the same place whichever door the order came through --
+   an uploaded proposal classified line by line, or a Hub proposal converted
+   whole. `state.specialInstructions` is what that side appends to. */
+function consultingInstructions(rows){
+ const c=CFG.consulting||{};
+ return (rows||[]).filter(r=>r&&r.consulting&&r.description)
+  .map(r=>`${c.product||r.product}: ${r.description}`).join("\n");}
 async function runConvert(){
  CONV.step=2;drawConvert();
  const log=m=>{const el=document.getElementById('convLog');if(el)el.innerHTML+=m+"<br>";};
