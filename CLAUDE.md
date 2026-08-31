@@ -1705,6 +1705,42 @@ The three helper modules beside them (`schema_questions`, `blog_images`,
 `llms_txt`) had been logging under `seo` the whole time, so the section was
 filing half its output as a deliverable and half as housekeeping.
 
+**And the tickets that carry that work to the site deduped on the string
+rather than the page.** `hub/seo_tasks.py` opens by forbidding exactly what it
+did — *"It must never create the same ticket twice … A queue that fills with
+duplicates is a queue people stop reading"* — and then keyed on the **raw
+URL** while the title beside it was `_short()`. So the module already knew how
+to reduce a URL to the page a person means, and used that only for what
+somebody reads:
+
+    https://acme.com/services          Add schema markup to /services
+    https://acme.com/services/         Add schema markup to /services
+    http://acme.com/services           Add schema markup to /services
+    https://www.acme.com/services      Add schema markup to /services
+
+Four tickets, one page, identical titles — unreadable *as* duplicates, which
+is what made them worse than noisy. The URLs arrive from a crawled sitemap or
+a list posted by the browser, so trailing-slash and www variation between a
+crawl and a typed entry is ordinary, and an **http → https migration would
+have duplicated the whole book in one pass**.
+
+`page_key()` is the canonical form: **host and path**, because the store is
+per client and a client with two domains would otherwise collide on
+`/services`; query and fragment dropped, since `?utm_source=x` is the same
+page to somebody adding schema to it. The **path keeps its case and the host
+does not** — a hostname is case-insensitive by specification and a path
+genuinely is not, and merging `/Services` with `/services` would silence a
+ticket for a page that never gets its schema. A duplicate is noise in a queue;
+an absence is work that never reaches the site, so the tie breaks toward the
+duplicate.
+
+**And every key already on disk is a raw URL.** Reading only the canonical one
+would make each of them invisible and raise a second ticket for everything
+already ticketed — a migration wearing a bug fix. `already()` matches the old
+spelling as well, the rule `audit.LOG_NAMES` and `video_library.TAG_ALIASES`
+already work to, and new records are written canonically so the fallback walk
+is for old rows rather than the normal path.
+
 **An editor rebuilt underneath somebody loses what they typed.** Two on the
 SEO client record: the alt-text list and the FAQ draft. Both are a container
 of live inputs redrawn with `innerHTML` — and the trigger is not the typing,
@@ -10154,6 +10190,10 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_seo_tasks.py          # one page, however its URL was written:
+                                   #   the ticket dedupe compared the raw
+                                   #   string while the title beside it was
+                                   #   already canonical
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO
