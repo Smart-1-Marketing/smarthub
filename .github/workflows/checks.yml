@@ -1638,3 +1638,16 @@ jobs:
       # cost that audit its opening paragraphs permanently.
       - name: A measured figure, re-typed, is not an invented one
         run: python3 test_audit_summary.py
+      # hub/blog_images.py names a post's Cloudinary object after its TITLE,
+      # with overwrite=True — and hub/seo.py tops a short plan up from six
+      # fallback titles and cycles them, so twelve posts a month holds each
+      # twice, verbatim. Post 3's featured image became post 9's picture, at
+      # one URL, in the store, the gallery and on the client's live site.
+      # Beside it: a badge counting archived posts the working list no longer
+      # shows, amber for ever with no row to click; a 3 MB hero filed at full
+      # size in silence when Pillow could not read it; a pending image the
+      # completeness audit offered as an unattached asset, which is exactly
+      # what the pending/ folder exists to prevent; and a gallery folder
+      # assigned after the save, so it reached the browser and never the disk.
+      - name: One image per post, and a badge you can act on
+        run: python3 test_blog_images.py
