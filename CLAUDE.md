@@ -5212,9 +5212,52 @@ in-stream is what TrueView was and `tags_for()` has written
 `unit_youtube_trueview` onto delivered creative: the rule `billboard` follows
 from the IAB retiring the Rising Stars name.
 
-`native_display` is the one left pending, and the note now says **why it is a
-different job** rather than more of the same: its first column is a field to
-supply (Main image, Brand logo, Short title…) rather than a format to buy.
+**Native display was that different job, and it is done.** Its first column
+is an *asset* rather than a format, and OpenRTB Native 1.2 sets no character
+limits at all — each seller declares its own per placement — so the kit
+publishes The Trade Desk and Google Demand Gen side by side and says to
+**build to the strictest platform in the plan**. That is what each field
+carries, with the looser platform named in the notes rather than lost: a
+25-character short title because The Trade Desk publishes 25 where Demand Gen
+allows 40, and a 150 KB logo because Demand Gen caps there where The Trade
+Desk does not.
+
+The 2025 model held two units and a single `headline: (15, 55)` /
+`description: (25, 120)` range — which the kit's own update note quotes as the
+thing that is wrong, *"character limits are per-platform, not a single 15–55 /
+25–120 range"* — so a client was told a 55-character headline was fine on a
+platform that takes 25. **Business name** and **call to action** are asset
+fields a native ad renders and nothing here had ever asked for, and the HTML5
+package the section publishes was absent too.
+
+**And that section is where the kit retires a whole category of ours.** One
+sentence under Native Display: *"Tablet Display retired as a category — IAB
+removed device-class ad units. 300x250 and 728x90 serve on tablet as the same
+units."* Four house units here modelled it, and two of them asked a client a
+second time for a file they had already supplied. The third is the one that
+showed: **`tablet_interstitial` at 1024x768** was on every display
+requirement, because 300x250 and 728x90 dedupe against their desktop twins in
+the size run and 1024x768 does not — an extra file, for a placement nobody
+sells inventory for. All four are in `RETIRED_UNITS`, and the **channel is
+unwired from the product map as well as emptied**: named there with no unit
+behind it, `required_units()` reports *"the spec kit maps no unit for this"* —
+a warning about our own dangling entry, printed at the client.
+
+**A third state, because two would have been a lie either way.** Native
+display is transcribed against 2026 and still cannot join `kit_name_drift()`:
+four of its eight rows are character limits carried on the main image rather
+than units, and the HTML5 package sits under its own heading outside the table
+the parser reads, so the name pass would report our own unit as a format the
+kit does not sell. Left in `_KIT_NAMES_PENDING` it would claim a 2025
+transcription that is no longer there; added to `_KIT_NAME_CHECKED` it would
+report a finding that is not one. `_KIT_NAMES_UNCHECKABLE` is the third
+answer, with the reason, and `kit_coverage()` carries all three.
+
+**And the branch that answers when the page cannot be read was missing
+them.** `kit_coverage()`'s not-measured return carried no `names_*` keys at
+all, so a caller reading one — `test_proposal_spec.py` does — would raise on
+the one day the check exists for, rather than reporting that nothing was
+measured. Both branches answer with the same keys now, asserted.
 
 **What did not move is the rate card.** It sells products called *TrueView*
 and *TrueView - Targeted* — product names on an invoice rather than format
