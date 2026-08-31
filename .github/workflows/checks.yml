@@ -1611,3 +1611,14 @@ jobs:
       # google_access is the one the panel itself marks client-facing.
       - name: The Suite install, and the callback the panel promises
         run: python3 test_ghl_oauth.py
+      # hub/audit_summary.py grounds every dollar figure in the two paragraphs
+      # a prospect reads at the top of their own website audit, which is right
+      # — the alternative is a model inventing what somebody spends. It
+      # compared the formatted string, so the measured figure re-typed without
+      # its comma came back as invented. The whole summary is then discarded,
+      # the report renders nothing, the `why` is read by no template, and
+      # for_scan() stores the refusal because it "will not change on the next
+      # view" — true of a real refusal, false of this one. One dropped comma
+      # cost that audit its opening paragraphs permanently.
+      - name: A measured figure, re-typed, is not an invented one
+        run: python3 test_audit_summary.py
