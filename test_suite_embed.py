@@ -254,10 +254,26 @@ check("nor the staff sidebar", b"hub-sidebar" in _start.data, False)
 from hub.config import public_base_origin as _origin
 _org = _origin()
 check("the test has a real origin to look for", bool(_org), True)
-check("it prints the two menu-link URLs from the live origin",
+check("it prints its URLs from the live origin",
       _start.data.count(_org.encode()) >= 2, True)
 check("naming the staff surface", b"/client360" in _start.data, True)
 check("and the client surface", b"/suite-app" in _start.data, True)
+
+# The client surface is DOCUMENTED and not RECOMMENDED, and the difference has
+# to be visible on the page rather than only in our heads: this is the one
+# screen whose whole job is to be copied from, so listing both as equal options
+# is it telling every reader to configure the half we deliberately left off.
+# Asserted because the failure is silent -- the old copy read perfectly well
+# and every URL on it was correct.
+check("the client surface is drawn as not switched on",
+      b'class="card off"' in _start.data and b"Not switched on" in _start.data,
+      True)
+check("and the page offers one link rather than a choice of two",
+      b"whichever" in _start.data.lower(), False)
+# Why it is off, not merely that it is: an instruction with no reason attached
+# is one somebody overrides the first time a client asks for it.
+check("naming what has to be true before it is turned on",
+      b"sub&#8209;account has to be recorded" in _start.data, True)
 
 # The read-only consequence is the one thing about an embedded page that has
 # to be said rather than discovered -- suite_embed's own docstring says so.

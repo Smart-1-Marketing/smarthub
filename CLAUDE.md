@@ -861,6 +861,25 @@ for the same reason — the reader is an agency admin who may have no Hub accoun
 in that browser, and a sign-in form in the getting-started tab teaches them the
 app needs one.
 
+**And it opened by recommending the half we had not switched on.** The page
+listed the staff record and the client SSO frame side by side as two menu links
+to add "whichever you need" — on the one screen whose whole job is to be copied
+from, which is the `hub/oauth_redirects.py` failure exactly: a panel printing a
+string nobody should paste. The client surface needs each client's sub-account
+recorded against them first, and without that a client who opens it is told we
+cannot tell whose account they are in — correct, and reading to them as broken.
+
+`client_for_location()` has **exactly one caller**, `hub/suite_sso.py`, so that
+link is load-bearing for nothing: not adding it costs a shortcut to content
+those clients are already emailed, and removes the one surface where getting a
+sub-account wrong shows somebody another client's record. It stays *documented*
+rather than deleted — an absent option reads as one nobody thought of, and the
+route is discoverable from the code either way — but it is drawn as **not
+switched on**, with what has to be true before it is. `test_suite_embed.py`
+asserts the distinction, because the old copy read perfectly well and every URL
+on it was correct: nothing but an assertion separates documented from
+recommended.
+
 **Two of the first assertions written for it could not fail.** The frame header
 rides on the `/suite-app` prefix, so a **404** at that path carries it too —
 "it may be framed" passed with the route deleted. And `PUBLIC_BASE_URL` is
