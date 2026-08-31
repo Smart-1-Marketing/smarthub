@@ -676,6 +676,182 @@ for key in qa.REPORTS:
 
 
 # ---------------------------------------------------------------------------
+section("The product book: which source answered, and the two flags only one carries")
+
+# `/qa`'s client reports read `knack_data.products()` — the hand-committed
+# export nothing refreshes — while Client 360 read the same object live. The
+# swap looks like one line and is not: `thisM` and `lastM` exist **only** on
+# the export, so pointing this page at Knack would set both False on every row
+# and four reports would go quiet rather than wrong. Both halves are asserted,
+# because fixing the source and leaving the flags is the worse of the two
+# states — it reads as a page that has nothing to say.
+
+import datetime as _d, calendar as _cal                          # noqa: E402
+from hub import knack_data as _kd                                # noqa: E402
+
+_today = _d.date.today()
+_first = _today.replace(day=1)
+_prev_end = _first - _d.timedelta(days=1)
+_prev_first = _prev_end.replace(day=1)
+_old_end = (_prev_first - _d.timedelta(days=1)).replace(day=1) - _d.timedelta(days=1)
+
+
+def _iso(d):
+    return d.strftime("%m/%d/%Y")
+
+
+def _with_products(rows, source="knack", age=3):
+    """Run a callable against a synthetic book, whatever the real export says."""
+    real = _kd._product_source
+
+    def fake():
+        return rows, source, age
+    _kd._product_source = fake
+    try:
+        out = qa._client_groups()
+    finally:
+        _kd._product_source = real
+    return out
+
+
+# A book a *live* pull would produce: real dates and statuses, and neither
+# flag on any row, because knack_products._row() emits neither.
+LIVE_BOOK = [
+    {"client": "Nowbilling Co", "product": "Display", "monthly": "1000",
+     "status": "Live", "start": _iso(_first), "end": _iso(_today + _d.timedelta(days=40))},
+    {"client": "Lastmonth Co", "product": "Display", "monthly": "500",
+     "status": "Complete", "start": _iso(_prev_first), "end": _iso(_prev_end)},
+]
+g = _with_products(LIVE_BOOK)
+check("a live row with no thisM still counts as billing this month",
+      g.get("Nowbilling Co", {}).get("thisM") is True,
+      "thisM came back "
+      + repr(g.get("Nowbilling Co", {}).get("thisM"))
+      + " — the flag is export-only, so it has to be computed")
+check("and its billing is totalled rather than left at zero",
+      round(g.get("Nowbilling Co", {}).get("this_total") or 0) == 1000,
+      f'this_total={g.get("Nowbilling Co", {}).get("this_total")!r}')
+check("a live row that finished last month counts as lastM, not thisM",
+      g.get("Lastmonth Co", {}).get("lastM") is True
+      and g.get("Lastmonth Co", {}).get("thisM") is False,
+      f'lastM={g.get("Lastmonth Co", {}).get("lastM")!r} '
+      f'thisM={g.get("Lastmonth Co", {}).get("thisM")!r}')
+check("and last month's billing is totalled",
+      round(g.get("Lastmonth Co", {}).get("last_total") or 0) == 500,
+      f'last_total={g.get("Lastmonth Co", {}).get("last_total")!r}')
+
+# The other half, and the one that is live on any deployment whose committed
+# export has slipped a month: the flags describe the month the export was
+# generated *for*, and nothing recomputes them. A row flagged thisM whose term
+# ended two months ago is not billing this month, whatever the file says.
+STALE_EXPORT = [
+    {"client": "Stalefile Co", "product": "Display", "monthly": "900",
+     "status": "Complete", "thisM": True, "lastM": True,
+     "start": _iso(_old_end.replace(day=1)), "end": _iso(_old_end)},
+    {"client": "Started Since Co", "product": "Display", "monthly": "700",
+     "status": "Live", "thisM": False, "lastM": False,
+     "start": _iso(_first), "end": _iso(_today + _d.timedelta(days=60))},
+]
+g2 = _with_products(STALE_EXPORT, source="export", age=None)
+check("a stale export's thisM does not make a finished campaign current",
+      g2.get("Stalefile Co", {}).get("thisM") is False,
+      "the flag says this month; its term ended "
+      + _iso(_old_end))
+check("and a campaign the stale export never saw is counted",
+      g2.get("Started Since Co", {}).get("thisM") is True,
+      "started " + _iso(_first) + " and the export's flag says no")
+
+# Nothing moved on today's real book — the evidence that this is safe now and
+# only bites when the export slips or Knack answers.
+_real_rows = _kd.products()
+_ts, _te = qa._month_bounds(_today.strftime("%Y%m"))
+_ls, _le = qa._month_bounds(qa._prev_ym(_today.strftime("%Y%m")))
+for _flag, _s, _e in (("thisM", _ts, _te), ("lastM", _ls, _le)):
+    _flagged = {id(r) for r in _real_rows if r.get(_flag)}
+    _computed = {id(r) for r in _real_rows if qa._active_in_month(r, _s, _e)}
+    check(f"computed {_flag} reproduces the export's own flag exactly",
+          _flagged == _computed,
+          f"{len(_flagged)} flagged, {len(_computed)} computed, "
+          f"{len(_flagged ^ _computed)} disagree")
+
+# The source is named, so a stale export cannot go on looking like live data.
+_note_seen = qa.run("active-clients").get("note") or ""
+check("a product-backed report says which source answered",
+      "committed export" in _note_seen or "Live from Knack" in _note_seen,
+      repr(_note_seen[-90:]))
+# `getattr` rather than a direct call, so a build without the shared wording
+# fails on the assertion that names it rather than dying here and taking every
+# check after it out of the run.
+_kd_note = getattr(_kd, "products_note", None)
+_seo_note = getattr(__import__("hub.seo", fromlist=["x"]), "products_note", None)
+check("and it is the one sentence knack_data gives every other screen",
+      bool(_kd_note) and (_kd_note("export", None) in _note_seen
+                          or _kd_note("knack", 0).split(",")[0] in _note_seen),
+      repr(_note_seen[-90:]) if _kd_note else "knack_data has no products_note()")
+check("hub/seo.py words it identically rather than a second time",
+      bool(_kd_note) and bool(_seo_note)
+      and _seo_note("export", None) == _kd_note("export", None),
+      "one of the two has no products_note()" if not (_kd_note and _seo_note) else "")
+
+# A report that could not measure keeps its own reason and is not handed a
+# staleness note about rows nobody drew.
+_unmeasured = dict(qa._unmeasured(["A"], "we could not look"))
+check("_unmeasured() carries measured False and its reason",
+      _unmeasured.get("measured") is False
+      and _unmeasured.get("note") == "we could not look")
+
+# `products_error()` asks whichever source answered. Asked of the export alone
+# it would report a healthy live pull as unmeasurable wherever the committed
+# file happens to be absent.
+_real_src, _real_load = _kd._product_source, _kd._load
+try:
+    # Knack answering, and no committed export on disk at all — the state a
+    # deployment that has never carried one is in, and the one where asking
+    # the export refuses to measure on the strength of a file nothing read.
+    _kd._product_source = lambda: ([{"client": "X"}], "knack", 1)
+    _kd._load = lambda name: None
+    check("products_error() is silent when Knack answered",
+          _kd.products_error() == "",
+          repr(_kd.products_error()))
+    _kd._product_source = lambda: ([], "export", None)
+    check("and says so when the export answered with nothing",
+          _kd.products_error() != "")
+finally:
+    _kd._product_source, _kd._load = _real_src, _real_load
+
+# The sweep, so this cannot be reintroduced one call site at a time. A product
+# row's month flags may be read in exactly one place, named with its reason.
+_FLAG_READERS_ALLOWED = {
+    # The dashboard scorecard is deliberately measured against the export's
+    # own period and its own flags — CLAUDE.md says so at length, and a term
+    # rebuild there was written, reproduced the flags exactly, and was still
+    # removed for not being measured the same way as the number above it.
+    "hub/knack_data.py": "month_over_month(), the dashboard scorecard",
+}
+_flag_hits = {}
+for _p in sorted(pathlib.Path(ROOT, "hub").glob("*.py")):
+    _rel = "hub/" + _p.name
+    _src = _p.read_text(encoding="utf-8", errors="ignore")
+    for _node in ast.walk(ast.parse(_src)):
+        # r.get("thisM") / r["lastM"] on anything that is not the group dict
+        if isinstance(_node, ast.Call) and isinstance(_node.func, ast.Attribute) \
+                and _node.func.attr == "get" and _node.args \
+                and isinstance(_node.args[0], ast.Constant) \
+                and _node.args[0].value in ("thisM", "lastM"):
+            _tgt = _node.func.value
+            if isinstance(_tgt, ast.Name) and _tgt.id in ("g", "grp", "group"):
+                continue                    # the group dict, which computes it
+            _flag_hits.setdefault(_rel, []).append(_node.lineno)
+_unexpected = {k: v for k, v in _flag_hits.items() if k not in _FLAG_READERS_ALLOWED}
+check("no module reads a product row's month flags without a reason on file",
+      not _unexpected,
+      "; ".join(f"{k}:{v}" for k, v in _unexpected.items()))
+_gone = [k for k in _FLAG_READERS_ALLOWED if k not in _flag_hits]
+check("and every allowed reader still reads them",
+      not _gone, f"stale entries: {_gone}")
+
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

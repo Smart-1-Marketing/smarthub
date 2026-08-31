@@ -2,7 +2,8 @@
 {% block title %}Webmaster Report Dashboard — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h2>Webmaster Report Dashboard</h2>
+  <h2 data-tour="wm-roster">Webmaster Report Dashboard
+    {{ help_dot('hub.webmaster.roster') if help_dot is defined else '' }}</h2>
   <p>Organic and AI-engine traffic for every SEO client, this month against last
      &mdash; <a href="/seo">back to SEO clients</a></p>
 </div>
@@ -13,7 +14,9 @@
     <div class="d" id="wmOrganicD"></div></div>
   <div class="wm-tile"><div class="v" id="wmAi">—</div><div class="l">AI-engine sessions MTD</div>
     <div class="d" id="wmAiD"></div></div>
-  <div class="wm-tile"><div class="v" id="wmMeasured">—</div><div class="l">Reporting</div>
+  <div class="wm-tile" data-tour="wm-numbers"><div class="v" id="wmMeasured">—</div>
+    <div class="l">Reporting
+      {{ help_dot('hub.webmaster.property') if help_dot is defined else '' }}</div>
     <div class="d" id="wmMeasuredD"></div></div>
 </div>
 
@@ -22,9 +25,10 @@
   <div style="flex:1"></div>
   <button type="button" class="wm-btn" id="wmCsv" disabled>Download CSV</button>
   <button type="button" class="wm-btn" id="wmRefresh" disabled>Refresh</button>
+  {{ help_dot('hub.webmaster.attach') if help_dot is defined else '' }}
 </div>
 
-<div class="card qa-card" style="padding:0;overflow:hidden">
+<div class="card qa-card" style="padding:0;overflow:hidden" data-tour="wm-attach">
   <div style="overflow-x:auto" id="wmWrap"><div class="wm-loading">Loading SEO clients&hellip;</div></div>
 </div>
 

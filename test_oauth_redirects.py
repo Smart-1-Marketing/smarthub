@@ -175,6 +175,89 @@ check("a path in PUBLIC_BASE_URL is named", pathy["state"], "warn")
 check("and the URI is still built from the origin alone", pathy["uris"],
       ["https://smart1.agency/connect/callback"])
 
+# ------------------------------------------------------------------- 5.5
+print("\nThe panel prints the URI the code actually sends")
+# The panel exists to say what string to register at a provider's console, and
+# a provider matches it EXACTLY. So the one thing worth asserting about it is
+# that the code agrees -- and it did not: this module trims PUBLIC_BASE_URL to
+# its origin (_origin(), asserted three checks above) and the two builders
+# appended to the raw value with only a trailing slash removed. With the path
+# this deployment's linked env group actually carries, the panel said
+#   https://smart1.agency/suite/oauth/callback
+# and hub/ghl_oauth.py sent
+#   https://smart1.agency/tools/ads/oauth/callback/suite/oauth/callback
+# Register what the panel says and consent fails on redirect_uri_mismatch;
+# register what is sent and the panel reports it as wrong. Two readings of one
+# question, and the panel was the one telling the truth -- on google_access,
+# which this file already asserts is "the one a client meets".
+#
+# Keyed on the flow rather than written as a pair list, and a PUBLIC_BASE_URL
+# flow with no builder declared is a FAILURE rather than a silent skip: a
+# seventh flow added next year must not join by being unasserted.
+BUILDERS = {
+    "suite": ("hub.ghl_oauth", "redirect_uri"),
+    "google_access": ("modules.google_access.config", "redirect_uri"),
+}
+
+
+def _built(flow_key):
+    mod_name, fn = BUILDERS[flow_key]
+    import importlib
+    mod = importlib.import_module(mod_name)
+    importlib.reload(mod)            # both read the env at import or call time
+    return getattr(mod, fn)()
+
+
+for _base in ("https://smart1.agency",
+              "https://smart1.agency/",
+              "https://smart1.agency/tools/ads/oauth/callback"):
+    env(PUBLIC_BASE_URL=_base, GOOGLE_CLIENT_ID="cid", GHL_CLIENT_ID="ghl")
+    _rows = orx.rows("https://smart1.agency/")
+    for _flow in orx.FLOWS:
+        if _flow.get("source") != "PUBLIC_BASE_URL":
+            continue                 # follows the browser, or is a pinned URL
+        key = _flow["key"]
+        if key not in BUILDERS:
+            check(f"{key} declares which code builds its URI", False)
+            continue
+        try:
+            built = _built(key)
+        except Exception as exc:      # noqa: BLE001
+            check(f"{key} builds a URI with PUBLIC_BASE_URL={_base}",
+                  f"raised {type(exc).__name__}")
+            continue
+        check(f"{key}: the code sends what the panel prints"
+              f"  (PUBLIC_BASE_URL={_base})",
+              built in row(_rows, key)["uris"])
+
+# And the origin is what both of them use, not merely a string they share.
+env(PUBLIC_BASE_URL="https://smart1.agency/tools/ads/oauth/callback",
+    GOOGLE_CLIENT_ID="cid", GHL_CLIENT_ID="ghl")
+check("no path survives into the callback the code sends",
+      _built("suite"), "https://smart1.agency/suite/oauth/callback")
+
+# Trimmed AND still reported: the warning is what tells somebody to fix the
+# variable, and behaving sanely in the meantime must not silence it.
+from hub.config import Settings  # noqa: E402
+_warns = [w for w in Settings().placeholder_warnings()
+          if w.get("name") == "PUBLIC_BASE_URL"]
+check("a path in PUBLIC_BASE_URL is still reported", bool(_warns))
+check("and the report quotes the value as it was actually set",
+      bool(_warns) and "/tools/ads/oauth/callback" in _warns[0]["detail"])
+
+# The setting itself, because the OAuth callbacks are two of fifteen readers
+# and the rest build client-facing share links. That warning's own text says
+# what a path costs them: "every share link, every landing URL and every
+# Insites callback would be built with /tools/ads/oauth/callback in the middle
+# of it, and each would 404 somewhere nobody is watching."
+_st = Settings()
+check("the setting every reader sees is the origin",
+      _st.public_base_url, "https://smart1.agency")
+check("and what was actually set is kept beside it, for the report to quote",
+      _st.public_base_url_raw,
+      "https://smart1.agency/tools/ads/oauth/callback")
+
+
 # --------------------------------------------------------------------- 6
 print("\nThe API is a Utilities path")
 check("/api/oauth-redirects is gated", access.is_utility("/api/oauth-redirects"))

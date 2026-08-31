@@ -219,14 +219,77 @@ UNITS: list[dict[str, Any]] = [
      "max_bytes": 10 * GB, "duration": (15, 60), "bitrate_kbps": (15000, 30000),
      "notes": ["VAST 2.0 / 3.0 compliant.",
                "Third-party VAST must contain MP4 and FLV format videos."]},
-    {"id": "youtube_trueview", "channel": "youtube", "name": "TrueView",
-     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
-     "max_bytes": 10 * MB, "duration": (12, 180),
-     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+    # Transcribed against the 2026 kit. "TrueView" is no longer a format name
+    # at all -- Google repurposed it in October 2025 as a *metric*, TrueView
+    # views, spanning skippable in-stream, in-feed, Shorts and Masthead -- so
+    # the requirement line asked a client to supply a thing that does not
+    # exist. The id survives because the format survives in substance
+    # (skippable in-stream is what TrueView was) and `tags_for()` has written
+    # `unit_youtube_trueview` onto delivered creative: the rule `billboard`
+    # already follows from when the IAB retired the Rising Stars name.
+    #
+    # The weight was the half that refused real work: 10 MB against a
+    # published 256 GB, which is the kit's own "wrong by four orders of
+    # magnitude". A checker refusing files the client was told to send is the
+    # Half Page failure this module already carries a note about, and the
+    # third transcription of four to run that way.
+    {"id": "youtube_trueview", "channel": "youtube",
+     "name": "Skippable in-stream", "kind": "video",
+     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     # No duration: the kit publishes "no maximum, under 3:00 recommended",
+     # and a ceiling invented from the recommendation would refuse a cut the
+     # kit permits -- the `target_bytes` lesson, wearing a stopwatch.
+     "text": {"headline": 40, "description": 35},
+     "notes": ["Skip becomes available at 5 seconds.",
+               "No maximum length; under 3:00 recommended. Google Ads "
+               "reservations run :12 minimum to 6:00 maximum.",
+               "Headline is 40 characters per line over two lines, and the "
+               "description 35 per line over two.",
+               "Video Action campaigns take their own copy: headline 30, "
+               "long headline 90, description 90, call to action 10.",
+               "16:9 is 1920x1080, 9:16 is 1080x1920 and 1:1 is 1080x1080.",
+               "Video asset must be loaded to YouTube. Google's ad policy "
+               "requires a public video; the Shorts asset page permits "
+               "unlisted. Use public unless a Google rep confirms otherwise "
+               "for the campaign type."]},
+    {"id": "youtube_nonskippable", "channel": "youtube",
+     "name": "Non-skippable in-stream", "kind": "video",
+     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "duration": (7, 30),
+     "notes": [":07 to :15 is standard; :16 to :30 runs on CTV.",
+               "The policy cap is :30 on auction and :60 on reservation, so a "
+               "cut over :30 is a reservation buy rather than a free choice.",
+               "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_bumper", "channel": "youtube", "name": "Bumper",
-     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(16, 9)],
-     "max_bytes": 10 * MB, "duration": (0, 6),
-     "notes": ["Video asset must be loaded to YouTube as a public video."]},
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "duration": (0, 6),
+     "notes": ["Non-skippable.",
+               "Video asset must be loaded to YouTube as a public video."]},
+    {"id": "youtube_in_feed", "channel": "youtube", "name": "In-feed video",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
+     "text": {"headline": 40, "description": 35},
+     "notes": ["Formerly TrueView Discovery.",
+               "No maximum length specified.",
+               "Thumbnail 1280x720 (1280x640 minimum), 16:9, under 2 MB, "
+               "JPG, GIF or PNG.",
+               "Video asset must be loaded to YouTube as a public video."]},
+    {"id": "youtube_shorts", "channel": "youtube", "name": "YouTube Shorts",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "ratios": [(9, 16)], "max_bytes": 256 * GB, "duration": (0, 180),
+     "notes": ["The feed shows the first :60 only; under :60 recommended.",
+               ":06 to :60 in Video Reach campaigns, :10 to :30 for action.",
+               "CTA overlay copy: headline 40, description 90, channel "
+               "description 90."]},
+    {"id": "youtube_masthead", "channel": "youtube", "name": "Masthead",
+     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "size": (1920, 1080), "max_bytes": 256 * GB,
+     "notes": ["Any length; over :10 recommended.",
+               "Companion banner 300x60, 5:1, under 150 KB — desktop only.",
+               "Video asset must be loaded to YouTube as a public video."]},
     {"id": "ctv", "channel": "ctv", "name": "Connected TV / OTT",
      "kind": "video", "formats": ["mp4"], "size": (1920, 1080),
      "max_bytes": 10 * GB, "duration": (15, 30), "bitrate_kbps": (15000, 30000),
@@ -486,30 +549,166 @@ UNITS: list[dict[str, Any]] = [
      "notes": ["A single image under 401 px wide renders as a thumbnail."]},
 
     # ---- Snapchat --------------------------------------------------------
-    {"id": "snap_image", "channel": "snapchat", "name": "Single Image Ad",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (1080, 1920),
-     "max_bytes": 5 * MB, "text": {"brand_name": 25, "headline": 34}},
-    {"id": "snap_video", "channel": "snapchat", "name": "Video Ad",
-     "kind": "video", "formats": ["mp4", "mov"], "size": (1080, 1920),
-     "max_bytes": 1 * GB, "duration": (3, 30),
+    # ---- Snapchat --------------------------------------------------------
+    # Transcribed against the 2026 kit. The 2025 model held two formats to the
+    # kit's seven, and both of the two refused creative the kit allows -- the
+    # third transcription running that way, and the reason this list is worked
+    # down rather than waited on:
+    #
+    #   * video capped at :30 against a published :03 to 3:00. The kit's own
+    #     update note says "the 30-second cap is gone", so a :45 spot was
+    #     refused outright.
+    #   * both pinned to a fixed 1080x1920, when the kit publishes that as
+    #     what to *build at* and names 720x1280 as the minimum -- so a legal
+    #     720x1280 file failed on dimensions.
+    #
+    # That second one is the gpt_ads rule: a required 9:16 is a `ratios` entry
+    # and a fail, a recommended 1080x1920 is `min_size` and a warn (it runs, it
+    # just runs soft), and 720x1280 is the floor and fails. Collapsing the
+    # three into one number is what refused the file.
+    #
+    # Both ids are kept through their renames -- the kit pluralises the two
+    # names -- the rule `billboard` gives: tags_for() has written `unit_<id>`
+    # onto delivered creative.
+    {"id": "snap_image", "channel": "snapchat", "name": "Single Image Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 5 * MB, "text": {"brand_name": 25, "headline": 34},
+     "notes": ["Build at 1080x1920; 720x1280 is the stated minimum, not the "
+               "target.",
+               "The help center specifies a 25-character brand name and the "
+               "Marketing API allows 32 — 25 is what a creative brief "
+               "should carry."]},
+    {"id": "snap_video", "channel": "snapchat", "name": "Video Ads",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34},
+     "notes": ["Build at 1080x1920; 720x1280 is the stated minimum.",
+               "The :30 cap is gone — :03 to 3:00 across every video "
+               "format."]},
+    {"id": "snap_sponsored", "channel": "snapchat", "name": "Sponsored Snaps",
+     "kind": "video", "formats": ["mp4", "mov", "jpg", "jpeg", "png"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34, "chat_message": 500,
+              "auto_response": 500},
+     "notes": ["Under :10 is recommended.",
+               "25 to 28 characters of headline is what the kit recommends, "
+               "against a 34 maximum.",
+               "A still is accepted here as well as a video.",
+               "The branded chat background is optional and is its own "
+               "1080x1920 file."]},
+    {"id": "snap_story", "channel": "snapchat", "name": "Story Ads",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
      "text": {"brand_name": 25, "headline": 34}},
+    {"id": "snap_collection", "channel": "snapchat", "name": "Collection Ads",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34},
+     "notes": ["The product tiles are their own files, beside the "
+               "1080x1920 hero."]},
+    {"id": "snap_commercial", "channel": "snapchat", "name": "Commercials",
+     "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1080, 1920), "min_width": 720,
+     "max_bytes": 1 * GB, "duration": (3, 180),
+     "text": {"brand_name": 25, "headline": 34},
+     "notes": ["H.264.",
+               "The first :06 is non-skippable — the argument has to be "
+               "made in it."]},
+    # One row on the kit, two shapes: a static PNG and a moving GIF, at
+    # different sizes. It stays one unit because "AR Filters" is the format
+    # Snapchat sells; splitting it would invent two names the kit does not
+    # publish, which is the drift kit_name_drift() exists to catch. No file
+    # weight is published for it, so none is invented -- the gpt_ads rule.
+    {"id": "snap_ar_filter", "channel": "snapchat", "name": "AR Filters",
+     "kind": "image", "formats": ["png", "gif"],
+     "sizes": [(945, 2048), (720, 1560)], "duration": (1, 3),
+     "notes": ["Static is a 945x2048 PNG; moving is a 720x1560 GIF.",
+               "A moving filter runs :01 to :03.",
+               "The kit publishes no file-weight ceiling for these."]},
 
     # ---- TikTok ----------------------------------------------------------
-    {"id": "tiktok_video", "channel": "tiktok", "name": "In-Feed Video Ad",
-     "kind": "video", "formats": ["mp4", "mov"],
-     "ratios": [(9, 16), (16, 9), (1, 1)], "max_bytes": 500 * MB,
-     "duration": (5, 60),
-     "text": {"brand_name": (2, 20), "description": (12, 100)},
-     "notes": ["Emojis cannot appear in the brand name.",
+    # Transcribed against the 2026 kit. The 2025 model held three formats to
+    # the kit's six and not one of the three names is a format TikTok sells --
+    # which is how it was found, and is the smaller half of it. Two of the
+    # three refused creative the kit allows:
+    #
+    #   * the in-feed video capped at :60 against a published **10 minutes**,
+    #     and taking two file types where the kit takes five;
+    #   * the image ad pinned to 1200x628 at 500 KB, when the kit specs
+    #     images by ratio now and says in as many words that 1200x628
+    #     "survives only as the horizontal carousel option" -- so a 720x1280
+    #     vertical, the shape TikTok recommends, was refused outright.
+    #
+    # `tiktok_video` keeps its id through the rename, the rule `billboard`
+    # gives. The other two are in RETIRED_UNITS rather than edited into
+    # something else: an in-feed still and a profile image are not formats
+    # this kit sells, and quietly re-pointing their ids at the carousel would
+    # make a delivered 1200x628 read as one card of a 2-to-35 image set.
+    {"id": "tiktok_video", "channel": "tiktok", "name": "Auction In-Feed",
+     "kind": "video", "formats": ["mp4", "mov", "mpeg", "3gp", "avi"],
+     "ratios": [(9, 16), (16, 9), (1, 1)],
+     "min_width": 540, "max_bytes": 500 * MB, "duration": (1, 600),
+     "text": {"caption": 100},
+     "notes": ["9:16 is recommended, 540x960 minimum; 16:9 at 960x540 and "
+               "1:1 at 640x640.",
+               "Bitrate 516 kbps or better.",
+               "The caption is ~100 characters, 50 for CJK.",
+               "Brand Name and Profile Image are obsolete for new auction "
+               "campaigns — from January 2026 the display name and avatar "
+               "are inherited from the linked TikTok account.",
+               "Emojis cannot appear in the account name.",
                "Emojis, {} and # cannot appear in the description.",
                "Punctuation and spaces occupy characters."]},
-    {"id": "tiktok_image", "channel": "tiktok", "name": "In-Feed Image Ad",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "size": (1200, 628),
-     "max_bytes": 500 * KB,
-     "text": {"brand_name": (2, 20), "description": (12, 100)}},
-    {"id": "tiktok_profile", "channel": "tiktok", "name": "Profile Image",
-     "kind": "image", "formats": ["jpg", "jpeg", "png"], "ratios": [(1, 1)],
-     "max_bytes": 50 * KB},
+    {"id": "tiktok_spark", "channel": "tiktok", "name": "Spark Ads",
+     "kind": "video", "formats": ["mp4", "mov"], "duration": (1, 600),
+     "text": {"caption": 150},
+     "notes": ["No aspect ratio, resolution, bitrate or file-size "
+               "restriction — the organic post is the creative.",
+               "Copy is inherited from that post and is not editable; a "
+               "pulled caption runs to 150 characters."]},
+    {"id": "tiktok_reservation", "channel": "tiktok",
+     "name": "Reservation In-Feed",
+     "kind": "video", "formats": ["mp4", "mov"], "ratios": [(9, 16)],
+     "max_bytes": 500 * MB, "duration": (5, 60),
+     "text": {"caption": 100},
+     "notes": ["9:16 recommended, bitrate 2,500 kbps or better.",
+               ":09 to :15 is the recommended length."]},
+    {"id": "tiktok_carousel", "channel": "tiktok", "name": "Carousel Ads",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "sizes": [(1200, 628), (640, 640), (720, 1280)],
+     "target_bytes": 100 * KB,
+     "notes": ["2 to 35 images: 1200x628 horizontal, 640x640 square or "
+               "720x1280 vertical.",
+               "100 KB per image is what the kit suggests, not a ceiling it "
+               "publishes.",
+               "A music track is required and is a separate file: MP3, at "
+               "least :02, up to 10 MB.",
+               "One caption and one call to action cover the whole "
+               "carousel."]},
+    {"id": "tiktok_gab_video", "channel": "tiktok",
+     "name": "Global App Bundle — Video",
+     "kind": "video", "formats": ["mp4", "mov", "mpeg", "avi"],
+     "ratios": [(9, 16), (16, 9), (1, 1)],
+     "min_width": 640, "max_bytes": 500 * MB, "duration": (5, 60),
+     "text": {"brand_name": (2, 20), "description": (1, 100)},
+     "notes": ["9:16 at 720x1280 minimum, 16:9 at 1280x720, 1:1 at 640x640.",
+               ":21 to :30 is the recommended length.",
+               "Brand name is 2-20 Latin characters, 1-10 Asian.",
+               "Global App Bundle is what Pangle is called now, and it "
+               "covers the CapCut and Fizzo placements."]},
+    {"id": "tiktok_gab_image", "channel": "tiktok",
+     "name": "Global App Bundle — Image",
+     "kind": "image", "formats": ["jpg", "jpeg", "png"],
+     "ratios": [(9, 16), (16, 9), (1, 1)],
+     "min_width": 640, "max_bytes": 100 * MB,
+     "text": {"brand_name": (2, 20), "description": (1, 100)},
+     "notes": ["9:16 at 720x1280 recommended, 16:9 at 1280x720, "
+               "1:1 at 640x640."]},
 
     # ---- GPT ads ---------------------------------------------------------
     # NOT from the 2025 kit — this one is transcribed from the platform's own
@@ -548,6 +747,15 @@ UNITS: list[dict[str, Any]] = [
 #
 # Each says what replaced it, so a row carrying the tag can be read.
 RETIRED_UNITS = [
+    {"id": "tiktok_image", "channel": "tiktok", "name": "In-Feed Image Ad",
+     "kind": "image", "retired": "The kit specs TikTok images by ratio now, "
+                                 "and 1200x628 survives only as the "
+                                 "horizontal Carousel Ads option."},
+    {"id": "tiktok_profile", "channel": "tiktok", "name": "Profile Image",
+     "kind": "image", "retired": "Custom Identity is being retired — from "
+                                 "January 2026 the avatar is inherited from "
+                                 "the linked TikTok account, so there is no "
+                                 "profile image to supply."},
     {"id": "x_direct_message", "channel": "x", "name": "Direct Message Card",
      "kind": "image", "retired": "X retired the format; there is no 2026 "
                                  "equivalent on the kit."},
@@ -710,6 +918,27 @@ _KIT_SECTIONS = {"desktop-display": "desktop_display",
                  "mobile-display": "mobile_display",
                  "dooh": "dooh"}
 
+# The same three sections, read as a fact about what the buy IS rather than
+# about what this parser can read. Where the kit's table is Unit / Dimensions
+# / weight, the size *is* the unit and the name adds nothing a client can act
+# on: "Leaderboard" is 728x90, and eleven labels beside eleven sizes is a wall
+# nobody reads to the bottom of. Where the first column is a Format, the name
+# is the ask and the sizes belong to it -- so folding those into one anonymous
+# run loses exactly the thing the client is being asked to choose.
+#
+# It had, on every channel published that way. An X buy asked for nine bare
+# sizes with Image Ads, Carousel Ads, Conversation Button and Spotlight
+# Takeover all dissolved into them; LinkedIn the same across six; and native
+# display printed "1200x628, 200x200" with nothing saying the second one is
+# the brand logo. That is `creative_needs._shape_of()`'s note about a unit
+# reaching the line as a bare name, running the other way: here the shape is
+# all that arrives and the *name* is what went missing.
+#
+# `tablet_display` is ours rather than the kit's -- the kit publishes no
+# tablet section, which is why those four units carry `source: "house"` --
+# and it is the same shape as the two display sections beside it.
+SIZE_SET_CHANNELS = frozenset(_KIT_SECTIONS.values()) | {"tablet_display"}
+
 # ...and that sentence covered three sections of twenty-three while the check
 # answered "no drift", which is a clean bill of health about seven per cent of
 # the thing it is auditing. The page in the repo is now the **2026** kit and
@@ -791,7 +1020,9 @@ def _plain(fragment: str) -> str:
         re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment or ""))).strip()
 
 
-_KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin"}
+_KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin",
+                     "tiktok": "tiktok", "snapchat": "snapchat",
+                     "youtube-video": "youtube"}
 
 # Transcribed against the 2025 kit and not yet re-checked against 2026, with
 # what is known to have moved. Not findings -- a backlog somebody works down,
@@ -799,13 +1030,11 @@ _KIT_NAME_CHECKED = {"x-twitter": "x", "linkedin": "linkedin"}
 # the build on them. Each is a client being asked for a format under a name
 # its platform has changed or dropped.
 _KIT_NAMES_PENDING = {
-    "tiktok": "the kit sells 6 formats and none of our 3 names is among "
-              "them (Auction In-Feed, Spark Ads, Reservation In-Feed...)",
-    "snapchat": "the kit sells 7 formats against our 2",
-    "youtube": "'TrueView' is retired branding for what the kit calls "
-               "Skippable in-stream; the kit also sells Shorts and Masthead",
     "native_display": "the kit's asset list is per-platform (The Trade Desk "
-                      "and Google Demand Gen) and names 8 assets to our 2",
+                      "and Google Demand Gen) and names 8 assets to our 2. "
+                      "Its first column is a field to supply rather than a "
+                      "format to buy, so it is a different transcription "
+                      "from the four above rather than more of the same",
 }
 
 
