@@ -2,8 +2,11 @@
 
     python3 test_display_ads.py
 
-No pytest, no new dependencies, and — unlike every other test file here — no
-Flask app, because the thing under test is not Python. The Display Ad Builder
+No pytest, no new dependencies, and — unlike every other test file here —
+almost no Flask, because the thing under test is not Python. (The one
+exception is the Hub-side rescue redirects for the renderer's root-absolute
+URLs, which ARE Python — hub/ad_builder_proxy.py — and are driven against a
+bare Flask app rather than asserted about as text.) The Display Ad Builder
 is the one module that is a Node service (see CLAUDE.md), it ships its own
 TypeScript tests under ``modules/ad_builder/tests``, and those tests need an
 ``npm install`` that CI deliberately does not do. So the checks that run on
@@ -1874,6 +1877,90 @@ def test_the_animation_panel_says_it_is_working():
           approve.count("mark.done();") == 2)
     check("no animator button is still swapped by hand",
           "btn.textContent = " not in preview + build + approve)
+
+
+def test_a_root_absolute_url_that_left_the_app_is_rescued():
+    """The renderer's own paths, arriving at the Hub root, land on the tool.
+
+    Every page here links from the site root — href="/projects" — and the
+    basepath shim rewrites those under the mount. What the shim cannot reach
+    is a URL that left the app whole: the static proof files on the render
+    disk carry the same nav with no shim, old links sit in browser history,
+    and a person who remembers "/projects" types it at the Hub. All of those
+    landed on a bare 404 — https://smart1.agency/projects, "Not Found" —
+    which read as the whole tool holding nothing. The report this change was
+    made for.
+
+    Driven against a bare Flask app carrying only what register() adds, so
+    what is tested is exactly the module's own wiring and not the Hub's boot.
+    """
+    print("\nthe renderer's root-absolute URLs are rescued at the Hub root")
+    print("-" * 60)
+
+    from flask import Flask
+
+    sys.path.insert(0, str(ROOT))
+    from hub import ad_builder_proxy
+
+    app = Flask("rescue_test")
+    ad_builder_proxy.register(app)
+    client = app.test_client()
+
+    for screen in ("projects", "build", "presets"):
+        r = client.get(f"/{screen}")
+        check(f"/{screen} redirects into the mount",
+              r.status_code == 302 and
+              r.headers.get("Location", "").endswith(f"/tools/display-ads/{screen}"),
+              f"{r.status_code} -> {r.headers.get('Location')}")
+
+    # The query string travels: /build?request=<id> is the shape the presets
+    # screen navigates with, and a redirect that dropped it would open the
+    # build screen on nothing.
+    r = client.get("/build?request=abc-123")
+    check("the query string survives the redirect",
+          r.headers.get("Location", "").endswith("/build?request=abc-123"),
+          r.headers.get("Location"))
+
+    # And only the three staff screens. /diagnostics is the Hub's own page and
+    # /embed is the Hub's marketing-site embed — a proxy that claimed either
+    # would shadow a working feature to rescue a broken link.
+    claimed = {str(rule) for rule in app.url_map.iter_rules()}
+    for taken in ("/diagnostics", "/embed"):
+        check(f"{taken} is not claimed", taken not in claimed)
+
+    # ---- the escapes at their source --------------------------------------
+    # The shim patches fetch, XHR and href/src/action attributes. It cannot
+    # patch an assignment to location or a history.replaceState, so any of
+    # those written with a root-absolute literal leaves the mount — which is
+    # how the presets screen navigated to smart1.agency/build and the search
+    # screen rewrote its own address bar to a URL that 404s on refresh. A
+    # sweep rather than the two that were wrong, because a list of the fixed
+    # ones proves nothing about the page added next month.
+    nav_re = re.compile(
+        r"(?:location\.(?:href\s*=|assign\(|replace\()"
+        r"|(?:replaceState|pushState)\(\s*[^,)]*,\s*[^,)]*,)"
+        r"\s*['\"]/(?!/)")
+    leaks = []
+    for page in sorted((MODULE / "public").glob("*.html")):
+        src = strip_comments(page.read_text())
+        for i, line in enumerate(src.splitlines(), 1):
+            if nav_re.search(line):
+                leaks.append(f"{page.name}:{i}")
+    check("no JS navigation or history write starts with a bare root path",
+          not leaks, ", ".join(leaks))
+
+    # ---- and an error is not an empty book --------------------------------
+    # auth.denied() answers 401 and 429 as JSON, so r.json() resolves and the
+    # old handler read .projects off it: "No projects found" over a request
+    # that failed, which is the confident wrong answer — an empty book and a
+    # book we could not open are different things to tell somebody.
+    proj = (MODULE / "public" / "projects.html").read_text()
+    check("the projects page reads the status before the rows",
+          "res.ok" in proj and "res.d.error" in proj)
+    check("and shows the server's own sentence rather than inventing one",
+          "fail(res.d && res.d.error)" in proj)
+    check("the silent shape is gone",
+          ".then(function (r) { return r.json(); })\n      .then(function (data) { render(data.projects" not in proj)
 
 
 def main():
