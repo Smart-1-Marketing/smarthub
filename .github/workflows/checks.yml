@@ -1651,3 +1651,19 @@ jobs:
       # assigned after the save, so it reached the browser and never the disk.
       - name: One image per post, and a badge you can act on
         run: python3 test_blog_images.py
+      # hub/analytics_ask.py turns a plain-English question into a GA4 report,
+      # and its docstring says what it replaced: a keyword matcher that
+      # answered "July versus June" with a 30-day table, "which is worse than
+      # refusing -- it answers confidently with the wrong report". It was
+      # doing the same thing a layer down. shape() decided which period a row
+      # belonged to with tag.endswith("_1") -- but GA4 values that dimension
+      # with the range's NAME where one was given, and this module's own
+      # prompt REQUIRES names. So both rows landed in one bucket and the
+      # second overwrote the first: Dublin at 900 in July against 600 in June
+      # rendered as 600, no previous, no change, and a totals row reading "up
+      # 100% on 0". Beside it: an unconditional re-sort that threw away the
+      # orderBys GA4 had just honoured, turning a time series into a ranking;
+      # and a "total" that is the sum of whatever came back, which under a
+      # limit is the top N presented as the whole.
+      - name: July versus June, and the comparison that answered with June
+        run: python3 test_analytics_ask.py
