@@ -1234,7 +1234,11 @@ async function startNewProposal(){
  catch(e){drawQuoteTag("⚠ Not saved — server unreachable");}
 }
 async function editQuote(id){
- try{const d=await api('/sales/builder/api/quotes/'+id);editLoaded(d.quote);}catch(e){toast(e.message);}
+ /* Returns whether the quote actually opened, because the deep-link init has
+    no screen drawn yet and needs to know to fall back; the list callers
+    already have one behind the toast and ignore the answer. */
+ try{const d=await api('/sales/builder/api/quotes/'+id);editLoaded(d.quote);return true;}
+ catch(e){toast(e.message);return false;}
 }
 function resumeStep(){
  /* The saved position, or the first step. Clamped, because the number was
@@ -4302,7 +4306,15 @@ async function runConvert(){
  // ?quote=<id> opens an existing quote; ?prefill=1&client=…&url=… starts a new
  // one with the client already filled in.
  const qs=new URLSearchParams(location.search);
- if(qs.get('quote')){await editQuote(qs.get('quote'));return;}
+ /* A ?quote= link outlives the quote: Client 360 links by id and a draft can
+    be deleted. editQuote() toasts the refusal, but nothing after it drew a
+    screen, so the rep landed on the empty dashboard shell — a blank page with
+    a three-second toast, from a link that looked perfectly good. Fall back to
+    the real dashboard so there is always a working screen behind the message. */
+ if(qs.get('quote')){
+  const opened=await editQuote(qs.get('quote'));
+  if(!opened){nav('dashboard');toast("That proposal could not be opened — it may have been deleted. Here is the dashboard instead.");}
+  return;}
  /* ?focus=<signal> — arriving from the Hub dashboard's pipeline card. The
     count there is only worth pressing if it lands on the rows it counted, so
     the list filters to exactly those quotes rather than to a status tab that
