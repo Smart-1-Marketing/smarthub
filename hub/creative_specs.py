@@ -149,6 +149,15 @@ _DOOH_COMMON: dict[str, Any] = {
     "formats": ["jpg", "jpeg", "png", "mp4", "html5"],
 }
 
+# The kit publishes nine: "MPG (MPEG-2 / MPEG-4) preferred, plus MOV, MP4,
+# WEBM, ProRes, DNxHR, CineForm, HEVC". Named once because every YouTube unit
+# takes the same list, and carried whole because a master delivered as ProRes
+# -- which is what a finishing house hands over -- was refused by a checker
+# that knew five of them. That is the ceiling failure this module keeps
+# recording, wearing a codec.
+_YOUTUBE_FORMATS = ["mpg", "mpeg", "mp4", "mov", "webm",
+                    "prores", "dnxhr", "cineform", "hevc"]
+
 UNITS: list[dict[str, Any]] = [
     # ---- Desktop display -------------------------------------------------
     {"id": "leaderboard", "channel": "desktop_display", "name": "Leaderboard",
@@ -235,7 +244,7 @@ UNITS: list[dict[str, Any]] = [
     # third transcription of four to run that way.
     {"id": "youtube_trueview", "channel": "youtube",
      "name": "Skippable in-stream", "kind": "video",
-     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      # No duration: the kit publishes "no maximum, under 3:00 recommended",
      # and a ceiling invented from the recommendation would refuse a cut the
@@ -255,7 +264,7 @@ UNITS: list[dict[str, Any]] = [
                "for the campaign type."]},
     {"id": "youtube_nonskippable", "channel": "youtube",
      "name": "Non-skippable in-stream", "kind": "video",
-     "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      "duration": (7, 30),
      "notes": [":07 to :15 is standard; :16 to :30 runs on CTV.",
@@ -263,13 +272,13 @@ UNITS: list[dict[str, Any]] = [
                "cut over :30 is a reservation buy rather than a free choice.",
                "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_bumper", "channel": "youtube", "name": "Bumper",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      "duration": (0, 6),
      "notes": ["Non-skippable.",
                "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_in_feed", "channel": "youtube", "name": "In-feed video",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "ratios": [(16, 9), (9, 16), (1, 1)], "max_bytes": 256 * GB,
      "text": {"headline": 40, "description": 35},
      "notes": ["Formerly TrueView Discovery.",
@@ -278,14 +287,14 @@ UNITS: list[dict[str, Any]] = [
                "JPG, GIF or PNG.",
                "Video asset must be loaded to YouTube as a public video."]},
     {"id": "youtube_shorts", "channel": "youtube", "name": "YouTube Shorts",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "ratios": [(9, 16)], "max_bytes": 256 * GB, "duration": (0, 180),
      "notes": ["The feed shows the first :60 only; under :60 recommended.",
                ":06 to :60 in Video Reach campaigns, :10 to :30 for action.",
                "CTA overlay copy: headline 40, description 90, channel "
                "description 90."]},
     {"id": "youtube_masthead", "channel": "youtube", "name": "Masthead",
-     "kind": "video", "formats": ["mpg", "mpeg", "mp4", "mov", "webm"],
+     "kind": "video", "formats": _YOUTUBE_FORMATS,
      "size": (1920, 1080), "max_bytes": 256 * GB,
      "notes": ["Any length; over :10 recommended.",
                "Companion banner 300x60, 5:1, under 150 KB — desktop only.",

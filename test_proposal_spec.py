@@ -778,6 +778,42 @@ check("each addition names itself rather than sharing one sentence",
 
 
 # ---------------------------------------------------------------------------
+section("YouTube takes every format the kit publishes")
+# ---------------------------------------------------------------------------
+# The transcription carried five of the nine accepted formats, so a ProRes
+# master -- what a finishing house actually hands over -- was refused by the
+# checker. The same shape as the 10 MB ceiling it replaced, one field along.
+_yt = {u["id"]: u for u in cs.UNITS if u["channel"] == "youtube"}
+check("every YouTube unit takes the nine formats the kit publishes",
+      all(len(u["formats"]) == 9 for u in _yt.values()),
+      {u["id"]: len(u["formats"]) for u in _yt.values()})
+for _codec in ("prores", "dnxhr", "cineform", "hevc"):
+    check(f"a .{_codec} master is accepted",
+          cs.check(unit_id="youtube_trueview", width=1920, height=1080,
+                   fmt=_codec, size_bytes=8 * 1024 * _MB)["result"] == "pass",
+          cs.check(unit_id="youtube_trueview", width=1920, height=1080,
+                   fmt=_codec, size_bytes=8 * 1024 * _MB)["summary"])
+check("and one the kit does not list is still refused",
+      cs.check(unit_id="youtube_trueview", width=1920, height=1080, fmt="wmv",
+               size_bytes=50 * _MB)["result"] == "fail")
+
+
+# Nine codecs printed once per unit across a six-unit buy is the wall the
+# sizes rule already exists for, on the line a client reads.
+_yt_line = cn.units_line(
+    {"items": [{"product": "TrueView", "category": "YOUTUBE",
+                "dollars": 3000}]}, "video")
+check("a long format list says how many more rather than printing all nine",
+      "MPG/MPEG/MP4/MOV/WEBM and 4 more" in _yt_line, _yt_line[:140])
+check("...and a list of five or fewer is still printed whole",
+      "PDF/DOC/DOCX/PPT/PPTX" in cn.units_line(
+          {"items": [{"product": "LinkedIn - Display & Text Ads - Budget "
+                                 "Based - No Impression Guarantee",
+                      "category": "SOCIAL ADS - VIDEO", "dollars": 3000}]},
+          "social"))
+
+
+# ---------------------------------------------------------------------------
 section("the gate and the spec kit read the same product the same way")
 # ---------------------------------------------------------------------------
 # Two readings of one question -- whether to ask for creative, and what to ask

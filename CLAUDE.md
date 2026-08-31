@@ -5109,6 +5109,21 @@ from the IAB retiring the Rising Stars name.
 different job** rather than more of the same: its first column is a field to
 supply (Main image, Brand logo, Short title…) rather than a format to buy.
 
+**And a codec list is a ceiling too.** That transcription carried five of the
+nine formats the kit publishes — *"MPG (MPEG-2 / MPEG-4) preferred, plus MOV,
+MP4, WEBM, ProRes, DNxHR, CineForm, HEVC"* — so a **ProRes master, which is
+what a finishing house hands over**, was still refused by the checker. The
+same shape as the 10 MB ceiling it had just replaced, one field along, and
+invisible for the same reason: five real formats look like a complete list.
+`_YOUTUBE_FORMATS` is named once, because every YouTube unit takes the same
+nine and two hand-typed copies is how one of them comes to be missing HEVC.
+
+**A run of nine codecs is the wall the sizes rule already exists for.**
+Printed once per unit across a six-unit buy, on the line a client reads, it
+buries everything else on it. `_describe_unit()` prints five whole — which is
+every other unit in the kit — and past that says how many more, rather than
+pretending the list is all of them.
+
 **What did not move is the rate card.** It sells products called *TrueView*
 and *TrueView - Targeted* — product names on an invoice rather than format
 names in a creative requirement. Renaming one orphans every quote, every IO's
