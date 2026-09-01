@@ -76,12 +76,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+STALE_TEMPLATE = (ROOT / "hub" / "templates" / "stale_creative.html").read_text(
+    encoding="utf-8")
 
 TMP = tempfile.mkdtemp(prefix="s1stale_test_")
 DISK = os.path.join(TMP, "disk")
 os.makedirs(DISK, exist_ok=True)
 
 os.environ["HUB_DATA_DIR"] = DISK
+os.environ["CLIENTS_DATA_DIR"] = str(ROOT / "tests" / "fixtures" / "clients")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "t.db")
 os.environ["SECRET_KEY"] = "stale-test-secret"
 
@@ -190,7 +193,9 @@ check("Create opens the ad builder with the client filled in",
 
 # Which of our tools filed it is not a decision a rep makes — but the panel
 # they open is where it belongs, so it is dropped from the row and kept there.
-check("each creative still names its own source", 'class="m">' in html, True)
+check("each creative still names its own source",
+      'class="m">' in STALE_TEMPLATE and "{{ it.source }}" in STALE_TEMPLATE,
+      True)
 
 # The route the Create button points at has to exist on the composed app.
 rules = {str(r.rule) for r in app.url_map.iter_rules()}
