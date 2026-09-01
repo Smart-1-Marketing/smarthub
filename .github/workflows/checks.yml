@@ -361,6 +361,22 @@ jobs:
             echo "test_commercial_meter.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder dashboard rail
+        # The dashboard is the one screen in the module that asks the Hub for
+        # its icon rail and opts the generic accordion out, and its section
+        # rail is read by assistive technology — so both are asserted against
+        # the template rather than remembered. It arrived with no step naming
+        # it, which is the gap test_ci_gate.py exists to find: a check gated
+        # by nobody is a check that stops being run. Guarded like the steps
+        # around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_dashboard_layout.py ]; then
+            python test_commercial_dashboard_layout.py
+          else
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
+          fi
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
