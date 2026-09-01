@@ -519,6 +519,11 @@ const server = http.createServer(async (req, res) => {
           assetRoot: ROOT,
           cacheDir: path.join(OUT, 'cache', requestId),
           outputDir: OUT,
+          // A submission that carries a brand skips discovery, so the
+          // warnings that came back with it are only in our cache. This is
+          // the read that puts them on the project the rep opens.
+          brandRecord: (d) =>
+            (brandCache.read(d)?.result as { warnings?: string[]; needsReview?: boolean }) ?? null,
         });
         fs.mkdirSync(path.join(OUT, 'campaigns'), { recursive: true });
         fs.writeFileSync(

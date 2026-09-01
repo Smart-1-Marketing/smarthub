@@ -138,7 +138,10 @@ try:
        "Not measured" in _rows["roster_dates"]["issue"]
        and "unreadable" in _rows["roster_dates"]["issue"])
     ok("and it is not counted as an open to-do",
-       _rows["roster_dates"]["measured"] is False and _blind["open"] == 0)
+       _rows["roster_dates"]["measured"] is False
+       and _blind["open"] == sum(
+           1 for key, row in _rows.items()
+           if key != "roster_dates" and row["measured"]))
 finally:
     celebrations.roster_gaps = _saved
 
