@@ -7,6 +7,10 @@
    anchored to nothing and a "Do it for me" that returns in silence, which is
    worse than no button. #}
 {% set no_demo = true %}
+{# Match Client 360's workbench treatment on this overview screen: the Hub's
+   wide sidebar becomes its icon rail, leaving room for the dashboard's own
+   section rail. Wizard screens keep their existing shell. #}
+{% block body_attrs %} data-s1hub-collapse="1"{% endblock %}
 {% block content %}
 
 <div class="cb-page-head">
@@ -22,89 +26,122 @@
    client waiting on a reply is work. There is no mail sender in this Hub, so
    this is the only thing that tells anybody an answer arrived — the shape
    `hub/social_content.py` arrived at for the same reason. #}
-<div class="cb-card" style="margin-bottom:20px;" id="cb-review-inbox"
-     data-url="{{ url_for('commercial_builder.cb_review.reviews_waiting') }}">
-  <div class="cb-flex-between" style="margin-bottom:10px;">
-    <h3>Client reviews
-      {{ help_dot('commercial_builder.dashboard.reviews') if help_dot is defined else '' }}
-    </h3>
-    <span class="cb-muted" style="font-size:12px;" id="cb-review-out"></span>
-  </div>
-  <div id="cb-review-body"><div class="cb-empty">Loading…</div></div>
-</div>
+{# Client 360's useful shape, applied to the tool rather than copied as a
+   decorative sidebar: a sticky section rail and one coherent group of cards
+   on screen at a time. "Everything" keeps the old all-at-once reading for
+   anyone who needs to scan the whole dashboard. #}
+<div class="cb-dashboard-work" data-s1-workspace="1">
+  <nav class="cb-dashboard-rail" id="cb-dashboard-rail" aria-label="Dashboard sections">
+    <button type="button" class="cb-dashboard-rail-link on" data-section="overview" aria-controls="cb-dashboard-overview">Overview</button>
+    <button type="button" class="cb-dashboard-rail-link" data-section="clients" aria-controls="cb-dashboard-clients">Clients</button>
+    <button type="button" class="cb-dashboard-rail-link" data-section="production" aria-controls="cb-dashboard-production">Production</button>
+    <button type="button" class="cb-dashboard-rail-link" data-section="all">Everything</button>
+  </nav>
 
-<div class="cb-card" style="margin-bottom:20px;">
-  <div class="cb-flex-between" style="margin-bottom:10px;">
-    <h3>Connected production engines</h3>
-    <button type="button" class="cb-btn cb-btn-sm" id="cb-verify-btn">Check keys</button>
-  </div>
-  <div class="cb-provider-row">
-    {% for p in providers %}
-      <span class="cb-provider-chip">
-        <span class="cb-provider-dot {{ 'on' if provider_status.get(p) else 'off' }}"></span>
-        {{ provider_labels.get(p, p|capitalize) }}
-        <span class="cb-muted">{{ 'key set' if provider_status.get(p) else 'mock mode' }}</span>
-      </span>
-    {% endfor %}
-    {% for p in v2_providers %}
-      <span class="cb-provider-chip" style="opacity:.55;"><span class="cb-provider-dot off"></span>{{ p|capitalize }} <span class="cb-muted">not built yet</span></span>
-    {% endfor %}
-  </div>
-  <p class="cb-muted" style="font-size:12px;margin:10px 0 0;">
-    A dot only says a key is <em>set</em>. Check keys asks each provider whether it
-    accepts ours — the two answers differ when a key is truncated, revoked, out of
-    credit, or set under a name nothing reads. <code>env.example</code> in the repo
-    root lists every name accepted.
-  </p>
-  <div id="cb-verify-out" style="margin-top:12px;"></div>
-</div>
+  <div class="cb-dashboard-surface">
+    <section class="cb-dashboard-view on" id="cb-dashboard-overview" data-section="overview">
+      <div class="cb-dashboard-view-head">
+        <h2>Overview</h2>
+        <p>Client feedback and the commercials most recently in motion.</p>
+      </div>
+      <div class="cb-dashboard-grid">
+        <div class="cb-card" id="cb-review-inbox"
+             data-url="{{ url_for('commercial_builder.cb_review.reviews_waiting') }}">
+          <div class="cb-flex-between" style="margin-bottom:10px;">
+            <h3>Client reviews
+              {{ help_dot('commercial_builder.dashboard.reviews') if help_dot is defined else '' }}
+            </h3>
+            <span class="cb-muted" style="font-size:12px;" id="cb-review-out"></span>
+          </div>
+          <div id="cb-review-body"><div class="cb-empty">Loading…</div></div>
+        </div>
 
-<div class="cb-grid cb-grid-2" style="align-items:start;">
-  <div class="cb-card">
-    <h3>Clients ({{ clients|length }})</h3>
-    {% if clients %}
-      <table class="cb-table">
-        <thead><tr><th>Client</th><th>Industry</th><th>Website</th><th></th></tr></thead>
-        <tbody>
-        {% for c in clients %}
-          <tr>
-            <td><strong>{{ c.name }}</strong></td>
-            <td class="cb-muted">{{ c.industry or "—" }}</td>
-            <td>{% if c.website %}<a href="{{ c.website }}" target="_blank" rel="noopener">{{ c.website }}</a>{% else %}<span class="cb-muted">—</span>{% endif %}</td>
-            <td><a class="cb-btn cb-btn-sm" href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}?client_id={{ c.id }}">New commercial</a></td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="cb-empty">No clients yet. <a href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}">Create your first commercial</a> to add one.</div>
-    {% endif %}
-  </div>
+        <div class="cb-card">
+          <h3>Recent commercials</h3>
+          {% if projects %}
+            <table class="cb-table">
+              <thead><tr><th>Project</th><th>Length</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+              {% for p in projects %}
+                <tr>
+                  <td><strong>{{ p.title }}</strong><br><span class="cb-muted" style="font-size:11.5px;">{{ p.client.name if p.client else '' }}</span></td>
+                  <td>:{{ '%02d'|format(p.length_seconds) }}</td>
+                  <td><span class="cb-status-pill">{{ p.status }}</span></td>
+                  <td>
+                    {# The status-to-step map is routes/pages.STATUS_STEP, not a copy
+                       of it written here: a wizard that gained two steps would have
+                       gone on dropping people into the old one. #}
+                    <a class="cb-btn cb-btn-sm cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.' + status_step.get(p.status, 'brief'), project_id=p.id) }}">Open</a>
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="cb-empty">No commercials yet.</div>
+          {% endif %}
+        </div>
+      </div>
+    </section>
 
-  <div class="cb-card">
-    <h3>Recent commercials</h3>
-    {% if projects %}
-      <table class="cb-table">
-        <thead><tr><th>Project</th><th>Length</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-        {% for p in projects %}
-          <tr>
-            <td><strong>{{ p.title }}</strong><br><span class="cb-muted" style="font-size:11.5px;">{{ p.client.name if p.client else '' }}</span></td>
-            <td>:{{ '%02d'|format(p.length_seconds) }}</td>
-            <td><span class="cb-status-pill">{{ p.status }}</span></td>
-            <td>
-              {# The status-to-step map is routes/pages.STATUS_STEP, not a copy
-                 of it written here: a wizard that gained two steps would have
-                 gone on dropping people into the old one. #}
-              <a class="cb-btn cb-btn-sm cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.' + status_step.get(p.status, 'brief'), project_id=p.id) }}">Open</a>
-            </td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="cb-empty">No commercials yet.</div>
-    {% endif %}
+    <section class="cb-dashboard-view" id="cb-dashboard-clients" data-section="clients">
+      <div class="cb-dashboard-view-head">
+        <h2>Clients</h2>
+        <p>Start a new commercial from the client it belongs to.</p>
+      </div>
+      <div class="cb-card">
+        <h3>Clients ({{ clients|length }})</h3>
+        {% if clients %}
+          <table class="cb-table">
+            <thead><tr><th>Client</th><th>Industry</th><th>Website</th><th></th></tr></thead>
+            <tbody>
+            {% for c in clients %}
+              <tr>
+                <td><strong>{{ c.name }}</strong></td>
+                <td class="cb-muted">{{ c.industry or "—" }}</td>
+                <td>{% if c.website %}<a href="{{ c.website }}" target="_blank" rel="noopener">{{ c.website }}</a>{% else %}<span class="cb-muted">—</span>{% endif %}</td>
+                <td><a class="cb-btn cb-btn-sm" href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}?client_id={{ c.id }}">New commercial</a></td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="cb-empty">No clients yet. <a href="{{ url_for('commercial_builder.cb_pages.new_commercial') }}">Create your first commercial</a> to add one.</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="cb-dashboard-view" id="cb-dashboard-production" data-section="production">
+      <div class="cb-dashboard-view-head">
+        <h2>Production</h2>
+        <p>See which rendering services are configured and verify that each key still works.</p>
+      </div>
+      <div class="cb-card">
+        <div class="cb-flex-between" style="margin-bottom:10px;">
+          <h3>Connected production engines</h3>
+          <button type="button" class="cb-btn cb-btn-sm" id="cb-verify-btn">Check keys</button>
+        </div>
+        <div class="cb-provider-row">
+          {% for p in providers %}
+            <span class="cb-provider-chip">
+              <span class="cb-provider-dot {{ 'on' if provider_status.get(p) else 'off' }}"></span>
+              {{ provider_labels.get(p, p|capitalize) }}
+              <span class="cb-muted">{{ 'key set' if provider_status.get(p) else 'mock mode' }}</span>
+            </span>
+          {% endfor %}
+          {% for p in v2_providers %}
+            <span class="cb-provider-chip" style="opacity:.55;"><span class="cb-provider-dot off"></span>{{ p|capitalize }} <span class="cb-muted">not built yet</span></span>
+          {% endfor %}
+        </div>
+        <p class="cb-muted" style="font-size:12px;margin:10px 0 0;">
+          A dot only says a key is <em>set</em>. Check keys asks each provider whether it
+          accepts ours — the two answers differ when a key is truncated, revoked, out of
+          credit, or set under a name nothing reads. <code>env.example</code> in the repo
+          root lists every name accepted.
+        </p>
+        <div id="cb-verify-out" style="margin-top:12px;"></div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -112,6 +149,36 @@
 
 {% block extra_scripts %}
 <script>
+/* The section rail mirrors Client 360's workbench navigation. It is static
+   markup rather than a second rendering pass because these dashboard cards
+   are already grouped on the server. */
+(function () {
+  var rail = document.getElementById("cb-dashboard-rail");
+  if (!rail) return;
+  var links = Array.prototype.slice.call(rail.querySelectorAll("[data-section]"));
+  var views = Array.prototype.slice.call(document.querySelectorAll(".cb-dashboard-view"));
+  var allowed = ["overview", "clients", "production", "all"];
+
+  function show(section, moveFocus) {
+    if (allowed.indexOf(section) < 0) section = "overview";
+    views.forEach(function (view) {
+      view.classList.toggle("on", section === "all" || view.dataset.section === section);
+    });
+    links.forEach(function (link) {
+      var on = link.dataset.section === section;
+      link.classList.toggle("on", on);
+      link.setAttribute("aria-current", on ? "page" : "false");
+    });
+    try { history.replaceState(null, "", "#" + section); } catch (err) {}
+    if (moveFocus) window.scrollTo(0, 0);
+  }
+
+  links.forEach(function (link) {
+    link.addEventListener("click", function () { show(link.dataset.section, true); });
+  });
+  show((location.hash || "").replace(/^#/, "") || "overview", false);
+})();
+
 (function () {
   var btn = document.getElementById("cb-verify-btn");
   var out = document.getElementById("cb-verify-out");
