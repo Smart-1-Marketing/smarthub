@@ -734,7 +734,7 @@ function renderKnack(d){
     '<span class="diag-name">IO products</span><span class="diag-detail">'+
     (!d.configured
       ? "KNACK_APP_ID / KNACK_API_KEY aren't set, so the Hub is showing the "+
-        "committed JSON export. That file is only as current as the last manual export."
+        "private fallback export. That snapshot is only as current as its last private refresh."
       : (d.cached_records||0)+" records"+
         (d.age_minutes!==null?" · pulled "+d.age_minutes+" min ago":" · never pulled")+
         " · refreshes every "+(d.ttl_minutes||180)+" min")+

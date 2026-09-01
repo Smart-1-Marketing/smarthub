@@ -261,6 +261,21 @@
   <div id="compPanel"><span class="spin" data-s1-think="ai"></span> Researching…</div>
 </div>
 
+{# ------------------------------------------------------- Pickaxe workshop #}
+<div class="card" data-s1-thinking="ai">
+  <div class="row" style="margin-bottom:6px">
+    <h3 style="margin:0">Copy workshop {{ help_dot('ads_builder.proposal.workshop') if help_dot is defined else '' }}
+      <span class="sub">internal working notes — nothing here reaches the client estimate</span></h3>
+    <div class="spacer"></div>
+    <button class="b-sm" id="ideasCopyBtn" onclick="draftAdCopy()">Draft ad copy ideas</button>
+    <button class="b-sm" id="ideasExtBtn" onclick="draftExtensions()">Suggest ad extensions</button>
+    <button class="b-sm" id="ideasSemBtn" onclick="semQuoteHelp()">SEM quote help</button>
+  </div>
+  <div id="ideasCopyPanel"></div>
+  <div id="ideasExtPanel"></div>
+  <div id="ideasSemPanel"></div>
+</div>
+
 {# ---------------------------------------------------------------- ad groups #}
 <div class="card" data-tour="ads-keywords">
   <div class="row" style="margin-bottom:6px">
@@ -954,6 +969,48 @@ async function saveCompetitors() {
   }
 }
 
+// --------------------------------------------------------- copy workshop
+// Three drafts, one drawer. The text is prose rather than a table, so it is
+// escaped and drawn with its line breaks — never innerHTML'd raw, because
+// half of it is a model's answer and part of the SEM prefill is read off
+// somebody else's landing page.
+function drawIdeas(panelId, heading, d) {
+  const box = document.getElementById(panelId);
+  if (!d || !d.text) { box.innerHTML = ''; return; }
+  box.innerHTML =
+    `<label style="margin-top:10px">${esc(heading)}</label>` +
+    `<div style="white-space:pre-wrap;color:#334155;font-size:13.5px;border:1px solid #e2e8f0;` +
+    `border-radius:8px;padding:10px 12px;background:#f8fafc">${esc(d.text)}</div>` +
+    `<div class="hint">${esc(d.source_note || '')}` +
+    (d.generated ? ` Drafted ${esc(d.generated.slice(0, 10))}.` : '') + `</div>`;
+}
+
+async function draftIdeas(kind, panelId, heading, btnId, wait) {
+  const box = document.getElementById(panelId);
+  const btn = document.getElementById(btnId);
+  btn.disabled = true;
+  box.innerHTML = `<span class="spin" data-s1-think="ai"></span> ${esc(wait)}`;
+  try {
+    const d = await api('POST', `${MOUNT}/api/proposals/${PID}/analyse/${kind}`);
+    drawIdeas(panelId, heading, d.ideas || d.answer);
+  } catch (err) {
+    box.innerHTML = `<div class="note n-bad"><b>Nothing was drafted</b>${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; }
+}
+
+function draftAdCopy() {
+  draftIdeas('ad-copy', 'ideasCopyPanel', 'Ad copy ideas', 'ideasCopyBtn',
+    'Drafting headline and description variations…');
+}
+function draftExtensions() {
+  draftIdeas('ad-extensions', 'ideasExtPanel', 'Ad extension ideas', 'ideasExtBtn',
+    'Reading the landing page for extension ideas…');
+}
+function semQuoteHelp() {
+  draftIdeas('sem-quote', 'ideasSemPanel', 'SEM quote help', 'ideasSemBtn',
+    'Asking for keyword and structure suggestions…');
+}
+
 async function loadTiers(force) {
   const box = document.getElementById('tiers');
   const btn = document.getElementById('tierBtn');
@@ -1216,6 +1273,14 @@ const STORED_PAGE = {{ (c.landingPageAnalysis or {})|tojson }};
 const STORED_OBSERVED = {{ (c.landingPageObserved or {})|tojson }};
 const STORED_COMP = {{ (c.competitorResearch or {})|tojson }};
 const STORED_TIERS = {{ (c.budgetTiers or {})|tojson }};
+const STORED_IDEAS = {
+  copy: {{ (c.adCopyIdeas or {})|tojson }},
+  ext: {{ (c.adExtensionIdeas or {})|tojson }},
+  sem: {{ (c.semQuote or {})|tojson }}
+};
+drawIdeas('ideasCopyPanel', 'Ad copy ideas', STORED_IDEAS.copy);
+drawIdeas('ideasExtPanel', 'Ad extension ideas', STORED_IDEAS.ext);
+drawIdeas('ideasSemPanel', 'SEM quote help', STORED_IDEAS.sem);
 
 if (STORED_PAGE && STORED_PAGE.ctaReadiness) drawPage(STORED_PAGE, STORED_OBSERVED || {});
 else analysePage();

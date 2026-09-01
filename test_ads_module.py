@@ -162,6 +162,113 @@ def run():
     check("[unit] customer ids format with dashes",
           google_ads.format_customer_id("1234567890") == "123-456-7890")
 
+    # Google Ads v19+ fixes Search pages at 10,000 rows. Sending pageSize is
+    # not ignored -- v25 rejects the entire request. Pagination still follows
+    # Google's next token without it.
+    search_calls = []
+    search_pages = iter([
+        {"results": [{"campaign": {"id": "1"}}], "nextPageToken": "page-2"},
+        {"results": [{"campaign": {"id": "2"}}]},
+    ])
+
+    def fake_search_request(method, path, body=None, **kw):
+        search_calls.append({"method": method, "path": path, "body": body})
+        return next(search_pages)
+
+    real_request = google_ads.request
+    google_ads.request = fake_search_request
+    try:
+        paged_rows = google_ads.search("123-456-7890", "SELECT campaign.id FROM campaign")
+    finally:
+        google_ads.request = real_request
+    check("[google read] search omits unsupported pageSize",
+          all("pageSize" not in call["body"] for call in search_calls), search_calls)
+    check("[google read] search still follows Google's next page token",
+          len(paged_rows) == 2 and search_calls[1]["body"].get("pageToken") == "page-2",
+          search_calls)
+
+    # The MCC tree is the slow first request on Live campaigns. A successful
+    # hierarchy is held briefly, copied on return and dropped on reconnect.
+    account_searches = []
+    real_cfg, real_search = google_ads.cfg, google_ads.search
+
+    def fake_ads_cfg():
+        return {"login_customer_id": "1234567890"}
+
+    def fake_account_search(customer_id, query, **kw):
+        account_searches.append(customer_id)
+        return [
+            {"customerClient": {"id": "1234567890", "descriptiveName": "Agency MCC",
+                                "currencyCode": "USD", "timeZone": "America/New_York",
+                                "manager": True, "level": 0}},
+            {"customerClient": {"id": "2223334444", "descriptiveName": "Client Ads",
+                                "currencyCode": "USD", "timeZone": "America/New_York",
+                                "manager": False, "level": 1}},
+        ]
+
+    google_ads.cfg, google_ads.search = fake_ads_cfg, fake_account_search
+    google_ads.clear_account_cache()
+    try:
+        first_accounts = google_ads.list_client_accounts()
+        first_accounts[0]["name"] = "caller mutation"
+        second_accounts = google_ads.list_client_accounts()
+        google_ads.forget_tokens()
+        third_accounts = google_ads.list_client_accounts()
+    finally:
+        google_ads.cfg, google_ads.search = real_cfg, real_search
+        google_ads.clear_account_cache()
+    check("[google read] the MCC hierarchy is cached for repeated page loads",
+          len(account_searches) == 2, account_searches)
+    check("[google read] callers cannot mutate the cached account picker",
+          second_accounts[0]["name"] == "Agency MCC", second_accounts)
+    check("[google read] reconnecting invalidates the MCC cache",
+          third_accounts[0]["name"] == "Agency MCC", third_accounts)
+
+    # Metadata keeps zero-traffic campaigns visible; metrics supplies the
+    # selected range. They must remain separate but should overlap in time.
+    query_gate = threading.Barrier(2)
+    overlapped = []
+    real_search = google_ads.search
+
+    def fake_campaign_search(customer_id, query, **kw):
+        try:
+            query_gate.wait(timeout=2)
+            overlapped.append(True)
+        except threading.BrokenBarrierError:
+            overlapped.append(False)
+        if "campaign_budget.amount_micros" in query:
+            return [{
+                "campaign": {"id": "77", "name": "Roofing", "status": "ENABLED",
+                             "advertisingChannelType": "SEARCH",
+                             "biddingStrategyType": "MAXIMIZE_CLICKS"},
+                "campaignBudget": {"amountMicros": "25000000"},
+            }]
+        return [{
+            "campaign": {"id": "77"},
+            "metrics": {"costMicros": "125000000", "impressions": "9000",
+                        "clicks": "450", "ctr": 0.05, "averageCpc": "277777",
+                        "conversions": 30, "costPerConversion": "4166666"},
+        }]
+
+    google_ads.search = fake_campaign_search
+    try:
+        live_campaigns = google_ads.list_campaigns("2223334444")
+    finally:
+        google_ads.search = real_search
+    check("[google read] campaign metadata and metrics run concurrently",
+          len(overlapped) == 2 and all(overlapped), overlapped)
+    check("[google read] concurrent campaign rows still merge by id",
+          len(live_campaigns) == 1 and live_campaigns[0]["cost"] == 125.0
+          and live_campaigns[0]["daily_budget"] == 25.0, live_campaigns)
+
+    campaign_page_src = Path("modules/ads_builder/templates/ads_campaigns.html").read_text()
+    check("[live campaigns] a saved account starts before MCC discovery finishes",
+          "earlyLoad = load(saved)" in campaign_page_src)
+    check("[live campaigns] a stale response cannot replace a newer account",
+          "generation !== loadGeneration" in campaign_page_src)
+    check("[live campaigns] the range event is not mistaken for a customer id",
+          "getElementById('range').onchange = () => load()" in campaign_page_src)
+
     # ------------------------------------------------- deploy payload shape
     # Build the mutate batch without touching the network, and assert the
     # things Google rejects campaigns for.
@@ -467,6 +574,160 @@ def run():
 
     r = g(f"{BASE}/api/proposals", timeout=10)
     check("GET /api/proposals lists it", any(x["id"] == pid for x in r.json()["proposals"]))
+
+    # ------------------------------------------------- the Pickaxe workshop
+    # Ad copy ideas, extension ideas and SEM quote help. What is worth
+    # asserting is what each does when a source says no: the page that could
+    # not be read is a refusal rather than an analysis of nothing, an absent
+    # intake answer reaches the prompt as "not provided" plus what not to
+    # invent (never Python's None), and an unconfigured Pickaxe falls back to
+    # the Hub's own AI with the answer saying which source wrote it.
+    from hub import ai as hub_ai
+    from hub import pickaxe
+    from hub.pickaxe_registry import SEM_QUOTE_HELP, fill
+    from hub.prompts_harvested import AD_COPY
+    from modules.ads_builder import copy_ideas
+
+    outro = ("Line one.\nLine two.\n"
+             "Would you like this to be sent to your email?\n"
+             "Would you prefer to download this as a PDF?")
+    check("[pickaxe] the chat-UI outro is stripped",
+          pickaxe.strip_outro(outro) == "Line one.\nLine two.")
+    check("[pickaxe] a plain answer is untouched",
+          pickaxe.strip_outro("Just copy.") == "Just copy.")
+
+    try:
+        fill(SEM_QUOTE_HELP, company="Acme", nonsense="x")
+        check("[pickaxe] fill() raises on an unknown field", False)
+    except KeyError:
+        check("[pickaxe] fill() raises on an unknown field", True)
+    filled = fill(SEM_QUOTE_HELP, company="Acme", website="", budget="$1/mo")
+    check("[pickaxe] fill() drops empty values rather than sending blanks",
+          len(filled) == 2 and SEM_QUOTE_HELP["fields"]["website"] not in filled)
+
+    try:
+        pickaxe.ask("Whatever_123", module="ads", purpose="test")
+        check("[pickaxe] no key raises PickaxeUnavailable", False)
+    except pickaxe.PickaxeUnavailable:
+        check("[pickaxe] no key raises PickaxeUnavailable", True)
+
+    # The wire shape, against a stub: one endpoint per agent, Bearer auth,
+    # and the outro stripped off what comes back.
+    import types
+    real_settings, real_requests = pickaxe.settings, pickaxe.requests
+    wire = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        wire.update(url=url, headers=headers, body=json)
+        return types.SimpleNamespace(status_code=200, json=lambda: {
+            "response": "An answer.\nKindly provide the email address to send this to."})
+
+    pickaxe.settings = types.SimpleNamespace(
+        pickaxe_ready=True, pickaxe_key="test-key",
+        pickaxe_base="https://api.pickaxe.co", pickaxe_workspace_id="ws-1",
+        pickaxe_timeout=5, pickaxe_retries=0)
+    pickaxe.requests = types.SimpleNamespace(post=fake_post)
+    try:
+        reply = pickaxe.ask("SEM_Quote_Help_41N14", module="ads", purpose="test",
+                            inputs={"userinput:x": "y"})
+    finally:
+        pickaxe.settings, pickaxe.requests = real_settings, real_requests
+    check("[pickaxe] one endpoint per agent",
+          wire["url"] == "https://api.pickaxe.co/agents/SEM_Quote_Help_41N14", wire.get("url", ""))
+    check("[pickaxe] Bearer auth",
+          wire["headers"]["Authorization"] == "Bearer test-key")
+    check("[pickaxe] the workspace rides in the payload",
+          wire["body"].get("workspaceId") == "ws-1")
+    check("[pickaxe] the reply comes back with the outro stripped",
+          reply == "An answer.")
+
+    pf = copy_ideas.prefill_ad_copy(SAMPLE)
+    check("[workshop] the prefill reads the campaign",
+          pf["client"] == "Northside Roofing Co"
+          and pf["industry"] == "Home Services / Trades")
+    pf_empty = copy_ideas.prefill_ad_copy({})
+    check("[workshop] an absent answer is an honest absence, never None",
+          all(v and "None" not in v for v in pf_empty.values()),
+          str(pf_empty))
+    check("[workshop] an absent USP forbids invented claims",
+          "do not invent" in pf_empty["usp"])
+    prompt_text = AD_COPY["prompt"].format(**pf)
+    check("[workshop] the harvested prompt formats from the prefill",
+          "Northside Roofing Co" in prompt_text)
+
+    from modules.ads_builder.campaign_ai import GenerationError as GenErr
+    try:
+        copy_ideas.extension_ideas(SAMPLE, {"measured": False, "error": "HTTP 500."})
+        check("[workshop] an unread page is a refusal, not an analysis", False)
+    except GenErr as exc:
+        check("[workshop] an unread page is a refusal, not an analysis",
+              "could not be read" in str(exc) and "HTTP 500." in str(exc))
+    try:
+        copy_ideas.extension_ideas(SAMPLE, {"measured": True, "text": "  "})
+        check("[workshop] a page with no readable text is a refusal too", False)
+    except GenErr as exc:
+        check("[workshop] a page with no readable text is a refusal too",
+              "no readable text" in str(exc))
+
+    sp = copy_ideas.sem_prefill(SAMPLE)
+    check("[workshop] the budget reaches the SEM ask formatted",
+          sp["budget"] == "$6,500/mo")
+    check("[workshop] no geography reads not provided rather than blank",
+          sp["geo"] == "not provided")
+
+    # Route level, with the model stubbed. The server runs in this process,
+    # so monkeypatching hub.ai.chat covers the routes too.
+    real_chat = hub_ai.chat
+    seen_prompts = []
+
+    def fake_chat(messages, **kw):
+        seen_prompts.append(messages[0]["content"])
+        return "Drafted ideas."
+
+    hub_ai.chat = fake_chat
+    try:
+        r = p(f"{BASE}/api/proposals/{pid}/analyse/ad-copy", timeout=10)
+        check("POST analyse/ad-copy drafts and saves",
+              r.status_code == 200 and r.json()["ideas"]["text"] == "Drafted ideas.",
+              r.text[:160])
+        check("...from a prompt carrying the campaign's own answers",
+              any("Northside Roofing Co" in q for q in seen_prompts))
+
+        r = p(f"{BASE}/api/proposals/{pid}/analyse/sem-quote", timeout=10)
+        check("POST analyse/sem-quote falls back with no Pickaxe key",
+              r.status_code == 200 and r.json()["answer"]["source"] == "hub_ai",
+              r.text[:160])
+        check("...and the answer says which source wrote it",
+              "Hub's own AI" in r.json()["answer"]["source_note"])
+        check("...and the fallback prompt forbids cost figures",
+              any("Do NOT state cost-per-click" in q for q in seen_prompts))
+
+        real_observe = ads.landing_page.observe
+        ads.landing_page.observe = lambda url: {
+            "measured": False, "error": "The page answered HTTP 500.",
+            "url": str(url or "")}
+        try:
+            r = p(f"{BASE}/api/proposals/{pid}/analyse/ad-extensions", timeout=10)
+            check("POST analyse/ad-extensions refuses an unreadable page by name",
+                  r.status_code == 400 and "could not be read" in r.json().get("error", ""),
+                  r.text[:160])
+        finally:
+            ads.landing_page.observe = real_observe
+    finally:
+        hub_ai.chat = real_chat
+
+    # The card reaches the SERVED working screen and never the client's
+    # estimate — checking the template alone proves nothing, the
+    # test_thinking.py rule.
+    r = g(f"{BASE}/proposal/{pid}", timeout=10)
+    check("the workshop card is on the working screen",
+          "Copy workshop" in r.text
+          and "nothing here reaches the client estimate" in r.text)
+    check("...seeded with what was already drafted",
+          "Drafted ideas." in r.text)
+    r = g(f"{BASE}/proposal/{pid}/client", timeout=10)
+    check("and not on the client's estimate",
+          "Copy workshop" not in r.text and "Drafted ideas." not in r.text)
 
     r = p(f"{BASE}/api/proposals/{pid}/status", json={"status": "NONSENSE"}, timeout=10)
     check("an invalid status is rejected", r.status_code == 400)

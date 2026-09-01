@@ -107,7 +107,33 @@
   .note{font-size:11.5px;color:var(--muted);font-style:italic}
   .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#0d1b2f;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.3);display:none;z-index:200;max-width:560px;text-align:center}
   /* ===== builder ===== */
-  .bshell{max-width:960px;margin:0 auto}
+  /* The Client 360 arrangement: the record's rail down the left, the work on
+     the right. The rail is the wizard's 14 steps rather than a nav — drawn
+     by drawStepRail(), gated by stepAllowed(), and sticky so the map of the
+     wizard survives a long step. */
+  .bshell{max-width:1170px;margin:0 auto;display:grid;grid-template-columns:216px minmax(0,1fr);gap:26px;align-items:start}
+  .bmain{min-width:0}
+  .steprail{position:sticky;top:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:9px;box-shadow:var(--shadow)}
+  .steprail .sr{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:none;border:0;border-radius:9px;padding:6px 8px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:700;color:var(--muted);line-height:1.25}
+  .steprail .sr .n{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:10.5px;font-weight:800;color:var(--muted);flex:none;background:#fff}
+  .steprail .sr.done .n{background:var(--good);border-color:var(--good);color:#fff}
+  .steprail .sr.on{background:var(--sky);color:var(--navy)}
+  .steprail .sr.on .n{border-color:var(--blue);color:var(--blue)}
+  /* Locked reads as locked, not merely dim: the padlock is the answer to
+     "why did my click do nothing", and the toast names the step to finish. */
+  .steprail .sr.lock{cursor:not-allowed;opacity:.5}
+  .steprail .sr:not(.lock):not(.on):hover{background:#f6faff}
+  @media(max-width:980px){
+    .bshell{grid-template-columns:1fr;gap:12px}
+    .steprail{position:static;display:flex;overflow-x:auto;padding:7px}
+    .steprail .sr{flex:none;padding:6px}
+    .steprail .sr .lbl{display:none}
+    .steprail .sr.on .lbl{display:inline;white-space:nowrap}
+  }
+  /* On a wide screen the rail is the progress indicator; two of them saying
+     the same thing is clutter. The thin bar survives for the phone layout,
+     where the rail collapses to dots. */
+  @media(min-width:981px){.bprog{display:none}}
   .bprog{height:5px;background:var(--sky);border-radius:4px;overflow:hidden;margin:6px 0 24px}
   .bprog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue2),var(--navy));transition:.3s}
   .eyebrow{color:var(--blue);font-weight:800;text-transform:uppercase;letter-spacing:2px;font-size:12px}
@@ -271,10 +297,23 @@
     letter-spacing:.08em;font-size:13px;padding:12px}
   .doctitle{color:var(--navy);text-align:center;font-size:22px;margin:20px 26px 4px}
   .docsub{color:var(--muted);text-align:center;font-size:12.5px;margin:0 26px 8px}
-  .docsec{padding:16px 26px 4px;border-top:1px solid var(--line);margin-top:12px}
+  .docsec{padding:16px 26px 4px;margin-top:12px}
   .docsec.off{opacity:.5}
-  .dhead{display:flex;align-items:center;gap:10px}
-  .dhead h3{color:var(--navy);font-size:15px;margin:0;flex:1}
+  /* The numbered header the PDF draws: gold number chip, navy title, ruled
+     underneath — so fourteen sections stop reading with identical weight.
+     The number is computed over the enabled sections in drawPreview(), the
+     same rule _sec_header() applies in the PDF. */
+  .dhead{display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--line);padding-bottom:6px}
+  .dhead h3{color:var(--navy);font-size:15px;margin:0;flex:1;display:flex;align-items:center;gap:9px}
+  .dhead .secno{background:var(--accent);color:#3a2600;font-size:11px;font-weight:800;border-radius:6px;padding:3px 7px;letter-spacing:.5px;flex:none}
+  /* Map at two thirds, the targeted ZIPs in the third beside it. */
+  .dmaprow{display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start}
+  .dzips{background:var(--sky);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:11px;font-size:11.5px;color:#33415C}
+  .dzips .dzt{font-weight:800;color:var(--navy);font-size:11px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+  .dzips .dza{margin-bottom:8px}
+  .dzips .dzl{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;line-height:1.6;color:var(--muted);margin-top:2px;word-break:break-word}
+  .dzips .dzmore{font-style:italic}
+  @media(max-width:720px){.dmaprow{grid-template-columns:1fr}}
   .dtools{display:flex;gap:4px;opacity:.45;transition:opacity .15s}
   .docsec:hover .dtools{opacity:1}
   /* Blocks rather than pre-wrap. A bulleted list is a real <ul> now — the
@@ -346,6 +385,11 @@
   <div id="view-dashboard"></div>
   <div id="view-proposals" style="display:none"></div>
   <div id="view-builder" style="display:none"><div class="bshell">
+    <!-- The 14 steps down the side, the Client 360 arrangement. Drawn by
+         drawStepRail(); a step is clickable only when every step before it
+         is complete (stepAllowed), so the rail is a map and a gate at once. -->
+    <aside class="steprail" id="steprail" aria-label="Proposal steps"></aside>
+    <div class="bmain">
     <div style="display:flex;align-items:center;gap:12px"><span class="stepLabel" style="font-size:13px;color:var(--muted);font-weight:700" id="stepLabel"></span><span style="margin-left:auto" class="savestate" id="saveState"></span></div>
     <!-- Says which step a reopened quote landed on, and offers the top.
          A rep who is put on step 9 with no explanation reads it as the tool
@@ -353,6 +397,7 @@
     <div id="resumeNote" class="note" style="display:none;margin:8px 0 0"></div>
     <div class="bprog"><i id="bar"></i></div>
     <div id="stage"></div>
+    </div>
   </div></div>
   <div id="view-io" style="display:none"></div>
   <div id="view-clients" style="display:none"></div>
@@ -1212,6 +1257,10 @@ function freshState(){return{
  // Per-medium creative answers, keyed "video"/"audio" -- see hub/creative_needs.py.
  // {answer:"has"|"client"|"comp", fee:number, confirmed:bool}
  creativePlan:{},suiteTier:{include:true},
+ // Which Suite products this proposal introduces, and the Consulting &
+ // Strategy retainer priced from their hours. Older quotes carry neither;
+ // every reader guards with ||, so an absent key reads as "none picked".
+ suiteProducts:[],consulting:{},
  packages:[],selPkg:1,selectedPackage:null,estimates:null,aiEst:null,
  // Discovery. The last three questions are the ones that change what we
  // recommend; `traditional` is the one with money behind it. Mirrors
@@ -1269,6 +1318,12 @@ function editLoaded(q){
  // from_legacy) and sends the result, so re-opening an old quote shows its
  // target area rather than an empty list nobody entered.
  if(!(S.targetAreas||[]).length&&(q.target_areas||[]).length)S.targetAreas=q.target_areas;
+ /* The Implementation Timeline is retired from every quote
+    (hub/proposal_spec.RETIRED_SECTION_KINDS). The server strips it on every
+    save and in front of the PDF and the Word export; this covers the copy
+    already in the browser, so an old quote's section editor does not go on
+    offering a section no renderer will print. */
+ if(Array.isArray(S.sections))S.sections=S.sections.filter(x=>((x||{}).kind)!=="timeline");
  S._areaView=null;S._areaIx=0;
  nav('builder');renderStep();drawQuoteTag("Editing "+QUOTE_NUMBER+" · rev "+q.revision);
  /* Landing on step 9 with no explanation reads as the tool having skipped
@@ -1359,6 +1414,7 @@ const DISCOVERY_QUESTIONS=[
  {key:"reputation",label:"Managing reviews and reputation?"},
  {key:"email",label:"Running email campaigns?"},
  {key:"chat",label:"Chat widget on the site?"},
+ {key:"appointments",label:"Taking appointments / bookings online?"},
  {key:"callTracking",label:"Tracking inbound calls?"},
  {key:"texting",label:"Texting customers?"},
 ];
@@ -1402,6 +1458,9 @@ const SUGGESTION_RULES=[
  {key:"socialScheduling",when:["No", "Unknown"],title:"Schedule the month instead of remembering it",
   detail:"Posting by hand is what stops first when the business gets busy, which is exactly when the campaign is working. A month planned and queued in one sitting keeps posting through the weeks nobody has time for it.",
   products:["Smart 1 Suite", "Social Media Management"]},
+ {key:"appointments",when:["No", "Unknown"],title:"Let customers book without calling",
+  detail:"A good share of the people ready to buy are looking after hours, and a booking link turns that intent into an appointment instead of a note to call tomorrow. The Suite's online scheduling puts the calendar on the site and on the Google listing.",
+  products:["Smart 1 Suite"]},
 ];
 /* Which of the discovery answers the Suite license itself closes, mirrored
    from hub/current_marketing.SUITE_FEATURES. `tier` is the lowest tier that
@@ -1412,6 +1471,8 @@ const SUITE_FEATURES=[
   detail:"Every campaign number tracked, recorded and attributed to the channel that produced it, with Missed Call Text Back on the ones nobody picks up."},
  {key:"texting",tier:"Smart 1",feature:"Two-way texting",
   detail:"The texting center, so a lead is answered the way they expect rather than with a voicemail nobody returns."},
+ {key:"appointments",tier:"Smart 1",feature:"Online scheduling",
+  detail:"A booking calendar on the website and the Google listing, so an after-hours visitor becomes an appointment on the books rather than a call that never gets made."},
  {key:"reputation",tier:"Smart 1",feature:"Reputation center",
   detail:"Automated Google review requests after a job, and every review answered from one inbox."},
  /* Both social questions are answered by the same part of the Suite, so they
@@ -1836,11 +1897,22 @@ function bandSlider(kind,title,help){
   <div class="note" style="margin:6px 0 0">${esc(help)}</div>
  </div>`;}
 function computePopulation(){
- // Every area the campaign runs in, added up. Overlap is NOT deducted -- two
- // 10-mile radii five miles apart share most of their people -- so the number
- // is labeled an estimate wherever it appears.
- const rows=(S.targetAreas||[]).map(areaPopulation).filter(n=>n);
- return rows.length?rows.reduce((s,n)=>s+n,0):0;}
+ // Every area the campaign runs in, added up -- with overlap removed on
+ // shared ZIP Codes, the same rule hub/target_areas.overlap_factors applies
+ // server-side: three radii over one metro count the shared households once,
+ // scaled by the share of each area's ZIPs no earlier area claimed. An area
+ // with no ZIP list cannot be checked and counts whole, which is why the
+ // number stays labeled an estimate wherever it appears.
+ const seen=new Set();let total=0,any=false;
+ (S.targetAreas||[]).forEach(a=>{
+  const pop=areaPopulation(a);if(!pop)return;
+  const zips=areaZips(a);let factor=1;
+  if(zips.length){
+   const fresh=zips.filter(z=>!seen.has(z)).length;
+   zips.forEach(z=>seen.add(z));
+   factor=fresh/zips.length;}
+  total+=pop*factor;any=true;});
+ return any?Math.round(total):0;}
 function estimates(){
  // The AI estimate is per area; totals come back from the server.
  if(S.aiEst&&S.aiEst.totals){const t=S.aiEst.totals;
@@ -1956,7 +2028,6 @@ const PROPOSAL_OUTLINE=[
  {id:"creative",title:"Creative & Messaging Strategy",kind:"creative",purpose:"Messaging themes and who produces the creative."},
  {id:"technology",title:"Smart 1 Technology",kind:"text",purpose:"The Suite as the client's command center."},
  {id:"reporting",title:"Reporting, Optimization & Transparency",kind:"text",purpose:"How it is optimized and what they can see."},
- {id:"timeline",title:"Implementation Timeline",kind:"timeline",purpose:"The 30-day blueprint."},
  {id:"packages",title:"Investment Summary",kind:"packages",purpose:"Platform, media and one-time, kept apart."},
  {id:"kpis",title:"How We Measure Success",kind:"kpis",purpose:"The metrics we are judged on."},
  {id:"roi",title:"Expected Results & ROI",kind:"roi",purpose:"How the campaign will be judged, product by product. Required."},
@@ -1964,10 +2035,14 @@ const PROPOSAL_OUTLINE=[
  {id:"zips",title:"ZIP Codes Targeted",kind:"zips",purpose:"The trafficking reference — every ZIP each area covers. Generated, and last on purpose."},
 ];
 const REQUIRED_SECTIONS=["roi","mediaplan","packages"];
+/* Users only, deliberately -- no contact, email or text allowances. Those
+   are operating limits that read as products on a quote, and a client
+   comparing email counts is shopping the plumbing rather than the platform.
+   hub/proposal_spec.SAAS_TIERS says the same thing for the same reason. */
 const SUITE_TIERS=[
- {name:"Smart 1",monthly:199,specs:"5 users · 250 contacts · 1,500 emails · 500 texts"},
- {name:"Smarter",monthly:599,specs:"10 users · 1,000 contacts · 5,000 emails · 1,500 texts"},
- {name:"Smartest",monthly:999,specs:"Unlimited users & contacts · 100,000 emails · 10,000 texts"},
+ {name:"Smart 1",monthly:199,specs:"5 users"},
+ {name:"Smarter",monthly:599,specs:"10 users"},
+ {name:"Smartest",monthly:999,specs:"Unlimited users"},
 ];
 function suggestedTier(monthly){
  const n=+monthly||0;
@@ -1975,6 +2050,180 @@ function suggestedTier(monthly){
 function chosenTier(){
  const t=S.suiteTier||{};
  return t.name?SUITE_TIERS.find(x=>x.name===t.name)||suggestedTier(S.budget):suggestedTier((S.selectedPackage||{}).monthly||S.budget);}
+/* ------------------------------------------------------------
+   SUITE PRODUCTS TO INTRODUCE
+
+   The fifteen Suite products a proposal can walk a client into. Each carries
+   a suggest() rule reading the industry and the discovery answers, so the
+   panel can say WHY a product belongs on this client's list -- and a
+   suggestion is never a selection: printing a product a model or a rule
+   picked is us deciding what the client buys, so a person ticks. `hours` is
+   the monthly assistance estimate the Consulting & Strategy price is built
+   from, and `assist` is the sentence the proposal's consulting section
+   prints about what Smart 1 does with it every month.
+   ------------------------------------------------------------ */
+const SUITE_PRODUCTS=[
+ {key:"call_tracking",name:"Call Tracking",hours:1,
+  assist:"we review the month's tracked calls, tag what converted, and point the media at the channels producing real conversations",
+  suggest:()=>["No","Unknown"].includes((S.mkt||{}).callTracking)?"they are not tracking inbound calls today":
+   ((S.objectives||[]).includes("Phone Calls")?"the campaign is judged on calls, and every one should be attributed":"")},
+ {key:"texting",name:"Texting",hours:1,
+  assist:"we keep the missed-call text back and follow-up threads tuned so a lead is answered the way they expect",
+  suggest:()=>["No","Unknown"].includes((S.mkt||{}).texting)?"they are not texting customers, and a lead answered by text is a lead kept":""},
+ {key:"reputation",name:"Reputation Center",hours:2,
+  assist:"we run the review requests, answer what comes in from one inbox, and keep the stars supporting the ads",
+  suggest:()=>["No","Unknown"].includes((S.mkt||{}).reputation)?"nobody is managing reviews today, and the stars are part of every ad's landing":""},
+ {key:"social_planner",name:"Social Planner",hours:3,
+  assist:"we plan and queue the month's posts in one sitting, with the campaign's own creative already in them",
+  suggest:()=>["No","Unknown"].includes((S.mkt||{}).socialPosting)?"they are not posting regularly, and paid social needs a maintained page to land on":
+   (["No","Unknown"].includes((S.mkt||{}).socialScheduling)?"posting by hand is what stops first when the business gets busy":"")},
+ {key:"webchat",name:"Webchat",hours:1,
+  assist:"we tune the chat prompts and make sure every conversation becomes a contact rather than a closed tab",
+  suggest:()=>(S.mkt||{}).chat==="No"?"there is no chat on the site, and the visitors who will not fill in a form leave unrecorded":""},
+ {key:"scheduling",name:"Online Scheduling",hours:1,
+  assist:"we keep the booking calendars, reminders and no-show follow-ups working so an ad click can become an appointment without a phone call",
+  suggest:()=>["Healthcare / Dental","Fitness / Wellness","Automotive","Home Services","Legal","Education"].includes(S.industry)
+   ?"an appointment-driven business — booking should be one tap from every ad":""},
+ {key:"form_tracking",name:"Form Tracking",hours:1,
+  assist:"we watch which forms convert and which stall, and feed that back into the pages the media points at",
+  suggest:()=>((S.objectives||[]).includes("Lead Generation")||(S.objectives||[]).includes("Conversions"))
+   ?"the campaign produces form fills, and each one should be attributed to the channel that made it":""},
+ {key:"media_library",name:"Media Library",hours:1,
+  assist:"we keep the campaign's approved creative, logos and photography in one place the whole team can reach",
+  suggest:()=>creativeRows().length?"the campaign's own creative should live somewhere the client can always reach":""},
+ {key:"brand_kit",name:"Brand Kit",hours:1,
+  assist:"we hold the logo, colors and fonts in one kit so everything produced looks like one company",
+  suggest:()=>gatedMedia().length?"a multi-channel campaign stays recognizable only if every piece reads as one brand":""},
+ {key:"newsletters",name:"Email Newsletters",hours:3,
+  assist:"we draft and schedule the month's newsletter to the list they own, at no media cost per send",
+  suggest:()=>["No","Unknown"].includes((S.mkt||{}).email)?"they are not emailing the list they already own — the cheapest audience they have":""},
+ {key:"dashboards",name:"Marketing Dashboards",hours:2,
+  assist:"we read the dashboard with them monthly — what the media produced, what it cost, and what to change",
+  suggest:()=>"one place to read what every channel produced — the reporting this whole proposal promises"},
+ {key:"surveys",name:"Surveys",hours:1,
+  assist:"we field short customer surveys and route the answers to the owner before they become public reviews",
+  suggest:()=>["Restaurant / Hospitality","Fitness / Wellness","Healthcare / Dental","Education"].includes(S.industry)
+   ?"customer feedback caught in a survey is a review problem caught early":""},
+ {key:"qr",name:"QR Codes",hours:0.5,
+  assist:"we generate and track the codes so print, signage and broadcast carry a measurable response",
+  suggest:()=>((S.traditional||{}).running==="Yes")?"their traditional media can carry a scannable, trackable response":""},
+ {key:"countdown",name:"Countdown Timers",hours:0.5,
+  assist:"we set the timers on offers and event pages so a real deadline does the closing",
+  suggest:()=>((S.objectives||[]).includes("Event Promotion")||(S.objectives||[]).includes("Conversions"))
+   ?"offers and events convert harder with a real deadline on the page":""},
+ {key:"social_dashboard",name:"Centralized Social Dashboard",hours:1,
+  assist:"we review every connected social account from one screen — what ran, what worked, what to do next month",
+  suggest:()=>((S.mkt||{}).paidSocial==="Yes"||(S.mkt||{}).socialPosting==="Yes")
+   ?"the accounts already posting and advertising should read from one screen":""},
+];
+function suiteSelectedKeys(){return Array.isArray(S.suiteProducts)?S.suiteProducts:[];}
+function suiteSelected(){const on=new Set(suiteSelectedKeys());
+ return SUITE_PRODUCTS.filter(p=>on.has(p.key));}
+function suiteSuggestions(){
+ /* A rule that throws suggests nothing rather than taking the panel down. */
+ return SUITE_PRODUCTS.map(p=>{let why="";try{why=p.suggest()||"";}catch(e){}
+  return{key:p.key,name:p.name,why};}).filter(r=>r.why);}
+function toggleSuiteProduct(key){
+ const on=suiteSelectedKeys().slice();
+ const ix=on.indexOf(key);
+ if(ix>=0)on.splice(ix,1);else on.push(key);
+ S.suiteProducts=on;
+ saveConsulting({});   // the hours the price is built from just moved
+ saveSoon();drawSuite();}
+function takeSuiteSuggestions(){
+ const on=new Set(suiteSelectedKeys());
+ suiteSuggestions().forEach(r=>on.add(r.key));
+ S.suiteProducts=[...on];
+ saveConsulting({});
+ saveSoon();drawSuite();}
+/* ------------------------------------------------------------
+   CONSULTING & STRATEGY
+
+   Once the products are chosen the next question is who works them, and the
+   answer this offers is: Smart 1 does, monthly, for a retainer priced from
+   the hours those products actually take. The rate is OURS -- a house
+   figure, said so on the panel, because nobody publishes a consulting
+   benchmark -- and the suggested price is arithmetic a rep can reproduce:
+   base strategy hours plus each selected product's hours, times the rate,
+   rounded to $25. The rep can type any figure over it; a custom price
+   survives product changes, a suggested one follows them.
+
+   What the client reads is the Consulting & Strategy section on the
+   proposal -- how we assist with each selected product every month and pull
+   it into one strategy -- and the line on the Investment Summary, which the
+   server prices from what is stored here (investment_lines in app.py).
+   ------------------------------------------------------------ */
+const CONSULT_RATE=150;        // house figure — our standard consulting rate
+const CONSULT_BASE_HOURS=2;    // the monthly strategy session itself
+function consultingHours(){
+ return CONSULT_BASE_HOURS+suiteSelected().reduce((s,p)=>s+(+p.hours||0),0);}
+function consultingListed(){
+ return Math.max(25,Math.round(consultingHours()*CONSULT_RATE/25)*25);}
+function consultingState(){
+ const c=S.consulting||{};
+ const hours=consultingHours(),listed=consultingListed();
+ const monthly=(c.custom&&(c.monthly===0||+c.monthly>0))?+c.monthly:listed;
+ return{include:!!c.include,custom:!!c.custom,monthly,listed,hours,
+        note:c.note||"",adjusted:Math.abs(monthly-listed)>0.001};}
+function saveConsulting(changes){
+ /* The one writer. Recomputes hours and the suggested price on every write,
+    so what the server reads (and prices the investment line from) can never
+    be an hours figure from a selection that has since changed. */
+ const prev=S.consulting||{};
+ const c=Object.assign({include:!!prev.include,custom:!!prev.custom,
+   monthly:prev.monthly,note:prev.note||""},changes||{});
+ c.hours=consultingHours();c.listed=consultingListed();
+ if(!c.custom||!(c.monthly===0||+c.monthly>0))c.monthly=c.listed;
+ S.consulting=c;}
+function setConsultingInclude(on){
+ saveConsulting({include:!!on});
+ syncConsultingSection();
+ saveSoon();drawSuite();}
+function setConsultingPrice(v){
+ const n=+v;
+ if(String(v).trim()===""||!(n>=0))saveConsulting({custom:false});
+ else saveConsulting({custom:true,monthly:Math.round(n*100)/100});
+ saveSoon();drawSuite();}
+function resetConsultingPrice(){saveConsulting({custom:false});saveSoon();drawSuite();}
+function setConsultingNote(v){
+ saveConsulting({note:String(v||"").slice(0,200)});saveSoon();}
+function consultingSectionBody(){
+ const sel=suiteSelected();
+ const lines=["Media fills the funnel; the Smart 1 Suite is where it converts — and Smart 1 does not hand "
+  +(S.client||"the client")+" a set of logins and walk away. Every month, as part of this plan:"];
+ sel.forEach(p=>lines.push("• "+p.name+" — "+p.assist+"."));
+ lines.push("• Strategy — a monthly working session that reads the media and the Suite together and adjusts the whole plan as one strategy across the board, rather than channel by channel.");
+ return lines.join("\n");}
+function consultingSection(){return (S.sections||[]).find(x=>x.id==="consulting");}
+function syncConsultingSection(){
+ /* Sections may not be seeded yet (they are built on the Document step);
+    defaultSections() adds the consulting section itself in that case, so
+    this only has to handle a list that already exists. Toggling off
+    disables rather than deletes -- a rep may have edited the copy, and a
+    deleted edit is not recoverable. */
+ if(!Array.isArray(S.sections)||!S.sections.length)return;
+ const on=consultingState().include;
+ let sec=consultingSection();
+ if(on){
+  if(!sec){
+   sec=consultingSectionSeed();
+   const ix=S.sections.findIndex(x=>x.id==="next");
+   if(ix>=0)S.sections.splice(ix,0,sec);else S.sections.push(sec);
+  }else{sec.enabled=true;if(!String(sec.body||"").trim())sec.body=consultingSectionBody();}
+ }else if(sec){sec.enabled=false;}}
+function consultingSectionSeed(){
+ return{id:"consulting",title:"Consulting & Strategy",kind:"text",enabled:true,
+  purpose:"How Smart 1 assists with the Suite products every month, and the strategy across the board.",
+  body:consultingSectionBody()};}
+function rewriteConsultingSection(){
+ /* An explicit press, never automatic: the rep may have edited the copy,
+    and a section silently rewritten under an edit is the redraw-eats-what-
+    you-typed failure one panel over. */
+ let sec=consultingSection();
+ if(!sec){syncConsultingSection();sec=consultingSection();}
+ if(!sec){toast("The proposal document has not been built yet — the section is added when it is.");return;}
+ sec.body=consultingSectionBody();sec.enabled=true;
+ saveNow();toast("Consulting & Strategy rewritten from the current selections.");}
 function defaultSections(){
  const client=S.client||"the client";
  const goals=(S.objectives.join(", ")||"the campaign goals");
@@ -2006,11 +2255,18 @@ function defaultSections(){
  };
  if(areas.length&&S.audiences.length)
   body.areas="Targeting is built area by area rather than as one broad demographic:\n"+S.audiences.map(a=>"• "+a).join("\n");
- return PROPOSAL_OUTLINE.map(spec=>({
+ const out=PROPOSAL_OUTLINE.map(spec=>({
   id:spec.id,title:spec.title,kind:spec.kind,enabled:true,
   required:REQUIRED_SECTIONS.includes(spec.id),
   purpose:spec.purpose,
-  body:spec.id==="summary"&&S.description?S.description:(body[spec.id]||"")}));}
+  body:spec.id==="summary"&&S.description?S.description:(body[spec.id]||"")}));
+ /* Consulting was switched on before the document existed: the section is
+    seeded with the outline rather than waiting for a toggle that already
+    happened. Before Next Steps, where a monthly commitment reads naturally. */
+ if(consultingState().include){
+  const ix=out.findIndex(x=>x.id==="next");
+  out.splice(ix>=0?ix:out.length,0,consultingSectionSeed());}
+ return out;}
 function landingRec(){const g=S.objectives;
  if(g.includes("Lead Generation")||g.includes("Phone Calls"))return "A dedicated landing page with one clear offer, a short lead form, click-to-call, and trust signals (reviews, credentials). Keep navigation minimal so every visitor converts or calls.";
  if(g.includes("Conversions"))return "Send paid traffic to fast product/category pages with the retargeting pixel installed, clear pricing, and prominent CTAs. Add abandoned-cart retargeting.";
@@ -2130,9 +2386,10 @@ function drawCompetitors(){
   <div class="addrow" style="margin-top:12px">${TARGET_KINDS.map(k=>
    `<button class="btn btn-ghost" title="${esc(k.help)}" onclick="addTarget('${k.key}')">+ ${esc(k.label)}</button>`).join('')}</div>
   <div class="addrow" style="margin-top:8px">
-   <button class="btn btn-line" onclick="FINDT.open=!FINDT.open;drawCompetitors()">🔎 Find competitors and places</button>
+   <button class="btn btn-line" onclick="toggleFind('competitor')">🥊 Find competitors</button>
+   <button class="btn btn-line" onclick="toggleFind('place')">📍 Find places</button>
    <button class="btn btn-line" onclick="PLACEPASTE.open=!PLACEPASTE.open;drawCompetitors()">📋 Paste a list</button></div>
-  ${findTargetsHtml()}${placePasteHtml()}
+  ${findPanelHtml('competitor')}${findPanelHtml('place')}${placePasteHtml()}
   <div class="note" id="compMeta" style="margin-top:8px">${esc(targetSummary())}</div>
  </div>`;}
 
@@ -2153,28 +2410,56 @@ function drawCompetitors(){
    unverified, because a geo-fence built on a wrong address spends the budget
    outside somebody else's front door.
    ------------------------------------------------------------ */
-let FINDT={open:false,busy:false,rows:null,note:"",error:""};
-function findTargetsHtml(){
- if(!FINDT.open)return '';
+/* Two searches, not one. Competitors and places are different questions --
+   who takes this client's customers, and where those customers already go --
+   and one button answering both meant a rep could not ask the half they
+   needed. Each panel opens on a STATEMENT of what its search looks for, in
+   the same words the server puts in the model's prompt, and nothing runs
+   until its own Search button is pressed: the call is billed, and a search
+   fired by opening a panel is a search nobody asked for. Places says out
+   loud that it is not always relevant, because it is not. */
+let FINDT={sells:"",
+ competitor:{open:false,busy:false,rows:null,note:"",error:""},
+ place:{open:false,busy:false,rows:null,note:"",error:""}};
+const FIND_MODES={
+ competitor:{emoji:"🥊",title:"Find competitors",kinds:["competitor"],
+  run:"🔎 Search competitors",busy:"Researching competitors…",
+  statement:areas=>"This search looks for <b>companies relevant to "
+   +esc(S.client||"this client")+"'s industry and services</b>"
+   +(S.industry?" — "+esc(S.industry)+(FINDT.sells||S.sells?", "+esc(FINDT.sells||S.sells):"")+" —":"")
+   +" businesses competing for the same customers, inside the geo defined on this campaign"
+   +(areas.length?": "+esc(areas.map(areaLabel).join(" · ")):"")
+   +". Everything it finds is a suggestion until you tick it."},
+ place:{emoji:"📍",title:"Find places",kinds:["venue","place"],
+  run:"🔎 Search places",busy:"Researching places…",
+  statement:areas=>"Not every campaign needs this one. It looks for <b>locations whose visitors would be a good target audience for "
+   +esc(S.client||"this client")+" to reach</b> — venues, campuses, employers, retail parks and event sites where their customers already gather — inside the same geo"
+   +(areas.length?": "+esc(areas.map(areaLabel).join(" · ")):"")
+   +". No competitor businesses; that is the other search."}};
+function toggleFind(mode){FINDT[mode].open=!FINDT[mode].open;drawCompetitors();}
+function findPanelHtml(mode){
+ const M=FIND_MODES[mode],F=FINDT[mode];
+ if(!F.open)return '';
  const areas=(S.targetAreas||[]).filter(areaComplete);
- return `<div class="bpanel" style="margin-top:12px;background:#f7fbff"><div class="ttl">🔎 Find competitors and places to target</div>
-  <div class="note" style="margin-top:3px">Smart 1 researches the target areas already on this campaign${areas.length?' ('+esc(areas.map(areaLabel).join(' · '))+')':''} and proposes who to go after. Everything it finds is a suggestion until you tick it.</div>
+ return `<div class="bpanel" style="margin-top:12px;background:#f7fbff"><div class="ttl">${M.emoji} ${esc(M.title)}</div>
+  <div class="note" style="margin-top:3px">${M.statement(areas)}</div>
   ${areas.length?'':'<div class="warnbox" style="margin-top:9px">Add a target area first — without somewhere to look, a search like this comes back with national brands.</div>'}
-  <div class="fld" style="margin-top:9px"><label>What do they sell, in a few words? <span style="font-weight:400;color:var(--muted)">— optional, but it sharpens the answer</span></label>
-   <input id="findSells" value="${esc(FINDT.sells||S.sells||'')}" placeholder="e.g. dental implants and cosmetic dentistry" oninput="FINDT.sells=this.value"></div>
+  ${mode==='competitor'?`<div class="fld" style="margin-top:9px"><label>What do they sell, in a few words? <span style="font-weight:400;color:var(--muted)">— optional, but it sharpens both searches</span></label>
+   <input id="findSells" value="${esc(FINDT.sells||S.sells||'')}" placeholder="e.g. dental implants and cosmetic dentistry" oninput="FINDT.sells=this.value"></div>`:''}
   <div class="addrow" style="margin-top:9px">
-   <button class="btn btn-primary" ${(!areas.length||FINDT.busy)?'disabled':''} onclick="runFindTargets()">${FINDT.busy?'<span class="spin" data-s1-think="ai"></span>Researching the market…':'🔎 Research this market'}</button>
-   <button class="btn btn-ghost" onclick="FINDT.open=false;drawCompetitors()">Close</button></div>
-  ${FINDT.error?'<div class="warnbox" style="margin-top:9px">'+esc(FINDT.error)+'</div>':''}
-  ${FINDT.rows?findResultsHtml():''}</div>`;}
-function findResultsHtml(){
- if(!FINDT.rows.length)
-  return '<div class="note" style="margin-top:10px">'+esc(FINDT.note||'Nothing came back for this campaign.')+'</div>';
+   <button class="btn btn-primary" ${(!areas.length||F.busy)?'disabled':''} onclick="runFindTargets('${mode}')">${F.busy?'<span class="spin" data-s1-think="ai"></span>'+esc(M.busy):esc(M.run)}</button>
+   <button class="btn btn-ghost" onclick="FINDT['${mode}'].open=false;drawCompetitors()">Close</button></div>
+  ${F.error?'<div class="warnbox" style="margin-top:9px">'+esc(F.error)+'</div>':''}
+  ${F.rows?findResultsHtml(mode):''}</div>`;}
+function findResultsHtml(mode){
+ const F=FINDT[mode];
+ if(!F.rows.length)
+  return '<div class="note" style="margin-top:10px">'+esc(F.note||'Nothing came back for this campaign.')+'</div>';
  const icon=k=>k==="venue"?"🏟":k==="place"?"📍":"🥊";
  return `<div style="margin-top:11px">
-  <div class="note" style="margin-bottom:7px">${esc(FINDT.note||'')}</div>
-  ${FINDT.rows.map((r,i)=>`<label class="prod" style="cursor:pointer;background:#fff">
-    <input type="checkbox" ${r.accepted?'checked':''} onchange="FINDT.rows[${i}].accepted=this.checked;drawFindCount()" style="margin:4px 8px 0 0">
+  <div class="note" style="margin-bottom:7px">${esc(F.note||'')}</div>
+  ${F.rows.map((r,i)=>`<label class="prod" style="cursor:pointer;background:#fff">
+    <input type="checkbox" ${r.accepted?'checked':''} onchange="FINDT['${mode}'].rows[${i}].accepted=this.checked;drawFindCount('${mode}')" style="margin:4px 8px 0 0">
     <div class="pi">${icon(r.kind)}</div>
     <div class="grow"><h4>${esc(r.name)}</h4>
      <div class="meta">${esc(r.note||'')}</div>
@@ -2183,31 +2468,34 @@ function findResultsHtml(){
        : 'No address — brand and behavior only, which is a real answer and not a gap'}</div>
     </div></label>`).join('')}
   <div class="addrow" style="margin-top:10px">
-   <button class="btn btn-primary" onclick="addFoundTargets()">+ Add ticked</button>
-   <span class="note" id="findCount" style="align-self:center"></span></div></div>`;}
-function drawFindCount(){
- const n=(FINDT.rows||[]).filter(r=>r.accepted).length;
- const el=document.getElementById('findCount');
+   <button class="btn btn-primary" onclick="addFoundTargets('${mode}')">+ Add ticked</button>
+   <span class="note" id="findCount-${mode}" style="align-self:center"></span></div></div>`;}
+function drawFindCount(mode){
+ const n=((FINDT[mode]||{}).rows||[]).filter(r=>r.accepted).length;
+ const el=document.getElementById('findCount-'+mode);
  if(el)el.textContent=n?n+" ticked":"Nothing ticked yet — tick what belongs on this campaign.";}
-async function runFindTargets(){
- FINDT.busy=true;FINDT.error="";drawCompetitors();
+async function runFindTargets(mode){
+ const M=FIND_MODES[mode],F=FINDT[mode];
+ F.busy=true;F.error="";drawCompetitors();
  try{
   const d=await api('/sales/builder/api/find-targets',{method:'POST',body:JSON.stringify({
-    client:S.client||"",url:S.url||"",industry:S.industry||"",sells:FINDT.sells||"",
+    client:S.client||"",url:S.url||"",industry:S.industry||"",sells:FINDT.sells||S.sells||"",
+    kinds:M.kinds,
     objectives:S.objectives||[],areas:S.targetAreas||[],existing:targetRows()})});
-  FINDT.rows=d.targets||[];FINDT.note=d.note||"";
+  F.rows=d.targets||[];F.note=d.note||"";
  }catch(e){
   /* "We could not look" and "there is nobody worth naming" are different
      answers and only the second means stop looking. */
-  FINDT.error="The research did not run: "+e.message+". Nothing has been changed on the campaign.";
-  FINDT.rows=null;
- }finally{FINDT.busy=false;drawCompetitors();drawFindCount();}}
-function addFoundTargets(){
- const picked=(FINDT.rows||[]).filter(r=>r.accepted);
+  F.error="The research did not run: "+e.message+". Nothing has been changed on the campaign.";
+  F.rows=null;
+ }finally{F.busy=false;drawCompetitors();drawFindCount(mode);}}
+function addFoundTargets(mode){
+ const F=FINDT[mode];
+ const picked=(F.rows||[]).filter(r=>r.accepted);
  if(!picked.length){toast("Tick the ones that belong on this campaign first.");return;}
  picked.forEach(r=>targetRows().push(Object.assign(blankTarget(),
    {kind:r.kind,name:r.name,address:r.address||"",note:r.note||""})));
- FINDT.rows=(FINDT.rows||[]).filter(r=>!r.accepted);
+ F.rows=(F.rows||[]).filter(r=>!r.accepted);
  saveNow();drawCompetitors();
  toast("Added "+picked.length+" — check any address before the fence is built.");}
 
@@ -2349,6 +2637,31 @@ function mapBlock(sec){
 function toggleSecMap(id){
  const sec=S.sections.find(x=>x.id===id);if(!sec)return;
  sec.showMap=sec.showMap===false;saveSoon();drawPreview();}
+/* The map at two thirds of the row with the targeted ZIPs in the third
+   beside it -- the picture and the list are the same question at two zoom
+   levels, and the PDF lays them out the same way (_map_flowables). Bounded
+   per area and pointed at the full ZIP section when truncated, because a
+   sidebar is not the trafficking reference. A campaign with no ZIPs
+   anywhere keeps the full-width map: a column holding nothing is layout
+   holding space for nothing. */
+const ZIP_SIDE_PER_AREA=24,ZIP_SIDE_MAX_AREAS=4;
+function zipSideList(){
+ const rows=(S.targetAreas||[]).filter(areaComplete).map(a=>[a,areaZips(a)]).filter(r=>r[1].length);
+ if(!rows.length)return '';
+ const shownRows=rows.slice(0,ZIP_SIDE_MAX_AREAS);
+ const truncated=rows.length>ZIP_SIDE_MAX_AREAS||rows.some(r=>r[1].length>ZIP_SIDE_PER_AREA);
+ return `<div class="dzips"><div class="dzt">ZIP Codes targeted</div>
+  ${shownRows.map(([a,z])=>`<div class="dza"><b>${esc(areaLabel(a))}</b> · ${z.length} ZIP Code${z.length===1?'':'s'}
+    <div class="dzl">${z.slice(0,ZIP_SIDE_PER_AREA).map(esc).join(", ")}${z.length>ZIP_SIDE_PER_AREA?`<span class="dzmore"> +${z.length-ZIP_SIDE_PER_AREA} more</span>`:''}</div></div>`).join('')}
+  ${rows.length>ZIP_SIDE_MAX_AREAS?`<div class="dza dzmore">+${rows.length-ZIP_SIDE_MAX_AREAS} more area${rows.length-ZIP_SIDE_MAX_AREAS===1?'':'s'}</div>`:''}
+  ${truncated?'<div class="dzmore">The complete list is in ZIP Codes Targeted, at the back.</div>':''}
+ </div>`;}
+function mapWithZips(sec){
+ const m=mapBlock(sec);
+ if(sec.showMap===false||!QUOTE_ID||!(S.targetAreas||[]).some(areaComplete))return m;
+ const z=zipSideList();
+ if(!z)return m;
+ return `<div class="dmaprow">${m}${z}</div>`;}
 /* A map that could not be drawn leaves no gap on the client's document and
    no silence on the rep's screen: the image is removed and the reason is
    printed here, where somebody can act on it. */
@@ -2630,13 +2943,20 @@ async function lookupZips(){
 function drawPreview(){
  const host=document.getElementById('docPreview');if(!host)return;
  const e=S.estimates||estimates();
+ /* Numbered over the ENABLED sections, the same rule _sec_header() applies
+    in the PDF: hiding a section renumbers the ones after it, so the preview
+    and the document a client receives cannot disagree about which section
+    is 07. A hidden section gets no number, because it is not in the
+    document to have one. */
+ let _no=0;const nums=S.sections.map(s=>s.enabled?(++_no):null);
  host.innerHTML=`<div class="paperdoc">
   <div class="docband">SMART 1 MARKETING</div>
   <h2 class="doctitle">Marketing Proposal — ${esc(S.client||'Client')}</h2>
   <div class="docsub">${esc(QUOTE_NUMBER||'Draft')} · ${esc(new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}))}${S.salesContact?' · Prepared by '+esc(S.salesContact):''}</div>
-  ${S.sections.map((sec,i)=>previewSection(sec,i,e)).join('')}
+  ${S.sections.map((sec,i)=>previewSection(sec,i,e,nums[i])).join('')}
  </div>`;}
-function previewSection(sec,i,e){
+function previewSection(sec,i,e,num){
+ const secNo=num?`<span class="secno">${String(num).padStart(2,'0')}</span>`:'';
  const req=isRequired(sec);
  const editing=S._editSec===sec.id;
  const hasTable=sectionHasTable(sec);
@@ -2652,6 +2972,12 @@ function previewSection(sec,i,e){
  if(!sec.enabled)
   return `<div class="docsec off"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
    <div class="note">Hidden — this section will not appear in the PDF.</div></div>`;
+ /* The cover's standing block: industry trends, how Smart 1 answers them,
+    and how budgets like this are usually crafted. Rendered from the served
+    table (CFG.industry_trends) -- the PDF and the Word export read the same
+    table server-side, so three renderers cannot drift. Always on the cover,
+    never a toggle: it is the reason the rest of the document exists. */
+ const trends=sec.kind==='cover'?coverTrendsHtml():'';
  const body=editing
   ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" onchange="S.sections[${i}].body=cleanCopy(this.value);saveNow();drawPreview()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
   : (sec.body?`<div class="dbody">${richText(sec.body)}</div>`
@@ -2661,14 +2987,31 @@ function previewSection(sec,i,e){
   : previewTable(sec,e);
  /* The map leads the areas section, and the table naming what it shows sits
     under it. A DMA or a statewide buy cannot be drawn, so the picture is
-    never the whole campaign -- which is exactly why it is never on its own. */
- const map=sec.kind==='areas'?mapBlock(sec):'';
- return `<div class="docsec"><div class="dhead"><h3>${esc(sec.title)}</h3>${tools}</div>
-  ${body}${map}${isTableEdited(sec)&&tableOn?`<div class="dnote" style="color:#8c5a00">✍ This table was edited by hand and no longer recomputes from the plan. <a onclick="resetSecTable('${sec.id}')" style="cursor:pointer;color:var(--blue);font-weight:700">Put the generated one back</a></div>`:''}${table}</div>`;}
+    never the whole campaign -- which is exactly why it is never on its own.
+    Two thirds of the row, with the targeted ZIPs in the third beside it. */
+ const map=sec.kind==='areas'?mapWithZips(sec):'';
+ return `<div class="docsec"><div class="dhead"><h3>${secNo}${esc(sec.title)}</h3>${tools}</div>
+  ${body}${trends}${map}${isTableEdited(sec)&&tableOn?`<div class="dnote" style="color:#8c5a00">✍ This table was edited by hand and no longer recomputes from the plan. <a onclick="resetSecTable('${sec.id}')" style="cursor:pointer;color:var(--blue);font-weight:700">Put the generated one back</a></div>`:''}${table}</div>`;}
+/* The cover's trends block, from the table /api/config serves. A category
+   the table does not know gets the general entry -- the block is standing
+   content on every proposal, and a hole on the first page for the one
+   industry nobody wrote up would be silent. */
+function coverTrendsHtml(){
+ const t=(CFG.industry_trends||{});
+ const entry=(t.industries||{})[S.industry]||t.general;
+ if(!entry)return '';
+ const matched=!!(t.industries||{})[S.industry];
+ return `<div class="dbody" style="margin-top:10px">
+  <p><b>What is happening in ${esc(matched?S.industry:'digital marketing')}</b></p>
+  <ul class="dlist">${(entry.trends||[]).map(x=>'<li>'+esc(x)+'</li>').join('')}</ul>
+  <p><b>How Smart 1 helps</b><br>${esc(entry.help||'')}</p>
+  <p><b>How budgets like this are usually crafted</b><br>${esc(entry.budget||'')}</p>
+  <div class="dnote">${esc(t.note||'')}</div>
+ </div>`;}
 /* Which sections carry a generated table at all. `text` and `cover` are prose
    and have nothing to exclude, and offering them the control would make the
    two buttons mean nothing. */
-const TABLE_KINDS=["areas","reach","friction","channels","creative","timeline",
+const TABLE_KINDS=["areas","reach","friction","channels","creative",
                    "kpis","mediaplan","packages","roi","growth","zips"];
 function sectionHasTable(sec){return TABLE_KINDS.includes((sec||{}).kind);}
 function isTableEdited(sec){
@@ -2789,7 +3132,6 @@ function generatedTable(sec,e){
   return dtable(["Medium","Campaign spend","Creative","What we need"],rows.map(r=>[
    esc(r.label),money(r.spend),esc(creativePhrase(r)),
    r.sizes&&r.sizes.line?esc(r.sizes.line):"<b>Not measured</b>"]));}
- if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
  /* A list of things the campaign is judged on is a list. Six KPIs joined by
     commas is a sentence a client skims, and the fourth is the one they would
     have argued with. */
@@ -2881,10 +3223,6 @@ function dtable(head,rows){
   +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}
 function dgrid(pairs){
  return `<div class="dgrid">${pairs.map(p=>`<div><b>${p[1]}</b><span>${esc(p[0])}</span></div>`).join('')}</div>`;}
-const TIMELINE_PHASES=[
- ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
- ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
- ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimization, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
 /* The lines that are actually channels. A production line and a management
    fee are not, and listing them put "Video Production — top of funnel, builds
    awareness and trust on the screens the household already watches" in a
@@ -2984,7 +3322,7 @@ function investmentTable(){
    from the plan on the server, and this quote has not saved since it changed.</div>`;}
  const rows=inv.lines.map(l=>[l.label,money(l.amount),l.recurs]);
  rows.push(["Total first month",money(inv.first_month),""]);
- rows.push(["Total campaign ("+months+" mo, including licensing)",
+ rows.push(["Total campaign ("+months+" mo, including "+(inv.includes||"licensing")+")",
             money(inv.campaign_total),""]);
  let html=dtable(["","Amount","Recurs"],rows.map(r=>[esc(r[0]),r[1],esc(r[2])]));
  /* All three tiers, on the document. The PDF has printed them for as long as
@@ -3053,6 +3391,80 @@ async function rewriteSecById(id){
  }catch(e){toast("Rewrite failed: "+e.message);}}
 
 /* ============================================================
+   THE STEP RAIL
+
+   The 14 steps down the left of the wizard, the way Client 360 runs its
+   sections down a rail. Two jobs in one control: a map of where the rep is,
+   and a gate -- a step is reachable only when every step before it is
+   complete, so the rail cannot be used to skip the question a later step
+   depends on. Back is always allowed; it is only the forward jump that is
+   gated, and the toast names the first unfinished step rather than refusing
+   in silence.
+
+   STEP_META is a parallel list to STEPS, deliberately: STEPS entries have
+   side effects (seeding KPIs, building packages), so asking one whether it
+   is complete would change the quote by asking. These predicates only read
+   S. test_proposal_targeting.py lifts the block between the STEPRAIL
+   markers, runs it in node against staged states, and holds the two lists
+   to the same length -- a rail with 13 rows on a 14-step wizard is a step
+   nobody can reach.
+   ============================================================ */
+/* STEPRAIL:BEGIN */
+const STEP_META=[
+ {label:"Goal",done:()=>((S.objectives||[]).length>0)},
+ {label:"Customer & Industry",done:()=>!!String(S.client||"").trim()&&(S.clientMode==="new"||!!S.clientKey)},
+ {label:"Landing Page",done:()=>true},
+ {label:"Current Marketing",done:()=>discoveryReady()},
+ {label:"Guardrails",done:()=>true},
+ {label:"Target Areas",done:()=>(S.targetAreas||[]).some(areaComplete)},
+ {label:"Measurement",done:()=>((S.kpis||[]).length>0)},
+ {label:"Audience & Competitors",done:()=>true},
+ {label:"Budget",done:()=>(+S.budget||0)>0},
+ {label:"Media Mix",done:()=>((S.items||[]).length>0)},
+ {label:"Creative",done:()=>creativeUnresolved().length===0},
+ {label:"Investment Options",done:()=>true},
+ {label:"Proposal Document",done:()=>true},
+ /* Never "done": Review & Save is the finish, and a tick on it would claim
+    a proposal was delivered by being scrolled to. */
+ {label:"Review & Save",done:()=>false},
+];
+function stepDone(i){
+ /* A predicate that throws must read as not done, never take the rail with
+    it: the rail is chrome, and chrome that can break the wizard is worse
+    than none. */
+ try{return !!(STEP_META[i]&&STEP_META[i].done());}catch(e){return false;}}
+function firstIncomplete(){
+ for(let i=0;i<STEP_META.length;i++){if(!stepDone(i))return i;}
+ return STEP_META.length-1;}
+function stepAllowed(i){
+ /* Backward is always allowed, and so is the step the rep is already on --
+    a reopened quote can land mid-wizard with an earlier step legitimately
+    unfinished, and locking somebody out of the step they are standing on
+    is a blank rail over a working page. Forward stops at the first step
+    something earlier has not answered. */
+ return i<=Math.max(typeof step==="number"?step:0,firstIncomplete());}
+/* STEPRAIL:END */
+function gotoStep(i){
+ if(i===step||i<0||i>=STEPS.length)return;
+ if(!stepAllowed(i)){
+  const j=firstIncomplete();
+  toast("Finish step "+(j+1)+" — "+STEP_META[j].label+" — before jumping ahead.");
+  return;}
+ saveNow();clearResumeNote();step=i;renderStep();}
+function drawStepRail(){
+ const host=document.getElementById('steprail');if(!host||!S)return;
+ host.innerHTML=STEP_META.map((m,i)=>{
+  /* A locked step never wears a tick, even when its predicate is trivially
+     true: eight green ticks on a quote nobody has typed into reads as work
+     already done, and the one claim this rail must never make is one the
+     rep did not earn by getting there. */
+  const cur=i===step,lock=!stepAllowed(i),done=stepDone(i)&&!lock;
+  return `<button type="button" class="sr${cur?' on':''}${done&&!cur?' done':''}${lock?' lock':''}"
+    title="${lock?'Finish the earlier steps first':esc(m.label)}"
+    aria-current="${cur?'step':'false'}" onclick="gotoStep(${i})">
+    <span class="n">${done&&!cur?'✓':(lock?'🔒':i+1)}</span><span class="lbl">${esc(m.label)}</span></button>`;}).join('');}
+
+/* ============================================================
    BUILDER STEPS
    ============================================================ */
 const STEPS=[
@@ -3107,7 +3519,7 @@ const STEPS=[
  ()=>({eyebrow:"Current Marketing",title:"What are they already doing?",help:"sales_builder.marketing.answers",
    sub:"Every answer changes the recommendation. Unknown is a real answer — it means we have not confirmed it.",
    html:`<div class="bpanel"><div class="ttl">📋 What's running today</div>
-    <div class="note" style="margin-top:2px">All twelve need an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
+    <div class="note" style="margin-top:2px">Every one needs an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
     <div class="disc2">${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
     ${discoveryUnanswered().length?`<div class="note" style="margin-top:10px;color:#8c2f24"><b>${discoveryUnanswered().length} still unanswered:</b> ${discoveryUnanswered().map(q=>esc(q.label.replace(/\?$/,''))).join(' · ')}</div>`:''}</div>
 
@@ -3277,8 +3689,9 @@ function renderStep(){
     hub-demo.js was just fixed to stop. */
  const _dot=k=>k?`<span data-help="${k}"></span>`:'';
  st.innerHTML=`<div class="eyebrow">${d.eyebrow}</div><h1 class="q">${d.title} ${_dot(d.help)}</h1><div class="sub">${d.sub}</div>${d.html}`;
- document.getElementById('stepLabel').textContent='Step '+(step+1)+' of '+STEPS.length;
+ document.getElementById('stepLabel').textContent='Step '+(step+1)+' of '+STEPS.length+' — '+(STEP_META[step]?STEP_META[step].label:'');
  document.getElementById('bar').style.width=((step+1)/STEPS.length*100)+'%';
+ drawStepRail();
  // Back stays available inside a sub-flow even on step 0 of the wizard,
  // because there it means "back out of this area", not "leave the wizard".
  document.getElementById('backBtn').style.visibility=(step===0&&!d.onBack)?'hidden':'visible';
@@ -3290,7 +3703,10 @@ function renderStep(){
     those threw the rep back to the heading mid-question. */
  if(window._entering)window.scrollTo(0,0);
 }
-function syncNext(){const b=document.getElementById('nextBtn');if(b)b.disabled=window._valid?!window._valid():false;}
+function syncNext(){const b=document.getElementById('nextBtn');if(b)b.disabled=window._valid?!window._valid():false;
+ /* The rail's ticks read the same answers -- typing a client name flips
+    step 2 to done without a full renderStep(), so the rail repaints here. */
+ drawStepRail();}
 function nextStep(){
  const d=STEPS[step]();
  if(d.valid&&!d.valid())return;
@@ -3909,6 +4325,53 @@ function drawSuite(){
   <div class="bpanel" style="background:#fbfcfe;margin-top:12px"><div class="ttl">What this covers that they are not doing today</div>
    ${covered}${upgrade}${unmeasured}
   </div>
+  ${suiteProductsHtml()}
+  ${consultingHtml()}
+ </div>`;}
+/* The fifteen products, suggested from the industry and the answers, ticked
+   by a person. A suggested pill wears a star and says WHY on the row below,
+   because "suggested" with no reason is a list somebody re-derives on every
+   read -- and a suggestion is never a selection. */
+function suiteProductsHtml(){
+ const on=new Set(suiteSelectedKeys());
+ const sugg=suiteSuggestions(),suggKeys=new Set(sugg.map(r=>r.key));
+ const newSugg=sugg.filter(r=>!on.has(r.key));
+ return `<div class="bpanel" style="background:#fbfcfe;margin-top:12px"><div class="ttl">🧩 Suite products to introduce</div>
+  <div class="note" style="margin-top:3px">What we will actually walk this client into, from the industry and their own discovery answers. ★ is suggested — tick what belongs; the Consulting &amp; Strategy price below is built from the hours these take.</div>
+  <div class="pillrow" style="margin-top:9px">${SUITE_PRODUCTS.map(p=>
+   `<span class="pill${on.has(p.key)?' on':''}" onclick="toggleSuiteProduct('${p.key}')"
+     title="${esc((sugg.find(r=>r.key===p.key)||{}).why||'Offered, not suggested — nothing in discovery pointed at it')}">${suggKeys.has(p.key)?'★ ':''}${esc(p.name)}</span>`).join('')}</div>
+  ${newSugg.length?`<div style="margin-top:10px">${newSugg.map(r=>
+    `<div class="note" style="margin:3px 0">★ <b>${esc(r.name)}</b> — ${esc(r.why)}</div>`).join('')}
+   <div class="addrow" style="margin-top:8px"><button class="btn btn-ghost" onclick="takeSuiteSuggestions()">✓ Take the ${newSugg.length} suggestion${newSugg.length===1?'':'s'}</button></div>`
+   :(sugg.length?'<div class="note" style="margin-top:8px">Every suggestion is ticked.</div>':'')}
+ </div>`;}
+/* The Consulting & Strategy offer, after the products because the price is
+   built from them. */
+function consultingHtml(){
+ const c=consultingState(),sel=suiteSelected();
+ const hoursLine=CONSULT_BASE_HOURS+"h strategy"+(sel.length?" + "+sel.map(p=>(+p.hours||0)+"h "+p.name).slice(0,4).join(", ")+(sel.length>4?" + "+(sel.length-4)+" more":""):"")
+  +" ≈ <b>"+c.hours+"h/mo</b> at $"+CONSULT_RATE+"/hr — our standard consulting rate, not a published benchmark — suggests <b>"+money(c.listed)+"/mo</b>.";
+ const body=c.include
+  ? `<div class="note" style="margin-top:9px">${hoursLine}</div>
+     <div class="basisrow" style="margin-top:9px">
+      <span class="note" style="margin:0">Quoted at $</span>
+      <input type="number" min="0" step="25" value="${c.monthly}" class="dmoney" style="width:96px" onchange="setConsultingPrice(this.value)">
+      <span class="note" style="margin:0">/mo${c.adjusted?' · suggested '+money(c.listed)+' · <b>adjusted</b>':' · follows the selections'}</span>
+      ${c.adjusted?`<span class="pill" onclick="resetConsultingPrice()">↺ Suggested price</span>`:''}
+     </div>
+     ${c.adjusted?`<div class="fld" style="margin-top:8px"><label>Why the price was adjusted (internal — never printed for the client)</label>
+      <input value="${esc(c.note)}" placeholder="e.g. first ninety days at half rate while the Suite beds in" onchange="setConsultingNote(this.value)"></div>`:''}
+     <div class="note" style="margin-top:9px">The proposal gains a <b>Consulting &amp; Strategy</b> section saying how we assist with each selected product every month and pull it into one strategy across the board, and the Investment Summary carries the line. ${sel.length?'':'No products are ticked yet, so it prices the monthly strategy session alone.'}
+      <a onclick="rewriteConsultingSection()" style="cursor:pointer;color:var(--blue);font-weight:700">↻ Rewrite the section from the current selections</a></div>`
+  : `<div class="note" style="margin-top:9px">Left off, the client gets the licenses and works the products themselves. Adding it puts a monthly retainer on the quote — priced from the hours the selected products take (${c.hours}h/mo suggests ${money(c.listed)}/mo) — and a section on the proposal saying exactly how we assist each month.</div>`;
+ return `<div class="bpanel" style="background:#fbfcfe;margin-top:12px"><div class="ttl">🧭 Add Consulting &amp; Strategy?</div>
+  <div class="note" style="margin-top:3px">Who works those products every month — Smart 1, with the client, as one strategy — or the client on their own?</div>
+  <div class="basisrow" style="margin-top:9px">
+   <span class="pill${c.include?' on':''}" onclick="setConsultingInclude(true)">Add it to the quote</span>
+   <span class="pill${c.include?'':' on'}" onclick="setConsultingInclude(false)">Leave it off</span>
+  </div>
+  ${body}
  </div>`;}
 function drawPkgs(){const w=document.getElementById('pkgWrap');if(!w)return;
  w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}" onclick="S.selPkg=${i};S.selectedPackage=S.packages[${i}];saveSoon();drawPkgs()">${p.rec?'<div class="flag">Recommended</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} over ${S.months} mo</div><ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul></div>`).join('');}
@@ -4035,7 +4498,7 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
      <ul style="list-style:none;padding:0;margin:8px 0 0">
       ${inv.lines.map(l=>row(esc(l.label),money(l.amount)+(l.recurs==="Monthly"?"/mo":" one-time"))).join('')}
       ${row('First month',money(inv.first_month))}
-      ${row('Campaign total ('+S.months+' mo, including licensing)',money(inv.campaign_total))}
+      ${row('Campaign total ('+S.months+' mo, including '+(inv.includes||'licensing')+')',money(inv.campaign_total))}
      </ul>
      <div class="note" style="margin-top:8px">Platform licensing is separate from media so it is clear what stops if the media pauses.</div></div>`;})()}
   ${g.length?`<div class="warnbox"><b>🛡 Guardrails to note</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:""}

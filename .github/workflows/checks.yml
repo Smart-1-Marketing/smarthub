@@ -62,6 +62,7 @@ jobs:
       DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
       SECRET_KEY: ci-not-a-real-secret
       PANEL_PASSWORD: ci-not-a-real-password
+      CLIENTS_DATA_DIR: tests/fixtures/clients
 
     steps:
       - uses: actions/checkout@v7
@@ -290,6 +291,16 @@ jobs:
             python test_commercial_wizard.py
           else
             echo "test_commercial_wizard.py not on this branch — nothing to run."
+          fi
+
+      - name: Commercial Builder dashboard layout tests
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_commercial_dashboard_layout.py ]; then
+            python test_commercial_dashboard_layout.py
+          else
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder client review tests
@@ -1790,3 +1801,8 @@ jobs:
       # pointed at kept the first name.
       - name: What a prospect on somebody else's website is told
         run: python3 test_scan_run.py
+      # A completed scan is also an observed brand source. Keep every safe
+      # logo variant, color role, site icon, screenshot and homepage message
+      # visible without presenting a scraped asset as client-approved.
+      - name: Brand elements found by the InSites scan
+        run: python3 test_scan_brand.py

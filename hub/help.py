@@ -885,6 +885,17 @@ REGISTRY: list[Help] = [
        "estimate. Printing the lot is us telling a client who their competitors "
        "are on the model\u2019s say-so, and it is the paragraph a client checks "
        "hardest.", step=3, selector="[data-tour='ads-competitors']"),
+    _h("ads_builder.proposal.workshop", "Working notes, and which source wrote them",
+       "Three drafts that never reach the client estimate: ad copy variations, "
+       "extension ideas read off the landing page's own fetched copy, and SEM "
+       "quote help. The last one names its source, because the answers are "
+       "different confidences — the Pickaxe assistant works from its own "
+       "Google Ads benchmark library, and the Hub's fallback is general "
+       "knowledge that deliberately quotes no cost figures, since a number "
+       "with no provenance beside the labeled benchmark would be a fourth "
+       "kind of CPC. Extension ideas refuse rather than guess when the page "
+       "cannot be read: the fetched text is the analysis input, and an "
+       "analysis of an unread page is the model reviewing its own guess."),
     _h("ads_builder.proposal.keywords", "Nothing is removed until you apply it",
        "Click keywords to mark them, then Remove selected. Cutting a keyword is "
        "material, so it clears the approval and re-runs the review — read the "

@@ -292,7 +292,7 @@ blind = quotas.untracked_provider_calls(force=True)
 # could ever have named them, which is why it stood.
 check("every provider is scanned", sorted(blind),
       ["brandfetch", "cloudinary", "creatomate", "elevenlabs", "google",
-       "heygen", "runway"])
+       "heygen", "pickaxe", "runway"])
 # This is the point of the check: the repository is expected to be clean, and
 # the moment a new module calls one of these without recording it, this fails
 # here and on /api/integrity rather than quietly understating the bill.
