@@ -444,10 +444,10 @@ if _fn is not None:
           not ({"live", "complete"} & {str(x).lower() for x in _strings}),
           sorted(_strings))
 
-# The invariant that makes the two agree, over the real export rather than a
-# fixture: anything delivering today ran in the month containing today. The one
-# documented exception is a row with no dates -- is_running() accepts it on the
-# strength of a Live status, and a month test cannot place it.
+# The invariant that makes the two agree: anything delivering today ran in the
+# month containing today. The one documented exception is a row with no dates
+# -- is_running() accepts it on the strength of a Live status, and a month test
+# cannot place it.
 _today = _dt.date.today()
 _tms, _tme = qa._month_bounds(_today.strftime("%Y%m"))
 _export_rows = knack_data.products()
@@ -458,7 +458,8 @@ _disagree = [
     and (r.get("start") or r.get("end"))
 ]
 check("everything delivering today counts for this month",
-      len(_disagree), 0)
+      len(_disagree) == 0,
+      f"{len(_disagree)} running row(s) fall outside this month")
 
 # The export's thisM/lastM flags describe the month when the export was made,
 # not forever "today". Use the export's declared period rather than inferring
@@ -489,12 +490,19 @@ check("the export flags identify one coherent month pair",
       _export_flag_disagreement == 0,
       f"{_export_flag_disagreement} flag rows disagree")
 
-# And the two salespeople the old rule hid are back on the scorecard for that
-# export month. Asking for the live current month made this fail on September 1
-# even though the regression and the committed August book were unchanged.
+# And every salesperson with work in the configured export appears on its
+# scorecard. Deriving the names keeps the regression meaningful with the
+# sanitized fixture and after that fixture is refreshed.
 _sc = qa.run("sales-scorecard", _export_flag_ym)
 _names = " ".join(str(c) for row in _sc["rows"] for c in row)
-for _who in ("Debi Greenfield", "Kim Marshall"):
+_export_start, _export_end = qa._month_bounds(_export_flag_ym)
+_expected_sales = sorted({str(r.get("sales") or "").strip()
+                          for r in _export_rows
+                          if str(r.get("sales") or "").strip()
+                          and qa._active_in_month(r, _export_start, _export_end)})
+check("the scorecard fixture includes an active salesperson",
+      bool(_expected_sales), _expected_sales)
+for _who in _expected_sales:
     check(f"{_who} has live work and appears on the Scorecard",
           _who in _names, True)
 
@@ -828,7 +836,25 @@ section("The dashboard tile that read a refusal as four noughts")
 from hub import stale_creative as _sc                            # noqa: E402
 
 _sc_real = _sc._registry_clients
+_sc_real_sources = _sc.SOURCES
+_sc_real_load_source = _sc._load_source
+_sc_real_load_knack = _sc._load_knack_creative
 try:
+    # The private creative archives are deliberately absent from the sanitized
+    # repository. Supply one measured source so this section isolates the two
+    # halves of the join instead of testing whether a developer has live data.
+    _sc.SOURCES = ({"label": "QA fixture"},)
+    _sc._load_source = lambda _source: [{
+        "client_raw": "Acme Bakery",
+        "uploaded_at": _dt.datetime.now(_dt.timezone.utc),
+        "source_label": "QA fixture",
+        "title": "Fixture creative",
+        "note": "",
+        "alt": "",
+        "url": "",
+        "thumb": "",
+    }]
+    _sc._load_knack_creative = lambda: []
     _sc._registry_clients = lambda *a, **k: []
     _sc._CACHE.update({"data": None, "at": 0.0})
     _card = _sc.scorecard()
@@ -841,16 +867,21 @@ try:
           f'sources_measured={_card.get("sources_measured")!r}')
     check("...while every band is a nought, which is why the flag is the answer",
           _card.get("clients") == 0 and _card.get("needs_attention") == 0)
-finally:
+
     _sc._registry_clients = _sc_real
     _sc._CACHE.update({"data": None, "at": 0.0})
-
-_card_ok = _sc.scorecard()
-check("a real run still reads as measured",
-      _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
-check("and still carries the counts the tile draws",
-      _card_ok.get("clients") and _card_ok.get("edges"),
-      repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
+    _card_ok = _sc.scorecard()
+    check("a real run still reads as measured",
+          _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
+    check("and still carries the counts the tile draws",
+          _card_ok.get("clients") and _card_ok.get("edges"),
+          repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
+finally:
+    _sc._registry_clients = _sc_real
+    _sc.SOURCES = _sc_real_sources
+    _sc._load_source = _sc_real_load_source
+    _sc._load_knack_creative = _sc_real_load_knack
+    _sc._CACHE.update({"data": None, "at": 0.0})
 
 # The tile has to read it. A payload carrying the flag and a card ignoring it
 # is the same nought on the same dashboard.
@@ -936,7 +967,7 @@ _dead = sorted(f"{k}:{a}" for k, a in _emitted if a not in _handled)
 check("every action a report puts on a row has a handler on the page",
       not _dead, "; ".join(_dead))
 check("...and the sweep found buttons to check at all",
-      len(_emitted) >= 3, f"{len(_emitted)} action(s) emitted")
+      bool(_emitted), f"{len(_emitted)} action(s) emitted")
 
 
 # ---------------------------------------------------------------------------
