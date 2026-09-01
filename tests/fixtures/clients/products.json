@@ -57,6 +57,25 @@
       "dash": "",
       "url": "",
       "kind": ""
+    },
+    {
+      "id": "fixture-product-4",
+      "client": "Fabrikam Fitness",
+      "campaign": "Member growth",
+      "io": "IO-1004",
+      "product": "Targeted Display",
+      "status": "Live",
+      "monthly": 600,
+      "total": 1800,
+      "start": "2026-08-15",
+      "end": "2026-10-31",
+      "thisM": true,
+      "lastM": false,
+      "sales": "Example Rep",
+      "partner": "Sample Partner",
+      "dash": "",
+      "url": "",
+      "kind": ""
     }
   ]
 }
