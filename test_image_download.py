@@ -428,6 +428,10 @@ FULL_ASSET_ON_PURPOSE = {
     ("modules/ad_builder/public/embed.html", "l.kind || 'logo'"): _LOGO,
     ("modules/ads_builder/templates/_estimate_doc.html", "logo.url"): _LOGO,
     ("modules/ads_builder/templates/ads_proposal.html", 'alt="logo"'): _LOGO,
+    ("modules/scans/templates/scan_detail.html", "mark.url"): _LOGO,
+    ("modules/scans/templates/scan_detail.html", "preview.url"):
+        "the Insites scan screenshot is hosted by the scan provider, not our "
+        "Cloudinary account, so the Hub cannot request a derived thumbnail",
 
 }
 
