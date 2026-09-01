@@ -65,45 +65,76 @@
 const MOUNT = {{ mount|tojson }};
 const KEY = 's1ads_cid';
 let accounts = [];
+let loadGeneration = 0;
 
 function cid()   { return document.getElementById('acct').value; }
 function range() { return document.getElementById('range').value; }
 
 async function boot() {
+  const saved = localStorage.getItem(KEY);
+  const sel = document.getElementById('acct');
+  // The last account is enough to start the useful read. Populate the full
+  // MCC picker alongside it instead of holding campaigns behind that query.
+  let earlyLoad = null;
+  if (saved) {
+    sel.innerHTML = `<option value="${esc(saved)}">Saved account (${esc(saved)})</option>`;
+    sel.value = saved;
+    earlyLoad = load(saved);
+  }
   try {
     const d = await api('GET', MOUNT + '/api/accounts');
     accounts = d.accounts || [];
-    const saved = localStorage.getItem(KEY);
-    const sel = document.getElementById('acct');
     sel.innerHTML = accounts.map(a =>
       `<option value="${esc(a.id)}" ${a.is_manager ? 'disabled' : ''}>` +
       `${a.is_manager ? '— manager — ' : ''}${esc(a.name)} (${esc(a.formatted_id)})</option>`).join('');
     const usable = accounts.filter(a => !a.is_manager);
-    sel.value = (saved && accounts.some(a => a.id === saved)) ? saved
+    const savedIsUsable = saved && usable.some(a => a.id === saved);
+    sel.value = savedIsUsable ? saved
               : (usable[0] ? usable[0].id : '');
     sel.onchange = () => { localStorage.setItem(KEY, sel.value); load(); };
-    document.getElementById('range').onchange = load;
-    load();
+    document.getElementById('range').onchange = () => load();
+    if (savedIsUsable) {
+      await earlyLoad;
+    } else if (sel.value) {
+      await load(sel.value);
+    } else {
+      document.getElementById('campaigns').innerHTML =
+        '<div class="empty"><h4>No client accounts available</h4>' +
+        'Check the manager account configured in Settings.</div>';
+    }
   } catch (err) {
-    document.getElementById('campaigns').innerHTML =
-      `<div class="note n-bad"><b>Could not list your Google Ads accounts</b>${esc(err.message)}</div>`;
+    if (earlyLoad) {
+      // A stale account picker should not erase live campaign data that the
+      // saved account can still read.
+      await earlyLoad;
+      toast('bad', `Could not refresh the Google Ads account list: ${err.message}`);
+    } else {
+      document.getElementById('campaigns').innerHTML =
+        `<div class="note n-bad"><b>Could not list your Google Ads accounts</b>${esc(err.message)}</div>`;
+    }
   }
 }
 
-async function load() {
-  if (!cid()) return;
+async function load(customerId = cid()) {
+  if (!customerId) return;
+  const generation = ++loadGeneration;
+  const requestedRange = range();
   const box = document.getElementById('campaigns');
   box.innerHTML = '<span class="spin"></span> Loading campaigns…';
   document.getElementById('reload').disabled = true;
   try {
-    const d = await api('GET', `${MOUNT}/api/campaigns?customer_id=${encodeURIComponent(cid())}&date_range=${range()}`);
+    const d = await api('GET', `${MOUNT}/api/campaigns?customer_id=${encodeURIComponent(customerId)}&date_range=${requestedRange}`);
+    if (generation !== loadGeneration) return;
     render(d.campaigns || []);
   } catch (err) {
+    if (generation !== loadGeneration) return;
     box.innerHTML = `<div class="note n-bad"><b>Google Ads returned an error</b>${esc(err.message)}` +
       (err.code ? `<div class="mono" style="margin-top:6px">${esc(err.code)}</div>` : '') + `</div>`;
     document.getElementById('stats').innerHTML = '';
   } finally {
-    document.getElementById('reload').disabled = false;
+    if (generation === loadGeneration) {
+      document.getElementById('reload').disabled = false;
+    }
   }
 }
 

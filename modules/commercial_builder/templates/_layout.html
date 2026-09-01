@@ -27,7 +27,7 @@
     environment that never got the global loses the guard rather than the
     page. -#}
 {%- set has_own_tour = screen and (has_tour is not defined or has_tour(screen)) -%}
-<body data-module="commercial_builder"{% if has_own_tour %} data-screen="{{ screen }}"{% endif %}{% if no_demo %} data-demo="off"{% endif %}>
+<body data-module="commercial_builder"{% if has_own_tour %} data-screen="{{ screen }}"{% endif %}{% if no_demo %} data-demo="off"{% endif %}{% block body_attrs %}{% endblock %}>
 {#
   No branded bar. This module is blueprint-registered on the hub app, so every
   page here already carries the Hub's sidebar; a sticky "Creative Hub ·

@@ -59,6 +59,7 @@ QUESTIONS = [
     {"key": "reputation", "label": "Managing reviews and reputation?"},
     {"key": "email", "label": "Running email campaigns?"},
     {"key": "chat", "label": "Chat widget on the site?"},
+    {"key": "appointments", "label": "Taking appointments / bookings online?"},
     {"key": "callTracking", "label": "Tracking inbound calls?"},
     {"key": "texting", "label": "Texting customers?"},
 ]
@@ -171,10 +172,10 @@ SUGGESTION_RULES += [
 # Two questions were being asked and read by nothing at all. `socialPosting`
 # had no rule under it from the day it was written, so a client who posts
 # nothing produced a proposal that never mentioned it; `socialScheduling` is
-# new, and is the one of the twelve the Suite answers most directly. Every
-# question on the discovery step now has a rule, and `unanswered_keys()` below
-# is what keeps it that way -- a thirteenth added without one is a question
-# whose answer changes nothing, which is where this module started.
+# new, and is the one the Suite answers most directly. Every question on the
+# discovery step now has a rule, and `unanswered_keys()` below is what keeps
+# it that way -- one added without a rule is a question whose answer changes
+# nothing, which is where this module started.
 SUGGESTION_RULES += [
     {
         "key": "socialPosting", "when": (NO, UNKNOWN),
@@ -193,6 +194,23 @@ SUGGESTION_RULES += [
                   "month planned and queued in one sitting keeps posting "
                   "through the weeks nobody has time for it.",
         "products": ["Smart 1 Suite", "Social Media Management"],
+    },
+]
+
+# Asked because the Insites audit already measures it -- a booking widget on
+# the site, or a booking link on the Google listing, and either one is online
+# scheduling. A business taking neither is answering ready-to-buy visitors
+# with a phone number and business hours.
+SUGGESTION_RULES += [
+    {
+        "key": "appointments", "when": (NO, UNKNOWN),
+        "title": "Let customers book without calling",
+        "detail": "A good share of the people ready to buy are looking after "
+                  "hours, and a booking link turns that intent into an "
+                  "appointment instead of a note to call tomorrow. The "
+                  "Suite's online scheduling puts the calendar on the site "
+                  "and on the Google listing.",
+        "products": ["Smart 1 Suite"],
     },
 ]
 
@@ -396,9 +414,9 @@ def gaps(state) -> list[dict]:
 # ---------------------------------------------------------------------------
 # What the Suite covers, and what nothing on the plan does
 #
-# Six of the twelve discovery questions describe work the Smart 1 Suite does
-# out of the box -- the missed call text back, the review requests, the social
-# planner, the scheduler, the inbox. The Suite was being quoted on every
+# Half the discovery questions describe work the Smart 1 Suite does out of
+# the box -- the missed call text back, the review requests, the social
+# planner, the booking calendar, the inbox. The Suite was being quoted on every
 # proposal anyway, at a tier picked purely from media spend, with the client
 # never told which of the things they said they were not doing it closes. So
 # the one line on the Investment Summary that recurs for ever was the one line
@@ -423,6 +441,11 @@ SUITE_FEATURES = [
      "feature": "Two-way texting",
      "detail": "The texting center, so a lead is answered the way they expect "
                "rather than with a voicemail nobody returns."},
+    {"key": "appointments", "tier": "Smart 1",
+     "feature": "Online scheduling",
+     "detail": "A booking calendar on the website and the Google listing, so "
+               "an after-hours visitor becomes an appointment on the books "
+               "rather than a call that never gets made."},
     {"key": "reputation", "tier": "Smart 1",
      "feature": "Reputation center",
      "detail": "Automated Google review requests after a job, and every "
@@ -462,7 +485,7 @@ def unanswered_keys() -> list[str]:
     An answer that changes nothing is the defect this whole module exists to
     close, so it is reported rather than left to be noticed. `/api/integrity`
     and test_proposal_spec.py both read this; it returns an empty list today
-    and a thirteenth question added without a rule is what makes it stop.
+    and a question added without a rule is what makes it stop.
     """
     covered = {rule["key"] for rule in SUGGESTION_RULES}
     covered |= {f["key"] for f in SUITE_FEATURES}

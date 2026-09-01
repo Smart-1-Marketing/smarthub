@@ -72,16 +72,20 @@ import os
 import shutil
 import sys
 import tempfile
+import datetime as _dt
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+STALE_TEMPLATE = (ROOT / "hub" / "templates" / "stale_creative.html").read_text(
+    encoding="utf-8")
 
 TMP = tempfile.mkdtemp(prefix="s1stale_test_")
 DISK = os.path.join(TMP, "disk")
 os.makedirs(DISK, exist_ok=True)
 
 os.environ["HUB_DATA_DIR"] = DISK
+os.environ["CLIENTS_DATA_DIR"] = str(ROOT / "tests" / "fixtures" / "clients")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "t.db")
 os.environ["SECRET_KEY"] = "stale-test-secret"
 
@@ -151,7 +155,33 @@ check("nothing was written", evergreen.marks(), [])
 section("The list carries actions, and no longer carries Source")
 # =====================================================================
 
-html = signed_in.get("/qa/stale-creative").get_data(as_text=True)
+_real_cached = stale_creative._cached
+_render_data = {
+    "measured": True, "clients_measured": True, "sources_measured": True,
+    "generated_at": "2026-09-01T12:00:00Z", "edges": [30, 60, 90],
+    "totals": {"clients": 1, "creatives": 1, "inactive": 0,
+               "unmatched": 0, "needs_attention": 1},
+    "sources": {"live": ["Fixture source"], "no_records": [],
+                "cloudinary_fallback": False},
+    "groups": [{
+        "key": "over_90", "label": "90+ days", "blurb": "Fixture band.",
+        "count": 1, "inactive_count": 0,
+        "clients": [{
+            "client": "Fixture Client", "days_since": 120,
+            "last_upload": "2026-05-04T12:00:00Z", "total_creatives": 1,
+            "creatives": [{
+                "title": "Fixture creative", "uploaded_at": "2026-05-04T12:00:00Z",
+                "source": "Fixture source", "thumb": "", "alt": "",
+                "note": "", "url": "",
+            }],
+        }],
+    }],
+}
+stale_creative._cached = lambda *a, **k: _render_data
+try:
+    html = signed_in.get("/qa/stale-creative").get_data(as_text=True)
+finally:
+    stale_creative._cached = _real_cached
 check("the page renders", "<h1>Stale Creative</h1>" in html, True)
 check("the Source column is gone", "<th>Source</th>" in html, False)
 check("an Actions column is there", '<th class="acts">Actions</th>' in html, True)
@@ -164,7 +194,9 @@ check("Create opens the ad builder with the client filled in",
 
 # Which of our tools filed it is not a decision a rep makes — but the panel
 # they open is where it belongs, so it is dropped from the row and kept there.
-check("each creative still names its own source", 'class="m">' in html, True)
+check("each creative still names its own source",
+      'class="m">' in STALE_TEMPLATE and "{{ it.source }}" in STALE_TEMPLATE,
+      True)
 
 # The route the Create button points at has to exist on the composed app.
 rules = {str(r.rule) for r in app.url_map.iter_rules()}
@@ -285,8 +317,6 @@ finally:
 # ---------------------------------------------------------------------------
 section("Every source reports, and none of them guesses at another module's columns")
 # ---------------------------------------------------------------------------
-import datetime as _dt                                        # noqa: E402
-
 from hub import image_audit                                   # noqa: E402
 
 # The shape `hub/image_audit.py`'s readers emit. A `store` source may name

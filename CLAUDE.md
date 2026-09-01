@@ -3757,14 +3757,12 @@ which is the whole reason this went unnoticed.
 of the first, 96 KB of the second, and not one reference to either anywhere in
 the repo — no reader, and for campaigns not even a `campaigns()` function.
 They were described here as *stale*, which implies a refresh would fix them;
-nothing would. `clients_app/data/` is `products.json` and `websites.json` now,
-both fallbacks rather than sources.
+nothing would. Real exports no longer live under `clients_app/data/`.
 
-**And nothing refreshes those two.** `hub/knack_data.py`'s header used to say
-they were kept current by "the existing `npm run refresh` flow / GitHub
-Action". There is no such workflow — `.github/workflows/` holds one file and
-it runs the checks. They are a hand-committed snapshot, which is survivable
-only because neither is the primary source any more.
+**Fallback exports are private.** `hub/knack_data.py` reads them only from the
+directory named by `CLIENTS_DATA_DIR`, which must be a private mounted volume
+outside the checkout. `.github/workflows/` uses sanitized fixtures. Never
+commit real client, campaign, website, analytics, or billing exports.
 
 **A staleness check measured against the wrong clock is worse than none.**
 `/status` read `products.json`'s mtime and printed it as "Refreshed Xh ago",
@@ -6804,8 +6802,8 @@ knowable from an order number.
 
 **A source that could not be read is not measured, and this is the strongest
 case of that rule in the Hub.** `knack_products.rows()` never raises: it falls
-back to a stale cache, then to the committed export, then to nothing. Read
-against the export — a snapshot nobody refreshes, whose rows are the raw Knack
+back to a stale cache, then to the private fallback, then to nothing. Read
+against the fallback — a snapshot refreshed out of band, whose rows are the raw Knack
 records rather than `_row()` output and so carry no IO number at all — *every*
 order reads as never trafficked, which is a report accusing the whole traffic
 team on the strength of a stale file. So the products must have come from
@@ -8986,7 +8984,7 @@ as "this campaign needs nothing", about every client at once. Two halves:
 however recently it was written, so `rows()` refetches rather than serving it;
 and `report()` asks whether the rows can answer the question *before* it
 reports that the answer is none, saying **not measured** instead of drawing an
-empty, confident table. The committed export carries none of these fields at
+empty, confident table. The private fallback carries none of these fields at
 all, which is the same statement.
 
 **A blank media partner sorts last, in its own group.** An empty string is not

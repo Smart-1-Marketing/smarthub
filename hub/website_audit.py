@@ -638,7 +638,7 @@ def opportunities(report: dict) -> list[dict]:
 # What the audit can answer of the discovery questions
 # ==========================================================================
 #
-# `hub/current_marketing.py` asks thirteen questions and the answers change
+# `hub/current_marketing.py` asks a set of questions and the answers change
 # what a proposal recommends. Several of them were already measured on this
 # client's own website weeks ago, and a rep was retyping them off a screen
 # they had open. These are **proposals a person accepts**, never applied
@@ -651,7 +651,7 @@ _YES, _NO, _UNKNOWN = "yes", "no", "unknown"
 def discovery_answers(report: dict) -> list[dict]:
     """`[{key, answer, evidence}]` for the discovery questions this audit can
     speak to. A question it cannot speak to is left out entirely, rather than
-    answered `unknown` — a screen offering thirteen rows of "we don't know"
+    answered `unknown` — a screen offering a full column of "we don't know"
     is a screen nobody reads to the bottom of.
     """
     g = lambda p, d=None: _get(report, p, d)                   # noqa: E731
@@ -699,6 +699,24 @@ def discovery_answers(report: dict) -> list[dict]:
             (f"{apps} is on the site." if chat and apps else
              "A chat widget is on the site." if chat else
              "No chat widget on the site."))
+
+    # A booking widget on the site and a booking link on the Google listing
+    # are both online scheduling, so either one is a yes. A no only ever
+    # claims what was measured: the widget test answered False about the
+    # site, and nothing here speaks for a listing that was not read.
+    booked = _b(g("booking_widget.has_booking_widget"))
+    gbp_booking = _s(g("google_business_profile.booking_link_url"))
+    if booked is not None or gbp_booking:
+        booker = _s(g("booking_widget.booking_widget_apps"))
+        if booked:
+            add("appointments", _YES,
+                f"{booker} is on the site." if booker else
+                "A booking widget is on the site.")
+        elif gbp_booking:
+            add("appointments", _YES,
+                "Their Google listing carries a booking link.")
+        else:
+            add("appointments", _NO, "No online booking widget on the site.")
 
     email = _s(g("email_provider.email_providers"))
     if email:

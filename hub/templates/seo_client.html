@@ -2136,7 +2136,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       .then(function(d){
         if(d.needs_reauth){
           $('trafficBody').innerHTML='<span class="seoc-bad">'+esc(d.error)+'</span> '
-            +'<a class="seoc-btn seoc-small" href="'+esc(d.reconnect_url||'/google/login')+'">Reconnect Google</a>';
+            +'<a class="seoc-btn seoc-small" href="'+esc(d.reconnect_url||'/google/login')+'" target="_blank" rel="noopener">Reconnect Google</a>';
           $('aiBody').textContent='\u2014'; return;
         }
         if(d.error){

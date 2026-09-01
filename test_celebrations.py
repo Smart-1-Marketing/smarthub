@@ -237,7 +237,7 @@ check("staff dates of birth are behind the login", _r.status_code, 401)
 _in = Client(application)
 _in.post("/login", data={"password": "cheers-test-shared", "name": "CI"})
 _api = _in.get("/api/celebrations").get_json()
-check("the API answers the month", _api["month"], "August")
+check("the API answers the month", _api["month"], dt.date.today().strftime("%B"))
 ok("from the profile table, not the fallback", _api["source"] == "profiles",
    "sync_roster() runs on boot, so the rows are there")
 ok("and carries today's slice for the popup", "today_list" in _api)

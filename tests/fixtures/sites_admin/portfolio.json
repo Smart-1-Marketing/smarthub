@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Example Site",
+    "billingPeriod": "MONTHLY",
+    "created": "2026-01-01",
+    "nextBillingDate": "2026-10-01",
+    "lastInvoiceId": 0,
+    "recurringManualSubscription": false,
+    "overchargeEmails": false
+  }
+]

@@ -396,16 +396,46 @@ def remove(verbose: bool = True) -> tuple[int, int]:
 
 
 def _is_sample(project: dict) -> bool:
-    """Marked, or carrying the mark in a field a person would see.
+    """Marked, and still nobody's work.
 
-    Both are checked because the flag is what this script writes and the
-    string is what survives a row being edited by hand in the tool.
+    The mark is checked two ways because the flag is what this script writes
+    and the string is what survives a row being edited by hand in the tool.
+
+    **A row with a client on it is never a sample, whatever it is marked.**
+    Both modules exist partly to support exactly that promotion -- Fan Radio's
+    store says "a spec spot that wins the business becomes that client's first
+    spot", and Radio Promo's says a spec project "can be attached to a client
+    later without losing anything". The mark survives that adoption, so
+    matching on it alone would let ``--remove`` delete a real client's work
+    the moment somebody took the sample and ran with it. That is the one
+    outcome here that cannot be undone, so the client is checked first and it
+    overrules the mark rather than the other way round.
     """
+    if _adopted(project):
+        return False
     if project.get("sample") is True:
         return True
     for key in ("notes", "team_member", "created_by"):
         if SAMPLE_MARK in str(project.get(key) or ""):
             return True
+    return False
+
+
+def _adopted(project: dict) -> bool:
+    """Has this stopped being a spec piece and become somebody's?
+
+    Read from both spellings, because the two modules record it differently:
+    Fan Radio moves ``scope`` from "spec" to "client", Radio Promo clears
+    ``spec`` and fills ``client``. Either is enough on its own -- a row that
+    says it belongs to somebody is treated as theirs even if the other field
+    was never updated.
+    """
+    if str(project.get("client") or "").strip():
+        return True
+    if project.get("scope") == "client":
+        return True
+    if "spec" in project and project.get("spec") is False:
+        return True
     return False
 
 

@@ -453,7 +453,7 @@ check("and the merge goes through the shared endpoint",
 check("nothing is deleted, and the panel says so where the press happens",
       panel.count("Nothing is deleted"), 2)
 check("the prose tells somebody the checkboxes exist",
-      "tick them in the table below" in panel, True)
+      "tick them in the captured list" in panel, True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")
