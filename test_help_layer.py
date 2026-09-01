@@ -286,6 +286,23 @@ ok("some walkthroughs are clean, so this is not reporting everything",
 check("no walkthrough drives none of the steps it names",
       [r["key"] for r in DEMO["rows"] if r["dead"]], [])
 
+# A scenario worked down to zero is named rather than left to the count.
+# The backlog above stays a backlog on purpose, so nothing here asserts how
+# large it is -- but a scenario somebody has repaired must not quietly come
+# apart again when a control it drives is renamed. Each of these was every-
+# step-dead-or-nearly before it was repaired against the tool that exists.
+_REPAIRED = ["seo_images.first_batch",
+             "sales_builder.first_quote",
+             "sales_builder.deliver"]
+_still_broken = sorted(r["key"] for r in DEMO["rows"] if r["key"] in _REPAIRED)
+check("a repaired walkthrough stays anchored", _still_broken, [])
+# And the list may not outlive its scenarios -- an entry naming one that has
+# been renamed or retired would pass by describing nothing, which is the
+# stale-exemption failure check_stale_json_exemptions() names.
+_known = set(DEMO["clean"]) | {r["key"] for r in DEMO["rows"]}
+check("and every scenario it names still exists",
+      sorted(k for k in _REPAIRED if k not in _known), [])
+
 # A target is credited by the ATTRIBUTE being there, not by the word.
 # `_found()` used to test `name in everything`, so data-demo='unmatched' was
 # reported as anchored because the word "unmatched" appears in another tool's
