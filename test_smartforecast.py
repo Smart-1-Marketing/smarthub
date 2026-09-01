@@ -272,6 +272,67 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         public = self.client.get(f"/api/public/embed/{token}").get_json()
         self.assertEqual(public["content"]["trigger_key"], "default")
 
+    def test_privacy_minimized_engagement_is_deduplicated_and_reported(self):
+        bootstrap = self.client.get("/api/bootstrap").get_json()
+        token = bootstrap["site"]["embed_token"]
+        public = self.client.get(f"/api/public/embed/{token}").get_json()
+        content_id = public["content"]["id"]
+        common = {"session_id": "browser-session-12345", "content_variant_id": content_id,
+                  "referrer": "https://client.example/landing?private=value",
+                  "metadata": {"source": "smartforecast_embed", "ignored": "drop-me"}}
+        view = self.client.post(f"/api/public/embed/{token}/event",
+                                json={**common, "event_type": "view"})
+        self.assertEqual(view.status_code, 202)
+        self.assertTrue(view.get_json()["recorded"])
+        duplicate = self.client.post(f"/api/public/embed/{token}/event",
+                                     json={**common, "event_type": "view"})
+        self.assertFalse(duplicate.get_json()["recorded"])
+        self.client.post(f"/api/public/embed/{token}/event",
+                         json={**common, "event_type": "click"})
+        self.client.post(f"/api/public/embed/{token}/event", json={
+            **common, "event_type": "conversion",
+            "metadata": {"conversion_type": "form", "event_id": "lead-001"},
+        })
+        report = self.client.get("/api/bootstrap").get_json()["report"]
+        self.assertEqual(report["views"], 1)
+        self.assertEqual(report["clicks"], 1)
+        self.assertEqual(report["conversions"], 1)
+        self.assertEqual(report["click_rate"], 100.0)
+        con = sqlite3.connect(self.db_path)
+        try:
+            row = con.execute(
+                "SELECT session_hash,referrer_domain,metadata_json FROM engagement_events ORDER BY id LIMIT 1"
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertNotEqual(row[0], common["session_id"])
+        self.assertEqual(len(row[0]), 64)
+        self.assertEqual(row[1], "client.example")
+        self.assertNotIn("private", row[2])
+        self.assertNotIn("ignored", row[2])
+        exported = self.client.get("/api/engagement.csv")
+        self.assertIn("occurred_at,event_type,content_variant_id", exported.get_data(as_text=True))
+        embed = self.client.get(f"/embed/{token}").get_data(as_text=True)
+        self.assertIn("sessionStorage", embed)
+        self.assertIn(f"/api/public/embed/{token}/event", embed)
+
+    def test_engagement_rejects_invalid_events_and_unpublished_content(self):
+        bootstrap = self.client.get("/api/bootstrap").get_json()
+        token = bootstrap["site"]["embed_token"]
+        invalid = self.client.post(f"/api/public/embed/{token}/event", json={
+            "event_type": "purchase", "session_id": "browser-session-12345",
+        })
+        self.assertEqual(invalid.status_code, 400)
+        cross_site = self.client.post(f"/api/public/embed/{token}/event", json={
+            "event_type": "view", "session_id": "browser-session-12345",
+            "content_variant_id": 999999,
+        })
+        self.assertEqual(cross_site.status_code, 400)
+        preflight = self.client.options(f"/api/public/embed/{token}/event")
+        self.assertEqual(preflight.status_code, 204)
+        self.assertEqual(preflight.headers["Access-Control-Allow-Origin"], "*")
+        self.assertIn("POST", preflight.headers["Access-Control-Allow-Methods"])
+
     def test_backup_restores_a_fresh_render_disk(self):
         self.client.get("/api/bootstrap")
         from modules.smartforecast.app import _store_for_path, store

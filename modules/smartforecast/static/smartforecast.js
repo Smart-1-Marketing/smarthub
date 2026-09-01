@@ -335,9 +335,16 @@
     $("#reportActivations").textContent = report.activations || 0;
     $("#reportHours").textContent = number(report.hours_personalized, 1);
     $("#reportTransitions").textContent = report.transitions || 0;
+    $("#reportViews").textContent = report.views || 0;
+    $("#reportClicks").textContent = report.clicks || 0;
+    $("#reportConversions").textContent = report.conversions || 0;
+    $("#reportSessions").textContent = report.unique_sessions || 0;
+    $("#reportClickRate").textContent = `${number(report.click_rate, 1)}% of views`;
+    $("#reportConversionRate").textContent = `${number(report.conversion_rate, 1)}% of views`;
     renderTimeline();
     renderEventRows();
     $("#exportCsv").href = `${base}/api/report.csv?site_id=${siteId}`;
+    $("#exportEngagementCsv").href = `${base}/api/engagement.csv?site_id=${siteId}`;
   }
 
   function renderTimeline() {

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import urlparse
 
 from . import packs as industry_catalog
 from .engine import advance_state, choose_winner, empty_state, iso, parse_time, simulate, utcnow
@@ -74,6 +75,14 @@ CREATE TABLE IF NOT EXISTS content_publications (
   site_id INTEGER NOT NULL REFERENCES sites(id), payload_json TEXT NOT NULL,
   approved_by TEXT NOT NULL, approved_at TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS engagement_events (
+  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
+  token_id INTEGER NOT NULL REFERENCES embed_tokens(id), content_variant_id INTEGER,
+  event_type TEXT NOT NULL CHECK(event_type IN ('view','click','conversion')),
+  occurred_at TEXT NOT NULL, session_hash TEXT NOT NULL, referrer_domain TEXT NOT NULL DEFAULT '',
+  destination_url TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}',
+  dedupe_key TEXT NOT NULL UNIQUE
+);
 CREATE TABLE IF NOT EXISTS trigger_events (
   id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
   trigger_key TEXT NOT NULL, status TEXT NOT NULL, phase TEXT NOT NULL,
@@ -103,9 +112,11 @@ CREATE INDEX IF NOT EXISTS idx_history_site_time ON trigger_event_history(site_i
 CREATE INDEX IF NOT EXISTS idx_events_site_active ON trigger_events(site_id, deactivated_at);
 CREATE INDEX IF NOT EXISTS idx_variants_trigger_phase ON content_variants(trigger_key, phase);
 CREATE INDEX IF NOT EXISTS idx_publications_site ON content_publications(site_id, approved_at DESC);
+CREATE INDEX IF NOT EXISTS idx_engagement_site_time ON engagement_events(site_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_engagement_site_type ON engagement_events(site_id, event_type, occurred_at DESC);
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 CONTENT_FIELDS = ("id", "slot_id", "trigger_key", "phase", "name", "eyebrow", "headline", "body",
                   "cta_label", "cta_url", "desktop_image_url", "mobile_image_url", "alt_text",
                   "desktop_focal", "mobile_focal", "overlay_opacity", "metadata")
@@ -962,6 +973,58 @@ class SmartForecastStore:
             return {"site_id": site_id, "state": state, "content": variant,
                     "branding": _loads(site["branding_json"], {})}
 
+    def record_engagement(self, token: str, body: dict) -> dict:
+        """Record a privacy-minimized public view, click, or conversion."""
+        event_type = str(body.get("event_type") or "").strip().lower()
+        if event_type not in {"view", "click", "conversion"}:
+            raise ValueError("event_type must be view, click, or conversion")
+        session_id = str(body.get("session_id") or "").strip()[:200]
+        if len(session_id) < 8:
+            raise ValueError("session_id must contain at least 8 characters")
+        now = utcnow()
+        with self._lock, self.connect() as con:
+            token_row = con.execute(
+                "SELECT id,site_id FROM embed_tokens WHERE token=? AND active=1", (token,)
+            ).fetchone()
+            if not token_row:
+                raise LookupError("Embed not found")
+            site_id = token_row["site_id"]
+            try:
+                variant_id = int(body.get("content_variant_id") or 0) or None
+            except (TypeError, ValueError):
+                raise ValueError("content_variant_id must be numeric") from None
+            destination = ""
+            if variant_id:
+                publication = con.execute(
+                    """SELECT p.payload_json FROM content_publications p
+                       JOIN content_variants v ON v.id=p.variant_id
+                       JOIN content_slots s ON s.id=v.slot_id
+                       WHERE p.variant_id=? AND s.site_id=?""", (variant_id, site_id),
+                ).fetchone()
+                if not publication:
+                    raise ValueError("content_variant_id is not published for this site")
+                destination = str(_loads(publication["payload_json"], {}).get("cta_url") or "")[:1000]
+            raw_referrer = str(body.get("referrer") or "")[:1000]
+            parsed = urlparse(raw_referrer if "://" in raw_referrer else f"https://{raw_referrer}")
+            referrer_domain = str(parsed.hostname or "")[:255].lower()
+            metadata_in = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+            allowed = {"campaign", "source", "medium", "label", "conversion_type", "event_id"}
+            metadata = {str(key): str(value)[:200] for key, value in metadata_in.items()
+                        if key in allowed and value is not None}
+            session_hash = hashlib.sha256(f"{token}:{session_id}".encode("utf-8")).hexdigest()
+            dedupe_marker = metadata.get("event_id") or now.strftime("%Y%m%d%H")
+            dedupe_key = hashlib.sha256(
+                f"{site_id}:{event_type}:{session_hash}:{variant_id or 0}:{dedupe_marker}".encode("utf-8")
+            ).hexdigest()
+            cursor = con.execute(
+                """INSERT OR IGNORE INTO engagement_events(site_id,token_id,content_variant_id,event_type,
+                   occurred_at,session_hash,referrer_domain,destination_url,metadata_json,dedupe_key)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (site_id, token_row["id"], variant_id, event_type, iso(now), session_hash,
+                 referrer_domain, destination, _json(metadata), dedupe_key),
+            )
+        return {"ok": True, "recorded": cursor.rowcount == 1}
+
     def report_csv(self, site_id: int = 1) -> str:
         import csv
         import io
@@ -973,6 +1036,23 @@ class SmartForecastStore:
                 "SELECT * FROM trigger_event_history WHERE site_id=? ORDER BY recorded_at DESC", (site_id,)):
                 writer.writerow([row["recorded_at"], row["trigger_key"] or "", row["phase"],
                                  row["event_type"], row["source"], row["reason"], bool(row["manual_override"])])
+        return output.getvalue()
+
+    def engagement_csv(self, site_id: int = 1) -> str:
+        import csv
+        import io
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(["occurred_at", "event_type", "content_variant_id", "referrer_domain",
+                         "destination_url", "metadata"])
+        with self.connect() as con:
+            for row in con.execute(
+                """SELECT occurred_at,event_type,content_variant_id,referrer_domain,destination_url,
+                   metadata_json FROM engagement_events WHERE site_id=? ORDER BY occurred_at DESC""",
+                (site_id,),
+            ):
+                writer.writerow([row["occurred_at"], row["event_type"], row["content_variant_id"] or "",
+                                 row["referrer_domain"], row["destination_url"], row["metadata_json"]])
         return output.getvalue()
 
     def save_weather(self, snapshot: dict, source: str = "WeatherAPI", site_id: int = 1) -> int:
@@ -1139,9 +1219,25 @@ class SmartForecastStore:
                 hours += max(0, (end - start).total_seconds() / 3600)
             except (TypeError, ValueError):
                 pass
+        engagement = {"view": 0, "click": 0, "conversion": 0}
+        unique_sessions = 0
+        for row in con.execute(
+            """SELECT event_type,COUNT(*) total,COUNT(DISTINCT session_hash) sessions
+               FROM engagement_events WHERE site_id=? AND occurred_at>=? GROUP BY event_type""",
+            (site_id, since),
+        ):
+            engagement[row["event_type"]] = int(row["total"])
+            if row["event_type"] == "view":
+                unique_sessions = int(row["sessions"])
+        views = engagement["view"]
+        clicks = engagement["click"]
+        conversions = engagement["conversion"]
         return {"weather_events": len(categories), "activations": activations,
                 "hours_personalized": round(hours, 1), "transitions": len(rows),
-                "categories": categories}
+                "categories": categories, "views": views, "clicks": clicks,
+                "conversions": conversions, "unique_sessions": unique_sessions,
+                "click_rate": round((clicks / views * 100) if views else 0, 1),
+                "conversion_rate": round((conversions / views * 100) if views else 0, 1)}
 
 
 def normalize_snapshot(body: dict) -> dict:

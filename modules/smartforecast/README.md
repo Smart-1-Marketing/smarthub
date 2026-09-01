@@ -15,8 +15,10 @@ read-only JSON endpoint are public.
 - `/tools/smartforecast/api/content/<id>/publish` — approve a saved draft for the live embed
 - `/tools/smartforecast/api/embed-token/rotate` — revoke the previous token and issue a replacement
 - `/tools/smartforecast/api/packs/<id>/apply` — assign an industry rule/copy pack as editable data
+- `/tools/smartforecast/api/engagement.csv` — authenticated engagement export
 - `/tools/smartforecast/embed/<token>` — public responsive embed
 - `/tools/smartforecast/api/public/embed/<token>` — public read-only payload
+- `/tools/smartforecast/api/public/embed/<token>/event` — public view/click/conversion intake
 - `/tools/smartforecast/api/report.csv` — authenticated lifecycle export
 
 ## Configuration
@@ -60,6 +62,12 @@ refresh endpoint returns a controlled 503 and leaves cached content intact.
 - Industry definitions live in `catalog/industry_packs.json`; applying one copies
   its rules into the database and creates draft pre/active/post content.
 - Preflight blocks installation while an enabled rule lacks approved live copy.
+- Embed views and CTA clicks are hourly-deduplicated. Session identifiers are
+  salted with the embed token and stored only as SHA-256 hashes; referrers are
+  reduced to hostnames, metadata is allowlisted, and IP addresses are not stored.
+- A client form or call integration may POST `event_type: "conversion"`, a
+  session ID, the published content variant ID, and an idempotent `metadata.event_id`.
+  Reports keep this observed engagement separate from claims of causal lift.
 - Simulations are non-mutating unless `persist` is explicitly requested.
 - History is append-only at the application layer and is used for audit/export.
 - Never commit a real embed token, client content approval, or provider secret.

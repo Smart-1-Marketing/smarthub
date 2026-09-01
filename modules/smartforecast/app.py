@@ -191,6 +191,14 @@ def api_report_csv():
                     headers={"Content-Disposition": f'attachment; filename="smartforecast-{date}.csv"'})
 
 
+@app.route("/api/engagement.csv")
+def api_engagement_csv():
+    csv_text = store().engagement_csv(_site_id())
+    date = datetime.now(timezone.utc).date().isoformat()
+    return Response(csv_text, mimetype="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="smartforecast-engagement-{date}.csv"'})
+
+
 @app.route("/api/sites", methods=["GET", "POST"])
 def api_sites():
     try:
@@ -225,6 +233,7 @@ def embed(token: str):
     payload = store().embed_payload(token)
     if not payload:
         return render_template("embed_missing.html"), 404
+    payload = {**payload, "embed_token": token}
     # Stored local assets use their production mount. Keep the module runnable
     # by itself for development without creating a second copy of content data.
     image_mount = "/tools/smartforecast"
@@ -249,6 +258,28 @@ def api_public_embed(token: str):
     response = jsonify(payload)
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+    return response
+
+
+@app.route("/api/public/embed/<token>/event", methods=["POST", "OPTIONS"])
+def api_public_event(token: str):
+    if request.method == "OPTIONS":
+        response = Response(status=204)
+    else:
+        try:
+            result = store().record_engagement(token, request.get_json(silent=True) or {})
+            response = jsonify(result)
+            response.status_code = 202
+        except (TypeError, ValueError) as exc:
+            response = jsonify({"ok": False, "error": str(exc)})
+            response.status_code = 400
+        except LookupError as exc:
+            response = jsonify({"ok": False, "error": str(exc)})
+            response.status_code = 404
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
