@@ -526,6 +526,48 @@ def job_verify_llms_txt(app) -> dict:
     return result
 
 
+def job_smartforecast_weather(app) -> dict:
+    """Refresh and evaluate each SmartForecast site whose cache is due.
+
+    Each site is isolated: one provider error is reported but does not prevent
+    the other clients from receiving their weather check. The database expiry
+    is the idempotency guard, so an early repeat after a worker restart does no
+    outbound work and creates no duplicate transition.
+    """
+    try:
+        from modules.smartforecast.app import store
+        from modules.smartforecast import provider
+    except Exception as exc:                              # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not provider.configured():
+        return {"skipped": "WEATHERAPI_KEY is not configured"}
+    smartforecast_store = store()
+    due = smartforecast_store.due_sites()
+    if not due:
+        return {"checked": 0, "due": 0, "errors": 0}
+    checked, errors = 0, []
+    for site in due:
+        try:
+            snapshot = provider.fetch_weather(site["postal_code"])
+            smartforecast_store.run_simulation(
+                snapshot, site_id=site["id"], persist=True, source="WeatherAPI")
+            checked += 1
+        except Exception as exc:                         # noqa: BLE001
+            errors.append({"site_id": site["id"], "error": type(exc).__name__})
+    return {"checked": checked, "due": len(due), "errors": len(errors),
+            "failures": errors[:10]}
+
+
+def job_smartforecast_backup(app) -> dict:
+    """Mirror the latest SmartForecast SQLite dump into managed Postgres."""
+    try:
+        from modules.smartforecast.app import store
+    except Exception as exc:                              # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return store().backup()
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -551,6 +593,10 @@ JOBS = {
                           "Offer another week's ideas to clients who are swiping."),
     "llms_verify":       (720, job_verify_llms_txt,
                           "Re-check every published client llms.txt end to end."),
+    "smartforecast":     (30, job_smartforecast_weather,
+                          "Refresh due weather caches and evaluate website triggers."),
+    "smartforecast_backup": (720, job_smartforecast_backup,
+                             "Mirror SmartForecast history into the database backup."),
 }
 
 
@@ -672,8 +718,8 @@ def _overdue(row: dict, every_minutes: float, visible: bool):
 
     The gap this closes: the panel drew a green pill for any job whose last
     run succeeded, however long ago that was. A job whose interval is an hour
-    and which last ran three days ago read as healthy, and with eleven jobs
-    sharing one thread the reader would have had to do that arithmetic eleven
+    and which last ran three days ago read as healthy, and with many jobs
+    sharing one thread the reader would have had to do that arithmetic for each
     times. A loop stuck on one long job stops every job behind it and nothing
     on the page said so.
 

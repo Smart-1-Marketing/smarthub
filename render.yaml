@@ -272,6 +272,16 @@ services:
       # Sub-account that owns the blog used for published llms.txt files.
       - key: GHL_BLOG_LOCATION_ID
         sync: false
+      # ---- SmartForecast Dynamic Website ----
+      # WeatherAPI powers live condition checks. The module still works in
+      # simulator/manual mode until this secret is configured.
+      - key: WEATHERAPI_KEY
+        sync: false
+      # Keep the event ledger on Render's persistent disk. docker-start.sh
+      # applies this same default for existing services whose dashboard values
+      # are not updated by a Blueprint change.
+      - key: SMARTFORECAST_DB_PATH
+        value: /var/data/smartforecast/smartforecast.sqlite3
       # Background jobs — exactly one worker runs them.
       - key: HUB_SCHEDULER
         value: "true"

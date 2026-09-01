@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    *{box-sizing:border-box}html,body{margin:0}body{font-family:inherit;background:transparent}
+    .sf-embed{--sf-head:{{ payload.branding.headline_color|default('#ffffff') }};--sf-body:{{ payload.branding.body_color|default('#dce7f2') }};--sf-btn:{{ payload.branding.button_color|default('#f6b544') }};--sf-btn-text:{{ payload.branding.button_text|default('#071726') }};position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr);min-height:clamp(390px,46vw,590px);overflow:hidden;border-radius:{{ payload.branding.border_radius|default(18) }}px;background:#071726;color:var(--sf-head)}
+    .sf-embed picture,.sf-embed picture:after{position:absolute;inset:0}.sf-embed picture{z-index:-2}.sf-embed picture:after{content:"";background:linear-gradient(90deg,rgba(5,20,33,.98) 0%,rgba(5,20,33,.88) 43%,rgba(5,20,33,.16) 76%)}.sf-embed:after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(3,15,24,{{ payload.content.overlay_opacity }})}
+    .sf-embed img{width:100%;height:100%;object-fit:cover;object-position:{{ payload.content.desktop_focal }};display:block}.sf-copy{align-self:center;padding:clamp(30px,6vw,86px);max-width:760px}.sf-copy small{text-transform:uppercase;letter-spacing:.17em;color:#67d6e8;font-weight:800;font-size:clamp(11px,1.1vw,14px)}
+    .sf-copy h1{font:{{ payload.branding.headline_weight|default(800) }} clamp(36px,5.1vw,{{ payload.branding.desktop_headline_size|default(54) }}px)/1.03 inherit;letter-spacing:-.045em;margin:.34em 0;color:var(--sf-head);text-wrap:balance}.sf-copy p{font-size:clamp(16px,1.5vw,20px);line-height:1.55;color:var(--sf-body);max-width:620px}.sf-copy a{display:inline-flex;margin-top:15px;padding:15px 22px;border-radius:max(8px,calc({{ payload.branding.border_radius|default(18) }}px - 6px));background:var(--sf-btn);color:var(--sf-btn-text);font-weight:800;text-decoration:none}
+    @media(max-width:640px){.sf-embed{display:flex;flex-direction:column;min-height:560px}.sf-embed picture{position:relative;inset:auto;height:245px;z-index:-1}.sf-embed picture:after{background:linear-gradient(0deg,#071726 0%,transparent 58%)}.sf-embed img{object-position:{{ payload.content.mobile_focal }}}.sf-copy{padding:28px 24px 34px;margin-top:-32px}.sf-copy h1{font-size:{{ payload.branding.mobile_headline_size|default(38) }}px}.sf-copy a{width:100%;justify-content:center}}
+  </style>
+</head>
+<body>
+  <section class="sf-embed" data-sf-trigger="{{ payload.state.current_trigger or 'default' }}" data-sf-phase="{{ payload.state.phase }}">
+    <picture>{% if payload.content.mobile_image_url %}<source media="(max-width:640px)" srcset="{{ payload.content.mobile_image_url }}">{% endif %}<img src="{{ payload.content.desktop_image_url }}" alt="{{ payload.content.alt_text }}"></picture>
+    <div class="sf-copy"><small>{{ payload.content.eyebrow }}</small><h1>{{ payload.content.headline }}</h1><p>{{ payload.content.body }}</p><a href="{{ payload.content.cta_url }}">{{ payload.content.cta_label }}</a></div>
+  </section>
+</body>
+</html>
