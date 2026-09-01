@@ -172,20 +172,27 @@ check("summary() reads export_websites(), not websites()",
 check("and says why in the code rather than leaving it to be rediscovered",
       "measured differently" in src or "active" in src)
 
-kw.rows = lambda *a, **k: list(LIVE)
+summary_live_calls = []
+
+
+def _summary_live_rows(*a, **k):
+    summary_live_calls.append(True)
+    return list(LIVE)
+
+
+kw.rows = _summary_live_rows
 kw.last_error = lambda: ""
 _reset()
 totals = kd.summary()
-# The real assertion: with a live pull returning two rows, the dashboard's
-# website figures must still describe the fallback export. If they followed the
-# live list, the card would read "2 active websites" and the H&M billing would
-# collapse to whatever those two carry — a confident wrong answer on the
-# CEO's dashboard, with nothing on the page saying the source had changed.
+# The real assertion: the dashboard's website figures must describe the
+# fallback export without consulting the live list. If it followed the live
+# list, its active count and H&M billing would collapse to fields object_153
+# does not publish — a confident wrong answer on the CEO's dashboard.
 check("websites_total still counts the export, not the live pull",
       totals["websites_total"] == len(kd.export_websites()),
       (totals["websites_total"], len(kd.export_websites())))
-check("and it is emphatically not the live row count",
-      totals["websites_total"] != len(LIVE))
+check("and calculating it never pulls the live rows",
+      not summary_live_calls, summary_live_calls)
 check("websites_active is measured off the export's own `active` field",
       totals["websites_active"] > 0, totals["websites_active"])
 check("so H&M billing is not collapsed to the live rows' fees",
