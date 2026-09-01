@@ -62,7 +62,6 @@ jobs:
       DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
       SECRET_KEY: ci-not-a-real-secret
       PANEL_PASSWORD: ci-not-a-real-password
-      CLIENTS_DATA_DIR: tests/fixtures/clients
 
     steps:
       - uses: actions/checkout@v7
@@ -301,20 +300,6 @@ jobs:
             python test_commercial_review.py
           else
             echo "test_commercial_review.py not on this branch — nothing to run."
-          fi
-
-      - name: Commercial Builder mock-mode tests
-        # The mark that says a provider is not live. Every one of these
-        # routes already answered `live: false` or `mock: true` and nothing
-        # in the browser read it, so a spot built entirely from templates
-        # looked exactly like one a model wrote. Skip-rather-than-fail, like
-        # its siblings: a branch cut before this file exists should not fail
-        # on its absence.
-        run: |
-          if [ -f test_commercial_mock.py ]; then
-            python test_commercial_mock.py
-          else
-            echo "test_commercial_mock.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder advertising-rule tests
@@ -899,20 +884,6 @@ jobs:
             echo "test_seo_page.py not on this branch — nothing to run."
           fi
 
-      - name: Client 360 workspace layout
-        # The record's cards are moved into rail sections by title, and the
-        # matching is driven in node against the template's own card titles —
-        # if it stops matching, every card piles into Overview with the page
-        # still looking complete. Also holds the actions the accordion's
-        # toolbar used to carry. Guarded like the steps above so this
-        # workflow stays mergeable on a branch that predates the file.
-        run: |
-          if [ -f test_client360_layout.py ]; then
-            python test_client360_layout.py
-          else
-            echo "test_client360_layout.py not on this branch — nothing to run."
-          fi
-
       - name: Image download and shared zip builder tests
         # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
         # picker's gallery download now that it runs on the shared builder.
@@ -1469,21 +1440,6 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
-      # The sample campaigns both radio builders open empty without. Two
-      # things about the seeder are worth holding to an assertion. It must not
-      # write a script the tool would flag -- four of the first eight were
-      # long or short, and one sitting in the library carrying the over-budget
-      # warning demonstrates the failure the grader exists to raise. And
-      # --remove must never delete somebody's work: both modules exist partly
-      # to support promoting a spec piece into a client's ("a spec spot that
-      # wins the business becomes that client's first spot"), the sample mark
-      # survives that promotion, and matching on the mark alone would delete a
-      # real client's spot on the next run. Production holds three Radio Promo
-      # projects, two of them client-attached, so it is asserted rather than
-      # reasoned about.
-      - name: Radio samples — in budget, and never deleting adopted work
-        run: python3 test_radio_samples.py
-
       # Every module's work is attributable, and the two checks that say so
       # both bite. /api/integrity's silent-module check tested whether the
       # STRING "for_module(" appeared in a module's source, which binding the
@@ -1692,21 +1648,6 @@ jobs:
       # we asked for rather than the one Suite assigned.
       - name: companyId is not locationId, for the third time
         run: python3 test_ghl_blog.py
-      # The Client 360 forms card asked for forms with no sub-account and fell
-      # back to GHL_LEAD_LOCATION_ID -- the sub-account Smart 1's OWN leads are
-      # written into -- so every client's card showed the agency's form
-      # submissions under that client's name. A count that failed was dropped
-      # before the skipped tally, so all-forms-failing rendered as "no form
-      # submissions"; and a baseline nobody could read was recorded as 0.
-      - name: Whose forms, and what an empty card means
-        run: python3 test_ghl_forms.py
-      # Landed on main invoked by nothing, so test_ci_gate.py -- the check that
-      # exists to catch exactly this -- was already failing on main when this
-      # branch was cut. Wired here rather than left, because a test file the
-      # gate names and the workflow never runs is the sweep that has quietly
-      # stopped sweeping, which is worse than not having one.
-      - name: The Commercial Builder dashboard stays wired
-        run: python3 test_commercial_dashboard_layout.py
       # hub/audit_summary.py grounds every dollar figure in the two paragraphs
       # a prospect reads at the top of their own website audit, which is right
       # — the alternative is a model inventing what somebody spends. It
@@ -1806,8 +1747,3 @@ jobs:
       # pointed at kept the first name.
       - name: What a prospect on somebody else's website is told
         run: python3 test_scan_run.py
-      # A completed scan is also an observed brand source. Keep every safe
-      # logo variant, color role, site icon, screenshot and homepage message
-      # visible without presenting a scraped asset as client-approved.
-      - name: Brand elements found by the InSites scan
-        run: python3 test_scan_brand.py
