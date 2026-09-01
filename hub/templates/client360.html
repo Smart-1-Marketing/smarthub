@@ -2551,8 +2551,13 @@ function renderForms(d){
   var el=document.getElementById('c-forms'); if(!el) return;
   if(d.error){ el.innerHTML='<div class="empty">'+esc(d.error)+'</div>'; return; }
   if(!d.forms || !d.forms.length){
+    /* "Nobody filled one in" and "we could not read them" are different
+       answers and only the first is good news, so the count of unreadable
+       forms is said out loud rather than being absorbed into a tidy nought. */
     el.innerHTML='<div class="empty">No form submissions in '+esc(d.label||'this period')+'.'+
-      (d.no_submissions?' '+d.no_submissions+' form(s) exist but had none.':'')+'</div>';
+      (d.no_submissions?' '+d.no_submissions+' form(s) exist but had none.':'')+
+      (d.unreadable?' '+d.unreadable+' form(s) could not be read, so this may not be the whole picture.':'')+
+      '</div>';
     return;
   }
   el.innerHTML =
@@ -2578,7 +2583,13 @@ function renderForms(d){
 function loadForms(name){
   var sel=document.getElementById('formsPeriod');
   var period = sel ? sel.value : 'this_month';
-  fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period,
+  /* __c360domain is already the client's own domain, set by render() from
+     their first website record. Reusing it rather than introducing a second
+     global for the same fact -- two descriptions of one thing is how they
+     come to disagree. */
+  var url = window.__c360domain || '';
+  fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period+
+        (url?'&url='+encodeURIComponent(url):''),
         {credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderForms).catch(function(){});
 }
