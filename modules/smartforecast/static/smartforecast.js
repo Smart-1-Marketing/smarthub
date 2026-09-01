@@ -86,6 +86,7 @@
     renderDashboard();
     renderSetup();
     renderPreflight(data.preflight);
+    renderPacks();
     renderRules();
     renderVariants();
     renderPreview(activeVariant);
@@ -198,6 +199,20 @@
     const list = rule.forecast_conditions || [];
     const joiner = rule.condition_mode === "any" ? " OR " : " AND ";
     return list.map(c => `${titleCase(c.metric)} ${c.operator} ${c.value}${c.metric.includes("temperature") || c.metric.includes("high") || c.metric.includes("low") || c.metric === "feels_like" ? "°F" : c.metric.includes("probability") || c.metric === "humidity" ? "%" : c.metric.includes("wind") ? " mph" : ""}`).join(joiner) || "Official alert only";
+  }
+
+  function renderPacks() {
+    const picker = $("#packSelect");
+    const ordered = [...(model.packs || [])].sort((a, b) => Number(b.recommended) - Number(a.recommended) || a.name.localeCompare(b.name));
+    picker.innerHTML = ordered.map(pack => `<option value="${escapeHtml(pack.id)}">${pack.recommended ? "Recommended · " : ""}${escapeHtml(pack.name)}${pack.applied ? " · Applied" : ""}</option>`).join("");
+    const describe = () => {
+      const selected = (model.packs || []).find(pack => pack.id === picker.value);
+      $("#packDescription").textContent = selected
+        ? `${selected.description} ${selected.rule_count} editable rule${selected.rule_count === 1 ? "" : "s"}; ${selected.enabled_count} currently enabled.`
+        : "Choose editable rules and draft lifecycle copy for this client.";
+    };
+    picker.onchange = describe;
+    describe();
   }
 
   function renderRules() {
@@ -437,6 +452,19 @@
       button.disabled = false;
       button.textContent = "Run scenario QA";
     }
+  });
+
+  $("#applyPack").addEventListener("click", async () => {
+    const packId = $("#packSelect").value;
+    if (!packId) return;
+    const button = $("#applyPack");
+    button.disabled = true;
+    try {
+      renderAll(await api(`/api/packs/${encodeURIComponent(packId)}/apply`, {method:"POST", body:"{}"}));
+      go("triggers");
+      toast("Industry rules applied; new content is draft until approved");
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; }
   });
 
   $("#pauseToggle").addEventListener("change", async event => {

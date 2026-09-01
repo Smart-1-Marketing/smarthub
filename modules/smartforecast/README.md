@@ -14,6 +14,7 @@ read-only JSON endpoint are public.
 - `/tools/smartforecast/api/sites` — authenticated client/site list and onboarding
 - `/tools/smartforecast/api/content/<id>/publish` — approve a saved draft for the live embed
 - `/tools/smartforecast/api/embed-token/rotate` — revoke the previous token and issue a replacement
+- `/tools/smartforecast/api/packs/<id>/apply` — assign an industry rule/copy pack as editable data
 - `/tools/smartforecast/embed/<token>` — public responsive embed
 - `/tools/smartforecast/api/public/embed/<token>` — public read-only payload
 - `/tools/smartforecast/api/report.csv` — authenticated lifecycle export
@@ -56,6 +57,9 @@ refresh endpoint returns a controlled 503 and leaves cached content intact.
 - Client/site selection is server-backed; every mutation is scoped to the selected site.
 - Content saves are drafts. Only an explicit approval updates the public publication.
 - Token rotation revokes the old public embed immediately and is recorded in history.
+- Industry definitions live in `catalog/industry_packs.json`; applying one copies
+  its rules into the database and creates draft pre/active/post content.
+- Preflight blocks installation while an enabled rule lacks approved live copy.
 - Simulations are non-mutating unless `persist` is explicitly requested.
 - History is append-only at the application layer and is used for audit/export.
 - Never commit a real embed token, client content approval, or provider secret.

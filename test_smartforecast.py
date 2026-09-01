@@ -60,6 +60,26 @@ class SmartForecastEngineTests(unittest.TestCase):
         self.assertEqual(transition, "activated")
         self.assertEqual(state["current_trigger"], "hvac_extreme_heat")
 
+    def test_weather_provider_derives_pack_metrics_from_forecast_days(self):
+        from modules.smartforecast.provider import normalize_weatherapi
+        payload = {
+            "location": {"name": "Columbus"},
+            "current": {"temp_f": 73, "feelslike_f": 74, "humidity": 54, "wind_mph": 8},
+            "forecast": {"forecastday": [
+                {"date": "2026-09-04", "day": {"maxtemp_f": 89, "mintemp_f": 64,
+                 "daily_chance_of_rain": 20, "maxwind_mph": 11, "totalsnow_cm": 0}},
+                {"date": "2026-09-05", "day": {"maxtemp_f": 76, "mintemp_f": 60,
+                 "daily_chance_of_rain": 15, "maxwind_mph": 9, "totalsnow_cm": 0}},
+                {"date": "2026-09-06", "day": {"maxtemp_f": 79, "mintemp_f": 62,
+                 "daily_chance_of_rain": 25, "maxwind_mph": 13, "totalsnow_cm": 0}},
+            ]},
+        }
+        result = normalize_weatherapi(payload)
+        self.assertEqual(result["weekend_high"], 79)
+        self.assertEqual(result["weekend_rain_probability"], 25)
+        self.assertEqual(result["weekend_wind_mph"], 13)
+        self.assertEqual(result["sustained_heat_days"], 1)
+
 
 class SmartForecastStoreAndRoutesTests(unittest.TestCase):
     def setUp(self):
@@ -227,6 +247,30 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertNotEqual(rotated["token"], old)
         self.assertEqual(self.client.get(f"/api/public/embed/{old}").status_code, 404)
         self.assertEqual(self.client.get(f"/api/public/embed/{rotated['token']}").status_code, 200)
+
+    def test_industry_pack_applies_editable_rules_and_draft_content(self):
+        created = self.client.post("/api/sites", json={
+            "client_name": "Lakefront Boats", "domain": "lakefront.example",
+            "postal_code": "44077", "industry": "Marine / Boat Dealer",
+        }).get_json()
+        site_id = created["site"]["id"]
+        marine_before = next(pack for pack in created["packs"] if pack["id"] == "marine")
+        self.assertTrue(marine_before["recommended"])
+        self.assertFalse(marine_before["applied"])
+        applied = self.client.post(f"/api/packs/marine/apply?site_id={site_id}", json={})
+        self.assertEqual(applied.status_code, 200, applied.get_data(as_text=True))
+        data = applied.get_json()
+        rule = next(item for item in data["rules"] if item["id"] == "marine_boating_weekend")
+        self.assertTrue(rule["enabled"])
+        drafts = [item for item in data["variants"] if item["trigger_key"] == rule["id"]]
+        self.assertEqual({item["phase"] for item in drafts}, {"pre_event", "active_event", "post_event"})
+        self.assertTrue(all(item["approval_status"] == "draft" for item in drafts))
+        publication = next(item for item in data["preflight"]["checks"]
+                           if item["key"] == "publication_coverage")
+        self.assertEqual(publication["status"], "fail")
+        token = data["site"]["embed_token"]
+        public = self.client.get(f"/api/public/embed/{token}").get_json()
+        self.assertEqual(public["content"]["trigger_key"], "default")
 
     def test_backup_restores_a_fresh_render_disk(self):
         self.client.get("/api/bootstrap")

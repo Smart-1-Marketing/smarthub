@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import packs as industry_catalog
 from .engine import advance_state, choose_winner, empty_state, iso, parse_time, simulate, utcnow
 
 
@@ -188,7 +189,21 @@ class SmartForecastStore:
             count = con.execute("SELECT COUNT(*) FROM sites").fetchone()[0]
             if not count:
                 self._seed(con)
+            self._sync_pack_templates(con)
             self._backfill_publications(con)
+
+    @staticmethod
+    def _sync_pack_templates(con: sqlite3.Connection) -> None:
+        """Add catalog templates without overwriting database-edited rules."""
+        stamp = iso(utcnow())
+        for rule in industry_catalog.all_rules():
+            con.execute(
+                """INSERT OR IGNORE INTO trigger_templates
+                   (id,name,industry,description,rule_json,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (rule["id"], rule["name"], rule["industry"], rule.get("description", ""),
+                 _json(rule), stamp, stamp),
+            )
 
     def _backfill_publications(self, con: sqlite3.Connection) -> None:
         """Treat content that predates approvals as the currently published copy."""
@@ -326,6 +341,7 @@ class SmartForecastStore:
             selected = self._decorate_publication(con, selected) if selected else None
             return {
                 "sites": self._sites(con),
+                "packs": self._pack_summaries(con, site_id, site["industry"]),
                 "site": {
                     "id": site["id"], "client_name": site["client_name"], "name": site["name"],
                     "domain": site["domain"], "industry": site["industry"], "platform": site["platform"],
@@ -359,6 +375,21 @@ class SmartForecastStore:
                ORDER BY c.name,s.name,s.id"""
         ).fetchall()
         return [{**dict(row), "enabled": bool(row["enabled"])} for row in rows]
+
+    @staticmethod
+    def _pack_summaries(con: sqlite3.Connection, site_id: int, industry: str) -> list[dict]:
+        assigned = {row["template_id"]: bool(row["enabled"]) for row in con.execute(
+            "SELECT template_id,enabled FROM site_triggers WHERE site_id=?", (site_id,))}
+        out = []
+        for pack in industry_catalog.packs():
+            rule_ids = [item["id"] for item in pack.get("rules") or []]
+            enabled = sum(bool(assigned.get(rule_id)) for rule_id in rule_ids)
+            out.append({"id": pack["id"], "name": pack["name"], "industry": pack["industry"],
+                        "description": pack.get("description", ""), "goals": pack.get("goals", []),
+                        "rule_count": len(rule_ids), "enabled_count": enabled,
+                        "applied": bool(rule_ids) and enabled == len(rule_ids),
+                        "recommended": pack["industry"].lower() == str(industry).lower()})
+        return out
 
     def _rules(self, con: sqlite3.Connection, site_id: int) -> list[dict]:
         rows = con.execute(
@@ -456,7 +487,10 @@ class SmartForecastStore:
             templates = con.execute("SELECT * FROM trigger_templates ORDER BY id").fetchall()
             for template in templates:
                 rule = _loads(template["rule_json"], {})
-                enabled = template["industry"].lower() in {"universal", industry.lower()}
+                # Universal safety/opportunity rules are available immediately;
+                # industry rules arrive with their reviewed draft copy when the
+                # operator explicitly applies the recommended pack.
+                enabled = template["industry"].lower() == "universal"
                 con.execute(
                     """INSERT INTO site_triggers(site_id,template_id,enabled,priority,lead_hours,
                        min_duration_hours,post_hours,cooldown_hours,activation_checks,clear_checks)
@@ -491,6 +525,67 @@ class SmartForecastStore:
                 """INSERT INTO trigger_event_history(site_id,phase,event_type,recorded_at,source,reason)
                    VALUES(?,'default','site_created',?,'SmartHub',?)""",
                 (site_id, now, f"Site created by {user[:120]}"),
+            )
+        return self.bootstrap(site_id)
+
+    def apply_pack(self, pack_id: str, site_id: int = 1,
+                   user: str = "SmartHub user") -> dict:
+        """Assign catalog rules and draft lifecycle copy to one site."""
+        pack = industry_catalog.get_pack(pack_id)
+        with self._lock, self.connect() as con:
+            site = con.execute(
+                "SELECT client_id FROM sites WHERE id=?", (site_id,)).fetchone()
+            if not site:
+                raise LookupError("Site not found")
+            slot = con.execute(
+                "SELECT id FROM content_slots WHERE site_id=? AND slot_key='hero'", (site_id,)).fetchone()
+            if not slot:
+                raise LookupError("Homepage hero slot not found")
+            baseline = con.execute(
+                """SELECT v.* FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
+                   WHERE s.site_id=? AND v.trigger_key='default' AND v.phase='default'""", (site_id,)
+            ).fetchone()
+            base_variant = self._variant_row(baseline) if baseline else {}
+            for item in pack.get("rules") or []:
+                template = con.execute(
+                    "SELECT rule_json FROM trigger_templates WHERE id=?", (item["id"],)).fetchone()
+                if not template:
+                    raise LookupError(f"Trigger template missing: {item['id']}")
+                rule = _loads(template["rule_json"], {})
+                con.execute(
+                    """INSERT INTO site_triggers(site_id,template_id,enabled,priority,lead_hours,
+                       min_duration_hours,post_hours,cooldown_hours,activation_checks,clear_checks)
+                       VALUES(?,?,1,?,?,?,?,?,?,?) ON CONFLICT(site_id,template_id)
+                       DO UPDATE SET enabled=1""",
+                    (site_id, item["id"], rule.get("priority", 50), rule.get("lead_hours", 24),
+                     rule.get("min_duration_hours", 0), rule.get("post_hours", 0),
+                     rule.get("cooldown_hours", 0), rule.get("activation_checks", 2),
+                     rule.get("clear_checks", 2)),
+                )
+                for phase, copy in (item.get("content") or {}).items():
+                    eyebrow, headline, body, cta_label = (list(copy) + ["", "", "", ""])[:4]
+                    con.execute(
+                        """INSERT OR IGNORE INTO content_variants
+                           (slot_id,trigger_key,phase,name,eyebrow,headline,body,cta_label,cta_url,
+                           desktop_image_url,mobile_image_url,alt_text,desktop_focal,mobile_focal,
+                           overlay_opacity,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (slot["id"], item["id"], phase, f"{item['name']} · {phase.replace('_', ' ').title()}",
+                         eyebrow, headline, body, cta_label, base_variant.get("cta_url") or "/",
+                         base_variant.get("desktop_image_url"), base_variant.get("mobile_image_url"),
+                         base_variant.get("alt_text") or "", base_variant.get("desktop_focal") or "50% 50%",
+                         base_variant.get("mobile_focal") or "50% 50%",
+                         base_variant.get("overlay_opacity", .15), _json({"pack_id": pack_id})),
+                    )
+            existing_client = con.execute(
+                "SELECT business_goals_json FROM clients WHERE id=?", (site["client_id"],)).fetchone()
+            goals = list(dict.fromkeys(_loads(existing_client["business_goals_json"], []) +
+                                       list(pack.get("goals") or [])))[:30]
+            con.execute("UPDATE clients SET industry=?,business_goals_json=? WHERE id=?",
+                        (pack["industry"], _json(goals), site["client_id"]))
+            con.execute(
+                """INSERT INTO trigger_event_history(site_id,phase,event_type,recorded_at,source,reason)
+                   VALUES(?,'default','industry_pack_applied',?,'SmartHub',?)""",
+                (site_id, iso(utcnow()), f"{pack['name']} applied by {user[:120]}"),
             )
         return self.bootstrap(site_id)
 
@@ -727,6 +822,16 @@ class SmartForecastStore:
                 "Every enabled rule has pre-, active- and post-event content." if not missing else
                 f"{len(missing)} lifecycle variant(s) still use baseline fallback.",
                 blocking=False, warning=True)
+            published = {(row["trigger_key"], row["phase"]) for row in con.execute(
+                """SELECT v.trigger_key,v.phase FROM content_publications p
+                   JOIN content_variants v ON v.id=p.variant_id
+                   JOIN content_slots s ON s.id=v.slot_id WHERE s.site_id=?""", (site_id,))}
+            unpublished = [f"{rule['name']} / {phase.replace('_', ' ')}"
+                           for rule in enabled_rules for phase in ("pre_event", "active_event", "post_event")
+                           if (rule["id"], phase) not in published]
+            add("publication_coverage", "Approved live content", not unpublished,
+                "Every enabled lifecycle message has an approved publication." if not unpublished else
+                f"Approve {len(unpublished)} lifecycle message(s), or disable their rules before installation.")
 
             invalid_urls = [item["name"] for item in variants
                             if not str(item.get("cta_url") or "").startswith(("https://", "http://", "/"))]
@@ -1055,6 +1160,10 @@ def normalize_snapshot(body: dict) -> dict:
         "forecast_low": number("forecast_low", number("temperature", 72)),
         "rain_probability": number("rain_probability"), "snow_inches": number("snow_inches"),
         "wind_mph": number("wind_mph"), "hours_until_event": number("hours_until_event", 0),
+        "sustained_heat_days": number("sustained_heat_days"),
+        "weekend_high": number("weekend_high"),
+        "weekend_rain_probability": number("weekend_rain_probability", 100),
+        "weekend_wind_mph": number("weekend_wind_mph", 100),
         "official_alerts": [str(item)[:160] for item in alerts][:20],
     }
 

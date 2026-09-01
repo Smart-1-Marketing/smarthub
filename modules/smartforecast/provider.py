@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -38,11 +39,24 @@ def normalize_weatherapi(payload: dict) -> dict:
     snow = 0.0
     rain = float(today.get("daily_chance_of_rain") or 0)
     wind = float(current.get("wind_mph") or today.get("maxwind_mph") or 0)
+    weekend_days = []
+    sustained_heat_days = 0
     for day in days[:3]:
         detail = day.get("day") or {}
         snow = max(snow, float(detail.get("totalsnow_cm") or 0) / 2.54)
         rain = max(rain, float(detail.get("daily_chance_of_rain") or 0))
         wind = max(wind, float(detail.get("maxwind_mph") or 0))
+        sustained_heat_days += float(detail.get("maxtemp_f") or 0) >= 88
+    for day in days:
+        try:
+            is_weekend = datetime.fromisoformat(str(day.get("date"))).weekday() >= 5
+        except (TypeError, ValueError):
+            is_weekend = False
+        if is_weekend:
+            weekend_days.append(day.get("day") or {})
+    weekend_high = max((float(item.get("maxtemp_f") or 0) for item in weekend_days), default=0)
+    weekend_rain = max((float(item.get("daily_chance_of_rain") or 0) for item in weekend_days), default=100)
+    weekend_wind = max((float(item.get("maxwind_mph") or 0) for item in weekend_days), default=100)
     return {
         "temperature": float(current.get("temp_f") or 0),
         "feels_like": float(current.get("feelslike_f") or current.get("temp_f") or 0),
@@ -53,6 +67,10 @@ def normalize_weatherapi(payload: dict) -> dict:
         "rain_probability": rain,
         "snow_inches": round(snow, 2),
         "wind_mph": wind,
+        "sustained_heat_days": sustained_heat_days,
+        "weekend_high": weekend_high,
+        "weekend_rain_probability": weekend_rain,
+        "weekend_wind_mph": weekend_wind,
         "hours_until_event": 0,
         "official_alerts": [str(item.get("headline") or item.get("event") or "")
                             for item in alerts if item.get("headline") or item.get("event")],

@@ -44,6 +44,14 @@ def _user() -> str:
                request.headers.get("X-Smart1-User") or "SmartHub user")[:120]
 
 
+def _staff_payload(data: dict) -> dict:
+    site_id = int(data["site"]["id"])
+    data["weather_provider_configured"] = provider.configured()
+    data["preflight"] = store().preflight(
+        site_id, provider_configured=provider.configured())
+    return data
+
+
 @app.route("/")
 def index():
     return render_template("index.html", provider_configured=provider.configured())
@@ -63,10 +71,7 @@ def health():
 def api_bootstrap():
     try:
         site_id = _site_id()
-        data = store().bootstrap(site_id)
-        data["weather_provider_configured"] = provider.configured()
-        data["preflight"] = store().preflight(site_id, provider_configured=provider.configured())
-        return jsonify(data)
+        return jsonify(_staff_payload(store().bootstrap(site_id)))
     except LookupError as exc:
         return _error(exc, 404)
     except Exception as exc:  # noqa: BLE001
@@ -98,7 +103,8 @@ def api_qa_run():
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
     try:
-        return jsonify(store().save_setup(request.get_json(silent=True) or {}, _site_id()))
+        return jsonify(_staff_payload(store().save_setup(
+            request.get_json(silent=True) or {}, _site_id())))
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -150,14 +156,15 @@ def api_simulate():
 @app.route("/api/pause", methods=["POST"])
 def api_pause():
     body = request.get_json(silent=True) or {}
-    return jsonify(store().set_paused(bool(body.get("paused")), _site_id()))
+    return jsonify(_staff_payload(store().set_paused(bool(body.get("paused")), _site_id())))
 
 
 @app.route("/api/override", methods=["POST"])
 def api_override():
     body = request.get_json(silent=True) or {}
     try:
-        return jsonify(store().force_override(body, site_id=_site_id(), user=_user()))
+        return jsonify(_staff_payload(store().force_override(
+            body, site_id=_site_id(), user=_user())))
     except (TypeError, ValueError) as exc:
         return _error(exc)
 
@@ -189,7 +196,8 @@ def api_sites():
     try:
         if request.method == "GET":
             return jsonify({"ok": True, "sites": store().list_sites()})
-        return jsonify(store().create_site(request.get_json(silent=True) or {}, user=_user())), 201
+        return jsonify(_staff_payload(store().create_site(
+            request.get_json(silent=True) or {}, user=_user()))), 201
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -200,6 +208,14 @@ def api_sites():
 def api_embed_token_rotate():
     try:
         return jsonify(store().rotate_embed_token(_site_id(), _user()))
+    except LookupError as exc:
+        return _error(exc, 404)
+
+
+@app.route("/api/packs/<pack_id>/apply", methods=["POST"])
+def api_pack_apply(pack_id: str):
+    try:
+        return jsonify(_staff_payload(store().apply_pack(pack_id, _site_id(), _user())))
     except LookupError as exc:
         return _error(exc, 404)
 
