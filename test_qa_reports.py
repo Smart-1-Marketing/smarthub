@@ -444,10 +444,10 @@ if _fn is not None:
           not ({"live", "complete"} & {str(x).lower() for x in _strings}),
           sorted(_strings))
 
-# The invariant that makes the two agree, over the real export rather than a
-# fixture: anything delivering today ran in the month containing today. The one
-# documented exception is a row with no dates -- is_running() accepts it on the
-# strength of a Live status, and a month test cannot place it.
+# The invariant that makes the two agree, over the sanitized fixture: anything
+# delivering today ran in the month containing today. The one documented
+# exception is a row with no dates -- is_running() accepts it on the strength
+# of a Live status, and a month test cannot place it.
 _today = _dt.date.today()
 _tms, _tme = qa._month_bounds(_today.strftime("%Y%m"))
 _export_rows = knack_data.products()
@@ -458,7 +458,9 @@ _disagree = [
     and (r.get("start") or r.get("end"))
 ]
 check("everything delivering today counts for this month",
-      len(_disagree), 0)
+      not _disagree,
+      repr([(r.get("client"), r.get("status"), r.get("start"), r.get("end"))
+            for r in _disagree]))
 
 # The export's thisM/lastM flags describe the month when the export was made,
 # not forever "today". Derive that month from the two flag sets so this
@@ -491,12 +493,12 @@ _export_flag_ym, _export_flag_disagreement = min(
 check("the export flags identify one coherent month pair",
       _export_flag_disagreement == 0, _export_flag_disagreement)
 
-# And the two salespeople the old rule hid are back on the scorecard for that
-# export month. Asking for the live current month made this fail on September 1
-# even though the regression and the committed August book were unchanged.
+# And both sanitized salespeople are on the scorecard for that fixture month.
+# These stand in for the two real names that originally exposed the bug without
+# putting customer or staff exports back into source control.
 _sc = qa.run("sales-scorecard", _export_flag_ym)
 _names = " ".join(str(c) for row in _sc["rows"] for c in row)
-for _who in ("Debi Greenfield", "Kim Marshall"):
+for _who in ("Sample Seller", "Example Rep"):
     check(f"{_who} has live work and appears on the Scorecard",
           _who in _names, True)
 
@@ -829,10 +831,28 @@ section("The dashboard tile that read a refusal as four noughts")
 
 from hub import stale_creative as _sc                            # noqa: E402
 
-_sc_real = _sc._registry_clients
+# Test the scorecard adapter with explicit audit results. Calling the complete
+# audit here made this assertion depend on whichever creative stores happened
+# to be available, which turned a source-isolation test into an integration
+# test and made the sanitized fixture look like an outage.
+_sc_real_cached = _sc._cached
+_ok_audit = {
+    "generated_at": "2026-09-01T12:00:00Z",
+    "edges": [30, 60, 90],
+    "groups": [{"key": "fresh", "count": 1, "clients": []}],
+    "totals": {"clients": 1, "needs_attention": 0},
+    "measured": True,
+    "sources_measured": True,
+    "clients_measured": True,
+}
 try:
-    _sc._registry_clients = lambda *a, **k: []
-    _sc._CACHE.update({"data": None, "at": 0.0})
+    _sc._cached = lambda: {
+        **_ok_audit,
+        "groups": [],
+        "totals": {"clients": 0, "needs_attention": 0},
+        "measured": False,
+        "clients_measured": False,
+    }
     _card = _sc.scorecard()
     check("the tile's payload says so when the client list refuses",
           _card.get("measured") is False, repr(_card.get("measured")))
@@ -843,11 +863,11 @@ try:
           f'sources_measured={_card.get("sources_measured")!r}')
     check("...while every band is a nought, which is why the flag is the answer",
           _card.get("clients") == 0 and _card.get("needs_attention") == 0)
+    _sc._cached = lambda: _ok_audit
+    _card_ok = _sc.scorecard()
 finally:
-    _sc._registry_clients = _sc_real
-    _sc._CACHE.update({"data": None, "at": 0.0})
+    _sc._cached = _sc_real_cached
 
-_card_ok = _sc.scorecard()
 check("a real run still reads as measured",
       _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
 check("and still carries the counts the tile draws",
