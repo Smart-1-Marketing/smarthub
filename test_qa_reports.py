@@ -450,8 +450,9 @@ if _fn is not None:
 # strength of a Live status, and a month test cannot place it.
 _today = _dt.date.today()
 _tms, _tme = qa._month_bounds(_today.strftime("%Y%m"))
+_export_rows = knack_data.products()
 _disagree = [
-    r for r in knack_data.products()
+    r for r in _export_rows
     if knack_data.is_running(r)
     and not knack_data.ran_in_month(r, _tms, _tme)
     and (r.get("start") or r.get("end"))
@@ -459,8 +460,41 @@ _disagree = [
 check("everything delivering today counts for this month",
       len(_disagree), 0)
 
-# And the two salespeople the old rule hid are back on the scorecard.
-_sc = qa.run("sales-scorecard")
+# The export's thisM/lastM flags describe the month when the export was made,
+# not forever "today". Derive that month from the two flag sets so this
+# regression remains true across a calendar rollover and after the export is
+# refreshed. A broken month rule still fails: both sets must match one
+# consecutive month pair exactly.
+_export_months = []
+_candidate_ym = _today.strftime("%Y%m")
+for _ in range(18):
+    _export_months.append(_candidate_ym)
+    _candidate_ym = qa._prev_ym(_candidate_ym)
+
+
+def _export_flag_delta(ym):
+    this_start, this_end = qa._month_bounds(ym)
+    last_start, last_end = qa._month_bounds(qa._prev_ym(ym))
+    flagged_this = {id(r) for r in _export_rows if r.get("thisM")}
+    flagged_last = {id(r) for r in _export_rows if r.get("lastM")}
+    computed_this = {id(r) for r in _export_rows
+                     if qa._active_in_month(r, this_start, this_end)}
+    computed_last = {id(r) for r in _export_rows
+                     if qa._active_in_month(r, last_start, last_end)}
+    return len(flagged_this ^ computed_this) + len(flagged_last ^ computed_last)
+
+
+_export_flag_ym, _export_flag_disagreement = min(
+    ((_ym, _export_flag_delta(_ym)) for _ym in _export_months),
+    key=lambda item: item[1],
+)
+check("the export flags identify one coherent month pair",
+      _export_flag_disagreement == 0, _export_flag_disagreement)
+
+# And the two salespeople the old rule hid are back on the scorecard for that
+# export month. Asking for the live current month made this fail on September 1
+# even though the regression and the committed August book were unchanged.
+_sc = qa.run("sales-scorecard", _export_flag_ym)
 _names = " ".join(str(c) for row in _sc["rows"] for c in row)
 for _who in ("Debi Greenfield", "Kim Marshall"):
     check(f"{_who} has live work and appears on the Scorecard",
@@ -993,11 +1027,12 @@ check("and a campaign the stale export never saw is counted",
       g2.get("Started Since Co", {}).get("thisM") is True,
       "started " + _iso(_first) + " and the export's flag says no")
 
-# Nothing moved on today's real book — the evidence that this is safe now and
-# only bites when the export slips or Knack answers.
+# On the real committed book, the computed month pair reproduces the flags the
+# exporter wrote. The month is derived above rather than assumed to be today:
+# the file and the calendar do not roll over in the same transaction.
 _real_rows = _kd.products()
-_ts, _te = qa._month_bounds(_today.strftime("%Y%m"))
-_ls, _le = qa._month_bounds(qa._prev_ym(_today.strftime("%Y%m")))
+_ts, _te = qa._month_bounds(_export_flag_ym)
+_ls, _le = qa._month_bounds(qa._prev_ym(_export_flag_ym))
 for _flag, _s, _e in (("thisM", _ts, _te), ("lastM", _ls, _le)):
     _flagged = {id(r) for r in _real_rows if r.get(_flag)}
     _computed = {id(r) for r in _real_rows if qa._active_in_month(r, _s, _e)}
