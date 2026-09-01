@@ -251,7 +251,10 @@ def run():
             "campaign": {"id": "77"},
             "metrics": {"costMicros": "125000000", "impressions": "9000",
                         "clicks": "450", "ctr": 0.05, "averageCpc": "277777",
-                        "conversions": 30, "costPerConversion": "4166666"},
+                        "conversions": 30, "costPerConversion": "4166666",
+                        "searchImpressionShare": 0.625,
+                        "searchBudgetLostImpressionShare": 0.15,
+                        "searchRankLostImpressionShare": 0.225},
         }]
 
     google_ads.search = fake_campaign_search
@@ -271,6 +274,14 @@ def run():
     check("[google read] concurrent campaign rows still merge by id",
           len(live_campaigns) == 1 and live_campaigns[0]["cost"] == 125.0
           and live_campaigns[0]["daily_budget"] == 25.0, live_campaigns)
+    check("[google read] search share is requested and returned per campaign",
+          "metrics.search_impression_share" in next(
+              q for q in campaign_queries if "metrics.cost_micros" in q
+          )
+          and live_campaigns[0]["search_impression_share"] == 0.625
+          and live_campaigns[0]["search_budget_lost_share"] == 0.15
+          and live_campaigns[0]["search_rank_lost_share"] == 0.225,
+          live_campaigns)
     check("[google read] v25 campaign datetimes keep the date-only UI contract",
           live_campaigns[0]["start_date"] == "2026-09-01"
           and live_campaigns[0]["end_date"] == "2037-12-30", live_campaigns)
@@ -282,6 +293,55 @@ def run():
           "generation !== loadGeneration" in campaign_page_src)
     check("[live campaigns] the range event is not mistaken for a customer id",
           "getElementById('range').onchange = () => load()" in campaign_page_src)
+    check("[live campaigns] enabled client accounts are the dashboard entry point",
+          "Active accounts" in campaign_page_src and "accountList" in campaign_page_src)
+    check("[live campaigns] campaign filters and sorting stay above the table",
+          all(key in campaign_page_src for key in
+              ("campaignSearch", "statusFilter", "channelFilter", "sortBy")))
+    check("[live campaigns] insights and search-share links open Google Ads",
+          "googleAdsUrl('insights')" in campaign_page_src
+          and "googleAdsUrl('campaigns')" in campaign_page_src
+          and "Search share" in campaign_page_src)
+    check("[live campaigns] typed confirmations travel to the server",
+          "confirmation: requiredWord" in campaign_page_src
+          and all(word in campaign_page_src for word in ("ENABLE", "PAUSE", "DELETE")))
+
+    # Status changes are protected below the browser too. A direct caller must
+    # provide the action word, and deleting uses Google's irreversible remove.
+    status_calls = []
+
+    def fake_status_request(method, path, body=None, **kw):
+        status_calls.append({"method": method, "path": path, "body": body})
+        return {"results": [{}]}
+
+    real_request = google_ads.request
+    google_ads.request = fake_status_request
+    refused_statuses = []
+    try:
+        for status, confirmation in (("ENABLED", ""), ("PAUSED", "enable"),
+                                     ("REMOVED", "remove")):
+            try:
+                google_ads.set_campaign_status(
+                    "2223334444", "77", status, confirmation=confirmation
+                )
+            except google_ads.GoogleAdsError:
+                refused_statuses.append(status)
+        google_ads.set_campaign_status(
+            "2223334444", "77", "PAUSED", confirmation="pause"
+        )
+        google_ads.set_campaign_status(
+            "2223334444", "77", "REMOVED", confirmation="DELETE"
+        )
+    finally:
+        google_ads.request = real_request
+    check("[google write] every campaign action needs its exact confirmation word",
+          refused_statuses == ["ENABLED", "PAUSED", "REMOVED"]
+          and len(status_calls) == 2, {"refused": refused_statuses,
+                                      "calls": status_calls})
+    check("[google write] delete is sent as an irreversible remove",
+          status_calls[1]["body"]["operations"][0].get("remove", "").endswith(
+              "/campaigns/77"
+          ), status_calls)
 
     # ------------------------------------------------- deploy payload shape
     # Build the mutate batch without touching the network, and assert the

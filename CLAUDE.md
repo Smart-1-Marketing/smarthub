@@ -1275,6 +1275,26 @@ whether the Cloudinary copy goes with it. It is named in the confirmation and
 says it cannot be undone, because for an image a client sent us our copy is
 very often the only copy.
 
+**And the gallery that link opened was one source's slice, read as the whole.**
+"See client image gallery" opened the SEO pipeline's archive scoped to the
+company — real images, correctly filtered, and a rep read it as everything we
+hold for the client while their uploads, display ads, logos and stock sat in
+the full gallery one module over. The link goes through
+`/tools/image-picker/gallery/for-client` now, which resolves the name under
+`provisioning.py`'s rules — exactly one gallery or none, never a substring —
+and lands on the full gallery, every folder and every source; a client with
+no full gallery yet lands on the SEO archive scoped to them, which is
+everything the Hub holds outside one. The two cannot bounce a reader between
+them, because the scoped SEO view offers a **Full client gallery** link only
+when the server resolved exactly one, and says it is the pipeline's own view
+rather than claiming to be every image saved. A view narrowed inside the full
+gallery — a group chip, a search, or both stacked — carries one **Show the
+full gallery** press back to everything, because the All chip and Clear each
+undo only half and "N of M shown" is a state somebody should not have to
+reverse-engineer their way out of. `c360` rides through the resolver's
+redirect, so "Back to <client>" survives the hop. `test_image_picker.py` and
+`test_client_images.py` assert all of it.
+
 **"Back" from a tool means the tool, and from a client record it means the
 client.** Every link out of Client 360 landed somewhere whose idea of back was
 its own parent, so a rep who opened the image gallery for Icon Solar got
@@ -1888,6 +1908,43 @@ was on no list: without a `?name=` the route **redirects to `/seo`**, so a
 sweep of bare paths lands on the list, reports it green, and the largest
 template in the Hub — 3,600 lines, drawn almost entirely from fetches — goes
 unchecked while reading as covered. Both it and `/seo/webmaster` are named now.
+
+**A card that asks for nobody's data gets somebody's.** Client 360's forms
+card fetches `/api/client/forms?name=…&period=…` and names no sub-account —
+and `ghl_forms.summary()` fell back to `GHL_LEAD_LOCATION_ID`, which
+`hub/config.py` describes as the sub-account *"leads are written into"*: Smart
+1's own. A form belongs to exactly one sub-account, so there was **no code
+path by which a client's own forms could reach that card**, and every client's
+record showed the agency's form submissions under that client's name. Not an
+empty card — a wrong one, wrong identically for all of them, which is why it
+read as a feature that had not been finished rather than as a bug. The
+location is resolved from the **client** now, through
+`suite_accounts.location_for()`, and there is no default: a client whose
+sub-account nobody has recorded has no answer, and saying so is the answer.
+
+**And two more in the same module, each rendering as a tidy nought.** A form
+whose submission count raised was dropped with `continue` placed *before* the
+`skipped` tally, so it left no trace at all — when every form failed, the card
+said *"No form submissions in September"* with `no_submissions: 0` and nothing
+anywhere reporting that nothing had been read. And a previous period that
+could not be counted was recorded as **0**, which prints "14 vs 0" and an
+up-arrow over a comparison that never happened. `unreadable` is counted and
+named beside `skipped` — *nobody filled it in* and *we could not ask* are
+different sentences — and an unmeasured baseline is `None`, which makes the
+aggregate baseline unmeasured too rather than comparing against a smaller sum
+and reporting a rise that is an artifact of the failure.
+
+**None of it was covered, which is how three failures shared one module.**
+`test_ghl_forms.py` stubs `_get` and asserts what the module does with each
+answer. Its own first draft then repeated the mistake it was written for: it
+set `GHL_LEAD_LOCATION_ID` *after* importing `hub`, and `config.settings` is a
+frozen dataclass built once at import — so the fallback field was `""`, there
+was no agency location to reach, and *"nothing was asked of the agency's own
+location"* passed against the unfixed code. The variable is set before the
+import now and the test asserts the fallback is really configured first.
+Reverted, eighteen checks go red; the `_delta` assertions are guarded because
+the old code raises on a `None` baseline and an assertion that raises takes
+every check after it out of the file.
 
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.

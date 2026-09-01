@@ -437,11 +437,28 @@ def index():
 
 @app.route("/gallery")
 def gallery_page():
-    """The archive on its own, optionally scoped to one client — what the
-    Client 360 'See client image gallery' button opens."""
+    """The archive on its own, optionally scoped to one client.
+
+    This is one source's view — what the SEO pipeline saved — so a page
+    scoped to a client offers the way to their FULL gallery (every folder,
+    every source, in Client Image Uploads) when exactly one exists. Resolved
+    here rather than guessed in the template, and empty on any failure: a
+    scoped gallery with no way out is a reader concluding this is all we
+    have for the client, and a link that guesses between two galleries is
+    worse than none.
+    """
+    company = request.args.get("company", "")
+    full_gallery = ""
+    if company:
+        try:
+            from modules.image_picker import provisioning
+            full_gallery = provisioning.full_gallery_url(company)
+        except Exception:                 # noqa: BLE001 — standalone runs
+            full_gallery = ""
     return render_template("gallery.html", version=_version_label(),
-                           company=request.args.get("company", ""),
-                           client_slug=request.args.get("client_slug", ""))
+                           company=company,
+                           client_slug=request.args.get("client_slug", ""),
+                           full_gallery=full_gallery)
 
 
 @app.route("/house")

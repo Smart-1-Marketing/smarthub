@@ -468,6 +468,68 @@ check("deleting a gallery that is not there is a 404",
 
 
 # =====================================================================
+section("The full gallery is reachable from a name")
+# =====================================================================
+
+# Client 360 knows a client's NAME; this module keys galleries on its own id.
+# The resolver is the join, under provisioning's rules — exactly one gallery
+# or none, never a substring — and every outcome lands somewhere that shows
+# the client's images rather than an error about our own bookkeeping.
+from modules.image_picker import provisioning                    # noqa: E402
+
+# Its own gallery: the section above deletes Testy Marine Trim's, which is
+# exactly the state a resolver must not answer a stale link for.
+full_cid, _full_tok = make_gallery("Fullerton Awnings")
+
+check("the helper answers the one gallery",
+      provisioning.full_gallery_url("Fullerton Awnings"),
+      f"/tools/image-picker/gallery/{full_cid}")
+check("and an unknown name answers nothing rather than a guess",
+      provisioning.full_gallery_url("Nobody At All"), "")
+
+r = http.get("/tools/image-picker/gallery/for-client?name=Fullerton%20Awnings")
+check("one gallery redirects to it", r.status_code, 302)
+check("to the full gallery",
+      r.headers["Location"].endswith(f"/tools/image-picker/gallery/{full_cid}"), True)
+
+# The way back to the record rides the redirect, or the reader lands one hop
+# from the client whose record they came from with no way back to it.
+r = http.get("/tools/image-picker/gallery/for-client"
+             "?name=Fullerton%20Awnings&c360=Icon%20Solar")
+check("c360 is carried through the redirect",
+      "c360=Icon%20Solar" in r.headers["Location"], True)
+
+# No full gallery yet: everything the Hub holds for them outside one is the
+# SEO pipeline's archive, so land there scoped to the name.
+r = http.get("/tools/image-picker/gallery/for-client?name=Fresh%20Prospect%20LLC")
+check("no gallery falls back to the SEO archive", r.status_code, 302)
+check("scoped to the client", r.headers["Location"]
+      .endswith("/tools/seo-images/gallery?company=Fresh%20Prospect%20LLC"), True)
+# A GET that created a gallery would be one a prefetch creates without
+# anybody asking — the rule the upload-link endpoint is a POST for.
+check("and the visit created nothing",
+      provisioning.full_gallery_url("Fresh Prospect LLC"), "")
+
+# Two galleries that could both be this client refuse and name both: picking
+# either sends somebody into another client's gallery reading as this one's.
+make_gallery("Twin Peaks Dental")
+make_gallery("Twin Peaks Dental")
+r = http.get("/tools/image-picker/gallery/for-client?name=Twin%20Peaks%20Dental")
+check("two candidates are refused, not guessed", r.status_code, 200)
+check("naming both", r.data.decode().count("Twin Peaks Dental") >= 2, True)
+check("and the helper offers no link either",
+      provisioning.full_gallery_url("Twin Peaks Dental"), "")
+
+check("no name at all is refused",
+      http.get("/tools/image-picker/gallery/for-client").status_code, 400)
+
+_anon = flask_app.test_client()
+r = _anon.get("/tools/image-picker/gallery/for-client?name=Fullerton%20Awnings")
+check("a stranger is sent to the login", r.status_code, 302)
+check("not into a gallery", "/login" in r.headers["Location"], True)
+
+
+# =====================================================================
 section("The delete button is on the page, and nothing else shouts")
 # =====================================================================
 
