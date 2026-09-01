@@ -39,6 +39,7 @@ What is asserted here is the ways that fix goes quietly wrong:
 """
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -84,8 +85,8 @@ import modules.sales_builder.app as sb                             # noqa: E402
 
 WIZARD = os.path.join(ROOT, "modules", "sales_builder", "templates", "index.html")
 IO_TPL = os.path.join(ROOT, "modules", "io_builder", "templates", "index.html")
-wiz = open(WIZARD, encoding="utf-8").read()
-io_tpl = open(IO_TPL, encoding="utf-8").read()
+wiz = pathlib.Path(WIZARD).read_text(encoding="utf-8")
+io_tpl = pathlib.Path(IO_TPL).read_text(encoding="utf-8")
 
 C = product_intake.CONSULTING
 DESC = "Quarterly brand strategy workshop, two days on site."
@@ -109,7 +110,7 @@ check("no consulting product was added to the rate card",
       C["product"] not in card_products)
 
 # The path is rate_card's own, not a second guess at where the card lives.
-raw = open(rate_card.DATA, encoding="utf-8").read()
+raw = pathlib.Path(rate_card.DATA).read_text(encoding="utf-8")
 check("the wholesale card file does not name it",
       C["product"] not in raw)
 
