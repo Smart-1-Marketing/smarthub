@@ -206,6 +206,84 @@ check("and are no longer proposed",
       "loc-mono" in {p["location_id"] for p in out["proposals"]}, False)
 
 
+# ------------------------------------------------------- the review screen
+section("The screen that records 282 of these, one screenful at a time")
+
+# Booted late and deliberately: everything above drives the library, and what
+# is asserted here is that a pairing recorded THROUGH THE ROUTE reaches the
+# same store. A screen that writes somewhere else has bought nothing.
+os.environ.setdefault("PANEL_PASSWORD", "suite-map-test-password")
+from hub import auth                                          # noqa: E402
+from wsgi import hub_app as APP                                # noqa: E402
+
+anon = APP.test_client()
+check("the page redirects a stranger to the login",
+      anon.get("/tools/suite-match").status_code, 302)
+check("the recorded list refuses a stranger",
+      anon.get("/api/suite/map").status_code, 401)
+for path in ("/api/suite/proposals", "/api/suite/link", "/api/suite/unlink"):
+    check(f"{path} refuses a stranger's write",
+          anon.post(path, json={}).status_code, 401)
+
+signed = APP.test_client()
+signed.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value("Tester"))
+check("the page renders", signed.get("/tools/suite-match").status_code, 200)
+
+# Finding is a POST, for the reason domain_purchase's refresh is: it walks
+# every sub-account in the company against HighLevel's own rate limit, and a
+# GET that does that is one a reload or a prefetch fires unasked.
+check("finding sub-accounts is not a GET",
+      signed.get("/api/suite/proposals").status_code, 405)
+
+body = signed.post("/api/suite/proposals").get_json()
+check("the route answers with the same reading the library gives",
+      body["measured"], True)
+check("and proposes the same rows",
+      {p["location_id"] for p in body["proposals"]},
+      {p["location_id"] for p in suite_map.proposals()["proposals"]})
+
+before = len(suite_map.links())
+one = signed.post("/api/suite/link",
+                  json={"client": "Northgate Dental",
+                        "location_id": "loc-north"}).get_json()
+check("one pairing records over the route", one["ok"], True)
+check("and it reaches the store the readers use",
+      suite_map.recorded_client("loc-north")["client"], "Northgate Dental")
+
+# The refusal has to survive the route as well: a rule the library keeps
+# while the endpoint breaks it is not a rule.
+clash = signed.post("/api/suite/link",
+                    json={"client": "Somebody Else",
+                          "location_id": "loc-north"}).get_json()
+check("a sub-account already held is refused over the route too",
+      clash["ok"], False)
+check("and the refusal names who holds it",
+      "Northgate Dental" in clash.get("detail", ""), True)
+
+bulk = signed.post("/api/suite/link", json={"pairs": [
+    {"client": "Cirilla's", "location_id": "loc-cir"},
+    {"client": "Yet Another", "location_id": "loc-north"},   # already taken
+]}).get_json()
+check("a screenful reports what landed", bulk["linked"], 1)
+check("and what was refused rather than one number", bulk["refused"], 1)
+check("with a row per pair", len(bulk["results"]), 2)
+
+listing = signed.get("/api/suite/map").get_json()
+check("the recorded list counts what is there",
+      listing["count"], before + 2)
+check("and the count matches the rows it sent",
+      len(listing["links"]), listing["count"])
+
+check("unlinking answers", signed.post("/api/suite/unlink",
+      json={"client": "Northgate Dental"}).get_json()["ok"], True)
+check("and the pairing is gone",
+      suite_map.recorded_client("loc-north")["state"],
+      suite_map.NOT_CONNECTED)
+check("unlinking a client with none says so, rather than reporting success",
+      signed.post("/api/suite/unlink",
+                  json={"client": "Nobody At All"}).get_json()["ok"], False)
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

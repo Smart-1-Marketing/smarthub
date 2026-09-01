@@ -76,6 +76,7 @@
     "stale-creative": "Stale Creative", "unattached-images": "Unattached Images",
     "tickets": "Web Tickets", "bulk": "Scan All Clients",
     "sites-match": "Match Sites to Clients", "google-match": "Match Google Accounts",
+    "suite-match": "Match Suite Sub-accounts",
     "campaign-assets": "Campaign Assets Needed", "domains": "Domain Renewals",
     // Named rather than left to the slug: title-casing gives "Client Owners"
     // and "My Clients", and the first is not what the tile says. A crumb that
@@ -104,6 +105,7 @@
     "unattached-images": ["/qa", "QA Reports"],
     "tickets": ["/qa", "QA Reports"], "bulk": ["/qa", "QA Reports"],
     "sites-match": ["/qa", "QA Reports"], "google-match": ["/qa", "QA Reports"],
+    "suite-match": ["/qa", "QA Reports"],
     "campaign-assets": ["/qa", "QA Reports"], "domains": ["/qa", "QA Reports"],
     "client-owners": ["/qa", "QA Reports"],
     // /my-clients is in the nav *and* tiled on QA Reports. Back goes to the
