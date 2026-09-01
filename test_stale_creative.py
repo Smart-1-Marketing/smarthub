@@ -72,6 +72,7 @@ import os
 import shutil
 import sys
 import tempfile
+import datetime as _dt
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -151,7 +152,29 @@ check("nothing was written", evergreen.marks(), [])
 section("The list carries actions, and no longer carries Source")
 # =====================================================================
 
-html = signed_in.get("/qa/stale-creative").get_data(as_text=True)
+_real_load_source = stale_creative._load_source
+_fixture_creative = {
+    "client_raw": "Acme Bakery",
+    "uploaded_at": _dt.datetime.now(_dt.timezone.utc),
+    "source_label": "Fixture creative",
+    "title": "Fixture creative",
+    "note": "",
+    "alt": "",
+    "url": "",
+    "thumb": "",
+}
+try:
+    # Private creative archives are deliberately absent from the repository.
+    # Give the initial page one measured, sanitized record; the audit remains
+    # cached for the overlay checks below, while the real reader is restored
+    # before the later adapter sweep seeds and verifies every source itself.
+    stale_creative._load_source = lambda src: (
+        [_fixture_creative] if src is stale_creative.SOURCES[0] else [])
+    stale_creative._CACHE.update({"data": None, "at": 0.0})
+    html = signed_in.get("/qa/stale-creative").get_data(as_text=True)
+finally:
+    stale_creative._load_source = _real_load_source
+
 check("the page renders", "<h1>Stale Creative</h1>" in html, True)
 check("the Source column is gone", "<th>Source</th>" in html, False)
 check("an Actions column is there", '<th class="acts">Actions</th>' in html, True)
@@ -285,8 +308,6 @@ finally:
 # ---------------------------------------------------------------------------
 section("Every source reports, and none of them guesses at another module's columns")
 # ---------------------------------------------------------------------------
-import datetime as _dt                                        # noqa: E402
-
 from hub import image_audit                                   # noqa: E402
 
 # The shape `hub/image_audit.py`'s readers emit. A `store` source may name
