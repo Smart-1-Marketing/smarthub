@@ -143,5 +143,60 @@ check("the group button keeps the class loadGroup() addresses it by",
 check("the record asks for the icon rail like the other workbenches",
       'data-s1hub-collapse="1"' in REC)
 
+# ------------------------------------------------------------------------
+section("3. Assignment and outstanding-work behavior")
+
+# Drive the real rendering functions. Static checks for the select's spelling
+# would pass even if both assigned and unassigned clients still received it.
+oa = REC.find("function renderOwner(d){")
+ob = REC.find("function loadOwner(name){")
+OWNER_SRC = REC[oa:ob] if 0 < oa < ob else ""
+check("the owner rendering block can be lifted", bool(OWNER_SRC))
+
+owner_driver = """
+const nodes={
+  'c-owner':{innerHTML:''},
+  'c-owner-issues':{innerHTML:''}
+};
+const document={getElementById:id=>nodes[id]||null};
+const window={CURRENT_CLIENT:'Acme'};
+const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+""" + OWNER_SRC + """
+renderOwner({email:'aimee@smart1marketing.com',owner:'Aimee',known:true,
+  users:[{email:'aimee@smart1marketing.com',name:'Aimee'}]});
+const assigned=nodes['c-owner'].innerHTML;
+renderOwner({email:'',owner:'',known:false,
+  users:[{email:'aimee@smart1marketing.com',name:'Aimee'}]});
+const unassigned=nodes['c-owner'].innerHTML;
+renderClientIssues({ok:true,complete:true,issues:[{
+  label:'Assets needed',title:'Spring campaign',detail:'Waiting on banners.',
+  where:'Campaign Assets Needed'
+}]});
+console.log(JSON.stringify({assigned,unassigned,issues:nodes['c-owner-issues'].innerHTML}));
+"""
+owner_run = subprocess.run(["node", "-"], input=owner_driver,
+                           capture_output=True, text=True)
+check("the owner rendering block runs on its own", owner_run.returncode, 0)
+owner_out = json.loads(owner_run.stdout or "{}") if owner_run.returncode == 0 else {}
+assigned = owner_out.get("assigned", "")
+unassigned = owner_out.get("unassigned", "")
+issues_html = owner_out.get("issues", "")
+check("an assigned client has no reassignment picker",
+      'id="c-owner-pick"' in assigned, False)
+check("an assigned client has no reassignment save control",
+      'id="c-owner-save"' in assigned, False)
+check("an assigned client cannot be reassigned through a partner-rule control",
+      'id="c-owner-follow"' in assigned, False)
+check("an unassigned client can still receive its first assignment",
+      all(token in unassigned for token in ('id="c-owner-pick"',
+                                             'id="c-owner-save"')), True)
+check("outstanding work renders in a drop-down container",
+      "<details" in issues_html and "Spring campaign" in issues_html, True)
+check("the drop-down describes the handling screen without navigating away",
+      "Handled in: Campaign Assets Needed" in issues_html
+      and "href=" not in issues_html, True)
+check("Client 360 no longer links its outstanding control to another screen",
+      'href="/my-clients"' in REC, False)
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

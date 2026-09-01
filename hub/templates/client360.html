@@ -2752,23 +2752,33 @@ function renderOwner(d){
   var opts='<option value="">— nobody —</option>'+(d.users||[]).map(function(u){
       return '<option value="'+esc(u.email)+'"'+(u.email===d.email?' selected':'')
         +'>'+esc(u.name)+'</option>'; }).join('');
+  /* Client 360 may make the first assignment, but it is not an assignment
+     management screen. Once somebody owns the client, show the answer without
+     offering a second place to change it. That keeps the decision on Client
+     Assignments, where partner rules and the rest of the book are visible. */
+  var assignmentControls=d.email
+    ? '<span class="muted" style="margin-left:auto;font-size:12px">Assignment changes are managed from Client Assignments.</span>'
+    : '<select id="c-owner-pick" style="margin-left:auto;padding:5px 8px;'
+      +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
+      +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Assign</a>'
+      /* Offered only while unassigned and where there is a rule to go back to.
+         An assigned client must not regain a reassignment control by having a
+         partner rule as well. */
+      +(d.rule&&d.source!=='rule'
+        ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
+          +'partner rule</a>' : '');
   el.innerHTML='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
     +'background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:9px 14px;'
     +'margin:0 0 12px;font-size:13px">'
     +'<span>&#128100; Assigned to '+who+'</span>'
     +(d.at?'<span class="muted">since '+esc(String(d.at).slice(0,10))
         +(d.by?' · '+esc(d.by):'')+'</span>':'')
-    +'<select id="c-owner-pick" style="margin-left:auto;padding:5px 8px;'
-    +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
-    +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Save</a>'
-    /* Offered only where there is a rule to go back to. A control that can
-       only ever do nothing is one people learn to skip past. */
-    +(d.rule&&d.source!=='rule'
-      ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
-        +'partner rule</a>' : '')
-    +'<a class="open-link" href="/my-clients">What is outstanding →</a>'
+    +assignmentControls
     +(d.user_error?'<div style="flex-basis:100%;font-size:12px;color:#7a5b00">'
         +esc(d.user_error)+'</div>':'')
+    +'<div id="c-owner-issues" style="flex-basis:100%;min-width:0">'
+      +'<span class="muted" style="font-size:12px">Checking outstanding issues…</span>'
+      +'</div>'
     +'</div>';
   var follow=document.getElementById('c-owner-follow');
   if(follow) follow.onclick=function(){
@@ -2810,11 +2820,56 @@ function renderOwner(d){
   };
 }
 
+function renderClientIssues(d){
+  var el=document.getElementById('c-owner-issues'); if(!el) return;
+  d=d||{};
+  if(d.ok===false||d.error){
+    el.innerHTML='<span class="pill warn">Outstanding issues could not be read.</span>';
+    return;
+  }
+  var issues=d.issues||[];
+  var warning=d.warning
+    ? '<div style="margin-top:8px;font-size:12px;color:#7a5b00">'+esc(d.warning)+'</div>'
+    : '';
+  if(!issues.length){
+    el.innerHTML=(d.complete
+      ? '<span class="muted" style="font-size:12px">No outstanding issues.</span>'
+      : '<span class="pill warn">Outstanding issues were only partially checked.</span>')
+      +warning;
+    return;
+  }
+  var rows=issues.map(function(issue){
+    return '<div style="padding:10px 0;border-top:1px solid #e2e8f0">'
+      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        +'<span class="pill warn">'+esc(issue.label||'Outstanding')+'</span>'
+        +'<b style="color:#172554">'+esc(issue.title||'Needs attention')+'</b>'
+      +'</div>'
+      +(issue.detail?'<div style="margin-top:5px;color:#334155">'+esc(issue.detail)+'</div>':'')
+      +(issue.where?'<div class="muted" style="margin-top:4px;font-size:12px">Handled in: '
+          +esc(issue.where)+'</div>':'')
+      +'</div>';
+  }).join('');
+  el.innerHTML='<details style="border-top:1px solid #dbe4f0;padding-top:8px">'
+    +'<summary style="cursor:pointer;color:#b45309;font-weight:700">'
+      +issues.length+' outstanding issue'+(issues.length===1?'':'s')
+      +' — show details</summary>'
+    +'<div style="padding-top:2px">'+rows+warning+'</div></details>';
+}
+
 function loadOwner(name){
   var el=document.getElementById('c-owner');
   if(!el||!name) return;
+  /* Start both reads together. The issue result waits for renderOwner() to
+     create its container, but it does not have to wait on the network. */
+  var issues=fetch('/api/client/issues?client='+encodeURIComponent(name),
+      {credentials:'same-origin'}).then(function(r){return r.json();});
   fetch('/api/client/owner?client='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(renderOwner)
+    .then(function(r){return r.json();}).then(function(d){
+      renderOwner(d);
+      issues.then(renderClientIssues).catch(function(){
+        renderClientIssues({ok:false,error:'unavailable'});
+      });
+    })
     /* "Nobody owns this" and "we could not read who owns it" are different
        answers, and drawing the first over the second is how a client gets
        assigned twice. */
