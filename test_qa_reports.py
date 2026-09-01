@@ -107,7 +107,7 @@ def section(title):
 
 from hub import qa                                              # noqa: E402
 
-PAGE = pathlib.Path(ROOT, "hub", "templates", "qa_report.html").read_text()
+PAGE = pathlib.Path(ROOT, "hub", "templates", "qa_report.html").read_text(encoding="utf-8")
 
 # The modules a REPORTS entry is actually built from. Kept beside the sweep
 # rather than derived, because a report is a thin wrapper here and the return
@@ -159,7 +159,7 @@ def _empty_returns_without_a_signal():
     """
     out = []
     for path in REPORT_SOURCES:
-        src = pathlib.Path(ROOT, path).read_text()
+        src = pathlib.Path(ROOT, path).read_text(encoding="utf-8")
         for node in ast.walk(ast.parse(src)):
             if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Dict):
                 continue
@@ -423,7 +423,7 @@ for label, rec, want in [
 # The report must not keep a second copy of the rule -- read by AST, because
 # `_active_in_month`'s own docstring quotes the old allowlist to explain the
 # fix, and a check that matches text reports the explanation as the defect.
-_qa_tree = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text())
+_qa_tree = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text(encoding="utf-8"))
 _fn = next((n for n in ast.walk(_qa_tree)
             if isinstance(n, ast.FunctionDef) and n.name == "_active_in_month"),
            None)
@@ -444,10 +444,10 @@ if _fn is not None:
           not ({"live", "complete"} & {str(x).lower() for x in _strings}),
           sorted(_strings))
 
-# The invariant that makes the two agree, over the real export rather than a
-# fixture: anything delivering today ran in the month containing today. The one
-# documented exception is a row with no dates -- is_running() accepts it on the
-# strength of a Live status, and a month test cannot place it.
+# The invariant that makes the two agree, over the sanitized fixture: anything
+# delivering today ran in the month containing today. The one documented
+# exception is a row with no dates -- is_running() accepts it on the strength
+# of a Live status, and a month test cannot place it.
 _today = _dt.date.today()
 _tms, _tme = qa._month_bounds(_today.strftime("%Y%m"))
 _export_rows = knack_data.products()
@@ -458,18 +458,20 @@ _disagree = [
     and (r.get("start") or r.get("end"))
 ]
 check("everything delivering today counts for this month",
-      len(_disagree) == 0, len(_disagree))
+      not _disagree,
+      repr([(r.get("client"), r.get("status"), r.get("start"), r.get("end"))
+            for r in _disagree]))
 
 # The export's thisM/lastM flags describe the month when the export was made,
-# not forever "today". Derive that month from the two flag sets so this
-# regression remains true across a calendar rollover and after the export is
-# refreshed. A broken month rule still fails: both sets must match one
-# consecutive month pair exactly.
-_export_months = []
-_candidate_ym = _today.strftime("%Y%m")
-for _ in range(18):
-    _export_months.append(_candidate_ym)
-    _candidate_ym = qa._prev_ym(_candidate_ym)
+# not forever "today". Use the export's declared period rather than inferring
+# it from date overlap: an insertion order can span both August and September,
+# so multiple candidate months can legitimately describe the same flag set.
+# A broken month rule still fails because both flag sets must match the
+# declared month and its predecessor exactly.
+_export_flag_ym = knack_data.export_state()["period"]
+check("the products export declares its scorecard month",
+      len(_export_flag_ym) == 6 and _export_flag_ym.isdigit(),
+      _export_flag_ym)
 
 
 def _export_flag_delta(ym):
@@ -484,16 +486,14 @@ def _export_flag_delta(ym):
     return len(flagged_this ^ computed_this) + len(flagged_last ^ computed_last)
 
 
-_export_flag_ym, _export_flag_disagreement = min(
-    ((_ym, _export_flag_delta(_ym)) for _ym in _export_months),
-    key=lambda item: item[1],
-)
+_export_flag_disagreement = _export_flag_delta(_export_flag_ym)
 check("the export flags identify one coherent month pair",
-      _export_flag_disagreement == 0, _export_flag_disagreement)
+      _export_flag_disagreement == 0,
+      f"{_export_flag_disagreement} flag rows disagree")
 
-# And the two salespeople the old rule hid are back on the scorecard for that
-# export month. Asking for the live current month made this fail on September 1
-# even though the regression and the committed August book were unchanged.
+# And both sanitized salespeople are on the scorecard for that fixture month.
+# The Assigned row specifically covers work the old Live/Complete allowlist
+# hid, without putting customer or staff exports back into source control.
 _sc = qa.run("sales-scorecard", _export_flag_ym)
 _names = " ".join(str(c) for row in _sc["rows"] for c in row)
 for _who in ("Sample Seller", "Assigned Seller"):
@@ -516,7 +516,7 @@ section("A products export that could not be read is not a book with nobody in i
 # listed, so one added next month is swept without anybody remembering. The
 # closure is over qa.py's own calls, because `salesperson_scorecard` reaches
 # `_month_rollup` through `_scorecard`.
-_QA_TREE = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text())
+_QA_TREE = ast.parse(pathlib.Path(ROOT, "hub", "qa.py").read_text(encoding="utf-8"))
 _QA_FNS = {n.name: n for n in ast.walk(_QA_TREE)
            if isinstance(n, ast.FunctionDef)}
 _PRODUCT_READERS = {"_client_groups", "_month_rollup"}
@@ -861,7 +861,6 @@ try:
           f'sources_measured={_card.get("sources_measured")!r}')
     check("...while every band is a nought, which is why the flag is the answer",
           _card.get("clients") == 0 and _card.get("needs_attention") == 0)
-
     _sc._registry_clients = lambda *a, **k: [{
         "name": "Fixture Client", "id": "fixture-client", "products": 1,
         "active": True,
@@ -883,7 +882,7 @@ finally:
 # The tile has to read it. A payload carrying the flag and a card ignoring it
 # is the same nought on the same dashboard.
 _TILE = pathlib.Path(ROOT, "hub", "templates",
-                     "_scorecard_stale_creative.html").read_text()
+                     "_scorecard_stale_creative.html").read_text(encoding="utf-8")
 check("the tile branches on measured before it draws a number",
       "d.measured === false" in _TILE,
       "the card draws d[data-k] straight from the payload")
@@ -964,7 +963,7 @@ _dead = sorted(f"{k}:{a}" for k, a in _emitted if a not in _handled)
 check("every action a report puts on a row has a handler on the page",
       not _dead, "; ".join(_dead))
 check("...and the sweep found buttons to check at all",
-      len(_emitted) >= 1, f"{len(_emitted)} action(s) emitted")
+      len(_emitted) >= 3, f"{len(_emitted)} action(s) emitted")
 
 
 # ---------------------------------------------------------------------------
