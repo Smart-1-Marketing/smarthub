@@ -380,9 +380,14 @@ DATE_RANGES = {
 _CAMPAIGN_FIELDS = """
     campaign.id, campaign.name, campaign.status,
     campaign.advertising_channel_type, campaign.bidding_strategy_type,
-    campaign.start_date, campaign.end_date,
+    campaign.start_date_time, campaign.end_date_time,
     campaign_budget.amount_micros, campaign_budget.id
 """
+
+
+def _date_part(value) -> str:
+    """Keep the Live Campaigns response date-only across Google API versions."""
+    return str(value or "").split(" ", 1)[0]
 
 
 def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
@@ -424,8 +429,8 @@ def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
             "status": c.get("status", ""),
             "channel": c.get("advertisingChannelType", ""),
             "bidding_strategy": c.get("biddingStrategyType", ""),
-            "start_date": c.get("startDate", ""),
-            "end_date": c.get("endDate", ""),
+            "start_date": _date_part(c.get("startDateTime")),
+            "end_date": _date_part(c.get("endDateTime")),
             "daily_budget": micros((row.get("campaignBudget") or {}).get("amountMicros")),
             "cost": 0.0, "impressions": 0, "clicks": 0, "ctr": 0.0,
             "avg_cpc": 0.0, "conversions": 0.0, "cost_per_conversion": 0.0,
@@ -580,7 +585,9 @@ def _build_rsa(proposal: dict, group: dict):
 
 
 def _stamp(offset_days=0) -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=offset_days)).strftime("%Y%m%d")
+    return (datetime.now(timezone.utc) + timedelta(days=offset_days)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
 
 
 def deploy_proposal(customer_id, proposal: dict, *, store=None, campaign_name=None,
@@ -636,7 +643,7 @@ def deploy_proposal(customer_id, proposal: dict, *, store=None, campaign_name=No
         "advertisingChannelType": "SEARCH",
         "campaignBudget": budget_rn,
         "manualCpc": {"enhancedCpcEnabled": False},
-        "startDate": _stamp(1),
+        "startDateTime": _stamp(1),
         "networkSettings": {
             "targetGoogleSearch": True,
             "targetSearchNetwork": bool(search_partners),
