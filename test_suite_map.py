@@ -83,8 +83,10 @@ check("and the answer says which store it came from",
 check("the reverse direction too",
       _sa.client_for_location("loc-icon").get("client"), "Icon Solar")
 
-# The older column still answers for a client this store has never heard of.
-_real_picker_import = None
+# A client in neither store gets a "nothing recorded" answer rather than a
+# wrong one. not_measured is allowed here because the picker table does not
+# exist in this environment, and "we could not look" is a true answer -- the
+# distinction the module is built around.
 check("a client neither store knows is not connected",
       _sa.location_for("Nobody At All").get("state") in
       ("not_connected", "not_measured"), True)
