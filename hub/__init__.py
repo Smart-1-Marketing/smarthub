@@ -5328,7 +5328,18 @@ def create_hub_app() -> Flask:
     def clients_data(filename):
         if not current_user():
             return jsonify({"error": "Not authenticated."}), 401
-        return send_from_directory(os.path.join(CLIENTS_APP, "data"), filename)
+        # The prebuilt Clients bundle still requests these historical URLs,
+        # but the response now comes from the private Knack source (or the
+        # optional private CLIENTS_DATA_DIR fallback), never a committed file.
+        if filename == "products.json":
+            rows, source, age_minutes = knack_data._product_source()  # noqa: SLF001
+            return jsonify({"records": rows, "source": source,
+                            "ageMinutes": age_minutes})
+        if filename == "websites.json":
+            rows = knack_data.websites()
+            return jsonify({"records": rows,
+                            "source": knack_data.websites_source()})
+        return jsonify({"error": "Unknown client dataset."}), 404
 
     # ---------------- QuickBooks connect / lookup ----------------
     @app.route("/qb/connect")
@@ -5814,10 +5825,11 @@ def create_hub_app() -> Flask:
         state = knack_data.export_state()
         age = knack_data.data_age_hours()
         if age is None:
-            add("Smart 1 Team data", "error", "clients_app/data/products.json not found.")
+            add("Smart 1 Team data", "error",
+                "No private products fallback is configured or readable.")
         elif state["stale"]:
             add("Smart 1 Team data", "warn",
-                f"The committed products export is for {state['label']}, and "
+                f"The private fallback products export is for {state['label']}, and "
                 f"it is now {state['current_label']}. It is only read when "
                 "Knack cannot be reached, but that is when it matters.")
         elif not state["period"]:
@@ -5825,12 +5837,12 @@ def create_hub_app() -> Flask:
             # nothing can say how old it is. Named rather than passed off as
             # fresh — the whole failure this row had.
             add("Smart 1 Team data", "warn",
-                "The committed products export carries no month, so how old "
+                "The private fallback products export carries no month, so how old "
                 "it is cannot be measured. It is the fallback for when Knack "
                 "cannot be reached.")
         else:
             # The site count says which source answered. Products and websites
-            # each prefer the live Knack object and fall back to the committed
+            # each prefer the live Knack object and fall back to the private
             # export, and a count with no source on it reads as live whichever
             # it was — which is the whole reason the export went unnoticed.
             _wsrc = knack_data.websites_source()
@@ -5838,7 +5850,7 @@ def create_hub_app() -> Flask:
                 f"Export is current ({state['label']}) · "
                 f"{len(knack_data.products())} product rows · "
                 f"{len(knack_data.websites())} sites "
-                f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
+                f"({'live from Knack' if _wsrc == 'knack' else 'private fallback'}).")
 
         # --- GHL ---
         token, company = _cfg.ghl_token, _cfg.ghl_company_id

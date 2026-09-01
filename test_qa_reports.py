@@ -79,6 +79,7 @@ _TMP = tempfile.mkdtemp(prefix="s1-qareports-")
 # safe to re-run in a job whose DATABASE_URL is already a real Postgres.
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ["HUB_DATA_DIR"] = _TMP
+os.environ["CLIENTS_DATA_DIR"] = os.path.join(ROOT, "tests", "fixtures", "clients")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(_TMP, "activity.jsonl")
 # The reports are run directly here, and a day-long cache would mean the second
 # assertion about a report read the first one's answer.
@@ -1041,7 +1042,7 @@ for _flag, _s, _e in (("thisM", _ts, _te), ("lastM", _ls, _le)):
 # The source is named, so a stale export cannot go on looking like live data.
 _note_seen = qa.run("active-clients").get("note") or ""
 check("a product-backed report says which source answered",
-      "committed export" in _note_seen or "Live from Knack" in _note_seen,
+      "private fallback export" in _note_seen or "Live from Knack" in _note_seen,
       repr(_note_seen[-90:]))
 # `getattr` rather than a direct call, so a build without the shared wording
 # fails on the assertion that names it rather than dying here and taking every

@@ -433,8 +433,9 @@ FULL_ASSET_ON_PURPOSE = {
     ("modules/ads_builder/templates/ads_proposal.html", 'alt="logo"'): _LOGO,
     ("modules/scans/templates/scan_detail.html", "mark.url"): _LOGO,
     ("modules/scans/templates/scan_detail.html", "preview.url"):
-        "the Insites scan screenshot is hosted by the scan provider, not our "
-        "Cloudinary account, so the Hub cannot request a derived thumbnail",
+        "one provider screenshot per breakpoint in the scan's dedicated "
+        "appearance panel; InSites supplies only the remote original and the "
+        "Hub does not own or preprocess it into a thumbnail",
 
 }
 
