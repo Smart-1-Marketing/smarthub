@@ -96,7 +96,9 @@ except Exception:                                       # noqa: BLE001
 
 MAX_NOTE = 1000
 MAX_NOTES_PER_CLIENT = 200
-CACHE_NAME = "client-health"
+# The payload gained assigned-client billing in v2. A fresh cache key keeps a
+# pre-deploy daily run from reading as an unmeasured $0 until tomorrow.
+CACHE_NAME = "client-health-v2"
 
 _LOCK = threading.Lock()
 
@@ -477,6 +479,51 @@ def _registry() -> tuple[dict, str]:
     return out, ""
 
 
+def _website_billing() -> tuple[dict, str]:
+    """Active H&M billing by client, from the dashboard's website export.
+
+    The dashboard's ``Est. Total Billing / mo`` is live product billing plus
+    H&M on active websites.  The assigned-client scorecard has to use that
+    same definition or a person's book and the agency total cannot be
+    reconciled.  ``export_websites()`` is deliberate: it is the source the
+    dashboard uses because it is the only website shape that carries the
+    explicit ``active`` flag as well as the normalized monthly fee.
+    """
+    try:
+        from hub import knack_data
+        rows = knack_data.export_websites()
+    except Exception as exc:                            # noqa: BLE001
+        return {}, f"{type(exc).__name__}: {exc}"[:200]
+
+    def amount(value) -> float:                         # noqa: ANN001
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            clean = str(value or "").replace("$", "").replace(",", "").strip()
+            return float(clean)
+        except ValueError:
+            return 0.0
+
+    out: dict[str, dict] = {}
+    for row in rows or ():
+        active = row.get("active")
+        if not isinstance(active, bool):
+            active = str(row.get("status") or "").strip().lower() == "active"
+        if not active:
+            continue
+        name = str(row.get("name") or "").strip()
+        key = _client_key(name)
+        if not key:
+            continue
+        item = out.setdefault(key, {"client": name, "hm_monthly": 0.0,
+                                    "active_sites": 0})
+        item["hm_monthly"] += amount(row.get("hmMonthly"))
+        item["active_sites"] += 1
+    for item in out.values():
+        item["hm_monthly"] = round(item["hm_monthly"], 2)
+    return out, ""
+
+
 def _asset_asks() -> tuple[dict, str]:
     """`{client key: [campaigns]}` still waiting on an answer or on artwork."""
     try:
@@ -698,6 +745,9 @@ def build(today: date | None = None) -> dict:
     source("products", err_products)
     registry, err_registry = _registry()
     source("registry", err_registry)
+    website_billing, err_website_billing = _website_billing()
+    source("website_billing", err_website_billing,
+           "The same active-site H&M export used by the dashboard total.")
     asks, err_asks = _asset_asks()
     source("campaign_assets", err_asks)
     creative, err_creative = _creative()
@@ -742,6 +792,12 @@ def build(today: date | None = None) -> dict:
             key = _client_key(name)
             if key:
                 names.setdefault(key, name)
+    # A client whose only current billing is website H&M still belongs in the
+    # book.  Leaving them out would make the assigned-client scorecard smaller
+    # than the billing rows it claims to total.
+    for key, item in (website_billing or {}).items():
+        if float(item.get("hm_monthly") or 0) > 0:
+            names.setdefault(key, str(item.get("client") or "").strip())
     for key, row in owned.items():
         # Only somebody actually owns them. A resolution row exists for every
         # client any rule reaches, including the ones it leaves unassigned,
@@ -916,6 +972,9 @@ def build(today: date | None = None) -> dict:
 
         partners = sorted(g.get("partners") or ())
         sales = sorted(g.get("sales") or ())
+        media_monthly = round(float(g.get("live_total") or 0.0), 2)
+        hm_monthly = round(float((website_billing.get(key) or {}).get(
+            "hm_monthly") or 0.0), 2)
         rows.append({
             "client": name,
             "key": key,
@@ -925,7 +984,9 @@ def build(today: date | None = None) -> dict:
             "other_partners": partners[1:],
             "sales": sales[0] if sales else "",
             "live_products": len(g.get("live") or ()),
-            "monthly": round(float(g.get("live_total") or 0.0), 2),
+            "media_monthly": media_monthly,
+            "hm_monthly": hm_monthly,
+            "monthly": round(media_monthly + hm_monthly, 2),
             "traffic": traffic,
             "engagement": {
                 "proposal_opens": sum(int(c.get("opens") or 0) for c in cards),
@@ -1138,6 +1199,14 @@ def report(*, owner: str = "", scope: str = "", q: str = "",
     out["users"] = users
     out["user_error"] = user_error
     out["kinds"] = ISSUE_KINDS
+    media_billing = round(sum(float(r.get("media_monthly",
+                                           r.get("monthly") or 0) or 0)
+                              for r in shown), 2)
+    hm_billing = round(sum(float(r.get("hm_monthly") or 0)
+                           for r in shown), 2)
+    billing_sources = data.get("sources") or {}
+    billing_measured = all((billing_sources.get(name) or {}).get("measured")
+                           for name in ("products", "website_billing"))
     out["counts"] = {
         "clients_total": total,
         "clients_shown": len(shown),
@@ -1147,6 +1216,10 @@ def report(*, owner: str = "", scope: str = "", q: str = "",
         "unassigned": sum(1 for r in rows if not r["owner"]["email"]),
         "mine": sum(1 for r in rows
                     if owner and r["owner"]["email"] == owner),
+        "media_billing_monthly": media_billing,
+        "hm_billing_monthly": hm_billing,
+        "billing_monthly": round(media_billing + hm_billing, 2),
+        "billing_measured": billing_measured,
         "by_kind": counts_by_kind,
     }
     # Which kind of empty this is. "Nothing is outstanding on your clients"
@@ -1187,6 +1260,15 @@ def scoreboard(owner: str = "") -> dict:
         "with_issues": counts.get("clients_with_issues", 0),
         "issues": counts.get("issues", 0),
         "unassigned": counts.get("unassigned", 0),
+        "billing_monthly": (counts.get("billing_monthly", 0)
+                            if counts.get("billing_measured") else None),
+        "media_billing_monthly": (counts.get("media_billing_monthly", 0)
+                                  if counts.get("billing_measured") else None),
+        "hm_billing_monthly": (counts.get("hm_billing_monthly", 0)
+                               if counts.get("billing_measured") else None),
+        "billing_measured": bool(counts.get("billing_measured")),
+        "billing_error": "" if counts.get("billing_measured") else
+                         "Product or website billing could not be read, so the total is not measured.",
         "empty_reason": data.get("empty_reason", ""),
         "top": top,
         "cache": data.get("cache") or {},
