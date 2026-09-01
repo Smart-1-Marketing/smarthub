@@ -18,7 +18,8 @@
         <span><strong>SmartForecast</strong><small>Dynamic Website</small></span>
       </div>
       <div class="sf-top-actions">
-        <label class="sf-client-picker"><span>Client</span><select id="clientSelect" aria-label="Client"><option>Quality Air Columbus</option></select></label>
+        <label class="sf-client-picker"><span>Client</span><select id="clientSelect" aria-label="Client and website"></select></label>
+        <button class="sf-icon-btn" id="addSite" type="button" title="Add client website" aria-label="Add client website">+</button>
         <span class="sf-provider {{ 'is-live' if provider_configured else '' }}"><i></i><span>{{ 'WeatherAPI connected' if provider_configured else 'WeatherAPI demo cache' }}</span></span>
         <button class="sf-icon-btn" id="refreshWeather" type="button" title="Refresh weather" aria-label="Refresh weather">↻</button>
       </div>
@@ -84,6 +85,7 @@
           <form class="sf-card sf-form-card" id="setupForm">
             <div class="sf-section-title"><span>01</span><div><h2>Site &amp; location</h2><p>The primary ZIP drives forecasts and reporting.</p></div></div>
             <div class="sf-fields two">
+              <label><span>Client name</span><input name="client_name" autocomplete="organization"></label>
               <label><span>Website name</span><input name="name" autocomplete="off"></label>
               <label><span>Domain</span><input name="domain" inputmode="url" autocomplete="url"></label>
               <label><span>Platform</span><select name="platform"><option>Smart 1 Sites</option><option>WordPress</option><option>Other / HTML</option></select></label>
@@ -120,6 +122,7 @@
               <div class="sf-install-tabs"><button class="is-active" data-install="sites" type="button">Smart 1 Sites</button><button data-install="wordpress" type="button">WordPress</button><button data-install="html" type="button">HTML</button></div>
               <pre id="embedCode"><code>Loading embed…</code></pre>
               <button class="sf-btn sf-btn-ghost sf-full" id="copyEmbed" type="button">Copy embed code</button>
+              <button class="sf-link-btn sf-full" id="rotateToken" type="button">Rotate embed token</button>
               <p class="sf-note">The iframe serves default SEO content if SmartForecast is paused or weather data is unavailable.</p>
             </section>
             <section class="sf-card sf-preflight-card">
@@ -140,11 +143,11 @@
       </section>
 
       <section class="sf-view" id="sf-panel-content" data-panel="content" role="tabpanel" aria-labelledby="sf-tab-content" hidden>
-        <div class="sf-pagehead"><div><p class="sf-kicker">Message, CTA &amp; imagery</p><h1>Content &amp; Images</h1><p>Give every lifecycle phase a relevant message and crop.</p></div><button class="sf-btn sf-btn-primary" id="saveContent" type="button">Save content</button></div>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Message, CTA &amp; imagery</p><h1>Content &amp; Images</h1><p>Save drafts safely, then approve the exact version that should reach the client website.</p></div><div class="sf-page-actions"><button class="sf-btn sf-btn-ghost" id="saveContent" type="button">Save draft</button><button class="sf-btn sf-btn-primary" id="publishContent" type="button">Approve &amp; publish</button></div></div>
         <div class="sf-content-layout">
           <aside class="sf-card sf-variant-list"><div class="sf-card-label"><span>Homepage hero variants</span></div><div id="variantList"></div></aside>
           <form class="sf-card sf-content-editor" id="contentForm">
-            <div class="sf-editor-head"><div><span class="sf-content-chip" id="editorPhase">Pre-event</span><h2 id="editorName">Heat Wave #3</h2></div><button class="sf-link-btn" data-go="preview" type="button">Open full preview →</button></div>
+            <div class="sf-editor-head"><div><span class="sf-content-chip" id="editorPhase">Pre-event</span><h2 id="editorName">Heat Wave #3</h2><small class="sf-approval-status" id="approvalStatus">Published</small></div><button class="sf-link-btn" data-go="preview" type="button">Open full preview →</button></div>
             <input name="name" type="hidden">
             <div class="sf-fields">
               <label><span>Eyebrow</span><input name="eyebrow" maxlength="120"></label>
@@ -209,6 +212,21 @@
       <p>This is recorded in the trigger history and automatically expires.</p>
       <div class="sf-fields"><label><span>Content variant</span><select name="content_variant_id" id="overrideVariant"></select></label><label><span>Duration</span><select name="hours"><option value="2">2 hours</option><option value="4" selected>4 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="72">3 days</option></select></label><label><span>Reason</span><textarea name="note" rows="3" placeholder="Why this message is being forced"></textarea></label></div>
       <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" value="cancel">Cancel</button><button class="sf-btn sf-btn-primary" id="applyOverride" value="default">Force message</button></div>
+    </form>
+  </dialog>
+  <dialog class="sf-dialog" id="siteDialog" aria-labelledby="siteDialogTitle">
+    <form method="dialog" id="siteForm">
+      <div class="sf-dialog-head"><div><p class="sf-kicker">Client onboarding</p><h2 id="siteDialogTitle">Add a SmartForecast website</h2></div><button value="cancel" aria-label="Close">×</button></div>
+      <p>This creates an isolated site, baseline content, trigger assignments, and a new embed token.</p>
+      <div class="sf-fields two">
+        <label><span>Client name</span><input name="client_name" required autocomplete="organization"></label>
+        <label><span>Website name</span><input name="site_name" autocomplete="off"></label>
+        <label><span>Domain</span><input name="domain" required placeholder="example.com" inputmode="url"></label>
+        <label><span>Postal code</span><input name="postal_code" required maxlength="20"></label>
+        <label><span>Industry</span><select name="industry"><option>HVAC</option><option>RV Dealer</option><option>Marine / Boat Dealer</option><option>Restaurant</option><option>Ski Resort</option><option>Legal</option><option>Home Services</option><option>General</option></select></label>
+        <label><span>Platform</span><select name="platform"><option>Smart 1 Sites</option><option>WordPress</option><option>Other / HTML</option></select></label>
+      </div>
+      <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" value="cancel">Cancel</button><button class="sf-btn sf-btn-primary" id="createSite" value="default">Create website</button></div>
     </form>
   </dialog>
   <div class="sf-toast" id="toast" role="status"></div>

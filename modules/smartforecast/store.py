@@ -68,6 +68,11 @@ CREATE TABLE IF NOT EXISTS content_variants (
   mobile_focal TEXT NOT NULL DEFAULT '58% 45%', overlay_opacity REAL NOT NULL DEFAULT .18,
   metadata_json TEXT NOT NULL DEFAULT '{}', UNIQUE(slot_id, trigger_key, phase)
 );
+CREATE TABLE IF NOT EXISTS content_publications (
+  id INTEGER PRIMARY KEY, variant_id INTEGER NOT NULL UNIQUE REFERENCES content_variants(id),
+  site_id INTEGER NOT NULL REFERENCES sites(id), payload_json TEXT NOT NULL,
+  approved_by TEXT NOT NULL, approved_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS trigger_events (
   id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
   trigger_key TEXT NOT NULL, status TEXT NOT NULL, phase TEXT NOT NULL,
@@ -96,9 +101,13 @@ CREATE INDEX IF NOT EXISTS idx_weather_location_time ON weather_snapshots(locati
 CREATE INDEX IF NOT EXISTS idx_history_site_time ON trigger_event_history(site_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_site_active ON trigger_events(site_id, deactivated_at);
 CREATE INDEX IF NOT EXISTS idx_variants_trigger_phase ON content_variants(trigger_key, phase);
+CREATE INDEX IF NOT EXISTS idx_publications_site ON content_publications(site_id, approved_at DESC);
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+CONTENT_FIELDS = ("id", "slot_id", "trigger_key", "phase", "name", "eyebrow", "headline", "body",
+                  "cta_label", "cta_url", "desktop_image_url", "mobile_image_url", "alt_text",
+                  "desktop_focal", "mobile_focal", "overlay_opacity", "metadata")
 
 
 def _json(value: Any) -> str:
@@ -179,6 +188,23 @@ class SmartForecastStore:
             count = con.execute("SELECT COUNT(*) FROM sites").fetchone()[0]
             if not count:
                 self._seed(con)
+            self._backfill_publications(con)
+
+    def _backfill_publications(self, con: sqlite3.Connection) -> None:
+        """Treat content that predates approvals as the currently published copy."""
+        rows = con.execute(
+            """SELECT v.*,s.site_id FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
+               LEFT JOIN content_publications p ON p.variant_id=v.id WHERE p.id IS NULL"""
+        ).fetchall()
+        stamp = iso(utcnow())
+        for row in rows:
+            variant = self._variant_row(row)
+            con.execute(
+                """INSERT INTO content_publications(variant_id,site_id,payload_json,approved_by,
+                   approved_at,created_at) VALUES(?,?,?,?,?,?)""",
+                (variant["id"], row["site_id"], _json(self._content_payload(variant)),
+                 "SmartForecast migration", stamp, stamp),
+            )
 
     def _seed(self, con: sqlite3.Connection) -> None:
         now = utcnow()
@@ -195,13 +221,7 @@ class SmartForecastStore:
             "phase_changed_at": iso(now - timedelta(hours=4)),
             "reason": "forecast high 96", "qualify_count": 2,
         })
-        branding = {
-            "font": "inherit", "headline_weight": 800, "body_weight": 400,
-            "headline_color": "#ffffff", "body_color": "#dce7f2",
-            "button_color": "#f6b544", "button_text": "#071726",
-            "border_radius": 18, "desktop_headline_size": 54,
-            "mobile_headline_size": 38,
-        }
+        branding = _default_branding()
         con.execute(
             """INSERT INTO sites(id,client_id,name,domain,platform,enabled,check_interval_minutes,
                weather_provider,branding_json,state_json,created_at,updated_at)
@@ -295,7 +315,7 @@ class SmartForecastStore:
                 (site_id,),
             ).fetchone()
             rules = self._rules(con, site_id)
-            variants = [self._variant_row(row) for row in con.execute(
+            variants = [self._decorate_publication(con, self._variant_row(row)) for row in con.execute(
                 """SELECT v.* FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
                    WHERE s.site_id=? ORDER BY v.trigger_key,v.phase""", (site_id,))]
             history = [self._history_row(row) for row in con.execute(
@@ -303,7 +323,9 @@ class SmartForecastStore:
                 (site_id,))]
             state = _loads(site["state_json"], empty_state())
             selected = self._select_variant(con, site_id, state.get("current_trigger"), state.get("phase"))
+            selected = self._decorate_publication(con, selected) if selected else None
             return {
+                "sites": self._sites(con),
                 "site": {
                     "id": site["id"], "client_name": site["client_name"], "name": site["name"],
                     "domain": site["domain"], "industry": site["industry"], "platform": site["platform"],
@@ -322,6 +344,21 @@ class SmartForecastStore:
                 "history": history,
                 "report": self._report(con, site_id),
             }
+
+    def list_sites(self) -> list[dict]:
+        with self.connect() as con:
+            return self._sites(con)
+
+    @staticmethod
+    def _sites(con: sqlite3.Connection) -> list[dict]:
+        rows = con.execute(
+            """SELECT s.id,s.client_id,c.name client_name,c.industry,s.name site_name,s.domain,
+               s.platform,s.enabled,l.postal_code,l.label location_label
+               FROM sites s JOIN clients c ON c.id=s.client_id
+               LEFT JOIN locations l ON l.site_id=s.id AND l.is_primary=1
+               ORDER BY c.name,s.name,s.id"""
+        ).fetchall()
+        return [{**dict(row), "enabled": bool(row["enabled"])} for row in rows]
 
     def _rules(self, con: sqlite3.Connection, site_id: int) -> list[dict]:
         rows = con.execute(
@@ -364,8 +401,97 @@ class SmartForecastStore:
             )
             goals = [str(item)[:120] for item in (body.get("business_goals") or [])][:30]
             industry = str(body.get("industry") or "General")[:80]
-            con.execute("UPDATE clients SET industry=?,business_goals_json=? WHERE id=(SELECT client_id FROM sites WHERE id=?)",
-                        (industry, _json(goals), site_id))
+            client_name = str(body.get("client_name") or "").strip()[:200]
+            con.execute(
+                """UPDATE clients SET name=CASE WHEN ?='' THEN name ELSE ? END,
+                   industry=?,business_goals_json=? WHERE id=(SELECT client_id FROM sites WHERE id=?)""",
+                (client_name, client_name, industry, _json(goals), site_id),
+            )
+        return self.bootstrap(site_id)
+
+    def create_site(self, body: dict, user: str = "SmartHub user") -> dict:
+        """Create one isolated client/site with baseline content and an embed token."""
+        client_name = str(body.get("client_name") or "").strip()[:200]
+        domain = str(body.get("domain") or "").strip()[:255]
+        postal_code = str(body.get("postal_code") or "").strip()[:20]
+        if not client_name:
+            raise ValueError("Client name is required")
+        if not domain:
+            raise ValueError("Domain is required")
+        if not postal_code:
+            raise ValueError("Postal code is required")
+        industry = str(body.get("industry") or "General").strip()[:80]
+        now = iso(utcnow())
+        with self._lock, self.connect() as con:
+            client_id = body.get("client_id")
+            client = None
+            if client_id:
+                client = con.execute("SELECT id FROM clients WHERE id=?", (int(client_id),)).fetchone()
+                if not client:
+                    raise LookupError("Client not found")
+            else:
+                client = con.execute("SELECT id FROM clients WHERE lower(name)=lower(?)", (client_name,)).fetchone()
+            if client:
+                client_id = client["id"]
+                con.execute("UPDATE clients SET industry=? WHERE id=?", (industry, client_id))
+            else:
+                client_id = con.execute(
+                    "INSERT INTO clients(name,industry,business_goals_json,created_at) VALUES(?,?,?,?)",
+                    (client_name, industry, "[]", now),
+                ).lastrowid
+            site_id = con.execute(
+                """INSERT INTO sites(client_id,name,domain,platform,enabled,check_interval_minutes,
+                   weather_provider,branding_json,state_json,created_at,updated_at)
+                   VALUES(?,?,?,?,1,30,'WeatherAPI',?,?,?,?)""",
+                (client_id, str(body.get("site_name") or f"{client_name} Website")[:200], domain,
+                 str(body.get("platform") or "Smart 1 Sites")[:80], _json(_default_branding()),
+                 _json(empty_state()), now, now),
+            ).lastrowid
+            con.execute(
+                """INSERT INTO locations(site_id,label,postal_code,timezone,is_primary)
+                   VALUES(?,?,?,?,1)""",
+                (site_id, str(body.get("location_label") or postal_code)[:200], postal_code,
+                 str(body.get("timezone") or "America/New_York")[:80]),
+            )
+            templates = con.execute("SELECT * FROM trigger_templates ORDER BY id").fetchall()
+            for template in templates:
+                rule = _loads(template["rule_json"], {})
+                enabled = template["industry"].lower() in {"universal", industry.lower()}
+                con.execute(
+                    """INSERT INTO site_triggers(site_id,template_id,enabled,priority,lead_hours,
+                       min_duration_hours,post_hours,cooldown_hours,activation_checks,clear_checks)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (site_id, template["id"], 1 if enabled else 0, rule.get("priority", 50),
+                     rule.get("lead_hours", 24), rule.get("min_duration_hours", 0),
+                     rule.get("post_hours", 0), rule.get("cooldown_hours", 0),
+                     rule.get("activation_checks", 2), rule.get("clear_checks", 2)),
+                )
+            slot_id = con.execute(
+                "INSERT INTO content_slots(site_id,slot_key,label) VALUES(?,'hero','Homepage hero')",
+                (site_id,),
+            ).lastrowid
+            root_url = domain if domain.startswith(("https://", "http://")) else f"https://{domain}"
+            variant_id = con.execute(
+                """INSERT INTO content_variants(slot_id,trigger_key,phase,name,eyebrow,headline,body,
+                   cta_label,cta_url,desktop_image_url,mobile_image_url,alt_text,desktop_focal,
+                   mobile_focal,overlay_opacity,metadata_json) VALUES(?,'default','default',?,?,?,?,?,
+                   ?,NULL,NULL,'','50% 50%','50% 50%',.15,'{}')""",
+                (slot_id, "Default website message", "Local service",
+                 f"{industry} Services from {client_name}",
+                 "Reliable local help, ready when customers need it.", "Contact Us", root_url),
+            ).lastrowid
+            con.execute("UPDATE content_slots SET default_variant_id=? WHERE id=?", (variant_id, slot_id))
+            self._publish_variant(con, variant_id, site_id, user)
+            token = "sf_" + secrets.token_urlsafe(24)
+            con.execute(
+                "INSERT INTO embed_tokens(site_id,token,label,created_at) VALUES(?,?,'Primary website embed',?)",
+                (site_id, token, now),
+            )
+            con.execute(
+                """INSERT INTO trigger_event_history(site_id,phase,event_type,recorded_at,source,reason)
+                   VALUES(?,'default','site_created',?,'SmartHub',?)""",
+                (site_id, now, f"Site created by {user[:120]}"),
+            )
         return self.bootstrap(site_id)
 
     def save_rule(self, rule_id: str, body: dict, site_id: int = 1) -> dict:
@@ -407,7 +533,58 @@ class SmartForecastStore:
                 """UPDATE content_variants SET name=?,eyebrow=?,headline=?,body=?,cta_label=?,cta_url=?,
                    desktop_image_url=?,mobile_image_url=?,alt_text=?,desktop_focal=?,mobile_focal=?,overlay_opacity=?
                    WHERE id=?""", (*values, opacity, variant_id))
-            return self._variant_row(con.execute("SELECT * FROM content_variants WHERE id=?", (variant_id,)).fetchone())
+            variant = self._variant_row(
+                con.execute("SELECT * FROM content_variants WHERE id=?", (variant_id,)).fetchone())
+            return self._decorate_publication(con, variant)
+
+    def publish_variant(self, variant_id: int, site_id: int = 1,
+                        user: str = "SmartHub user") -> dict:
+        with self._lock, self.connect() as con:
+            variant = con.execute(
+                """SELECT v.* FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
+                   WHERE v.id=? AND s.site_id=?""", (variant_id, site_id),
+            ).fetchone()
+            if not variant:
+                raise LookupError("Content variant not found")
+            self._publish_variant(con, variant_id, site_id, user)
+            con.execute(
+                """INSERT INTO trigger_event_history(site_id,trigger_key,phase,event_type,recorded_at,
+                   source,content_variant_id,reason) VALUES(?,?,?,?,?,'SmartHub',?,?)""",
+                (site_id, variant["trigger_key"], variant["phase"], "content_published",
+                 iso(utcnow()), variant_id, f"Approved by {user[:120]}"),
+            )
+            return self._decorate_publication(con, self._variant_row(variant))
+
+    def rotate_embed_token(self, site_id: int = 1, user: str = "SmartHub user") -> dict:
+        with self._lock, self.connect() as con:
+            if not con.execute("SELECT 1 FROM sites WHERE id=?", (site_id,)).fetchone():
+                raise LookupError("Site not found")
+            con.execute("UPDATE embed_tokens SET active=0 WHERE site_id=?", (site_id,))
+            token = "sf_" + secrets.token_urlsafe(24)
+            con.execute(
+                "INSERT INTO embed_tokens(site_id,token,label,created_at) VALUES(?,?,'Rotated website embed',?)",
+                (site_id, token, iso(utcnow())),
+            )
+            con.execute(
+                """INSERT INTO trigger_event_history(site_id,phase,event_type,recorded_at,source,reason)
+                   VALUES(?,'manual','embed_token_rotated',?,'SmartHub',?)""",
+                (site_id, iso(utcnow()), f"Embed token rotated by {user[:120]}"),
+            )
+        return {"ok": True, "site_id": site_id, "token": token}
+
+    def _publish_variant(self, con: sqlite3.Connection, variant_id: int,
+                         site_id: int, user: str) -> None:
+        variant = self._variant_row(
+            con.execute("SELECT * FROM content_variants WHERE id=?", (variant_id,)).fetchone())
+        if not variant:
+            raise LookupError("Content variant not found")
+        stamp = iso(utcnow())
+        con.execute(
+            """INSERT INTO content_publications(variant_id,site_id,payload_json,approved_by,approved_at,created_at)
+               VALUES(?,?,?,?,?,?) ON CONFLICT(variant_id) DO UPDATE SET payload_json=excluded.payload_json,
+               approved_by=excluded.approved_by,approved_at=excluded.approved_at""",
+            (variant_id, site_id, _json(self._content_payload(variant)), user[:120], stamp, stamp),
+        )
 
     def run_simulation(self, snapshot: dict, site_id: int = 1, persist: bool = False,
                        source: str = "Simulator") -> dict:
@@ -536,7 +713,8 @@ class SmartForecastStore:
             baseline = next((item for item in variants
                              if item["trigger_key"] == "default" and item["phase"] == "default"), None)
             baseline_complete = bool(baseline and baseline.get("headline") and baseline.get("cta_label")
-                                     and baseline.get("cta_url") and baseline.get("alt_text"))
+                                     and baseline.get("cta_url") and
+                                     (not baseline.get("desktop_image_url") or baseline.get("alt_text")))
             add("baseline_content", "Baseline SEO content", baseline_complete,
                 "Baseline headline, CTA, URL and alt text are complete." if baseline_complete else
                 "Complete the default headline, CTA, URL and image alt text.")
@@ -666,16 +844,16 @@ class SmartForecastStore:
                 (site_id, iso(utcnow())),
             ).fetchone()
             if override and override["content_variant_id"]:
-                variant = self._variant_row(con.execute("SELECT * FROM content_variants WHERE id=?",
-                                                        (override["content_variant_id"],)).fetchone())
+                variant = self._published_variant_by_id(con, override["content_variant_id"])
                 state.update({"current_trigger": override["trigger_key"], "phase": override["phase"],
                               "status": "manual", "manual_override": True})
             elif site["enabled"]:
-                variant = self._select_variant(con, site_id, state.get("current_trigger"), state.get("phase"))
+                variant = self._select_variant(
+                    con, site_id, state.get("current_trigger"), state.get("phase"), published=True)
             else:
-                variant = self._select_variant(con, site_id, "default", "default")
+                variant = self._select_variant(con, site_id, "default", "default", published=True)
                 state = empty_state()
-            variant = variant or self._select_variant(con, site_id, "default", "default")
+            variant = variant or self._select_variant(con, site_id, "default", "default", published=True)
             return {"site_id": site_id, "state": state, "content": variant,
                     "branding": _loads(site["branding_json"], {})}
 
@@ -761,7 +939,8 @@ class SmartForecastStore:
         )
 
     def _select_variant(self, con: sqlite3.Connection, site_id: int,
-                        trigger_key: str | None, phase: str | None) -> dict | None:
+                        trigger_key: str | None, phase: str | None,
+                        published: bool = False) -> dict | None:
         row = con.execute(
             """SELECT v.* FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
                WHERE s.site_id=? AND v.trigger_key=? AND v.phase=? LIMIT 1""",
@@ -773,7 +952,38 @@ class SmartForecastStore:
                    WHERE s.site_id=? AND v.trigger_key='default' AND v.phase='default' LIMIT 1""",
                 (site_id,),
             ).fetchone()
-        return self._variant_row(row) if row else None
+        if not row:
+            return None
+        variant = self._variant_row(row)
+        return self._published_variant_by_id(con, variant["id"]) if published else variant
+
+    def _published_variant_by_id(self, con: sqlite3.Connection, variant_id: int) -> dict | None:
+        row = con.execute(
+            "SELECT payload_json,approved_by,approved_at FROM content_publications WHERE variant_id=?",
+            (variant_id,),
+        ).fetchone()
+        if not row:
+            return None
+        payload = _loads(row["payload_json"], {})
+        payload.update({"approval_status": "published", "approved_by": row["approved_by"],
+                        "approved_at": row["approved_at"]})
+        return payload
+
+    def _decorate_publication(self, con: sqlite3.Connection, variant: dict) -> dict:
+        row = con.execute(
+            "SELECT payload_json,approved_by,approved_at FROM content_publications WHERE variant_id=?",
+            (variant["id"],),
+        ).fetchone()
+        published = _loads(row["payload_json"], {}) if row else {}
+        is_current = bool(row and published == self._content_payload(variant))
+        variant.update({"approval_status": "published" if is_current else "draft",
+                        "approved_by": row["approved_by"] if row else None,
+                        "approved_at": row["approved_at"] if row else None})
+        return variant
+
+    @staticmethod
+    def _content_payload(variant: dict) -> dict:
+        return {key: variant.get(key) for key in CONTENT_FIELDS}
 
     @staticmethod
     def _variant_row(row: sqlite3.Row | None) -> dict | None:
@@ -846,6 +1056,16 @@ def normalize_snapshot(body: dict) -> dict:
         "rain_probability": number("rain_probability"), "snow_inches": number("snow_inches"),
         "wind_mph": number("wind_mph"), "hours_until_event": number("hours_until_event", 0),
         "official_alerts": [str(item)[:160] for item in alerts][:20],
+    }
+
+
+def _default_branding() -> dict:
+    return {
+        "font": "inherit", "headline_weight": 800, "body_weight": 400,
+        "headline_color": "#ffffff", "body_color": "#dce7f2",
+        "button_color": "#f6b544", "button_text": "#071726",
+        "border_radius": 18, "desktop_headline_size": 54,
+        "mobile_headline_size": 38,
     }
 
 

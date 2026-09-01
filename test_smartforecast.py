@@ -184,6 +184,50 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertEqual(public["state"]["phase"], "default")
         self.assertEqual(public["content"]["trigger_key"], "default")
 
+    def test_multi_client_sites_are_isolated(self):
+        created = self.client.post("/api/sites", json={
+            "client_name": "North Shore Marine", "site_name": "North Shore Website",
+            "domain": "northshore.example", "postal_code": "44077",
+            "industry": "Marine / Boat Dealer", "platform": "WordPress",
+        })
+        self.assertEqual(created.status_code, 201, created.get_data(as_text=True))
+        second = created.get_json()
+        second_id = second["site"]["id"]
+        self.assertEqual(len(second["sites"]), 2)
+        self.assertEqual(second["site"]["client_name"], "North Shore Marine")
+        update = self.client.post(f"/api/setup?site_id={second_id}", json={
+            **second["site"], "client_name": "North Shore Boats",
+            "name": "Marine Pilot", "domain": "boats.example", "industry": "Marine / Boat Dealer",
+        })
+        self.assertEqual(update.status_code, 200)
+        self.assertEqual(update.get_json()["site"]["client_name"], "North Shore Boats")
+        first = self.client.get("/api/bootstrap?site_id=1").get_json()
+        self.assertEqual(first["site"]["client_name"], "Quality Air Columbus")
+        self.assertNotEqual(first["site"]["embed_token"], second["site"]["embed_token"])
+
+    def test_draft_content_never_changes_public_embed_until_approved(self):
+        bootstrap = self.client.get("/api/bootstrap").get_json()
+        token = bootstrap["site"]["embed_token"]
+        variant = bootstrap["current_variant"]
+        original = self.client.get(f"/api/public/embed/{token}").get_json()["content"]["headline"]
+        changed = {**variant, "headline": "Draft headline that must not be live"}
+        saved = self.client.post(f"/api/content/{variant['id']}", json=changed).get_json()["content"]
+        self.assertEqual(saved["approval_status"], "draft")
+        still_live = self.client.get(f"/api/public/embed/{token}").get_json()["content"]["headline"]
+        self.assertEqual(still_live, original)
+        published = self.client.post(f"/api/content/{variant['id']}/publish", json={}).get_json()["content"]
+        self.assertEqual(published["approval_status"], "published")
+        now_live = self.client.get(f"/api/public/embed/{token}").get_json()["content"]["headline"]
+        self.assertEqual(now_live, changed["headline"])
+
+    def test_rotating_embed_token_invalidates_the_old_token(self):
+        old = self.client.get("/api/bootstrap").get_json()["site"]["embed_token"]
+        rotated = self.client.post("/api/embed-token/rotate", json={}).get_json()
+        self.assertTrue(rotated["ok"])
+        self.assertNotEqual(rotated["token"], old)
+        self.assertEqual(self.client.get(f"/api/public/embed/{old}").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/public/embed/{rotated['token']}").status_code, 200)
+
     def test_backup_restores_a_fresh_render_disk(self):
         self.client.get("/api/bootstrap")
         from modules.smartforecast.app import _store_for_path, store

@@ -35,6 +35,15 @@ def _error(exc: Exception, status: int = 400):
     return jsonify({"ok": False, "error": str(exc)}), status
 
 
+def _site_id() -> int:
+    return max(1, int(request.args.get("site_id") or 1))
+
+
+def _user() -> str:
+    return str(request.environ.get("smart1.user") or
+               request.headers.get("X-Smart1-User") or "SmartHub user")[:120]
+
+
 @app.route("/")
 def index():
     return render_template("index.html", provider_configured=provider.configured())
@@ -53,10 +62,10 @@ def health():
 @app.route("/api/bootstrap")
 def api_bootstrap():
     try:
-        data = store().bootstrap(int(request.args.get("site_id") or 1))
+        site_id = _site_id()
+        data = store().bootstrap(site_id)
         data["weather_provider_configured"] = provider.configured()
-        data["preflight"] = store().preflight(
-            int(request.args.get("site_id") or 1), provider_configured=provider.configured())
+        data["preflight"] = store().preflight(site_id, provider_configured=provider.configured())
         return jsonify(data)
     except LookupError as exc:
         return _error(exc, 404)
@@ -67,7 +76,7 @@ def api_bootstrap():
 @app.route("/api/preflight")
 def api_preflight():
     try:
-        site_id = int(request.args.get("site_id") or 1)
+        site_id = _site_id()
         return jsonify(store().preflight(site_id, provider_configured=provider.configured()))
     except (TypeError, ValueError) as exc:
         return _error(exc)
@@ -78,7 +87,7 @@ def api_preflight():
 @app.route("/api/qa/run", methods=["POST"])
 def api_qa_run():
     try:
-        site_id = int(request.args.get("site_id") or 1)
+        site_id = _site_id()
         return jsonify(store().qa_suite(site_id))
     except (TypeError, ValueError) as exc:
         return _error(exc)
@@ -89,7 +98,7 @@ def api_qa_run():
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
     try:
-        return jsonify(store().save_setup(request.get_json(silent=True) or {}))
+        return jsonify(store().save_setup(request.get_json(silent=True) or {}, _site_id()))
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -99,7 +108,8 @@ def api_setup():
 @app.route("/api/rules/<rule_id>", methods=["POST"])
 def api_rule(rule_id: str):
     try:
-        return jsonify({"ok": True, "rule": store().save_rule(rule_id, request.get_json(silent=True) or {})})
+        return jsonify({"ok": True, "rule": store().save_rule(
+            rule_id, request.get_json(silent=True) or {}, _site_id())})
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -110,9 +120,18 @@ def api_rule(rule_id: str):
 def api_content(variant_id: int):
     try:
         return jsonify({"ok": True, "content": store().save_variant(
-            variant_id, request.get_json(silent=True) or {})})
+            variant_id, request.get_json(silent=True) or {}, _site_id())})
     except (TypeError, ValueError) as exc:
         return _error(exc)
+    except LookupError as exc:
+        return _error(exc, 404)
+
+
+@app.route("/api/content/<int:variant_id>/publish", methods=["POST"])
+def api_content_publish(variant_id: int):
+    try:
+        return jsonify({"ok": True, "content": store().publish_variant(
+            variant_id, _site_id(), _user())})
     except LookupError as exc:
         return _error(exc, 404)
 
@@ -121,7 +140,8 @@ def api_content(variant_id: int):
 def api_simulate():
     body = request.get_json(silent=True) or {}
     try:
-        result = store().run_simulation(body, persist=bool(body.get("persist")))
+        result = store().run_simulation(
+            body, site_id=_site_id(), persist=bool(body.get("persist")))
         return jsonify({"ok": True, **result})
     except (TypeError, ValueError) as exc:
         return _error(exc)
@@ -130,25 +150,26 @@ def api_simulate():
 @app.route("/api/pause", methods=["POST"])
 def api_pause():
     body = request.get_json(silent=True) or {}
-    return jsonify(store().set_paused(bool(body.get("paused"))))
+    return jsonify(store().set_paused(bool(body.get("paused")), _site_id()))
 
 
 @app.route("/api/override", methods=["POST"])
 def api_override():
     body = request.get_json(silent=True) or {}
-    user = str(request.environ.get("smart1.user") or request.headers.get("X-Smart1-User") or "SmartHub user")
     try:
-        return jsonify(store().force_override(body, user=user))
+        return jsonify(store().force_override(body, site_id=_site_id(), user=_user()))
     except (TypeError, ValueError) as exc:
         return _error(exc)
 
 
 @app.route("/api/weather/refresh", methods=["POST"])
 def api_weather_refresh():
-    data = store().bootstrap()
+    site_id = _site_id()
+    data = store().bootstrap(site_id)
     try:
         snapshot = provider.fetch_weather(data["site"]["postal_code"])
-        evaluated = store().run_simulation(snapshot, persist=True, source="WeatherAPI")
+        evaluated = store().run_simulation(
+            snapshot, site_id=site_id, persist=True, source="WeatherAPI")
         return jsonify({"ok": True, "snapshot_id": evaluated.get("snapshot_id"), "weather": snapshot,
                         "evaluation": evaluated})
     except provider.WeatherProviderError as exc:
@@ -157,10 +178,30 @@ def api_weather_refresh():
 
 @app.route("/api/report.csv")
 def api_report_csv():
-    csv_text = store().report_csv()
+    csv_text = store().report_csv(_site_id())
     date = datetime.now(timezone.utc).date().isoformat()
     return Response(csv_text, mimetype="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="smartforecast-{date}.csv"'})
+
+
+@app.route("/api/sites", methods=["GET", "POST"])
+def api_sites():
+    try:
+        if request.method == "GET":
+            return jsonify({"ok": True, "sites": store().list_sites()})
+        return jsonify(store().create_site(request.get_json(silent=True) or {}, user=_user())), 201
+    except (TypeError, ValueError) as exc:
+        return _error(exc)
+    except LookupError as exc:
+        return _error(exc, 404)
+
+
+@app.route("/api/embed-token/rotate", methods=["POST"])
+def api_embed_token_rotate():
+    try:
+        return jsonify(store().rotate_embed_token(_site_id(), _user()))
+    except LookupError as exc:
+        return _error(exc, 404)
 
 
 @app.route("/embed/<token>")

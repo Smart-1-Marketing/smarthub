@@ -7,6 +7,7 @@
   let activeVariant = null;
   let installMode = "sites";
   let toastTimer = null;
+  let siteId = Math.max(1, Number(new URLSearchParams(location.search).get("site_id") || 1));
 
   const titleCase = value => String(value || "").replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
   const phaseLabel = value => ({pre_event:"Pre-event", active_event:"Active event", post_event:"Post-event", default:"Default", manual:"Manual"}[value] || titleCase(value));
@@ -22,9 +23,14 @@
   const formObject = form => Object.fromEntries(new FormData(form).entries());
 
   async function api(path, options = {}) {
-    const response = await fetch(base + path, {
-      headers: {"Content-Type":"application/json", ...(options.headers || {})},
-      ...options,
+    const {scoped = true, ...requestOptions} = options;
+    const url = new URL(base + path, location.origin);
+    if (scoped && path.startsWith("/api/") && path !== "/api/sites") {
+      url.searchParams.set("site_id", siteId);
+    }
+    const response = await fetch(url.pathname + url.search, {
+      headers: {"Content-Type":"application/json", ...(requestOptions.headers || {})},
+      ...requestOptions,
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) throw new Error(payload.error || `Request failed (${response.status})`);
@@ -52,7 +58,9 @@
       panel.hidden = !active;
       panel.classList.toggle("is-active", active);
     });
-    history.replaceState(null, "", `#${view}`);
+    const url = new URL(location.href);
+    url.hash = view;
+    history.replaceState(null, "", url);
     window.scrollTo({top:0, behavior:"smooth"});
   }
 
@@ -72,7 +80,9 @@
 
   function renderAll(data) {
     model = data;
+    siteId = Number(data.site.id);
     activeVariant = data.current_variant || data.variants[0] || null;
+    renderSitePicker();
     renderDashboard();
     renderSetup();
     renderPreflight(data.preflight);
@@ -84,6 +94,19 @@
     $("#loadingState").hidden = true;
     const target = location.hash.slice(1);
     go(["dashboard","setup","triggers","content","preview","report"].includes(target) ? target : "dashboard");
+  }
+
+  function renderSitePicker() {
+    const picker = $("#clientSelect");
+    picker.innerHTML = (model.sites || []).map(site => {
+      const suffix = site.site_name && site.site_name !== `${site.client_name} Website`
+        ? ` — ${site.site_name}` : "";
+      return `<option value="${site.id}">${escapeHtml(site.client_name + suffix)}</option>`;
+    }).join("");
+    picker.value = String(siteId);
+    const url = new URL(location.href);
+    url.searchParams.set("site_id", siteId);
+    history.replaceState(null, "", url);
   }
 
   function renderDashboard() {
@@ -133,7 +156,7 @@
 
   function renderSetup() {
     const site = model.site, form = $("#setupForm");
-    ["name","domain","platform","industry","location_label","postal_code","timezone","check_interval_minutes"].forEach(name => {
+    ["client_name","name","domain","platform","industry","location_label","postal_code","timezone","check_interval_minutes"].forEach(name => {
       if (form.elements[name]) form.elements[name].value = site[name] ?? "";
     });
     $$("#businessGoals input").forEach(input => input.checked = (site.business_goals || []).includes(input.value));
@@ -240,7 +263,7 @@
     if (!activeVariant) return;
     const order = {default:0, pre_event:1, active_event:2, post_event:3};
     const sorted = [...model.variants].sort((a,b) => a.trigger_key.localeCompare(b.trigger_key) || (order[a.phase] - order[b.phase]));
-    $("#variantList").innerHTML = sorted.map(variant => `<button class="sf-variant-item ${variant.id === activeVariant.id ? "is-active" : ""}" data-variant="${variant.id}" type="button"><strong>${escapeHtml(variant.name)}</strong><span>${escapeHtml(titleCase(variant.trigger_key))} · ${escapeHtml(phaseLabel(variant.phase))}</span></button>`).join("");
+    $("#variantList").innerHTML = sorted.map(variant => `<button class="sf-variant-item ${variant.id === activeVariant.id ? "is-active" : ""}" data-variant="${variant.id}" type="button"><strong>${escapeHtml(variant.name)}</strong><span>${escapeHtml(titleCase(variant.trigger_key))} · ${escapeHtml(phaseLabel(variant.phase))}${variant.approval_status === "draft" ? ` · <b class="sf-draft">Draft</b>` : ""}</span></button>`).join("");
     $$(".sf-variant-item").forEach(button => button.addEventListener("click", () => {
       activeVariant = model.variants.find(item => item.id === Number(button.dataset.variant));
       renderVariants();
@@ -257,6 +280,8 @@
     });
     $("#editorName").textContent = content.name;
     $("#editorPhase").textContent = phaseLabel(content.phase);
+    $("#approvalStatus").textContent = content.approval_status === "draft" ? "Draft · not live" : "Published live";
+    $("#approvalStatus").classList.toggle("is-draft", content.approval_status === "draft");
     $("#opacityOutput").textContent = Number(content.overlay_opacity || 0).toFixed(2);
     updateCrops();
   }
@@ -297,7 +322,7 @@
     $("#reportTransitions").textContent = report.transitions || 0;
     renderTimeline();
     renderEventRows();
-    $("#exportCsv").href = `${base}/api/report.csv`;
+    $("#exportCsv").href = `${base}/api/report.csv?site_id=${siteId}`;
   }
 
   function renderTimeline() {
@@ -325,6 +350,17 @@
     }
   }
 
+  async function loadSite(nextSiteId) {
+    siteId = Math.max(1, Number(nextSiteId || 1));
+    $("#loadingState").hidden = false;
+    try {
+      renderAll(await api("/api/bootstrap"));
+      toast(`Loaded ${model.site.client_name}`);
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
   $$(".sf-tab").forEach(tab => tab.addEventListener("click", () => go(tab.dataset.view)));
   $(".sf-tabs").addEventListener("keydown", event => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -336,6 +372,8 @@
     tabs[next].focus();
     go(tabs[next].dataset.view);
   });
+  $("#clientSelect").addEventListener("change", event => loadSite(event.target.value));
+  $("#addSite").addEventListener("click", () => $("#siteDialog").showModal());
   $$("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
   $$("[data-install]").forEach(button => button.addEventListener("click", () => {
     installMode = button.dataset.install;
@@ -368,6 +406,15 @@
   $("#copyEmbed").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("#embedCode code").textContent); toast("Embed code copied"); }
     catch { toast("Select the embed code and copy it manually", true); }
+  });
+
+  $("#rotateToken").addEventListener("click", async () => {
+    if (!window.confirm("Rotate this site's embed token? The current embed will stop working until its code is replaced.")) return;
+    try {
+      await api("/api/embed-token/rotate", {method:"POST", body:"{}"});
+      renderAll(await api("/api/bootstrap"));
+      toast("Embed token rotated; replace the old website code");
+    } catch (error) { toast(error.message, true); }
   });
 
   $("#runQa").addEventListener("click", async () => {
@@ -414,7 +461,21 @@
       const data = await api(`/api/content/${activeVariant.id}`, {method:"POST", body:JSON.stringify(body)});
       const index = model.variants.findIndex(item => item.id === activeVariant.id);
       model.variants[index] = data.content; activeVariant = data.content;
-      renderVariants(); renderPreview(activeVariant); toast("Content and responsive crops saved");
+      renderVariants(); renderPreview(activeVariant); toast("Draft saved; live content is unchanged");
+    } catch (error) { toast(error.message, true); }
+  });
+
+  $("#publishContent").addEventListener("click", async () => {
+    if (!activeVariant) return;
+    if (activeVariant.approval_status === "draft" && !window.confirm("Approve this exact draft for the live client website?")) return;
+    try {
+      const data = await api(`/api/content/${activeVariant.id}/publish`, {method:"POST", body:"{}"});
+      const index = model.variants.findIndex(item => item.id === activeVariant.id);
+      model.variants[index] = data.content;
+      activeVariant = data.content;
+      renderVariants();
+      renderPreview(activeVariant);
+      toast("Approved content is now live");
     } catch (error) { toast(error.message, true); }
   });
 
@@ -448,6 +509,25 @@
     body.phase = variant?.phase || "active_event";
     try { renderAll(await api("/api/override", {method:"POST", body:JSON.stringify(body)})); $("#overrideDialog").close(); toast("Manual message is now live and recorded"); }
     catch (error) { toast(error.message, true); }
+  });
+
+  $("#siteForm").addEventListener("submit", async event => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    const button = $("#createSite");
+    button.disabled = true;
+    try {
+      const data = await api("/api/sites", {
+        method:"POST", body:JSON.stringify(formObject(event.currentTarget)), scoped:false,
+      });
+      siteId = Number(data.site.id);
+      $("#siteDialog").close();
+      event.currentTarget.reset();
+      renderAll(data);
+      go("setup");
+      toast(`${data.site.client_name} is ready for configuration`);
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; }
   });
 
   load();
