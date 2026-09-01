@@ -1275,6 +1275,26 @@ whether the Cloudinary copy goes with it. It is named in the confirmation and
 says it cannot be undone, because for an image a client sent us our copy is
 very often the only copy.
 
+**And the gallery that link opened was one source's slice, read as the whole.**
+"See client image gallery" opened the SEO pipeline's archive scoped to the
+company — real images, correctly filtered, and a rep read it as everything we
+hold for the client while their uploads, display ads, logos and stock sat in
+the full gallery one module over. The link goes through
+`/tools/image-picker/gallery/for-client` now, which resolves the name under
+`provisioning.py`'s rules — exactly one gallery or none, never a substring —
+and lands on the full gallery, every folder and every source; a client with
+no full gallery yet lands on the SEO archive scoped to them, which is
+everything the Hub holds outside one. The two cannot bounce a reader between
+them, because the scoped SEO view offers a **Full client gallery** link only
+when the server resolved exactly one, and says it is the pipeline's own view
+rather than claiming to be every image saved. A view narrowed inside the full
+gallery — a group chip, a search, or both stacked — carries one **Show the
+full gallery** press back to everything, because the All chip and Clear each
+undo only half and "N of M shown" is a state somebody should not have to
+reverse-engineer their way out of. `c360` rides through the resolver's
+redirect, so "Back to <client>" survives the hop. `test_image_picker.py` and
+`test_client_images.py` assert all of it.
+
 **"Back" from a tool means the tool, and from a client record it means the
 client.** Every link out of Client 360 landed somewhere whose idea of back was
 its own parent, so a rep who opened the image gallery for Icon Solar got

@@ -113,7 +113,11 @@ and alt text written into each asset's Cloudinary context.
 Images saved against a client surface in two places: a **Client Images** card
 at the bottom of that client's Client 360 record, and on the SEO client detail
 page with **See client image gallery** and **Optimize client images** buttons.
-The gallery (`/tools/seo-images/gallery?company=…`) groups by project.
+Client 360's gallery link opens the client's **full gallery** — every folder
+and every source, in Client Image Uploads — resolved by name through
+`/tools/image-picker/gallery/for-client`; the pipeline's own archive view
+(`/tools/seo-images/gallery?company=…`) groups by project and offers the way
+to the full gallery when the client has one.
 
 Each save is recorded in a searchable archive (`/var/data/seo-images/`) with
 copy-URL, copy-`<img>`-tag, edit-alt-later, delete, and CSV export. Filenames

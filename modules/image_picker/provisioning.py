@@ -121,6 +121,27 @@ def find(db, name: str, url: str = "") -> tuple[list[PickerClient], str]:
     return [], ""
 
 
+def full_gallery_url(name: str, url: str = "") -> str:
+    """The client's FULL gallery — every folder, every source — or "".
+
+    This feeds a link a page draws beside a scoped view of the client's
+    images (the SEO pipeline's archive, a filtered group), so the answer is
+    binary on purpose: a link is either safe to offer or not drawn. "No
+    gallery yet", "two galleries could be this client" and "the store could
+    not be read" all come back empty — the resolver route answers the finer
+    question for somebody who actually clicked, and a page must never offer
+    a link that guesses between two clients' galleries.
+    """
+    try:
+        db = session()
+        found, _how = find(db, str(name or "").strip(), url or "")
+        if len(found) == 1:
+            return f"/tools/image-picker/gallery/{found[0].id}"
+    except Exception:                                     # noqa: BLE001
+        pass
+    return ""
+
+
 def link_for(name: str, url: str = "", *, create: bool = False,
              hub_client_id: str = "", base: str = "",
              actor: str = "") -> dict:
