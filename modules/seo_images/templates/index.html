@@ -460,11 +460,11 @@ function renderReview(){
           <span class="ext">.webp</span>
         </div>
         <label style="margin-top:9px">Alt text {{ help_dot('seo_images.review.alt') if help_dot is defined else '' }}</label>
-        <textarea class="alt" rows="2" maxlength="180">${esc(f.alt_text)}</textarea>
+        <textarea class="alt" data-demo="alt-field" rows="2" maxlength="180">${esc(f.alt_text)}</textarea>
         <div class="count" data-c="${i}"></div>
         <div class="meta">${esc(f.original_name)} · ${sizeLine(f)}</div>
         <div class="acts">
-          <button class="btn sec small" data-act="redo" data-i="${i}">&#8635; Ask AI again</button>
+          <button class="btn sec small" data-demo="reask" data-act="redo" data-i="${i}">&#8635; Ask AI again</button>
           <button class="btn ${f.state==='skip'?'sec':'danger'} small" data-act="skip" data-i="${i}">
             ${f.state==='skip'?'Include':'Skip this one'}</button>
         </div>
@@ -568,7 +568,7 @@ function renderSaved(saved, errors){
           <a class="btn sec small" href="api/gallery/download?id=${encodeURIComponent(s.id)}"
              title="Download this WebP file, named ${esc(s.filename)}">&#8681; Download</a>
           <button class="btn sec small" onclick="copyText('${esc(s.url)}',this)">Copy URL</button>
-          <button class="btn sec small" data-tag="${esc(s.id)}">Copy &lt;img&gt;</button>
+          <button class="btn sec small" data-demo="copy-tag" data-tag="${esc(s.id)}">Copy &lt;img&gt;</button>
         </div>
       </div>`).join('');
   $('savedList').querySelectorAll('[data-tag]').forEach(b => {
