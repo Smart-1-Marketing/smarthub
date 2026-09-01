@@ -809,7 +809,15 @@ function render(g,q){
 
   // ---------- Client images: what the SEO Image Pipeline has saved ----------
   const imgBase = '/tools/seo-images/';
-  const galleryHref  = imgBase+'gallery?company='+encodeURIComponent(name);
+  /* The gallery link opens the client's FULL gallery — every folder, every
+     source: their own uploads, display ads, logos, SEO images, stock — not
+     one pipeline's slice of it. The picker's resolver route does the name
+     matching (exactly one gallery or none, never a substring), and a client
+     with no full gallery yet lands on the SEO pipeline's archive for them,
+     which is everything the Hub holds outside one. hub-crumbs stamps c360
+     onto this link, and the resolver carries it through the redirect. */
+  const galleryHref  = '/tools/image-picker/gallery/for-client?name='+encodeURIComponent(name)
+    + (web0&&web0.domain ? '&url='+encodeURIComponent(web0.domain) : '');
   const optimizeHref = imgBase+'?company='+encodeURIComponent(name)
     + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
   const actsHost = document.getElementById('c-img-acts');
