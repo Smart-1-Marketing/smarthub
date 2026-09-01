@@ -231,9 +231,16 @@ check("logs nothing", not [e for e in audit.tail(80, module="io_builder",
 check("and registers nobody",
       "nope" not in {k.lower() for k in io_clients.overlay()})
 
+# An unconfigured webhook is not the same failure as a webhook that is
+# configured and refuses the order (asserted below): nothing was ever
+# attempted, so a rep finishing an IO in a deployment or a test session where
+# Suite delivery isn't wired up yet must not be dead-ended by it. The route
+# answers 200 and says plainly that nothing reached Suite, rather than the
+# 500 it used to answer regardless of whether the order itself was fine.
 r2 = staff.post("/tools/io/api/submit-io", json=order("10600", client="Live Co"))
-check("a submit the deployment cannot deliver still tells the rep why",
-      r2.status_code == 500 and "GHL_WEBHOOK_URL" in (r2.get_json() or {}).get("error", ""))
+check("a submit the deployment cannot deliver still succeeds, and says why",
+      r2.status_code == 200 and (r2.get_json() or {}).get("delivered_to_suite") is False
+      and "Suite" in (r2.get_json() or {}).get("message", ""))
 check("and is recorded, because the client has the order whatever Suite did",
       (io_records.get("10600") or {}).get("client") == "Live Co")
 logged = [e for e in audit.tail(80, module="io_builder", type_="io_submitted")

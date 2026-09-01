@@ -4173,18 +4173,20 @@ async function submitCompletedIO(){
   if(btn){btn.disabled=true;btn.style.opacity="0.6";btn.style.cursor="not-allowed";}
   try{
     setStatus("Creating or confirming both PDFs before submission…","");
-    /* A Cloudinary hiccup building the hosted PDF link must not be the thing
-       that strands a rep mid-submit — that link only matters once Smart 1
-       Suite is actually receiving the order (below), and while it isn't,
-       there is nothing downstream to hand the link to. Each PDF is still
-       attempted, and a failure is reported rather than hidden: the rep is
-       told, once, and the submit continues with that URL left blank. */
-    let clientUrl="",internalUrl="",pdfWarning="";
+    /* Both PDFs are still required -- they're the record Suite receives once
+       delivery there is back on, and the local Hub record this route keeps
+       either way. What changed is the failure itself: previously a
+       Cloudinary hiccup on either one threw a single combined error that
+       said nothing about which PDF or why, which is what "it doesn't allow
+       the PDF to be built" looked like from the outside. Each is attempted
+       and reported on its own now, so a real Cloudinary problem is at least
+       a clear, actionable message rather than a silent stall. */
+    let clientUrl="",internalUrl="",pdfError="";
     try{clientUrl=await ensurePdfForWebhook("client");}
-    catch(e){pdfWarning+=`Customer PDF could not be created (${e.message||e}). `;}
+    catch(e){pdfError+=`Customer PDF could not be created: ${e.message||e}. `;}
     try{internalUrl=await ensurePdfForWebhook("internal");}
-    catch(e){pdfWarning+=`Internal PDF could not be created (${e.message||e}).`;}
-    if(pdfWarning)addMsg("⚠ "+pdfWarning.trim(),"bot");
+    catch(e){pdfError+=`Internal PDF could not be created: ${e.message||e}.`;}
+    if(pdfError){throw new Error(pdfError.trim());}
 
     setStatus("Sending the completed IO…","");
     const payload={

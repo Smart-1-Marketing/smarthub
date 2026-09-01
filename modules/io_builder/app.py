@@ -1078,15 +1078,8 @@ def submit_io():
     data = request.get_json(silent=True) or {}
     client_pdf_url = str(data.get("client_pdf_url") or "").strip()
     internal_pdf_url = str(data.get("internal_pdf_url") or "").strip()
-    webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
 
-    # A hosted PDF link exists to be handed to Smart 1 Suite / GoHighLevel --
-    # with delivery there turned off (below), a Cloudinary hiccup building one
-    # must not also be what blocks a rep from getting a Hub record of a
-    # finished IO. Once delivery is configured again this still hard-requires
-    # both documents, because that is the one place a proposal figure becomes
-    # a billed one and it belongs on the record Suite receives.
-    if webhook_url and (not client_pdf_url or not internal_pdf_url):
+    if not client_pdf_url or not internal_pdf_url:
         # Nothing was built and nothing went, so there is no order to record.
         return jsonify({
             "ok": False,
@@ -1174,6 +1167,7 @@ def submit_io():
         except Exception:  # noqa: BLE001
             pass
 
+    webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
     if not webhook_url:
         # Smart 1 Suite delivery is deliberately off while this tool is being
         # tested end to end: a rep must be able to finish and submit an IO —
