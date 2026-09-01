@@ -3784,6 +3784,29 @@ Client 360 and `/status` say which source answered, exactly as the products
 card already does — a stale export looks identical to live data on screen,
 which is the whole reason this went unnoticed.
 
+**And that assertion was counting on a 610-row export.** It proved the
+scorecard read the export by comparing `websites_total` against the export's
+own length and then against the live pull's — and the second half only means
+anything while the two lists are different lengths. That was free while the
+export was committed and 610 rows long. The day it moved out of source control
+the fixture behind it held **two**, which is exactly how many rows the test's
+synthetic live list holds, so the guard could no longer tell *reads the export*
+from *reads whichever source happens to hold the same number of rows*, and it
+reported a working `summary()` as broken. Going red is the lucky half: the same
+collision one row the other way would have passed on the bug as well, which is
+the failure `test_help_layer.py` had to undo when a count was compared against
+a set that collapsed the duplicate it was looking for.
+
+**The fix is to stop counting.** Whether two lists are the same length is a
+fact about a fixture; whether `summary()` consulted the live pull at all is a
+fact about `summary()`, and no fixture can collide with it. The live reader is
+a function that records having been called, and the assertion is that it never
+was — so the property the test exists to hold is asserted directly rather than
+inferred from an arithmetic coincidence, and the next person to re-sanitize a
+fixture cannot silently switch it off. The obvious repair — padding the live
+list until the counts differ — was written first and thrown away: it keeps the
+comparison alive and therefore keeps the collision possible, one fixture later.
+
 **`campaigns.json` and `live_products.json` are gone.** 7,854 rows and 2.1 MB
 of the first, 96 KB of the second, and not one reference to either anywhere in
 the repo — no reader, and for campaigns not even a `campaigns()` function.
