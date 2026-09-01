@@ -350,18 +350,21 @@ check("nothing is written back into the stored index",
 # The tiles ask for it, and the two places that hand out markup do not: a
 # copy button and the CSV export are read by the client's own website, and a
 # 400px gallery thumbnail pasted there is the wrong file on their page.
-_gal = open(os.path.join(ROOT, "modules/seo_images/templates/gallery.html")).read()
+_gal = open(os.path.join(ROOT, "modules/seo_images/templates/gallery.html"),
+            encoding="utf-8").read()
 check("the gallery tile draws the preview", "esc(r.thumb||r.url)" in _gal)
 check("its link still opens the original",
       'href="${esc(r.url)}"' in _gal)
 check("the copy button still emits the original",
       'copy(\'<img src="\'+r.url+' in _gal)
 
-_c360 = open(os.path.join(ROOT, "hub/templates/client360.html")).read()
+_c360 = open(os.path.join(ROOT, "hub/templates/client360.html"),
+             encoding="utf-8").read()
 check("the client record's tiles draw the preview",
       "esc(r.thumb||r.url)" in _c360 and "esc(item.thumb||item.url)" in _c360)
 
-_pick = open(os.path.join(ROOT, "modules/image_picker/templates/picker_gallery.html")).read()
+_pick = open(os.path.join(ROOT, "modules/image_picker/templates/picker_gallery.html"),
+             encoding="utf-8").read()
 check("so does the client gallery", "esc(im.thumb || im.url)" in _pick)
 
 # Falling back rather than branching: a row from a producer nothing has wired
@@ -441,8 +444,8 @@ _BOUND = _re.compile(r"<img[^>]*\bsrc=[^>]*?(?:\.url|image_url|secure_url)")
 _found, _unexplained = set(), []
 for _dir in ("hub/templates", "modules"):
     for _f in sorted(pathlib.Path(os.path.join(ROOT, _dir)).rglob("*.html")):
-        _rel = str(_f.relative_to(ROOT))
-        for _line in _f.read_text(errors="ignore").split("\n"):
+        _rel = _f.relative_to(ROOT).as_posix()
+        for _line in _f.read_text(encoding="utf-8", errors="ignore").split("\n"):
             if not _BOUND.search(_line) or "thumb" in _line:
                 continue
             _hit = next((k for k in FULL_ASSET_ON_PURPOSE
