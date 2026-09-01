@@ -39,6 +39,12 @@
 .rb-support{background:linear-gradient(135deg,#1f4f66,#2f7fa3)}
 .req-row .partner-btn{cursor:pointer}
 
+/* The assigned-client scorecard has one more figure than the other queue
+   cards because it also answers what the book bills. Auto-fit keeps those
+   four answers readable on a narrow dashboard instead of forcing four tiny
+   fixed columns. */
+.myclient-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px}
+
 /* Who is signed in. Sits above the checks in the same card, because "is the
    Hub up" and "is anybody on it" are the two things that card is opened for. */
 .presence{padding:12px 14px;border-bottom:1px solid #eef2f6;
@@ -441,12 +447,22 @@ fetch('/api/my-clients/scoreboard').then(r=>r.json()).then(d=>{
       +'</div></a>';
   };
   const mine=(d.scope==='mine');
-  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+  let h='<div class="myclient-stats">'
+    + stat(mine?'Billing on your book / mo':'Unassigned billing / mo',
+           d.billing_measured===true?'$'+fmt(d.billing_monthly):'—','/my-clients')
     + stat(mine?'Clients on your book':'Clients nobody owns',
            mine?d.clients:d.unassigned,'/my-clients')
     + stat('With something outstanding',d.with_issues,'/my-clients',true)
     + stat('Things outstanding',d.issues,'/my-clients',true)
     + '</div>';
+  if(d.billing_measured!==true){
+    h+='<div class="muted" style="margin-top:9px;font-size:11.5px">Billing is '
+      +'not measured for this run — a partial total is not shown.</div>';
+  }else{
+    h+='<div class="muted" style="margin-top:9px;font-size:11.5px">'
+      + '$'+fmt(d.media_billing_monthly)+' media + $'+fmt(d.hm_billing_monthly)
+      +' website H&amp;M</div>';
+  }
   if((d.top||[]).length){
     h+='<div style="margin-top:11px;font-size:12.5px;line-height:1.7">'
       + d.top.map(t=>'<div><a href="'+esc(t.url)+'">'+esc(t.client)+'</a>'

@@ -39,7 +39,31 @@
   .ch-note{border-left:3px solid #cbd5e1;padding:4px 0 4px 10px;margin:8px 0;font-size:12.5px}
   .ch-note .who{color:#68798c;font-size:11.5px}
   .ch-cols{display:grid;gap:16px;grid-template-columns:3fr 2fr}
-  @media (max-width:900px){.ch-cols{grid-template-columns:1fr}}
+  /* Client 360's record rail, applied to the work rather than the systems:
+     the labels down the side are the open kinds of work on this book, and a
+     press narrows the client rows to the thing somebody intends to do. */
+  .ch-work{display:grid;grid-template-columns:210px minmax(0,1fr);gap:14px;align-items:start}
+  .ch-rail{position:sticky;top:12px;background:#fff;border:1px solid #e2e8f0;
+           border-radius:12px;padding:7px;display:flex;flex-direction:column;gap:1px}
+  .ch-rail-title{padding:8px 10px 6px;color:#64748b;font-size:10.5px;font-weight:800;
+                 text-transform:uppercase;letter-spacing:.08em}
+  .ch-rail button{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;
+                  border:0;background:none;border-radius:8px;cursor:pointer;
+                  color:#1e293b;text-align:left;font:600 12.5px 'Segoe UI',system-ui,sans-serif}
+  .ch-rail button:hover{background:#f4f6fa}
+  .ch-rail button.on{background:#eff4ff;color:#1d4ed8}
+  .ch-rail button span:first-child{min-width:0;flex:1}
+  .ch-nav-count{flex:none;min-width:24px;padding:2px 7px;border-radius:999px;
+                background:#f1f5f9;color:#475569;text-align:center;font-size:11px}
+  .ch-rail button.on .ch-nav-count{background:#dbe7ff;color:#1d4ed8}
+  .ch-rail-empty{padding:8px 10px 10px;color:#64748b;font-size:12px;line-height:1.4}
+  .ch-surface{min-width:0}
+  @media (max-width:900px){
+    .ch-cols,.ch-work{grid-template-columns:1fr}
+    .ch-rail{position:static;flex-direction:row;flex-wrap:wrap}
+    .ch-rail-title{width:100%}
+    .ch-rail button{width:auto;max-width:100%}
+  }
 </style>
 </head>
 <body class="s1d-page" data-s1hub-collapse="1">
@@ -81,18 +105,26 @@
 
   <div class="s1d-tiles" id="tiles"></div>
 
-  <div class="card">
-    <div class="s1d-tablehead"><b>Clients {{ help_dot('client_health.marks') if help_dot is defined else '' }}</b>
-      <span class="s1d-muted" id="shown"></span></div>
-    <div class="s1d-scroll">
-      <table>
-        <thead><tr>
-          <th style="width:34px"></th>
-          <th>Client</th><th>Owner</th><th>Outstanding</th>
-          <th>Traffic health</th><th class="s1d-muted">Live</th>
-        </tr></thead>
-        <tbody id="rows"><tr><td colspan="6">Reading your book… <span class="spin"></span></td></tr></tbody>
-      </table>
+  <div class="ch-work">
+    <nav class="ch-rail" aria-label="Work needed by type">
+      <div class="ch-rail-title">Needs doing</div>
+      <div id="kindnav"><div class="ch-rail-empty">Reading the open work…</div></div>
+    </nav>
+    <div class="ch-surface">
+      <div class="card">
+        <div class="s1d-tablehead"><b id="list-title">Clients {{ help_dot('client_health.marks') if help_dot is defined else '' }}</b>
+          <span class="s1d-muted" id="shown"></span></div>
+        <div class="s1d-scroll">
+          <table>
+            <thead><tr>
+              <th style="width:34px"></th>
+              <th>Client</th><th>Owner</th><th>Outstanding</th>
+              <th>Traffic health</th><th class="s1d-muted">Live billing</th>
+            </tr></thead>
+            <tbody id="rows"><tr><td colspan="6">Reading your book… <span class="spin"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -100,7 +132,7 @@
 <script>
 (function(){
   "use strict";
-  var DATA = null, OPEN = {}, KINDS = {};
+  var DATA = null, OPEN = {}, KINDS = {}, ACTIVE_KIND = "all";
 
   function esc(s){ return String(s == null ? "" : s)
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
@@ -167,15 +199,58 @@
 
   function drawTiles(){
     var c = (DATA && DATA.counts) || {};
+    var bill = c.billing_measured === true ? money(c.billing_monthly) : "—";
     el("tiles").innerHTML = [
+      ['<span class="lab">Billing on this book / mo</span><b>' + bill + '</b>'],
       ['<span class="lab">Clients on this view</span><b>' + (c.clients_shown||0) + '</b>'],
       ['<span class="lab">With something outstanding</span><b>' + (c.clients_with_issues||0) + '</b>'],
       ['<span class="lab">Things outstanding</span><b>' + (c.issues||0) + '</b>'],
       ['<span class="lab">Ignored or done</span><b>' + (c.handled||0) + '</b>'],
       ['<span class="lab">Clients nobody owns</span><b>' + (c.unassigned||0) + '</b>']
     ].map(function(t){ return '<div class="s1d-tile">' + t[0] + '</div>'; }).join("");
-    el("shown").textContent = (c.clients_shown||0) + " of " + (c.clients_total||0)
-      + " clients";
+  }
+
+  function issuesFor(row){
+    var issues = (row && row.issues) || [];
+    return ACTIVE_KIND === "all" ? issues : issues.filter(function(issue){
+      return issue.kind === ACTIVE_KIND;
+    });
+  }
+
+  function rowsForKind(){
+    var rows = (DATA && DATA.rows) || [];
+    return ACTIVE_KIND === "all" ? rows : rows.filter(function(row){
+      return issuesFor(row).length > 0;
+    });
+  }
+
+  function drawKindNav(){
+    var counts = ((DATA && DATA.counts) || {}).by_kind || {};
+    if(ACTIVE_KIND !== "all" && !counts[ACTIVE_KIND]) ACTIVE_KIND = "all";
+    var total = ((DATA && DATA.counts) || {}).issues || 0;
+    var buttons = [{key:"all", label:"All needed", count:total}];
+    Object.keys(KINDS).forEach(function(key){
+      if(counts[key]) buttons.push({key:key, label:KINDS[key].label || key,
+                                    count:counts[key]});
+    });
+    var host = el("kindnav");
+    host.innerHTML = buttons.map(function(item){
+      return '<button type="button" class="ch-kind' + (item.key===ACTIVE_KIND?' on':'')
+        + '" data-kind="' + esc(item.key) + '" aria-pressed="'
+        + (item.key===ACTIVE_KIND?'true':'false') + '"><span>' + esc(item.label)
+        + '</span><span class="ch-nav-count">' + item.count + '</span></button>';
+    }).join("") + (!total
+      ? '<div class="ch-rail-empty">Nothing is waiting on this view.</div>' : '');
+    host.querySelectorAll(".ch-kind").forEach(function(button){
+      button.onclick = function(){
+        ACTIVE_KIND = button.getAttribute("data-kind") || "all";
+        OPEN = {};
+        draw();
+      };
+    });
+    var chosen = ACTIVE_KIND === "all" ? null : KINDS[ACTIVE_KIND];
+    el("list-title").firstChild.nodeValue = chosen
+      ? (chosen.label + " ") : "Clients ";
   }
 
   function countClass(n){ return n === 0 ? "ch-c0" : (n < 3 ? "ch-c1" : "ch-c2"); }
@@ -211,17 +286,24 @@
   }
 
   function draw(){
-    drawViewer(); drawSources(); drawTiles();
+    drawViewer(); drawSources(); drawTiles(); drawKindNav();
     var cache = (DATA && DATA.cache) || {};
     el("age").textContent = cache.line || "";
-    var rows = (DATA && DATA.rows) || [];
+    var allRows = (DATA && DATA.rows) || [];
+    var rows = rowsForKind();
+    el("shown").textContent = rows.length + " of " + allRows.length
+      + " clients on this view";
     var box = el("rows");
     if(!rows.length){
       /* Which kind of empty. "Nothing is outstanding" and "nobody has
          assigned you a client" render identically as a blank table and only
          the second is somebody's to fix. */
       var reason = (DATA && DATA.empty_reason) || "";
-      var msg = reason === "no_clients"
+      var msg = ACTIVE_KIND !== "all"
+        ? 'No clients with <b>'
+          + esc(((KINDS[ACTIVE_KIND]||{}).label || ACTIVE_KIND).toLowerCase())
+          + '</b> are on this view.'
+        : reason === "no_clients"
         ? 'No clients are assigned to you yet. <a href="/qa/client-owners">Assign '
           + 'some</a>, or switch to <b>Everyone</b> above.'
         : 'Nothing is outstanding on these clients right now.';
@@ -231,6 +313,7 @@
     var html = "";
     rows.forEach(function(r, i){
       var open = !!OPEN[r.key];
+      var openIssues = issuesFor(r);
       html += '<tr class="ch-row" data-i="' + i + '">'
         + '<td>' + (open ? "&#9662;" : "&#9656;") + '</td>'
         + '<td><b>' + esc(r.client) + '</b>'
@@ -238,17 +321,20 @@
         + (r.domain ? '<div class="s1d-muted">' + esc(r.domain) + '</div>' : "")
         + '</td>'
         + '<td>' + ownerCell(r.owner) + '</td>'
-        + '<td><span class="ch-count ' + countClass(r.issue_count) + '">'
-        + r.issue_count + '</span>'
-        + '<div class="ch-chips">' + (r.issues || []).slice(0,4).map(function(is){
+        + '<td><span class="ch-count ' + countClass(openIssues.length) + '">'
+        + openIssues.length + '</span>'
+        + '<div class="ch-chips">' + openIssues.slice(0,4).map(function(is){
             return '<span class="ch-chip">' + esc((KINDS[is.kind]||{}).label || is.kind)
               + '</span>'; }).join("")
-        + ((r.issues||[]).length > 4 ? '<span class="ch-chip">+'
-            + ((r.issues||[]).length - 4) + ' more</span>' : "")
+        + (openIssues.length > 4 ? '<span class="ch-chip">+'
+            + (openIssues.length - 4) + ' more</span>' : "")
         + '</div></td>'
         + '<td>' + trafficCell(r.traffic) + '</td>'
-        + '<td class="s1d-muted">' + (r.live_products || 0)
-        + (r.monthly ? '<div>' + esc(money(r.monthly)) + '/mo</div>' : "") + '</td>'
+        + '<td class="s1d-muted">' + (r.live_products || 0) + ' product'
+        + ((r.live_products||0)===1?'':'s')
+        + (r.monthly ? '<div><b>' + esc(money(r.monthly)) + '/mo</b></div>' : "")
+        + (r.hm_monthly ? '<div>' + esc(money(r.media_monthly)) + ' media + '
+            + esc(money(r.hm_monthly)) + ' H&amp;M</div>' : "") + '</td>'
         + '</tr>';
       if(open) html += '<tr class="ch-detail"><td colspan="6">'
         + detail(r, i) + '</td></tr>';
@@ -295,11 +381,12 @@
         + esc(f.label) + (f.note ? " &mdash; " + esc(f.note) : "") + '</span></div>';
     }).join("");
     var e = r.engagement || {};
+    var shownIssues = issuesFor(r);
     var left = '<div class="card"><h3>Outstanding</h3>'
-      + ((r.issues || []).length
-          ? r.issues.map(function(is){ return issueCard(r, is, i, false); }).join("")
+      + (shownIssues.length
+          ? shownIssues.map(function(is){ return issueCard(r, is, i, false); }).join("")
           : '<p class="s1d-muted">Nothing outstanding on this client.</p>')
-      + ((r.handled || []).length
+      + (ACTIVE_KIND === "all" && (r.handled || []).length
           ? '<h3 style="margin-top:14px">Ignored or done ('
             + r.handled.length + ')</h3>'
             + r.handled.map(function(is){ return issueCard(r, is, i, true); }).join("")
@@ -352,7 +439,7 @@
     document.querySelectorAll(".ch-row").forEach(function(tr){
       tr.onclick = function(ev){
         if(ev.target.closest("a,button,input")) return;
-        var r = DATA.rows[Number(tr.getAttribute("data-i"))];
+        var r = rowsForKind()[Number(tr.getAttribute("data-i"))];
         OPEN[r.key] = !OPEN[r.key];
         draw();
       };
@@ -361,7 +448,7 @@
       node.onclick = function(ev){
         ev.preventDefault();
         var act = node.getAttribute("data-act");
-        var row = DATA.rows[Number(node.getAttribute("data-i"))];
+        var row = rowsForKind()[Number(node.getAttribute("data-i"))];
         if(!row) return;
         node.disabled = true;
         var done;
@@ -421,6 +508,8 @@
     })
     .catch(function(){});
 
+  var initialClient = new URLSearchParams(location.search).get("client");
+  if(initialClient) el("q").value = initialClient;
   load(false);
 })();
 </script>

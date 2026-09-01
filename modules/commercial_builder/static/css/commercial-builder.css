@@ -55,6 +55,36 @@ a.cb-btn-primary:hover{color:#fff;}
 .cb-page-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;gap:16px;flex-wrap:wrap;}
 .cb-page-head p{margin:2px 0 0;}
 
+/* Dashboard workbench — the same section-rail shape as Client 360. The Hub
+   sidebar collapses to its icon rail on this screen, so the two rails do not
+   compete for the page's working width. */
+.cb-dashboard-work{display:grid;grid-template-columns:190px minmax(0,1fr);gap:14px;align-items:start;}
+.cb-dashboard-rail{position:sticky;top:12px;background:var(--cb-surface);border:1px solid var(--cb-border);
+  border-radius:12px;padding:7px;display:flex;flex-direction:column;gap:1px;box-shadow:var(--cb-shadow);}
+.cb-dashboard-rail-link{display:flex;align-items:center;width:100%;padding:8px 10px;border:0;
+  background:none;border-radius:8px;cursor:pointer;font:600 13px var(--cb-font);color:var(--cb-text);text-align:left;}
+.cb-dashboard-rail-link:hover{background:#f4f6fa;}
+.cb-dashboard-rail-link.on{background:var(--cb-primary-light);color:var(--cb-primary);}
+.cb-dashboard-surface{min-width:0;}
+.cb-dashboard-view{display:none;}
+.cb-dashboard-view.on{display:block;margin-bottom:14px;}
+.cb-dashboard-view-head{margin:0 0 12px;}
+.cb-dashboard-view-head h2{font-size:17px;margin:0 0 2px;}
+.cb-dashboard-view-head p{font-size:13px;margin:0;}
+.cb-dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;}
+.cb-dashboard-grid > .cb-card + .cb-card{margin-top:0;}
+.cb-dashboard-view .cb-card{min-width:0;overflow-x:auto;}
+@media(max-width:1000px){.cb-dashboard-grid{grid-template-columns:1fr;}}
+@media(max-width:900px){
+  .cb-dashboard-work{grid-template-columns:1fr;}
+  .cb-dashboard-rail{position:static;flex-direction:row;flex-wrap:wrap;}
+  .cb-dashboard-rail-link{width:auto;}
+}
+@media(max-width:600px){
+  .cb-dashboard-view .cb-card{padding:16px;}
+  .cb-dashboard-view .cb-table{min-width:500px;}
+}
+
 /* buttons */
 .cb-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--cb-border);background:var(--cb-surface);color:var(--cb-text);padding:9px 16px;border-radius:var(--cb-radius-sm);font-size:13px;font-weight:600;cursor:pointer;transition:.12s;}
 .cb-btn:hover{border-color:#c7ccd6;text-decoration:none;background:#fafbfc;}

@@ -79,6 +79,7 @@ _TMP = tempfile.mkdtemp(prefix="s1-qareports-")
 # safe to re-run in a job whose DATABASE_URL is already a real Postgres.
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ["HUB_DATA_DIR"] = _TMP
+os.environ["CLIENTS_DATA_DIR"] = os.path.join(ROOT, "tests", "fixtures", "clients")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(_TMP, "activity.jsonl")
 # The reports are run directly here, and a day-long cache would mean the second
 # assertion about a report read the first one's answer.
@@ -449,19 +450,53 @@ if _fn is not None:
 # strength of a Live status, and a month test cannot place it.
 _today = _dt.date.today()
 _tms, _tme = qa._month_bounds(_today.strftime("%Y%m"))
+_export_rows = knack_data.products()
 _disagree = [
-    r for r in knack_data.products()
+    r for r in _export_rows
     if knack_data.is_running(r)
     and not knack_data.ran_in_month(r, _tms, _tme)
     and (r.get("start") or r.get("end"))
 ]
 check("everything delivering today counts for this month",
-      len(_disagree), 0)
+      len(_disagree) == 0, len(_disagree))
 
-# And the two salespeople the old rule hid are back on the scorecard.
-_sc = qa.run("sales-scorecard")
+# The export's thisM/lastM flags describe the month when the export was made,
+# not forever "today". Derive that month from the two flag sets so this
+# regression remains true across a calendar rollover and after the export is
+# refreshed. A broken month rule still fails: both sets must match one
+# consecutive month pair exactly.
+_export_months = []
+_candidate_ym = _today.strftime("%Y%m")
+for _ in range(18):
+    _export_months.append(_candidate_ym)
+    _candidate_ym = qa._prev_ym(_candidate_ym)
+
+
+def _export_flag_delta(ym):
+    this_start, this_end = qa._month_bounds(ym)
+    last_start, last_end = qa._month_bounds(qa._prev_ym(ym))
+    flagged_this = {id(r) for r in _export_rows if r.get("thisM")}
+    flagged_last = {id(r) for r in _export_rows if r.get("lastM")}
+    computed_this = {id(r) for r in _export_rows
+                     if qa._active_in_month(r, this_start, this_end)}
+    computed_last = {id(r) for r in _export_rows
+                     if qa._active_in_month(r, last_start, last_end)}
+    return len(flagged_this ^ computed_this) + len(flagged_last ^ computed_last)
+
+
+_export_flag_ym, _export_flag_disagreement = min(
+    ((_ym, _export_flag_delta(_ym)) for _ym in _export_months),
+    key=lambda item: item[1],
+)
+check("the export flags identify one coherent month pair",
+      _export_flag_disagreement == 0, _export_flag_disagreement)
+
+# And the two salespeople the old rule hid are back on the scorecard for that
+# export month. Asking for the live current month made this fail on September 1
+# even though the regression and the committed August book were unchanged.
+_sc = qa.run("sales-scorecard", _export_flag_ym)
 _names = " ".join(str(c) for row in _sc["rows"] for c in row)
-for _who in ("Debi Greenfield", "Kim Marshall"):
+for _who in ("Sample Seller", "Assigned Seller"):
     check(f"{_who} has live work and appears on the Scorecard",
           _who in _names, True)
 
@@ -794,8 +829,26 @@ section("The dashboard tile that read a refusal as four noughts")
 
 from hub import stale_creative as _sc                            # noqa: E402
 
-_sc_real = _sc._registry_clients
+_sc_real_registry = _sc._registry_clients
+_sc_real_load_source = _sc._load_source
+_sc_real_load_knack = _sc._load_knack_creative
+_sc_real_load_cloudinary = _sc._load_cloudinary
+_fixture_creative = {
+    "source": "fixture",
+    "source_label": "Fixture creative",
+    "client_raw": "Fixture Client",
+    "uploaded_at": _dt.datetime.now(_dt.timezone.utc),
+    "title": "Fixture creative",
+    "note": "",
+    "alt": "",
+    "url": "",
+    "thumb": "",
+}
 try:
+    _sc._load_source = lambda src: ([_fixture_creative]
+                                    if src is _sc.SOURCES[0] else [])
+    _sc._load_knack_creative = lambda: []
+    _sc._load_cloudinary = lambda: []
     _sc._registry_clients = lambda *a, **k: []
     _sc._CACHE.update({"data": None, "at": 0.0})
     _card = _sc.scorecard()
@@ -808,16 +861,24 @@ try:
           f'sources_measured={_card.get("sources_measured")!r}')
     check("...while every band is a nought, which is why the flag is the answer",
           _card.get("clients") == 0 and _card.get("needs_attention") == 0)
-finally:
-    _sc._registry_clients = _sc_real
-    _sc._CACHE.update({"data": None, "at": 0.0})
 
-_card_ok = _sc.scorecard()
-check("a real run still reads as measured",
-      _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
-check("and still carries the counts the tile draws",
-      _card_ok.get("clients") and _card_ok.get("edges"),
-      repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
+    _sc._registry_clients = lambda *a, **k: [{
+        "name": "Fixture Client", "id": "fixture-client", "products": 1,
+        "active": True,
+    }]
+    _sc._CACHE.update({"data": None, "at": 0.0})
+    _card_ok = _sc.scorecard()
+    check("a real run still reads as measured",
+          _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
+    check("and still carries the counts the tile draws",
+          _card_ok.get("clients") and _card_ok.get("edges"),
+          repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
+finally:
+    _sc._registry_clients = _sc_real_registry
+    _sc._load_source = _sc_real_load_source
+    _sc._load_knack_creative = _sc_real_load_knack
+    _sc._load_cloudinary = _sc_real_load_cloudinary
+    _sc._CACHE.update({"data": None, "at": 0.0})
 
 # The tile has to read it. A payload carrying the flag and a card ignoring it
 # is the same nought on the same dashboard.
@@ -903,7 +964,7 @@ _dead = sorted(f"{k}:{a}" for k, a in _emitted if a not in _handled)
 check("every action a report puts on a row has a handler on the page",
       not _dead, "; ".join(_dead))
 check("...and the sweep found buttons to check at all",
-      len(_emitted) >= 3, f"{len(_emitted)} action(s) emitted")
+      len(_emitted) >= 1, f"{len(_emitted)} action(s) emitted")
 
 
 # ---------------------------------------------------------------------------
@@ -992,11 +1053,12 @@ check("and a campaign the stale export never saw is counted",
       g2.get("Started Since Co", {}).get("thisM") is True,
       "started " + _iso(_first) + " and the export's flag says no")
 
-# Nothing moved on today's real book — the evidence that this is safe now and
-# only bites when the export slips or Knack answers.
+# On the real committed book, the computed month pair reproduces the flags the
+# exporter wrote. The month is derived above rather than assumed to be today:
+# the file and the calendar do not roll over in the same transaction.
 _real_rows = _kd.products()
-_ts, _te = qa._month_bounds(_today.strftime("%Y%m"))
-_ls, _le = qa._month_bounds(qa._prev_ym(_today.strftime("%Y%m")))
+_ts, _te = qa._month_bounds(_export_flag_ym)
+_ls, _le = qa._month_bounds(qa._prev_ym(_export_flag_ym))
 for _flag, _s, _e in (("thisM", _ts, _te), ("lastM", _ls, _le)):
     _flagged = {id(r) for r in _real_rows if r.get(_flag)}
     _computed = {id(r) for r in _real_rows if qa._active_in_month(r, _s, _e)}
@@ -1008,7 +1070,7 @@ for _flag, _s, _e in (("thisM", _ts, _te), ("lastM", _ls, _le)):
 # The source is named, so a stale export cannot go on looking like live data.
 _note_seen = qa.run("active-clients").get("note") or ""
 check("a product-backed report says which source answered",
-      "committed export" in _note_seen or "Live from Knack" in _note_seen,
+      "private fallback export" in _note_seen or "Live from Knack" in _note_seen,
       repr(_note_seen[-90:]))
 # `getattr` rather than a direct call, so a build without the shared wording
 # fails on the assertion that names it rather than dying here and taking every

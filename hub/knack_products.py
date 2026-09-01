@@ -1,7 +1,8 @@
 """Knack object_135 — IO products, read live.
 
 Products, campaigns and insertion orders have been served from JSON files
-exported by hand into `clients_app/data/`. Nothing refreshed them, so Client
+exported by hand into a private `CLIENTS_DATA_DIR` fallback. Nothing in the
+application refreshes that snapshot, so Client
 360 showed whatever was true on the day of the last export. That's why Icon
 Solar's insertion orders looked stale: they were.
 
@@ -380,7 +381,7 @@ def rows(max_age_minutes: int | None = None) -> dict:
 
 
 def _from_export() -> dict:
-    """The old static JSON, used only when there's no cache at all."""
+    """The private fallback JSON, used only when there's no cache at all."""
     try:
         from hub import knack_data
         base = knack_data.BASE
@@ -392,13 +393,13 @@ def _from_export() -> dict:
         return {"rows": raw, "source": "static export",
                 "age_minutes": round((time.time() - mtime) / 60),
                 "count": len(raw), "fields_version": 0,
-                "note": "From the committed JSON export, which nothing "
-                        "refreshes. Set KNACK_APP_ID and KNACK_API_KEY to "
-                        "read live."}
+                "note": "From the private fallback export. Set KNACK_APP_ID "
+                        "and KNACK_API_KEY to read live, and refresh the "
+                        "CLIENTS_DATA_DIR snapshot out of band."}
     except Exception:                                   # noqa: BLE001
         return {"rows": [], "source": "none", "age_minutes": None, "count": 0,
                 "fields_version": 0,
-                "note": "No live connection and no export on disk."}
+                "note": "No live connection and no private fallback on disk."}
 
 
 def _norm(v: str) -> str:

@@ -428,6 +428,11 @@ FULL_ASSET_ON_PURPOSE = {
     ("modules/ad_builder/public/embed.html", "l.kind || 'logo'"): _LOGO,
     ("modules/ads_builder/templates/_estimate_doc.html", "logo.url"): _LOGO,
     ("modules/ads_builder/templates/ads_proposal.html", 'alt="logo"'): _LOGO,
+    ("modules/scans/templates/scan_detail.html", "mark.url"): _LOGO,
+    ("modules/scans/templates/scan_detail.html", "preview.url"):
+        "one provider screenshot per breakpoint in the scan's dedicated "
+        "appearance panel; InSites supplies only the remote original and the "
+        "Hub does not own or preprocess it into a thumbnail",
 
 }
 
@@ -437,7 +442,7 @@ _BOUND = _re.compile(r"<img[^>]*\bsrc=[^>]*?(?:\.url|image_url|secure_url)")
 _found, _unexplained = set(), []
 for _dir in ("hub/templates", "modules"):
     for _f in sorted(pathlib.Path(os.path.join(ROOT, _dir)).rglob("*.html")):
-        _rel = str(_f.relative_to(ROOT))
+        _rel = _f.relative_to(ROOT).as_posix()
         for _line in _f.read_text(errors="ignore").split("\n"):
             if not _BOUND.search(_line) or "thumb" in _line:
                 continue
