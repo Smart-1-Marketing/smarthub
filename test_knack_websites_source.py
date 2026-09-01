@@ -77,6 +77,14 @@ LIVE = [
      "domain": "northgatedental.com",
      "production_url": "https://northgatedental.com",
      "platform": "WordPress", "client_status": "Active", "hm_fee": 0},
+    # A third row so this list can never be the same length as the export
+    # fixture. The check below that the dashboard is NOT reading the live pull
+    # can only discriminate while the two counts differ, and it stopped
+    # discriminating the day the fixture happened to gain a second record.
+    {"id": "r3", "client": "Harbour Point Dental", "organization": "",
+     "domain": "harbourpointdental.com",
+     "production_url": "https://harbourpointdental.com",
+     "platform": "WordPress", "client_status": "Active", "hm_fee": 0},
 ]
 
 
@@ -122,7 +130,7 @@ _reset()
 
 rows, source, err = kd._website_source()                          # noqa: SLF001
 check("the live registry answers", source == "knack", (source, err))
-check("and every record comes through", len(rows) == 2, len(rows))
+check("and every record comes through", len(rows) == len(LIVE), len(rows))
 check("in the export's shape",
       all({"name", "domain", "liveUrl", "platform"} <= set(r) for r in rows))
 check("websites() reports which source answered",
@@ -184,8 +192,12 @@ totals = kd.summary()
 check("websites_total still counts the export, not the live pull",
       totals["websites_total"] == len(kd.export_websites()),
       (totals["websites_total"], len(kd.export_websites())))
-check("and it is emphatically not the live row count",
-      totals["websites_total"] != len(LIVE))
+# Not a claim about the dashboard -- a precondition for the check above it.
+# While the export and the live list are the same length, that check passes
+# whichever source summary() read, so it proves nothing.
+check("and the two counts differ, so the check above can tell them apart",
+      totals["websites_total"] != len(LIVE),
+      (totals["websites_total"], len(LIVE)))
 check("websites_active is measured off the export's own `active` field",
       totals["websites_active"] > 0, totals["websites_active"])
 check("so H&M billing is not collapsed to the live rows' fees",
