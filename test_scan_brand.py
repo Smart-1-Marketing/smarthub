@@ -60,7 +60,7 @@ PAYLOAD = {
         "primary_background_colour": "#223344",
         "secondary_background_colour": "#fff",
         "primary_text_colour": "#123",  # same value, second role
-        "secondary_text_colour": "not-a-color",
+        "secondary_text_colour": "not-a-valid-color",
     },
     "website_screenshot": {
         "desktop_screenshot_url": "https://shots.example/desktop.jpg",
@@ -87,7 +87,7 @@ check("duplicate colors keep every role",
       identity["palette"][0]["roles"], ["Primary accent", "Primary text"])
 check("rgb colors normalize safely", identity["palette"][1]["hex"], "#14283C")
 check("invalid CSS never reaches an inline style",
-      any(item["hex"] == "not-a-color" for item in identity["palette"]), False)
+      any(item["hex"] == "not-a-valid-color" for item in identity["palette"]), False)
 
 mark_urls = [item["url"] for item in identity["marks"]]
 check("primary logo stays first", mark_urls[0],
