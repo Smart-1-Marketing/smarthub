@@ -684,6 +684,80 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
+  /* Did the copy actually happen?
+     ---------------------------------------------------------------- copy
+     navigator.clipboard is absent on http and is allowed to refuse on
+     https, so a control that says "Copied" either way is reporting a
+     success it never had -- the failure CLAUDE.md names on the Smart 1 Ads
+     estimate, where a button that lies about copying is worse than one
+     that asks.
+
+     This page had three copy affordances and kept the rule at two of them:
+     the logo-palette swatches and the proof link both asked, and the
+     site-brand swatches -- the ones carrying the colors read off the
+     client's own website -- swallowed the rejection with an empty catch
+     and set "copied" on the next line regardless. A rule two of three call
+     sites keep is not a rule, so there is one reading of it now and the
+     fourth control is right by default.
+
+     Resolves TRUE only when the text is on the clipboard. execCommand is
+     the fallback rather than a second answer: it is what still works on
+     http, and it reports its own failure, so a caller never has to guess.
+     Nothing here throws -- a copy button that breaks the page it sits on
+     is worse than one that cannot copy.
+
+     LIFTED AND DRIVEN IN NODE: tests/copy-claim.test.ts reads the block
+     between the markers below and runs it against stubbed clipboards. A
+     copy restated in the test would be a third thing to keep in step. */
+  /* --- s1:copy-start --- */
+  function copyText(text, doc, nav) {
+    doc = doc || (typeof document !== 'undefined' ? document : null);
+    nav = nav || (typeof navigator !== 'undefined' ? navigator : null);
+    var value = String(text == null ? '' : text);
+
+    function byExecCommand() {
+      // No document to select into, or a host that refuses: say so rather
+      // than resolving true on the strength of having tried.
+      if (!doc || typeof doc.execCommand !== 'function') return false;
+      // EVERY step is inside the try, createElement included. The first
+      // version built the textarea above it, so a document that refused to
+      // create one threw straight out of the function that promises not
+      // to -- found by the test, not by reading it.
+      var box = null;
+      try {
+        box = doc.createElement('textarea');
+        box.value = value;
+        // Off-screen rather than hidden: a display:none element cannot be
+        // selected, so the copy would fail for a reason nothing reports.
+        box.setAttribute('style', 'position:fixed;top:-1000px;left:-1000px;opacity:0');
+        doc.body.appendChild(box);
+        box.select();
+        return doc.execCommand('copy') === true;
+      } catch (e) {
+        return false;
+      } finally {
+        try { box && box.parentNode && box.parentNode.removeChild(box); } catch (e) {}
+      }
+    }
+
+    if (nav && nav.clipboard && typeof nav.clipboard.writeText === 'function') {
+      // writeText is specified to return a promise and does not always: a
+      // throw here is synchronous, so Promise.resolve() around the CALL is
+      // too late to catch it. Found by the test, not by reading -- which is
+      // the whole reason this promises never to raise.
+      try {
+        return Promise.resolve(nav.clipboard.writeText(value)).then(
+          function () { return true; },
+          function () { return byExecCommand(); },
+        );
+      } catch (e) {
+        return Promise.resolve(byExecCommand());
+      }
+    }
+    return Promise.resolve(byExecCommand());
+  }
+  /* --- s1:copy-end --- */
+
   function concept() {
     if (!state.doc) return null;
     var cs = state.doc.campaign.concepts;
@@ -1042,20 +1116,11 @@
         // Copied, never applied: which of the five roles a logo color should
         // become is a judgment, and guessing it moves four other things.
         //
-        // And it only claims to have copied when it did. navigator.clipboard
-        // is absent on http and is allowed to refuse, and a button that says
-        // "copied" either way is the one CLAUDE.md names on the Smart 1 Ads
-        // estimate -- worse than one that asks.
-        var said = function (ok) {
+        // And it claims a copy only when copyText says one happened.
+        copyText(hex).then(function (ok) {
           el.title = ok ? hex + ' copied \u2014 paste it into a swatch'
                         : hex + ' \u2014 could not copy, select and copy it by hand';
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(hex).then(function () { said(true); },
-                                                  function () { said(false); });
-        } else {
-          said(false);
-        }
+        });
       });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-font]'), function (el) {
@@ -1965,8 +2030,13 @@
           // Copied, not applied. Which of the five roles a site color should
           // become is a judgment -- their page background is not always the
           // ad's primary -- and guessing it would move four other things.
-          if (navigator.clipboard) navigator.clipboard.writeText(hex).catch(function () {});
-          el.title = hex + ' copied \u2014 paste it into a swatch below';
+          //
+          // And copied, not merely attempted: this one swallowed the
+          // rejection and set "copied" on the next line either way.
+          copyText(hex).then(function (ok) {
+            el.title = ok ? hex + ' copied \u2014 paste it into a swatch below'
+                          : hex + ' \u2014 could not copy, select and copy it by hand';
+          });
         });
       });
     });
@@ -3812,22 +3882,16 @@
         '</div>' +
       '</div>');
 
-    /* navigator.clipboard is not available on http and is allowed to refuse
-       on https. A button that reports a copy it never made is worse than one
-       that asks, so the last resort selects the text and says so. */
+    /* A button that reports a copy it never made is worse than one that
+       asks, so this asks copyText and draws what it answers. */
     $('proofCopy').addEventListener('click', function () {
       var box = $('proofUrlBox'), btn = this;
       function ok() { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy link'; }, 1600); }
+      // This one has a box on the page to fall back to, which the swatches
+      // do not: selecting the real URL and saying so beats a note nobody
+      // can act on.
       function manual() { box.focus(); box.select(); btn.textContent = 'Press Ctrl-C'; }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(box.value).then(ok, function () {
-          box.select();
-          try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
-        });
-        return;
-      }
-      box.select();
-      try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
+      copyText(box.value).then(function (copied) { copied ? ok() : manual(); });
     });
 
     $('decApprove').addEventListener('click', function () { recordDecision('approve'); });
