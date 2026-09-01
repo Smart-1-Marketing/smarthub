@@ -433,8 +433,8 @@ finally:
     knack_products.rows = _real_rows
 check("and one that raises falls back too", s_err, "export")
 check("with the export's rows still on it", len(r_err) > 0)
-check("the export note says it may be out of date",
-      "may be out of date" in seo.products_note("export", None))
+check("the export note says its snapshot date needs verification",
+      "verify its snapshot date" in seo.products_note("export", None))
 
 check("seo_clients() keeps its list-only signature for the other callers",
       isinstance(seo.seo_clients(), list))
