@@ -1909,6 +1909,40 @@ sweep of bare paths lands on the list, reports it green, and the largest
 template in the Hub — 3,600 lines, drawn almost entirely from fetches — goes
 unchecked while reading as covered. Both it and `/seo/webmaster` are named now.
 
+**The mapping that every location-scoped feature waits on, in its own
+store.** Reading a client's Forms, pushing their Social Planner posts, minting
+a token at all — each needs one fact, which sub-account is theirs, and until
+it is recorded the feature has no answer for that client. It lived on
+`image_picker_clients.ghl_location_id`, a hand-typed column that exists
+because somebody provisioned an upload gallery. That was fine while the
+mapping was incidental and is the wrong home with the app installed across
+several hundred sub-accounts: it couples **"this client has a Suite
+sub-account"** to **"somebody made them an upload gallery"**, so mapping the
+book through it would create hundreds of gallery rows as a side effect nobody
+asked for — which `modules/image_picker/provisioning.py` is explicit about
+refusing.
+
+`hub/suite_map.py` is that store, and **nothing is migrated**: the old column
+is still read, the way `audit.LOG_NAMES` and `video_library.TAG_ALIASES` keep
+matching a spelling already on disk. **`suite_accounts.location_for()` stays
+the one reader** — it consults the new store then the old column — because two
+functions answering *which sub-account is this client* is how they come to
+disagree, and on this question a disagreement puts one client's work in
+another client's account.
+
+`proposals()` pairs sub-accounts to clients on **canonical domain first, then
+an exact normalised name, and never a substring**: "Riverside HVAC" must not
+collect "Riverside HVAC Supply". **Two candidates propose neither** and name
+both — two client records on one domain is the ambiguity that actually
+occurs. **Nothing is written by looking**; `link()` is the press, and a
+sub-account already recorded against somebody else is **refused by name**
+rather than reassigned, because silently taking the newer answer is exactly
+how the wrong page gets posted to. `accept_many()` reports every row's own
+outcome, the `client_urls.accept_many()` rule. It reads `/locations/search`
+rather than `ghl_oauth.installed_locations()` — that answers a different
+question and carries no website, and the domain is the only field in a
+location record that identifies a business exactly.
+
 **A card that asks for nobody's data gets somebody's.** Client 360's forms
 card fetches `/api/client/forms?name=…&period=…` and names no sub-account —
 and `ghl_forms.summary()` fell back to `GHL_LEAD_LOCATION_ID`, which

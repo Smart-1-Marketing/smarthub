@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block title %}Match Suite sub-accounts — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="sm">
+  <p class="sm-crumb"><a href="/qa">QA Reports</a> / Match Suite sub-accounts</p>
+  <h1>Which Smart 1 Suite sub-account is whose</h1>
+  <p class="sm-sub">
+    Every location-scoped thing the Hub can do for a client &mdash; reading
+    their Forms on Client 360, pushing their Social Planner posts, minting a
+    token at all &mdash; needs this one fact, and until it is recorded the
+    feature has no answer for that client. <b>Find sub-accounts</b> reads the
+    company's list from Smart 1 Suite and proposes a client for each one, on
+    an exact domain first and an exact name second. Nothing is written by
+    looking: every row ends at a press.
+  </p>
+
+  <div class="sm-metrics" id="smMetrics"></div>
+
+  <div class="sm-bar">
+    {#- A button rather than something the page does on arrival: this walks
+        every sub-account in the company a page at a time against
+        HighLevel's own rate limit, and a GET that does that is one a reload
+        or a prefetch fires without anybody asking. -#}
+    <button class="sm-btn primary" id="smFind" onclick="findAll()">Find sub-accounts</button>
+    <input id="smQ" class="sm-search" disabled
+           placeholder="Search sub-account, website or proposed client"
+           oninput="draw()">
+    <button class="sm-btn" onclick="loadRecorded()">Show what is recorded</button>
+  </div>
+
+  <div class="sm-note" id="smNote" hidden></div>
+
+  {#- The bulk bar only exists once something is ticked: a row of disabled
+      buttons above an untouched table reads as a broken page. -#}
+  <div class="sm-bulk" id="smBulk" hidden>
+    <span id="smSel"></span>
+    <button class="sm-btn good" onclick="acceptTicked()" id="smAccept"></button>
+    <button class="sm-btn" onclick="clearSel()">Clear</button>
+  </div>
+
+  <div id="smOut"><p class="sm-muted">Nothing loaded yet.</p></div>
+</div>
+
+<style>
+  .sm{max-width:1180px}
+  .sm-crumb{font-size:12px;color:#8595a8;margin:0 0 6px}
+  .sm-crumb a{color:#8595a8}
+  .sm h1{margin:0 0 8px}
+  .sm-sub{font-size:13px;color:#64748b;max-width:74ch;line-height:1.55;margin:0 0 16px}
+  .sm-metrics{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}
+  .sm-metric{background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+             padding:9px 14px;min-width:104px}
+  .sm-metric b{display:block;font-size:19px;line-height:1.2}
+  .sm-metric span{font-size:11px;color:#64748b}
+  .sm-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+  .sm-btn{background:#fff;border:1px solid #cbd5e1;border-radius:8px;
+          padding:7px 13px;font-size:13px;cursor:pointer;color:#1e293b}
+  .sm-btn:hover{background:#f8fafc}
+  .sm-btn.primary{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+  .sm-btn.good{background:#047857;border-color:#047857;color:#fff}
+  .sm-btn[disabled]{opacity:.55;cursor:default}
+  .sm-search{flex:1;min-width:240px;padding:7px 11px;border:1px solid #cbd5e1;
+             border-radius:8px;font-size:13px}
+  .sm-note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
+           padding:9px 13px;font-size:12.5px;color:#78350f;margin:0 0 12px}
+  .sm-note.bad{background:#fef2f2;border-color:#fecaca;color:#7f1d1d}
+  .sm-bulk{display:flex;gap:8px;align-items:center;background:#eff6ff;
+           border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;
+           font-size:13px;margin:0 0 12px}
+  .sm-sec{margin:22px 0 8px;font-size:11px;font-weight:700;letter-spacing:1px;
+          text-transform:uppercase;color:#64748b}
+  .sm-secsub{font-size:12.5px;color:#8595a8;margin:0 0 8px;max-width:74ch}
+  .sm-tbl{width:100%;border-collapse:collapse;background:#fff;font-size:13px;
+          border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}
+  .sm-tbl th{text-align:left;font-size:11px;text-transform:uppercase;
+             letter-spacing:.6px;color:#64748b;padding:8px 11px;
+             border-bottom:1px solid #e2e8f0;background:#f8fafc}
+  .sm-tbl td{padding:8px 11px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  .sm-tbl tr:last-child td{border-bottom:0}
+  .sm-id{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#64748b}
+  .sm-why{font-size:11.5px;color:#64748b}
+  .sm-pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;
+           background:#e2e8f0;color:#334155}
+  .sm-pill.dom{background:#dcfce7;color:#14532d}
+  .sm-pill.nm{background:#fef9c3;color:#713f12}
+  .sm-muted{color:#8595a8;font-size:13px}
+  .sm-row-out{font-size:11.5px}
+  .sm-row-out.ok{color:#047857}
+  .sm-row-out.no{color:#b91c1c}
+</style>
+
+<script>
+/* eslint-env browser */
+var DATA = null;         /* the last proposals() payload */
+var SEL = {};            /* location_id -> client, for the ticked rows */
+var OUT = {};            /* location_id -> {ok, detail}, one row's own answer */
+
+function esc(s){ return String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;'); }
+
+function note(msg, bad){
+  var n = document.getElementById('smNote');
+  if (!msg){ n.hidden = true; n.textContent = ''; return; }
+  n.hidden = false;
+  n.className = 'sm-note' + (bad ? ' bad' : '');
+  n.textContent = msg;
+}
+
+/* Every figure is of the whole answer, never of what is drawn: a page
+   reporting its own length as the total is how somebody concludes there are
+   25 sub-accounts. */
+function metrics(d){
+  var box = document.getElementById('smMetrics');
+  if (!d || !d.measured){ box.innerHTML = ''; return; }
+  var cells = [
+    ['Sub-accounts', d.locations || 0],
+    ['Already recorded', d.linked || 0],
+    ['Proposed', (d.proposals || []).length],
+    ['Two candidates', (d.ambiguous || []).length],
+    ['No match', (d.unmatched || []).length]
+  ];
+  box.innerHTML = cells.map(function(c){
+    return '<div class="sm-metric"><b>' + c[1] + '</b><span>' + c[0] +
+           '</span></div>'; }).join('');
+}
+
+function matches(row, q){
+  if (!q) return true;
+  q = q.toLowerCase();
+  return [row.location_name, row.website, row.location_id, row.client]
+    .concat(row.candidates || [])
+    .some(function(v){ return String(v || '').toLowerCase().indexOf(q) >= 0; });
+}
+
+function rowOut(id){
+  var o = OUT[id];
+  if (!o) return '';
+  return '<div class="sm-row-out ' + (o.ok ? 'ok' : 'no') + '">' +
+         esc(o.ok ? 'Recorded.' : (o.detail || 'Refused.')) + '</div>';
+}
+
+function selCount(){
+  var n = Object.keys(SEL).length;
+  var bar = document.getElementById('smBulk');
+  bar.hidden = !n;
+  if (!n) return;
+  document.getElementById('smSel').textContent =
+    n + (n === 1 ? ' ticked' : ' ticked');
+  document.getElementById('smAccept').textContent =
+    'Record ' + n + ' pairing' + (n === 1 ? '' : 's');
+}
+
+function tick(id, client, on){
+  if (on) SEL[id] = client; else delete SEL[id];
+  selCount();
+}
+
+function clearSel(){
+  SEL = {};
+  Array.prototype.forEach.call(
+    document.querySelectorAll('.smTick'), function(b){ b.checked = false; });
+  selCount();
+}
+
+function draw(){
+  var out = document.getElementById('smOut');
+  if (!DATA){ out.innerHTML = '<p class="sm-muted">Nothing loaded yet.</p>'; return; }
+  if (!DATA.measured){
+    /* "We could not look" is not "there is nothing to map". */
+    out.innerHTML = '<p class="sm-muted">' + esc(DATA.error ||
+      'Nothing could be measured.') + '</p>';
+    return;
+  }
+  var q = document.getElementById('smQ').value.trim();
+  var props = (DATA.proposals || []).filter(function(r){ return matches(r, q); });
+  var amb = (DATA.ambiguous || []).filter(function(r){ return matches(r, q); });
+  var un = (DATA.unmatched || []).filter(function(r){ return matches(r, q); });
+  var html = '';
+
+  html += '<div class="sm-sec">Proposed &mdash; ' + props.length +
+          (q ? ' of ' + (DATA.proposals || []).length + ' shown' : '') + '</div>' +
+          '<p class="sm-secsub">One client, matched exactly. Tick the rows ' +
+          'you agree with and record them; nothing is written until you do.</p>';
+  html += props.length ? table(props, 'prop') :
+          '<p class="sm-muted">Nothing proposed.</p>';
+
+  if (amb.length){
+    html += '<div class="sm-sec">Two candidates &mdash; ' + amb.length + '</div>' +
+            '<p class="sm-secsub">More than one client record can be meant, ' +
+            'so neither is proposed. Picking between them is picking whose ' +
+            'account a client&rsquo;s work lands in.</p>' + table(amb, 'amb');
+  }
+  if (un.length){
+    html += '<div class="sm-sec">No match &mdash; ' + un.length + '</div>' +
+            '<p class="sm-secsub">No client record shares this ' +
+            'sub-account&rsquo;s domain or carries its name exactly. Usually ' +
+            'a client whose website is not on file yet.</p>' + table(un, 'un');
+  }
+  out.innerHTML = html;
+}
+
+function table(rows, kind){
+  var head = '<table class="sm-tbl"><thead><tr>' +
+    (kind === 'prop' ? '<th style="width:26px"></th>' : '') +
+    '<th>Sub-account</th><th>Website</th>' +
+    (kind === 'un' ? '' : '<th>' + (kind === 'amb' ? 'Candidates' : 'Client') + '</th>') +
+    (kind === 'prop' ? '<th style="width:96px"></th>' : '') +
+    '</tr></thead><tbody>';
+  return head + rows.map(function(r){
+    var td = '';
+    if (kind === 'prop'){
+      td += '<td><input type="checkbox" class="smTick" ' +
+            'onchange="tick(\'' + esc(r.location_id) + '\',\'' +
+            esc(String(r.client).replace(/'/g, "\\'")) + '\',this.checked)"></td>';
+    }
+    td += '<td>' + esc(r.location_name || '(no name)') +
+          '<div class="sm-id">' + esc(r.location_id) + '</div>' + rowOut(r.location_id) +
+          '</td>';
+    td += '<td>' + (r.website ? esc(r.website) :
+          '<span class="sm-muted">none published</span>') + '</td>';
+    if (kind === 'amb'){
+      td += '<td>' + (r.candidates || []).map(esc).join('<br>') +
+            '<div class="sm-why">matched on ' + esc(r.matched_on) + '</div></td>';
+    } else if (kind === 'prop'){
+      td += '<td><b>' + esc(r.client) + '</b><div class="sm-why">' +
+            '<span class="sm-pill ' + (r.matched_on === 'domain' ? 'dom' : 'nm') +
+            '">' + esc(r.matched_on) + '</span> ' + esc(r.evidence || '') +
+            '</div></td>';
+      td += '<td><button class="sm-btn" onclick="acceptOne(\'' +
+            esc(r.location_id) + '\',\'' +
+            esc(String(r.client).replace(/'/g, "\\'")) + '\',this)">Record</button></td>';
+    }
+    return '<tr>' + td + '</tr>';
+  }).join('') + '</tbody></table>';
+}
+
+function post(path, body){
+  return fetch(path, {method: 'POST',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify(body || {})})
+    .then(function(r){ return r.json(); });
+}
+
+function findAll(){
+  var btn = document.getElementById('smFind');
+  /* The mark is the Hub's own, and it is guarded: a missing script costs the
+     glyph, never the message. `scan` because the wait is somebody else's
+     server. */
+  var w = window.S1Think ? window.S1Think.attach(document.getElementById('smOut'),
+            {kind: 'scan', what: 'Reading the sub-accounts from Smart 1 Suite'})
+          : {done: function(){}};
+  btn.disabled = true;
+  note('');
+  post('/api/suite/proposals').then(function(d){
+    DATA = d; OUT = {}; SEL = {};
+    w.done();
+    btn.disabled = false;
+    document.getElementById('smQ').disabled = !d.measured;
+    selCount();
+    metrics(d);
+    /* A partial read is said out loud beside the rows it could not replace:
+       an undercount here reads as a shorter book. */
+    if (d.measured && d.error) note(d.error);
+    else if (!d.measured) note(d.error || 'Nothing could be measured.', true);
+    draw();
+  }).catch(function(e){
+    w.done();
+    btn.disabled = false;
+    note('The sub-account list could not be read (' + e + ').', true);
+  });
+}
+
+function acceptOne(id, client, btn){
+  if (btn) btn.disabled = true;
+  post('/api/suite/link', {client: client, location_id: id}).then(function(r){
+    OUT[id] = {ok: !!r.ok, detail: r.detail || ''};
+    if (r.ok){ delete SEL[id]; selCount(); }
+    if (btn) btn.disabled = false;
+    draw();
+  }).catch(function(){ if (btn) btn.disabled = false; });
+}
+
+function acceptTicked(){
+  var pairs = Object.keys(SEL).map(function(id){
+    return {location_id: id, client: SEL[id]}; });
+  if (!pairs.length) return;
+  var btn = document.getElementById('smAccept');
+  btn.disabled = true;
+  post('/api/suite/link', {pairs: pairs}).then(function(r){
+    /* Every row reports its own outcome. One number back would hide the
+       ones that were refused. */
+    (r.results || []).forEach(function(x){
+      OUT[x.location_id] = {ok: !!x.ok, detail: x.detail || ''};
+      if (x.ok) delete SEL[x.location_id];
+    });
+    btn.disabled = false;
+    selCount();
+    note(r.linked + ' recorded' +
+         (r.refused ? ', ' + r.refused + ' refused — the reason is on each row.'
+                    : '.'), !!r.refused);
+    draw();
+  }).catch(function(){ btn.disabled = false; });
+}
+
+function loadRecorded(){
+  fetch('/api/suite/map').then(function(r){ return r.json(); }).then(function(d){
+    var rows = d.links || [];
+    DATA = null;
+    document.getElementById('smMetrics').innerHTML =
+      '<div class="sm-metric"><b>' + rows.length +
+      '</b><span>Recorded</span></div>';
+    document.getElementById('smOut').innerHTML = rows.length ?
+      ('<div class="sm-sec">Recorded &mdash; ' + rows.length + '</div>' +
+       '<table class="sm-tbl"><thead><tr><th>Client</th><th>Sub-account</th>' +
+       '<th>Recorded by</th><th style="width:96px"></th></tr></thead><tbody>' +
+       rows.map(function(r){
+         return '<tr><td><b>' + esc(r.client) + '</b></td>' +
+                '<td class="sm-id">' + esc(r.location_id) + '</td>' +
+                '<td class="sm-why">' + esc(r.by || 'not recorded') + '</td>' +
+                '<td><button class="sm-btn" onclick="unlink(\'' +
+                esc(String(r.client).replace(/'/g, "\\'")) +
+                '\')">Unlink</button></td></tr>'; }).join('') +
+       '</tbody></table>') :
+      '<p class="sm-muted">Nothing is recorded yet. Press <b>Find ' +
+      'sub-accounts</b> above.</p>';
+  });
+}
+
+document.addEventListener('DOMContentLoaded', loadRecorded);
+
+function unlink(client){
+  if (!window.confirm('Take the sub-account off ' + client +
+                      '? Nothing is written to Smart 1 Suite or to Knack ' +
+                      'either way — this is a Hub record.')) return;
+  post('/api/suite/unlink', {client: client}).then(loadRecorded);
+}
+</script>
+{% endblock %}
