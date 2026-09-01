@@ -1078,8 +1078,15 @@ def submit_io():
     data = request.get_json(silent=True) or {}
     client_pdf_url = str(data.get("client_pdf_url") or "").strip()
     internal_pdf_url = str(data.get("internal_pdf_url") or "").strip()
+    webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
 
-    if not client_pdf_url or not internal_pdf_url:
+    # A hosted PDF link exists to be handed to Smart 1 Suite / GoHighLevel --
+    # with delivery there turned off (below), a Cloudinary hiccup building one
+    # must not also be what blocks a rep from getting a Hub record of a
+    # finished IO. Once delivery is configured again this still hard-requires
+    # both documents, because that is the one place a proposal figure becomes
+    # a billed one and it belongs on the record Suite receives.
+    if webhook_url and (not client_pdf_url or not internal_pdf_url):
         # Nothing was built and nothing went, so there is no order to record.
         return jsonify({
             "ok": False,
@@ -1167,11 +1174,27 @@ def submit_io():
         except Exception:  # noqa: BLE001
             pass
 
-    webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
     if not webhook_url:
-        _keep(error="GHL_WEBHOOK_URL is not configured on the server, so the "
-                    "order was never sent to Smart 1 Suite.")
-        return jsonify({"ok": False, "error": "GHL_WEBHOOK_URL is not configured on the server."}), 500
+        # Smart 1 Suite delivery is deliberately off while this tool is being
+        # tested end to end: a rep must be able to finish and submit an IO —
+        # and get a Hub record of it, with both PDFs — without the missing
+        # webhook turning every attempt into a dead end. This is NOT the same
+        # as a webhook that is configured and refuses the order (handled
+        # below, which still fails loudly): here nothing was ever sent, and
+        # the response says so in plain words rather than a quiet 200.
+        _keep(delivered=False,
+              error="GHL_WEBHOOK_URL is not configured, so Smart 1 Suite "
+                    "delivery is currently turned off. The order was recorded "
+                    "in the Hub but not sent to Suite or GoHighLevel.")
+        return jsonify({
+            "ok": True,
+            "delivered_to_suite": False,
+            "message": "Order recorded. Smart 1 Suite delivery is turned off "
+                       "while this tool is being tested, so nothing was sent "
+                       "to Smart 1 Suite or GoHighLevel.",
+            "client_pdf_url": client_pdf_url,
+            "internal_pdf_url": internal_pdf_url,
+        })
 
     # Compute opportunity-friendly summary fields so GoHighLevel can map an
     # Opportunity Name and Lead Value without digging into nested campaign_data.

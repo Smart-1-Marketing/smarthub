@@ -689,9 +689,9 @@ const state={
  // no more. geo stays the single combined string every downstream reader --
  // the IO PDF, the Suite webhook's geographic_target -- has always taken.
  targetAreas:[],targetAreaName:"",
- geoType:"",geoOrigin:"",geoRadius:"",geoDMA:"",geoState:"",geoOther:"",geoZipcodes:"",geo:"",industry:"",descriptionMode:"",description:"",
+ geoType:"",zipMode:"",geoOrigin:"",geoRadius:"",geoDMA:"",geoState:"",geoOther:"",geoZipcodes:"",geo:"",industry:"",descriptionMode:"",description:"",
  sameDates:null,start:"",end:"",dayparting:"",objectives:[],kpis:[],creativeSource:"",gender:"",ages:[],income:[],audiences:[],audienceNotes:"",
- selectedCategories:[],currentCategory:"",selected:[],items:[],creativeAssets:[],creativeChecklist:{},clientUploadUrl:"",internalWarnings:[],generatedDocuments:{},aiDescription:"",exclusions:"",strategy:{},recommendations:[],managementFee:"",creativeFee:"",campaignOwner:"",specialInstructions:"",frequencyCap:"",trackingPlan:{primaryConversion:"",secondaryConversions:[],ga4:"",gtm:"",callTracking:"",thankYouPage:"",offlineImport:"",verifier:""},guardrailWarnings:[],mediaMixRecommendation:{},mediaMixDecision:"",naming:{},
+ selectedCategories:[],currentCategory:"",selected:[],items:[],lastCompletedProduct:"",creativeAssets:[],creativeChecklist:{},clientUploadUrl:"",internalWarnings:[],generatedDocuments:{},aiDescription:"",exclusions:"",strategy:{},recommendations:[],managementFee:"",creativeFee:"",campaignOwner:"",specialInstructions:"",frequencyCap:"",trackingPlan:{primaryConversion:"",secondaryConversions:[],ga4:"",gtm:"",callTracking:"",thankYouPage:"",offlineImport:"",verifier:""},guardrailWarnings:[],mediaMixRecommendation:{},mediaMixDecision:"",naming:{},
  /* What the proposal left for a person to settle. All of it lives on state
     rather than on PROPOSAL so that Back restores it and so that it reaches
     the submitted order -- a decision a rep made about the document is part
@@ -764,7 +764,14 @@ function baseFlow(){
   {key:"start",q:"What is the shared campaign start date? Use MM/DD/YYYY.",condition:()=>state.sameDates===true},
   {key:"end",q:"What is the shared campaign end date? Use MM/DD/YYYY.",condition:()=>state.sameDates===true},
   {key:"dayparting",q:"Is there any dayparting for the campaigns?",options:daypartOptions},
-  {key:"client",q:"What is the client name?"},
+  {key:"client",q:"What is the client name?",
+   /* Picking a client from the start screen's search (or converting a
+      proposal) already writes state.client -- asking again here is what
+      made a rep who had just picked "N2 - Patricia's" get asked their name
+      a second time. Skipped only when it is genuinely already known; a
+      blank IO still asks normally, and the Edit panel can always change it
+      afterward. */
+   condition:()=>!state.client},
   /* The same pair again. On a proposal conversion the client is known before
      the IO type is asked and the questions above do the work; on a blank IO
      nobody knows who this is until here, and a replacement question that
@@ -780,8 +787,22 @@ function baseFlow(){
   {key:"landingUrl",q:"What landing-page URL should be used for all products?",condition:()=>state.landingMode==="One landing page"},
   {key:"targetAreaName",q:"What should this target area be called? A name you'd use on a call — \u201cCarmel showroom\u201d, \u201cNorth trade area\u201d. Type SKIP to name it after its geography."},
   {key:"geoType",q:"How should this target area be defined?",options:["City/ZIP Code + Radius","DMA","Statewide","National","Other"]},
-  {key:"geoOrigin",q:"What city or ZIP Code should the radius start from?",condition:()=>state.geoType==="City/ZIP Code + Radius"},
-  {key:"geoRadius",q:"What radius in miles should be used?",condition:()=>state.geoType==="City/ZIP Code + Radius"},
+  /* "City/ZIP Code + Radius" is the only type this app can turn into a ZIP
+     list on its own -- and a rep who already knows the exact ZIP Codes (a
+     media plan naming them, a client's own list) does not want the AI radius
+     lookup run at all, let alone the ~200-ZIP result it can return for a
+     wide radius. zipMode asks which is wanted before either of the two
+     radius questions, and skipping them is what keeps this a RADIUS-type
+     area on the backend (hub/target_areas.py already allows one with no
+     origin or radius, only a name and a ZIP list) rather than inventing a
+     type nothing downstream recognizes. */
+  {key:"zipMode",q:"Should I calculate the ZIP Codes from a radius, or do you already have the list?",
+   options:["Calculate from a radius","I already have the ZIP Codes"],
+   condition:()=>state.geoType==="City/ZIP Code + Radius"},
+  {key:"geoOrigin",q:"What city or ZIP Code should the radius start from?",
+   condition:()=>state.geoType==="City/ZIP Code + Radius"&&state.zipMode!=="I already have the ZIP Codes"},
+  {key:"geoRadius",q:"What radius in miles should be used?",
+   condition:()=>state.geoType==="City/ZIP Code + Radius"&&state.zipMode!=="I already have the ZIP Codes"},
   {key:"geoZipcodes",q:"",condition:()=>state.geoType==="City/ZIP Code + Radius"},
   {key:"geoDMA",q:"What DMA should be targeted?",condition:()=>state.geoType==="DMA"},
   {key:"geoState",q:"Which state should be targeted?",condition:()=>state.geoType==="Statewide"},
@@ -1193,6 +1214,12 @@ async function generateAIBusinessDescription(){
   addMsg(`AI description warning: ${err.message}. A fallback description was prepared.`);
  }
 }
+// A real, selectable answer to "none of these apply" -- without it,
+// "Select at least one audience" forced a pick even on a campaign the
+// proposal or media plan never described in audience terms at all, which is
+// exactly the shape of an insertion order built from a straight rate-card
+// buy (a DMA, a budget, no named audience segment).
+const AUDIENCE_NONE="No specific audience targeting";
 function suggestedAudienceOptions(){
  const base=industrySet();
  const extras=[
@@ -1200,7 +1227,7 @@ function suggestedAudienceOptions(){
   "Recent Movers","High-Income Households","In-Market Buyers","Website Visitors","Customer Lookalikes",
   "Competitor Visitors","Past Customers","Local Residents"
  ];
- return [...new Set([...(base.behavioral||[]),...(base.contextual||[]),...extras])];
+ return [AUDIENCE_NONE,...new Set([...(base.behavioral||[]),...(base.contextual||[]),...extras])];
 }
 
 
@@ -1252,15 +1279,15 @@ function renderTraffickingCards(){
  const box=document.getElementById("traffickingCards");if(!box)return;
  generateNaming();
  if(!state.items.length){box.innerHTML='<div class="empty">No products selected.</div>';return}
- box.innerHTML=state.items.map(item=>{
-  const cfg=productConfig[item.product]||{},names=(state.naming.products||{})[item.product]||{};
+ box.innerHTML=state.items.map((item,idx)=>{
+  const cfg=productConfig[item.product]||{},names=(state.naming.products||{})[idx]||{};
   return `<div class="traffic-card">
-   <h3>${esc(cfg.product||item.product)}</h3>
+   <h3>${esc(cfg.product||item.product)}${item.areaName?` — ${esc(item.areaName)}`:""}</h3>
    <div class="traffic-grid">
     <div><strong>Budget</strong><br>${money(item.budget||0)} monthly<br>${money(item.campaignBudget||0)} campaign</div>
     <div><strong>Dates</strong><br>${esc(item.start||"—")} to ${esc(item.end||"—")}</div>
     <div><strong>Audience</strong><br>${esc(state.audiences.join(", ")||"—")}</div>
-    <div><strong>Geography</strong><br>${esc(state.geo||"—")}</div>
+    <div><strong>Geography</strong><br>${esc(item.areaName||state.geo||"—")}</div>
     <div><strong>Landing page</strong><br>${item.landingUrl||state.landingUrl?`<a target="_blank" href="${esc(item.landingUrl||state.landingUrl)}">${esc(item.landingUrl||state.landingUrl)}</a>`:"—"}</div>
     <div><strong>Creative files</strong><br>${esc(creativeForProduct(item))}</div>
     <div><strong>Tracking events</strong><br>${esc([state.trackingPlan.primaryConversion,...state.trackingPlan.secondaryConversions].filter(Boolean).join(", ")||"—")}</div>
@@ -1377,6 +1404,10 @@ function toggleMultiValue(key,value,checked){
   if(value==="No income targeting"&&checked){state.income=[value];return}
   if(checked)state.income=state.income.filter(x=>x!=="No income targeting");
  }
+ if(key==="audiences"){
+  if(value===AUDIENCE_NONE&&checked){state.audiences=[value];return}
+  if(checked)state.audiences=state.audiences.filter(x=>x!==AUDIENCE_NONE);
+ }
  const target=multiArrayFor(key);
  const i=target.indexOf(value);
  if(checked&&i<0)target.push(value);
@@ -1410,7 +1441,7 @@ function showMultiOptions(q,opts){
   const recommend=document.createElement("button");recommend.className="multi-recommend";
   recommend.textContent=q.key==="kpis"?"Add SMART1 recommendations":"Add SMART1 suggestions";
   recommend.onclick=()=>{
-   const values=q.key==="kpis"?recommendedKPIs():suggestedAudienceOptions().slice(0,8);
+   const values=q.key==="kpis"?recommendedKPIs():suggestedAudienceOptions().filter(x=>x!==AUDIENCE_NONE).slice(0,8);
    values.forEach(v=>toggleMultiValue(q.key,v,true));
    [...grid.querySelectorAll('input')].forEach(cb=>cb.checked=multiArrayFor(q.key).includes(cb.value));
    render();refresh();
@@ -1506,6 +1537,9 @@ function question(){
   const q=flow[index];
   
   if(q.key==="geoZipcodes"){
+   if(state.zipMode==="I already have the ZIP Codes"){
+    return{key:"geoZipcodes",q:"Which ZIP Codes should be targeted? Enter them comma-separated (for example: 73701, 73703, 73705)."};
+   }
    return{key:"geoZipcodes",q:`SMART1 will identify every ZIP Code that appears to touch a ${state.geoRadius}-mile radius around ${state.geoOrigin}. This AI-assisted list can be reviewed and edited before continuing. Type RETRY to run the lookup again, or SKIP to continue and add ZIP Codes later.`};
   }
 
@@ -1652,9 +1686,38 @@ Type Y to use this description, or enter your own.`,suggestion};
   }
   return q;
  }
+ /* A finished line waits here for one more question before the loop moves
+    on: is this product needed again, for a different target area or a
+    different budget, rather than the next distinct product? Handled outside
+    the currentProduct<selected.length block below because the same product
+    can otherwise never be reached a second time -- selecting it twice in
+    the category picker is itself deliberately refused (one product is one
+    line on that screen; several DMAs of it are several lines here). */
+ if(state.lastCompletedProduct){
+  const cfg=productConfig[state.lastCompletedProduct]||{};
+  return{key:"repeatProduct",
+   q:`Add another ${cfg.product||state.lastCompletedProduct} line — a different target area or budget? Choose No to move on to the next product.`,
+   options:["Yes, add another line","No, move on"]};
+ }
  if(currentProduct<state.selected.length){
   const product=state.selected[currentProduct],cfg=productConfig[product];
-  if(!tempItem)tempItem={product,budget:null,rate:null,budgetChangesAsked:null,budgetChanges:[],pendingBudgetChange:null,start:state.sameDates?state.start:"",end:state.sameDates?state.end:"",landingUrl:state.landingMode==="One landing page"?state.landingUrl:"",listedRate:cfg.listedRate,description:cfg.description,requirements:cfg.requirements,timeline:cfg.timeline};
+  const areas=state.targetAreas||[];
+  if(!tempItem)tempItem={product,
+    // Only one area to name it after when there's exactly one -- the
+    // question below asks explicitly whenever there is a real choice.
+    areaName:(areas.length===1?(areas[0].name||areaGeoText(areas[0])):""),
+    areaAsked:areas.length<=1,
+    budget:null,rate:null,budgetChangesAsked:null,budgetChanges:[],pendingBudgetChange:null,start:state.sameDates?state.start:"",end:state.sameDates?state.end:"",landingUrl:state.landingMode==="One landing page"?state.landingUrl:"",listedRate:cfg.listedRate,description:cfg.description,requirements:cfg.requirements,timeline:cfg.timeline};
+  /* Which of the campaign's target areas this budget line is for -- asked
+     only when there is more than one, so a single-market campaign is not
+     interrupted for a question with one obvious answer. This is what makes
+     "the same product, four DMAs, four budgets" answerable at all: four
+     passes through this loop for one product, each tied to a different
+     area. "All areas" is offered because not every rep wants the split --
+     one product can still be one line covering the whole campaign. */
+  if(areas.length>1&&!tempItem.areaAsked)return{key:"productArea",
+    q:`Which target area is this ${cfg.product} line for? Choose "All areas" if this one line covers the whole campaign.`,
+    dynamicOptions:()=>areas.map(a=>a.name||areaGeoText(a)).concat("All areas (not split)")};
   /* A flight the proposal stated for this product, offered back rather than
      re-typed. It got there through the flight question at the top of the
      interview, so it has already been confirmed once by a person -- which is
@@ -1892,13 +1955,15 @@ async function submit(raw){
  
  if(q.key==="audiences"){
   if(val.toUpperCase()==="Y"){
-   const rec=suggestedAudienceOptions().slice(0,8);
+   const rec=suggestedAudienceOptions().filter(x=>x!==AUDIENCE_NONE).slice(0,8);
    rec.forEach(a=>{if(!state.audiences.includes(a))state.audiences.push(a)});
+   state.audiences=state.audiences.filter(x=>x!==AUDIENCE_NONE);
    addMsg("Y","user");render();addMsg(`Suggested audiences added: ${rec.join(", ")}. Choose more or type DONE.`);
    showOptions(suggestedAudienceOptions().filter(x=>!state.audiences.includes(x)));return
   }
+  if(val===AUDIENCE_NONE){state.audiences=[AUDIENCE_NONE];render();index++;ask();return}
   if(val.toUpperCase()==="DONE"){
-   if(!state.audiences.length){addMsg("Select at least one audience or type Y to use the suggestions.");ask();return}
+   if(!state.audiences.length){addMsg("Select at least one audience, or "+AUDIENCE_NONE+", or type Y to use the suggestions.");ask();return}
    index++;render();ask();return
   }
   if(!state.audiences.includes(val))state.audiences.push(val);
@@ -1974,10 +2039,25 @@ async function submit(raw){
  }
  if(q.key==="productBudget"){tempItem.budget=num(val);ask();return}
  if(q.key==="productRate"){tempItem.rate=num(val);ask();return}
+ if(q.key==="productArea"){
+  tempItem.areaAsked=true;
+  tempItem.areaName=/^all areas/i.test(val)?"":val;
+  ask();return;
+ }
+ if(q.key==="repeatProduct"){
+  state.lastCompletedProduct="";
+  if(!/^yes/i.test(val))currentProduct++;
+  // Yes: currentProduct stays put, so the loop above builds a fresh
+  // tempItem for the same product -- a second (third, fourth…) line item
+  // for it, each with its own target area and budget.
+  render();ask();return;
+ }
 
  // ZIP list step: RETRY re-runs the lookup; SKIP continues without a list.
+ // RETRY only means anything when a radius lookup produced the list --
+ // typed-in-directly mode has no origin/radius to retry against.
  if(q.key==="geoZipcodes"){
-  if(/^retry$/i.test(val)){addMsg("Retrying the ZIP Code lookup…");await fetchZipcodesForRadius();ask();return;}
+  if(state.zipMode!=="I already have the ZIP Codes"&&/^retry$/i.test(val)){addMsg("Retrying the ZIP Code lookup…");await fetchZipcodesForRadius();ask();return;}
   const list=(/^skip$/i.test(val))?"":(val||state.geoZipcodes||"");
   state.geoZipcodes=list;
   // refreshCombinedGeo rebuilds `geo` from every committed area plus this
@@ -2071,7 +2151,7 @@ function commitTargetArea(){
  return a;
 }
 function clearWorkingArea(){
- state.targetAreaName="";state.geoType="";state.geoOrigin="";state.geoRadius="";
+ state.targetAreaName="";state.geoType="";state.zipMode="";state.geoOrigin="";state.geoRadius="";
  state.geoDMA="";state.geoState="";state.geoOther="";state.geoZipcodes="";
 }
 /* geo is the one-string form. Every reader that predates multi-area
@@ -2107,15 +2187,20 @@ function generateNaming(){
  const objective=cleanName(state.objectives[0]||"Campaign");
  const order=cleanName(state.orderNumber||"Order");
  const products={};
- state.items.forEach(item=>{
+ // Keyed on the line item's own position, not its product name: the same
+ // product can now be entered several times over (one line per target
+ // area or budget split), and a plain product-name key would let the last
+ // of those lines silently overwrite the naming for every one before it.
+ state.items.forEach((item,idx)=>{
   const cfg=productConfig[item.product]||{};
   const product=cleanName(cfg.product||item.product);
-  const campaign=`S1M_${order}_${client}_${product}_${market}_${cleanName(item.start||state.start)}`;
+  const itemMarket=cleanName(item.areaName||"")||market;
+  const campaign=`S1M_${order}_${client}_${product}_${itemMarket}_${cleanName(item.start||state.start)}`;
   const platform=/facebook|instagram|meta/i.test(`${cfg.category} ${cfg.product}`)?"Meta":product;
-  const adGroup=`${order}_${client}_${objective}_${market}_${cleanName(start)}`;
+  const adGroup=`${order}_${client}_${objective}_${itemMarket}_${cleanName(start)}`;
   const creative=`${order}_${client}_${platform}_SIZE_V1`;
-  const folder=`smart1_campaigns/${order}_${client}/${cleanName(item.start||state.start)}/${product}`;
-  products[item.product]={campaign,adGroup,creative,folder};
+  const folder=`smart1_campaigns/${order}_${client}/${cleanName(item.start||state.start)}/${product}${item.areaName?"_"+cleanName(item.areaName):""}`;
+  products[idx]={campaign,adGroup,creative,folder};
  });
  state.naming={products};
  return state.naming;
@@ -2272,7 +2357,13 @@ function completeProduct(){
  if(tempItem.pendingBudgetChange&&tempItem.pendingBudgetChange.budget!==null)tempItem.budgetChanges.push({...tempItem.pendingBudgetChange});
  tempItem.pendingBudgetChange=null;
  recalculateItem(tempItem);
- state.items.push(tempItem);tempItem=null;currentProduct++;render();ask()
+ state.items.push(tempItem);
+ // currentProduct does NOT advance yet -- the repeatProduct question above
+ // decides whether the very same product is asked about again (another
+ // target area, another budget line) before this loop moves on to the next
+ // distinct product.
+ state.lastCompletedProduct=tempItem.product;
+ tempItem=null;render();ask()
 }
 
 function normalizeWebsiteDomain(value){
@@ -2383,7 +2474,7 @@ function render(){
   const unit=cfg.rate==="CPV"?"views":"impressions";
   const monthly=i.monthlyDelivery?`${whole(i.monthlyDelivery)} ${unit}`:"Performance / service based";
   const details=[cfg.description,cfg.requirements?`Requirements: ${cfg.requirements}`:'',cfg.timeline?`Launch: ${cfg.timeline}`:''].filter(Boolean).join(' | ');
-  return`<tr><td><strong>${esc(cfg.product)}</strong><br><small>${esc(cfg.category)}</small><br><small>${esc(details)}</small><br><small><strong>Landing page:</strong> ${esc(i.landingUrl||state.landingUrl||"—")}</small></td><td>${esc(i.start||"—")}<br>to<br>${esc(i.end||"—")}</td><td>${esc(budgetScheduleText(i))}</td><td>${esc(rate)}</td><td class="number">${monthly}</td><td class="money">${money(i.campaignBudget)}</td></tr>`
+  return`<tr><td><strong>${esc(cfg.product)}</strong>${i.areaName?`<br><small><strong>Target area:</strong> ${esc(i.areaName)}</small>`:""}<br><small>${esc(cfg.category)}</small><br><small>${esc(details)}</small><br><small><strong>Landing page:</strong> ${esc(i.landingUrl||state.landingUrl||"—")}</small></td><td>${esc(i.start||"—")}<br>to<br>${esc(i.end||"—")}</td><td>${esc(budgetScheduleText(i))}</td><td>${esc(rate)}</td><td class="number">${monthly}</td><td class="money">${money(i.campaignBudget)}</td></tr>`
  }).join("");
  const monthly=state.items.reduce((a,b)=>a+(b.budget||0),0),campaignTotal=state.items.reduce((a,b)=>a+(b.campaignBudget||0),0),delivery=state.items.reduce((a,b)=>a+(b.monthlyDelivery||0),0);
  text("f-monthly-total",money(monthly));text("f-campaign-total",money(campaignTotal));text("f-delivery-total",whole(delivery));
@@ -2504,7 +2595,7 @@ function openEditor(){
  const all=[...new Set(Object.values(objectiveKPIs).flat())];
  kpis.innerHTML=all.map(k=>`<label><input type="checkbox" value="${esc(k)}" ${state.kpis.includes(k)?"checked":""}>${esc(k)}</label>`).join("");
  document.getElementById("e-products").innerHTML=state.items.map((i,n)=>`<tr>
-  <td>${esc(productConfig[i.product].product)}</td>
+  <td>${esc(productConfig[i.product].product)}${i.areaName?` <small>(${esc(i.areaName)})</small>`:""}</td>
   <td><input data-row="${n}" data-field="start" value="${esc(i.start||state.start||"")}"></td>
   <td><input data-row="${n}" data-field="end" value="${esc(i.end||state.end||"")}"></td>
   <td><input data-row="${n}" data-field="budget" value="${i.budget||0}"></td>
@@ -4053,7 +4144,7 @@ async function submitCompletedIO(){
    const items=(state.items||[]);
    const monthly=items.reduce((a,b)=>a+(Number(b.budget)||0),0);
    const campaign=items.reduce((a,b)=>a+(Number(b.campaignBudget)||0),0);
-   const prod=items.map(i=>`  • ${(productConfig[i.product]||{}).product||i.product}: ${money(i.budget||0)}/mo`).join("\n");
+   const prod=items.map(i=>`  • ${(productConfig[i.product]||{}).product||i.product}${i.areaName?" — "+i.areaName:""}: ${money(i.budget||0)}/mo`).join("\n");
    const summary="Please review before sending to Smart 1 Suite:\n\n"+
      `Order #: ${state.orderNumber||"(pending)"}\n`+
      `IO type: ${state.ioType||"—"}\n`+
@@ -4082,10 +4173,20 @@ async function submitCompletedIO(){
   if(btn){btn.disabled=true;btn.style.opacity="0.6";btn.style.cursor="not-allowed";}
   try{
     setStatus("Creating or confirming both PDFs before submission…","");
-    const clientUrl=await ensurePdfForWebhook("client");
-    const internalUrl=await ensurePdfForWebhook("internal");
+    /* A Cloudinary hiccup building the hosted PDF link must not be the thing
+       that strands a rep mid-submit — that link only matters once Smart 1
+       Suite is actually receiving the order (below), and while it isn't,
+       there is nothing downstream to hand the link to. Each PDF is still
+       attempted, and a failure is reported rather than hidden: the rep is
+       told, once, and the submit continues with that URL left blank. */
+    let clientUrl="",internalUrl="",pdfWarning="";
+    try{clientUrl=await ensurePdfForWebhook("client");}
+    catch(e){pdfWarning+=`Customer PDF could not be created (${e.message||e}). `;}
+    try{internalUrl=await ensurePdfForWebhook("internal");}
+    catch(e){pdfWarning+=`Internal PDF could not be created (${e.message||e}).`;}
+    if(pdfWarning)addMsg("⚠ "+pdfWarning.trim(),"bot");
 
-    setStatus("Sending the completed IO to Smart 1 Suite…","");
+    setStatus("Sending the completed IO…","");
     const payload={
       ...state,
       client_pdf_url:clientUrl,
@@ -4111,10 +4212,16 @@ async function submitCompletedIO(){
       status:"submitted",
       submittedAt:new Date().toISOString(),
       clientPdfUrl:clientUrl,
-      internalPdfUrl:internalUrl
+      internalPdfUrl:internalUrl,
+      deliveredToSuite:result.delivered_to_suite!==false
     };
-    setStatus("Completed IO sent to Smart 1 Suite successfully.","ok");
-    addMsg("The finished IO, including both Cloudinary PDF links, was sent to Smart 1 Suite.","bot");
+    if(result.delivered_to_suite===false){
+      setStatus("Order recorded. Smart 1 Suite delivery is turned off for testing — nothing was sent to Suite.","ok");
+      addMsg(result.message||"Order recorded. Smart 1 Suite delivery is turned off while this tool is being tested, so nothing was sent to Suite or GoHighLevel.","bot");
+    }else{
+      setStatus("Completed IO sent to Smart 1 Suite successfully.","ok");
+      addMsg("The finished IO, including both Cloudinary PDF links, was sent to Smart 1 Suite.","bot");
+    }
     if(typeof clearDraft==="function")clearDraft();   // submitted — clear the saved draft
   }catch(error){
     console.error(error);
