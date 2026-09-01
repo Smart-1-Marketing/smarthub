@@ -488,7 +488,8 @@ _export_flag_ym, _export_flag_disagreement = min(
     key=lambda item: item[1],
 )
 check("the export flags identify one coherent month pair",
-      _export_flag_disagreement, 0)
+      _export_flag_disagreement == 0,
+      f"{_export_flag_disagreement} flag rows disagree")
 
 # And the two salespeople the old rule hid are back on the scorecard for that
 # export month. Asking for the live current month made this fail on September 1
