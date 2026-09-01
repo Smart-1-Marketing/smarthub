@@ -921,6 +921,17 @@ jobs:
             echo "test_client360_layout.py not on this branch — nothing to run."
           fi
 
+      - name: The Commercial Builder dashboard reads like a client record
+        # Added on main with no step of its own, which is exactly the gap
+        # test_ci_gate.py exists to name. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_commercial_dashboard_layout.py ]; then
+            python test_commercial_dashboard_layout.py
+          else
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
+          fi
+
       - name: Image download and shared zip builder tests
         # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
         # picker's gallery download now that it runs on the shared builder.
