@@ -203,10 +203,11 @@ a flag on System Status); it never takes the rest of the Hub down.
   three identities from the Google module. Tokens persist on the disk.
 - **Sites**: point `DATABASE_URL` at your existing Render Postgres (the same
   one the old smart1-simvoly-admin used — the schema is unchanged).
-- **Clients data**: `clients_app/data/*.json` are the same committed Knack
-  exports as before. Keep refreshing them exactly the way you do today
-  (`npm run refresh` in the old repo or the nightly GitHub Action), just
-  commit the JSONs into `clients_app/data/` here instead.
+- **Clients data**: Knack is the private source used by the Clients screen.
+  Never commit client or billing exports. For outage fallback, mount a private
+  directory containing `products.json` and `websites.json`, then set
+  `CLIENTS_DATA_DIR` to that directory. Sanitized test-only examples live in
+  `tests/fixtures/clients/`.
 - **Old services**: keep them running until you've verified each module in
   the Hub, then suspend them one at a time.
 

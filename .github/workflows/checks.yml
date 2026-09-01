@@ -62,6 +62,7 @@ jobs:
       DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
       SECRET_KEY: ci-not-a-real-secret
       PANEL_PASSWORD: ci-not-a-real-password
+      CLIENTS_DATA_DIR: tests/fixtures/clients
 
     steps:
       - uses: actions/checkout@v7
