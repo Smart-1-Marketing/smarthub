@@ -77,6 +77,17 @@ LIVE = [
      "domain": "northgatedental.com",
      "production_url": "https://northgatedental.com",
      "platform": "WordPress", "client_status": "Active", "hm_fee": 0},
+    # A third row exists for one reason: to keep this list a DIFFERENT length
+    # from the export fixture. The scorecard assertion below proves the
+    # dashboard totals follow the export and not the live pull, and it can
+    # only prove that while the two counts differ. They were both 2, so the
+    # check could not tell apart the two things it was written to separate --
+    # and it failed rather than passing, which is the lucky half: a fixture
+    # collision the other way round would have read as a clean run for ever.
+    {"id": "r3", "client": "Harbour Point Vets", "organization": "",
+     "domain": "harbourpointvets.com",
+     "production_url": "https://harbourpointvets.com",
+     "platform": "WordPress", "client_status": "Active", "hm_fee": 0},
 ]
 
 
@@ -122,7 +133,8 @@ _reset()
 
 rows, source, err = kd._website_source()                          # noqa: SLF001
 check("the live registry answers", source == "knack", (source, err))
-check("and every record comes through", len(rows) == 2, len(rows))
+check("and every record comes through", len(rows) == len(LIVE),
+      (len(rows), len(LIVE)))
 check("in the export's shape",
       all({"name", "domain", "liveUrl", "platform"} <= set(r) for r in rows))
 check("websites() reports which source answered",
@@ -176,6 +188,12 @@ kw.rows = lambda *a, **k: list(LIVE)
 kw.last_error = lambda: ""
 _reset()
 totals = kd.summary()
+# The check below distinguishes "followed the export" from "followed the live
+# pull" by their row counts, so it means nothing unless those counts differ.
+# Asserted rather than assumed: this is exactly how it stopped discriminating.
+check("the two sources are different sizes, or the next check proves nothing",
+      len(kd.export_websites()) != len(LIVE),
+      (len(kd.export_websites()), len(LIVE)))
 # The real assertion: with a live pull returning two rows, the dashboard's
 # website figures must still describe the fallback export. If they followed the
 # live list, the card would read "2 active websites" and the H&M billing would
