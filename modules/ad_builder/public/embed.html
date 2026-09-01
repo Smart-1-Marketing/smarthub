@@ -1452,8 +1452,10 @@
     if (discovered && discovered.brand) {
       var picked = form.querySelector('input[name=pickedLogo]:checked');
       data.brand = discovered.brand;
+      // brandSource is read server-side: it is how buildCampaign knows this
+      // brand came from a lookup the customer kept, and so which of our
+      // stored warnings belong on their project.
       data.brandSource = discovered.source;
-      data.brandWarnings = discovered.warnings || [];
       data.pickedLogoUrl = picked ? picked.value : ((discovered.logoOptions || [])[0] || {}).url;
     }
     data.honeypot = form.elements.company_url_confirm.value;
