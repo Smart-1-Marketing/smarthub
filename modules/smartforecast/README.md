@@ -9,6 +9,7 @@ read-only JSON endpoint are public.
 
 - `/tools/smartforecast/` — staff dashboard and six-step workflow
 - `/tools/smartforecast/health` — authenticated health check
+- `/tools/smartforecast/api/operations` — authenticated schema, backup and freshness health
 - `/tools/smartforecast/api/preflight` — authenticated launch-readiness checks
 - `/tools/smartforecast/api/qa/run` — authenticated, non-mutating scenario suite
 - `/tools/smartforecast/api/sites` — authenticated client/site list and onboarding
@@ -37,6 +38,10 @@ Every 12 hours the scheduler stores a checksum-protected SQLite SQL dump through
 SmartHub's durable JSON store. That backup is mirrored to managed Postgres. If a
 new Render disk starts without the SQLite file, the module restores the latest
 verified dump before applying schema updates and seed data.
+
+The daily maintenance job expires completed overrides and enforces the weather
+and engagement retention settings. SQLite upgrades are recorded in
+`schema_migrations` and `PRAGMA user_version`.
 
 ## Local verification
 
@@ -73,3 +78,5 @@ refresh endpoint returns a controlled 503 and leaves cached content intact.
 - Never commit a real embed token, client content approval, or provider secret.
 
 See `docs/smartforecast-rollout.md` for release gates, QA, pilot and rollback.
+See `docs/smartforecast-operations.md` for deployment, monitoring, recovery,
+retention, privacy and incident response.

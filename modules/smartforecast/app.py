@@ -60,9 +60,17 @@ def index():
 @app.route("/health")
 def health():
     try:
-        data = store().bootstrap()
-        return jsonify({"ok": True, "tool": "smartforecast", "site": data["site"]["id"],
-                        "weather_provider_configured": provider.configured()})
+        data = {"tool": "smartforecast", **store().operational_health(provider.configured())}
+        return jsonify(data), 200 if data["ok"] else 503
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc, 503)
+
+
+@app.route("/api/operations")
+def api_operations():
+    try:
+        data = store().operational_health(provider.configured())
+        return jsonify(data), 200 if data["ok"] else 503
     except Exception as exc:  # noqa: BLE001
         return _error(exc, 503)
 

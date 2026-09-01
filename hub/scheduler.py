@@ -568,6 +568,16 @@ def job_smartforecast_backup(app) -> dict:
         return store().backup()
 
 
+def job_smartforecast_maintenance(app) -> dict:
+    """Expire finished overrides and enforce documented data retention."""
+    try:
+        from modules.smartforecast.app import store
+    except Exception as exc:                              # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return store().run_maintenance()
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -597,6 +607,8 @@ JOBS = {
                           "Refresh due weather caches and evaluate website triggers."),
     "smartforecast_backup": (720, job_smartforecast_backup,
                              "Mirror SmartForecast history into the database backup."),
+    "smartforecast_maintenance": (1440, job_smartforecast_maintenance,
+                                  "Expire overrides and enforce SmartForecast retention."),
 }
 
 

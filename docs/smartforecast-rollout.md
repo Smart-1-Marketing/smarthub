@@ -9,21 +9,23 @@
 with one HVAC client, then expand by client count and industry without weakening
 the lifecycle, audit, or rollback controls.
 
-The dates below are planning windows, not promises. The clock starts when the
-production `WEATHERAPI_KEY` is present and the first pilot client is approved.
+The dates below are planning windows, not promises. The implementation for all
+seven sections is now present on `codex/smartforecast-v1`; rollout dates still
+start when the production `WEATHERAPI_KEY`, deployment approval, and first pilot
+client are available.
 
 ## Roadmap at a glance
 
-| Horizon | Phase | Target window | Status | Exit gate |
+| Horizon | Phase | Target window | Build status | Rollout status / exit gate |
 | --- | --- | --- | --- | --- |
-| Now | 0. Product foundation | Complete | Done | Six-screen tool, public embed, lifecycle engine, audit history, simulator and automated tests work locally |
-| Now | 1. Production readiness | Sep 1–4 | In progress | Render configuration, durable recovery, CI gate, runbook and production smoke checklist are complete |
-| Now | 2. Internal QA | Sep 5–11 | Not started | Every trigger phase and override is exercised on desktop/mobile with no critical defects |
-| Next | 3. HVAC pilot | Sep 12–25 | Not started | One approved client runs for 7–14 days with correct transitions and a documented rollback |
-| Next | 4. Limited rollout | Sep 28–Oct 16 | Not started | Five to ten clients can be operated without manual data repair or missed checks |
-| Next | 5. Industry packs | Oct–Nov | Not started | At least three reusable packs pass content, accessibility and lifecycle QA |
-| Next | 6. Reporting and attribution | Oct–Nov | Not started | Views, CTA events and conversions reconcile into client-ready reports |
-| Later | 7. General availability | After all gates | Not started | Support ownership, SLOs, retention, migrations and commercial packaging are approved |
+| Now | 0. Product foundation | Complete | Done | Complete |
+| Now | 1. Production readiness | Sep 1–4 | Done locally | Awaiting Render secret, push/deploy, and production smoke gate |
+| Now | 2. Internal QA | Sep 5–11 | Automated gate done | Awaiting live desktop/mobile exercise and reviewer sign-off |
+| Next | 3. HVAC pilot | Sep 12–25 | Pilot controls done | Awaiting named client, approved content, placement, and 7–14 day observation |
+| Next | 4. Limited rollout | Sep 28–Oct 16 | Multi-client operations done | Awaiting successful pilot before five-to-ten-client cohorts |
+| Next | 5. Industry packs | Oct–Nov | Seven packs done | Awaiting client/content/accessibility review of selected packs |
+| Next | 6. Reporting and attribution | Oct–Nov | Instrumentation done | Awaiting CRM/form integration and live reconciliation |
+| Later | 7. General availability | After all gates | Operations layer done | Awaiting completed rollout gates and business/support approval |
 
 ## Phase details
 
@@ -31,7 +33,7 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 - **Status:** Done.
 - **Owner:** Smart 1 Engineering.
-- **Delivered:** Native SmartHub module, 12-table SQLite model, priority and
+- **Delivered:** Native SmartHub module, 15-table SQLite model, priority and
   stability rules, official-alert bypass, minimum duration, cooldown,
   post-event recovery, pause/manual override, simulation, public tokenized
   embed, reporting CSV, demo HVAC campaign and responsive creative.
@@ -41,13 +43,16 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 ### Phase 1 — Production readiness
 
-- **Status:** In progress.
+- **Build status:** Done locally; production rollout remains gated.
 - **Owner:** Smart 1 Engineering; Render secret setup by the deployment owner.
 - **Started now:** `SMARTFORECAST_DB_PATH` is pinned to Render's `/var/data`
   disk; a twice-daily SQL snapshot is mirrored through SmartHub's managed
   Postgres backup; a fresh disk restores the latest verified snapshot; the
   30-minute weather job and backup job report through scheduler health; CI runs
   SmartForecast's lifecycle, storage, embed and recovery tests.
+- **Also delivered:** Schema migration ledger, daily retention/override
+  maintenance, operational health diagnostics, and the incident/recovery
+  runbook.
 - **Remaining gate:** Set `WEATHERAPI_KEY` in the live Render dashboard, deploy
   the branch, execute the smoke checklist, and confirm one successful scheduled
   check and backup in production.
@@ -59,13 +64,16 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 ### Phase 2 — Internal QA and sandbox exercise
 
-- **Status:** Not started; begins after Phase 1 deployment.
+- **Build status:** Automated gate done; live environment exercise remains.
 - **Owner:** Engineering + internal QA/content reviewer.
 - **Scope:** Run all six staff screens; preview the public embed at common phone,
   tablet and desktop widths; simulate heat, cold, rain, snow, wind, watch,
   warning, post-event and clear states; verify priority conflicts, stability,
   minimum duration, cooldown, pause and manual override; test expired/invalid
   tokens and provider failure.
+- **Delivered:** Launch Preflight, seven non-mutating weather scenarios,
+  lifecycle/publication coverage checks, keyboard-operable tabs, responsive
+  preview, and invalid-token/pause/provider-failure coverage.
 - **Exit gate:** No P0/P1 defects, screenshots approved, WCAG keyboard/contrast
   review complete, scheduler check is fresh, and the rollback is rehearsed.
 - **Dependencies:** Phase 1 live environment and a non-client QA token.
@@ -74,11 +82,13 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 ### Phase 3 — HVAC pilot
 
-- **Status:** Not started.
+- **Build status:** Pilot controls done; client activation has not started.
 - **Owner:** Account lead for approval; Engineering for monitoring; client for
   final content/legal approval.
 - **Scope:** One client, one postal-code service area, one embed placement,
   client-approved emergency and post-event messaging. Observe for 7–14 days.
+- **Delivered:** HVAC seed content and rules, approval-safe draft/publish flow,
+  preflight gate, simulator, pause/override, tokenized embed, and audit history.
 - **Exit gate:** No incorrect high-priority activations, no missed provider
   checks longer than 60 minutes, zero unrecoverable history loss, and client
   sign-off on content and experience.
@@ -89,11 +99,15 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 ### Phase 4 — Limited multi-client rollout
 
-- **Status:** Not started.
+- **Build status:** Multi-client operations done; cohort enrollment is gated on
+  the pilot.
 - **Owner:** Product/Engineering + Client Operations.
 - **Scope:** Add client/site creation and selection, reusable HVAC and generic
   home-services templates, activation checklist, support SOP, token rotation,
   and batch health visibility. Enroll five to ten clients in controlled waves.
+- **Delivered:** Server-backed site onboarding/selection, tenant-scoped APIs,
+  cross-site isolation tests, draft/publication history, token rotation, and
+  per-site operational/preflight visibility.
 - **Exit gate:** A trained operator can onboard, verify, pause and roll back a
   client without database access; cross-client isolation tests pass.
 - **Dependencies:** Successful HVAC pilot and an agreed operator workflow.
@@ -102,11 +116,13 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 ### Phase 5 — Industry packs
 
-- **Status:** Not started.
+- **Build status:** Seven data-driven packs done; client/content review remains.
 - **Owner:** Product Marketing + Content + Engineering.
 - **Scope:** Build approved rule/content packs for the prioritized industries:
   HVAC/home services first, then roofing/waterproofing/plumbing, RV/marine,
   restaurants/hospitality, ski/outdoor, and legal where weather use is valid.
+- **Delivered:** HVAC, home services, RV, marine, restaurant, ski, and legal
+  catalogs with tested trigger definitions and draft pre/active/post content.
 - **Exit gate:** Each pack has defined triggers, claims policy, default creative,
   accessible copy, preview fixtures and automated rule tests.
 - **Dependencies:** Phase 4 template model and subject-matter review.
@@ -115,11 +131,15 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 ### Phase 6 — Reporting and attribution
 
-- **Status:** Not started; instrumentation design can run alongside Phase 5.
+- **Build status:** Privacy-minimized instrumentation done; live destination
+  reconciliation remains.
 - **Owner:** Analytics + Engineering + Account team.
 - **Scope:** Add privacy-conscious embed views, CTA clicks, form/call outcomes,
   campaign and content-version dimensions, export/API delivery, and a client
   report that distinguishes correlation from attributable conversion.
+- **Delivered:** Deduplicated views/clicks/conversions, token-salted session
+  hashes, hostname-only referrers, allowlisted metadata, content/campaign
+  dimensions, rate summaries, CORS integration endpoint, and CSV exports.
 - **Exit gate:** Events reconcile end to end in a test account; retention and
   consent rules are documented; reports label attribution limitations.
 - **Dependencies:** Stable client/site identity and the destination analytics or
@@ -129,12 +149,16 @@ production `WEATHERAPI_KEY` is present and the first pilot client is approved.
 
 ### Phase 7 — General availability and optimization
 
-- **Status:** Not started.
+- **Build status:** V1 operations layer done; general-availability approval is
+  still gated on the earlier rollout phases.
 - **Owner:** Product owner, Engineering, Client Operations and Support.
 - **Scope:** Define service levels, alerts, incident ownership, data retention,
   capacity tests, pricing/packaging, documentation, onboarding and quarterly
   lifecycle-rule reviews. Evaluate moving operational state from SQLite to
   native Postgres when write volume or horizontal scaling warrants it.
+- **Delivered:** Health diagnostics, schema ledger, retention maintenance,
+  backup freshness visibility, documented operating targets, deployment smoke
+  test, incident response, privacy policy, and layered rollback procedures.
 - **Exit gate:** All prior gates pass; support and product owners sign off;
   recovery and incident exercises meet the agreed objectives.
 - **Dependencies:** Proven pilot and limited rollout metrics.

@@ -333,6 +333,53 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertEqual(preflight.headers["Access-Control-Allow-Origin"], "*")
         self.assertIn("POST", preflight.headers["Access-Control-Allow-Methods"])
 
+    def test_schema_ledger_and_operational_health_are_current(self):
+        self.client.get("/api/bootstrap")
+        from modules.smartforecast.store import SCHEMA_VERSION
+        con = sqlite3.connect(self.db_path)
+        try:
+            version = con.execute("PRAGMA user_version").fetchone()[0]
+            ledger = [row[0] for row in con.execute(
+                "SELECT version FROM schema_migrations ORDER BY version")]
+        finally:
+            con.close()
+        self.assertEqual(version, SCHEMA_VERSION)
+        self.assertEqual(ledger, list(range(1, SCHEMA_VERSION + 1)))
+        health = self.client.get("/api/operations")
+        self.assertEqual(health.status_code, 200)
+        payload = health.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["database_integrity"], "ok")
+        self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
+
+    def test_maintenance_enforces_retention_and_expires_overrides(self):
+        self.client.get("/api/bootstrap")
+        from modules.smartforecast.app import store
+        now = datetime.now(timezone.utc)
+        old = (now - timedelta(days=500)).isoformat()
+        expired = (now - timedelta(hours=1)).isoformat()
+        con = sqlite3.connect(self.db_path)
+        try:
+            token_id = con.execute("SELECT id FROM embed_tokens WHERE active=1 LIMIT 1").fetchone()[0]
+            con.execute("UPDATE weather_snapshots SET observed_at=?", (old,))
+            con.execute(
+                """INSERT INTO engagement_events(site_id,token_id,event_type,occurred_at,session_hash,
+                   referrer_domain,destination_url,metadata_json,dedupe_key)
+                   VALUES(1,?,'view',?,'old-session-hash','','','{}','old-event')""",
+                (token_id, old),
+            )
+            con.execute(
+                """INSERT INTO manual_overrides(site_id,starts_at,ends_at,active,note,created_by,created_at)
+                   VALUES(1,?,?,1,'expired','test',?)""", (old, expired, old),
+            )
+            con.commit()
+        finally:
+            con.close()
+        result = store().run_maintenance(now)
+        self.assertEqual(result["weather_snapshots_deleted"], 1)
+        self.assertEqual(result["engagement_events_deleted"], 1)
+        self.assertEqual(result["overrides_expired"], 1)
+
     def test_backup_restores_a_fresh_render_disk(self):
         self.client.get("/api/bootstrap")
         from modules.smartforecast.app import _store_for_path, store

@@ -282,6 +282,10 @@ services:
       # are not updated by a Blueprint change.
       - key: SMARTFORECAST_DB_PATH
         value: /var/data/smartforecast/smartforecast.sqlite3
+      - key: SMARTFORECAST_WEATHER_RETENTION_DAYS
+        value: "120"
+      - key: SMARTFORECAST_ENGAGEMENT_RETENTION_DAYS
+        value: "400"
       # Background jobs — exactly one worker runs them.
       - key: HUB_SCHEDULER
         value: "true"

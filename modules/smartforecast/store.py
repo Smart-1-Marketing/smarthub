@@ -19,6 +19,9 @@ from .engine import advance_state, choose_winner, empty_state, iso, parse_time, 
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS clients (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, industry TEXT NOT NULL,
   business_goals_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL
@@ -200,8 +203,26 @@ class SmartForecastStore:
             count = con.execute("SELECT COUNT(*) FROM sites").fetchone()[0]
             if not count:
                 self._seed(con)
+            self._migrate(con)
             self._sync_pack_templates(con)
             self._backfill_publications(con)
+
+    @staticmethod
+    def _migrate(con: sqlite3.Connection) -> None:
+        """Advance the SQLite schema ledger after idempotent DDL is present."""
+        current = int(con.execute("PRAGMA user_version").fetchone()[0])
+        descriptions = {
+            1: "Core lifecycle, content, token and audit tables",
+            2: "Approval-safe content publications",
+            3: "Privacy-minimized engagement attribution",
+        }
+        stamp = iso(utcnow())
+        for version in range(current + 1, SCHEMA_VERSION + 1):
+            con.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version,applied_at,description) VALUES(?,?,?)",
+                (version, stamp, descriptions.get(version, "SmartForecast schema update")),
+            )
+        con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     @staticmethod
     def _sync_pack_templates(con: sqlite3.Connection) -> None:
@@ -764,6 +785,73 @@ class SmartForecastStore:
             return {"ok": False, "error": type(exc).__name__, "bytes": len(sql.encode("utf-8"))}
         return {"ok": bool(written), "path": str(self.backup_path),
                 "bytes": len(sql.encode("utf-8")), "sha256": payload["sha256"]}
+
+    def run_maintenance(self, now: datetime | None = None) -> dict:
+        """Apply documented retention and expire finished manual overrides."""
+        now = now or utcnow()
+
+        def retention(name: str, default: int, minimum: int) -> int:
+            try:
+                return min(3650, max(minimum, int(os.environ.get(name, default))))
+            except (TypeError, ValueError):
+                return default
+
+        weather_days = retention("SMARTFORECAST_WEATHER_RETENTION_DAYS", 120, 30)
+        engagement_days = retention("SMARTFORECAST_ENGAGEMENT_RETENTION_DAYS", 400, 30)
+        with self._lock, self.connect() as con:
+            snapshots = con.execute(
+                "DELETE FROM weather_snapshots WHERE observed_at<?",
+                (iso(now - timedelta(days=weather_days)),),
+            ).rowcount
+            engagement = con.execute(
+                "DELETE FROM engagement_events WHERE occurred_at<?",
+                (iso(now - timedelta(days=engagement_days)),),
+            ).rowcount
+            overrides = con.execute(
+                "UPDATE manual_overrides SET active=0 WHERE active=1 AND ends_at IS NOT NULL AND ends_at<=?",
+                (iso(now),),
+            ).rowcount
+        return {"ok": True, "weather_retention_days": weather_days,
+                "engagement_retention_days": engagement_days,
+                "weather_snapshots_deleted": snapshots,
+                "engagement_events_deleted": engagement,
+                "overrides_expired": overrides}
+
+    def operational_health(self, provider_configured: bool = False) -> dict:
+        """Summarize data, recovery, and check freshness for support staff."""
+        now = utcnow()
+        with self.connect() as con:
+            integrity = str(con.execute("PRAGMA quick_check").fetchone()[0])
+            schema_version = int(con.execute("PRAGMA user_version").fetchone()[0])
+            site_counts = con.execute(
+                "SELECT COUNT(*) total,SUM(CASE WHEN enabled=1 THEN 1 ELSE 0 END) enabled FROM sites"
+            ).fetchone()
+            latest = con.execute(
+                "SELECT MAX(observed_at) latest FROM weather_snapshots"
+            ).fetchone()["latest"]
+            events = int(con.execute("SELECT COUNT(*) FROM engagement_events").fetchone()[0])
+        due = self.due_sites(now)
+        latest_at = parse_time(latest)
+        latest_age_minutes = round((now - latest_at).total_seconds() / 60, 1) if latest_at else None
+        backup_created = None
+        try:
+            from hub import jsonstore
+            backup = jsonstore.read_json(str(self.backup_path), default={}) or {}
+            backup_created = parse_time(backup.get("created_at")) if isinstance(backup, dict) else None
+        except Exception:  # noqa: BLE001
+            backup_created = None
+        backup_age_hours = round((now - backup_created).total_seconds() / 3600, 1) if backup_created else None
+        database_bytes = self.path.stat().st_size if self.path.exists() else 0
+        critical = integrity != "ok" or schema_version != SCHEMA_VERSION
+        return {"ok": not critical, "checked_at": iso(now), "schema_version": schema_version,
+                "expected_schema_version": SCHEMA_VERSION, "database_integrity": integrity,
+                "database_bytes": database_bytes, "sites": int(site_counts["total"] or 0),
+                "enabled_sites": int(site_counts["enabled"] or 0), "due_sites": len(due),
+                "latest_weather_at": latest, "latest_weather_age_minutes": latest_age_minutes,
+                "weather_provider_configured": provider_configured,
+                "backup_created_at": iso(backup_created), "backup_age_hours": backup_age_hours,
+                "backup_fresh": backup_age_hours is not None and backup_age_hours <= 24,
+                "engagement_events": events}
 
     def preflight(self, site_id: int = 1, provider_configured: bool = False) -> dict:
         """Return an executable release checklist for one site.
