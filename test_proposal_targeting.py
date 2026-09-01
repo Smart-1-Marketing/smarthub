@@ -1137,6 +1137,72 @@ check("the combined search carries no focus line at all",
 builder._openai_response = _real_ai
 
 # ---------------------------------------------------------------------------
+section("overlapping areas count their shared people once, on shared ZIPs")
+# ---------------------------------------------------------------------------
+# Three radii over one metro share most of their households, and the campaign
+# total used to sum all three -- on the reach section of a document a client
+# reads. The ZIP lists are the one signal the campaign holds about how much
+# is shared, so a shared ZIP is counted once, for the first area that
+# claimed it; an area with no ZIP list cannot be checked and counts whole.
+_A = {"id": "a", "name": "A", "type": "City/ZIP + Radius", "origin": "Carmel, IN",
+      "radius": 10, "zips": "46032, 46033, 46074"}
+_B = dict(_A, id="b", name="B", origin="Westfield, IN")          # identical ZIPs
+_C = dict(_A, id="c", name="C", origin="Fishers, IN",
+          zips="46037, 46038, 46032")                            # one shared
+_D = dict(_A, id="d", name="D", origin="Noblesville, IN", zips="")  # no list
+_f = areas.overlap_factors([_A, _B, _C, _D])
+check("the first claim of a ZIP counts whole and a full duplicate counts "
+      "nothing", _f[0] == 1.0 and _f[1] == 0.0, _f)
+check("a partial overlap is scaled by the share that is new",
+      abs(_f[2] - 2 / 3) < 1e-9, _f)
+check("an area with no ZIP list cannot be checked and counts whole",
+      _f[3] == 1.0, _f)
+_one = areas.total_population([_A])
+check("a duplicated area adds nothing to the total",
+      areas.total_population([_A, _B]) == _one,
+      (areas.total_population([_A, _B]), _one))
+
+# The AI estimate's totals apply the same rule (the per-area figures stay
+# whole — that is the per-area question the route exists to answer).
+def _no_ai(prompt, max_output_tokens=6000):
+    raise RuntimeError("offline — fall back to the geometric estimate")
+
+
+builder._openai_response = _no_ai
+_est = api("post", "/sales/builder/api/estimate-audience",
+           json={"areas": [_A, _B]})
+check("the estimate totals count the duplicate once and say so",
+      _est["totals"]["pop"] == _est["areas"][0]["pop"]
+      and "counted once" in _est["note"], (_est["totals"], _est["note"]))
+check("while each area's own row still shows it whole",
+      _est["areas"][1]["pop"] == _est["areas"][0]["pop"], _est["areas"])
+_est2 = api("post", "/sales/builder/api/estimate-audience",
+            json={"areas": [_A, _D]})
+check("an area with no ZIP list is named as uncheckable rather than the "
+      "total quietly claiming the overlap was removed",
+      "cannot be checked" in _est2["note"], _est2["note"])
+builder._openai_response = _real_ai
+
+# The wizard's own fallback total is the same rule, run in node against the
+# same fixtures and held to the Python answer exactly.
+_pop_js = os.path.join(_TMP, "poptotal.js")
+open(_pop_js, "w", encoding="utf-8").write(
+    "".join(_lift(t) for t in ("const DENSITY_BY_RADIUS", "const DENSITY_BEYOND",
+                               "function densityFor(", "function areaPopulation(",
+                               "function areaZipsAll(", "function areaZips("))
+    + "var S={targetAreas:" + json.dumps([_A, _B, _C, _D]) + "};\n"
+    + _lift("function computePopulation(")
+    + "console.log(JSON.stringify({total:computePopulation()}));\n")
+try:
+    _pr = json.loads(_sub.run(["node", _pop_js], capture_output=True, text=True,
+                              timeout=30, check=True).stdout)
+    check("the wizard's fallback total agrees with Python exactly",
+          _pr["total"] == areas.total_population([_A, _B, _C, _D]),
+          (_pr["total"], areas.total_population([_A, _B, _C, _D])))
+except FileNotFoundError:                        # pragma: no cover - no node
+    print("  note: node is not installed here, so the JS total was not driven")
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

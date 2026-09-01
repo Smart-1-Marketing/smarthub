@@ -56,7 +56,6 @@ import re
 #   packages  the three investment options, generated
 #   kpis      the KPI list, generated
 #   roi       Expected Results & ROI, computed from the rate card
-#   timeline  the 30-day implementation blueprint, generated
 #
 # A generated section may carry editable intro copy above its table; it can
 # never have its numbers written by a model.
@@ -150,12 +149,6 @@ OUTLINE = [
                     "dashboard inside the Smart 1 Suite, which they can open themselves.",
     },
     {
-        "id": "timeline", "title": "Implementation Timeline", "kind": "timeline",
-        "enabled": True,
-        "purpose": "Reduce transition anxiety with predictable pacing.",
-        "guidance": "",
-    },
-    {
         "id": "packages", "title": "Investment Summary", "kind": "packages", "enabled": True,
         "purpose": "Total financial clarity.",
         "guidance": "Recurring platform fees, media spend and one-time setup are shown "
@@ -218,6 +211,21 @@ OUTLINE = [
 # Sections that are never removed. `roi` is mandatory by directive; without
 # `mediaplan` and `packages` the document is not a proposal.
 REQUIRED = ("roi", "mediaplan", "packages")
+
+# Sections the specification has RETIRED, keyed on the section kind with the
+# reason. Removing one from OUTLINE only stops new proposals getting it;
+# every quote already saved still carries the section, so `ensure_sections`
+# strips these on the way through — which covers the PDF and the Word export
+# too, since both run the state through it before rendering. Named with a
+# reason rather than deleted in silence, the NOT_ENFORCED / NOT_REQUESTED
+# rule: a section absent on purpose must never be ambiguous with one nobody
+# thought of.
+RETIRED_SECTION_KINDS = {
+    "timeline": "The Implementation Timeline came off every quote by request: "
+                "a generic 30-day blueprint on a sales document promises "
+                "pacing nobody has scheduled, and the real kickoff dates are "
+                "set at onboarding.",
+}
 
 # The one tool that must never appear. Checked on generated copy rather than
 # only asked for in the prompt, because a prompt is a request and this is a
@@ -776,22 +784,6 @@ def industry_trends(industry: str) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# The 30-day implementation blueprint
-# ---------------------------------------------------------------------------
-TIMELINE = [
-    {"phase": "Weeks 1–2", "title": "Setup & Onboarding",
-     "detail": "Admin access collected, tracking pixels placed, conversion actions "
-               "defined, audience and geography built, Smart 1 Suite provisioned."},
-    {"phase": "Weeks 3–4", "title": "Production & Integration",
-     "detail": "Creative produced or supplied and approved, landing pages reviewed, "
-               "workflow automations mapped in the Smart 1 Suite, tracking verified "
-               "end to end before a cent is spent."},
-    {"phase": "Month 2+", "title": "Execution & Scaling",
-     "detail": "Campaigns live, weekly pacing and bid optimization, creative "
-               "performance checks, budget shifted toward what proves out, first "
-               "full performance review delivered."},
-]
 
 NEXT_STEPS = [
     "Approve this proposal and sign the digital agreement.",

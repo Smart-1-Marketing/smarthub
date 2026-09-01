@@ -1318,6 +1318,12 @@ function editLoaded(q){
  // from_legacy) and sends the result, so re-opening an old quote shows its
  // target area rather than an empty list nobody entered.
  if(!(S.targetAreas||[]).length&&(q.target_areas||[]).length)S.targetAreas=q.target_areas;
+ /* The Implementation Timeline is retired from every quote
+    (hub/proposal_spec.RETIRED_SECTION_KINDS). The server strips it on every
+    save and in front of the PDF and the Word export; this covers the copy
+    already in the browser, so an old quote's section editor does not go on
+    offering a section no renderer will print. */
+ if(Array.isArray(S.sections))S.sections=S.sections.filter(x=>((x||{}).kind)!=="timeline");
  S._areaView=null;S._areaIx=0;
  nav('builder');renderStep();drawQuoteTag("Editing "+QUOTE_NUMBER+" · rev "+q.revision);
  /* Landing on step 9 with no explanation reads as the tool having skipped
@@ -1891,11 +1897,22 @@ function bandSlider(kind,title,help){
   <div class="note" style="margin:6px 0 0">${esc(help)}</div>
  </div>`;}
 function computePopulation(){
- // Every area the campaign runs in, added up. Overlap is NOT deducted -- two
- // 10-mile radii five miles apart share most of their people -- so the number
- // is labeled an estimate wherever it appears.
- const rows=(S.targetAreas||[]).map(areaPopulation).filter(n=>n);
- return rows.length?rows.reduce((s,n)=>s+n,0):0;}
+ // Every area the campaign runs in, added up -- with overlap removed on
+ // shared ZIP Codes, the same rule hub/target_areas.overlap_factors applies
+ // server-side: three radii over one metro count the shared households once,
+ // scaled by the share of each area's ZIPs no earlier area claimed. An area
+ // with no ZIP list cannot be checked and counts whole, which is why the
+ // number stays labeled an estimate wherever it appears.
+ const seen=new Set();let total=0,any=false;
+ (S.targetAreas||[]).forEach(a=>{
+  const pop=areaPopulation(a);if(!pop)return;
+  const zips=areaZips(a);let factor=1;
+  if(zips.length){
+   const fresh=zips.filter(z=>!seen.has(z)).length;
+   zips.forEach(z=>seen.add(z));
+   factor=fresh/zips.length;}
+  total+=pop*factor;any=true;});
+ return any?Math.round(total):0;}
 function estimates(){
  // The AI estimate is per area; totals come back from the server.
  if(S.aiEst&&S.aiEst.totals){const t=S.aiEst.totals;
@@ -2011,7 +2028,6 @@ const PROPOSAL_OUTLINE=[
  {id:"creative",title:"Creative & Messaging Strategy",kind:"creative",purpose:"Messaging themes and who produces the creative."},
  {id:"technology",title:"Smart 1 Technology",kind:"text",purpose:"The Suite as the client's command center."},
  {id:"reporting",title:"Reporting, Optimization & Transparency",kind:"text",purpose:"How it is optimized and what they can see."},
- {id:"timeline",title:"Implementation Timeline",kind:"timeline",purpose:"The 30-day blueprint."},
  {id:"packages",title:"Investment Summary",kind:"packages",purpose:"Platform, media and one-time, kept apart."},
  {id:"kpis",title:"How We Measure Success",kind:"kpis",purpose:"The metrics we are judged on."},
  {id:"roi",title:"Expected Results & ROI",kind:"roi",purpose:"How the campaign will be judged, product by product. Required."},
@@ -2995,7 +3011,7 @@ function coverTrendsHtml(){
 /* Which sections carry a generated table at all. `text` and `cover` are prose
    and have nothing to exclude, and offering them the control would make the
    two buttons mean nothing. */
-const TABLE_KINDS=["areas","reach","friction","channels","creative","timeline",
+const TABLE_KINDS=["areas","reach","friction","channels","creative",
                    "kpis","mediaplan","packages","roi","growth","zips"];
 function sectionHasTable(sec){return TABLE_KINDS.includes((sec||{}).kind);}
 function isTableEdited(sec){
@@ -3116,7 +3132,6 @@ function generatedTable(sec,e){
   return dtable(["Medium","Campaign spend","Creative","What we need"],rows.map(r=>[
    esc(r.label),money(r.spend),esc(creativePhrase(r)),
    r.sizes&&r.sizes.line?esc(r.sizes.line):"<b>Not measured</b>"]));}
- if(k==="timeline")return dtable(["Phase","What happens"],TIMELINE_PHASES.map(t=>[esc(t[0])+"<br>"+esc(t[1]),esc(t[2])]));
  /* A list of things the campaign is judged on is a list. Six KPIs joined by
     commas is a sentence a client skims, and the fourth is the one they would
     have argued with. */
@@ -3208,10 +3223,6 @@ function dtable(head,rows){
   +rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')+`</tbody></table>`;}
 function dgrid(pairs){
  return `<div class="dgrid">${pairs.map(p=>`<div><b>${p[1]}</b><span>${esc(p[0])}</span></div>`).join('')}</div>`;}
-const TIMELINE_PHASES=[
- ["Weeks 1–2","Setup & Onboarding","Admin access collected, tracking pixels placed, conversion actions defined, audience and geography built, Smart 1 Suite provisioned."],
- ["Weeks 3–4","Production & Integration","Creative produced or supplied and approved, landing pages reviewed, workflow automations mapped in the Smart 1 Suite, tracking verified end to end before a cent is spent."],
- ["Month 2+","Execution & Scaling","Campaigns live, weekly pacing and bid optimization, creative performance checks, budget shifted toward what proves out, first full performance review delivered."]];
 /* The lines that are actually channels. A production line and a management
    fee are not, and listing them put "Video Production — top of funnel, builds
    awareness and trust on the screens the household already watches" in a
