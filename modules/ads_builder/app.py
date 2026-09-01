@@ -543,7 +543,10 @@ def api_campaign_status(campaign_id):
     if not customer_id or not status:
         return jsonify({"error": "customer_id and status are required."}), 400
 
-    google_ads.set_campaign_status(customer_id, campaign_id, status, store)
+    google_ads.set_campaign_status(
+        customer_id, campaign_id, status, store,
+        confirmation=body.get("confirmation"),
+    )
     store.log_event("CAMPAIGN_STATUS_CHANGE", current_user(),
                     customer_id=google_ads.digits(customer_id),
                     campaign_id=campaign_id, status=str(status).upper())

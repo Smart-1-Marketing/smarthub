@@ -230,6 +230,51 @@ check("and injected into every mounted module",
 
 
 # =====================================================================
+section("The record opens the FULL gallery, and a scoped view offers it")
+# =====================================================================
+
+# Client 360's gallery link used to open the SEO pipeline's archive — one
+# source's slice of the client's images, read by a rep as all of them. The
+# full gallery (every folder: their uploads, display ads, logos, SEO images,
+# stock) is Client Image Uploads', keyed on its own id, so the link goes
+# through a resolver that turns the name into it — exactly one gallery or
+# none, never a substring.
+check("Client 360 opens the gallery through the resolver",
+      "'/tools/image-picker/gallery/for-client?name='" in C360, True)
+check("and no longer aims the link at one pipeline's slice",
+      "imgBase+'gallery?company='" in C360, False)
+
+# The scoped SEO view is still a page other places open. When the client has
+# a full gallery, it says so and offers the way there; when they do not, no
+# link — a link that guesses between two clients' galleries, or one that
+# bounces a reader back to the page they are on, is worse than none.
+from modules.image_picker.models import (                     # noqa: E402
+    PickerClient as _PC, new_token as _new_token,
+    session as _picker_session, unique_slug as _unique_slug,
+)
+_pdb = _picker_session()
+_pc = _PC(name="Icon Solar", slug=_unique_slug(_pdb, "Icon Solar"),
+          industry_key="general", share_token=_new_token())
+_pdb.add(_pc)
+_pdb.commit()
+
+scoped = gclient.get("/gallery?company=Icon+Solar").get_data(as_text=True)
+check("a scoped view offers the full gallery",
+      f"/tools/image-picker/gallery/{_pc.id}" in scoped, True)
+check("named as every folder", "every folder" in scoped, True)
+
+none_yet = gclient.get("/gallery?company=Riverside+HVAC").get_data(as_text=True)
+check("a client with no full gallery is offered no link",
+      'id="fullGallery"' in none_yet, False)
+
+# And the scoped page says which view it is, rather than claiming the whole.
+check("the scoped view names its own source",
+      "SEO Image Pipeline" in scoped, True)
+check("and no longer claims to be every image saved for the client",
+      "Every image saved for this client" in scoped, False)
+
+
+# =====================================================================
 section("The brand card asks by domain as well as by name")
 # =====================================================================
 

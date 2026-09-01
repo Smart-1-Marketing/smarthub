@@ -407,7 +407,10 @@ def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
         SELECT campaign.id,
                metrics.cost_micros, metrics.impressions, metrics.clicks,
                metrics.ctr, metrics.average_cpc, metrics.conversions,
-               metrics.cost_per_conversion
+               metrics.cost_per_conversion,
+               metrics.search_impression_share,
+               metrics.search_budget_lost_impression_share,
+               metrics.search_rank_lost_impression_share
         FROM campaign
         WHERE campaign.status != 'REMOVED'
           AND segments.date DURING {date_range}
@@ -434,6 +437,9 @@ def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
             "daily_budget": micros((row.get("campaignBudget") or {}).get("amountMicros")),
             "cost": 0.0, "impressions": 0, "clicks": 0, "ctr": 0.0,
             "avg_cpc": 0.0, "conversions": 0.0, "cost_per_conversion": 0.0,
+            "search_impression_share": 0.0,
+            "search_budget_lost_share": 0.0,
+            "search_rank_lost_share": 0.0,
         }
 
     for row in metric_rows:
@@ -449,6 +455,13 @@ def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
             avg_cpc=micros(m.get("averageCpc")),
             conversions=float(m.get("conversions") or 0),
             cost_per_conversion=micros(m.get("costPerConversion")),
+            search_impression_share=float(m.get("searchImpressionShare") or 0),
+            search_budget_lost_share=float(
+                m.get("searchBudgetLostImpressionShare") or 0
+            ),
+            search_rank_lost_share=float(
+                m.get("searchRankLostImpressionShare") or 0
+            ),
         )
 
     return sorted(by_id.values(), key=lambda c: c["cost"], reverse=True)
@@ -500,13 +513,23 @@ def campaign_detail(customer_id, campaign_id, store=None):
 
 # ---------------------------------------------------------------- status
 ALLOWED_STATUS = {"ENABLED", "PAUSED", "REMOVED"}
+STATUS_CONFIRMATIONS = {
+    "ENABLED": "ENABLE",
+    "PAUSED": "PAUSE",
+    "REMOVED": "DELETE",
+}
 
 
-def set_campaign_status(customer_id, campaign_id, status, store=None):
+def set_campaign_status(customer_id, campaign_id, status, store=None, *, confirmation=None):
     status = str(status or "").upper()
     if status not in ALLOWED_STATUS:
         raise GoogleAdsError(
             f'Invalid status "{status}". Use ENABLED, PAUSED or REMOVED.', status=400
+        )
+    expected = STATUS_CONFIRMATIONS[status]
+    if str(confirmation or "").strip().upper() != expected:
+        raise GoogleAdsError(
+            f'Type "{expected}" to confirm this campaign change.', status=400
         )
     cid = digits(customer_id)
     resource = f"customers/{cid}/campaigns/{campaign_id}"

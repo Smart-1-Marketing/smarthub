@@ -382,6 +382,66 @@ def staff_gallery(client_id: int):
     )
 
 
+@bp.route("/gallery/for-client")
+@staff_only
+@db_guard
+def gallery_for_client():
+    """Open a client's FULL gallery from a name — every folder, every source.
+
+    Client 360's "See client image gallery" points here, because the record
+    knows the client's *name* and this module keys galleries on its own id.
+    The matching rules are provisioning.py's — exactly one gallery or none,
+    never a substring — and every outcome goes somewhere that shows the
+    client's images rather than an error about our own bookkeeping:
+
+    * exactly one gallery -> that gallery, which is every folder and every
+      source this Hub has filed for them;
+    * none yet -> the SEO Image Pipeline's archive scoped to the name, which
+      is everything the Hub holds for them outside a gallery (and that page
+      only offers a "full gallery" link when one exists, so the two cannot
+      bounce a reader between them);
+    * more than one -> refused with both named, because picking either sends
+      somebody into another client's gallery reading as this one's.
+
+    `c360` is carried through the redirect: it is what draws "Back to
+    <client>" on the destination, and a resolver that dropped it would strand
+    the reader one hop from the record they came from.
+    """
+    name = (request.args.get("name") or "").strip()
+    c360 = (request.args.get("c360") or "").strip()
+
+    def carry(target: str) -> str:
+        if c360:
+            from urllib.parse import quote
+            target += ("&" if "?" in target else "?") + "c360=" + quote(c360)
+        return target
+
+    if not name:
+        return render_template(
+            "picker_error.html",
+            message="No client name was given, so there is no gallery to open."
+        ), 400
+
+    from . import provisioning
+    db = session()
+    found, _how = provisioning.find(db, name, request.args.get("url") or "")
+    if len(found) == 1:
+        return redirect(carry(
+            url_for("image_picker.staff_gallery", client_id=found[0].id)))
+    if len(found) > 1:
+        return render_template(
+            "picker_error.html",
+            message=("More than one upload gallery could be this client ("
+                     + ", ".join(c.name for c in found) + "). Open Client "
+                     "Image Uploads and pick the right one rather than risking "
+                     "one client's gallery reading as another's.")), 200
+    # No full gallery yet. The SEO pipeline's archive is everything the Hub
+    # holds for this client outside one, so land there scoped to the name
+    # rather than on a page about our own bookkeeping.
+    from urllib.parse import quote
+    return redirect(carry("/tools/seo-images/gallery?company=" + quote(name)))
+
+
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
