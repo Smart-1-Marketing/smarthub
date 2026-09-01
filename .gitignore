@@ -13,6 +13,15 @@ modules/*/data/
 !hub/data/**
 _attic/
 
+# Private client and billing exports. Production reads Knack directly and may
+# use CLIENTS_DATA_DIR as a private mounted fallback; raw exports never belong
+# in Git.
+!clients_app/data/
+clients_app/data/*.json
+!clients_app/data/README.md
+modules/sites_admin/Portfolio.json
+modules/sites_admin/portfolio.json
+
 # SQLite. image_picker.db reached the repo root because models.py opens it
 # on a relative path, so it lands in whatever the process CWD happens to be.
 *.db

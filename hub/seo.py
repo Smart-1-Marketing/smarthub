@@ -1,8 +1,8 @@
 """SEO section — clients with SEO products, schema scanning + generation.
 
 Data sources:
-  * clients_app/data/products.json  -> live "Website SEO..." products + billing
-  * clients_app/data/websites.json  -> the client's site, platform, GA / GTM ids
+  * private Knack products  -> live "Website SEO..." products + billing
+  * private Knack websites  -> the client's site, platform, GA / GTM ids
 
 Per-client working files live at /var/data/seo/<slug>.json and hold the
 client-setup answers, business info, AI questions/answers, and every
@@ -674,7 +674,7 @@ def seo_clients_result() -> tuple[list[dict], str, int | None]:
     The `(rows, source, age)` shape rather than a bare list, for the reason
     `connected_accounts_result()` gives in Google Finder: a stale export looks
     exactly like live data on screen, and this list decides who is on the SEO
-    book at all. It read `knack_data.products()` — the hand-committed export
+    book at all. It read `knack_data.products()` — the private fallback export
     that nothing refreshes — while Client 360 read the same object live, so
     the Hub held a current answer and a stale one to "who are our SEO clients"
     and this screen took the stale one.

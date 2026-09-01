@@ -84,9 +84,13 @@ check("the narrative is ordered cover-first, next-steps-last",
 check("and the appendices come after it, in order",
       ids[-len(APPENDICES):] == APPENDICES, ids[-len(APPENDICES):])
 for needed in ("summary", "objectives", "friction", "areas", "channels",
-               "mediaplan", "creative", "technology", "reporting", "timeline",
+               "mediaplan", "creative", "technology", "reporting",
                "packages", "roi", "next"):
     check(f"the outline includes {needed}", needed in ids)
+check("the Implementation Timeline is retired from the outline, with the "
+      "reason written down rather than left as an absence",
+      "timeline" not in ids and "timeline" in spec.RETIRED_SECTION_KINDS
+      and spec.RETIRED_SECTION_KINDS["timeline"], ids)
 check("Expected Results & ROI comes after the media plan",
       ids.index("roi") > ids.index("mediaplan"))
 check("every section id is unique", len(ids) == len(set(ids)))
@@ -1086,6 +1090,116 @@ check("the first month includes the one-time cost",
       invest["first_month"] == 599 + 6900 + 750, invest["first_month"])
 
 # ---------------------------------------------------------------------------
+section("Consulting & Strategy rides the quote like the license does")
+# ---------------------------------------------------------------------------
+check("the total row says what it includes, and without consulting that is "
+      "licensing alone", invest["includes"] == "licensing", invest["includes"])
+c_state = dict(state)
+c_state["consulting"] = {"include": True, "custom": False,
+                         "monthly": 1050, "listed": 1050, "hours": 7}
+c_invest = builder.investment_lines(c_state, _Q())
+c_line = [l for l in c_invest["lines"] if l["kind"] == "consulting"]
+check("switched on, it is its own line", len(c_line) == 1,
+      [l["kind"] for l in c_invest["lines"]])
+check("the hours the price was built from are on the label — the figure "
+      "shows what it is made of",
+      c_line and "hrs/mo" in c_line[0]["label"], c_line)
+check("it recurs for the term, exactly as the license does",
+      c_invest["campaign_total"] == invest["campaign_total"] + 1050 * 6,
+      (c_invest["campaign_total"], invest["campaign_total"]))
+check("and the total row stops understating what it includes",
+      c_invest["includes"] == "licensing & consulting", c_invest["includes"])
+c_state["consulting"] = {"include": True, "custom": True,
+                         "monthly": 800, "listed": 1050, "hours": 7}
+c_adj = [l for l in builder.investment_lines(c_state, _Q())["lines"]
+         if l["kind"] == "consulting"][0]
+check("an edited price wins and is marked adjusted beside the suggested one",
+      c_adj["amount"] == 800 and c_adj["listed"] == 1050
+      and c_adj["adjusted"] is True, c_adj)
+
+# ---------------------------------------------------------------------------
+section("the Suite lists users, and the products a proposal can introduce")
+# ---------------------------------------------------------------------------
+check("a tier's specs name users and nothing else — no contact, email or "
+      "text allowances on a line a client reads",
+      all("user" in t["specs"] and "contact" not in t["specs"]
+          and "email" not in t["specs"] and "text" not in t["specs"]
+          for t in spec.SAAS_TIERS),
+      [t["specs"] for t in spec.SAAS_TIERS])
+_SB = open(os.path.join(ROOT, "modules", "sales_builder", "templates",
+                        "index.html"), encoding="utf-8").read()
+_tiers_js = re.search(r"const SUITE_TIERS=\[(.*?)\n\];", _SB, re.S).group(1)
+check("the wizard's own tier cards say the same thing",
+      "contacts" not in _tiers_js and "emails" not in _tiers_js
+      and "texts" not in _tiers_js and _tiers_js.count("users") == 3, _tiers_js)
+_SUITE_PRODUCT_NAMES = [
+    "Call Tracking", "Texting", "Reputation Center", "Social Planner",
+    "Webchat", "Online Scheduling", "Form Tracking", "Media Library",
+    "Brand Kit", "Email Newsletters", "Marketing Dashboards", "Surveys",
+    "QR Codes", "Countdown Timers", "Centralized Social Dashboard"]
+_products_js = re.search(r"const SUITE_PRODUCTS=\[(.*?)\n\];", _SB, re.S)
+check("all fifteen Suite products are on offer, by name",
+      _products_js and all(f'name:"{n}"' in _products_js.group(1)
+                           for n in _SUITE_PRODUCT_NAMES),
+      [n for n in _SUITE_PRODUCT_NAMES
+       if not (_products_js and f'name:"{n}"' in _products_js.group(1))])
+check("each carries a suggestion rule and the hours the consulting price "
+      "is built from",
+      _products_js and _products_js.group(1).count("suggest:") == 15
+      and _products_js.group(1).count("hours:") == 15)
+check("a suggestion is offered, never auto-selected — selection is a press",
+      "toggleSuiteProduct(" in _SB and "takeSuiteSuggestions(" in _SB)
+check("the consulting rate is named as ours on the panel",
+      "our standard consulting rate" in _SB
+      and "not a published benchmark" in _SB)
+
+# ---------------------------------------------------------------------------
+section("the cover always carries the industry trends block")
+# ---------------------------------------------------------------------------
+t_known = spec.industry_trends("Healthcare / Dental")
+check("a written-up industry answers with its own entry",
+      t_known["matched"] is True and t_known["trends"] and t_known["help"]
+      and t_known["budget"], sorted(t_known.keys()))
+t_unknown = spec.industry_trends("Beekeeping")
+check("an unknown industry gets the general entry rather than a hole on "
+      "the first page — and says it is the fallback",
+      t_unknown["matched"] is False and t_unknown["trends"]
+      and t_unknown["budget"], t_unknown["matched"])
+check("the budget guidance is labeled as Smart 1's own, never a published "
+      "benchmark", "not a published benchmark" in spec.TRENDS_NOTE
+      and t_unknown["note"] == spec.TRENDS_NOTE)
+check("no trend quotes a statistic nobody measured",
+      not any(re.search(r"\d+\s*%|\d+ percent", line)
+              for entry in [spec.GENERAL_TRENDS, *spec.INDUSTRY_TRENDS.values()]
+              for line in [*entry["trends"], entry["help"], entry["budget"]]))
+check("every wizard industry the table knows is a wizard spelling",
+      set(spec.INDUSTRY_TRENDS) <=
+      set(re.findall(r'"([^"]+)"',
+                     re.search(r"const INDUSTRIES=\[(.*?)\];", _SB).group(1))),
+      sorted(spec.INDUSTRY_TRENDS))
+check("the page reads the served table rather than a mirror",
+      "CFG.industry_trends" in _SB and "coverTrendsHtml" in _SB)
+
+# ---------------------------------------------------------------------------
+section("the document's layout: numbered headers, and ZIPs beside the map")
+# ---------------------------------------------------------------------------
+_APP = open(os.path.join(ROOT, "modules", "sales_builder", "app.py"),
+            encoding="utf-8").read()
+check("the PDF numbers its sections over the enabled ones",
+      "_sec_header(" in _APP and "sec_no += 1" in _APP)
+check("the preview numbers them the same way",
+      "secno" in _SB and "s.enabled?(++_no):null" in _SB.replace(" ", ""))
+check("the map takes two thirds of the row with the targeted ZIPs beside it, "
+      "in both renderers",
+      "MAP_ZIP_W" in _APP and "_zip_column_rows" in _APP
+      and "dmaprow" in _SB and "zipSideList" in _SB)
+check("the ZIP column is bounded and points at the full list rather than "
+      "truncating in silence",
+      "ZIP_COL_PER_AREA" in _APP
+      and "The complete list is in ZIP Codes Targeted" in _APP
+      and "The complete list is in ZIP Codes Targeted" in _SB)
+
+# ---------------------------------------------------------------------------
 section("a proposal cannot lose its required sections")
 # ---------------------------------------------------------------------------
 old_shape = {"client": "Legacy Co", "months": 3, "items": [],
@@ -1223,7 +1337,7 @@ check("and it is covered once the tier is raised",
       "chat" in {r["key"] for r in cm.suite_coverage(lacking, "Smarter")["covered"]})
 # An unanswered question is not a gap the Suite gets credit for closing.
 check("an unanswered question is not measured, not a gap",
-      {r["key"] for r in cover["not_measured"]} == {"email"},
+      {r["key"] for r in cover["not_measured"]} == {"email", "appointments"},
       [r["key"] for r in cover["not_measured"]])
 # Two questions can want the same part of the Suite. Claimed twice they read
 # as two things the licence buys -- "Social planner" directly above "Social
@@ -1362,7 +1476,7 @@ check("only the cover and the ZIP appendix have nothing to write",
       not (UNWRITTEN & set(plan_ids))
       and len(plan_ids) == len(spec.OUTLINE) - len(UNWRITTEN),
       plan_ids)
-for needed in ("mediaplan", "packages", "roi", "reach", "timeline"):
+for needed in ("mediaplan", "packages", "roi", "reach"):
     check(f"the generated section {needed} still takes intro copy",
           needed in plan_ids)
 
@@ -2439,6 +2553,120 @@ _disp_st = {"items": [dict(_disp_row, dollars=4000)], "months": 3}
 check("a display requirement gains no such clause",
       "the kit also sells" not in cn.units_line(_disp_st, cn.medium_of(_disp_row)),
       cn.units_line(_disp_st, cn.medium_of(_disp_row)))
+
+# ---------------------------------------------------------------------------
+section("the Budget Allocation table states a rate or says Managed")
+# ---------------------------------------------------------------------------
+# A percentage, a custom quote or a sentence about the rate card is our
+# pricing described, not a rate stated — on the one table headed Budget
+# Allocation it reads as a figure the client should be able to check and
+# cannot. A quoted CPM/CPV and a flat fee survive; everything else reads
+# Managed.
+check("a quoted CPM keeps its rate",
+      builder._plan_rate({"quoted_rate": 8.5, "rate": "CPM $8.50"}) == "CPM $8.50")
+check("a flat fee keeps its figure, formatted as money rather than a bare "
+      "float", builder._plan_rate({"rate": "250.0"}) == "$250.00 flat",
+      builder._plan_rate({"rate": "250.0"}))
+check("a percentage is Managed",
+      builder._plan_rate({"rate": "15% of monthly spend"}) == "Managed")
+check("a custom quote is Managed",
+      builder._plan_rate({"rate": "Custom quote"}) == "Managed")
+check("an empty rate is Managed", builder._plan_rate({"rate": ""}) == "Managed")
+_plan_state = {"months": 3, "budget": 1500,
+               "items": [{"product": "Category", "category": "DISPLAY",
+                          "rate": "CPM", "rateValue": 4.25, "dollars": 1000},
+                         {"product": "Campaign Management", "category": "",
+                          "rate": "", "dollars": 500}]}
+_plan_rows = builder.media_plan_rows(_plan_state)["rows"]
+check("through the real table: the CPM line states its quoted rate and the "
+      "managed line says Managed",
+      _plan_rows[0]["rate"].startswith("CPM $")
+      and _plan_rows[1]["rate"] == "Managed",
+      [(r["product"], r["rate"]) for r in _plan_rows])
+
+# ---------------------------------------------------------------------------
+section("the Implementation Timeline is off every quote, old ones included")
+# ---------------------------------------------------------------------------
+_legacy = {"client": "Legacy Co", "months": 3, "items": [],
+           "sections": [{"id": "timeline", "title": "Implementation Timeline",
+                         "kind": "timeline", "enabled": True, "body": ""},
+                        {"id": "about", "title": "About", "kind": "text",
+                         "enabled": True, "body": "Written last year."}]}
+builder.ensure_sections(_legacy)
+_kinds = {s["kind"] for s in _legacy["sections"]}
+check("a stored quote loses the retired section on the way through — "
+      "ensure_sections runs on every save and in front of the PDF and Word",
+      "timeline" not in _kinds, sorted(_kinds))
+check("and keeps the copy somebody wrote",
+      any(s.get("body") == "Written last year." for s in _legacy["sections"]))
+check("no renderer carries a timeline branch to print one anyway",
+      'kind == "timeline"' not in open(os.path.join(
+          ROOT, "modules", "sales_builder", "app.py"), encoding="utf-8").read())
+check("and the wizard neither seeds nor draws one",
+      '"timeline"' not in re.search(
+          r"const PROPOSAL_OUTLINE=\[(.*?)\n\];",
+          open(os.path.join(ROOT, "modules", "sales_builder", "templates",
+                            "index.html"), encoding="utf-8").read(),
+          re.S).group(1))
+
+# ---------------------------------------------------------------------------
+section("an industry template is matched on words, never on substrings")
+# ---------------------------------------------------------------------------
+# "rv" is a substring of "services", so every Home Services and Financial
+# Services proposal opened its Executive Summary with the RV Dealers pitch —
+# "marketing that follows the camping calendar" on an HVAC company's
+# document. Found by rendering one. The near-matches that are real stay.
+check("Home Services gets no template rather than the RV Dealers pitch",
+      builder.industry_template({"industry": "Home Services"}) is None)
+check("Financial Services likewise",
+      builder.industry_template({"industry": "Financial Services"}) is None)
+check("Legal still matches Law Firms",
+      (builder.industry_template({"industry": "Legal"}) or {}).get("label")
+      == "Law Firms")
+check("Restaurant / Hospitality still matches its template",
+      (builder.industry_template({"industry": "Restaurant / Hospitality"})
+       or {}).get("label") == "Restaurants & Food Service")
+check("and a genuine RV dealer still gets the RV template",
+      (builder.industry_template({"industry": "RV Dealers"}) or {}).get("label")
+      == "RV Dealers")
+
+# ---------------------------------------------------------------------------
+section("the cover's meta table wraps its labels and drops empty rows")
+# ---------------------------------------------------------------------------
+# From a real proposal: "Monthly campaign investment" was a bare string in a
+# 1.55in column, reportlab does not wrap a bare string, and the label printed
+# over the figure — "investme$8,050", on the cover a client reads first.
+_APP_SRC = open(os.path.join(ROOT, "modules", "sales_builder", "app.py"),
+                encoding="utf-8").read()
+check("both meta cells are Paragraphs, so both wrap",
+      "meta = [[_p(row[0], st_meta), _p(row[1], st_body)] for row in meta]"
+      in _APP_SRC)
+check("and an empty value drops its row rather than printing a labeled "
+      "blank", 'meta = [row for row in meta if str(row[1] or "").strip()]'
+      in _APP_SRC)
+
+_pdf_state = {"client": "Meta Check Co", "months": 3, "objectives": [],
+              "items": [{"product": "Category", "category": "DISPLAY",
+                         "rate": "CPM", "rateValue": 4.25, "dollars": 1000}],
+              "sections": [
+                  {"id": "timeline", "title": "Implementation Timeline",
+                   "kind": "timeline", "enabled": True, "body": ""}]}
+_pq = api("post", "/sales/builder/api/quotes", json={"data": _pdf_state})
+_pqid = _pq["quote"]["id"]
+_pdf = http.get(f"/sales/builder/api/quotes/{_pqid}/pdf")
+check("the PDF builds without the retired section",
+      _pdf.status_code == 200 and _pdf.data[:4] == b"%PDF")
+try:
+    from pypdf import PdfReader as _PR
+    import io as _io2
+    _text = re.sub(r"\s+", " ", "\n".join(
+        p.extract_text() or "" for p in _PR(_io2.BytesIO(_pdf.data)).pages))
+    check("no Implementation Timeline reaches the document, even from a "
+          "quote saved carrying one", "Implementation Timeline" not in _text)
+    check("a quote with no goals prints no empty Campaign Goals row",
+          "Campaign Goals" not in _text)
+except ImportError:                              # pragma: no cover
+    print("  note: pypdf is not installed here, so the PDF text was not read")
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 62)

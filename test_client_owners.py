@@ -447,6 +447,27 @@ check("a reworded label does not",
                            "Waiting on six banners.")["fingerprint"],
       issue["fingerprint"])
 
+# Website H&M is the second half of the dashboard's total-billing definition.
+# Only active rows count, and two active sites on one client add rather than
+# one silently winning by name.
+from hub import knack_data as _knack_data                         # noqa: E402
+_real_export_websites = _knack_data.export_websites
+_knack_data.export_websites = lambda: [
+    {"name": "Marked Co", "active": True, "hmMonthly": "$300"},
+    {"name": "Marked Co", "status": "Active", "hmMonthly": 200},
+    {"name": "Old Co", "active": False, "hmMonthly": 999},
+]
+try:
+    website_billing, website_billing_error = client_health._website_billing()
+    check("active website H&M billing can be read", website_billing_error, "")
+    check("and active sites for one client add together",
+          website_billing[client_health._client_key("Marked Co")]["hm_monthly"],
+          500.0)
+    check("while an inactive website is not billing",
+          client_health._client_key("Old Co") in website_billing, False)
+finally:
+    _knack_data.export_websites = _real_export_websites
+
 
 # ---------------------------------------------------------------------------
 section("Marks and notes, applied on read")
@@ -455,11 +476,13 @@ section("Marks and notes, applied on read")
 FAKE = {
     "measured": True, "generated_at": "", "today": "2026-08-30",
     "sources": {"products": {"measured": True, "error": "", "note": ""},
-                "registry": {"measured": True, "error": "", "note": ""}},
+                "registry": {"measured": True, "error": "", "note": ""},
+                "website_billing": {"measured": True, "error": "", "note": ""}},
     "rows": [{
         "client": "Marked Co", "key": client_health._client_key("Marked Co"),
         "domain": "markedco.com", "url": "", "partner": "Moto",
-        "other_partners": [], "sales": "", "live_products": 2, "monthly": 4000,
+        "other_partners": [], "sales": "", "live_products": 2,
+        "media_monthly": 3500, "hm_monthly": 500, "monthly": 4000,
         "traffic": {"measured": False, "state": "never", "figures": [],
                     "note": "Nobody has audited this website yet."},
         "engagement": {"measured": True, "proposal_opens": 0,
@@ -482,6 +505,10 @@ try:
     check("both issues start open", row["issue_count"], 2)
     check("and nothing is handled", row["handled_count"], 0)
     check("the client has no owner yet", row["owner"]["email"], "")
+    check("the report totals media and H&M billing on the visible book",
+          (out["counts"]["media_billing_monthly"],
+           out["counts"]["hm_billing_monthly"],
+           out["counts"]["billing_monthly"]), (3500.0, 500.0, 4000.0))
 
     # The overlay is read on every request, never baked into the cached run:
     # two gunicorn workers, and a mark folded into a cached payload is a
@@ -490,6 +517,12 @@ try:
     out = client_health.report(scope="all")
     check("an assignment shows on the very next read without a rebuild",
           out["rows"][0]["owner"]["email"], "aimee@smart1marketing.com")
+    board = client_health.scoreboard(owner="aimee@smart1marketing.com")
+    check("and the dashboard scorecard uses that assigned-client billing total",
+          board["billing_monthly"], 4000.0)
+    check("with the two auditable parts kept apart",
+          (board["media_billing_monthly"], board["hm_billing_monthly"]),
+          (3500.0, 500.0))
 
     r = client_health.set_mark("Marked Co", issue["key"], "done",
                                actor="Tester", seen=issue["fingerprint"])
@@ -550,7 +583,8 @@ try:
     # Sorting and scoping.
     FAKE["rows"].append({
         **FAKE["rows"][0], "client": "Quiet Co",
-        "key": client_health._client_key("Quiet Co"), "issues": [], "monthly": 0,
+        "key": client_health._client_key("Quiet Co"), "issues": [],
+        "media_monthly": 0, "hm_monthly": 0, "monthly": 0,
     })
     out = client_health.report(scope="all")
     check("the client with the most outstanding leads",
@@ -691,7 +725,8 @@ for path in ("/my-clients", "/qa/client-owners"):
     check(f"{path} redirects a stranger to the login",
           anon.get(path).status_code, 302)
 for path in ("/api/my-clients", "/api/my-clients/scoreboard",
-             "/api/client-owners", "/api/client/owner?client=Acme"):
+             "/api/client-owners", "/api/client/owner?client=Acme",
+             "/api/client/issues?client=Acme"):
     check(f"{path} refuses a stranger", anon.get(path).status_code, 401)
 for path in ("/api/my-clients/mark", "/api/my-clients/note",
              "/api/my-clients/note/delete", "/api/my-clients/refresh",
@@ -710,6 +745,48 @@ body = signed.get("/api/client-owners").get_json()
 check("the assignment API answers", body["measured"], True)
 check("with somebody to assign to", bool(body["users"]), True)
 check("and the partners to select by", isinstance(body["partners"], list), True)
+
+# Client 360 expands one exact client's work in place. The source remains the
+# report (so marks and source-health warnings cannot drift), but a partial
+# client-name match must never put another company's work on this record.
+_real_issue_report = client_health.report
+client_health.report = lambda **kw: {
+    "measured": True,
+    "generated_at": "2026-08-31T12:00:00Z",
+    "sources": {"products": {"measured": True},
+                "registry": {"measured": True}},
+    "note": "2 clients read.",
+    "rows": [
+        {"client": "Acme", "issues": [issue]},
+        {"client": "Acme Roofing", "issues": [
+            client_health._issue("no_dashboard", "live", "Roofing issue",
+                                 "This belongs to the other client.")
+        ]},
+    ],
+}
+try:
+    body = signed.get("/api/client/issues?client=Acme").get_json()
+    check("Client 360's issue API answers one exact client",
+          body["client"], "Acme")
+    check("without absorbing a partial-name match",
+          [i["title"] for i in body["issues"]], ["Spring campaign"])
+    check("and reports the expandable count", body["issue_count"], 1)
+    check("a fully read issue list says it is complete", body["complete"], True)
+
+    client_health.report = lambda **kw: {
+        "measured": True,
+        "generated_at": "2026-08-31T12:00:00Z",
+        "sources": {"products": {"measured": True},
+                    "campaign_assets": {"measured": False}},
+        "note": "Not measured this run: campaign assets.",
+        "rows": [{"client": "Acme", "issues": []}],
+    }
+    body = signed.get("/api/client/issues?client=Acme").get_json()
+    check("a source-blind empty issue list is not called complete",
+          body["complete"], False)
+    check("and carries the report's warning", bool(body["warning"]), True)
+finally:
+    client_health.report = _real_issue_report
 
 # The shared-password session has no account behind it, so there is no "my"
 # to answer -- "Shared login" is a true statement about the session and a
@@ -761,13 +838,24 @@ from hub.sidebar import _ITEMS                                    # noqa: E402
 check("My Clients is in the nav",
       [i[1] for i in _ITEMS if i[0] == "myclients"], ["/my-clients"])
 
-dash = (ROOT / "hub" / "templates" / "dashboard.html").read_text()
+dash = (ROOT / "hub" / "templates" / "dashboard.html").read_text(encoding="utf-8")
 check("the dashboard card fetches the scoreboard",
       "/api/my-clients/scoreboard" in dash, True)
+check("and shows assigned billing as a scorecard",
+      "Billing on your book / mo" in dash, True)
+check("with media and H&M named separately", "media + $" in dash, True)
 check("and says which kind of empty a nought is",
       "no_clients" in dash, True)
 
-c360 = (ROOT / "hub" / "templates" / "client360.html").read_text()
+health_page = (ROOT / "hub" / "templates" / "client_health.html").read_text(encoding="utf-8")
+check("My Clients uses a Client 360-style work rail", "ch-rail" in health_page,
+      True)
+check("and the rail is driven by the issue kinds", "by_kind || {}" in health_page,
+      True)
+check("and names the rail by what needs doing", "Needs doing" in health_page,
+      True)
+
+c360 = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
 check("Client 360 reads the owner from an embeddable path",
       "/api/client/owner?client=" in c360, True)
 
@@ -779,7 +867,7 @@ check("which /api/client/ is on", "/api/client/" in EMBEDDABLE, True)
 from hub.help import REGISTRY                                     # noqa: E402
 keys = {h.key for h in REGISTRY}
 for page in ("client_health.html", "client_owners.html"):
-    src = (ROOT / "hub" / "templates" / page).read_text()
+    src = (ROOT / "hub" / "templates" / page).read_text(encoding="utf-8")
     import re
     placed = set(re.findall(r"help_dot\('([^']+)'\)", src))
     check(f"{page} places at least one bubble", bool(placed), True)

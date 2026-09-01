@@ -61,6 +61,69 @@
   .tag.image { background:#ede9fe; color:#5b21b6; }
   .tag.link { background:#e0edff; color:#1e40af; }
   .tag.ext { background:#f1f5f9; color:#64748b; }
+  .brand-head { display:flex; align-items:flex-start; justify-content:space-between;
+    gap:18px; margin-bottom:18px; }
+  .brand-head h2 { margin-bottom:5px; }
+  .brand-source { flex:0 0 auto; border:1px solid #c7d2e8; background:#f7f9fd;
+    color:#53657d; border-radius:999px; padding:5px 10px; font-size:11.5px;
+    font-weight:700; }
+  .brand-layout { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(260px,.9fr);
+    gap:24px; align-items:start; }
+  .brand-section + .brand-section { border-top:1px solid var(--line); margin-top:20px;
+    padding-top:18px; }
+  .brand-section h3 { color:var(--navy); font-size:13px; text-transform:uppercase;
+    letter-spacing:.055em; margin:0 0 11px; }
+  .brand-marks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .brand-mark { margin:0; min-width:0; border:1px solid var(--line); border-radius:11px;
+    overflow:hidden; background:#fff; }
+  .brand-mark a { min-height:116px; padding:14px; display:flex; align-items:center;
+    justify-content:center; background-color:#f8fafc;
+    background-image:linear-gradient(45deg,#eef2f6 25%,transparent 25%),
+      linear-gradient(-45deg,#eef2f6 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#eef2f6 75%),
+      linear-gradient(-45deg,transparent 75%,#eef2f6 75%);
+    background-size:18px 18px; background-position:0 0,0 9px,9px -9px,-9px 0; }
+  .brand-mark.site-icon a { min-height:88px; }
+  .brand-mark img { display:block; max-width:100%; max-height:96px; object-fit:contain; }
+  .brand-mark.site-icon img { max-width:56px; max-height:56px; }
+  .brand-mark figcaption { display:flex; justify-content:space-between; gap:8px;
+    padding:8px 10px; color:var(--muted); font-size:11.5px; border-top:1px solid var(--line); }
+  .brand-mark figcaption b { color:var(--ink); }
+  .brand-palette { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+  .brand-swatch { min-height:82px; border-radius:10px; padding:11px 12px;
+    display:flex; flex-direction:column; justify-content:flex-end;
+    background:var(--swatch); color:var(--on-swatch); border:1px solid rgba(15,23,42,.1);
+    box-shadow:inset 0 -38px 44px rgba(0,0,0,.08); }
+  .brand-swatch code { color:inherit; font:800 13px ui-monospace,Menlo,Consolas,monospace;
+    text-shadow:0 1px 10px rgba(0,0,0,.22); }
+  .brand-swatch span { font-size:10.5px; font-weight:700; margin-top:2px;
+    text-shadow:0 1px 10px rgba(0,0,0,.3); }
+  .brand-copy { margin:0; border-left:3px solid #c7d2e8; padding-left:12px; }
+  .brand-copy + .brand-copy { margin-top:12px; }
+  .brand-copy dt { color:var(--muted); font-size:11px; text-transform:uppercase;
+    letter-spacing:.05em; font-weight:700; }
+  .brand-copy dd { color:var(--ink); font-size:13px; line-height:1.5; margin:3px 0 0; }
+  .brand-previews { display:grid; gap:11px; }
+  .brand-preview { margin:0; border:1px solid var(--line); border-radius:11px;
+    overflow:hidden; background:#eef2f7; }
+  .brand-preview a { display:block; }
+  .brand-preview img { display:block; width:100%; max-height:330px; object-fit:cover;
+    object-position:top center; }
+  .brand-preview figcaption { padding:8px 10px; font-size:11.5px; color:var(--muted);
+    background:#fff; border-top:1px solid var(--line); }
+  .brand-signals { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+  .brand-signal { border-radius:999px; background:#eef2fb; color:#52657d;
+    padding:5px 9px; font-size:11.5px; font-weight:700; }
+  .brand-caution { margin:16px 0 0; padding:10px 12px; border-radius:9px;
+    color:#6f5610; background:#fff9e9; border:1px solid #f4df9e; font-size:12px; }
+  @media (max-width:760px) {
+    .brand-head { display:block; }
+    .brand-source { display:inline-block; margin-top:10px; }
+    .brand-layout { grid-template-columns:1fr; }
+  }
+  @media (max-width:480px) {
+    .brand-marks, .brand-palette { grid-template-columns:1fr; }
+  }
 </style>
 </head>
 <body>
@@ -125,6 +188,94 @@
   {% endif %}
 
   {% if scan.status == "complete" %}
+  {# ---------------- Observed brand identity from Insites -------------- #}
+  <div class="card" data-tour="scan-brand">
+    <div class="brand-head">
+      <div>
+        <h2>Brand found on this website</h2>
+        <p class="sub" style="margin:0">Visual identity and messaging returned by the live site scan.</p>
+      </div>
+      <span class="brand-source">{{ brand.source }}</span>
+    </div>
+
+    {% if brand.found %}
+    <div class="brand-layout">
+      <div>
+        {% if brand.marks %}
+        <section class="brand-section" aria-labelledby="brand-marks-title">
+          <h3 id="brand-marks-title">Logos &amp; marks · {{ brand.marks|length }}</h3>
+          <div class="brand-marks">
+            {% for mark in brand.marks %}
+            <figure class="brand-mark {{ 'site-icon' if mark.kind == 'Site icon' else '' }}">
+              <a href="{{ mark.url }}" target="_blank" rel="noopener" title="Open original {{ mark.label|lower }}">
+                <img src="{{ mark.url }}" loading="lazy" decoding="async" referrerpolicy="no-referrer"
+                     alt="{{ scan.business_name or detected.name or scan.domain }} {{ mark.label|lower }}" />
+              </a>
+              <figcaption><b>{{ mark.label }}</b><span>{{ mark.kind }}{% if mark.format %} · {{ mark.format }}{% endif %}</span></figcaption>
+            </figure>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if brand.palette %}
+        <section class="brand-section" aria-labelledby="brand-colors-title">
+          <h3 id="brand-colors-title">Color palette · {{ brand.palette|length }}</h3>
+          <div class="brand-palette">
+            {% for color in brand.palette %}
+            <div class="brand-swatch" style="--swatch:{{ color.hex }};--on-swatch:{{ color.on_color }}"
+                 title="{{ color.label }}: {{ color.hex }}" aria-label="{{ color.label }}, {{ color.hex }}">
+              <code>{{ color.hex }}</code><span>{{ color.label }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if brand.homepage_title or brand.homepage_description %}
+        <section class="brand-section" aria-labelledby="brand-copy-title">
+          <h3 id="brand-copy-title">Homepage messaging</h3>
+          {% if brand.homepage_title %}<dl class="brand-copy"><dt>Page title</dt><dd>{{ brand.homepage_title }}</dd></dl>{% endif %}
+          {% if brand.homepage_description %}<dl class="brand-copy"><dt>Meta description</dt><dd>{{ brand.homepage_description }}</dd></dl>{% endif %}
+        </section>
+        {% endif %}
+
+        {% if brand.uses_google_fonts is not none or brand.favicon_notes %}
+        <section class="brand-section" aria-labelledby="brand-signals-title">
+          <h3 id="brand-signals-title">Brand signals</h3>
+          <div class="brand-signals">
+            {% if brand.uses_google_fonts is not none %}
+              <span class="brand-signal">Google Fonts {{ 'detected' if brand.uses_google_fonts else 'not detected' }}</span>
+            {% endif %}
+          </div>
+          {% for note in brand.favicon_notes %}<p class="muted" style="margin:8px 0 0">{{ note }}</p>{% endfor %}
+        </section>
+        {% endif %}
+      </div>
+
+      {% if brand.previews %}
+      <section class="brand-section" aria-labelledby="brand-preview-title">
+        <h3 id="brand-preview-title">Website appearance · {{ brand.previews|length }}</h3>
+        <div class="brand-previews">
+          {% for preview in brand.previews %}
+          <figure class="brand-preview">
+            <a href="{{ preview.url }}" target="_blank" rel="noopener" title="Open full {{ preview.label|lower }} screenshot">
+              <img src="{{ preview.url }}" loading="lazy" decoding="async" referrerpolicy="no-referrer"
+                   alt="{{ preview.label }} screenshot of {{ scan.domain }} at scan time" />
+            </a>
+            <figcaption>{{ preview.label }} screenshot at scan time</figcaption>
+          </figure>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+    {% else %}
+      <p class="sub" style="margin:0">{{ brand.note }}</p>
+    {% endif %}
+    {% if brand.found %}<p class="brand-caution">{{ brand.note }}</p>{% endif %}
+  </div>
+
   {# ---------------- Fix list: broken links and images ----------------- #}
   <div class="card">
     <h2>Fix These

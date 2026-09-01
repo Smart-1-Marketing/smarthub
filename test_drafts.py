@@ -268,6 +268,63 @@ check("a quote nobody has left mid-wizard reports no position at all",
       plain["step"] == 0)
 
 # ---------------------------------------------------------------------------
+section("a ?quote= link that outlives its quote still lands somewhere")
+# ---------------------------------------------------------------------------
+# Client 360 links a proposal by id and a draft can be deleted, so the deep
+# link is the one caller of editQuote() with no screen drawn behind it yet.
+# It used to toast the refusal and stop: the rep landed on the empty
+# dashboard shell — a blank page with a three-second message, from a link
+# that looked perfectly good. The branch and editQuote are lifted out of the
+# page and driven in node rather than restated, the test_proposal_targeting
+# arrangement, because a copy in the test is a third thing to keep in step.
+import subprocess as _sub                                          # noqa: E402
+
+_eq = re.search(r"(async function editQuote\(.*?)\nfunction resumeStep\(",
+                sales, re.S)
+_branch = re.search(r"(if\(qs\.get\('quote'\)\)\{.*?return;\})", sales, re.S)
+check("the deep-link branch and editQuote are still liftable",
+      bool(_eq) and bool(_branch))
+if _eq and _branch:
+    _harness = (
+        "let navved=null,toasts=[];\n"
+        "function nav(v){navved=v;}\n"
+        "function toast(m){toasts.push(String(m));}\n"
+        "function editLoaded(q){}\n"
+        + _eq.group(1) + "\n"
+        + "async function arrive(qs){" + _branch.group(1) + "}\n"
+        + """
+(async()=>{
+  const out={};
+  // The stale link: the API refuses, the page must still show something.
+  api=async()=>{throw new Error("Quote not found");};
+  await arrive(new Map([["quote","999"]]));
+  out.fallback={nav:navved,toasted:toasts.length>0};
+  // The ordinary link: the quote opens and nothing yanks the rep elsewhere.
+  navved=null;toasts=[];
+  api=async()=>({quote:{id:7,data:{}}});
+  let loaded=false;editLoaded=()=>{loaded=true;};
+  await arrive(new Map([["quote","7"]]));
+  out.opened={nav:navved,loaded:loaded};
+  console.log(JSON.stringify(out));
+})();
+""")
+    _js = os.path.join(_TMP, "deeplink.js")
+    open(_js, "w", encoding="utf-8").write(_harness)
+    try:
+        _r = json.loads(_sub.run(["node", _js], capture_output=True, text=True,
+                                 timeout=30, check=True).stdout)
+        check("a deleted quote's link falls back to the dashboard, in words",
+              _r["fallback"]["nav"] == "dashboard" and _r["fallback"]["toasted"],
+              _r["fallback"])
+        check("a live quote's link opens the quote and stays there",
+              _r["opened"]["loaded"] and _r["opened"]["nav"] is None,
+              _r["opened"])
+    except FileNotFoundError:
+        print("  skip node is not installed — the deep-link branch is unchecked")
+    except _sub.CalledProcessError as exc:
+        check("the deep-link branch runs", False, exc.stderr[:400])
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

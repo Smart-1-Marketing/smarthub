@@ -1,0 +1,48 @@
+{
+  "records": [
+    {
+      "id": "fixture-site-1",
+      "name": "Acme Bakery",
+      "domain": "acme.example",
+      "liveUrl": "https://acme.example",
+      "s1url": "https://acme.example",
+      "platform": "Smart1Sites",
+      "status": "Active",
+      "active": true,
+      "partner": "Example Media",
+      "manager": "Sample Manager",
+      "hm": 150,
+      "hmFreq": "Monthly",
+      "hmMonthly": 150,
+      "registrar": "Example Registrar",
+      "domainCost": 20,
+      "domainPurchased": true,
+      "ga": "G-EXAMPLE01",
+      "gtm": "Example: GTM-EXAMPLE",
+      "created": "2026-01-15",
+      "notes": "Sanitized fixture only."
+    },
+    {
+      "id": "fixture-site-2",
+      "name": "Northwind Dental",
+      "domain": "northwind.example",
+      "liveUrl": "https://northwind.example",
+      "s1url": "",
+      "platform": "WordPress",
+      "status": "Active",
+      "active": true,
+      "partner": "Sample Partner",
+      "manager": "Example Manager",
+      "hm": 100,
+      "hmFreq": "Monthly",
+      "hmMonthly": 100,
+      "registrar": "Example Registrar",
+      "domainCost": 18,
+      "domainPurchased": false,
+      "ga": "UA-123456-1",
+      "gtm": "",
+      "created": "2026-02-20",
+      "notes": "Sanitized fixture only."
+    }
+  ]
+}
