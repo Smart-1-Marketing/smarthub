@@ -14,7 +14,105 @@ const CB = (() => {
       toast(data.error || `Request failed (${res.status})`, true);
       throw new Error(data.error || `Request failed (${res.status})`);
     }
+    noteMock(path, data);
     return data;
+  }
+
+  /* ------------------------------------------------------- mock mode
+
+     Every provider here degrades to mock data rather than erroring, which
+     is right: a missing key must not stop a rep laying a spot out. What it
+     also does is make a misnamed key invisible — concepts come back from a
+     template, the casting list is eight identical rows, and the render is a
+     job id with no file behind it, all of it looking exactly like work.
+
+     The server has been saying so the whole time. Every one of these routes
+     already answers `live: false` or `mock: true`, and not one line of this
+     module's JavaScript read it: the mark was written, sent over the wire,
+     and dropped by the last consumer. That is the shape RECORD_HOOK,
+     io_creative, manifest() and thumb_url() each had, one step further out.
+
+     It hangs off api() rather than off each caller for the reason
+     hub-thinking.js upgrades a spinner rather than editing fifty call
+     sites: the next route added here is covered without anybody
+     remembering. Four rules.
+
+     It never claims what it does not know — only a step the server itself
+     reported as not live is named, and a route that says nothing draws
+     nothing. It names the *provider and what the mock costs this spot*
+     rather than saying "mock mode", because the chip on the dashboard
+     already says that much and nobody reads it as applying to the thing in
+     front of them. It is amber, not red: the tool is working as designed
+     and a page of red is a page people scroll past. And nothing in it may
+     raise — an indicator that breaks the screen it is reporting on is
+     worse than no indicator — so the whole of it is guarded and a failure
+     costs the note and never the answer.
+
+     It cannot reach a client: commercial_review.html deliberately does not
+     extend _layout.html, so it loads none of this. test_commercial_mock.py
+     asserts that rather than trusting it. */
+  /* Only routes that actually report it. Each was driven with every key
+     unset and its response read: these six answer `live: false` or
+     `mock: true`, and a table naming a route that never fires is one nobody
+     can trust — hub/config.py's ALIASES rule, wearing a provider.
+
+     Three are deliberately absent and named so their absence is a decision
+     rather than an oversight. `/render` and `/voiceover/full` carry no such
+     key at all, so there is nothing here to read; the render is covered
+     anyway, because approve_render refuses to file a mock as a delivered
+     commercial, which is the gate that actually matters. `/stock/search`
+     reports differently — a per-provider map rather than one flag — so it
+     is read below on its own terms. */
+  const MOCK_STEPS = [
+    [/\/concepts$/, "Concepts", "written from a template, not by a model \u2014 set OPENAI_API_KEY"],
+    [/\/script$/, "The script", "written from a template, not by a model \u2014 set OPENAI_API_KEY"],
+    [/\/voices/, "Voice casting", "placeholder voices, not the ones on the account \u2014 set ELEVENLABS_API"],
+    [/\/generate-ai/, "AI stills", "no image was generated \u2014 set OPENAI_API_KEY"],
+    [/\/generate-video/, "AI video", "no clip was generated \u2014 set RUNWAY_API_KEY"],
+    [/\/spokesperson/, "The spokesperson clip", "no clip was generated \u2014 set HEYGEN_API"],
+  ];
+  const _mocked = new Map();
+
+  function noteMock(path, data) {
+    try {
+      if (!data) return;
+      /* Stock answers with a map per source rather than one flag. Every
+         source off means the results are placehold.co standing in for
+         footage, which is the one mock a rep is most likely to drag onto a
+         scene believing it is real. A source that is merely *empty* is not
+         mock, so this asks whether any source was searchable at all. */
+      if (data.providers && typeof data.providers === "object") {
+        const vals = Object.values(data.providers);
+        if (vals.length && vals.every((v) => v === false)) {
+          _mocked.set("Stock footage",
+            "placeholder images, not real footage \u2014 set PEXELS_API / PIXABAY_API");
+          paintMockNote();
+        }
+        return;
+      }
+      if (data.live !== false && data.mock !== true) return;
+      const hit = MOCK_STEPS.find(([re]) => re.test(path));
+      if (!hit) return;
+      if (_mocked.get(hit[1]) === hit[2]) return;   // already said; do not repaint
+      _mocked.set(hit[1], hit[2]);
+      paintMockNote();
+    } catch (e) { /* never cost the caller its answer */ }
+  }
+
+  function paintMockNote() {
+    try {
+      const main = document.querySelector(".cb-main");
+      if (!main || !_mocked.size) return;
+      let box = document.getElementById("cb-mock-note");
+      if (!box) {
+        box = document.createElement("div");
+        box.id = "cb-mock-note";
+        box.className = "cb-note";
+        main.insertBefore(box, main.firstChild);
+      }
+      const rows = [..._mocked].map(([k, v]) => `<div>${k} \u2014 ${v}</div>`).join("");
+      box.innerHTML = `<strong>Some of this is placeholder, not real output</strong>${rows}`;
+    } catch (e) { /* an indicator must not break the page it reports on */ }
   }
 
   function toast(message, isError = false) {

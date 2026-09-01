@@ -48,6 +48,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _TMP = tempfile.mkdtemp(prefix="hub-trends-")
 os.environ["HUB_DATA_DIR"] = _TMP
+os.environ["CLIENTS_DATA_DIR"] = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "clients"
+)
 # Assigned, never setdefault: a fresh HUB_DATA_DIR is not
 # isolation on its own. jsonstore keys its mirror *relative to
 # the data root* by design -- so a production blob restores

@@ -56,7 +56,6 @@ import re
 #   packages  the three investment options, generated
 #   kpis      the KPI list, generated
 #   roi       Expected Results & ROI, computed from the rate card
-#   timeline  the 30-day implementation blueprint, generated
 #
 # A generated section may carry editable intro copy above its table; it can
 # never have its numbers written by a model.
@@ -150,12 +149,6 @@ OUTLINE = [
                     "dashboard inside the Smart 1 Suite, which they can open themselves.",
     },
     {
-        "id": "timeline", "title": "Implementation Timeline", "kind": "timeline",
-        "enabled": True,
-        "purpose": "Reduce transition anxiety with predictable pacing.",
-        "guidance": "",
-    },
-    {
         "id": "packages", "title": "Investment Summary", "kind": "packages", "enabled": True,
         "purpose": "Total financial clarity.",
         "guidance": "Recurring platform fees, media spend and one-time setup are shown "
@@ -218,6 +211,21 @@ OUTLINE = [
 # Sections that are never removed. `roi` is mandatory by directive; without
 # `mediaplan` and `packages` the document is not a proposal.
 REQUIRED = ("roi", "mediaplan", "packages")
+
+# Sections the specification has RETIRED, keyed on the section kind with the
+# reason. Removing one from OUTLINE only stops new proposals getting it;
+# every quote already saved still carries the section, so `ensure_sections`
+# strips these on the way through — which covers the PDF and the Word export
+# too, since both run the state through it before rendering. Named with a
+# reason rather than deleted in silence, the NOT_ENFORCED / NOT_REQUESTED
+# rule: a section absent on purpose must never be ambiguous with one nobody
+# thought of.
+RETIRED_SECTION_KINDS = {
+    "timeline": "The Implementation Timeline came off every quote by request: "
+                "a generic 30-day blueprint on a sales document promises "
+                "pacing nobody has scheduled, and the real kickoff dates are "
+                "set at onboarding.",
+}
 
 # The one tool that must never appear. Checked on generated copy rather than
 # only asked for in the prompt, because a prompt is a request and this is a
@@ -452,27 +460,29 @@ def nuances_for(state) -> list[str]:
 # from media spend in the Investment Summary — a client who reads one blended
 # number cannot tell what stops if they pause the media.
 SAAS_TIERS = [
+    # `specs` is what a client reads beside the tier name, on the wizard's
+    # tier cards and on the Investment Summary line alike. It names USERS and
+    # nothing else, deliberately: the contact, email and text allowances are
+    # operating limits that read as products on a quote -- a client comparing
+    # "1,500 emails" against "5,000 emails" is shopping the plumbing rather
+    # than the platform, and the allowances move with the vendor's own plans.
     {
         "name": "Smart 1", "monthly": 199,
-        "specs": "5 users · 250 contacts · 5 forms · 5 pipelines · 1,500 emails · "
-                 "500 texts · 1 phone number · 500 calls · 1 workflow",
+        "specs": "5 users",
         "features": "Unified message center, media library, email center, texting "
                     "center, call center, online scheduling, reputation center with "
                     "automated Google review requests, social planner, Smart 1 Sites.",
     },
     {
         "name": "Smarter", "monthly": 599,
-        "specs": "10 users · 1,000 contacts · 10 forms · 5 pipelines · 5,000 emails · "
-                 "1,500 texts · 1 phone number · 2,500 calls · unlimited workflows",
+        "specs": "10 users",
         "features": "Everything in Smart 1, plus the AI writing assistant, review "
                     "widget with sentiment analysis, Facebook and TikTok lead form "
                     "integration, smart webchat, and member courses.",
     },
     {
         "name": "Smartest", "monthly": 999,
-        "specs": "Unlimited users and contacts · 100 forms · 50 pipelines · 100,000 "
-                 "emails · 10,000 texts · 5 phone numbers · 10,000 calls · unlimited "
-                 "workflows",
+        "specs": "Unlimited users",
         "features": "Everything in Smarter, plus AI image generation, advanced CRM "
                     "automations, multi-market directory syncing and priority support.",
     },
@@ -498,21 +508,282 @@ def suggested_tier(monthly_media: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The 30-day implementation blueprint
+# Industry trends on the cover
+#
+# Every proposal opens with what is happening in this client's category, how
+# Smart 1 answers it, and an example of how businesses like theirs usually
+# craft a budget. It is a table rather than a model call, because this is the
+# first thing a client reads and a trend invented per proposal is a claim
+# nobody here can stand behind -- the audit-summary rule, one document over.
+# Two rules on the copy. **No statistics**: a percentage of consumers nobody
+# measured is exactly the confident wrong number this codebase keeps undoing,
+# so the trends are qualitative and checkable against how the category
+# plainly behaves. And the **budget example is named as Smart 1's own
+# guidance** (TRENDS_NOTE) -- it is how we craft budgets in the category, not
+# a published benchmark, and dressing it up as one invites the question the
+# document cannot answer.
+#
+# Keyed on the wizard's own INDUSTRIES spellings. A campaign whose industry
+# is unset, or one the table does not know, gets GENERAL rather than nothing:
+# the cover "always" carries this block, and an empty cover on the one
+# industry nobody wrote up would be a silent hole on the first page.
 # ---------------------------------------------------------------------------
-TIMELINE = [
-    {"phase": "Weeks 1–2", "title": "Setup & Onboarding",
-     "detail": "Admin access collected, tracking pixels placed, conversion actions "
-               "defined, audience and geography built, Smart 1 Suite provisioned."},
-    {"phase": "Weeks 3–4", "title": "Production & Integration",
-     "detail": "Creative produced or supplied and approved, landing pages reviewed, "
-               "workflow automations mapped in the Smart 1 Suite, tracking verified "
-               "end to end before a cent is spent."},
-    {"phase": "Month 2+", "title": "Execution & Scaling",
-     "detail": "Campaigns live, weekly pacing and bid optimization, creative "
-               "performance checks, budget shifted toward what proves out, first "
-               "full performance review delivered."},
-]
+TRENDS_NOTE = ("Budget guidance is Smart 1's own, from running campaigns in this "
+               "category — an example of how the budget is usually crafted, not a "
+               "published benchmark, and the media plan in this proposal is the "
+               "number that governs.")
+
+GENERAL_TRENDS = {
+    "trends": [
+        "Buyers research before they reach out — they search, compare, and read "
+        "reviews long before the first call, and AI-generated answers are joining "
+        "the map pack and organic results as places that research happens.",
+        "Attention is fragmenting across streaming TV, streaming audio, social "
+        "feeds, and search — so a single-channel budget reaches a shrinking slice "
+        "of the same audience it used to cover.",
+    ],
+    "help": "Smart 1 meets that behavior across the channels at once — search where "
+            "the demand already exists, social and retargeting to stay in front of "
+            "the people still comparing, and streaming TV and audio for the reach "
+            "traditional buys used to own — with every response landing in the "
+            "Smart 1 Suite, where it is answered, nurtured, and measured.",
+    "budget": "Businesses in this position usually anchor the budget on the channel "
+              "closest to the sale (often search), keep a steady share on staying "
+              "visible to people still deciding (social and retargeting), and hold "
+              "a portion for awareness that fills the funnel next quarter — then "
+              "commit to at least a quarter of consistent spend, because a budget "
+              "that starts and stops never exits the learning phase.",
+}
+
+INDUSTRY_TRENDS = {
+    "Healthcare / Dental": {
+        "trends": [
+            "Patients choose a provider the way they shop: they search, read "
+            "reviews, and compare two or three practices before they ever call — "
+            "and map results and AI answers now absorb much of that research "
+            "before a website is even visited.",
+            "The practices winning new patients are the ones that answer fast: a "
+            "missed call or an unanswered form sends the patient to the next "
+            "practice on the list.",
+        ],
+        "help": "Smart 1 puts the practice in the search and map results patients "
+                "actually use, keeps the review profile working for the ads, and "
+                "routes every call and form into the Smart 1 Suite so the front "
+                "desk never loses a lead — with call tracking proving which "
+                "channel produced each patient.",
+        "budget": "Practices usually anchor on search, where patients with intent "
+                  "already are — commonly around half the budget — keep a steady "
+                  "share on social and retargeting to stay in front of people "
+                  "still comparing, and put the remainder into reputation and the "
+                  "pages the ads land on.",
+    },
+    "Home Services": {
+        "trends": [
+            "Home service jobs start with an urgent search and end with whoever "
+            "answers first — the search results, the review stars, and the speed "
+            "of the callback decide the job more than the brand does.",
+            "Seasonality punishes stop-start marketing: the companies that stay "
+            "visible in the slow months own the search results in the busy ones.",
+        ],
+        "help": "Smart 1 captures the urgent demand with search, backs it with "
+                "review generation so the stars support the click, and answers "
+                "every inquiry through the Suite — missed-call text back alone "
+                "recovers jobs that used to go to the next truck in the results.",
+        "budget": "Home service budgets are usually crafted search-first — often "
+                  "half or more of the spend where demand is urgent — with "
+                  "retargeting and social keeping the brand in front of "
+                  "homeowners between needs, and a seasonal reserve so the busy "
+                  "season is bought before it starts.",
+    },
+    "Legal": {
+        "trends": [
+            "Legal clients compare quietly and decide quickly: they search, read "
+            "reviews and settlements coverage, and shortlist firms before making "
+            "one contact — often through an AI answer or a map listing rather "
+            "than a firm's own site.",
+            "Cost per click in legal categories is among the highest anywhere, "
+            "which makes the landing page and the intake process — not the ad — "
+            "where cases are won or lost.",
+        ],
+        "help": "Smart 1 pairs precisely targeted search with landing pages built "
+                "to convert the click a firm just paid a premium for, and the "
+                "Suite's intake — call tracking, texting, scheduling — makes sure "
+                "an inquiry at 8pm is a consultation, not a voicemail.",
+        "budget": "Firms usually concentrate the budget on the practice areas that "
+                  "pay — a focused search budget beats a thin one spread across "
+                  "every service — with a share on retargeting the visitors who "
+                  "did not call, and brand awareness added once intake is "
+                  "converting.",
+    },
+    "Automotive": {
+        "trends": [
+            "Car buyers arrive at the lot having already decided most of the "
+            "purchase online — inventory search, reviews, and video walk-arounds "
+            "have replaced the second and third dealership visit.",
+            "Service revenue is won locally and repeatedly: the dealership that "
+            "stays in front of its own buyers keeps the service work that used "
+            "to walk to independents.",
+        ],
+        "help": "Smart 1 keeps the inventory and the offers in front of "
+                "in-market shoppers with search, social, and streaming TV, "
+                "fences the competition's lots where that fits, and uses the "
+                "Suite to keep sold customers coming back for service.",
+        "budget": "Dealers usually split between conquesting in-market shoppers "
+                  "(search plus geo-targeted display and video) and defending "
+                  "their own customers (retargeting, email, service offers) — "
+                  "with the awareness share carried by streaming TV, where the "
+                  "traditional TV budget used to sit.",
+    },
+    "Real Estate": {
+        "trends": [
+            "Buyers and sellers start with the portals, but they choose the "
+            "agent — and the agent they choose is the one whose name, reviews, "
+            "and local content they kept meeting while they browsed.",
+            "Video has become the listing: neighborhoods, walk-throughs, and "
+            "market updates now do the work open houses used to.",
+        ],
+        "help": "Smart 1 builds the local presence that converts portal browsing "
+                "into a signed agreement — search for the high-intent moments, "
+                "social video for the neighborhood authority, retargeting for "
+                "the long decision cycle — with every inquiry nurtured in the "
+                "Suite through a decision that can take months.",
+        "budget": "Real estate budgets usually run steadier and longer than most: "
+                  "a consistent social and video presence carries the brand, a "
+                  "focused search budget catches the ready-now moments, and "
+                  "retargeting plus email nurture the months in between.",
+    },
+    "Retail / E-comm": {
+        "trends": [
+            "Discovery has moved into the feed: shoppers meet products on social "
+            "and video before they ever search for them, and the search click "
+            "increasingly just confirms a decision the feed already made.",
+            "First-party data is the new shelf space — the retailers growing are "
+            "the ones who own their customer list and can reach it without "
+            "renting the audience every time.",
+        ],
+        "help": "Smart 1 runs the feed-to-search loop as one campaign — social "
+                "and video to create the demand, search and retargeting to "
+                "close it — and the Suite turns buyers into a list the store "
+                "owns: email, texting, and reviews that compound instead of "
+                "renting reach.",
+        "budget": "Retail budgets usually lead with social and video where the "
+                  "discovery happens, keep search funded to catch the demand "
+                  "those create, and scale retargeting with traffic — with a "
+                  "promotional reserve for the calendar moments the category "
+                  "lives on.",
+    },
+    "Restaurant / Hospitality": {
+        "trends": [
+            "Guests decide from a phone in the moment: the map listing, the "
+            "photos, the stars, and whether booking takes one tap decide who "
+            "gets the table.",
+            "The feed fills the room midweek — local social video and offers "
+            "reach regulars and nearby diners at a fraction of what broadcast "
+            "used to cost.",
+        ],
+        "help": "Smart 1 keeps the listing, the reviews, and the photos working "
+                "as hard as the food, puts offers in the local feed on the days "
+                "that need filling, and the Suite answers, books, and brings "
+                "guests back with the list the restaurant owns.",
+        "budget": "Hospitality budgets usually stay local and visual — social "
+                  "and geo-targeted display carrying most of the weight, search "
+                  "funded for the 'near me' moments, and a steady share on "
+                  "reputation and re-engaging past guests, where the cheapest "
+                  "covers are.",
+    },
+    "Financial Services": {
+        "trends": [
+            "Trust is researched before it is given: prospects read reviews, "
+            "compare rates, and consume educational content long before a "
+            "meeting — and compliance-shaped categories reward the firms whose "
+            "content answers questions honestly.",
+            "The decision cycle is long, so the winners are the firms still "
+            "present months after the first click.",
+        ],
+        "help": "Smart 1 builds the presence that earns the meeting — search for "
+                "the comparison moments, content and retargeting for the long "
+                "middle, reputation for the trust check — and the Suite nurtures "
+                "a lead through a decision measured in months, not sessions.",
+        "budget": "Financial budgets usually favor patience: a moderate, "
+                  "consistent search budget on the services that pay, a durable "
+                  "retargeting and email layer for the long cycle, and awareness "
+                  "added once the funnel below it converts.",
+    },
+    "Fitness / Wellness": {
+        "trends": [
+            "Memberships are sold on proof: transformations, classes, and "
+            "community in the feed convert better than any offer — and the "
+            "trial-to-member step is won by follow-up, not by the ad.",
+            "January demand is real but loyalty is built the other eleven "
+            "months, on retention and referral.",
+        ],
+        "help": "Smart 1 fills the top with local social and video, catches the "
+                "ready-to-join moments on search, and the Suite runs the "
+                "follow-up that turns a trial into a member — scheduling, "
+                "texting, and the win-back campaigns to the list the gym "
+                "already owns.",
+        "budget": "Fitness budgets usually lead with social where the proof "
+                  "lives, keep search funded for the join-now moments, spike "
+                  "for the seasonal windows, and spend deliberately on "
+                  "retention — a member kept costs a fraction of a member "
+                  "acquired.",
+    },
+    "Education": {
+        "trends": [
+            "Enrollment journeys are family decisions researched over months — "
+            "programs are compared, reviews are read, and campuses are toured "
+            "online before an inquiry is ever sent.",
+            "Video and social proof now carry the open house: student stories "
+            "reach the next cohort where they already are.",
+        ],
+        "help": "Smart 1 keeps the program in front of searching families, tells "
+                "the story in the feed with video, and the Suite nurtures an "
+                "inquiry through a decision cycle that outlasts any single "
+                "campaign — with every touch attributed to the term it "
+                "enrolled.",
+        "budget": "Education budgets are usually crafted around the enrollment "
+                  "calendar: search and social funded steadily through the "
+                  "research months, a heavier push into decision windows, and "
+                  "retargeting plus email carrying inquiries between them.",
+    },
+    "B2B / Professional": {
+        "trends": [
+            "B2B buying committees do most of the evaluation anonymously — "
+            "content, reviews, and peers — and surface only when a shortlist "
+            "already exists.",
+            "The sales cycle is long and multi-threaded, which rewards being "
+            "usefully present for months rather than loudly present for weeks.",
+        ],
+        "help": "Smart 1 builds the presence that gets a firm onto the "
+                "shortlist — search for the moments a need is named, targeted "
+                "display and social for the long anonymous middle — and the "
+                "Suite keeps every contact warm across a cycle that outlives "
+                "any one campaign.",
+        "budget": "B2B budgets usually put a focused share on high-intent search "
+                  "terms, sustain an always-on retargeting and content layer for "
+                  "the committee, and measure in pipeline rather than clicks — "
+                  "crafted for consistency over quarters, not bursts.",
+    },
+}
+
+
+def industry_trends(industry: str) -> dict:
+    """The cover's trends block for this campaign's industry.
+
+    Always answers. An unknown or unset industry gets the general entry with
+    ``matched`` False, so the cover can carry the block on every proposal and
+    a screen can still tell a category we wrote up from the fallback.
+    """
+    name = str(industry or "").strip()
+    entry = INDUSTRY_TRENDS.get(name)
+    return {
+        "industry": name or "your category",
+        "matched": bool(entry),
+        "note": TRENDS_NOTE,
+        **(entry or GENERAL_TRENDS),
+    }
+
+
 
 NEXT_STEPS = [
     "Approve this proposal and sign the digital agreement.",

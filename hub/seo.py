@@ -1,8 +1,8 @@
 """SEO section — clients with SEO products, schema scanning + generation.
 
 Data sources:
-  * clients_app/data/products.json  -> live "Website SEO..." products + billing
-  * clients_app/data/websites.json  -> the client's site, platform, GA / GTM ids
+  * private Knack products  -> live "Website SEO..." products + billing
+  * private Knack websites  -> the client's site, platform, GA / GTM ids
 
 Per-client working files live at /var/data/seo/<slug>.json and hold the
 client-setup answers, business info, AI questions/answers, and every
@@ -674,7 +674,7 @@ def seo_clients_result() -> tuple[list[dict], str, int | None]:
     The `(rows, source, age)` shape rather than a bare list, for the reason
     `connected_accounts_result()` gives in Google Finder: a stale export looks
     exactly like live data on screen, and this list decides who is on the SEO
-    book at all. It read `knack_data.products()` — the hand-committed export
+    book at all. It read `knack_data.products()` — the private fallback export
     that nothing refreshes — while Client 360 read the same object live, so
     the Hub held a current answer and a stale one to "who are our SEO clients"
     and this screen took the stale one.
@@ -862,6 +862,169 @@ def sells_blogs(client: str) -> bool:
     return bool(_client_base(client).get("blogs"))
 
 
+
+# ------------------------------------------------------------- record health
+# What is outstanding on this one client, derived rather than ticked. The
+# record used to answer this with four hand-typed checkboxes at the top of the
+# page — so a client could have fourteen pages with no schema and still read
+# "Schema updated", because the tick is a claim somebody made and the pages
+# are a fact the store already holds. This is the same question `/my-clients`
+# answers at book level (hub/client_health.py), asked of one client's own
+# stores: the schema pages, the blog plan, the alt-text scan, the FAQ pages
+# and the llms.txt record, each of which this module already owns.
+#
+# Three rules, all of them this codebase's own:
+#   * Nothing in here may raise — this rides on the record's one detail fetch,
+#     and a health block that can 500 the page it summarizes is worse than
+#     none. A source that cannot be read is NAMED in `unread` and contributes
+#     nothing, never a zero: "no images are missing alt" and "the alt scan
+#     could not be read" are different answers.
+#   * Absent is not zero. An alt scan that never ran is `measured: False`, not
+#     "0 missing"; a sitemap nobody has fetched leaves the schema total None
+#     rather than claiming every page is covered.
+#   * The queue only ever carries what was measured. A row derived from a
+#     source that failed would be a confident claim about data nobody read.
+
+LLMS_STALE_DAYS = 90   # house guidance, not a published rule: past this the
+                       # file predates a season of site changes and is worth
+                       # rebuilding. Advisory — it never blocks anything.
+
+
+def _days_since(stamp: str) -> int | None:
+    """Whole days since an ISO-ish timestamp, or None if it will not parse."""
+    import datetime as _dt
+    s = str(stamp or "")[:10]
+    try:
+        return (_dt.date.today() - _dt.date.fromisoformat(s)).days
+    except Exception:  # noqa: BLE001 — a bad stamp is "not measured", never a crash
+        return None
+
+
+def record_health(client: str, store: dict | None = None, *,
+                  sells: bool | None = None,
+                  faq_pages: list[dict] | None = None) -> dict:
+    """The derived health block the record's strip and queue draw.
+
+    `store`, `sells` and `faq_pages` are passed in by `client_detail`, which
+    has already read all three — a second read here would be a second answer
+    to the same question taken a moment apart.
+    """
+    unread: list[str] = []
+    queue: list[dict] = []
+
+    if store is None:
+        try:
+            store = load_store(client)
+        except Exception:  # noqa: BLE001
+            unread.append("the client's SEO store could not be read")
+            store = {}
+
+    checks = client_status(store, sells)
+
+    # ---- schema: built / approved against the sitemap the scan found ----
+    pages = store.get("pages", {}) or {}
+    sitemap = store.get("sitemap", []) or []
+    built = len(pages)
+    remaining = len([u for u in sitemap if u not in pages]) if sitemap else None
+    schema = {
+        "measured": bool(sitemap or pages),
+        "built": built,
+        "approved": sum(1 for p in pages.values() if p.get("approved")),
+        "total": len(sitemap) if sitemap else None,
+        "remaining": remaining,
+    }
+    if remaining:
+        queue.append({
+            "level": "warn", "section": "schema",
+            "title": f"{remaining} page{'s' if remaining != 1 else ''} still have no schema",
+            "detail": f"{built} of {len(sitemap)} sitemap pages are built.",
+        })
+
+    # ---- blogs: the plan's own dates, the same rule _blogs_state reads ----
+    posts = (store.get("blogs") or {}).get("posts") or []
+    today = _dt_date_today_iso()
+    overdue = [p for p in posts
+               if str(p.get("date", "")) <= today and not p.get("posted")]
+    oldest = min((str(p.get("date", "")) for p in overdue), default="")
+    blogs = {
+        "state": checks["blogs"], "label": checks["blogs_label"],
+        "overdue": len(overdue),
+        "overdue_days": _days_since(oldest) if oldest else None,
+    }
+    if overdue:
+        n = len(overdue)
+        age = blogs["overdue_days"]
+        queue.append({
+            "level": "bad", "section": "blogs",
+            "title": f"{n} blog post{'s are' if n != 1 else ' is'} past due",
+            "detail": "Planned, and not marked posted on the site.",
+            "age_days": age,
+        })
+
+    # ---- alt text: the stored scan, never a fresh crawl ----
+    alt_store = store.get("alt_text") or {}
+    if alt_store.get("scanned_at"):
+        missing = int(alt_store.get("missing_alt") or 0)
+        alt = {"measured": True, "missing": missing,
+               "scanned_at": alt_store.get("scanned_at", "")}
+        if missing:
+            queue.append({
+                "level": "warn", "section": "alt",
+                "title": f"{missing} image{'s are' if missing != 1 else ' is'} missing alt text",
+                "detail": f"From the scan on {alt['scanned_at']}.",
+            })
+    else:
+        alt = {"measured": False, "note": "The site has not been scanned for alt text yet."}
+
+    # ---- FAQs: built, and built-but-not-on-the-site ----
+    if faq_pages is None:
+        try:
+            from . import faq as _faq
+            faq_pages = _faq.list_pages(client)
+        except Exception:  # noqa: BLE001
+            unread.append("the FAQ pages could not be read")
+            faq_pages = None
+    if faq_pages is None:
+        faqs = {"measured": False}
+    else:
+        waiting = sum(1 for p in faq_pages if not p.get("added_to_site"))
+        faqs = {"measured": True, "built": len(faq_pages),
+                "live": len(faq_pages) - waiting, "waiting": waiting}
+        if waiting:
+            queue.append({
+                "level": "info", "section": "faqs",
+                "title": f"{waiting} FAQ set{'s are' if waiting != 1 else ' is'} built but not on the site yet",
+                "detail": "Waiting to be added to the client's pages.",
+            })
+
+    # ---- llms.txt: staleness of the live copy ----
+    llms: dict = {"measured": False}
+    try:
+        from . import llms_hosting as _lh
+        pub = _lh.published(client)
+        if pub:
+            days = _days_since(pub.get("at", ""))
+            llms = {"measured": True, "state": "live",
+                    "published_at": str(pub.get("at", ""))[:10], "days": days}
+            if days is not None and days >= LLMS_STALE_DAYS:
+                llms["state"] = "stale"
+                queue.append({
+                    "level": "info", "section": "llms",
+                    "title": f"llms.txt is {days} days old",
+                    "detail": "Worth rebuilding if pages have been added since.",
+                    "age_days": days,
+                })
+        else:
+            llms = {"measured": True, "state": "none"}
+    except Exception:  # noqa: BLE001
+        unread.append("the llms.txt record could not be read")
+
+    order = {"bad": 0, "warn": 1, "info": 2}
+    queue.sort(key=lambda q: order.get(q["level"], 3))
+    return {"checks": checks, "schema": schema, "blogs": blogs, "alt": alt,
+            "faqs": faqs, "llms": llms, "queue": queue, "unread": unread}
+
+
 def client_detail(client: str, full: bool = False) -> dict:
     base = _client_base(client)
     client = base["client"]
@@ -912,6 +1075,16 @@ def client_detail(client: str, full: bool = False) -> dict:
         base["blog_posts"] = blogs.get("posts", [])
         base["blog_questions"] = blogs.get("questions", [])
         base["blog_settings"] = blog_settings(client, store)
+        # The strip and the queue. Guarded again here even though
+        # record_health guards each source, because this rides on the
+        # record's one detail fetch and a health bug must cost the strip,
+        # never the page.
+        try:
+            base["health"] = record_health(
+                client, store, sells=base["blogs"],
+                faq_pages=base["faq_pages"])
+        except Exception:  # noqa: BLE001
+            base["health"] = {"error": "The health summary could not be built."}
     return base
 
 

@@ -1,23 +1,13 @@
-"""Read-only access to the Knack data JSONs that ship with the Clients app.
+"""Read-only access to private Knack data and an optional private fallback.
 
-Two files, both in clients_app/data/ and both committed to the repo:
-`products.json` and `websites.json`. Loaded lazily and cached until the
-file's mtime changes, so a newer file mounted or deployed over them is picked
-up without a restart.
+Products read live through `hub/knack_products.py` (object_135) and websites
+through `hub/knack_websites.py` (object_153). When Knack cannot be reached,
+both may fall back to `products.json` and `websites.json` in the directory set
+by `CLIENTS_DATA_DIR`. That directory must be a private mounted volume outside
+the source checkout; real client or billing exports are never committed.
 
-**Nothing refreshes them.** This docstring used to say they were kept current
-by "the existing `npm run refresh` flow / GitHub Action"; there is no such
-workflow in this repo — `.github/workflows/` has one file and it runs the
-checks. They are a hand-committed snapshot, and believing otherwise is the
-reason `/status` spent a long time reporting a Docker image build time as a
-data refresh.
-
-That is survivable because neither is the primary source any more. Products
-read live through `hub/knack_products.py` (object_135) and websites through
-`hub/knack_websites.py` (object_153), each falling back to the export here
-only when Knack cannot be reached — which is exactly when a frozen snapshot
-beats an empty list. `export_state()` is what says how old it is, from the
-export's own month rather than from a file timestamp.
+Fallback files are loaded lazily and cached until their mtime changes, so an
+operator can replace a mounted snapshot without restarting the app.
 
 `campaigns.json` and `live_products.json` used to sit beside them and are
 gone: 7,854 rows and 2.1 MB of the first, 96 KB of the second, and not one
@@ -30,7 +20,11 @@ import os
 import datetime as _dt
 import threading
 
-BASE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "clients_app", "data")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE = os.path.abspath(
+    os.environ.get("CLIENTS_DATA_DIR")
+    or os.path.join(_ROOT, "clients_app", "data")
+)
 
 _cache: dict[str, tuple[float, object]] = {}
 _lock = threading.Lock()
@@ -89,7 +83,7 @@ def products_error() -> str:
     It asks **whichever source answered** rather than the export alone. Those
     were the same question while `/qa` read the export directly; now that it
     reads `_product_source()`, asking the export would report a perfectly good
-    live pull as unmeasurable on any deployment whose committed export happens
+    live pull as unmeasurable on any deployment whose private fallback happens
     to be absent — refusing to measure on the strength of a file nothing read.
 
     Told apart from a genuinely empty file because they are different things
@@ -120,12 +114,12 @@ def products_note(source: str, age_minutes: int | None) -> str:
     about whether a number can be trusted.
     """
     return (f"Live from Knack, {age_minutes} min old." if source == "knack"
-            else "From the committed export in clients_app/data — nothing "
-                 "refreshes it, so this may be out of date.")
+            else "From the private fallback export — verify its snapshot "
+                 "date before relying on it.")
 
 
 def export_websites() -> list[dict]:
-    """The committed websites export, exactly as it is on disk.
+    """The private fallback websites export, exactly as it is on disk.
 
     Kept under its own name because one caller genuinely wants *the export*
     rather than the current truth: `summary()` measures the dashboard's
@@ -143,7 +137,7 @@ def _website_source() -> tuple[list[dict], str, str]:
     The same argument `_product_source()` makes, one object later. The client
     registry, the SEO page's website matching, Client 360's website cards and
     the website search all read this, and all of them were reading a 610-row
-    JSON file committed to the repo and refreshed by hand — so a site added in
+    fallback JSON refreshed out of band — so a site added in
     Knack last week was invisible to every client picker in the Hub, silently,
     because a short list looks exactly like a complete one. Meanwhile
     `hub/knack_websites.py` has been reading the same object live for the
@@ -399,8 +393,8 @@ TRENDED = ("clients_live", "live_products", "live_budget_monthly",
 def _current_period() -> str:
     """The month the Hub is in, read from the clock.
 
-    This used to be products.json's `thisMonth`, and that is a committed
-    export refreshed by hand — it has carried one value since the day it was
+    This used to be products.json's `thisMonth`, and that is a fallback
+    export refreshed out of band — it has carried one value since the day it was
     generated. Keying the history on it meant every dashboard load wrote
     today's numbers into that same bucket, a second bucket could never appear,
     and so every trend rendered "– vs last mo – vs last yr" for ever: a
@@ -531,7 +525,7 @@ def month_over_month(prods: list[dict]) -> dict:
 
 
 def export_state() -> dict:
-    """The month the committed products export was generated for.
+    """The month the private fallback products export was generated for.
 
     One place decides what "stale" means, because two things ask: the
     dashboard, which labels its month-over-month counts with it, and
@@ -738,8 +732,8 @@ def _parse_gtm(value) -> dict | None:
 def _product_source() -> tuple[list[dict], str, int | None]:
     """The product records to build Client 360 from, live if we can get them.
 
-    Client 360 read these from the static export in clients_app/data, which is
-    only ever as current as the last manual refresh — so a client's insertion
+    Client 360 used to read these from a static export in the source tree,
+    which was only ever as current as the last manual refresh — so a client's insertion
     orders showed last month's line-up while the Knack pull reported success,
     because the two are different sources and only one of them was live.
 
@@ -1137,8 +1131,8 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
         g["products_age_minutes"] = product_age
         g["products_note"] = (
             f"Live from Knack, {product_age} min old." if product_source == "knack"
-            else "From the committed export in clients_app/data — nothing "
-                 "refreshes it, so this may be out of date.")
+            else "From the private fallback export — verify its snapshot "
+                 "date before relying on it.")
         # The same for the website cards, which read the same two sources and
         # were the half still on the export until now.
         g["websites_source"] = websites_source()

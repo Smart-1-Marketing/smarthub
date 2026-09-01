@@ -178,7 +178,11 @@ _CSS = """
   .s1hub-sb a.s1hub-item { padding: 12px 18px; }   /* bigger tap targets */
 }
 @media (prefers-reduced-motion: reduce) {
-  .s1hub-sb { transition: none } .s1hub-scrim { transition: none }
+  /* body.s1hub-collapsed .s1hub-sb outranks a bare .s1hub-sb, so the hover
+     peek's width transition needs its own entry here or it animates for
+     exactly the readers who asked it not to. */
+  .s1hub-sb, body.s1hub-collapsed .s1hub-sb { transition: none }
+  .s1hub-scrim { transition: none }
 }
 /* Collapsed state: the nav folds to a 56px icon rail rather than vanishing.
    Hiding it entirely is what the old mobile behavior did, and it left people
@@ -193,6 +197,33 @@ body.s1hub-collapsed .s1hub-sb a.s1hub-item { justify-content: center; padding: 
 body.s1hub-collapsed .s1hub-sb .s1hub-ico { margin: 0 }
 body.s1hub-collapsed:not(:has(.shell > .main)) { margin-left: 56px; }
 body.s1hub-collapsed .shell > .main { margin-left: 56px !important; }
+/* Hover peek: a collapsed rail expands while the cursor (or keyboard focus)
+   is over it and folds back the moment it leaves. It is a *peek*, not a
+   choice — nothing is written to localStorage, so it cannot become the
+   stored-preference bug coll(persist) exists to prevent — and the page
+   keeps its 56px offset, so the expanded rail overlays the work rather
+   than reflowing it (the sidebar already sits at z-index 99990).
+   Desktop pointers only: on touch, :hover sticks after a tap, and below
+   950px the slide-out drawer is the navigation anyway.
+   `.s1hub-nopeek` suppresses the peek for one exit: pressing "Hide menu"
+   leaves the cursor over the rail, and without it the peek re-expands the
+   nav in the same instant, which reads as the button having done nothing. */
+@media (min-width: 950px) and (hover: hover) {
+  body.s1hub-collapsed .s1hub-sb { transition: width .15s ease; overflow-x: hidden; }
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within { width: 224px !important; }
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover .s1hub-label,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within .s1hub-label,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover .s1hub-logo span,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within .s1hub-logo span { display: inline !important; }
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover .s1hub-sec,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within .s1hub-sec { display: block !important; }
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover a.s1hub-item,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within a.s1hub-item {
+    justify-content: flex-start; padding: 9px 18px; white-space: nowrap; }
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover .s1hub-toggle,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within .s1hub-toggle { right: 8px; }
+}
 .s1hub-toggle { position: absolute; top: 10px; right: 8px; z-index: 2;
   width: 24px; height: 24px; border: 0; border-radius: 6px; cursor: pointer;
   background: rgba(255,255,255,.08); color: #c9d4ea; font-size: 13px;
@@ -407,8 +438,19 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "try{var sv=localStorage.getItem('s1hub:collapsed');"
         "if(sv==='1'||(sv===null&&window.__s1hubCollapseDefault))coll(true,false);}"
         "catch(e){if(window.__s1hubCollapseDefault)coll(true,false);}"
+        # Pressing "Hide menu" leaves the cursor sitting over the rail, and
+        # the hover peek would expand it again in the same instant -- a
+        # button that visibly does nothing. `s1hub-nopeek` holds the peek
+        # off until the pointer (or focus) has left the nav once; it is
+        # never persisted, so it costs one exit and nothing else.
         "if(t)t.addEventListener('click',function(){"
-        "coll(!document.body.classList.contains('s1hub-collapsed'));});"
+        "var on=!document.body.classList.contains('s1hub-collapsed');"
+        "if(on)document.body.classList.add('s1hub-nopeek');"
+        "coll(on);});"
+        "n.addEventListener('mouseleave',function(){"
+        "document.body.classList.remove('s1hub-nopeek');});"
+        "n.addEventListener('focusout',function(){"
+        "document.body.classList.remove('s1hub-nopeek');});"
         "})();</script>"
     )
     html = (

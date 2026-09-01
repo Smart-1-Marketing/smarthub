@@ -213,9 +213,9 @@ section("The report itself")
 # =====================================================================
 
 # The bands only appear for domains real clients actually have, so the
-# fixtures above (which belong to nobody) cannot produce them. Seed against
-# two live clients out of the committed export: one read recently, one long
-# enough ago to have gone stale.
+# fixtures above (which belong to nobody) cannot produce them. Seed one of two
+# live clients from the committed export with a stale scan and deliberately
+# leave the other unscanned, so both bands are deterministic.
 _live = []
 for _name in sorted(qa._client_groups(), key=str.lower):
     _g = qa._client_groups()[_name]
@@ -228,7 +228,6 @@ for _name in sorted(qa._client_groups(), key=str.lower):
         break
 check("the client export has active clients with websites to audit",
       len(_live), 2)
-add_scan("live-fresh", _live[0][1], GAPS, days=6)
 add_scan("live-stale", _live[1][1], GAPS, days=140)
 
 out = upsell.build()

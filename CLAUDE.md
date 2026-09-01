@@ -861,6 +861,25 @@ for the same reason — the reader is an agency admin who may have no Hub accoun
 in that browser, and a sign-in form in the getting-started tab teaches them the
 app needs one.
 
+**And it opened by recommending the half we had not switched on.** The page
+listed the staff record and the client SSO frame side by side as two menu links
+to add "whichever you need" — on the one screen whose whole job is to be copied
+from, which is the `hub/oauth_redirects.py` failure exactly: a panel printing a
+string nobody should paste. The client surface needs each client's sub-account
+recorded against them first, and without that a client who opens it is told we
+cannot tell whose account they are in — correct, and reading to them as broken.
+
+`client_for_location()` has **exactly one caller**, `hub/suite_sso.py`, so that
+link is load-bearing for nothing: not adding it costs a shortcut to content
+those clients are already emailed, and removes the one surface where getting a
+sub-account wrong shows somebody another client's record. It stays *documented*
+rather than deleted — an absent option reads as one nobody thought of, and the
+route is discoverable from the code either way — but it is drawn as **not
+switched on**, with what has to be true before it is. `test_suite_embed.py`
+asserts the distinction, because the old copy read perfectly well and every URL
+on it was correct: nothing but an assertion separates documented from
+recommended.
+
 **Two of the first assertions written for it could not fail.** The frame header
 rides on the `/suite-app` prefix, so a **404** at that path carries it too —
 "it may be framed" passed with the route deleted. And `PUBLIC_BASE_URL` is
@@ -3196,6 +3215,39 @@ driving cannot happen — and the button that could only do nothing is not
 drawn, because a button pressed once with no effect makes the whole
 walkthrough read as broken rather than one step of it.
 
+**And the audit was crediting a word rather than an attribute.** `_found()`
+tested `name in everything` — a bare substring against every template and
+script in the repo — so `data-demo='unmatched'` read as anchored because the
+word *unmatched* appears in another tool's prose, and
+`data-demo='client-name'` because something, somewhere, has a class of that
+name. Twenty-two steps that drive nothing read as anchored, and **two whole
+walkthroughs read as working while every driving step in them resolved to no
+element at all**: Image Creator's and the UTM builder's, which is the Smart 1
+Ads failure the floor below exists to catch, hiding inside the check that
+would have caught it. `_spellings()` is what the audit looks for now — the
+attribute in either quoting — and a selector kind it cannot look for asks for
+nothing rather than matching everything.
+
+Both are anchored now, along with the PDF optimizer, the calculators and the
+two radio builders: twenty-one hooks, seven of them in
+`modules/image_creator/static/editor.js`, because that tool's panels are drawn
+by script when the rail is clicked and `hub-demo.js` repaints on a debounced
+`MutationObserver` for exactly that shape. Two more scenarios drive controls
+that are **not there to anchor** — Background Remover's walkthrough offers a
+free "remove white background" option beside the paid one and the tool has a
+single button, and its step 4 asks for a preview it never draws. That is the
+Web Tickets *"Sort by age"* case: a walkthrough describing a tool that does
+not exist is worse than one describing none, so those want rewriting rather
+than a hook pointed at the nearest thing.
+
+**`elsewhere` is the third answer.** Asking whether the element exists
+*anywhere* is deliberate and stays — a walkthrough drives a screen whose
+markup half a dozen scripts write — but *anywhere* also credits a step whose
+only match is in a different tool, and that step drives nothing when the
+walkthrough runs. Those are named rather than counted as missing, since the
+element may still be drawn at runtime, the way a target accepted on a prefix
+already is.
+
 **Fifty-five of the 165 steps that name an element named one that is in no
 template**, across eighteen of the twenty-eight scenarios. That is a
 **backlog, not a regression**, and it is deliberately not an integrity
@@ -3703,14 +3755,12 @@ which is the whole reason this went unnoticed.
 of the first, 96 KB of the second, and not one reference to either anywhere in
 the repo — no reader, and for campaigns not even a `campaigns()` function.
 They were described here as *stale*, which implies a refresh would fix them;
-nothing would. `clients_app/data/` is `products.json` and `websites.json` now,
-both fallbacks rather than sources.
+nothing would. Real exports no longer live under `clients_app/data/`.
 
-**And nothing refreshes those two.** `hub/knack_data.py`'s header used to say
-they were kept current by "the existing `npm run refresh` flow / GitHub
-Action". There is no such workflow — `.github/workflows/` holds one file and
-it runs the checks. They are a hand-committed snapshot, which is survivable
-only because neither is the primary source any more.
+**Fallback exports are private.** `hub/knack_data.py` reads them only from the
+directory named by `CLIENTS_DATA_DIR`, which must be a private mounted volume
+outside the checkout. `.github/workflows/` uses sanitized fixtures. Never
+commit real client, campaign, website, analytics, or billing exports.
 
 **A staleness check measured against the wrong clock is worse than none.**
 `/status` read `products.json`'s mtime and printed it as "Refreshed Xh ago",
@@ -6750,8 +6800,8 @@ knowable from an order number.
 
 **A source that could not be read is not measured, and this is the strongest
 case of that rule in the Hub.** `knack_products.rows()` never raises: it falls
-back to a stale cache, then to the committed export, then to nothing. Read
-against the export — a snapshot nobody refreshes, whose rows are the raw Knack
+back to a stale cache, then to the private fallback, then to nothing. Read
+against the fallback — a snapshot refreshed out of band, whose rows are the raw Knack
 records rather than `_row()` output and so carry no IO number at all — *every*
 order reads as never trafficked, which is a report accusing the whole traffic
 team on the strength of a stale file. So the products must have come from
@@ -8896,7 +8946,7 @@ as "this campaign needs nothing", about every client at once. Two halves:
 however recently it was written, so `rows()` refetches rather than serving it;
 and `report()` asks whether the rows can answer the question *before* it
 reports that the answer is none, saying **not measured** instead of drawing an
-empty, confident table. The committed export carries none of these fields at
+empty, confident table. The private fallback carries none of these fields at
 all, which is the same statement.
 
 **A blank media partner sorts last, in its own group.** An empty string is not
@@ -11308,6 +11358,12 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   a gallery you can search, and nothing
                                    #   filed under a provider nobody declared
+python3 test_client360_layout.py   # the record's cards land in their rail
+                                   #   sections by name, driven in node — a
+                                   #   match list that stops matching piles
+                                   #   every card into Overview with the page
+                                   #   still looking complete — and the four
+                                   #   actions the accordion's toolbar carried
 python3 test_client_images.py      # every module that logs client work is one the
                                    #   record can name; deleting a client image, the
                                    #   count, the one brand
@@ -11354,6 +11410,10 @@ python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
                                    #   they are, and the acknowledgment before filing
+python3 test_commercial_mock.py    # the mark that says a provider is not live:
+                                   #   named where the work is rather than as a chip
+                                   #   on another screen, only for routes that really
+                                   #   report it, and never on the client's page
 python3 test_commercial_review.py  # the client's review link: public and chrome-free,
                                    #   three answers, the strictest one wins, a
                                    #   refusal that stops a delivery, and the

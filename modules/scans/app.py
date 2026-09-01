@@ -37,7 +37,7 @@ from flask import (Flask, jsonify, make_response, redirect,
 from sqlalchemy import Column, DateTime, Integer, String, Text, func, or_
 from sqlalchemy.orm import declarative_base
 
-from . import (audit_fields, insites_client, leads as widget_state,
+from . import (audit_fields, brand, insites_client, leads as widget_state,
                linkcheck, report_pdf, reports, site_health, widget)
 from .insites_client import InsitesError, is_configured
 from hub.extensions import (BootProbe, create_all_metadata, session_factory,
@@ -458,6 +458,8 @@ def scan_detail(public_id):
                         .order_by(LinkCheck.id.desc()).first())
         return render_template("scan_detail.html", scan=scan_to_row(s),
                                fixes=health["fixes"], speed=health["speed"],
+                               brand=brand.identity(
+                                   raw or {}, base_url=s.input_url or s.domain_key),
                                reports_menu=(reports.available(raw or {})
                                              if s.status == "complete" else []),
                                linkcheck_state=(last_check.status

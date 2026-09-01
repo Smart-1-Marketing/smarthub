@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ client }} — SEO — Smart 1 Hub{% endblock %}
+{# The icon rail. This record is a full-width workbench — tables, editors and
+   a two-column work area — which is what the collapse-by-default flag exists
+   for. Same mechanism as the Proposal Builder's wizard: a stored preference
+   still wins in both directions. #}
+{% block body_attrs %} data-s1hub-collapse="1"{% endblock %}
 {% block content %}
 <div class="page-head seoc-head">
   <div>
@@ -14,7 +19,47 @@
   </div>
 </div>
 
-<div class="card seoc-card" id="cardChecks">
+<!-- The derived health strip. Computed server-side by hub/seo.record_health()
+     and drawn from the one detail payload — never from the hand ticks alone,
+     because a tick is a claim somebody made and the stores hold the facts.
+     Each pill opens the section it summarizes. -->
+<div class="seoc-health" id="seocHealth" hidden></div>
+
+<!-- One section on screen at a time. The rail is the map; every card keeps
+     its id and its own wiring, it just lives inside a view now. Sections that
+     read a provider (traffic, alt scan table, llms hosting) fetch on first
+     open rather than all at once on load — the page used to fire eight
+     requests before anybody had asked it anything. -->
+<div class="seoc-work" data-s1-workspace="1">
+  <nav class="seoc-rail" id="seocRail" aria-label="Client sections">
+    <div class="grp">Start here</div>
+    <button class="rl on" data-sec="overview">Overview<span class="n" data-railn="overview" hidden></span></button>
+    <div class="grp">Do the work</div>
+    <button class="rl" data-sec="schema"><span class="dot" data-raild="schema"></span>Schema<span class="n" data-railn="schema" hidden></span></button>
+    <button class="rl" data-sec="faqs"><span class="dot" data-raild="faqs"></span>FAQs<span class="n" data-railn="faqs" hidden></span></button>
+    <button class="rl" data-sec="alt"><span class="dot" data-raild="alt"></span>Alt text<span class="n" data-railn="alt" hidden></span></button>
+    <button class="rl" data-sec="blogs"><span class="dot" data-raild="blogs"></span>Blogs<span class="n" data-railn="blogs" hidden></span></button>
+    <button class="rl" data-sec="images"><span class="dot" data-raild="images"></span>Images</button>
+    <div class="grp">Keep an eye on</div>
+    <button class="rl" data-sec="traffic"><span class="dot" data-raild="traffic"></span>Traffic &amp; AI</button>
+    <button class="rl" data-sec="audits"><span class="dot" data-raild="audits"></span>Site audits<span class="n" data-railn="audits" hidden></span></button>
+    <div class="grp">Client record</div>
+    <button class="rl" data-sec="record"><span class="dot" data-raild="record"></span>Accounts &amp; site</button>
+    <button class="rl" data-sec="llms"><span class="dot" data-raild="llms"></span>llms.txt</button>
+  </nav>
+
+  <div class="seoc-surface">
+
+  <section class="seoc-view on" id="view-overview">
+  <div class="card seoc-card" id="cardNeeds">
+    <div class="seoc-cardhead"><h3>What needs doing</h3>
+      <div class="seoc-muted" id="needsCount"></div></div>
+    <div id="needsBody" class="seoc-muted">Loading&hellip;</div>
+  </div>
+
+  <div class="card seoc-card" id="cardChecks">
+  <div class="seoc-cardhead"><h3>Manual checks</h3>
+    <div class="seoc-muted">Ticked by a person &mdash; the strip above is derived from the stores</div></div>
   <div class="seoc-checkrow">
     <label class="seoc-check"><input type="checkbox" id="ck_setup"> Setup complete</label>
     <label class="seoc-check"><input type="checkbox" id="ck_schema"> Schema updated</label>
@@ -22,9 +67,11 @@
     <span class="seoc-check seoc-check-ro" id="ck_blogs_wrap"><span id="ck_blogs_dot" class="seoc-dot"></span> Blogs <span class="seoc-muted" style="font-weight:400">&mdash; <span id="ck_blogs_label">&mdash;</span></span></span>
     <span id="ckMsg" class="seoc-muted"></span>
   </div>
-</div>
+  </div>
+  </section>
 
-<div class="seoc-row6040">
+  <section class="seoc-view" id="view-record">
+  <div class="seoc-row6040">
   <div class="card seoc-card" id="cardAccounts"><h3>Accounts</h3><div id="accBody">Loading&hellip;</div></div>
   <div class="card seoc-card" id="cardSite">
   <div class="seoc-cardhead"><h3>Website</h3><div class="right"></div></div>
@@ -36,7 +83,9 @@
     <button class="seoc-btn seoc-small" id="btnSocialSave">Save socials</button></div>
   <div id="socialBody" class="seoc-socialgrid">Loading&hellip;</div>
 </div>
+</section>
 
+<section class="seoc-view" id="view-traffic">
 <div class="card seoc-card" id="cardTraffic" style="display:none">
   <div class="seoc-cardhead"><h3 id="trafficTitle">Organic Traffic</h3>
     <div class="seoc-muted" id="trafficMeta"></div></div>
@@ -65,8 +114,10 @@
   </div>
   <div id="customRangeAI"></div>
 </div>
+</section>
 
 <!-- ---- Site Audits: the last Insites scan, the fix list, and the reports ---- -->
+<section class="seoc-view" id="view-audits">
 <div class="card seoc-card" id="cardAudit">
   <div class="seoc-cardhead"><h3>Site Audits</h3>
     <div class="seoc-muted" id="auditMeta"></div></div>
@@ -102,7 +153,9 @@
     </div>
   </div>
 </div>
+</section>
 
+<section class="seoc-view" id="view-schema">
 <div class="card seoc-card" id="cardScan">
   <div class="seoc-cardhead"><h3>Schema Check</h3>
     <button class="seoc-btn seoc-small" id="btnScan">Scan site for schema</button></div>
@@ -183,7 +236,31 @@
   </div>
 </div>
 
+<!-- Schema questions live beside the builder they gate: the page used to keep
+     Schema Check, Schema Builder and Schema questions three cards apart, and
+     the mock-up's complaint was exactly that — three separate cards for one
+     job. Same markup, same wiring, one section. -->
+<div class="card seoc-card" id="card-schemaq">
+  <div class="seoc-cardhead"><h3>Schema questions</h3>
+    <div class="seoc-muted">
+      <span id="schemaQCount" class="seoc-muted" style="font-size:12px"></span>
+      <button class="seoc-btn seoc-small" onclick="loadSchemaQ()">Build answers</button>
+    </div>
+  </div>
+  <div>
+    <p class="seoc-muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
+      Thirty-odd questions, answered from the client record first, then their
+      site, then AI. Anything that can't be found is marked
+      <b>NEED ANSWER</b> and blocks approval &mdash; structured data is read by
+      search engines as fact, so a plausible guess is worse than a blank.
+    </p>
+    <div id="schemaQ"><span class="seoc-muted">Not built yet.</span></div>
+  </div>
+</div>
+</section>
+
 <!-- ---------------------------- FAQ Builder ---------------------------- -->
+<section class="seoc-view" id="view-faqs">
 <div class="card seoc-card" id="cardFAQ">
   <div class="seoc-cardhead"><h3>FAQ Builder {{ help_dot('seo.faq.accordion') if help_dot is defined else '' }}</h3>
     <div class="seoc-muted" id="faqProgress"></div></div>
@@ -251,8 +328,10 @@
     </div>
   </div>
 </div>
+</section>
 
 <!-- ---------------------------- Alt Text ---------------------------- -->
+<section class="seoc-view" id="view-alt">
 <div class="card seoc-card" id="cardAlt">
   <div class="seoc-cardhead"><h3>Alt Text</h3>
     <div class="seoc-muted" id="altMeta"></div></div>
@@ -300,8 +379,10 @@
       reason rather than counted as having no images.</div>
   </div>
 </div>
+</section>
 
 <!-- ---------------------- Client images ---------------------- -->
+<section class="seoc-view" id="view-images">
 <div class="card seoc-card" id="cardImages">
   <div class="seoc-cardhead"><h3>Client Images</h3>
     <div class="seoc-muted" id="imgCount"></div></div>
@@ -313,7 +394,10 @@
     <a class="seoc-btn seoc-sec" id="btnImgOptimize">&#9881; Optimize client images</a>
   </div>
 </div>
+</section>
 
+<!-- Modals sit between the views, never inside one: a fixed-position overlay
+     inside a display:none view can never be shown. -->
 <!-- FAQ view / edit modal -->
 <div class="seoc-modal" id="faqModal">
   <div class="seoc-modal-box" style="width:820px">
@@ -344,6 +428,7 @@
   </div>
 </div>
 
+<section class="seoc-view" id="view-blogs">
 <div class="card seoc-card" id="cardBlogs" style="display:none">
   <div class="seoc-cardhead"><h3>Blogs</h3><div id="blogFreq" class="seoc-muted"></div></div>
 
@@ -491,6 +576,7 @@
     </div>
   </div>
 </div>
+</section>
 
 <!-- blog view/edit modal -->
 <div class="seoc-modal" id="blogModal">
@@ -842,36 +928,79 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   margin-right:7px; background:#cbd5e1; vertical-align:middle; }
 .seoc-sev.bad { background:#DC2626; } .seoc-sev.warn { background:#F0B429; }
 .seoc-sev.ok { background:#2DBB72; }
+
+/* ---- workspace: the rail, one view at a time, the derived health ---- */
+.seoc-work{display:grid;grid-template-columns:200px minmax(0,1fr);gap:14px;align-items:start}
+.seoc-rail{position:sticky;top:12px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+  padding:7px;display:flex;flex-direction:column;gap:1px}
+.seoc-rail .grp{padding:10px 10px 4px;font:700 10px 'Segoe UI',system-ui,sans-serif;
+  letter-spacing:.09em;text-transform:uppercase;color:#94a3b8}
+.seoc-rail .grp:first-child{padding-top:4px}
+.seoc-rail .rl{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border:0;
+  background:none;border-radius:8px;cursor:pointer;font:600 13px 'Segoe UI',system-ui,sans-serif;
+  color:#1e293b;text-align:left}
+.seoc-rail .rl:hover{background:#f4f6fa}
+.seoc-rail .rl.on{background:#eff4ff;color:#1d4ed8}
+.seoc-rail .rl .dot{width:7px;height:7px;border-radius:50%;flex:none;background:#cbd5e1}
+.seoc-rail .rl .dot.ok{background:#059669}
+.seoc-rail .rl .dot.warn{background:#b45309}
+.seoc-rail .rl .dot.bad{background:#dc2626}
+.seoc-rail .rl .n{margin-left:auto;font-size:11px;font-weight:700;color:#64748b;
+  background:#f4f6fa;border-radius:999px;padding:1px 7px}
+.seoc-rail .rl .n.warn{background:#fffbeb;color:#b45309}
+.seoc-rail .rl .n.bad{background:#fef2f2;color:#dc2626}
+.seoc-surface{min-width:0}
+.seoc-view{display:none}
+.seoc-view.on{display:block}
+.seoc-health{display:flex;background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+  overflow-x:auto;margin-bottom:14px}
+.seoc-health[hidden]{display:none}
+.seoc-hp{flex:1;min-width:140px;text-align:left;padding:10px 16px;background:none;border:0;
+  border-right:1px solid #eef1f4;cursor:pointer;display:flex;gap:10px;align-items:center}
+.seoc-hp:last-child{border-right:0}
+.seoc-hp:hover{background:#f4f6fa}
+.seoc-hp .hdot{width:9px;height:9px;border-radius:50%;flex:none;background:#cbd5e1}
+.seoc-hp .lab{display:block;font:700 10.5px 'Segoe UI',system-ui,sans-serif;
+  letter-spacing:.07em;text-transform:uppercase;color:#64748b}
+.seoc-hp .val{display:block;font-size:13px;font-weight:600;color:#0d2340;margin-top:1px;
+  white-space:nowrap}
+.seoc-hp.ok .hdot{background:#059669}.seoc-hp.ok .val{color:#059669}
+.seoc-hp.warn .hdot{background:#b45309}.seoc-hp.warn .val{color:#b45309}
+.seoc-hp.bad .hdot{background:#dc2626}.seoc-hp.bad .val{color:#dc2626}
+.seoc-qrow{display:flex;align-items:center;gap:13px;padding:11px 4px;border:0;
+  border-bottom:1px solid #eef1f4;background:none;width:100%;text-align:left;cursor:pointer;
+  font:13px 'Segoe UI',system-ui,sans-serif}
+.seoc-qrow:last-of-type{border-bottom:0}
+.seoc-qrow:hover{background:#f4f6fa}
+.seoc-qrow .sev{width:4px;align-self:stretch;border-radius:3px;flex:none;background:#cbd5e1}
+.seoc-qrow.bad .sev{background:#dc2626}
+.seoc-qrow.warn .sev{background:#b45309}
+.seoc-qrow.info .sev{background:#2563eb}
+.seoc-qrow .qb{min-width:0;flex:1}
+.seoc-qrow .qt{display:block;font-weight:600;font-size:13.5px;color:#0d2340}
+.seoc-qrow .qd{display:block;font-size:12px;color:#64748b;margin-top:2px}
+.seoc-qrow .qa{font-size:11.5px;color:#94a3b8;white-space:nowrap}
+.seoc-qrow .qgo{font-size:12px;font-weight:600;color:#2563eb;white-space:nowrap}
+@media(max-width:900px){
+  .seoc-work{grid-template-columns:1fr}
+  .seoc-rail{position:static;flex-direction:row;flex-wrap:wrap}
+  .seoc-rail .grp{width:100%;padding-top:6px}
+  .seoc-rail .rl{width:auto}
+  .seoc-rail .rl .n{margin-left:6px}
+}
 </style>
 
-<!-- Schema questions, llms.txt and the image modal. These were inside
-     the page title block and so were never on the page at all. They join the end
-     of the grid rather than the start, so nothing people already know how to
-     find has moved. -->
-<div class="card" id="card-schemaq" style="grid-column:1 / -1">
-  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">SCHEMA</span>
-    <h3>Schema questions</h3>
-    <div class="right">
-      <span id="schemaQCount" class="muted" style="font-size:12px"></span>
-      <button class="seoc-btn" onclick="loadSchemaQ()">Build answers</button>
-    </div>
+<!-- llms.txt. This and the schema-questions card used the old Hub card
+     markup (.card-h / .card-b), which was the page's second card style — the
+     schema questions moved up beside the Schema Builder, and this one is its
+     own section in the rail, both in the seoc- card shape the rest of the
+     page wears. -->
+<section class="seoc-view" id="view-llms">
+<div class="card seoc-card" id="card-llms">
+  <div class="seoc-cardhead"><h3>llms.txt</h3>
+    <button class="seoc-btn seoc-small" onclick="buildLlms()">Build from Hub data</button>
   </div>
-  <div class="card-b">
-    <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
-      Thirty-odd questions, answered from the client record first, then their
-      site, then AI. Anything that can't be found is marked
-      <b>NEED ANSWER</b> and blocks approval &mdash; structured data is read by
-      search engines as fact, so a plausible guess is worse than a blank.
-    </p>
-    <div id="schemaQ"><span class="muted">Not built yet.</span></div>
-  </div>
-</div>
-<div class="card" id="card-llms" style="grid-column:1 / -1">
-  <div class="card-h"><span class="src-tag" style="background:#ede9fe;color:#5b21b6">AI</span>
-    <h3>llms.txt</h3>
-    <div class="right"><button class="seoc-btn" onclick="buildLlms()">Build from Hub data</button></div>
-  </div>
-  <div class="card-b">
+  <div>
     <p class="muted" style="font-size:12.8px;line-height:1.6;margin:0 0 10px">
       A plain-text brief written for AI systems rather than crawlers: who this
       business is, what it offers, and which pages are authoritative. It belongs
@@ -912,9 +1041,10 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     </div>
   </div>
 </div>
+</section>
 
-
-
+  </div><!-- /seoc-surface -->
+</div><!-- /seoc-work -->
 
 
 
@@ -1017,6 +1147,152 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   }
   function kv(k,v){return '<div class="seoc-kv"><b>'+k+'</b><span>'+v+'</span></div>';}
 
+  // ------------- sections: the rail, one view at a time, lazy loads -------
+  // The page used to render twelve stacked cards and fire every provider
+  // fetch at once on load. One section is on screen at a time now, and a
+  // section that reads a provider (analytics, the alt-scan table, llms
+  // hosting) fetches on FIRST OPEN. Each of those loaders needs `detail`,
+  // so a section opened before the record has arrived is queued and runs
+  // the moment it lands — never dropped, never fired twice.
+  var VIEW_LOADED = {}, PENDING_VIEWS = [], DETAIL_READY = false;
+  var LOADERS = {
+    traffic: function(){ loadTraffic(); },
+    alt:     function(){ loadAlt(); },
+    llms:    function(){ if(window.loadLlmsHost) window.loadLlmsHost(); },
+    blogs:   function(){ if(window.refreshImageStatus) setTimeout(window.refreshImageStatus, 400); }
+  };
+  function runLoader(name){
+    if(VIEW_LOADED[name] || !LOADERS[name]) return;
+    if(!DETAIL_READY){ if(PENDING_VIEWS.indexOf(name)<0) PENDING_VIEWS.push(name); return; }
+    VIEW_LOADED[name]=true;
+    safe('lazy '+name, LOADERS[name]);
+  }
+  function showSection(name){
+    var view=$('view-'+name);
+    if(!view) return;
+    document.querySelectorAll('.seoc-view').forEach(function(v){ v.classList.toggle('on', v===view); });
+    document.querySelectorAll('#seocRail .rl').forEach(function(r){ r.classList.toggle('on', r.dataset.sec===name); });
+    runLoader(name);
+    /* replaceState rather than assigning location.hash: a hash assignment
+       scrolls to the fragment and grows the back stack one entry per click. */
+    try{ history.replaceState(null,'','#'+name); }catch(e){}
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll('#seocRail .rl').forEach(function(r){
+    r.addEventListener('click', function(){ showSection(r.dataset.sec); });
+  });
+  // Health pills and queue rows navigate through the same one function, and
+  // both are rendered from a fetch — so this is delegated rather than bound.
+  document.addEventListener('click', function(e){
+    var go=e.target.closest('[data-go]');
+    if(go) showSection(go.dataset.go);
+  });
+  // A refresh or a bookmarked #section keeps its place.
+  if(location.hash){
+    var _h=location.hash.replace(/^#/,'');
+    if($('view-'+_h)) showSection(_h);
+  }
+
+  // ------------- derived health: the strip, the queue, the rail dots ------
+  // Drawn from `detail.health`, which hub/seo.record_health() computes from
+  // the stores — never from the hand ticks, which are a claim somebody made.
+  // The audit pill is the one exception: scans are keyed by domain and the
+  // fix list is the scans module's own reading, so `initAudits` fills that
+  // pill in when its own fetch lands rather than this module re-deriving it.
+  function railMark(name, state, count){
+    var d=document.querySelector('[data-raild="'+name+'"]');
+    if(d) d.className='dot'+(state?' '+state:'');
+    var n=document.querySelector('[data-railn="'+name+'"]');
+    if(n){
+      if(count){ n.textContent=count; n.hidden=false;
+        n.className='n'+((state==='warn'||state==='bad')?' '+state:''); }
+      else n.hidden=true;
+    }
+  }
+  function renderHealth(h){
+    var strip=$('seocHealth');
+    if(!h||h.error){
+      if(strip) strip.hidden=true;
+      $('needsBody').innerHTML='<span class="seoc-warn">'
+        +esc((h&&h.error)||'The health summary could not be built.')+'</span>';
+      return;
+    }
+    var pills=[];
+    function pill(state,lab,val,go){
+      pills.push('<button class="seoc-hp '+state+'" data-go="'+go+'" type="button">'
+        +'<span class="hdot"></span><span><span class="lab">'+esc(lab)+'</span>'
+        +'<span class="val">'+esc(val)+'</span></span></button>');
+    }
+    var c=h.checks||{}, s=h.schema||{}, b=h.blogs||{}, a=h.alt||{}, f=h.faqs||{}, l=h.llms||{};
+    pill(c.setup?'ok':'idle','Setup', c.setup?'Complete':'Not marked','record');
+    if(s.total!=null) pill(s.remaining?'warn':'ok','Schema', s.built+' of '+s.total+' pages','schema');
+    else if(s.built) pill('idle','Schema', s.built+' built — no sitemap yet','schema');
+    else pill('idle','Schema','Not started','schema');
+    pill(c.listings?'ok':'idle','Listings', c.listings?'Complete':'Not marked','record');
+    var bstate={behind:'bad', none:'warn', current:'ok', not_sold:'idle'}[b.state]||'idle';
+    pill(bstate,'Blogs', b.overdue?(b.overdue+' overdue'):(b.label||'—'),'blogs');
+    if(a.measured) pill(a.missing?'warn':'ok','Alt text', a.missing?(a.missing+' missing'):'All written','alt');
+    else pill('idle','Alt text','Not scanned','alt');
+    pills.push('<button class="seoc-hp idle" id="hpAudit" data-go="audits" type="button">'
+      +'<span class="hdot"></span><span><span class="lab">Site audits</span>'
+      +'<span class="val">&mdash;</span></span></button>');
+    strip.innerHTML=pills.join('');
+    strip.hidden=false;
+
+    var q=h.queue||[];
+    $('needsCount').textContent=q.length?(q.length+' open item'+(q.length===1?'':'s')+', worst first'):'';
+    var rows=q.map(function(i){
+      return '<button class="seoc-qrow '+esc(i.level)+'" data-go="'+esc(i.section)+'" type="button">'
+        +'<span class="sev"></span><span class="qb"><span class="qt">'+esc(i.title)+'</span>'
+        +'<span class="qd">'+esc(i.detail||'')+'</span></span>'
+        +(i.age_days!=null?'<span class="qa">'+esc(i.age_days)+' days</span>':'')
+        +'<span class="qgo">Open &rarr;</span></button>';
+    });
+    var foot='';
+    if(h.unread&&h.unread.length)
+      foot='<div class="seoc-muted" style="padding:8px 4px 0;font-size:12px">Not counted here: '
+        +h.unread.map(esc).join('; ')+'. Anything those would have raised is missing from this list, not absent from it.</div>';
+    $('needsBody').innerHTML=(rows.length?rows.join('')
+      :'<div style="padding:4px">Nothing is waiting on the derived checks. The site-audit fix list reports separately below.</div>')+foot;
+    $('needsBody').classList.remove('seoc-muted');
+
+    railMark('overview','',q.length);
+    railMark('schema', s.remaining?'warn':(s.measured?'ok':''), s.remaining||0);
+    railMark('blogs', {behind:'bad',none:'warn',current:'ok'}[b.state]||'', b.overdue||0);
+    railMark('alt', a.measured?(a.missing?'warn':'ok'):'', a.missing||0);
+    railMark('faqs', f.measured?(f.waiting?'warn':'ok'):'', f.waiting||0);
+    railMark('llms', l.state==='stale'?'warn':(l.state==='live'?'ok':''), 0);
+  }
+  // The audit half of the strip and the queue. `a` is the by-domain payload
+  // initAudits fetched; every path through initAudits calls this, because a
+  // pill left reading "—" cannot be told from one that failed to load.
+  function auditHealth(a){
+    var hp=$('hpAudit'); if(!hp) return;
+    var fx=(a&&a.fixes)||{}, val, state;
+    if(!a||a.none) { val='No scan yet'; state='idle'; }
+    else if(a.unavailable){ val='Could not look'; state='idle'; }
+    else if(!fx.measured){ val='Not measured'; state='idle'; }
+    else if(!fx.total){ val='Nothing broken'; state='ok'; }
+    else { val=fx.total+' to fix'; state=(fx.worst==='bad'?'bad':'warn'); }
+    hp.className='seoc-hp '+state;
+    hp.querySelector('.val').textContent=val;
+    if(state!=='idle') railMark('audits', state, fx.total||0);
+    if(fx.measured&&fx.total){
+      var nb=$('needsBody');
+      if(nb && !nb.querySelector('[data-audit-row]')){
+        var btn=document.createElement('button');
+        btn.type='button';
+        btn.className='seoc-qrow '+(fx.worst==='bad'?'bad':'warn');
+        btn.setAttribute('data-go','audits'); btn.setAttribute('data-audit-row','1');
+        btn.innerHTML='<span class="sev"></span><span class="qb"><span class="qt">'
+          +esc(fx.total)+' thing'+(fx.total===1?'':'s')+' to fix on the live site</span>'
+          +'<span class="qd">From the last site scan.</span></span>'
+          +'<span class="qgo">Open &rarr;</span>';
+        nb.insertBefore(btn, nb.firstChild);
+      }
+    }
+  }
+
   // ---------------- load detail ----------------
   // Each card renders inside safe() so one bad section can never leave the
   // rest of the page stuck on "Loading…".
@@ -1103,8 +1379,13 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     safe('setup',   function(){ prefillSetup(d); });
     safe('biz',     function(){ renderBiz(d); });
     safe('checks',  function(){ renderChecks(d.status); });
+    safe('health',  function(){ renderHealth(d.health); });
     safe('social',  function(){ renderSocial(d.social); });
-    safe('traffic', function(){ loadTraffic(); });
+    /* Traffic is NOT loaded here any more: it is the expensive read (the
+       Google index search plus the GA4 report), and it fires when the
+       Traffic section is first opened. `loadTraffic()` is still called
+       directly when an Analytics property is attached, so that path is
+       unchanged. */
     safe('blogs',   function(){ showBlogsCard(d); });
     safe('schema', function(){
       if(d.schema_pages_list&&d.schema_pages_list.length){
@@ -1125,10 +1406,12 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     safe('schematable', function(){ renderSchemaTable(d.schema_table||[]); });
     safe('faq', function(){ initFaq(d); });
     safe('images', function(){ initImages(d); });
-    /* Reads what the last scan found. It never scans on page load — that is
-       one HTTP request per page against the client's own server, and nobody
-       asked for it by opening this page. */
-    safe('alt', function(){ loadAlt(); });
+    /* The alt table, the llms hosting check and the analytics report load
+       when their section is first opened — see LOADERS above. A section
+       somebody opened while this fetch was in flight was queued, and runs
+       now. */
+    DETAIL_READY = true;
+    PENDING_VIEWS.splice(0).forEach(runLoader);
   }).catch(function(err){
     console.error('[seo_client] detail load failed:', err);
     var msg='<span class="seoc-bad">Could not load this client — '+esc(err&&err.message||err)+'</span>';
@@ -1853,7 +2136,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       .then(function(d){
         if(d.needs_reauth){
           $('trafficBody').innerHTML='<span class="seoc-bad">'+esc(d.error)+'</span> '
-            +'<a class="seoc-btn seoc-small" href="'+esc(d.reconnect_url||'/google/login')+'">Reconnect Google</a>';
+            +'<a class="seoc-btn seoc-small" href="'+esc(d.reconnect_url||'/google/login')+'" target="_blank" rel="noopener">Reconnect Google</a>';
           $('aiBody').textContent='\u2014'; return;
         }
         if(d.error){
@@ -3136,6 +3419,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       $('auditBody').innerHTML='<span class="seoc-warn">No website on file for this '
         +'client, so there\'s nothing to match a scan against.</span> '
         +'Add one in Smart 1 Team, or set the access URL in Client Setup.';
+      safe('audit pill', function(){ auditHealth({none:true}); });
       return;
     }
     fetch('/scans/api/reports/by-domain?domain='+encodeURIComponent(dom))
@@ -3145,8 +3429,10 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
           $('auditBody').innerHTML='No completed site scan for <b>'+esc(dom)+'</b> yet. '
             +'<a href="'+scansHref+'">Run one &rarr;</a> — the eight audits are built '
             +'from it.';
+          safe('audit pill', function(){ auditHealth({none:true}); });
           return;
         }
+        safe('audit pill', function(){ auditHealth(a); });
         AUDIT=a;
         $('auditMeta').innerHTML=
           (a.score!=null?'<b>'+esc(a.score)+'</b>/100 ':'')
@@ -3160,6 +3446,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       .catch(function(err){
         $('auditBody').innerHTML='<span class="seoc-warn">Site Scans is unavailable '
           +'right now.</span> <a href="'+scansHref+'">Open the module &rarr;</a>';
+        safe('audit pill', function(){ auditHealth({unavailable:true}); });
         console.error('[seo_client] audits failed:', err);
       });
   }
@@ -3332,14 +3619,19 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
      The five that start closed are the ones that are tools rather than
      readouts — you open them when you intend to build something. The audit and
      check cards stay open because they are what the page is for. */
+  /* The top-level cards no longer start closed: each lives in its own rail
+     section now, so arriving at FAQs with the FAQ Builder collapsed would be
+     an empty screen with one chevron on it. A stored choice still wins — the
+     toggles are unchanged — and the sub-tables keep their closed default,
+     because a section's own saved-rows table is genuinely secondary. */
   var SECTIONS = [
     { sel: "#cardAudit",       label: "Site Audits",        closed: false },
     { sel: "#cardScan",        label: "Schema Check",       closed: false },
-    { sel: "#cardBuilder",     label: "Schema Builder",     closed: true  },
+    { sel: "#cardBuilder",     label: "Schema Builder",     closed: false },
     { sel: "#schemaTableWrap", label: "Saved schema pages", closed: true,  sub: true },
-    { sel: "#cardFAQ",         label: "FAQ Builder",        closed: true  },
+    { sel: "#cardFAQ",         label: "FAQ Builder",        closed: false },
     { sel: "#faqTableWrap",    label: "Saved FAQ pages",    closed: true,  sub: true },
-    { sel: "#cardBlogs",       label: "Blogs",              closed: true  },
+    { sel: "#cardBlogs",       label: "Blogs",              closed: false },
     { sel: "#blogTableWrap",   label: "Saved blogs",        closed: true,  sub: true }
   ];
 
@@ -3706,7 +3998,9 @@ function publishLlms(){
    }).catch(function(){ m.style.color='#b42318'; m.textContent='Could not publish.'; });
 }
 
-document.addEventListener('DOMContentLoaded', loadLlmsHost);
+/* No load-time call: the hosting status is fetched when the llms.txt section
+   is first opened — the rail's LOADERS map in the main script calls this. */
+window.loadLlmsHost = loadLlmsHost;
 
 function copyLlms(){
   var t=document.getElementById('llmsTxt');
@@ -3887,8 +4181,13 @@ function closeImageModal(){ document.getElementById('imgModal').hidden = true; }
    goes on the Blogs section head, which is collapsed by default — a section
    that hides its own backlog is worse than one that is merely long. */
 function refreshImageStatus(){
-  if(!window.CLIENT) return;
-  fetch('/api/seo/blogs/image-status?client=' + encodeURIComponent(CLIENT),
+  /* window.CURRENT_SEO_CLIENT, not window.CLIENT: nothing has ever assigned
+     window.CLIENT, so the old guard returned on every call and the
+     images-to-approve badge this function exists to draw never drew — a
+     silent no-op from the day it was written. CURRENT_SEO_CLIENT is set from
+     the server a few blocks up. */
+  if(!window.CURRENT_SEO_CLIENT) return;
+  fetch('/api/seo/blogs/image-status?client=' + encodeURIComponent(window.CURRENT_SEO_CLIENT),
         {credentials:'same-origin'})
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -3915,7 +4214,8 @@ function refreshImageStatus(){
     })
     .catch(function(){});
 }
-document.addEventListener('DOMContentLoaded', function(){ setTimeout(refreshImageStatus, 1500); });
+/* No load-time call: the Blogs section's loader in the main script fires this
+   on first open, and every image action below refreshes it directly. */
 
 function imgAction(act){
   if(!IMG_POST) return;
