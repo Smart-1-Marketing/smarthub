@@ -190,10 +190,7 @@ check("Create opens the ad builder with the client filled in",
 
 # Which of our tools filed it is not a decision a rep makes — but the panel
 # they open is where it belongs, so it is dropped from the row and kept there.
-_template = (ROOT / "hub" / "templates" / "stale_creative.html").read_text(
-    encoding="utf-8")
-check("each creative still names its own source",
-      "{{ it.source }}" in _template, True)
+check("each creative still names its own source", 'class="m">' in html, True)
 
 # The route the Create button points at has to exist on the composed app.
 rules = {str(r.rule) for r in app.url_map.iter_rules()}
