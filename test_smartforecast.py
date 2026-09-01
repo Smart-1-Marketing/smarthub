@@ -100,6 +100,8 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         for label in ("Dashboard", "Website Setup", "Weather Triggers",
                       "Content &amp; Images", "Preview / Simulator", "Trigger Report"):
             self.assertIn(label, html)
+        self.assertIn('role="tablist"', html)
+        self.assertIn("Launch preflight", html)
         sim = self.client.post("/api/simulate", json={
             "temperature": 96, "feels_like": 103, "forecast_high": 98,
             "forecast_low": 74, "rain_probability": 10, "snow_inches": 0,
@@ -154,6 +156,33 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertEqual(after, before + 1)
         from modules.smartforecast.app import store
         self.assertEqual(store().due_sites(), [])
+
+    def test_preflight_names_blockers_and_qa_is_non_mutating(self):
+        bootstrap = self.client.get("/api/bootstrap").get_json()
+        self.assertFalse(bootstrap["preflight"]["ok"])
+        by_key = {item["key"]: item for item in bootstrap["preflight"]["checks"]}
+        self.assertEqual(by_key["database"]["status"], "pass")
+        self.assertEqual(by_key["weather_provider"]["status"], "fail")
+        before = len(bootstrap["history"])
+        qa = self.client.post("/api/qa/run", json={}).get_json()
+        self.assertTrue(qa["ok"], qa)
+        self.assertEqual(qa["passed"], qa["total"])
+        after = len(self.client.get("/api/bootstrap").get_json()["history"])
+        self.assertEqual(after, before)
+
+    def test_unknown_public_token_fails_closed(self):
+        response = self.client.get("/api/public/embed/not-a-real-token")
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.get_json()["ok"])
+
+    def test_pause_returns_public_embed_to_baseline(self):
+        bootstrap = self.client.get("/api/bootstrap").get_json()
+        token = bootstrap["site"]["embed_token"]
+        response = self.client.post("/api/pause", json={"paused": True})
+        self.assertEqual(response.status_code, 200)
+        public = self.client.get(f"/api/public/embed/{token}").get_json()
+        self.assertEqual(public["state"]["phase"], "default")
+        self.assertEqual(public["content"]["trigger_key"], "default")
 
     def test_backup_restores_a_fresh_render_disk(self):
         self.client.get("/api/bootstrap")

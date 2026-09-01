@@ -9,6 +9,8 @@ read-only JSON endpoint are public.
 
 - `/tools/smartforecast/` — staff dashboard and six-step workflow
 - `/tools/smartforecast/health` — authenticated health check
+- `/tools/smartforecast/api/preflight` — authenticated launch-readiness checks
+- `/tools/smartforecast/api/qa/run` — authenticated, non-mutating scenario suite
 - `/tools/smartforecast/embed/<token>` — public responsive embed
 - `/tools/smartforecast/api/public/embed/<token>` — public read-only payload
 - `/tools/smartforecast/api/report.csv` — authenticated lifecycle export

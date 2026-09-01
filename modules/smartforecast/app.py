@@ -55,11 +55,35 @@ def api_bootstrap():
     try:
         data = store().bootstrap(int(request.args.get("site_id") or 1))
         data["weather_provider_configured"] = provider.configured()
+        data["preflight"] = store().preflight(
+            int(request.args.get("site_id") or 1), provider_configured=provider.configured())
         return jsonify(data)
     except LookupError as exc:
         return _error(exc, 404)
     except Exception as exc:  # noqa: BLE001
         return _error(exc, 500)
+
+
+@app.route("/api/preflight")
+def api_preflight():
+    try:
+        site_id = int(request.args.get("site_id") or 1)
+        return jsonify(store().preflight(site_id, provider_configured=provider.configured()))
+    except (TypeError, ValueError) as exc:
+        return _error(exc)
+    except LookupError as exc:
+        return _error(exc, 404)
+
+
+@app.route("/api/qa/run", methods=["POST"])
+def api_qa_run():
+    try:
+        site_id = int(request.args.get("site_id") or 1)
+        return jsonify(store().qa_suite(site_id))
+    except (TypeError, ValueError) as exc:
+        return _error(exc)
+    except LookupError as exc:
+        return _error(exc, 404)
 
 
 @app.route("/api/setup", methods=["POST"])

@@ -41,7 +41,12 @@
   }
 
   function go(view) {
-    $$(".sf-tab").forEach(tab => tab.classList.toggle("is-active", tab.dataset.view === view));
+    $$(".sf-tab").forEach(tab => {
+      const active = tab.dataset.view === view;
+      tab.classList.toggle("is-active", active);
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+    });
     $$(".sf-view").forEach(panel => {
       const active = panel.dataset.panel === view;
       panel.hidden = !active;
@@ -70,6 +75,7 @@
     activeVariant = data.current_variant || data.variants[0] || null;
     renderDashboard();
     renderSetup();
+    renderPreflight(data.preflight);
     renderRules();
     renderVariants();
     renderPreview(activeVariant);
@@ -138,6 +144,19 @@
     $("#brandRadius").value = brand.border_radius ?? 18;
     $("#brandMobileSize").value = brand.mobile_headline_size ?? 38;
     renderEmbedCode();
+  }
+
+  function renderPreflight(preflight) {
+    const summary = preflight?.summary || {};
+    const ok = Boolean(preflight?.ok);
+    const summaryNode = $("#preflightSummary");
+    summaryNode.className = `sf-preflight-summary ${ok ? "is-ready" : "is-blocked"}`;
+    summaryNode.textContent = ok
+      ? `Ready for internal QA · ${summary.passed || 0} passed${summary.warnings ? ` · ${summary.warnings} warning${summary.warnings === 1 ? "" : "s"}` : ""}`
+      : `Not ready to install · ${summary.failed || 0} blocking check${summary.failed === 1 ? "" : "s"}`;
+    $("#preflightChecks").innerHTML = (preflight?.checks || []).map(check => `
+      <li class="is-${escapeHtml(check.status)}"><i aria-hidden="true"></i><span><strong>${escapeHtml(check.label)}</strong><small>${escapeHtml(check.detail)}</small></span></li>
+    `).join("");
   }
 
   function renderEmbedCode() {
@@ -307,6 +326,16 @@
   }
 
   $$(".sf-tab").forEach(tab => tab.addEventListener("click", () => go(tab.dataset.view)));
+  $(".sf-tabs").addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = $$(".sf-tab");
+    const current = tabs.indexOf(document.activeElement);
+    let next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+      : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    tabs[next].focus();
+    go(tabs[next].dataset.view);
+  });
   $$("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
   $$("[data-install]").forEach(button => button.addEventListener("click", () => {
     installMode = button.dataset.install;
@@ -339,6 +368,28 @@
   $("#copyEmbed").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("#embedCode code").textContent); toast("Embed code copied"); }
     catch { toast("Select the embed code and copy it manually", true); }
+  });
+
+  $("#runQa").addEventListener("click", async () => {
+    const button = $("#runQa");
+    const resultNode = $("#qaResult");
+    button.disabled = true;
+    button.textContent = "Running scenarios…";
+    try {
+      const result = await api("/api/qa/run", {method:"POST", body:"{}"});
+      resultNode.className = `sf-qa-result ${result.ok ? "is-ready" : "is-blocked"}`;
+      const failures = result.results.filter(item => !item.passed).map(item => item.name);
+      resultNode.textContent = result.ok
+        ? `${result.passed}/${result.total} scenarios passed without changing live history.`
+        : `${result.passed}/${result.total} passed. Review: ${failures.join(", ")}.`;
+      toast(result.ok ? "Scenario QA passed" : "Scenario QA found a mismatch", !result.ok);
+    } catch (error) {
+      resultNode.textContent = error.message;
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Run scenario QA";
+    }
   });
 
   $("#pauseToggle").addEventListener("change", async event => {

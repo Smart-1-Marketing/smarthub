@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from .engine import advance_state, empty_state, iso, simulate, utcnow, choose_winner
+from .engine import advance_state, choose_winner, empty_state, iso, parse_time, simulate, utcnow
 
 
 SCHEMA = """
@@ -481,6 +481,142 @@ class SmartForecastStore:
             return {"ok": False, "error": type(exc).__name__, "bytes": len(sql.encode("utf-8"))}
         return {"ok": bool(written), "path": str(self.backup_path),
                 "bytes": len(sql.encode("utf-8")), "sha256": payload["sha256"]}
+
+    def preflight(self, site_id: int = 1, provider_configured: bool = False) -> dict:
+        """Return an executable release checklist for one site.
+
+        A warning keeps internal preview available; a failed blocking check
+        means the site should not be installed on a client website yet.
+        """
+        checks: list[dict] = []
+
+        def add(key: str, label: str, passed: bool, detail: str,
+                *, blocking: bool = True, warning: bool = False) -> None:
+            status = "pass" if passed else ("warn" if warning or not blocking else "fail")
+            checks.append({"key": key, "label": label, "status": status,
+                           "detail": detail, "blocking": blocking})
+
+        with self.connect() as con:
+            integrity = con.execute("PRAGMA quick_check").fetchone()[0]
+            add("database", "Database integrity", integrity == "ok",
+                "SQLite quick check passed." if integrity == "ok" else str(integrity))
+            site = con.execute(
+                """SELECT s.*,c.name client_name,c.industry,l.postal_code,l.timezone
+                   FROM sites s JOIN clients c ON c.id=s.client_id
+                   LEFT JOIN locations l ON l.site_id=s.id AND l.is_primary=1
+                   WHERE s.id=?""", (site_id,),
+            ).fetchone()
+            if not site:
+                add("site", "Site record", False, "Site not found.")
+                return {"ok": False, "site_id": site_id, "ran_at": iso(utcnow()),
+                        "checks": checks, "summary": {"passed": 1, "warnings": 0, "failed": 1}}
+
+            add("enabled", "Site enabled", bool(site["enabled"]),
+                "Weather evaluation is enabled." if site["enabled"] else "Site is paused.")
+            postal = str(site["postal_code"] or "").strip()
+            add("location", "Primary weather location", bool(postal),
+                f"Primary postal code: {postal}." if postal else "Add a primary postal code.")
+            token = con.execute(
+                "SELECT token FROM embed_tokens WHERE site_id=? AND active=1 ORDER BY id DESC LIMIT 1",
+                (site_id,),
+            ).fetchone()
+            add("embed_token", "Active embed token", bool(token),
+                "A public token is active." if token else "Create or rotate an embed token.")
+            add("weather_provider", "Live weather provider", provider_configured,
+                "WeatherAPI is configured." if provider_configured else
+                "WEATHERAPI_KEY is missing; only simulator/manual mode works.")
+
+            rules = self._rules(con, site_id)
+            enabled_rules = [rule for rule in rules if rule["enabled"]]
+            add("rules", "Enabled trigger rules", bool(enabled_rules),
+                f"{len(enabled_rules)} rule(s) enabled." if enabled_rules else "Enable at least one rule.")
+            variants = [self._variant_row(row) for row in con.execute(
+                """SELECT v.* FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
+                   WHERE s.site_id=?""", (site_id,))]
+            baseline = next((item for item in variants
+                             if item["trigger_key"] == "default" and item["phase"] == "default"), None)
+            baseline_complete = bool(baseline and baseline.get("headline") and baseline.get("cta_label")
+                                     and baseline.get("cta_url") and baseline.get("alt_text"))
+            add("baseline_content", "Baseline SEO content", baseline_complete,
+                "Baseline headline, CTA, URL and alt text are complete." if baseline_complete else
+                "Complete the default headline, CTA, URL and image alt text.")
+
+            covered = {(item["trigger_key"], item["phase"]) for item in variants}
+            missing = [f"{rule['name']} / {phase.replace('_', ' ')}"
+                       for rule in enabled_rules for phase in ("pre_event", "active_event", "post_event")
+                       if (rule["id"], phase) not in covered]
+            add("content_coverage", "Lifecycle content coverage", not missing,
+                "Every enabled rule has pre-, active- and post-event content." if not missing else
+                f"{len(missing)} lifecycle variant(s) still use baseline fallback.",
+                blocking=False, warning=True)
+
+            invalid_urls = [item["name"] for item in variants
+                            if not str(item.get("cta_url") or "").startswith(("https://", "http://", "/"))]
+            add("cta_urls", "CTA destinations", not invalid_urls,
+                "All CTA destinations use HTTP(S) or a site-relative path." if not invalid_urls else
+                f"{len(invalid_urls)} content variant(s) have an invalid CTA URL.")
+            missing_alt = [item["name"] for item in variants
+                           if item.get("desktop_image_url") and not str(item.get("alt_text") or "").strip()]
+            add("image_alt", "Image accessibility", not missing_alt,
+                "All configured images have alt text." if not missing_alt else
+                f"{len(missing_alt)} image(s) need alt text.")
+
+            latest = con.execute(
+                """SELECT w.expires_at FROM weather_snapshots w JOIN locations l ON l.id=w.location_id
+                   WHERE l.site_id=? ORDER BY w.observed_at DESC LIMIT 1""", (site_id,)
+            ).fetchone()
+            fresh = bool(latest and parse_time(latest["expires_at"]) and
+                         parse_time(latest["expires_at"]) >= utcnow())
+            add("weather_cache", "Fresh weather cache", fresh,
+                "The latest weather snapshot is current." if fresh else
+                "No current snapshot; refresh weather before installation.",
+                blocking=False, warning=True)
+
+        backup_exists = self.backup_path.exists()
+        add("recovery_backup", "Recovery backup", backup_exists,
+            "A local recovery snapshot exists and is eligible for durable mirroring." if backup_exists else
+            "Run the backup job before the pilot.", blocking=False, warning=True)
+        failed = sum(item["status"] == "fail" for item in checks)
+        warnings = sum(item["status"] == "warn" for item in checks)
+        passed = sum(item["status"] == "pass" for item in checks)
+        return {"ok": failed == 0, "site_id": site_id, "ran_at": iso(utcnow()),
+                "checks": checks, "summary": {"passed": passed, "warnings": warnings,
+                                                "failed": failed}}
+
+    def qa_suite(self, site_id: int = 1) -> dict:
+        """Exercise representative lifecycle winners without mutating history."""
+        base = {"temperature": 72, "feels_like": 72, "humidity": 45, "dew_point": 48,
+                "forecast_high": 75, "forecast_low": 55, "rain_probability": 10,
+                "snow_inches": 0, "wind_mph": 8, "hours_until_event": 0,
+                "official_alerts": []}
+        scenarios = [
+            ("Baseline", None, base, False),
+            ("Extreme heat", "hvac_extreme_heat",
+             {**base, "temperature": 96, "feels_like": 103, "forecast_high": 98}, False),
+            ("Official heat alert", "hvac_extreme_heat",
+             {**base, "official_alerts": ["Heat Advisory"]}, True),
+            ("Hard freeze", "hvac_hard_freeze",
+             {**base, "temperature": 20, "forecast_low": 18}, False),
+            ("Cold snap", "hvac_cold_snap",
+             {**base, "temperature": 29, "forecast_low": 29}, False),
+            ("Heavy rain", "heavy_rain", {**base, "rain_probability": 88}, False),
+            ("High wind", "high_wind", {**base, "wind_mph": 48}, False),
+        ]
+        with self.connect() as con:
+            rules = self._rules(con, site_id)
+        results = []
+        for name, expected, snapshot, immediate in scenarios:
+            answer = simulate(rules, snapshot)
+            winner = answer.get("winner") or {}
+            actual = winner.get("id")
+            is_immediate = bool(answer.get("immediate"))
+            passed = actual == expected and (not immediate or is_immediate)
+            results.append({"name": name, "expected": expected or "default",
+                            "actual": actual or "default", "phase": answer.get("phase"),
+                            "immediate": is_immediate, "passed": passed})
+        return {"ok": all(item["passed"] for item in results), "site_id": site_id,
+                "ran_at": iso(utcnow()), "passed": sum(item["passed"] for item in results),
+                "total": len(results), "results": results}
 
     def set_paused(self, paused: bool, site_id: int = 1) -> dict:
         with self._lock, self.connect() as con:

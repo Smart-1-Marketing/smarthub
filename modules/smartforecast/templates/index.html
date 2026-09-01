@@ -24,19 +24,19 @@
       </div>
     </header>
 
-    <nav class="sf-tabs" aria-label="SmartForecast screens">
-      <button class="sf-tab is-active" data-view="dashboard" type="button"><span>01</span>Dashboard</button>
-      <button class="sf-tab" data-view="setup" type="button"><span>02</span>Website Setup</button>
-      <button class="sf-tab" data-view="triggers" type="button"><span>03</span>Weather Triggers</button>
-      <button class="sf-tab" data-view="content" type="button"><span>04</span>Content &amp; Images</button>
-      <button class="sf-tab" data-view="preview" type="button"><span>05</span>Preview / Simulator</button>
-      <button class="sf-tab" data-view="report" type="button"><span>06</span>Trigger Report</button>
+    <nav class="sf-tabs" aria-label="SmartForecast screens" role="tablist">
+      <button class="sf-tab is-active" id="sf-tab-dashboard" data-view="dashboard" type="button" role="tab" aria-controls="sf-panel-dashboard" aria-selected="true"><span>01</span>Dashboard</button>
+      <button class="sf-tab" id="sf-tab-setup" data-view="setup" type="button" role="tab" aria-controls="sf-panel-setup" aria-selected="false"><span>02</span>Website Setup</button>
+      <button class="sf-tab" id="sf-tab-triggers" data-view="triggers" type="button" role="tab" aria-controls="sf-panel-triggers" aria-selected="false"><span>03</span>Weather Triggers</button>
+      <button class="sf-tab" id="sf-tab-content" data-view="content" type="button" role="tab" aria-controls="sf-panel-content" aria-selected="false"><span>04</span>Content &amp; Images</button>
+      <button class="sf-tab" id="sf-tab-preview" data-view="preview" type="button" role="tab" aria-controls="sf-panel-preview" aria-selected="false"><span>05</span>Preview / Simulator</button>
+      <button class="sf-tab" id="sf-tab-report" data-view="report" type="button" role="tab" aria-controls="sf-panel-report" aria-selected="false"><span>06</span>Trigger Report</button>
     </nav>
 
     <main class="sf-main" id="appMain" aria-live="polite">
       <div class="sf-loading" id="loadingState"><span></span><p>Reading site, weather, and trigger state…</p></div>
 
-      <section class="sf-view is-active" data-panel="dashboard" hidden>
+      <section class="sf-view is-active" id="sf-panel-dashboard" data-panel="dashboard" role="tabpanel" aria-labelledby="sf-tab-dashboard" hidden>
         <div class="sf-pagehead">
           <div><p class="sf-kicker">Live site control</p><h1 id="dashClient">Quality Air Columbus</h1><p><span id="dashZip">43215</span> · <span id="dashIndustry">HVAC</span></p></div>
           <div class="sf-page-actions"><button class="sf-btn sf-btn-ghost" data-go="preview" type="button">Preview Website</button><button class="sf-btn sf-btn-primary" id="forceMessage" type="button">Force Message</button></div>
@@ -78,7 +78,7 @@
         </div>
       </section>
 
-      <section class="sf-view" data-panel="setup" hidden>
+      <section class="sf-view" id="sf-panel-setup" data-panel="setup" role="tabpanel" aria-labelledby="sf-tab-setup" hidden>
         <div class="sf-pagehead"><div><p class="sf-kicker">Installation &amp; identity</p><h1>Website Setup</h1><p>Connect the client, location, embed, and brand behavior.</p></div><button class="sf-btn sf-btn-primary" id="saveSetup" type="button">Save setup</button></div>
         <div class="sf-form-layout">
           <form class="sf-card sf-form-card" id="setupForm">
@@ -122,17 +122,24 @@
               <button class="sf-btn sf-btn-ghost sf-full" id="copyEmbed" type="button">Copy embed code</button>
               <p class="sf-note">The iframe serves default SEO content if SmartForecast is paused or weather data is unavailable.</p>
             </section>
+            <section class="sf-card sf-preflight-card">
+              <div class="sf-section-title"><span>05</span><div><h2>Launch preflight</h2><p>Executable checks for the internal-QA and pilot gates.</p></div></div>
+              <div class="sf-preflight-summary" id="preflightSummary" aria-live="polite">Reading launch checks…</div>
+              <ul class="sf-preflight-list" id="preflightChecks"></ul>
+              <button class="sf-btn sf-btn-primary sf-full" id="runQa" type="button">Run scenario QA</button>
+              <div class="sf-qa-result" id="qaResult" role="status"></div>
+            </section>
           </aside>
         </div>
       </section>
 
-      <section class="sf-view" data-panel="triggers" hidden>
+      <section class="sf-view" id="sf-panel-triggers" data-panel="triggers" role="tabpanel" aria-labelledby="sf-tab-triggers" hidden>
         <div class="sf-pagehead"><div><p class="sf-kicker">Data-driven lifecycle rules</p><h1>Weather Triggers</h1><p>Two confirming checks prevent forecast flicker. Official alerts activate immediately.</p></div><div class="sf-legend"><span><i class="pre"></i>Pre-event</span><span><i class="active"></i>Active</span><span><i class="post"></i>Post-event</span></div></div>
         <div class="sf-trigger-summary"><div><strong id="ruleEnabledCount">0</strong><span>enabled</span></div><div><strong>2×</strong><span>checks to activate</span></div><div><strong>2×</strong><span>checks to clear</span></div><div><strong>∞</strong><span>official alert speed</span></div></div>
         <div class="sf-rule-list" id="ruleList"></div>
       </section>
 
-      <section class="sf-view" data-panel="content" hidden>
+      <section class="sf-view" id="sf-panel-content" data-panel="content" role="tabpanel" aria-labelledby="sf-tab-content" hidden>
         <div class="sf-pagehead"><div><p class="sf-kicker">Message, CTA &amp; imagery</p><h1>Content &amp; Images</h1><p>Give every lifecycle phase a relevant message and crop.</p></div><button class="sf-btn sf-btn-primary" id="saveContent" type="button">Save content</button></div>
         <div class="sf-content-layout">
           <aside class="sf-card sf-variant-list"><div class="sf-card-label"><span>Homepage hero variants</span></div><div id="variantList"></div></aside>
@@ -152,7 +159,7 @@
         </div>
       </section>
 
-      <section class="sf-view" data-panel="preview" hidden>
+      <section class="sf-view" id="sf-panel-preview" data-panel="preview" role="tabpanel" aria-labelledby="sf-tab-preview" hidden>
         <div class="sf-pagehead"><div><p class="sf-kicker">Test before installation</p><h1>Preview / Simulator</h1><p>Change the weather, see the winning trigger, then inspect both responsive shapes.</p></div><div class="sf-device-toggle"><button class="is-active" data-device="desktop" type="button">Desktop</button><button data-device="mobile" type="button">Mobile</button></div></div>
         <div class="sf-simulator-layout">
           <form class="sf-card sf-simulator" id="simulatorForm">
@@ -185,7 +192,7 @@
         </div>
       </section>
 
-      <section class="sf-view" data-panel="report" hidden>
+      <section class="sf-view" id="sf-panel-report" data-panel="report" role="tabpanel" aria-labelledby="sf-tab-report" hidden>
         <div class="sf-pagehead"><div><p class="sf-kicker">Immutable activation history</p><h1>Trigger Report</h1><p>Every activation, phase change, override, and return to default.</p></div><a class="sf-btn sf-btn-ghost" id="exportCsv" href="api/report.csv">Export CSV</a></div>
         <div class="sf-report-stats"><article><span>Weather events detected</span><strong id="reportEvents">0</strong><small>Last 30 days</small></article><article><span>Website activations</span><strong id="reportActivations">0</strong><small>Last 30 days</small></article><article><span>Hours personalized</span><strong id="reportHours">0</strong><small>Active + post-event</small></article><article><span>Recorded transitions</span><strong id="reportTransitions">0</strong><small>Immutable ledger</small></article></div>
         <div class="sf-report-layout">
