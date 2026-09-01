@@ -3294,6 +3294,39 @@ the **help layer** panel on `/diagnostics` lists it, so the scenarios written
 against a screen that has since been rebuilt are a list somebody works down
 rather than something a learner meets one step at a time.
 
+**And the list is being worked down, which is what a backlog is for.** Three
+scenarios are repaired: `seo_images.first_batch` (eight of eleven steps dead),
+both `sales_builder` scenarios (seven between them). The repairs are two
+different jobs and the difference is the whole point. Most steps named a
+control that **exists under another selector** — `[name='max_edge']` where
+the page has `#maxEdge`, `[data-demo='save']` where it has `#btnSave` — and
+those are simply anchored, at the real id where the page's own script already
+depends on one and at a `data-demo` hook where the control is drawn by
+JavaScript from a row template and has no id to point at.
+
+**Two named a control the tool does not have, and those are rewritten rather
+than anchored** — the Web Tickets *"Sort by age"* rule, because a rep
+believes a walkthrough. The SEO Image Pipeline's step 2 said *"the specific
+page URL, not just the domain"* and drove a `page_url` field: that form asks
+for the **site** (its own placeholder is a bare domain) and, separately, an
+optional **Page name**, which is a name rather than a URL — so the step asked
+for the opposite of what the field wants. And the Proposal Builder's step 9
+said to **set the status to Converted**, which is not a status anybody sets:
+the pills offer Draft, Sent, Approved and Lost, and Converted is what a quote
+becomes once *Convert to IO* has built the insertion order behind it — the
+reason `hub/quote_validity.py` refuses to expire one. Both now describe the
+tool that is there, and step 9 points at the control
+`sales_builder.deliver` already named, so one hook serves both scenarios.
+
+**A repaired scenario is named in the test, and the backlog still is not.**
+Asserting the *count* would be the check switched on red that this section
+exists to avoid. What `test_help_layer.py` asserts instead is that a scenario
+somebody has worked to zero does not quietly come apart when a control it
+drives is renamed — and, in the other direction, that every scenario the list
+names still exists, or an entry outliving its scenario would pass by
+describing nothing, which is `check_stale_json_exemptions()`'s failure one
+shelf over. Both were confirmed red before they were confirmed green.
+
 **Five of them drove nothing at all, and that half is not a backlog.** A
 scenario with one step out of date is a walkthrough with a gap in it; one
 where *every* driving step names an element that is not there is a button
@@ -3787,6 +3820,29 @@ the shape `_product_source()` already had. Four rules on it:
 Client 360 and `/status` say which source answered, exactly as the products
 card already does — a stale export looks identical to live data on screen,
 which is the whole reason this went unnoticed.
+
+**And that assertion was counting on a 610-row export.** It proved the
+scorecard read the export by comparing `websites_total` against the export's
+own length and then against the live pull's — and the second half only means
+anything while the two lists are different lengths. That was free while the
+export was committed and 610 rows long. The day it moved out of source control
+the fixture behind it held **two**, which is exactly how many rows the test's
+synthetic live list holds, so the guard could no longer tell *reads the export*
+from *reads whichever source happens to hold the same number of rows*, and it
+reported a working `summary()` as broken. Going red is the lucky half: the same
+collision one row the other way would have passed on the bug as well, which is
+the failure `test_help_layer.py` had to undo when a count was compared against
+a set that collapsed the duplicate it was looking for.
+
+**The fix is to stop counting.** Whether two lists are the same length is a
+fact about a fixture; whether `summary()` consulted the live pull at all is a
+fact about `summary()`, and no fixture can collide with it. The live reader is
+a function that records having been called, and the assertion is that it never
+was — so the property the test exists to hold is asserted directly rather than
+inferred from an arithmetic coincidence, and the next person to re-sanitize a
+fixture cannot silently switch it off. The obvious repair — padding the live
+list until the counts differ — was written first and thrown away: it keeps the
+comparison alive and therefore keeps the collision possible, one fixture later.
 
 **`campaigns.json` and `live_products.json` are gone.** 7,854 rows and 2.1 MB
 of the first, 96 KB of the second, and not one reference to either anywhere in
