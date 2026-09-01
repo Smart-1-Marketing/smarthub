@@ -77,13 +77,6 @@ LIVE = [
      "domain": "northgatedental.com",
      "production_url": "https://northgatedental.com",
      "platform": "WordPress", "client_status": "Active", "hm_fee": 0},
-    # A third live-only site, and the count is load-bearing: the scorecard
-    # assertions below tell the export from the live pull by SIZE, so this
-    # list must never be as long as the export fixture. It was, once.
-    {"id": "r3", "client": "Halverson Roofing", "organization": "",
-     "domain": "halversonroofing.com",
-     "production_url": "https://halversonroofing.com",
-     "platform": "Simvoly", "client_status": "Active", "hm_fee": 0},
 ]
 
 
@@ -129,8 +122,7 @@ _reset()
 
 rows, source, err = kd._website_source()                          # noqa: SLF001
 check("the live registry answers", source == "knack", (source, err))
-check("and every record comes through", len(rows) == len(LIVE),
-      (len(rows), len(LIVE)))
+check("and every record comes through", len(rows) == 2, len(rows))
 check("in the export's shape",
       all({"name", "domain", "liveUrl", "platform"} <= set(r) for r in rows))
 check("websites() reports which source answered",
@@ -180,34 +172,27 @@ check("summary() reads export_websites(), not websites()",
 check("and says why in the code rather than leaving it to be rediscovered",
       "measured differently" in src or "active" in src)
 
-kw.rows = lambda *a, **k: list(LIVE)
+summary_live_calls = []
+
+
+def _summary_live_rows(*a, **k):
+    summary_live_calls.append(True)
+    return list(LIVE)
+
+
+kw.rows = _summary_live_rows
 kw.last_error = lambda: ""
 _reset()
 totals = kd.summary()
-# The real assertion: with a live pull returning rows, the dashboard's website
-# figures must still describe the fallback export. If they followed the live
-# list, the card would read "3 active websites" and the H&M billing would
-# collapse to whatever those rows carry — a confident wrong answer on the
-# CEO's dashboard, with nothing on the page saying the source had changed.
-#
-# Both halves are counts, so the pair can only tell the two sources apart
-# while the two fixtures are DIFFERENT SIZES. They stopped being: the real
-# export left source control (7757eab) and the sanitized stand-in that
-# replaced it has exactly as many rows as LIVE had, so "emphatically not the
-# live row count" became 2 != 2 and failed — with the code doing exactly what
-# it should. An assertion that fails for a reason that is not the thing it
-# tests reads as a regression and sends somebody looking for one.
-#
-# So the precondition is asserted rather than assumed. If the fixtures ever
-# collide again this says so in those words, instead of accusing summary().
-check("the two fixtures are different sizes, or neither count means anything",
-      len(LIVE) != len(kd.export_websites()),
-      (len(LIVE), len(kd.export_websites())))
+# The real assertion: the dashboard's website figures must describe the
+# fallback export without consulting the live list. If it followed the live
+# list, its active count and H&M billing would collapse to fields object_153
+# does not publish — a confident wrong answer on the CEO's dashboard.
 check("websites_total still counts the export, not the live pull",
       totals["websites_total"] == len(kd.export_websites()),
       (totals["websites_total"], len(kd.export_websites())))
-check("and it is emphatically not the live row count",
-      totals["websites_total"] != len(LIVE))
+check("and calculating it never pulls the live rows",
+      not summary_live_calls, summary_live_calls)
 check("websites_active is measured off the export's own `active` field",
       totals["websites_active"] > 0, totals["websites_active"])
 check("so H&M billing is not collapsed to the live rows' fees",
