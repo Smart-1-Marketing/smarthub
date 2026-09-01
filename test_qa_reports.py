@@ -498,7 +498,7 @@ check("the export flags identify one coherent month pair",
 # putting customer or staff exports back into source control.
 _sc = qa.run("sales-scorecard", _export_flag_ym)
 _names = " ".join(str(c) for row in _sc["rows"] for c in row)
-for _who in ("Sample Seller", "Example Rep"):
+for _who in ("Sample Seller", "Assigned Seller"):
     check(f"{_who} has live work and appears on the Scorecard",
           _who in _names, True)
 
@@ -831,28 +831,28 @@ section("The dashboard tile that read a refusal as four noughts")
 
 from hub import stale_creative as _sc                            # noqa: E402
 
-# Test the scorecard adapter with explicit audit results. Calling the complete
-# audit here made this assertion depend on whichever creative stores happened
-# to be available, which turned a source-isolation test into an integration
-# test and made the sanitized fixture look like an outage.
-_sc_real_cached = _sc._cached
-_ok_audit = {
-    "generated_at": "2026-09-01T12:00:00Z",
-    "edges": [30, 60, 90],
-    "groups": [{"key": "fresh", "count": 1, "clients": []}],
-    "totals": {"clients": 1, "needs_attention": 0},
-    "measured": True,
-    "sources_measured": True,
-    "clients_measured": True,
+_sc_real_registry = _sc._registry_clients
+_sc_real_load_source = _sc._load_source
+_sc_real_load_knack = _sc._load_knack_creative
+_sc_real_load_cloudinary = _sc._load_cloudinary
+_fixture_creative = {
+    "source": "fixture",
+    "source_label": "Fixture creative",
+    "client_raw": "Fixture Client",
+    "uploaded_at": _dt.datetime.now(_dt.timezone.utc),
+    "title": "Fixture creative",
+    "note": "",
+    "alt": "",
+    "url": "",
+    "thumb": "",
 }
 try:
-    _sc._cached = lambda: {
-        **_ok_audit,
-        "groups": [],
-        "totals": {"clients": 0, "needs_attention": 0},
-        "measured": False,
-        "clients_measured": False,
-    }
+    _sc._load_source = lambda src: ([_fixture_creative]
+                                    if src is _sc.SOURCES[0] else [])
+    _sc._load_knack_creative = lambda: []
+    _sc._load_cloudinary = lambda: []
+    _sc._registry_clients = lambda *a, **k: []
+    _sc._CACHE.update({"data": None, "at": 0.0})
     _card = _sc.scorecard()
     check("the tile's payload says so when the client list refuses",
           _card.get("measured") is False, repr(_card.get("measured")))
@@ -863,16 +863,23 @@ try:
           f'sources_measured={_card.get("sources_measured")!r}')
     check("...while every band is a nought, which is why the flag is the answer",
           _card.get("clients") == 0 and _card.get("needs_attention") == 0)
-    _sc._cached = lambda: _ok_audit
+    _sc._registry_clients = lambda *a, **k: [{
+        "name": "Fixture Client", "id": "fixture-client", "products": 1,
+        "active": True,
+    }]
+    _sc._CACHE.update({"data": None, "at": 0.0})
     _card_ok = _sc.scorecard()
+    check("a real run still reads as measured",
+          _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
+    check("and still carries the counts the tile draws",
+          _card_ok.get("clients") and _card_ok.get("edges"),
+          repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
 finally:
-    _sc._cached = _sc_real_cached
-
-check("a real run still reads as measured",
-      _card_ok.get("measured") is True, repr(_card_ok.get("measured")))
-check("and still carries the counts the tile draws",
-      _card_ok.get("clients") and _card_ok.get("edges"),
-      repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
+    _sc._registry_clients = _sc_real_registry
+    _sc._load_source = _sc_real_load_source
+    _sc._load_knack_creative = _sc_real_load_knack
+    _sc._load_cloudinary = _sc_real_load_cloudinary
+    _sc._CACHE.update({"data": None, "at": 0.0})
 
 # The tile has to read it. A payload carrying the flag and a card ignoring it
 # is the same nought on the same dashboard.

@@ -162,6 +162,113 @@ def run():
     check("[unit] customer ids format with dashes",
           google_ads.format_customer_id("1234567890") == "123-456-7890")
 
+    # Google Ads v19+ fixes Search pages at 10,000 rows. Sending pageSize is
+    # not ignored -- v25 rejects the entire request. Pagination still follows
+    # Google's next token without it.
+    search_calls = []
+    search_pages = iter([
+        {"results": [{"campaign": {"id": "1"}}], "nextPageToken": "page-2"},
+        {"results": [{"campaign": {"id": "2"}}]},
+    ])
+
+    def fake_search_request(method, path, body=None, **kw):
+        search_calls.append({"method": method, "path": path, "body": body})
+        return next(search_pages)
+
+    real_request = google_ads.request
+    google_ads.request = fake_search_request
+    try:
+        paged_rows = google_ads.search("123-456-7890", "SELECT campaign.id FROM campaign")
+    finally:
+        google_ads.request = real_request
+    check("[google read] search omits unsupported pageSize",
+          all("pageSize" not in call["body"] for call in search_calls), search_calls)
+    check("[google read] search still follows Google's next page token",
+          len(paged_rows) == 2 and search_calls[1]["body"].get("pageToken") == "page-2",
+          search_calls)
+
+    # The MCC tree is the slow first request on Live campaigns. A successful
+    # hierarchy is held briefly, copied on return and dropped on reconnect.
+    account_searches = []
+    real_cfg, real_search = google_ads.cfg, google_ads.search
+
+    def fake_ads_cfg():
+        return {"login_customer_id": "1234567890"}
+
+    def fake_account_search(customer_id, query, **kw):
+        account_searches.append(customer_id)
+        return [
+            {"customerClient": {"id": "1234567890", "descriptiveName": "Agency MCC",
+                                "currencyCode": "USD", "timeZone": "America/New_York",
+                                "manager": True, "level": 0}},
+            {"customerClient": {"id": "2223334444", "descriptiveName": "Client Ads",
+                                "currencyCode": "USD", "timeZone": "America/New_York",
+                                "manager": False, "level": 1}},
+        ]
+
+    google_ads.cfg, google_ads.search = fake_ads_cfg, fake_account_search
+    google_ads.clear_account_cache()
+    try:
+        first_accounts = google_ads.list_client_accounts()
+        first_accounts[0]["name"] = "caller mutation"
+        second_accounts = google_ads.list_client_accounts()
+        google_ads.forget_tokens()
+        third_accounts = google_ads.list_client_accounts()
+    finally:
+        google_ads.cfg, google_ads.search = real_cfg, real_search
+        google_ads.clear_account_cache()
+    check("[google read] the MCC hierarchy is cached for repeated page loads",
+          len(account_searches) == 2, account_searches)
+    check("[google read] callers cannot mutate the cached account picker",
+          second_accounts[0]["name"] == "Agency MCC", second_accounts)
+    check("[google read] reconnecting invalidates the MCC cache",
+          third_accounts[0]["name"] == "Agency MCC", third_accounts)
+
+    # Metadata keeps zero-traffic campaigns visible; metrics supplies the
+    # selected range. They must remain separate but should overlap in time.
+    query_gate = threading.Barrier(2)
+    overlapped = []
+    real_search = google_ads.search
+
+    def fake_campaign_search(customer_id, query, **kw):
+        try:
+            query_gate.wait(timeout=2)
+            overlapped.append(True)
+        except threading.BrokenBarrierError:
+            overlapped.append(False)
+        if "campaign_budget.amount_micros" in query:
+            return [{
+                "campaign": {"id": "77", "name": "Roofing", "status": "ENABLED",
+                             "advertisingChannelType": "SEARCH",
+                             "biddingStrategyType": "MAXIMIZE_CLICKS"},
+                "campaignBudget": {"amountMicros": "25000000"},
+            }]
+        return [{
+            "campaign": {"id": "77"},
+            "metrics": {"costMicros": "125000000", "impressions": "9000",
+                        "clicks": "450", "ctr": 0.05, "averageCpc": "277777",
+                        "conversions": 30, "costPerConversion": "4166666"},
+        }]
+
+    google_ads.search = fake_campaign_search
+    try:
+        live_campaigns = google_ads.list_campaigns("2223334444")
+    finally:
+        google_ads.search = real_search
+    check("[google read] campaign metadata and metrics run concurrently",
+          len(overlapped) == 2 and all(overlapped), overlapped)
+    check("[google read] concurrent campaign rows still merge by id",
+          len(live_campaigns) == 1 and live_campaigns[0]["cost"] == 125.0
+          and live_campaigns[0]["daily_budget"] == 25.0, live_campaigns)
+
+    campaign_page_src = Path("modules/ads_builder/templates/ads_campaigns.html").read_text()
+    check("[live campaigns] a saved account starts before MCC discovery finishes",
+          "earlyLoad = load(saved)" in campaign_page_src)
+    check("[live campaigns] a stale response cannot replace a newer account",
+          "generation !== loadGeneration" in campaign_page_src)
+    check("[live campaigns] the range event is not mistaken for a customer id",
+          "getElementById('range').onchange = () => load()" in campaign_page_src)
+
     # ------------------------------------------------- deploy payload shape
     # Build the mutate batch without touching the network, and assert the
     # things Google rejects campaigns for.
