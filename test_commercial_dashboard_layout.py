@@ -39,7 +39,7 @@ check("only this dashboard asks for the Hub icon rail",
       'data-s1hub-collapse="1"' in TPL)
 check("the dashboard opts the generic accordion out",
       'data-s1-workspace="1"' in TPL)
-check("the section rail is labelled for assistive technology",
+check("the section rail is labeled for assistive technology",
       'aria-label="Dashboard sections"' in TPL)
 check("the rail offers the three groups and the old all-at-once view",
       re.findall(r'class="cb-dashboard-rail-link(?: on)?"[^>]*>([^<]+)', TPL),

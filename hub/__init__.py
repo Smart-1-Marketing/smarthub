@@ -1841,9 +1841,14 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .ghl_forms import summary
+        # The url rides along so the client's sub-account can be resolved on
+        # domain as well as on name -- location_for() joins on either, and a
+        # client filed under a slightly different name is exactly the row a
+        # name-only match misses.
         return jsonify(summary(request.args.get("name", ""),
                                request.args.get("location", ""),
-                               request.args.get("period", "this_month")))
+                               request.args.get("period", "this_month"),
+                               request.args.get("url", "")))
 
     @app.route("/creative")
     def page_creative():
