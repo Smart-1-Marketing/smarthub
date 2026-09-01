@@ -77,6 +77,14 @@ LIVE = [
      "domain": "northgatedental.com",
      "production_url": "https://northgatedental.com",
      "platform": "WordPress", "client_status": "Active", "hm_fee": 0},
+    # A third, so the live list and the sanitized export differ in *size*.
+    # "websites_total came from the export" only proves anything while the two
+    # counts cannot coincide -- and the fixture export holds two rows, so with
+    # two here the guard below read 2 != 2 and passed on the bug it exists for.
+    {"id": "r3", "client": "Halstead Roofing", "organization": "",
+     "domain": "halsteadroofing.com",
+     "production_url": "https://halsteadroofing.com",
+     "platform": "Simvoly", "client_status": "Active", "hm_fee": 0},
 ]
 
 
@@ -122,7 +130,8 @@ _reset()
 
 rows, source, err = kd._website_source()                          # noqa: SLF001
 check("the live registry answers", source == "knack", (source, err))
-check("and every record comes through", len(rows) == 2, len(rows))
+check("and every record comes through",
+      len(rows) == len(LIVE), (len(rows), len(LIVE)))
 check("in the export's shape",
       all({"name", "domain", "liveUrl", "platform"} <= set(r) for r in rows))
 check("websites() reports which source answered",
