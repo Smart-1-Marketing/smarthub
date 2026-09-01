@@ -228,9 +228,11 @@ def run():
     # selected range. They must remain separate but should overlap in time.
     query_gate = threading.Barrier(2)
     overlapped = []
+    campaign_queries = []
     real_search = google_ads.search
 
     def fake_campaign_search(customer_id, query, **kw):
+        campaign_queries.append(query)
         try:
             query_gate.wait(timeout=2)
             overlapped.append(True)
@@ -240,7 +242,9 @@ def run():
             return [{
                 "campaign": {"id": "77", "name": "Roofing", "status": "ENABLED",
                              "advertisingChannelType": "SEARCH",
-                             "biddingStrategyType": "MAXIMIZE_CLICKS"},
+                             "biddingStrategyType": "MAXIMIZE_CLICKS",
+                             "startDateTime": "2026-09-01 00:00:00",
+                             "endDateTime": "2037-12-30 23:59:59"},
                 "campaignBudget": {"amountMicros": "25000000"},
             }]
         return [{
@@ -257,9 +261,19 @@ def run():
         google_ads.search = real_search
     check("[google read] campaign metadata and metrics run concurrently",
           len(overlapped) == 2 and all(overlapped), overlapped)
+    metadata_query = next(q for q in campaign_queries if "campaign_budget.amount_micros" in q)
+    check("[google read] campaign dates use the v25 date-time fields",
+          "campaign.start_date_time" in metadata_query
+          and "campaign.end_date_time" in metadata_query
+          and "campaign.start_date," not in metadata_query
+          and "campaign.end_date," not in metadata_query,
+          metadata_query)
     check("[google read] concurrent campaign rows still merge by id",
           len(live_campaigns) == 1 and live_campaigns[0]["cost"] == 125.0
           and live_campaigns[0]["daily_budget"] == 25.0, live_campaigns)
+    check("[google read] v25 campaign datetimes keep the date-only UI contract",
+          live_campaigns[0]["start_date"] == "2026-09-01"
+          and live_campaigns[0]["end_date"] == "2037-12-30", live_campaigns)
 
     campaign_page_src = Path("modules/ads_builder/templates/ads_campaigns.html").read_text()
     check("[live campaigns] a saved account starts before MCC discovery finishes",
@@ -305,6 +319,11 @@ def run():
     check("[deploy] the campaign is PAUSED", campaign["status"] == "PAUSED")
     check("[deploy] the campaign is a Search campaign",
           campaign["advertisingChannelType"] == "SEARCH")
+    check("[deploy] campaign start uses the v25 date-time field",
+          "startDate" not in campaign
+          and len(campaign.get("startDateTime", "")) == 19
+          and campaign["startDateTime"][4] == "-"
+          and campaign["startDateTime"][10] == " ", campaign)
     check("[deploy] search partners are off by default",
           campaign["networkSettings"]["targetSearchNetwork"] is False)
     check("[deploy] display network is off",

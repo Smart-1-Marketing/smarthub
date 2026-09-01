@@ -81,6 +81,25 @@ export interface BuildOptions {
   cacheDir: string;
   /** Run discovery server-side when the submission carries no brand. */
   discover?: boolean;
+  /**
+   * Our own stored copy of a discovery result, by domain.
+   *
+   * When the intake form ran discovery in the browser it submits the brand,
+   * and the branch below then skips discovery entirely -- so the warnings
+   * and the low-confidence flag that came back with that brand reached the
+   * customer's screen and stopped there. The rep opened a project saying
+   * "Brand details on file" and nothing else.
+   *
+   * Recovered from the cache rather than from the submission. The intake
+   * form used to post its own `brandWarnings` array, which nothing here
+   * declared or read; forwarding it would have been the shorter fix and the
+   * wrong one, because a caveat printed against somebody's brand has to come
+   * from our record of what we found rather than from a value the page can
+   * put anything in. It is a disk read, so nothing is re-fetched and nothing
+   * is billed; a domain with no record answers `null`, which is "we have
+   * nothing stored" and not "there was nothing to say".
+   */
+  brandRecord?: (domain: string) => { warnings?: string[]; needsReview?: boolean } | null;
   /** Generate a placeholder hero when the customer supplied no imagery. */
   allowPlaceholders?: boolean;
   /** Write copy with the model rather than the deterministic fallback. Default true. */
@@ -453,6 +472,14 @@ async function deriveOrientations(
 
 /* -------------------------------------------------------------- the bridge */
 
+/**
+ * Said the same way whichever side ran the lookup. Discovery happens in two
+ * places -- here, and in the intake form's browser -- and a rep reading a
+ * project cannot tell which, so the sentence must not differ.
+ */
+export const LOW_CONFIDENCE_NOTE =
+  'Brand discovery confidence was low — please review before sending.';
+
 export async function buildCampaign(
   sub: Submission,
   opts: BuildOptions,
@@ -474,9 +501,22 @@ export async function buildCampaign(
       discovered = found.brand;
       notes.push(...found.warnings);
       logoCandidates.push(...found.logoOptions.map((l) => l.url));
-      if (found.needsReview) notes.push('Brand discovery confidence was low — please review before sending.');
+      if (found.needsReview) notes.push(LOW_CONFIDENCE_NOTE);
     } catch (e: any) {
       notes.push(`Brand lookup did not return a result (${e?.message ?? e}). Working from uploads only.`);
+    }
+  } else if (discovered && domain && sub.brandSource) {
+    // Discovery ran in the browser and the customer kept what it found, so
+    // the branch above never ran and its warnings never reached the notes.
+    // `brandSource` is the exact gate: the intake form sets it only inside
+    // the branch that keeps a discovered brand, and clears the discovery
+    // outright when somebody presses "This isn't my brand" -- so a brand
+    // typed in by hand carries none, and warnings about a brand the
+    // customer rejected are never attached to their project.
+    const rec = opts.brandRecord?.(domain);
+    if (rec) {
+      for (const w of rec.warnings ?? []) if (typeof w === 'string' && w.trim()) notes.push(w);
+      if (rec.needsReview) notes.push(LOW_CONFIDENCE_NOTE);
     }
   }
 

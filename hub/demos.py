@@ -82,26 +82,27 @@ SCENARIOS: list[Scenario] = [
         spends=["openai.text"],
         steps=[
             Step("Start with the client, not the picture",
-                 "Fill in the company, the page URL the images will live on, "
-                 "and a project name.",
+                 "Fill in the company, the website the images will live "
+                 "on, and a project name.",
                  "This is the whole trick. The AI gets these three fields along "
                  "with the picture, which is the difference between "
                  "'man-with-tools.webp' and "
                  "'riverside-hvac-technician-servicing-outdoor-ac-unit.webp'. "
                  "Skip them and you get generic names.",
-                 action="fill", selector="[name='company']", value="Riverside HVAC"),
-            Step("Point it at the page",
-                 "The specific page URL, not just the domain.",
-                 "A photo destined for the furnace-repair page should be named "
-                 "differently from the same photo on the about page.",
-                 action="fill", selector="[name='page_url']",
-                 value="https://riverside-hvac.example/furnace-repair"),
+                 action="fill", selector="#company", value="Riverside HVAC"),
+            Step("Give it the website",
+                 "The client's site. A bare domain is what this field wants.",
+                 "It is the site rather than one page: which page a photo "
+                 "belongs to is the optional Page name two boxes along, and "
+                 "that is a name rather than a URL.",
+                 action="fill", selector="#weburl",
+                 value="riverside-hvac.example"),
             Step("Name the project",
                  "Anything you'll recognize later. This becomes the Cloudinary "
                  "folder and the archive filter.",
                  "Use the same shape every time — 'furnace-repair-2026' beats "
                  "'photos'. You'll be searching these in six months.",
-                 action="fill", selector="[name='project']", value="furnace-repair-2026"),
+                 action="fill", selector="#project", value="furnace-repair-2026"),
             Step("Add the photos",
                  "Drag in up to five. We'll use three sample camera photos — "
                  "full-size, straight off a phone.",
@@ -115,14 +116,14 @@ SCENARIOS: list[Scenario] = [
                  "6000-pixel photo to WebP leaves it 6000 pixels wide and still "
                  "enormous — the cap is what actually shrinks it. 2400 for hero "
                  "images, 1600 for in-page, 1200 for thumbnails.",
-                 action="choose", selector="[name='max_edge']", value="2400"),
+                 action="choose", selector="#maxEdge", value="2400"),
             Step("Let the AI name them",
                  "Click Analyze. Each photo comes back with a proposed filename "
                  "and alt text.",
                  "In this demo the names are pre-supplied so we don't spend "
                  "tokens — but they're exactly what the live call returns for "
                  "these inputs.",
-                 action="click", selector="[data-demo='analyze']", simulated=True),
+                 action="click", selector="#btnAnalyze", simulated=True),
             Step("Read the alt text, then fix it",
                  "Edit anything that's wrong. The counter turns amber past 125 "
                  "characters.",
@@ -142,13 +143,13 @@ SCENARIOS: list[Scenario] = [
                  "Cloudinary context.",
                  "The context fields are why the archive is searchable later "
                  "instead of being a wall of filenames.",
-                 action="click", selector="[data-demo='save']"),
+                 action="click", selector="#btnSave"),
             Step("Look at what you saved",
                  "Compare the before and after sizes.",
                  "A 9 MB phone photo lands around 1.1 MB at 2400px — roughly 88% "
                  "off, with no visible quality loss at web sizes. That is a "
                  "Core Web Vitals score you just moved.",
-                 action="look", selector="[data-demo='results']"),
+                 action="look", selector="#savedList"),
             Step("Copy the tag, not the URL",
                  "'Copy <img> tag' gives you the URL, alt text and width/height "
                  "already filled in.",
@@ -685,7 +686,7 @@ SCENARIOS: list[Scenario] = [
                  "Who it's for and who's signing it.",
                  "The contact name here is what prints on the PDF cover. Use "
                  "the person who actually decides, not whoever emailed you.",
-                 action="fill", selector="[data-demo='client-name']", value="Riverside HVAC"),
+                 action="fill", selector="#clientQ", value="Riverside HVAC"),
             Step("Build the line items",
                  "Add a category, then the services under it.",
                  "Group by what the client thinks they're buying — 'Website', "
@@ -722,11 +723,13 @@ SCENARIOS: list[Scenario] = [
                  "from the tool afterwards rather than sending a Word file as "
                  "final.",
                  action="click", selector="[data-demo='quote-docx']"),
-            Step("Mark it converted when they sign",
-                 "The converted flag drives the dashboard.",
-                 "This is the field that makes the pipeline numbers real. An "
-                 "unmarked won quote is a quote the dashboard thinks you lost.",
-                 action="look", selector="[data-demo='mark-converted']"),
+            Step("Convert it when they sign",
+                 "Convert to IO. Converted is not a status you set.",
+                 "The status pills offer Draft, Sent, Approved and Lost. "
+                 "Converted is what the quote becomes once the insertion "
+                 "order exists behind it \u2014 which is why a converted quote "
+                 "is the one thing the validity window will not expire.",
+                 action="look", selector="[data-demo='convert']"),
             Step("Next time, duplicate instead",
                  "Duplicate copies the whole builder state to a new number.",
                  "Most quotes are a variation on the last one for that "
