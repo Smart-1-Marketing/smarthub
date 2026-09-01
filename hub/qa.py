@@ -2628,6 +2628,15 @@ EXTRAS = [
                     "client — searchable, with whoever it might belong to "
                     "and why.",
             "ico": "&#128202;", "href": "/tools/google-match"}),
+        ("Data Quality", "match-suite", {
+            "title": "Match Suite Sub-accounts",
+            "desc": "Every Smart 1 Suite sub-account the app is installed in "
+                    "that no client is recorded against \u2014 with the client "
+                    "each one is, matched on an exact domain first and an "
+                    "exact name second. Until this is recorded, a client's "
+                    "Forms card, their Social Planner push and every other "
+                    "location-scoped feature has no answer for them.",
+            "ico": "&#128279;", "href": "/tools/suite-match"}),
         ("Data Quality", "campaign-assets", {
             "title": "Campaign Assets Needed",
             "desc": "Every campaign on an insertion order still waiting on "

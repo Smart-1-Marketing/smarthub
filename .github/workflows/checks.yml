@@ -1726,6 +1726,13 @@ jobs:
       # submissions"; and a baseline nobody could read was recorded as 0.
       - name: Whose forms, and what an empty card means
         run: python3 test_ghl_forms.py
+      # The client-to-sub-account mapping, in its own store. Every
+      # location-scoped feature needs it, and getting a pairing wrong puts
+      # one client's work in another client's account -- so a proposal is
+      # exact or it is not a proposal, two candidates propose neither, and a
+      # sub-account already held is refused rather than reassigned.
+      - name: Which Suite sub-account belongs to which client
+        run: python3 test_suite_map.py
       # Landed on main invoked by nothing, so test_ci_gate.py -- the check that
       # exists to catch exactly this -- was already failing on main when this
       # branch was cut. Wired here rather than left, because a test file the
