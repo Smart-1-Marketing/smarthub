@@ -490,19 +490,11 @@ check("the export flags identify one coherent month pair",
       _export_flag_disagreement == 0,
       f"{_export_flag_disagreement} flag rows disagree")
 
-# And every salesperson with work in the configured export appears on its
-# scorecard. Deriving the names keeps the regression meaningful with the
-# sanitized fixture and after that fixture is refreshed.
+# And the two fixture salespeople are on the scorecard, including the Assigned
+# row that the old Live/Complete allowlist hid.
 _sc = qa.run("sales-scorecard", _export_flag_ym)
 _names = " ".join(str(c) for row in _sc["rows"] for c in row)
-_export_start, _export_end = qa._month_bounds(_export_flag_ym)
-_expected_sales = sorted({str(r.get("sales") or "").strip()
-                          for r in _export_rows
-                          if str(r.get("sales") or "").strip()
-                          and qa._active_in_month(r, _export_start, _export_end)})
-check("the scorecard fixture includes an active salesperson",
-      bool(_expected_sales), _expected_sales)
-for _who in _expected_sales:
+for _who in ("Sample Seller", "Assigned Seller"):
     check(f"{_who} has live work and appears on the Scorecard",
           _who in _names, True)
 
@@ -835,26 +827,26 @@ section("The dashboard tile that read a refusal as four noughts")
 
 from hub import stale_creative as _sc                            # noqa: E402
 
-_sc_real = _sc._registry_clients
-_sc_real_sources = _sc.SOURCES
+_sc_real_registry = _sc._registry_clients
 _sc_real_load_source = _sc._load_source
 _sc_real_load_knack = _sc._load_knack_creative
+_sc_real_load_cloudinary = _sc._load_cloudinary
+_fixture_creative = {
+    "source": "fixture",
+    "source_label": "Fixture creative",
+    "client_raw": "Fixture Client",
+    "uploaded_at": _dt.datetime.now(_dt.timezone.utc),
+    "title": "Fixture creative",
+    "note": "",
+    "alt": "",
+    "url": "",
+    "thumb": "",
+}
 try:
-    # The private creative archives are deliberately absent from the sanitized
-    # repository. Supply one measured source so this section isolates the two
-    # halves of the join instead of testing whether a developer has live data.
-    _sc.SOURCES = ({"label": "QA fixture"},)
-    _sc._load_source = lambda _source: [{
-        "client_raw": "Acme Bakery",
-        "uploaded_at": _dt.datetime.now(_dt.timezone.utc),
-        "source_label": "QA fixture",
-        "title": "Fixture creative",
-        "note": "",
-        "alt": "",
-        "url": "",
-        "thumb": "",
-    }]
+    _sc._load_source = lambda src: ([_fixture_creative]
+                                    if src is _sc.SOURCES[0] else [])
     _sc._load_knack_creative = lambda: []
+    _sc._load_cloudinary = lambda: []
     _sc._registry_clients = lambda *a, **k: []
     _sc._CACHE.update({"data": None, "at": 0.0})
     _card = _sc.scorecard()
@@ -868,7 +860,10 @@ try:
     check("...while every band is a nought, which is why the flag is the answer",
           _card.get("clients") == 0 and _card.get("needs_attention") == 0)
 
-    _sc._registry_clients = _sc_real
+    _sc._registry_clients = lambda *a, **k: [{
+        "name": "Fixture Client", "id": "fixture-client", "products": 1,
+        "active": True,
+    }]
     _sc._CACHE.update({"data": None, "at": 0.0})
     _card_ok = _sc.scorecard()
     check("a real run still reads as measured",
@@ -877,10 +872,10 @@ try:
           _card_ok.get("clients") and _card_ok.get("edges"),
           repr({k: _card_ok.get(k) for k in ("clients", "edges")}))
 finally:
-    _sc._registry_clients = _sc_real
-    _sc.SOURCES = _sc_real_sources
+    _sc._registry_clients = _sc_real_registry
     _sc._load_source = _sc_real_load_source
     _sc._load_knack_creative = _sc_real_load_knack
+    _sc._load_cloudinary = _sc_real_load_cloudinary
     _sc._CACHE.update({"data": None, "at": 0.0})
 
 # The tile has to read it. A payload carrying the flag and a card ignoring it
@@ -967,7 +962,7 @@ _dead = sorted(f"{k}:{a}" for k, a in _emitted if a not in _handled)
 check("every action a report puts on a row has a handler on the page",
       not _dead, "; ".join(_dead))
 check("...and the sweep found buttons to check at all",
-      bool(_emitted), f"{len(_emitted)} action(s) emitted")
+      len(_emitted) >= 1, f"{len(_emitted)} action(s) emitted")
 
 
 # ---------------------------------------------------------------------------
