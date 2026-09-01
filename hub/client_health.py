@@ -1552,6 +1552,44 @@ def api_client_owners_follow_rule():
 
 # ---- the one client, from Client 360 --------------------------------------
 
+
+def issues_for_client(client: str) -> dict:
+    """Outstanding work for one exact client, shaped for Client 360.
+
+    The full report remains the source of truth for marks and source-health
+    warnings.  Client 360 only needs one row, though, and must not turn a
+    partial-name match into somebody else's issues when two clients share a
+    prefix.
+    """
+    name = str(client or "").strip()
+    if not name:
+        return {"ok": False, "error": "A client is required."}
+
+    data = report(scope="all", q=name)
+    key = _client_key(name)
+    row = next((r for r in data.get("rows") or ()
+                if _client_key(r.get("client")) == key), None)
+    sources = data.get("sources") or {}
+    blind = sorted(str(source).replace("_", " ")
+                   for source, state in sources.items()
+                   if not (state or {}).get("measured"))
+    issues = list((row or {}).get("issues") or ())
+    measured = bool(data.get("measured"))
+    return {
+        "ok": True,
+        "client": name,
+        "matched": row is not None,
+        "measured": measured,
+        "complete": bool(measured and not blind),
+        "issues": issues,
+        "issue_count": len(issues),
+        "generated_at": str(data.get("generated_at") or ""),
+        # A clear-looking empty list from a source-blind run is the dangerous
+        # answer here, so Client 360 gets the same warning as the full report.
+        "warning": str(data.get("note") or "") if blind else "",
+        "missing_sources": blind,
+    }
+
 @bp.route("/api/client/owner")
 def api_client_owner():
     """Who owns one client. Reachable from inside the Suite frame.
@@ -1588,6 +1626,34 @@ def api_client_owner():
         "at": str(row.get("at") or ""), "by": str(row.get("by") or ""),
         "users": users, "user_error": user_error,
     })
+
+
+@bp.route("/api/client/issues")
+def api_client_issues():
+    """Outstanding issues for Client 360's inline disclosure.
+
+    This deliberately lives under ``/api/client/`` alongside the owner read:
+    that prefix is available when Client 360 is embedded in Smart 1 Suite.
+    Sending the card to ``/api/my-clients`` would make the disclosure work in
+    the Hub and fail in the frame where the same record is also used.
+    """
+    name = (request.args.get("client") or "").strip()
+    if not name:
+        return _json_error("A client is required.")
+    try:
+        return jsonify(issues_for_client(name))
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({
+            "ok": False,
+            "client": name,
+            "matched": False,
+            "measured": False,
+            "complete": False,
+            "issues": [],
+            "issue_count": 0,
+            "error": f"The outstanding issues could not be read: "
+                     f"{type(exc).__name__}: {exc}"[:300],
+        }), 503
 
 
 @bp.route("/api/client/owner/set", methods=["POST"])
