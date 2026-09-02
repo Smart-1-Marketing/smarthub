@@ -80,6 +80,7 @@ from hub.webargs import clamp_int
 # edited anyway, so it moves onto the shared implementations rather than
 # keeping local copies of geography, prompt and Suite logic.
 from hub import business_description as hub_desc
+from hub import consulting_scope as hub_scope
 from hub import creative_needs as hub_creative
 from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
@@ -803,21 +804,56 @@ def api_config():
 # stored name stays and the displayed one changes.
 CONSULTING_DISPLAY = "Strategy Engagement"
 
+# The engagement is priced by formula rather than by proportional budget
+# share, which is how every other line on the plan gets its dollars: strategy
+# and consulting is not media, so slicing it out of the same budget pool as
+# the channels it is meant to be advising on prices it against a number it
+# has nothing to do with. A baseline covers the standing scope -- the
+# meetings, the reporting, the oversight -- and each additional product on
+# the plan adds real coordination work, so the price grows with the plan
+# rather than standing still while the campaign around it gets bigger.
+# Served through consulting_spec() rather than hard-coded in the template a
+# second time -- the rule this file states at length about rate_rules and
+# creative_sizes -- so a price change lands in one place.
+CONSULTING_BASE = 300
+CONSULTING_PER_PRODUCT = 50
+
 
 def consulting_spec() -> dict:
     """The catch-all line as the wizard needs it, from the one definition.
 
     `hub.product_intake.CONSULTING` is the whole of the join. What is added
-    here is presentation: the name a person reads, and the label shape the
+    here is presentation: the name a person reads, the label shape the
     plan's own rows use (`category — name`), because every other line on the
-    plan carries one and a row without it renders as a different kind of thing.
+    plan carries one and a row without it renders as a different kind of
+    thing, and the pricing formula the browser reads rather than restates.
     """
     spec = dict(hub_intake.CONSULTING)
     return {"product": spec["product"], "category": spec["category"],
             "listed_rate": spec.get("listed_rate") or "",
             "display": CONSULTING_DISPLAY,
             "label": f'{spec["category"]} — {CONSULTING_DISPLAY}',
-            "description_hint": spec.get("description") or ""}
+            "description_hint": spec.get("description") or "",
+            "base": CONSULTING_BASE,
+            "per_product": CONSULTING_PER_PRODUCT}
+
+
+def consulting_price(other_count: int) -> float:
+    """The formula the plan editor's own `consultingPrice()` mirrors.
+
+    A baseline plus a per-product amount for every OTHER line already on the
+    plan -- consulting does not count itself. Kept here, even though nothing
+    server-side currently prices a fresh line from scratch, because
+    `campaign_cost()` only ever reads `item["dollars"]` as saved by the
+    browser: this is the one place both readings can be checked against, the
+    same reason `hub/kpi_framework.py` exists beside a JS mirror rather than
+    only inside the mirror.
+    """
+    try:
+        n = max(0, int(other_count or 0))
+    except (TypeError, ValueError):
+        n = 0
+    return float(CONSULTING_BASE + CONSULTING_PER_PRODUCT * n)
 
 
 def is_consulting(item) -> bool:
@@ -869,6 +905,25 @@ def consulting_unresolved(state) -> list:
             out.append({"label": str(item.get("label") or entry["product"]),
                         "question": hub_intake.question_for(entry)})
     return out
+
+
+@app.post("/api/consulting-scope")
+def api_consulting_scope():
+    """A description suggestion for the Strategy Engagement line, built from
+    what this campaign actually engages.
+
+    Reads `hub.consulting_scope`, the one description of what "strategy and
+    consulting" covers -- a suggestion the rep's own text always wins over,
+    the overlay rule this codebase applies everywhere else a value someone
+    typed is offered a better guess. Nothing is applied by this call; the
+    browser only ever seeds a box a person can still edit or clear before
+    pressing "+ Add a strategy engagement".
+    """
+    body = request.get_json(force=True) or {}
+    state = {"items": body.get("items") or [],
+             "objectives": body.get("objectives") or []}
+    return jsonify({"ok": True, "description": hub_scope.description(state),
+                    "keys": hub_scope.applicable_keys(state)})
 
 
 def _creative_sizes() -> dict:
@@ -3630,6 +3685,48 @@ def api_business_description():
                     "warnings": hub_desc.check(description)})
 
 
+# The prompt below asks for exactly these five headings, in this exact
+# wording, as plain text lines -- nothing here renders Markdown, so a
+# heading is a line that matches one of these rather than a "##" to strip.
+_LANDING_HEADINGS = ("CTA Status", "Strengths", "Required Fixes Before Launch",
+                     "Recommended Improvements", "Tracking Checks")
+
+
+def _landing_sections(review: str) -> dict:
+    """The review's own headed sections, split apart.
+
+    A heading the model dropped is simply absent rather than guessed at --
+    the sections dict always has all five keys, empty where nothing was
+    written under them.
+    """
+    sections: dict = {h: [] for h in _LANDING_HEADINGS}
+    current = None
+    for raw in str(review or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        matched = next((h for h in _LANDING_HEADINGS
+                        if line.lower().rstrip(":") == h.lower()), None)
+        if matched:
+            current = matched
+            continue
+        if current is None:
+            continue
+        sections[current].append(line.lstrip("•").strip() if line.startswith("•") else line)
+    return sections
+
+
+def _landing_fixes(review: str) -> list:
+    """The launch-blocking items, as a flat list of sentences.
+
+    Read from "Required Fixes Before Launch" alone -- the heading the prompt
+    reserves for what must change before the page can be used, kept apart
+    from "Recommended Improvements", which is optional polish and never
+    drives the two-choice panel this feeds.
+    """
+    return [s for s in _landing_sections(review).get("Required Fixes Before Launch", []) if s]
+
+
 def _headings_line(observed):
     """Read from `modules/ads_builder/landing_page.py`, which is where the
     shape it describes comes from. The IO Builder's landing review needs the
@@ -3716,7 +3813,13 @@ def api_review_landing_page():
                         "error": "The page was read, but the AI review failed",
                         "detail": str(exc)}), 502
     return jsonify({"ok": True, "review": review, "url": observed.get("url") or url,
-                    "observed": observed, "summary": _lp.summary_line(observed)})
+                    "observed": observed, "summary": _lp.summary_line(observed),
+                    # The launch-blocking fixes, pulled out of the review's own
+                    # heading rather than the whole prose -- this is what
+                    # auto-populates the Recommended landing setup panel, so
+                    # a rep reads the same finding twice (once here, once
+                    # under the panel it feeds) rather than a paraphrase of it.
+                    "fixes": _landing_fixes(review)})
 
 
 @app.post("/api/zipcodes-in-radius")
@@ -3995,6 +4098,107 @@ def api_find_targets():
                  "does not mean the search failed." if not out else
                  "Researched, not verified. Tick what belongs on this campaign; "
                  "check any address before it is used to build a geo-fence."),
+    })
+
+
+def _parse_audience_reply(reply: str) -> list:
+    """A Pickaxe chat reply, split into one audience candidate per line.
+
+    The reply is prose from a chat agent, not JSON -- `hub/pickaxe.py`'s own
+    VERIFY note says the response shape is transcribed from Pickaxe's
+    published examples rather than exercised, so this reads defensively:
+    one candidate per line, a leading bullet, dash or number stripped, and
+    a line that reads like a heading or a whole sentence rather than a
+    short name is left out rather than offered as an audience nobody could
+    act on.
+    """
+    out = []
+    for raw in str(reply or "").split("\n"):
+        line = re.sub(r"^[-•*]\s*", "", raw.strip())
+        line = re.sub(r"^\d+[.)]\s*", "", line).strip()
+        if not line or line.endswith(":") or len(line) > 120:
+            continue
+        out.append(line)
+    return out
+
+
+@app.post("/api/find-audiences")
+def api_find_audiences():
+    """Up to twenty additional audience suggestions, from the Pick Axe agent.
+
+    `hub/pickaxe_registry.AUDIENCE_FINDER` carries the agency's own audience
+    catalog and topics taxonomy as a knowledge base neither this Hub nor a
+    plain model call holds, which is why it earns a live call rather than
+    being absorbed into a prompt the way the rest of Pickaxe's agents were
+    (`hub/pickaxe.py`'s own docstring names it as one of the two that do).
+
+    Falls back to the Hub's own model on `PickaxeUnavailable` -- the same
+    contract every Pickaxe caller uses -- and the response names which one
+    actually answered, because a rep reading a suggestion should be able to
+    tell whether it came off the agency's own catalog or a guess. Everything
+    comes back `accepted: false`: the rule `/api/find-targets` already
+    follows and `modules/ads_builder`'s own competitor research follows too
+    -- nothing reaches the campaign until a person ticks it.
+    """
+    body = request.get_json(force=True) or {}
+    client = str(body.get("client") or "").strip()
+    industry = str(body.get("industry") or "").strip()
+    sells = str(body.get("sells") or "").strip()
+    objectives = [str(o) for o in (body.get("objectives") or []) if str(o).strip()]
+    existing = [str(a).strip() for a in (body.get("existing") or []) if str(a).strip()]
+    target = ", ".join(p for p in [industry, sells, ", ".join(objectives)] if p) \
+        or "this client's likely customers"
+
+    source, names = "pickaxe", []
+    try:
+        from hub import pickaxe as hub_pickaxe
+        from hub.pickaxe_registry import AUDIENCE_FINDER, fill
+        reply = hub_pickaxe.ask(
+            AUDIENCE_FINDER["pickaxe_id"], module="sales_builder",
+            purpose="audience_finder", workspace_id=AUDIENCE_FINDER["workspace_id"],
+            inputs=fill(AUDIENCE_FINDER, client=client, target=target))
+        names = _parse_audience_reply(reply)
+    except Exception as exc:                            # noqa: BLE001
+        from hub.pickaxe import PickaxeUnavailable
+        if not isinstance(exc, PickaxeUnavailable):
+            logger.exception("Audience Finder failed")
+        source = "ai"
+        prompt = (
+            "You are a media planner building the audience targeting for a "
+            "local advertising campaign.\n"
+            f"Client: {client or 'the advertiser'}\n"
+            f"Industry: {industry or 'not given'}\n"
+            f"What they sell: {sells or 'not given'}\n"
+            f"Campaign goals: {', '.join(objectives) or 'not given'}\n"
+            + (f"Already on this campaign, do not repeat: {', '.join(existing[:40])}\n"
+               if existing else "")
+            + "\nSuggest up to 20 additional audience segments worth targeting -- "
+            "behavioral, contextual, demographic and CRM/lookback layers. Short "
+            "names only, no explanation.\n"
+            "Return STRICT JSON only: {\"audiences\":[\"...\"]}\n")
+        try:
+            raw = _json_from_ai(_openai_response(prompt, 3000))
+            names = [str(a) for a in (raw.get("audiences") or [])]
+        except Exception as exc2:                       # noqa: BLE001
+            return jsonify({"ok": False, "error": "The audience research did not run",
+                            "detail": str(exc2)}), 502
+
+    seen = {n.lower() for n in existing if n}
+    out = []
+    for name in names:
+        name = str(name).strip()[:120]
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        out.append({"name": name, "accepted": False})
+        if len(out) >= 20:
+            break
+    return jsonify({
+        "ok": True, "audiences": out, "source": source,
+        "note": ("Nothing came back for this campaign. That is an answer — it "
+                 "does not mean the search failed." if not out else
+                 f"{'From the agency audience catalog' if source == 'pickaxe' else 'Suggested by Smart 1'}, "
+                 "not verified. Tick what belongs on this campaign."),
     })
 
 

@@ -350,6 +350,44 @@ else:
           "install node, or this half is unverified")
 
 # ---------------------------------------------------------------------------
+section("Priced by formula, not by a slice of the media budget")
+
+check("the baseline is $300 and the per-product step is $50 — the literal "
+      "numbers asked for, not merely two sides agreeing with each other",
+      sb.CONSULTING_BASE == 300 and sb.CONSULTING_PER_PRODUCT == 50,
+      (sb.CONSULTING_BASE, sb.CONSULTING_PER_PRODUCT))
+check("consulting_spec() serves that same formula, so the browser never "
+      "hand-types a second copy of it",
+      spec.get("base") == sb.CONSULTING_BASE
+      and spec.get("per_product") == sb.CONSULTING_PER_PRODUCT,
+      spec)
+
+js2 = """
+const CFG = {consulting: %s};
+function isConsultingLine(i){
+ return !!(CFG.consulting&&(i||{}).product===CFG.consulting.product);}
+%s
+console.log(JSON.stringify([0, 1, 2, 5].map(consultingPrice)));
+""" % (json.dumps(sb.consulting_spec()), _lift("consultingPrice"))
+
+try:
+    out2 = subprocess.run(["node", "-e", js2], capture_output=True, text=True,
+                          timeout=30)
+    got2 = json.loads(out2.stdout.strip() or "[]")
+except Exception as exc:                                    # noqa: BLE001
+    got2 = []
+    print("  (node unavailable: %s)" % exc)
+
+if got2:
+    py = [sb.consulting_price(n) for n in (0, 1, 2, 5)]
+    check("the browser's consultingPrice() agrees with Python's, across "
+          "several plan sizes — the check both sides are held to",
+          got2 == py, (got2, py))
+else:
+    check("node was available to drive the pricing formula", False,
+          "install node, or this half is unverified")
+
+# ---------------------------------------------------------------------------
 section("The control refuses rather than adding a blank line")
 
 check("the wizard offers a control for it",

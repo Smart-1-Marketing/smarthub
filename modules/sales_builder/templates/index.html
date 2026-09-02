@@ -374,6 +374,7 @@
 <nav class="topnav s1d-subnav" id="topnav">
   <a data-v="dashboard" class="on" onclick="nav('dashboard')">Dashboard</a>
   <a data-v="proposals" onclick="nav('proposals')">Proposals</a>
+  <a data-v="leads" onclick="nav('leads')">Leads</a>
   <a data-v="io" onclick="nav('io')">Insertion Orders</a>
   <a data-v="clients" onclick="nav('clients')">Clients</a>
   <span class="sp"></span>
@@ -401,6 +402,7 @@
   </div></div>
   <div id="view-io" style="display:none"></div>
   <div id="view-clients" style="display:none"></div>
+  <div id="view-leads" style="display:none"></div>
 </div>
 
 <div class="bnav" id="bnav"><div class="wrap">
@@ -674,7 +676,7 @@ function drawRep(){document.getElementById('repName').textContent=REP_NAME||"Set
 /* ============================================================
    ROUTER
    ============================================================ */
-const VIEWS=["dashboard","proposals","builder","io","clients"];
+const VIEWS=["dashboard","proposals","builder","io","clients","leads"];
 function nav(v){VIEWS.forEach(x=>{document.getElementById('view-'+x).style.display=(x===v)?'':'none';});
  document.querySelectorAll('#topnav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v||(v==='builder'&&a.dataset.v==='proposals')));
  document.getElementById('bnav').style.display=(v==='builder')?'block':'none';
@@ -683,6 +685,7 @@ function nav(v){VIEWS.forEach(x=>{document.getElementById('view-'+x).style.displ
  if(v==='proposals')drawProposals();
  if(v==='io')drawIO();
  if(v==='clients')drawClients();
+ if(v==='leads')drawLeads();
  window.scrollTo(0,0);}
 
 /* ============================================================
@@ -1036,6 +1039,37 @@ async function drawClients(){
 }
 
 /* ============================================================
+   LEADS VIEW (proposals for somebody who is not a client yet)
+   ============================================================ */
+/* Converted is the one status that means an insertion order exists, which
+   is what makes a prospect a client on this Hub -- every other status is
+   still a lead. A proposal started for a prospect with no client name typed
+   yet (started mid-thought, or the client's name was not settled on the
+   call) has always been reachable only by scrolling the full Proposals list
+   for a blank Client column, which is how a real, in-progress quote reads as
+   lost. Grouped by client name so "Jet's Pizza" is one card with every
+   revision on it; a proposal with no name is grouped by whoever started it,
+   because "not available" alone is not a way back to it -- the rule
+   drawClients() applies to a blank client name one card over. */
+async function drawLeads(){
+ const host=document.getElementById('view-leads');
+ host.innerHTML='<div class="empty"><span class="spin"></span>Loading leads…</div>';
+ let l;try{l=await api('/sales/builder/api/quotes?limit=500');}catch(e){host.innerHTML='<div class="empty">'+esc(e.message)+'</div>';return;}
+ const leads=(l.quotes||[]).filter(x=>x.status!=='Converted');
+ const groups={};
+ leads.forEach(q=>{
+  const name=(q.client||"").trim();
+  const k=name||("Not available — "+((q.created_by||"").trim()||"Unknown"));
+  (groups[k]=groups[k]||[]).push(q);});
+ const names=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
+ host.innerHTML=`<div class="headrow"><div class="grow"><h1>Leads</h1><div class="pgsub">Proposals started for somebody who is not a client yet — a name not yet typed in reads "Not available", listed by whoever started it.</div></div></div>`+
+  (names.length?names.map(n=>{const qs=groups[n];
+   return `<div class="clientcard"><h3>${esc(n)}</h3><div class="meta">${esc(qs[0].website||"")}${qs[0].website?" · ":""}${qs.length} quote${qs.length===1?"":"s"}</div>
+   <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">${qs.map(x=>`<span class="pill" style="margin:0" onclick="openDrawer(${x.id})">${esc(x.quote_number)} · ${x.status}${x.client?"":" · by "+esc(x.created_by||"Unknown")}</span>`).join("")}</div></div>`;}).join("")
+  :'<div class="empty">No open leads — every saved proposal already belongs to a client, or nothing has been started yet.</div>');
+}
+
+/* ============================================================
    IO VIEW (existing app, embedded untouched)
    ============================================================ */
 async function drawIO(){
@@ -1254,6 +1288,7 @@ function freshState(){return{
  targetsOfInterest:[],
  audiences:[],budgetMode:"range",budget:8000,months:6,
  items:[],landingMode:"One landing page",landingUrl:"",landing:"",landingReview:"",
+ landingFixes:[],landingChoice:"",
  // Per-medium creative answers, keyed "video"/"audio" -- see hub/creative_needs.py.
  // {answer:"has"|"client"|"comp", fee:number, confirmed:bool}
  creativePlan:{},suiteTier:{include:true},
@@ -1938,8 +1973,18 @@ function productDelivery(rateValue,rateType,dollars){
  return{unit:"managed",val:0};}
 function itemDelivery(i,dollars){
  return productDelivery(sellRateOf(i),i&&i.rate,dollars);}
-function applySeeds(){const seed=S.items.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
- S.items.forEach(i=>{i.dollars=Math.round(S.budget*(i.pctSeed/seed)/50)*50;});}
+/* A strategy engagement is not media -- it is priced by consultingPrice()'s
+   own formula, never by a slice of the media budget, so it is excluded from
+   the proportional pool both as a denominator contributor and as a target:
+   including it would price a $300 line as if it were a $3,000 display buy,
+   and would dilute every real line's share by a weight that has nothing to
+   do with what it costs. */
+function applySeeds(){
+ const others=S.items.filter(i=>!isConsultingLine(i));
+ const seed=others.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
+ others.forEach(i=>{i.dollars=Math.round(S.budget*(i.pctSeed/seed)/50)*50;});
+ const otherCount=others.length;
+ S.items.filter(i=>isConsultingLine(i)).forEach(i=>{i.dollars=consultingPrice(otherCount);});}
 /* What the plan costs every month: the recurring lines only. A one-time
    production is not a monthly cost, and the copy of this that used to live in
    investmentTable() summed every line — so a $1,500 shoot read as $1,500 a
@@ -1962,7 +2007,9 @@ function syncBudgetToPlan(){
  if(total>0)S.budget=total;}
 function buildPackages(){
  const tiers=[{k:"Essential",mult:.7},{k:"Recommended",mult:1,rec:true},{k:"Accelerated",mult:1.5}];
- const seed=S.items.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
+ const others=S.items.filter(i=>!isConsultingLine(i));
+ const seed=others.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
+ const otherCount=others.length;
  S.packages=tiers.map(t=>{
   /* Recommended is the plan exactly, not the plan rounded to the nearest
      $250: it is the option the rest of the document is costed at, and a
@@ -1971,7 +2018,13 @@ function buildPackages(){
      genuinely proposals, so they round. */
   const monthly=t.mult===1?(planRecurring()||S.budget)
                           :Math.round(S.budget*t.mult/250)*250;
-  const lines=S.items.map(i=>{const dollars=Math.round(monthly*(i.pctSeed/seed)/50)*50;
+  /* A strategy engagement is priced by formula, on every tier alike -- the
+     count of other products on the plan does not change with the budget
+     tier, only the media dollars behind them do, so this is never a slice
+     of `monthly` the way every other line's is. */
+  const lines=S.items.map(i=>{
+   const dollars=isConsultingLine(i)?consultingPrice(otherCount)
+     :Math.round(monthly*(i.pctSeed/seed)/50)*50;
    const d=itemDelivery(i,dollars*S.months);
    return{name:itemLabel(i),cat:i.category,amt:dollars,unit:d.unit,val:d.val};});
   const impr=lines.filter(l=>l.unit==="impr").reduce((s,l)=>s+l.val,0);
@@ -2442,10 +2495,10 @@ function findPanelHtml(mode){
  if(!F.open)return '';
  const areas=(S.targetAreas||[]).filter(areaComplete);
  return `<div class="bpanel" style="margin-top:12px;background:#f7fbff"><div class="ttl">${M.emoji} ${esc(M.title)}</div>
-  <div class="note" style="margin-top:3px">${M.statement(areas)}</div>
+  <div class="note" style="margin-top:6px;font-size:14.5px;font-style:normal;color:var(--ink);line-height:1.5">${M.statement(areas)}</div>
   ${areas.length?'':'<div class="warnbox" style="margin-top:9px">Add a target area first — without somewhere to look, a search like this comes back with national brands.</div>'}
-  ${mode==='competitor'?`<div class="fld" style="margin-top:9px"><label>What do they sell, in a few words? <span style="font-weight:400;color:var(--muted)">— optional, but it sharpens both searches</span></label>
-   <input id="findSells" value="${esc(FINDT.sells||S.sells||'')}" placeholder="e.g. dental implants and cosmetic dentistry" oninput="FINDT.sells=this.value"></div>`:''}
+  ${mode==='competitor'?`<div class="fld" style="margin-top:9px"><label>Tell us more about how to find any competitors or known ones they want to target. <span style="font-weight:400;color:var(--muted)">— optional, but it sharpens both searches</span></label>
+   <input id="findSells" value="${esc(FINDT.sells||S.sells||'')}" placeholder="e.g. dental implants and cosmetic dentistry, or name known competitors to target" oninput="FINDT.sells=this.value"></div>`:''}
   <div class="addrow" style="margin-top:9px">
    <button class="btn btn-primary" ${(!areas.length||F.busy)?'disabled':''} onclick="runFindTargets('${mode}')">${F.busy?'<span class="spin" data-s1-think="ai"></span>'+esc(M.busy):esc(M.run)}</button>
    <button class="btn btn-ghost" onclick="FINDT['${mode}'].open=false;drawCompetitors()">Close</button></div>
@@ -2498,6 +2551,57 @@ function addFoundTargets(mode){
  F.rows=(F.rows||[]).filter(r=>!r.accepted);
  saveNow();drawCompetitors();
  toast("Added "+picked.length+" — check any address before the fence is built.");}
+
+/* Audiences, from the Pick Axe agent -- the agency's own audience catalog
+   and topics taxonomy, which is a knowledge base neither this Hub nor a
+   plain model call holds. Same shape as FINDT above: nothing runs until the
+   button is pressed, and nothing reaches S.audiences until a row is ticked
+   and "+ Add ticked" is pressed. Up to twenty come back at once. */
+let AUDFIND={open:false,busy:false,rows:null,note:"",error:"",source:""};
+function toggleAudFind(){AUDFIND.open=!AUDFIND.open;drawAudFind();}
+function audFindHtml(){
+ if(!AUDFIND.open)return '';
+ return `<div class="bpanel" style="margin-top:12px;background:#f7fbff"><div class="ttl">🎯 Find audiences with Smart 1</div>
+  <div class="note" style="margin-top:6px;font-size:14.5px;font-style:normal;color:var(--ink);line-height:1.5">Searches the agency's own audience catalog for up to <b>20 additional segments</b> — behavioral, contextual, demographic and CRM/lookback layers — for ${esc(S.industry||'this client')}${S.client?' ('+esc(S.client)+')':''}. Everything it finds is a suggestion until you tick it.</div>
+  <div class="addrow" style="margin-top:9px">
+   <button class="btn btn-primary" ${AUDFIND.busy?'disabled':''} onclick="runFindAudiences()">${AUDFIND.busy?'<span class="spin" data-s1-think="ai"></span>Searching audiences…':'🔎 Search audiences'}</button>
+   <button class="btn btn-ghost" onclick="AUDFIND.open=false;drawAudFind()">Close</button></div>
+  ${AUDFIND.error?'<div class="warnbox" style="margin-top:9px">'+esc(AUDFIND.error)+'</div>':''}
+  ${AUDFIND.rows?audFindResultsHtml():''}</div>`;}
+function audFindResultsHtml(){
+ if(!AUDFIND.rows.length)
+  return '<div class="note" style="margin-top:10px">'+esc(AUDFIND.note||'Nothing came back for this campaign.')+'</div>';
+ return `<div style="margin-top:11px">
+  <div class="note" style="margin-bottom:7px">${esc(AUDFIND.note||'')}</div>
+  ${AUDFIND.rows.map((r,i)=>`<label class="prod" style="cursor:pointer;background:#fff">
+    <input type="checkbox" ${r.accepted?'checked':''} onchange="AUDFIND.rows[${i}].accepted=this.checked;drawAudFindCount()" style="margin:4px 8px 0 0">
+    <div class="pi">🎯</div><div class="grow"><h4>${esc(r.name)}</h4></div></label>`).join('')}
+  <div class="addrow" style="margin-top:10px">
+   <button class="btn btn-primary" onclick="addFoundAudiences()">+ Add ticked</button>
+   <span class="note" id="audFindCount" style="align-self:center"></span></div></div>`;}
+function drawAudFindCount(){
+ const n=((AUDFIND.rows||[]).filter(r=>r.accepted)).length;
+ const el=document.getElementById('audFindCount');
+ if(el)el.textContent=n?n+" ticked":"Nothing ticked yet — tick what belongs on this campaign.";}
+async function runFindAudiences(){
+ AUDFIND.busy=true;AUDFIND.error="";drawAudFind();
+ try{
+  const d=await api('/sales/builder/api/find-audiences',{method:'POST',body:JSON.stringify({
+    client:S.client||"",industry:S.industry||"",sells:FINDT.sells||S.sells||"",
+    objectives:S.objectives||[],existing:S.audiences||[]})});
+  AUDFIND.rows=d.audiences||[];AUDFIND.note=d.note||"";AUDFIND.source=d.source||"";
+ }catch(e){
+  AUDFIND.error="The audience research did not run: "+e.message+". Nothing has been changed on the campaign.";
+  AUDFIND.rows=null;
+ }finally{AUDFIND.busy=false;drawAudFind();drawAudFindCount();}}
+function addFoundAudiences(){
+ const picked=(AUDFIND.rows||[]).filter(r=>r.accepted);
+ if(!picked.length){toast("Tick the ones that belong on this campaign first.");return;}
+ picked.forEach(r=>{if(!S.audiences.includes(r.name))S.audiences.push(r.name);});
+ AUDFIND.rows=(AUDFIND.rows||[]).filter(r=>!r.accepted);
+ saveNow();renderStep();
+ toast("Added "+picked.length+" audience"+(picked.length===1?"":"s")+".");}
+function drawAudFind(){const h=document.getElementById('audFindWrap');if(h)h.innerHTML=audFindHtml();}
 
 /* The same paste box as the target areas, for the rows inside them. A
    separate reader on the server, deliberately: a competitor line is a
@@ -3273,7 +3377,9 @@ function mediaPlanEditor(){
        ? CFG.consulting.display : it.product)}</b>${(pr&&pr.description)||(it.description||'')
       ? `<div class="note" style="margin-top:2px">${esc((pr&&pr.description)||it.description)}</div>` : ''}</td><td>${esc(it.category)}</td>
     <td>${pr?esc(pr.rate):esc(it.rate?(it.rate+' '+(it.rateValue||'')):'Managed')}</td>
-    <td style="text-align:right"><input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)">${(it.basis||"monthly")==="one_time"?'<small class="tiny" style="display:block">one-time</small>':''}</td>
+    <td style="text-align:right">${isConsultingLine(it)
+       ? `<input class="dmoney" type="number" value="${it.dollars||0}" disabled title="Priced by formula — base + per other product on the plan">`
+       : `<input class="dmoney" type="number" min="0" step="50" value="${it.dollars||0}" onchange="previewSetDollars(${ix},+this.value)">`}${(it.basis||"monthly")==="one_time"?'<small class="tiny" style="display:block">one-time</small>':''}</td>
     <td style="text-align:right">${pr?money(pr.campaign):'<span style="opacity:.6">…</span>'}</td>
     <td class="tiny">${pr?esc(pr.delivery):'<span style="opacity:.6">recalculating…</span>'}</td>
     <td><button class="x" title="Remove this product" onclick="previewRemoveItem(${ix})">✕</button></td></tr>`}).join('')
@@ -3291,6 +3397,7 @@ function mediaPlanEditor(){
     <span class="note" style="margin:0">Changing the plan here re-costs the packages, the ROI table and the creative gate.</span></div>
    ${previewGuards()}`;}
 function previewSetDollars(ix,v){
+ if(isConsultingLine(S.items[ix]))return;
  S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
  const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
  S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
@@ -3512,7 +3619,9 @@ const STEPS=[
    <div class="bpanel"><div class="ttl">🔍 Smart 1 landing page review</div>
     <button id="lpBtn" class="btn btn-ghost" onclick="reviewLandingAI()">🔍 Review landing page</button><div id="lpReview"></div></div>
    <div class="bpanel"><div class="ttl">🖥 Recommended landing setup (editable — goes in the proposal)</div>
-    <div class="fld" style="margin-top:6px"><textarea oninput="S.landing=this.value;saveSoon()" style="min-height:80px">${esc(S.landing)}</textarea></div></div>`,
+    <div class="note" style="margin-top:2px">Runs the review automatically once it completes. Edit anything below, or choose to leave it off the quote.</div>
+    <div class="fld" style="margin-top:6px"><textarea id="landingSetup" oninput="S.landing=this.value;saveSoon()" style="min-height:80px">${esc(S.landing)}</textarea></div>
+    <div id="landingChoice"></div></div>`,
    valid:()=>true,after:drawLanding};},
 
  /* Discovery. Every answer here changes something downstream: the gaps drive
@@ -3597,9 +3706,11 @@ const STEPS=[
    html:(()=>{const key=INDUSTRY_KEYS[S.industry]||'general';const lib=industryIdeas[key]||industryIdeas.general;
     const list=[...(lib.behavioral||[]),...(lib.contextual||[]),"Website retargeting","Lookalike / CRM match","Competitor physical locations","Competitor conquesting"];
     return '<div class="bpanel"><div class="ttl">🎯 Recommended audience layers — '+esc(key)+'</div>'+pillRow(list,S.audiences,'aud')+
-    '<div class="addpill"><input id="audIn" placeholder="Add a custom audience…" onkeydown="if(event.key===\'Enter\'){addCustom(\'aud\',\'audIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'aud\',\'audIn\')">+ Add</button></div></div>'
+    '<div class="addpill"><input id="audIn" placeholder="Add a custom audience…" onkeydown="if(event.key===\'Enter\'){addCustom(\'aud\',\'audIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'aud\',\'audIn\')">+ Add</button>'
+    +'<button class="btn btn-ghost" onclick="toggleAudFind()">🎯 Find audiences with Smart 1</button></div>'
+    +'<div id="audFindWrap"></div></div>'
     +competitorPanel();})(),
-   valid:()=>true,after:drawCompetitors}),
+   valid:()=>true,after:()=>{drawCompetitors();drawAudFind();}}),
 
  ()=>({eyebrow:"Budget",title:"What's the working budget?",help:"sales_builder.budget.working",sub:"Monthly media budget. Three packages build around it and reconfigure if you change it.",
    html:'<div class="cards">'+
@@ -3616,8 +3727,10 @@ const STEPS=[
    html:'<div id="prodList"></div>'+
     '<div class="addrow"><select id="addCat">'+productCategories.map(c=>`<option value="${esc(c)}">${em(c)} ${esc(c)}</option>`).join('')+'</select><button class="btn btn-ghost" onclick="addItem()">+ Add category</button></div>'+
     '<div class="addrow"><select id="addProd">'+productPickerHtml()+'</select><button class="btn btn-ghost" onclick="addSpecificItem(document.getElementById(\'addProd\').value)">+ Add a specific product</button></div>'+
-    '<div class="addrow"><input id="addConsult" placeholder="Strategy engagement \u2014 what does it cover?" style="flex:1" onkeydown="if(event.key===\'Enter\'){addConsulting();event.preventDefault();}"><button class="btn btn-ghost" onclick="addConsulting()">+ Add a strategy engagement</button></div>'+
-    '<div class="note" style="margin-top:-4px">A scoped piece of strategy or consulting work, priced on its own \u2014 not a rate-card product, and not the monthly Consulting &amp; Strategy retainer quoted on the Investment step. What you type here is the only thing on the proposal and the insertion order that says what was sold.</div>'+
+    '<div class="addrow" style="align-items:flex-start"><textarea id="addConsult" rows="3" placeholder="Strategy engagement \u2014 what does it cover?" style="flex:1"></textarea>'+
+    '<div style="display:flex;flex-direction:column;gap:6px"><button class="btn btn-ghost" id="consultScopeBtn" onclick="suggestConsultingScope()">\u2728 Suggest scope</button><button class="btn btn-ghost" onclick="addConsulting()">+ Add a strategy engagement</button></div></div>'+
+    '<div class="note" style="margin-top:-4px" id="consultPriceNote">'+consultingPriceNote()+'</div>'+
+    '<div class="note" style="margin-top:2px">A scoped piece of strategy or consulting work \u2014 not a rate-card product, and not the monthly Consulting &amp; Strategy retainer quoted on the Investment step. \u2728 Suggest scope drafts a description from what this campaign actually covers (bi-monthly review meetings included); edit or replace anything before adding.</div>'+
     '<div id="discoWrap"></div>'+
     '<div id="reconfigWrap"></div><div id="guardWrap"></div>'+
     '<div class="bpanel"><div class="ttl">💡 Sample ROI by product (internal only)</div><div id="roiTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div><div class="note">Illustrative category benchmarks — not shown to the client unless you include them.</div></div>',
@@ -4079,11 +4192,50 @@ async function reviewLandingAI(){
    // to a client needs to be able to tell them apart.
    S.landingRead=d.summary?{summary:d.summary,points:(d.observed&&d.observed.conversion_points)||[],
                             url:d.url||S.landingUrl}:null;
+   S.landingFixes=d.fixes||[];
+   /* The review completing is what moves it into the Recommended setup panel
+      -- automatically, the way the rep asked for, rather than a second press
+      to copy it across. A clean page (no fixes found) needs no choice: there
+      is nothing to edit or leave off, so it is said in one line and the
+      choice row stays hidden. A page with fixes forces the choice open again
+      on every new review, because a review the rep just re-ran is a review
+      they want acted on, not one silently left on whatever was chosen last. */
+   if(S.landingFixes.length){
+    S.landing=hub_bullets("This landing page needs the following before launch:",S.landingFixes);
+    S.landingChoice='';
+   }else{
+    S.landing="Smart 1 reviewed this landing page and found nothing that blocks launch.";
+    S.landingChoice='edit';
+   }
    S._lpLoading=false;drawLanding();saveSoon();toast("✨ Landing page read and reviewed.");return;}
   throw new Error((d&&(d.error||d.detail))||"the AI returned nothing");
  }catch(e){S._lpLoading=false;drawLanding();toast("Couldn't review the page ("+e.message+").");}}
+/* Bullets as this codebase's own hub_spec.bullets() renders them server-side
+   -- "• " per line, with a lead-in kept above -- so the same shape reaches
+   the proposal whichever side wrote it. */
+function hub_bullets(lead,items){
+ const rows=(items||[]).map(i=>String(i||'').trim()).filter(Boolean);
+ if(!rows.length)return lead;
+ return lead+"\n"+rows.map(r=>"• "+r).join("\n");}
+function chooseLandingSetup(choice){
+ S.landingChoice=choice;
+ if(choice==='skip'){
+  S._landingKept=S.landing;
+  S.landing="Landing page fixes intentionally left off this quote — the client will address them separately.";
+ }else if(S._landingKept!==undefined){
+  S.landing=S._landingKept;delete S._landingKept;}
+ saveSoon();drawLanding();}
 function drawLanding(){
  const b=document.getElementById('lpBtn');if(b){b.disabled=!!S._lpLoading;b.innerHTML=S._lpLoading?'<span class="spin"></span>Reviewing…':'🔍 Review landing page';}
+ const setupEl=document.getElementById('landingSetup');
+ if(setupEl&&setupEl.value!==S.landing)setupEl.value=S.landing;
+ const setupBox=setupEl&&setupEl.closest('.bpanel');
+ if(setupBox)setupBox.style.opacity=(S.landingChoice==='skip')?'.6':'1';
+ const choiceEl=document.getElementById('landingChoice');
+ if(choiceEl)choiceEl.innerHTML=(S.landingFixes&&S.landingFixes.length)?`<div class="addrow" style="margin-top:9px">
+   <button class="btn ${S.landingChoice==='edit'?'btn-primary':'btn-ghost'}" onclick="chooseLandingSetup('edit')">✎ Keep &amp; edit these issues</button>
+   <button class="btn ${S.landingChoice==='skip'?'btn-primary':'btn-ghost'}" onclick="chooseLandingSetup('skip')">🚫 Leave off the quote</button>
+   <span class="note" style="align-self:center">${S.landingChoice==='skip'?'Not included in this quote.':S.landingFixes.length+' item'+(S.landingFixes.length===1?'':'s')+' found before launch.'}</span></div>`:'';
  const box=document.getElementById('lpReview');if(!box)return;
  if(S._lpLoading){box.innerHTML='<div class="note" style="margin-top:10px"><span class="spin"></span>Smart 1 is reviewing the landing page…</div>';return;}
  if(!S.landingReview){
@@ -4100,11 +4252,16 @@ function drawItems(){const host=document.getElementById('prodList');if(!host)ret
  host.innerHTML=S.items.map((i,ix)=>{
   const sr=sellRateOf(i);
   const rateLabel=sr!==null?(i.rate+' $'+sr.toFixed(2)):'Management / flat fee';
+  const consult=isConsultingLine(i);
   return `<div class="prod"><div class="pi">${em(i.category)}</div><div class="grow"><h4>${esc(itemLabel(i))}</h4><div class="meta">${esc(i.category)} · ${esc(rateLabel)} · ROI ${esc(CATEGORY_ROI[i.category]||'—')}${isAddOn(i.product)?' · <b>add-on</b>':''}</div></div>
-  <div class="alloc"><input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / ${i.basis==="one_time"?"one time":"month"}</small></div>
+  <div class="alloc">${consult
+    ? `<input type="number" value="${i.dollars||0}" disabled title="Priced by formula — base + per-product, not a media budget slice"><small>$ / mo — formula-priced</small>`
+    : `<input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / ${i.basis==="one_time"?"one time":"month"}</small>`}</div>
   <button class="x" onclick="rmItem(${ix})">✕</button>
   ${rateRow(i,ix)}
-  ${basisRow(i,ix)}</div>`;}).join('');}
+  ${basisRow(i,ix)}</div>`;}).join('');
+ const noteEl=document.getElementById('consultPriceNote');
+ if(noteEl)noteEl.innerHTML=consultingPriceNote();}
 /* The rate this line is quoted at. Shown as a number a rep can change rather
    than as a fact, with the card's own listed rate beside it so the margin is
    never a mystery -- and a fee line says plainly that there is no rate to
@@ -4151,7 +4308,8 @@ function setTerm(ix,n){
  const months=Math.max(1,+S.months||1);
  S.items[ix].termMonths=Math.max(1,Math.min(months,n||months));
  flagDirty();saveSoon();drawItems();}
-function setItemDollars(ix,v){S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
+function setItemDollars(ix,v){if(isConsultingLine(S.items[ix]))return;
+ S.items[ix].dollars=Math.max(0,Math.round(v/50)*50);
  const tot=S.items.reduce((s,i)=>s+(i.dollars||0),0)||1;
  S.items.forEach(i=>{i.pctSeed=Math.round(100*(i.dollars||0)/tot)||1;});
  /* Both editors move the budget, or the number depends on which screen the
@@ -4221,7 +4379,7 @@ function addConsulting(){
   toast("That engagement is already on the plan.");return;}
  S.items.push({label:c.label,category:c.category,product:c.product,
                rate:null,rateValue:null,sellRate:null,
-               description:description,pctSeed:15,dollars:0});
+               description:description,dollars:0});
  if(el)el.value='';
  applySeeds();syncBudgetToPlan();buildPackages();
  flagDirty();drawItems();drawRoi();drawGuards();saveSoon();}
@@ -4229,6 +4387,40 @@ function addConsulting(){
    matches on, and a line saved before any flag existed still has to answer. */
 function isConsultingLine(i){
  return !!(CFG.consulting&&(i||{}).product===CFG.consulting.product);}
+/* The formula this line is priced by -- a baseline for the standing scope
+   (the meetings, the reporting, the oversight) plus a per-product amount for
+   every OTHER line already on the plan, because a bigger campaign is real
+   coordination work whatever the media budget behind it does. Read from
+   CFG.consulting so a price change lands once, in modules/sales_builder/app.py,
+   rather than a second copy here drifting from it. */
+function consultingPrice(otherCount){
+ const c=CFG.consulting||{};
+ const base=(typeof c.base==="number")?c.base:300;
+ const per=(typeof c.per_product==="number")?c.per_product:50;
+ return base+per*Math.max(0,otherCount||0);}
+function consultingPriceNote(){
+ const c=CFG.consulting||{};
+ const base=(typeof c.base==="number")?c.base:300;
+ const per=(typeof c.per_product==="number")?c.per_product:50;
+ const n=(S.items||[]).filter(i=>!isConsultingLine(i)).length;
+ return "Priced at "+money(base)+" base + "+money(per)+" per other product on this plan — "
+   +n+" other product"+(n===1?"":"s")+" today, so a new engagement prices at "+money(consultingPrice(n))+"/mo.";}
+/* Suggests a description built from what this campaign actually covers --
+   the reference "Strategy & Consulting Service" scope table, filtered by the
+   channels and goals actually on the plan, with the bi-monthly review
+   meetings always included. A suggestion, never a spec: it fills the box a
+   press replaces, and nothing is added to the plan until "+ Add a strategy
+   engagement" is pressed on whatever text is left in it. */
+async function suggestConsultingScope(){
+ const btn=document.getElementById('consultScopeBtn');
+ if(btn){btn.disabled=true;btn.textContent='Thinking…';}
+ try{
+  const d=await api('/sales/builder/api/consulting-scope',{method:'POST',
+    body:JSON.stringify({items:S.items||[],objectives:S.objectives||[]})});
+  const el=document.getElementById('addConsult');
+  if(el&&d.description)el.value=d.description;
+ }catch(e){toast("Could not build a suggestion: "+e.message);
+ }finally{if(btn){btn.disabled=false;btn.textContent='✨ Suggest scope';}}}
 function productPickerHtml(){
  const groups={};rateCard.forEach(x=>{(groups[x.category]=groups[x.category]||[]).push(x);});
  return Object.keys(groups).sort().map(cat=>
