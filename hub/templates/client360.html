@@ -110,6 +110,41 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
 let groups=[];
 
+/* A record starts many requests at once. Do not let responses from a prior
+   selected client paint into the replacement DOM. A generation guard avoids
+   triggering old loaders' recovery handlers, as an aborted request would. */
+let c360Generation=0;
+const nativeC360Fetch=window.fetch.bind(window);
+window.fetch=function(...args){
+  const generation=c360Generation;
+  const stale=()=>new Promise(()=>{});
+  return nativeC360Fetch(...args).then(
+    response=>{
+      if(generation!==c360Generation) return stale();
+      if(!response.ok) showC360RequestFailure(response.status);
+      return response;
+    },
+    error=>generation===c360Generation?Promise.reject(error):stale());
+};
+function showC360RequestFailure(status){
+  const host=document.getElementById('c360-request-status');
+  if(host) host.textContent=`Some Client 360 data could not be loaded (HTTP ${status}). Refresh to try again.`;
+}
+function fetchJson(...args){
+  return fetch(...args).then(async response=>{
+    if(response.ok) return response.json();
+    const body=await response.json().catch(()=>({}));
+    throw new Error(body.error||`Request failed (${response.status}).`);
+  });
+}
+function safeExternalUrl(value){
+  try{
+    const url=new URL(String(value||''));
+    return ['https:','http:'].includes(url.protocol)&&url.hostname?url.href:'';
+  }catch(e){ return ''; }
+}
+let c360SearchGeneration=0;
+
 /* A grouped record shows more than one company's rows side by side. The group
    is a billing relationship, not a rename, so every row that came from another
    member of the group says which one — silently absorbing Fast Fingerprints'
@@ -207,12 +242,14 @@ function todayISO(){
 }
 
 async function run(){
+  const searchGeneration=++c360SearchGeneration;
   const q=$('q').value.trim();
   if(!q){return}
   history.replaceState(null,'','/client360?q='+encodeURIComponent(q));
   $('picker').style.display='none';
   $('results').innerHTML='<div class="empty">Searching all systems… <span class="spin"></span></div>';
-  const d=await fetch('/api/c360?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>({groups:[]}));
+  const d=await fetchJson('/api/c360?q='+encodeURIComponent(q)).catch(()=>({groups:[]}));
+  if(searchGeneration!==c360SearchGeneration) return;
   groups=d.groups||[];
   if(!groups.length){ $('results').innerHTML='<div class="empty">No Smart 1 Team / website match — showing live systems only.</div>'; render({client:q,products:[],websites:[],creative:[],gtm_containers:[]},q); return; }
   if(groups.length>1){
@@ -227,6 +264,7 @@ function pick(i){
 }
 
 function render(g,q){
+  c360Generation++;
   window.__trafficStarted=null;
   const name=g.client||q;
   window.CURRENT_CLIENT = name;
@@ -269,6 +307,7 @@ function render(g,q){
   head+='<div id="c-owner"></div>';
   head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
+  head+='<div id="c360-request-status" class="muted" role="status" style="margin:-6px 0 10px;font-size:12px;color:#b45309"></div>';
 
   /* Page actions. hub-accordion.js used to bolt these onto its
      Expand/Collapse bar; the accordion stays off this page now (see
@@ -1945,8 +1984,8 @@ function render(g,q){
 
   // Social Media — shared store with the SEO page
   const SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];
-  fetch('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
-    .then(r=>r.json()).then(d=>{
+  fetchJson('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
+    .then(d=>{
       const social=d.social||{};
       $('c-social').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">'
         +SOCIAL_KEYS.map(k=>{
@@ -1954,7 +1993,7 @@ function render(g,q){
           return `<div style="display:flex;gap:6px;align-items:center">
             <b style="width:74px;flex:none;font-size:12px;color:var(--muted);text-transform:capitalize">${k==='gbp'?'Google Biz':esc(k)}</b>
             <input data-sk="${k}" value="${esc(v)}" placeholder="https://…" style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">
-            ${v?`<a href="${esc(v)}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
+            ${safeExternalUrl(v)?`<a href="${esc(safeExternalUrl(v))}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
           </div>`;}).join('')+'</div>'
         /* Say where the extra ones came from. A URL that appears without
            explanation looks like something a person typed and forgot. */
@@ -1975,7 +2014,7 @@ function render(g,q){
             setTimeout(()=>{saveBtn.textContent='Save →';},1600);
           });
       };
-    }).catch(()=>{$('c-social').innerHTML='<div class="empty">Social links unavailable.</div>'});
+    }).catch(error=>{$('c-social').innerHTML='<div class="empty">Social links unavailable: '+esc(error.message||'Please retry.')+'</div>';});
 
   // Social content — requests, ideas, their link and what is waiting on them
   const scq=document.getElementById('c-scq');

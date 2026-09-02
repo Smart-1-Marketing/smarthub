@@ -163,6 +163,44 @@ check("a newly attached website offers the site scan next step",
 check("Client 360 seeds searches from the complete shared client registry",
       'from hub import clients_registry as _registry' in KNACK
       and '_registry.search_clients(ql, limit=500)' in KNACK)
+check("a later record selection makes earlier fetch responses inert",
+      'let c360Generation=0;' in REC
+      and 'if(generation!==c360Generation) return stale();' in REC
+      and 'c360Generation++;' in REC)
+check("a later search cannot render an earlier search result",
+      'let c360SearchGeneration=0;' in REC
+      and 'if(searchGeneration!==c360SearchGeneration) return;' in REC)
+check("the social card validates an outbound URL before making a link",
+      'function safeExternalUrl(value)' in REC
+      and 'href="${esc(safeExternalUrl(v))}"' in REC)
+check("a failed card request is surfaced to the record rather than hidden",
+      'function showC360RequestFailure(status)' in REC
+      and "if(!response.ok) showC360RequestFailure(response.status);" in REC
+      and 'id="c360-request-status"' in REC)
+
+# Drive the real freshness guard. This is the failure a static spelling check
+# cannot catch: A starts, B replaces it, then A finishes after B. Only B may
+# settle a handler that can paint into the current record.
+g0 = REC.find("let c360Generation=0;")
+g1 = REC.find("function fetchJson", g0)
+GENERATION_SRC = REC[g0:g1] if 0 <= g0 < g1 else ""
+guard_driver = """
+const pending=[];
+const window={fetch:url=>new Promise(resolve=>pending.push({url,resolve}))};
+""" + GENERATION_SRC + """
+const applied=[];
+window.fetch('/client-a').then(()=>applied.push('A'));
+c360Generation++;
+window.fetch('/client-b').then(()=>applied.push('B'));
+pending[0].resolve({ok:true});
+pending[1].resolve({ok:true});
+setTimeout(()=>console.log(JSON.stringify(applied)), 0);
+"""
+guard_run = subprocess.run(["node", "-"], input=guard_driver,
+                           capture_output=True, text=True)
+check("a delayed first client's response cannot settle after a switch",
+      json.loads(guard_run.stdout or "[]") if guard_run.returncode == 0 else [],
+      ["B"])
 
 # ------------------------------------------------------------------------
 section("3. Assignment and outstanding-work behavior")
