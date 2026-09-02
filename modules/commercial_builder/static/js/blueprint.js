@@ -356,11 +356,17 @@
     picker.innerHTML = "";
     const box = CB.el(`
       <div class="cb-card" style="margin-top:10px;padding:12px;">
+        <div class="cb-flex-between" style="margin-bottom:4px;">
+          <strong>Our video library + stock</strong>
+          <a href="/tools/video-backgrounds/" target="_blank" rel="noopener">Open full library</a>
+        </div>
+        <p class="cb-hint" style="margin:0 0 8px;">We search our owned footage first, then Pexels and Pixabay.</p>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <input type="search" placeholder="Search stock video…" class="stock-q" style="flex:1;">
+          <input type="search" placeholder="Search our video library and stock…" class="stock-q" style="flex:1;">
           <button class="cb-btn cb-btn-sm stock-go">Search</button>
         </div>
-        <div class="stock-results cb-choice-grid"></div>
+        <p class="cb-hint owned-note" style="margin:0 0 8px;"></p>
+        <div class="stock-results"></div>
       </div>`);
     picker.appendChild(box);
     const input = box.querySelector(".stock-q");
@@ -373,20 +379,33 @@
       results.innerHTML = '<span class="cb-spinner"></span>';
       const data = await CB.api(`/api/stock/search?q=${encodeURIComponent(q)}&expand=true`);
       const items = data.results || [];
+      // These named groups come from the same Video Search service used by
+      // /tools/video-backgrounds. Fall back to the tier split so an older API
+      // response still renders correctly during a rolling deploy.
+      const videoSearchItems = data.video_search_results
+        || items.filter((item) => item.tier === "OWNED");
+      const stockItems = data.stock_results
+        || items.filter((item) => item.tier !== "OWNED");
       results.innerHTML = "";
       renderOwnedNote(box, data);
-      items.forEach((item) => {
+
+      function renderShelf(title, shelfItems, videoSearch) {
+        if (!shelfItems.length) return;
+        results.appendChild(CB.el(`<h4 style="margin:12px 0 6px;">${title}</h4>`));
+        const grid = CB.el('<div class="cb-choice-grid"></div>');
+        shelfItems.forEach((item) => {
         /* OWNED footage was drawn with the FREE badge, so a clip we already
            hold looked exactly like a Pexels result. routes/stock.py ranks it
            first precisely because it costs nothing and needs no license check,
            and a badge that does not say so throws that away. */
         const tier = item.tier === "PREMIUM" ? "cb-badge-premium"
                    : (item.tier === "OWNED" ? "cb-badge-owned" : "cb-badge-free");
+        const badge = videoSearch ? "VIDEO SEARCH" : item.tier;
         const cell = CB.el(`
           <div class="cb-choice" style="padding:6px;">
             <div class="cb-scene-thumb" style="aspect-ratio:16/9;background-image:url('${item.thumbnail}')"></div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-              <span class="cb-badge ${tier}">${item.tier}</span>
+              <span class="cb-badge ${tier}">${badge}</span>
               <span class="cb-muted" style="font-size:10.5px;">${item.author || ""}</span>
             </div>
           </div>`);
@@ -400,8 +419,16 @@
           picker.innerHTML = "";
           loadScenes();
         });
-        results.appendChild(cell);
-      });
+          grid.appendChild(cell);
+        });
+        results.appendChild(grid);
+      }
+
+      // The first shelf is explicit, not just a sort order hidden in one grid:
+      // it is the indexed Smart 1 Video Search library and should be reviewed
+      // before outside stock whenever it has a relevant match.
+      renderShelf("Suggested from Video Search", videoSearchItems, true);
+      renderShelf("More stock options", stockItems, false);
       if (!items.length) results.innerHTML = '<div class="cb-empty">No results.</div>';
     }
     box.querySelector(".stock-go").addEventListener("click", runSearch);
@@ -642,19 +669,21 @@
       box.appendChild(note);
     }
     const providers = data.providers || {};
-    const owned = (data.results || []).filter((r) => r.tier === "OWNED").length;
-    if (data.owned_note) {
-      note.textContent = "Our own footage library: " + data.owned_note;
+    const owned = (data.video_search_results
+      || (data.results || []).filter((r) => r.tier === "OWNED")).length;
+    const videoSearchNote = data.video_search_note || data.owned_note;
+    if (videoSearchNote) {
+      note.textContent = "Video Search: " + videoSearchNote;
       return;
     }
-    if (!providers.owned) {
-      note.textContent = "Our own footage library was not searched.";
+    if (!(providers.video_search || providers.owned)) {
+      note.textContent = "Video Search was not available for this search.";
       return;
     }
     note.textContent = owned
-      ? `${owned} clip${owned === 1 ? "" : "s"} from our own library are listed first — `
+      ? `${owned} relevant clip${owned === 1 ? "" : "s"} from Video Search are suggested first — `
         + "they cost nothing and need no license check."
-      : "Our own library was searched and had nothing matching this. "
+      : "Video Search was checked and had nothing relevant for this scene. "
         + "Everything below is stock.";
   }
 

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SmartForecast Dynamic Website — Smart 1 Hub</title>
+  <meta name="description" content="Weather-triggered website personalization for Smart 1 clients.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='smartforecast.css') }}">
+</head>
+<body>
+  <div class="sf-shell">
+    <header class="sf-topbar">
+      <div class="sf-brand">
+        <span class="sf-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><strong>SmartForecast</strong><small>Dynamic Website</small></span>
+      </div>
+      <div class="sf-top-actions">
+        <label class="sf-client-picker"><span>Client</span><select id="clientSelect" aria-label="Client and website"></select></label>
+        <button class="sf-icon-btn" id="addSite" type="button" title="Add client website" aria-label="Add client website">+</button>
+        <span class="sf-provider {{ 'is-live' if provider_configured else '' }}"><i></i><span>{{ 'WeatherAPI connected' if provider_configured else 'WeatherAPI demo cache' }}</span></span>
+        <button class="sf-icon-btn" id="refreshWeather" type="button" title="Refresh weather" aria-label="Refresh weather">↻</button>
+      </div>
+    </header>
+
+    <nav class="sf-tabs" aria-label="SmartForecast screens" role="tablist">
+      <button class="sf-tab is-active" id="sf-tab-dashboard" data-view="dashboard" type="button" role="tab" aria-controls="sf-panel-dashboard" aria-selected="true"><span>01</span>Dashboard</button>
+      <button class="sf-tab" id="sf-tab-setup" data-view="setup" type="button" role="tab" aria-controls="sf-panel-setup" aria-selected="false"><span>02</span>Website Setup</button>
+      <button class="sf-tab" id="sf-tab-triggers" data-view="triggers" type="button" role="tab" aria-controls="sf-panel-triggers" aria-selected="false"><span>03</span>Weather Triggers</button>
+      <button class="sf-tab" id="sf-tab-content" data-view="content" type="button" role="tab" aria-controls="sf-panel-content" aria-selected="false"><span>04</span>Content &amp; Images</button>
+      <button class="sf-tab" id="sf-tab-preview" data-view="preview" type="button" role="tab" aria-controls="sf-panel-preview" aria-selected="false"><span>05</span>Preview / Simulator</button>
+      <button class="sf-tab" id="sf-tab-report" data-view="report" type="button" role="tab" aria-controls="sf-panel-report" aria-selected="false"><span>06</span>Trigger Report</button>
+    </nav>
+
+    <main class="sf-main" id="appMain" aria-live="polite">
+      <div class="sf-loading" id="loadingState"><span></span><p>Reading site, weather, and trigger state…</p></div>
+
+      <section class="sf-view is-active" id="sf-panel-dashboard" data-panel="dashboard" role="tabpanel" aria-labelledby="sf-tab-dashboard" hidden>
+        <div class="sf-pagehead">
+          <div><p class="sf-kicker">Live site control</p><h1 id="dashClient">Quality Air Columbus</h1><p><span id="dashZip">43215</span> · <span id="dashIndustry">HVAC</span></p></div>
+          <div class="sf-page-actions"><button class="sf-btn sf-btn-ghost" data-go="preview" type="button">Preview Website</button><button class="sf-btn sf-btn-primary" id="forceMessage" type="button">Force Message</button></div>
+        </div>
+
+        <div class="sf-dashboard-grid">
+          <article class="sf-card sf-weather-card">
+            <div class="sf-card-label"><span>Current weather</span><small id="weatherUpdated">Cached</small></div>
+            <div class="sf-weather-main"><strong><span id="weatherTemp">87</span>°</strong><div><b id="weatherCondition">Partly cloudy</b><span>Feels like <em id="weatherFeels">91</em>°</span></div></div>
+            <div class="sf-weather-stats"><span><small>Humidity</small><b id="weatherHumidity">68%</b></span><span><small>High / Low</small><b><i id="weatherHigh">96</i>° / <i id="weatherLow">74</i>°</b></span><span><small>Wind</small><b><i id="weatherWind">12</i> mph</b></span></div>
+          </article>
+
+          <article class="sf-card sf-status-card">
+            <div class="sf-card-label"><span>SmartForecast status {{ help_dot('smartforecast.dashboard.status') if help_dot is defined else '' }}</span><button class="sf-link-btn" data-go="report" type="button">View report →</button></div>
+            <div class="sf-status-row"><span class="sf-status-pill is-active" id="statusPill"><i></i><b id="statusText">Active</b></span><label class="sf-switch"><input id="pauseToggle" type="checkbox"><span></span><em id="pauseLabel">Running</em></label></div>
+            <dl class="sf-state-list">
+              <div><dt>Winning trigger</dt><dd id="stateTrigger">Extreme Heat</dd></div>
+              <div><dt>Phase</dt><dd id="statePhase">Pre-event</dd></div>
+              <div><dt>Activated</dt><dd id="stateActivated">—</dd></div>
+              <div><dt>Next check</dt><dd id="stateNext">30 minutes</dd></div>
+            </dl>
+          </article>
+
+          <article class="sf-card sf-message-card">
+            <div class="sf-card-label"><span>Currently showing</span><span class="sf-content-chip" id="currentContentName">Heat Wave #3</span></div>
+            <div class="sf-message-preview">
+              <img id="dashboardImage" src="{{ url_for('static', filename='smartforecast-hvac-hero.png') }}" alt="HVAC technician inspecting an outdoor air-conditioning unit">
+              <div class="sf-message-gradient"></div>
+              <div class="sf-message-copy"><small id="dashboardEyebrow">Heat wave approaching</small><h2 id="dashboardHeadline">96° Weather Is Headed to Columbus. Is Your AC Ready?</h2><p id="dashboardBody">Avoid a breakdown at the hottest moment.</p><span id="dashboardCta">Prepare My AC</span></div>
+            </div>
+          </article>
+
+          <article class="sf-card sf-why-card">
+            <div class="sf-card-label"><span>Why this is active</span><button class="sf-link-btn" data-go="triggers" type="button">Edit trigger →</button></div>
+            <div class="sf-rule-readout"><div class="sf-rule-icon">↗</div><div><strong id="stateReason">Forecast high reached 96°F</strong><p id="stateChecks">Confirmed across 2 consecutive checks</p></div></div>
+            <div class="sf-progress"><span style="width:72%"></span></div>
+            <p class="sf-muted" id="stateExpectation">Expected to move into active-event messaging when the current temperature reaches the threshold.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="sf-view" id="sf-panel-setup" data-panel="setup" role="tabpanel" aria-labelledby="sf-tab-setup" hidden>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Installation &amp; identity</p><h1>Website Setup {{ help_dot('smartforecast.setup.installation') if help_dot is defined else '' }}</h1><p>Connect the client, location, embed, and brand behavior.</p></div><button class="sf-btn sf-btn-primary" id="saveSetup" type="button">Save setup</button></div>
+        <div class="sf-form-layout">
+          <form class="sf-card sf-form-card" id="setupForm">
+            <div class="sf-section-title"><span>01</span><div><h2>Site &amp; location</h2><p>The primary ZIP drives forecasts and reporting.</p></div></div>
+            <div class="sf-fields two">
+              <label><span>Client name</span><input name="client_name" autocomplete="organization"></label>
+              <label><span>Website name</span><input name="name" autocomplete="off"></label>
+              <label><span>Domain</span><input name="domain" inputmode="url" autocomplete="url"></label>
+              <label><span>Platform</span><select name="platform"><option>Smart 1 Sites</option><option>WordPress</option><option>Other / HTML</option></select></label>
+              <label><span>Industry</span><select name="industry"><option>HVAC</option><option>RV Dealer</option><option>Marine / Boat Dealer</option><option>Restaurant</option><option>Ski Resort</option><option>Legal</option><option>Home Services</option><option>General</option></select></label>
+              <label><span>Location label</span><input name="location_label"></label>
+              <label><span>ZIP / postal code</span><input name="postal_code" maxlength="20"></label>
+              <label><span>Timezone</span><select name="timezone"><option>America/New_York</option><option>America/Chicago</option><option>America/Denver</option><option>America/Los_Angeles</option></select></label>
+              <label><span>Weather checks</span><select name="check_interval_minutes"><option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option><option value="60">Every hour</option></select></label>
+            </div>
+            <div class="sf-section-title sf-spaced"><span>02</span><div><h2>Business goals</h2><p>Goals recommend relevant industry triggers.</p></div></div>
+            <div class="sf-goals" id="businessGoals">
+              <label><input type="checkbox" value="Emergency AC Repair"><span>Emergency AC Repair</span></label>
+              <label><input type="checkbox" value="AC Tune-Ups"><span>AC Tune-Ups</span></label>
+              <label><input type="checkbox" value="Furnace Repair"><span>Furnace Repair</span></label>
+              <label><input type="checkbox" value="Furnace Tune-Ups"><span>Furnace Tune-Ups</span></label>
+              <label><input type="checkbox" value="Indoor Air Quality"><span>Indoor Air Quality</span></label>
+              <label><input type="checkbox" value="Generator"><span>Generator</span></label>
+            </div>
+          </form>
+
+          <aside class="sf-stack">
+            <section class="sf-card sf-form-card">
+              <div class="sf-section-title"><span>03</span><div><h2>Branding</h2><p>Inherit the website by default.</p></div></div>
+              <div class="sf-fields two compact">
+                <label class="wide"><span>Font</span><select id="brandFont"><option value="inherit">Inherit website</option><option value="DM Sans">DM Sans</option><option value="Manrope">Manrope</option></select></label>
+                <label><span>Headline color</span><input id="brandHeadline" type="color"></label>
+                <label><span>Button color</span><input id="brandButton" type="color"></label>
+                <label><span>Border radius</span><input id="brandRadius" type="number" min="0" max="60"></label>
+                <label><span>Mobile headline</span><input id="brandMobileSize" type="number" min="24" max="72"></label>
+              </div>
+            </section>
+            <section class="sf-card sf-embed-card">
+              <div class="sf-section-title"><span>04</span><div><h2>Embed</h2><p>Responsive from the same code on every screen.</p></div></div>
+              <div class="sf-install-tabs"><button class="is-active" data-install="sites" type="button">Smart 1 Sites</button><button data-install="wordpress" type="button">WordPress</button><button data-install="html" type="button">HTML</button></div>
+              <pre id="embedCode"><code>Loading embed…</code></pre>
+              <button class="sf-btn sf-btn-ghost sf-full" id="copyEmbed" type="button">Copy embed code</button>
+              <button class="sf-link-btn sf-full" id="rotateToken" type="button">Rotate embed token</button>
+              <p class="sf-note">The iframe serves default SEO content if SmartForecast is paused or weather data is unavailable.</p>
+            </section>
+            <section class="sf-card sf-preflight-card">
+              <div class="sf-section-title"><span>05</span><div><h2>Launch preflight</h2><p>Executable checks for the internal-QA and pilot gates.</p></div></div>
+              <div class="sf-preflight-summary" id="preflightSummary" aria-live="polite">Reading launch checks…</div>
+              <ul class="sf-preflight-list" id="preflightChecks"></ul>
+              <button class="sf-btn sf-btn-primary sf-full" id="runQa" type="button">Run scenario QA</button>
+              <div class="sf-qa-result" id="qaResult" role="status"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="sf-view" id="sf-panel-triggers" data-panel="triggers" role="tabpanel" aria-labelledby="sf-tab-triggers" hidden>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Data-driven lifecycle rules</p><h1>Weather Triggers {{ help_dot('smartforecast.triggers.lifecycle') if help_dot is defined else '' }}</h1><p>Two confirming checks prevent forecast flicker. Official alerts activate immediately.</p></div><div class="sf-legend"><span><i class="pre"></i>Pre-event</span><span><i class="active"></i>Active</span><span><i class="post"></i>Post-event</span></div></div>
+        <section class="sf-card sf-pack-card"><div><p class="sf-kicker">Industry catalog</p><h2>Apply a relevance pack</h2><p id="packDescription">Choose editable rules and draft lifecycle copy for this client.</p></div><div class="sf-pack-action"><select id="packSelect" aria-label="Industry pack"></select><button class="sf-btn sf-btn-primary" id="applyPack" type="button">Apply pack</button></div></section>
+        <div class="sf-trigger-summary"><div><strong id="ruleEnabledCount">0</strong><span>enabled</span></div><div><strong>2×</strong><span>checks to activate</span></div><div><strong>2×</strong><span>checks to clear</span></div><div><strong>∞</strong><span>official alert speed</span></div></div>
+        <div class="sf-rule-list" id="ruleList"></div>
+      </section>
+
+      <section class="sf-view" id="sf-panel-content" data-panel="content" role="tabpanel" aria-labelledby="sf-tab-content" hidden>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Message, CTA &amp; imagery</p><h1>Content &amp; Images {{ help_dot('smartforecast.content.approval') if help_dot is defined else '' }}</h1><p>Save drafts safely, then approve the exact version that should reach the client website.</p></div><div class="sf-page-actions"><button class="sf-btn sf-btn-ghost" id="saveContent" type="button">Save draft</button><button class="sf-btn sf-btn-primary" id="publishContent" type="button">Approve &amp; publish</button></div></div>
+        <div class="sf-content-layout">
+          <aside class="sf-card sf-variant-list"><div class="sf-card-label"><span>Homepage hero variants</span></div><div id="variantList"></div></aside>
+          <form class="sf-card sf-content-editor" id="contentForm">
+            <div class="sf-editor-head"><div><span class="sf-content-chip" id="editorPhase">Pre-event</span><h2 id="editorName">Heat Wave #3</h2><small class="sf-approval-status" id="approvalStatus">Published</small></div><button class="sf-link-btn" data-go="preview" type="button">Open full preview →</button></div>
+            <input name="name" type="hidden">
+            <div class="sf-fields">
+              <label><span>Eyebrow</span><input name="eyebrow" maxlength="120"></label>
+              <label><span>Headline</span><textarea name="headline" rows="2" maxlength="220"></textarea></label>
+              <label><span>Body</span><textarea name="body" rows="3" maxlength="500"></textarea></label>
+            </div>
+            <div class="sf-fields two sf-spaced"><label><span>CTA label</span><input name="cta_label"></label><label><span>CTA URL</span><input name="cta_url" inputmode="url"></label></div>
+            <div class="sf-section-title sf-spaced"><span>IMG</span><div><h2>Responsive imagery</h2><p>Mobile falls back to the desktop image and uses its own focal point.</p></div></div>
+            <div class="sf-fields two"><label class="wide"><span>Desktop image URL</span><input name="desktop_image_url"></label><label class="wide"><span>Mobile image URL <em>optional</em></span><input name="mobile_image_url"></label><label class="wide"><span>Alt text</span><input name="alt_text"></label><label><span>Desktop focal point</span><input name="desktop_focal" placeholder="66% 48%"></label><label><span>Mobile focal point</span><input name="mobile_focal" placeholder="58% 44%"></label><label><span>Overlay opacity</span><input name="overlay_opacity" type="range" min="0" max="0.9" step="0.05"><output id="opacityOutput">0.15</output></label></div>
+          </form>
+          <aside class="sf-card sf-crop-preview"><div class="sf-card-label"><span>Crop check</span><small>Desktop + mobile</small></div><div class="sf-crop-desktop"><img id="cropDesktop" alt=""><span>Desktop</span></div><div class="sf-crop-mobile"><img id="cropMobile" alt=""><span>Mobile</span></div></aside>
+        </div>
+      </section>
+
+      <section class="sf-view" id="sf-panel-preview" data-panel="preview" role="tabpanel" aria-labelledby="sf-tab-preview" hidden>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Test before installation</p><h1>Preview / Simulator {{ help_dot('smartforecast.preview.simulator') if help_dot is defined else '' }}</h1><p>Change the weather, see the winning trigger, then inspect both responsive shapes.</p></div><div class="sf-device-toggle"><button class="is-active" data-device="desktop" type="button">Desktop</button><button data-device="mobile" type="button">Mobile</button></div></div>
+        <div class="sf-simulator-layout">
+          <form class="sf-card sf-simulator" id="simulatorForm">
+            <div class="sf-card-label"><span>Simulate weather</span><small>No live site changes</small></div>
+            <div class="sf-fields two compact">
+              <label><span>ZIP</span><input name="postal_code" value="43215"></label>
+              <label><span>Hours until event</span><input name="hours_until_event" type="number" value="42"></label>
+              <label><span>Temperature °F</span><input name="temperature" type="number" value="87"></label>
+              <label><span>Feels like °F</span><input name="feels_like" type="number" value="91"></label>
+              <label><span>Forecast high °F</span><input name="forecast_high" type="number" value="96"></label>
+              <label><span>Forecast low °F</span><input name="forecast_low" type="number" value="74"></label>
+              <label><span>Rain probability %</span><input name="rain_probability" type="number" value="10"></label>
+              <label><span>Snow inches</span><input name="snow_inches" type="number" step="0.1" value="0"></label>
+              <label><span>Wind mph</span><input name="wind_mph" type="number" value="12"></label>
+              <label><span>Humidity %</span><input name="humidity" type="number" value="68"></label>
+              <label class="wide"><span>Official alert</span><select name="official_alert"><option>None</option><option>Heat Advisory</option><option>Excessive Heat Warning</option><option>Freeze Warning</option><option>Severe Thunderstorm Warning</option><option>Tornado Warning</option><option>High Wind Warning</option></select></label>
+            </div>
+            <button class="sf-btn sf-btn-primary sf-full" type="submit">Run simulation</button>
+            <label class="sf-persist"><input id="persistSimulation" type="checkbox"><span>Record as a real weather check and apply lifecycle stability</span></label>
+          </form>
+          <div class="sf-preview-stage">
+            <article class="sf-winning-card" id="winningCard"><span>Winning trigger</span><strong id="simWinner">Extreme Heat</strong><em id="simPriority">Priority 90</em><p id="simReason">Forecast high 96</p><b id="simPhase">Pre-event</b></article>
+            <div class="sf-browser" id="previewBrowser">
+              <div class="sf-browserbar"><i></i><i></i><i></i><span id="previewDomain">qualityaircolumbus.com</span></div>
+              <div class="sf-site-nav"><b>QUALITY AIR</b><span>Services &nbsp; About &nbsp; Reviews</span><em>Schedule Service</em></div>
+              <div class="sf-live-hero" id="previewHero"><picture><source id="previewMobileSource" media="(max-width:640px)"><img id="previewImage" src="{{ url_for('static', filename='smartforecast-hvac-hero.png') }}" alt="HVAC technician inspecting an outdoor air-conditioning unit"></picture><div class="sf-live-overlay"></div><div class="sf-live-copy"><small id="previewEyebrow">Heat wave approaching</small><h2 id="previewHeadline">96° Weather Is Headed to Columbus. Is Your AC Ready?</h2><p id="previewBody">Avoid a breakdown at the hottest moment. Schedule a quick AC check before the heat arrives.</p><a id="previewCta" href="#">Prepare My AC</a></div></div>
+              <div class="sf-fake-content"><span></span><span></span><span></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sf-view" id="sf-panel-report" data-panel="report" role="tabpanel" aria-labelledby="sf-tab-report" hidden>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Lifecycle + engagement evidence</p><h1>Trigger Report {{ help_dot('smartforecast.report.history') if help_dot is defined else '' }}</h1><p>Operational history and privacy-conscious engagement, reported separately from causal lift.</p></div><div class="sf-page-actions"><a class="sf-btn sf-btn-ghost" id="exportCsv" href="api/report.csv">Lifecycle CSV</a><a class="sf-btn sf-btn-ghost" id="exportEngagementCsv" href="api/engagement.csv">Engagement CSV</a></div></div>
+        <div class="sf-report-stats"><article><span>Weather events detected</span><strong id="reportEvents">0</strong><small>Last 30 days</small></article><article><span>Website activations</span><strong id="reportActivations">0</strong><small>Last 30 days</small></article><article><span>Hours personalized</span><strong id="reportHours">0</strong><small>Active + post-event</small></article><article><span>Recorded transitions</span><strong id="reportTransitions">0</strong><small>Immutable ledger</small></article><article><span>Personalized views</span><strong id="reportViews">0</strong><small>Deduplicated hourly</small></article><article><span>CTA clicks</span><strong id="reportClicks">0</strong><small id="reportClickRate">0% of views</small></article><article><span>Conversions</span><strong id="reportConversions">0</strong><small id="reportConversionRate">0% of views</small></article><article><span>Unique sessions</span><strong id="reportSessions">0</strong><small>Hashed, no cookies</small></article></div>
+        <div class="sf-report-layout">
+          <section class="sf-card sf-timeline-card"><div class="sf-card-label"><span>Trigger timeline</span><small>Recent activity</small></div><div class="sf-timeline" id="timeline"></div></section>
+          <section class="sf-card sf-event-card"><div class="sf-card-label"><span>Event history</span><label class="sf-search"><span>⌕</span><input id="eventSearch" placeholder="Filter trigger or event"></label></div><div class="sf-table-wrap"><table><thead><tr><th>Date</th><th>Trigger</th><th>Phase</th><th>Event</th><th>Source</th></tr></thead><tbody id="eventRows"></tbody></table></div></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="sf-dialog" id="overrideDialog">
+    <form method="dialog" id="overrideForm">
+      <div class="sf-dialog-head"><div><p class="sf-kicker">Manual override</p><h2>Force a website message</h2></div><button value="cancel" aria-label="Close">×</button></div>
+      <p>This is recorded in the trigger history and automatically expires.</p>
+      <div class="sf-fields"><label><span>Content variant</span><select name="content_variant_id" id="overrideVariant"></select></label><label><span>Duration</span><select name="hours"><option value="2">2 hours</option><option value="4" selected>4 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="72">3 days</option></select></label><label><span>Reason</span><textarea name="note" rows="3" placeholder="Why this message is being forced"></textarea></label></div>
+      <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" value="cancel">Cancel</button><button class="sf-btn sf-btn-primary" id="applyOverride" value="default">Force message</button></div>
+    </form>
+  </dialog>
+  <dialog class="sf-dialog" id="siteDialog" aria-labelledby="siteDialogTitle">
+    <form method="dialog" id="siteForm">
+      <div class="sf-dialog-head"><div><p class="sf-kicker">Client onboarding</p><h2 id="siteDialogTitle">Add a SmartForecast website</h2></div><button value="cancel" aria-label="Close">×</button></div>
+      <p>This creates an isolated site, baseline content, trigger assignments, and a new embed token.</p>
+      <div class="sf-fields two">
+        <label><span>Client name</span><input name="client_name" required autocomplete="organization"></label>
+        <label><span>Website name</span><input name="site_name" autocomplete="off"></label>
+        <label><span>Domain</span><input name="domain" required placeholder="example.com" inputmode="url"></label>
+        <label><span>Postal code</span><input name="postal_code" required maxlength="20"></label>
+        <label><span>Industry</span><select name="industry"><option>HVAC</option><option>RV Dealer</option><option>Marine / Boat Dealer</option><option>Restaurant</option><option>Ski Resort</option><option>Legal</option><option>Home Services</option><option>General</option></select></label>
+        <label><span>Platform</span><select name="platform"><option>Smart 1 Sites</option><option>WordPress</option><option>Other / HTML</option></select></label>
+      </div>
+      <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" value="cancel">Cancel</button><button class="sf-btn sf-btn-primary" id="createSite" value="default">Create website</button></div>
+    </form>
+  </dialog>
+  <div class="sf-toast" id="toast" role="status"></div>
+  <script>window.SF_BASE={{ request.script_root|tojson }};</script>
+  <script src="{{ url_for('static', filename='smartforecast.js') }}"></script>
+</body>
+</html>

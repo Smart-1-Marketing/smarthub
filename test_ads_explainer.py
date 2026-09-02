@@ -101,6 +101,7 @@ SCREENS = {
     "ads_builder.proposal": "ads_proposal.html",
     "ads_builder.approvals": "ads_approvals.html",
     "ads_builder.campaigns": "ads_campaigns.html",
+    "ads_builder.optimization": "ads_optimization.html",
     "ads_builder.settings": "ads_settings.html",
     "ads_builder.activity": "ads_activity.html",
 }

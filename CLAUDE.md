@@ -45,8 +45,8 @@ degrades to a missing icon rather than a dead page. Keep that pattern.
 
 **The scheduler saying it is running is not the jobs working.** `status()`
 answered one question well — is a worker holding the lock — and drew a green
-pill for any job whose last run succeeded, however long ago that was. Eleven
-jobs share one thread now, so a loop stuck on a long one stops every job
+pill for any job whose last run succeeded, however long ago that was. The
+jobs share one thread, so a loop stuck on a long one stops every job
 behind it: an hourly job that last ran three days ago read as healthy, and the
 only way to notice was to do that arithmetic eleven times. Overdue is measured
 now (`_overdue()`, past twice the interval with a five-minute floor so a
@@ -11390,6 +11390,8 @@ python3 test_db_boot.py            # a database blip at boot is not a verdict fo
 python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   overdue, failure streaks, and the worker
                                    #   that cannot see the timings
+python3 test_smartforecast.py      # weather lifecycle rules, immutable history,
+                                   #   public embeds and Render disk recovery
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
 python3 test_qa_reports.py         # every report on /qa answers and is drawable,
