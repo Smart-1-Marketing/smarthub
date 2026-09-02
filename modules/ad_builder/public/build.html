@@ -53,6 +53,19 @@
   }
   .bar .btn, .bar select { flex: none; }
   .lockup { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+  /* The workbench is stage five of the same journey that begins in intake.
+     Keeping this rail visible gives the editor a destination and makes the
+     save → render → deliver sequence explicit. */
+  .workflow { display:flex; align-items:center; gap:6px; padding:8px 16px;
+    background:var(--bg); border-bottom:1px solid var(--line); overflow-x:auto;
+    white-space:nowrap; flex:none; }
+  .workflow-title { color:var(--ink-2); font-size:10.5px; letter-spacing:.1em;
+    text-transform:uppercase; font-weight:700; margin-right:4px; }
+  .workflow-step { padding:4px 9px; border-radius:999px; background:var(--panel-2);
+    color:var(--ink-2); font-size:11.5px; font-weight:600; }
+  .workflow-step.done { background:rgba(53,192,137,.14); color:var(--pass); }
+  .workflow-step.active { background:var(--signal); color:#fff; }
+  .workflow-arrow { color:var(--ink-2); font-size:13px; }
   .lockup span { color: var(--ink-2); font-weight: 500; }
   .bar select, .bar button { font: inherit; }
   select, input[type=text], textarea {
@@ -613,6 +626,17 @@
     title="Add motion to this set — up to three slides of changing text, or a pulsing button. Built from the saved static design and delivered beside it.">Animate…</button>
   <button class="btn" id="savePreset" style="display:none"
     title="Keep this client's brand, layout and design as a starting point, so the next ad for them is a form fill rather than a rebuild.">Save as preset…</button>
+</div>
+
+<div class="workflow" aria-label="Display ad workflow">
+  <span class="workflow-title">Display ad workflow</span>
+  <span class="workflow-step done">1. Start</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">2. Brief</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">3. Brand &amp; assets</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">4. Targeting</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">5. Message</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step active" id="designStage">6. Design</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step" id="deliverStage">7. Render &amp; deliver</span>
 </div>
 
 <div class="nextstep" id="nextStep" hidden>
@@ -4021,6 +4045,16 @@
     $('save').classList.toggle('primary', !state.saved);
     $('renderAll').classList.toggle('primary', state.saved);
     $('saveHint').style.display = state.saved ? 'none' : '';
+
+    var designStage = $('designStage');
+    var deliverStage = $('deliverStage');
+    if (state.rendered) {
+      designStage.className = 'workflow-step done';
+      deliverStage.className = 'workflow-step active';
+    } else {
+      designStage.className = 'workflow-step active';
+      deliverStage.className = 'workflow-step';
+    }
 
     // window.S1_BASE is set by the server only when the page is served under
     // a mount prefix, which is exactly the case where the Hub is in front of
