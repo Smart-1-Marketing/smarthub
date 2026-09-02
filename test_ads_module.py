@@ -644,6 +644,12 @@ def run():
     r = g(f"{BASE}/api/campaigns", timeout=10)
     check("campaigns without customer_id is a 400", r.status_code == 400)
 
+    r = g(f"{BASE}/api/optimization/scan", timeout=10)
+    check("optimization scans without customer_id are refused", r.status_code == 400)
+
+    r = p(f"{BASE}/api/optimization/action", json={}, timeout=10)
+    check("optimization writes need an account and one named action", r.status_code == 400)
+
     # proposals lifecycle, seeded directly (no OpenAI call needed)
     proposal = store.create_proposal("Northside Roofing Co", SAMPLE, created_by="todd@smart1marketing.com")
     pid = proposal["id"]
@@ -866,6 +872,7 @@ def run():
     for path, needle in (
         ("/", "Search existing clients"),
         ("/campaigns", "Live campaign data needs the Google Ads API"),
+        ("/optimization", "Optimization needs the Google Ads connection"),
         ("/approvals", "Northside Roofing Co"),
         (f"/proposal/{pid}", "Negative keyword vault"),
         (f"/proposal/{pid}/client", "Paid Search Estimate"),
