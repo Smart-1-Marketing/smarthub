@@ -1169,9 +1169,26 @@ def submit_io():
 
     webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
     if not webhook_url:
-        _keep(error="GHL_WEBHOOK_URL is not configured on the server, so the "
-                    "order was never sent to Smart 1 Suite.")
-        return jsonify({"ok": False, "error": "GHL_WEBHOOK_URL is not configured on the server."}), 500
+        # Smart 1 Suite delivery is deliberately off while this tool is being
+        # tested end to end: a rep must be able to finish and submit an IO —
+        # and get a Hub record of it, with both PDFs — without the missing
+        # webhook turning every attempt into a dead end. This is NOT the same
+        # as a webhook that is configured and refuses the order (handled
+        # below, which still fails loudly): here nothing was ever sent, and
+        # the response says so in plain words rather than a quiet 200.
+        _keep(delivered=False,
+              error="GHL_WEBHOOK_URL is not configured, so Smart 1 Suite "
+                    "delivery is currently turned off. The order was recorded "
+                    "in the Hub but not sent to Suite or GoHighLevel.")
+        return jsonify({
+            "ok": True,
+            "delivered_to_suite": False,
+            "message": "Order recorded. Smart 1 Suite delivery is turned off "
+                       "while this tool is being tested, so nothing was sent "
+                       "to Smart 1 Suite or GoHighLevel.",
+            "client_pdf_url": client_pdf_url,
+            "internal_pdf_url": internal_pdf_url,
+        })
 
     # Compute opportunity-friendly summary fields so GoHighLevel can map an
     # Opportunity Name and Lead Value without digging into nested campaign_data.

@@ -453,6 +453,100 @@ def create_hub_app() -> Flask:
         from . import google_index
         return jsonify(google_index.build(force=True))
 
+    # ---- which Suite sub-account belongs to which client ----------------
+    #
+    # /tools/suite-match, beside /tools/sites-match and /tools/google-match:
+    # the same shape of screen answering the same shape of question, and
+    # tiled with them on QA Reports rather than on Tools.
+    #
+    # Note the paths. "/suite" is a dispatcher-mounted module, so a hub route
+    # under it never receives the request — the first trap CLAUDE.md names.
+    # "/api/suite/..." starts with "/api", which is mounted nowhere, and
+    # "/tools/suite-match" is not under any "/tools/<mount>"; linkcheck is
+    # what proves both rather than this comment.
+    @app.route("/tools/suite-match")
+    def page_suite_match():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("suite_match.html", user=current_user(),
+                               active="qa")
+
+    @app.route("/api/suite/map")
+    def api_suite_map():
+        """What is recorded today. A read, so a GET."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        rows = suite_map.links()
+        return jsonify({"links": rows, "count": len(rows)})
+
+    @app.route("/api/suite/proposals", methods=["POST"])
+    def api_suite_proposals():
+        """Candidate pairings, and everything left over.
+
+        A POST behind a button, for the reason `hub/domain_purchase.py` gives
+        about its refresh and `hub/image_audit.reconcile()` about its sweep:
+        this walks every sub-account in the company a page at a time against
+        HighLevel's own rate limit, and a GET that does that is one a reload,
+        a prefetch or a link preview fires without anybody asking. Nothing is
+        written by looking — `proposals()` reads and `/api/suite/link` is the
+        press.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        return jsonify(suite_map.proposals())
+
+    @app.route("/api/suite/link", methods=["POST"])
+    def api_suite_link():
+        """Record one pairing, or a screenful of them.
+
+        `accept_many()` reports every row's own outcome rather than one
+        number, because a sub-account already recorded against somebody else
+        is refused by name and a count hides the refusals — the rule
+        `client_urls.accept_many()` works to.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        actor = current_user() or ""
+        pairs = body.get("pairs")
+        if isinstance(pairs, list):
+            out = suite_map.accept_many(pairs, by=actor)
+            if out.get("linked"):
+                audit.log("hub", "suite_locations_linked", actor=actor,
+                          detail=f"{out['linked']} sub-account(s)")
+            return jsonify(out)
+        out = suite_map.link(str(body.get("client") or ""),
+                             str(body.get("location_id") or ""), by=actor)
+        if out.get("ok"):
+            audit.log("hub", "suite_location_linked", actor=actor,
+                      client=out.get("client") or "",
+                      detail=str(out.get("location_id") or ""))
+        return jsonify(out)
+
+    @app.route("/api/suite/unlink", methods=["POST"])
+    def api_suite_unlink():
+        """Take a pairing off. A Hub overlay either way: nothing is written
+        to Smart 1 Suite or to Knack, so unlinking leaves both exactly as
+        they were."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        out = suite_map.unlink(client)
+        if out.get("ok"):
+            audit.log("hub", "suite_location_unlinked", actor=current_user(),
+                      client=client)
+        return jsonify(out)
+
     @app.route("/api/backup")
     def api_backup():
         """What of the JSON on the disk is mirrored into the database.
