@@ -805,6 +805,27 @@ def create_hub_app() -> Flask:
         also = client_groups.member_names(name, request.args.get("url", ""))
         return jsonify(work_log(name, limit, also=also))
 
+    @app.route("/api/client/client-links", methods=["GET", "POST"])
+    def api_client_portal_links():
+        """Manage the one customer-safe links page from Client 360."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_portal
+        body = request.get_json(silent=True) or {}
+        source = body if request.method == "POST" else request.args
+        client = str(source.get("name") or "").strip()
+        if not client:
+            return jsonify({"ok": False, "error": "Choose a client first."}), 400
+        if request.method == "POST" and body.get("label"):
+            saved = client_portal.add(client, body.get("label"), body.get("url"), body.get("kind", "Proof"))
+            if not saved.get("ok"):
+                return jsonify(saved), 400
+        share_token = client_portal.token(client, app.config.get("SECRET_KEY"))
+        return jsonify({"ok": True, "client": client,
+                        "url": request.url_root.rstrip("/") + "/client-links/" + share_token,
+                        "links": client_portal.links(client, request.url_root)})
+
     @app.route("/api/client/orders")
     def api_client_orders():
         """The insertion orders this Hub has sent for a client.
@@ -3177,6 +3198,16 @@ def create_hub_app() -> Flask:
             return gate
         return render_template("client360.html", user=current_user(), modules=MODULES,
                                active="c360", q=request.args.get("q", ""))
+
+    @app.route("/client-links/<share_token>")
+    def client_links(share_token):
+        """A deliberately chrome-free page a customer can keep and reopen."""
+        from . import client_portal
+        client = client_portal.client_from_token(share_token, app.config.get("SECRET_KEY"))
+        if not client:
+            return make_response("This client link is no longer valid.", 404)
+        return render_template("client_links.html", client=client,
+                               links=client_portal.links(client, request.url_root))
 
     @app.route("/tools")
     def tools():
@@ -6203,6 +6234,9 @@ def create_hub_app() -> Flask:
     # keeps its chrome -- which is why this is the longer prefix and not
     # "/sales/landing".
     CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
+                  # A shareable customer index and the image-picker share
+                  # route must never inherit the Hub sidebar or help controls.
+                  "/client-links/", "/tools/image-picker/pick/",
                   # The forgotten-password page and the admin-only refusal both
                   # render on _users_base.html, which is a bare card with no
                   # <body> the injector would recognise -- and injecting the

@@ -1006,6 +1006,36 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
             "domainPurchased": w.get("domainPurchased"),
         })
 
+    # Client 360 is a record lookup, not an active-client report. Product and
+    # website rows above cover most names, but omit a client known only through
+    # the shared registry (for example a house URL, a historical client whose
+    # source row is unavailable, or a manually attached URL). Every other tool
+    # uses that registry for its picker, so seed its matches here too instead
+    # of making the 360 search the one place an inactive client disappears.
+    try:
+        from hub import clients_registry as _registry
+        for row in _registry.search_clients(ql, limit=500):
+            client = str(row.get("name") or "").strip()
+            key = client.lower()
+            if not client or key in groups:
+                continue
+            group = groups.setdefault(key, {"client": client, "products": [],
+                                            "websites": []})
+            url = str(row.get("url") or row.get("domain") or "").strip()
+            if url:
+                group["websites"].append({
+                    "name": client, "domain": row.get("domain") or "",
+                    "liveUrl": url, "platform": "", "status": "",
+                    "hmMonthly": None, "partner": "", "manager": "",
+                    "ga": "", "gtm": "", "registrar": "",
+                    "domainPurchased": None, "from_registry": True,
+                })
+            if row.get("is_io_only"):
+                group["io_only"] = True
+                group["io_orders"] = list(row.get("io_orders") or [])
+    except Exception:  # noqa: BLE001 — the source rows still answer normally
+        pass
+
     # Clients whose only trace is an insertion order.
     #
     # Client 360 reads Knack's products and website records, and a client

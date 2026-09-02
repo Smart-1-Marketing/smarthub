@@ -38,6 +38,17 @@
 .c360-proposals-table th:nth-child(1){width:30%}.c360-proposals-table th:nth-child(2){width:15%}.c360-proposals-table th:nth-child(3){width:11%}.c360-proposals-table th:nth-child(4){width:16%}.c360-proposals-table th:nth-child(5){width:12%}.c360-proposals-table th:nth-child(6){width:16%}
 .c360-proposals-table td:last-child{white-space:normal!important}
 .c360-proposals-table td:last-child .gbtn,.c360-proposals-table td:last-child .btn-ghost{margin:2px 3px 2px 0}
+/* A proposal file deserves a proper intake, not a loose row of controls. */
+.c360-proposal-upload{background:linear-gradient(135deg,#f8fbff,#f6f9fc);border:1px solid #d7e3f0;border-radius:12px;padding:16px;box-shadow:inset 0 1px #fff}
+.c360-proposal-upload h4{font-size:14px;color:var(--navy);margin:0 0 3px}
+.c360-proposal-upload .up-help{font-size:12px;color:var(--muted);margin:0 0 14px}
+.c360-proposal-upload .up-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.38fr);gap:10px;margin-bottom:10px}
+.c360-proposal-upload label{display:block;color:#526b89;font-size:11px;font-weight:700;letter-spacing:.03em;margin:0 0 4px;text-transform:uppercase}
+.c360-proposal-upload input,.c360-proposal-upload select{box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid #cbd9e8;border-radius:8px;background:#fff;font:13px inherit}
+.c360-proposal-upload input:focus,.c360-proposal-upload select:focus{outline:2px solid #bfdbfe;border-color:#60a5fa}
+.c360-proposal-upload .up-file{padding:10px;border:1px dashed #9ab5d1;border-radius:8px;background:#fff;margin-bottom:10px}
+.c360-proposal-upload .up-footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.c360-proposal-upload .up-url-note{padding:10px 11px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:12px;margin:0 0 10px}
 .c360-view > .grid-2:empty::after{content:"Nothing in this section for this client.";
   display:block;padding:14px;color:#64748b;font-size:13px}
 .c360-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
@@ -51,6 +62,7 @@
   .c360-rail .rl{width:auto}
   .c360-suite-account{grid-template-columns:1fr}
   .c360-suite-account .suite-actions{justify-content:flex-start}
+  .c360-proposal-upload .up-grid{grid-template-columns:1fr}
 }
 @media(max-width:640px){
   .c360-proposals-table thead{display:none}
@@ -141,7 +153,7 @@ const C360_SECTIONS=[
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
-  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions']},
+  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
   {key:'work',     label:'Work & requests',   match:['work for this','web tickets']},
 ];
 function c360SectionFor(title){
@@ -184,6 +196,16 @@ function sectionize(){
   showC360Section(want==='all'||C360_SECTIONS.some(s=>s.key===want)?want:'overview');
 }
 
+/* Keep the upload form self-contained.  This page used to call todayISO()
+   without defining it, so clicking "Upload proposal" threw before the form
+   could be displayed.  Build the date in local time so the value does not
+   jump to tomorrow or yesterday around UTC midnight. */
+function todayISO(){
+  const now=new Date();
+  const offset=now.getTimezoneOffset()*60000;
+  return new Date(now.getTime()-offset).toISOString().slice(0,10);
+}
+
 async function run(){
   const q=$('q').value.trim();
   if(!q){return}
@@ -213,6 +235,7 @@ function render(g,q){
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
   const web0=(g.websites||[])[0]||null;
   window.__c360domain=web0&&web0.domain?String(web0.domain).replace(/^https?:\/\//,'').replace(/\/.*$/,''):'';
+  const c360Website=(web0&&(web0.liveUrl||web0.domain))?String(web0.liveUrl||web0.domain):'';
 
   // ---------- header: Smart 1 Site badge · active billing · dashboard link ----------
   let head=`
@@ -447,6 +470,11 @@ function render(g,q){
     <span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Work for this client</h3>
     <div class="right" id="c-work-sum"></div></div>
     <div class="card-b" id="c-work"><div class="empty">Loading…</div></div></div>`;
+
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0f2fe;color:#075985">Client</span><h3>Approvals &amp; proof links</h3>
+    <div class="right"><a class="open-link" id="c-client-links-open" target="_blank" rel="noopener">Open client page →</a></div></div>
+    <div class="card-b" id="c-client-links"><div class="empty">Loading client-ready links…</div></div></div>`;
 
   // ---------- Site health (latest Insites scan: what's broken + speed) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
@@ -1189,26 +1217,17 @@ function render(g,q){
     const box=$('c-props-uploadbox');
     if(box.style.display==='block'){box.style.display='none';return}
     box.style.display='block';
-    box.innerHTML=`<div style="background:var(--bg-soft,#f8fafc);border:1px dashed var(--line);border-radius:10px;padding:12px">
-      <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
-        <input id="up-title" placeholder="Proposal name (optional)"
-          style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-        <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Date sent to client</label>
-        <input id="up-date" data-demo="date-sent" type="date" value="${todayISO()}"
-          style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
-        <input id="up-value" placeholder="Monthly value quoted (optional) — e.g. $4,500"
-          style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-        <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Term</label>
-        <select id="up-term" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box">
-          <option value="monthly">monthly</option><option value="one_time">one-time</option><option value="annual">annual</option></select></div>
-      </div>
-      <input id="up-file" data-demo="proposal-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        style="font:12.5px inherit;margin-bottom:8px">
-      <div><button class="btn-primary" id="up-go" style="padding:7px 14px">Save to client</button>
-        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Filed with this client and opened as an opportunity in Smart 1 Suite.</span></div>
-      <div id="up-suite"></div>
+    box.innerHTML=`<div class="c360-proposal-upload">
+      <h4>File a proposal</h4><p class="up-help">PDF or Word, up to 25 MB. It is saved to this client and opened as a Smart 1 Suite opportunity.</p>
+      ${c360Website?'':`<div class="up-url-note"><b>Website optional</b> — add the client’s URL now to connect a future site scan. You can file the proposal without it.</div>
+      <div class="up-grid"><div><label for="up-url">Client website <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-url" type="url" placeholder="https://example.com" autocomplete="url"></div></div>`}
+      <div class="up-grid"><div><label for="up-title">Proposal name <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-title" placeholder="e.g. 2026 Marketing Proposal"></div>
+        <div><label for="up-date">Date sent</label><input id="up-date" data-demo="date-sent" type="date" value="${todayISO()}"></div></div>
+      <div class="up-grid"><div><label for="up-value">Monthly value <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-value" placeholder="e.g. $4,500"></div>
+        <div><label for="up-term">Term</label><select id="up-term"><option value="monthly">Monthly</option><option value="one_time">One-time</option><option value="annual">Annual</option></select></div></div>
+      <div class="up-file"><label for="up-file">Proposal document</label><input id="up-file" data-demo="proposal-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></div>
+      <div class="up-footer"><button class="btn-primary" id="up-go" style="padding:8px 14px">Upload proposal</button><span id="up-msg" class="muted" style="font-size:12px">The client record is not changed until you upload.</span></div>
+      <div id="up-site"></div><div id="up-suite"></div>
     </div>`;
     // Say up front when Suite is not configured, rather than after the upload:
     // the value field only matters if an opportunity is going to carry it.
@@ -1217,9 +1236,21 @@ function render(g,q){
         '<div class="muted" style="font-size:11.5px;margin-top:8px">No Smart 1 Suite opportunity will be created — '
         +esc((st.problems||[]).join(' '))+'</div>';
     }).catch(()=>{});
-    $('up-go').onclick=()=>{
+    $('up-go').onclick=async()=>{
       const f=$('up-file').files[0];
       if(!f){$('up-msg').textContent='Choose a file first.';return}
+      let scanWebsite=c360Website;
+      if(!scanWebsite){
+        scanWebsite=($('up-url').value||'').trim();
+        if(scanWebsite){
+          $('up-go').disabled=true; $('up-msg').textContent='Saving website…';
+          try{
+            const attached=await fetch('/api/client-urls/accept',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({client:name,url:scanWebsite})}).then(r=>r.json());
+            if(!attached.ok){$('up-go').disabled=false;$('up-msg').textContent=attached.error||'Could not save the website.';return}
+            scanWebsite=attached.url||attached.domain||scanWebsite;
+          }catch(e){$('up-go').disabled=false;$('up-msg').textContent='Could not save the website.';return}
+        }
+      }
       const fd=new FormData();
       fd.append('client',name); fd.append('file',f);
       fd.append('date_sent',$('up-date').value); fd.append('title',$('up-title').value);
@@ -1233,6 +1264,10 @@ function render(g,q){
         // The file is filed either way. Suite is the part that can come back
         // with a question, and it is asked here rather than answered by
         // inventing a contact from the client's business name.
+        if(!c360Website && scanWebsite){
+          const site=$('up-site');
+          if(site) site.innerHTML='<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)"><b style="font-size:12.5px">Run a site scan now?</b><div class="muted" style="font-size:12px;margin:3px 0 8px">The website is attached. A scan gives this client record an audit baseline.</div><a class="gbtn" href="/tools/website-audit?client='+encodeURIComponent(name)+'&domain='+encodeURIComponent(scanWebsite)+'">Review &amp; run scan →</a></div>';
+        }
         showSuiteResult(d.proposal||{}, d.suite||{}, box);
       }).catch(e=>{$('up-go').disabled=false;$('up-msg').textContent='Upload failed: '+e});
     };
@@ -1243,7 +1278,10 @@ function render(g,q){
     if(suite.ok){
       host.innerHTML='<div class="muted" style="font-size:12px;margin-top:8px">Smart 1 Suite opportunity created for '
         +esc((suite.contact||{}).name||(suite.contact||{}).email||'the contact on file')+'.</div>';
-      setTimeout(()=>{if(box)box.style.display='none'},1400);
+      // Keep the intake open when it has just offered the missing-website
+      // scan. Closing it on the Suite success would make that next question
+      // disappear before the rep can answer it.
+      setTimeout(()=>{if(box&&(!$('up-site')||!$('up-site').innerHTML))box.style.display='none'},1400);
       return;
     }
     if(!suite.needs_contact){
@@ -2523,6 +2561,18 @@ function renderWork(d){
         ${esc(i.actor||'')}</td></tr>`).join('')+'</table>';
 }
 
+function loadClientLinks(name){
+  var box=document.getElementById('c-client-links'); if(!box||!name)return;
+  fetch('/api/client/client-links?name='+encodeURIComponent(name),{credentials:'same-origin'}).then(r=>r.json()).then(function(d){
+    if(!d||!d.ok){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';return;}
+    var open=document.getElementById('c-client-links-open'); if(open)open.href=d.url;
+    var items=(d.links||[]).map(x=>'<li><b>'+esc(x.kind||'Proof')+'</b> · <a href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(x.label)+' →</a></li>').join('')||'<li class="muted">No client links yet. Add a proof below or create an upload gallery.</li>';
+    box.innerHTML='<p class="muted" style="font-size:12px;margin-top:0">Navigation-free Smart 1 Marketing page to send the client.</p><div style="display:flex;gap:7px;flex-wrap:wrap"><input readonly value="'+esc(d.url)+'" id="c-client-links-url" style="flex:1;min-width:230px;padding:7px"><button class="mini" id="c-client-links-copy">Copy page link</button></div><ul>'+items+'</ul><details><summary>Add a client-safe proof link</summary><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><input id="c-proof-label" placeholder="Proof label"><input id="c-proof-url" placeholder="https://…" style="flex:1"><button class="mini" id="c-proof-add">Add</button></div></details>';
+    document.getElementById('c-client-links-copy').onclick=function(){copyToClipboard(d.url,this);};
+    document.getElementById('c-proof-add').onclick=function(){fetch('/api/client/client-links',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,label:document.getElementById('c-proof-label').value,url:document.getElementById('c-proof-url').value})}).then(r=>r.json()).then(x=>x.ok?loadClientLinks(name):alert(x.error||'Could not add that link.'));};
+  }).catch(function(){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';});
+}
+
 function renderAnalyticsIds(d){
   var host=document.getElementById('c-analytics-ids'); if(!host||!d) return;
   /* not_comparable is deliberately neutral rather than red or amber: it is
@@ -3136,6 +3186,7 @@ function loadBrandAndWork(name){
   loadBrand(name);
   fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(r=>r.json()).then(renderWork).catch(()=>{});
+  loadClientLinks(name);
 }
 
 /* The insertion orders this Hub sent for a client.
