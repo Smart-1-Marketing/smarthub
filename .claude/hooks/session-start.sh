@@ -92,7 +92,39 @@ if command -v npm >/dev/null 2>&1 && [ -f modules/ad_builder/package.json ]; the
   fi
 fi
 
-# --- 4. Settings the checks expect ----------------------------------------
+# --- 4. HeyGen skills (best effort — agent tooling, not Hub code) ---------
+# https://github.com/heygen-com/skills, installed per that repo's
+# INSTALL_FOR_AGENTS.md. These are agent-facing skills for making avatars and
+# videos; they are NOT the Hub's own HeyGen integration, which is server-side
+# in modules/commercial_builder/services/heygen_service.py and reads
+# HEYGEN_API_KEY on Render. The two are unrelated and neither needs the other.
+#
+# Cloned here rather than committed into this repo: it is several thousand
+# lines of somebody else's markdown, and vendoring it would mean re-vendoring
+# on every upstream release. The cost of that choice is a network dependency
+# at session start and, more to the point, that the skill text a session runs
+# with is whatever upstream master says today -- so this pins nothing and
+# trusts the publisher. Never fatal: a session with no skills is a session
+# that works, and a hook that fails the whole start over optional tooling is
+# worse than the gap.
+HEYGEN_SKILLS_DIR="${HOME:-/root}/.claude/skills/heygen-skills"
+if [ -d "$HEYGEN_SKILLS_DIR/.git" ]; then
+  if git -C "$HEYGEN_SKILLS_DIR" pull --quiet --ff-only origin master 2>/dev/null; then
+    say "HeyGen skills up to date ($(cat "$HEYGEN_SKILLS_DIR/VERSION" 2>/dev/null || echo '?'))."
+  else
+    say "HeyGen skills present; could not reach GitHub to update."
+  fi
+else
+  mkdir -p "$(dirname "$HEYGEN_SKILLS_DIR")" 2>/dev/null || true
+  if git clone --single-branch --depth 1 --quiet \
+       https://github.com/heygen-com/skills.git "$HEYGEN_SKILLS_DIR" 2>/dev/null; then
+    say "HeyGen skills installed ($(cat "$HEYGEN_SKILLS_DIR/VERSION" 2>/dev/null || echo '?'))."
+  else
+    say "WARN: could not clone HeyGen skills; heygen-avatar/video/translate unavailable."
+  fi
+fi
+
+# --- 5. Settings the checks expect ----------------------------------------
 # The same throwaway values checks.yml uses. NOT credentials: SECRET_KEY and
 # PANEL_PASSWORD are only needed so the app will boot and a test can sign in.
 # No real key belongs in this file — the deployment sets its own on Render.
