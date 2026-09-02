@@ -8,6 +8,8 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
 
+from hub.webargs import clamp_int
+
 from . import provider
 from .store import SmartForecastStore, default_path
 
@@ -36,7 +38,7 @@ def _error(exc: Exception, status: int = 400):
 
 
 def _site_id() -> int:
-    return max(1, int(request.args.get("site_id") or 1))
+    return clamp_int(request.args.get("site_id"), 1, 1, 2_147_483_647)
 
 
 def _user() -> str:

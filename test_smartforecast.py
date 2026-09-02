@@ -103,6 +103,14 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["site"]["client_name"], "Quality Air Columbus")
         self.assertGreaterEqual(len(payload["rules"]), 6)
+
+    def test_site_id_query_is_bounded_and_never_raises(self):
+        malformed = self.client.get("/api/bootstrap?site_id=not-a-number")
+        self.assertEqual(malformed.status_code, 200)
+        self.assertEqual(malformed.get_json()["site"]["id"], 1)
+        negative = self.client.get("/api/bootstrap?site_id=-500")
+        self.assertEqual(negative.status_code, 200)
+        self.assertEqual(negative.get_json()["site"]["id"], 1)
         con = sqlite3.connect(self.db_path)
         try:
             tables = {row[0] for row in con.execute(
