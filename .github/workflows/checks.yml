@@ -1487,6 +1487,11 @@ jobs:
       - name: Background jobs report whether they are working
         run: python3 test_scheduler_health.py
 
+      # SmartForecast is a stateful public experience: verify lifecycle rules,
+      # immutable history, public embeds, and Render disk recovery together.
+      - name: SmartForecast lifecycle, storage and embed tests
+        run: python3 test_smartforecast.py
+
       # The two radio commercial builders. Neither had a test, and the
       # customer-facing half of Fan Radio was behind the staff login: the
       # module has said since it was written that /r/, /api/public/ and
