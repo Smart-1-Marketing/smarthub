@@ -196,6 +196,16 @@ function sectionize(){
   showC360Section(want==='all'||C360_SECTIONS.some(s=>s.key===want)?want:'overview');
 }
 
+/* Keep the upload form self-contained.  This page used to call todayISO()
+   without defining it, so clicking "Upload proposal" threw before the form
+   could be displayed.  Build the date in local time so the value does not
+   jump to tomorrow or yesterday around UTC midnight. */
+function todayISO(){
+  const now=new Date();
+  const offset=now.getTimezoneOffset()*60000;
+  return new Date(now.getTime()-offset).toISOString().slice(0,10);
+}
+
 async function run(){
   const q=$('q').value.trim();
   if(!q){return}
@@ -1209,8 +1219,8 @@ function render(g,q){
     box.style.display='block';
     box.innerHTML=`<div class="c360-proposal-upload">
       <h4>File a proposal</h4><p class="up-help">PDF or Word, up to 25 MB. It is saved to this client and opened as a Smart 1 Suite opportunity.</p>
-      ${c360Website?'':`<div class="up-url-note"><b>Website needed</b> — add the client’s URL so this proposal, their record, and a future site scan stay connected.</div>
-      <div class="up-grid"><div><label for="up-url">Client website</label><input id="up-url" type="url" placeholder="https://example.com" autocomplete="url"></div></div>`}
+      ${c360Website?'':`<div class="up-url-note"><b>Website optional</b> — add the client’s URL now to connect a future site scan. You can file the proposal without it.</div>
+      <div class="up-grid"><div><label for="up-url">Client website <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-url" type="url" placeholder="https://example.com" autocomplete="url"></div></div>`}
       <div class="up-grid"><div><label for="up-title">Proposal name <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-title" placeholder="e.g. 2026 Marketing Proposal"></div>
         <div><label for="up-date">Date sent</label><input id="up-date" data-demo="date-sent" type="date" value="${todayISO()}"></div></div>
       <div class="up-grid"><div><label for="up-value">Monthly value <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-value" placeholder="e.g. $4,500"></div>
@@ -1232,13 +1242,14 @@ function render(g,q){
       let scanWebsite=c360Website;
       if(!scanWebsite){
         scanWebsite=($('up-url').value||'').trim();
-        if(!scanWebsite){$('up-msg').textContent='Add the client website before uploading.';return}
-        $('up-go').disabled=true; $('up-msg').textContent='Saving website…';
-        try{
-          const attached=await fetch('/api/client-urls/accept',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({client:name,url:scanWebsite})}).then(r=>r.json());
-          if(!attached.ok){$('up-go').disabled=false;$('up-msg').textContent=attached.error||'Could not save the website.';return}
-          scanWebsite=attached.url||attached.domain||scanWebsite;
-        }catch(e){$('up-go').disabled=false;$('up-msg').textContent='Could not save the website.';return}
+        if(scanWebsite){
+          $('up-go').disabled=true; $('up-msg').textContent='Saving website…';
+          try{
+            const attached=await fetch('/api/client-urls/accept',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({client:name,url:scanWebsite})}).then(r=>r.json());
+            if(!attached.ok){$('up-go').disabled=false;$('up-msg').textContent=attached.error||'Could not save the website.';return}
+            scanWebsite=attached.url||attached.domain||scanWebsite;
+          }catch(e){$('up-go').disabled=false;$('up-msg').textContent='Could not save the website.';return}
+        }
       }
       const fd=new FormData();
       fd.append('client',name); fd.append('file',f);
@@ -1253,7 +1264,7 @@ function render(g,q){
         // The file is filed either way. Suite is the part that can come back
         // with a question, and it is asked here rather than answered by
         // inventing a contact from the client's business name.
-        if(!c360Website){
+        if(!c360Website && scanWebsite){
           const site=$('up-site');
           if(site) site.innerHTML='<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)"><b style="font-size:12.5px">Run a site scan now?</b><div class="muted" style="font-size:12px;margin:3px 0 8px">The website is attached. A scan gives this client record an audit baseline.</div><a class="gbtn" href="/tools/website-audit?client='+encodeURIComponent(name)+'&domain='+encodeURIComponent(scanWebsite)+'">Review &amp; run scan →</a></div>';
         }
