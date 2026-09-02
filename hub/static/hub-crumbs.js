@@ -18,8 +18,8 @@
  * A generic "where you came from" crumb says "Client 360", which is the page
  * and not the record — and it is lost the moment you click once more inside
  * the tool. So Client 360 stamps the client's name onto every link that
- * leaves it, this script remembers it for the tab, and every page downstream
- * carries "Back to <client>" until you actually go back. One script, loaded
+ * leaves it, and every page downstream carries that explicit link context as
+ * "Back to <client>" until you actually go back. One script, loaded
  * on hub pages by base.html and injected into all 20 mounted modules by
  * HubBar, so a tool linked from Client 360 next month gets it without being
  * edited — the alternative was a back link written into twenty templates,
@@ -67,7 +67,9 @@
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
     "ads": "Smart 1 Ads", "calculators": "Media Calculators",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
-    "site-blocks": "Website Blocks", "widgets": "Scan Widgets",
+    "site-blocks": "Website Blocks",
+    "smartforecast": "SmartForecast Dynamic Website",
+    "widgets": "Scan Widgets",
     "google-access": "Google Access", "utm": "UTM Builder",
     "ga-tools": "GA4 Tools", "gtm-tools": "GTM Tools",
     "webmaster-tools": "Webmaster Tools", "gmb-tools": "Business Profile",
@@ -254,7 +256,6 @@
   // ------------------------------------------------------------------
   // Back to the client record you came from
   // ------------------------------------------------------------------
-  var C360_KEY = "s1c360:client";
   var C360_PARAM = "c360";
   var C360_PATH = "/client360";
 
@@ -263,19 +264,12 @@
   }
 
   function c360Client() {
-    // The URL wins over the tab's memory: a link stamped with one client must
-    // never be answered with a different one left over from an earlier visit.
+    // Only an explicit Client 360 link may establish this return trail.
+    // Do not fall back to a tab-wide remembered client: that made unrelated
+    // navigation appear to originate from whichever record was viewed last.
     var q;
     try { q = new URLSearchParams(location.search).get(C360_PARAM); } catch (e) { q = null; }
-    if (q) {
-      try { sessionStorage.setItem(C360_KEY, q); } catch (e) {}
-      return q;
-    }
-    try { return sessionStorage.getItem(C360_KEY) || null; } catch (e) { return null; }
-  }
-
-  function forget() {
-    try { sessionStorage.removeItem(C360_KEY); } catch (e) {}
+    return q || null;
   }
 
   // Which links carry the client onwards. Skipped, each for its own reason:
@@ -325,7 +319,7 @@
     x.title = "Stop offering this";
     x.setAttribute("aria-label", "Stop offering the way back to " + name);
     x.innerHTML = "&times;";
-    x.onclick = function () { forget(); bar.parentNode.removeChild(bar); };
+    x.onclick = function () { bar.parentNode.removeChild(bar); };
     bar.appendChild(a);
     bar.appendChild(x);
     var host = document.querySelector(".page, main, .main") || document.body;
@@ -334,13 +328,8 @@
 
   function c360() {
     if (onClient360()) {
-      // Arriving back at a record clears the trail — a bar still offering
-      // the way back to the page you are standing on is noise, and one left
-      // pointing at yesterday's client is worse than noise.
       var here;
       try { here = new URLSearchParams(location.search).get("q") || ""; } catch (e) { here = ""; }
-      if (here) { try { sessionStorage.setItem(C360_KEY, here); } catch (e) {} }
-      else forget();
       var stale = document.querySelector(".s1-c360-back");
       if (stale) stale.parentNode.removeChild(stale);
       if (here) stamp(here);

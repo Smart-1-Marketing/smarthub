@@ -55,6 +55,7 @@ def section(title):
 
 
 REC = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+KNACK = (ROOT / "hub" / "knack_data.py").read_text(encoding="utf-8")
 
 # ------------------------------------------------------------------------
 section("1. The lifted section mapping, driven in node")
@@ -94,6 +95,7 @@ WANT = {
     "Social content requests": "social",
     "Tracked links": "social",
     "Form submissions": "social",
+    "Approvals & proof links": "social",
     "Work for this client": "work",
     "Web Tickets": "work",
 }
@@ -142,6 +144,25 @@ check("the group button keeps the class loadGroup() addresses it by",
       'class="s1-acc-group"' in REC)
 check("the record asks for the icon rail like the other workbenches",
       'data-s1hub-collapse="1"' in REC)
+check("Proposals spans the complete Overview row",
+      'class="card c360-proposals-card"' in REC)
+check("the proposal table wraps inside its card rather than scrolling",
+      'class="c360-proposals-table"' in REC
+      and '.c360-proposals-card .card-b{overflow-x:visible}' in REC)
+check("Suite accounts use a wrapping account layout rather than a wide table",
+      'class="c360-suite-list"' in REC
+      and 'class="c360-suite-account"' in REC)
+check("proposal upload makes a missing client website optional",
+      'id="up-url"' in REC and 'Website optional' in REC
+      and "if(scanWebsite){" in REC)
+check("proposal upload defines the date helper it calls",
+      'function todayISO(){' in REC
+      and 'value="${todayISO()}"' in REC)
+check("a newly attached website offers the site scan next step",
+      'Run a site scan now?' in REC and '/tools/website-audit?client=' in REC)
+check("Client 360 seeds searches from the complete shared client registry",
+      'from hub import clients_registry as _registry' in KNACK
+      and '_registry.search_clients(ql, limit=500)' in KNACK)
 
 # ------------------------------------------------------------------------
 section("3. Assignment and outstanding-work behavior")

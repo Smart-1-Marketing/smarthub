@@ -133,6 +133,38 @@ def get_voice(voice_id: str) -> dict:
     return _shape(res.json(), custom=True)
 
 
+def clone_voice(name: str, samples: list[tuple[str, bytes, str]],
+                description: str = "", remove_background_noise: bool = False) -> dict:
+    """Create an ElevenLabs Instant Voice Clone from authorized samples.
+
+    Sample bytes intentionally never touch the Hub disk; they are relayed to
+    the configured ElevenLabs account and discarded when this request ends.
+    """
+    if not samples:
+        raise VoiceError("Upload at least one voice recording.")
+    files = [("files", (filename, data, mime or "audio/mpeg"))
+             for filename, data, mime in samples]
+    form = {"name": name, "description": description,
+            "remove_background_noise": "true" if remove_background_noise else "false"}
+    try:
+        res = requests.post(f"{BASE}/voices/add", headers=_headers(), data=form,
+                            files=files, timeout=180)
+    except requests.RequestException as exc:
+        raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
+    if res.status_code >= 400:
+        try:
+            detail = res.json().get("detail") or res.json().get("message")
+        except ValueError:
+            detail = ""
+        raise VoiceError(f"ElevenLabs could not create that clone (HTTP {res.status_code})"
+                         + (f": {detail}" if detail else "."))
+    created = res.json()
+    voice_id = created.get("voice_id")
+    if not voice_id:
+        raise VoiceError("ElevenLabs did not return a voice ID for the clone.")
+    return get_voice(voice_id)
+
+
 # ------------------------------------------------------------------- render
 _BITRATES = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]
 _RATES = [44100, 48000, 32000, 0]

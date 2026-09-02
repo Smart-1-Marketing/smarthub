@@ -116,6 +116,10 @@ WORK_KINDS = {
     # the argument for NOT_WORK -- but a client record that cannot show when
     # the agreement was signed is missing the first thing anybody looks for.
     "msa":                  ("Agreement signed", "MSA"),
+    # Forecast rules, content and activations are ongoing campaign work for
+    # the website client, so keep them visible on the same Client 360 record
+    # as the ads and landing pages they support.
+    "smartforecast":        ("Weather campaign updated", "SmartForecast"),
 }
 
 # The other side of the same question, written down rather than left as an

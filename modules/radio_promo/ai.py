@@ -183,6 +183,11 @@ def write_scripts(analysis: dict, brand: dict, customer: dict, tone_id: str,
             f"word budget, so write the rest shorter to make room:\n\"{disclaimer}\"\n")
 
     company = brand.get("name") or customer.get("company") or customer.get("client_name") or ""
+    url = (customer.get("landing_url") or customer.get("home_url") or "").strip()
+    phone = (customer.get("phone") or "").strip() if customer.get("include_phone") else ""
+    identity_rule = (f'Company name required in every script: "{company}". '
+                     f'URL required in every script: "{url}". '
+                     + (f'Phone required in every script: "{phone}".' if phone else ""))
     return chat_json(
         "You write streaming-radio commercials for Smart 1 Marketing. Radio is "
         "heard, not read: write for the ear. Rules you never break — the brand "
@@ -190,7 +195,7 @@ def write_scripts(analysis: dict, brand: dict, customer: dict, tone_id: str,
         "to action is the last thing heard; you never invent an offer, price, "
         "discount, guarantee or statistic that was not supplied; you never write "
         "sound effects the client did not ask for; a :15 runs 35-42 words and a "
-        ":30 runs 70-85 words at a natural read pace. Reply as JSON only.",
+        ":30 runs 65-85 words and at least 25 seconds at a natural read pace. Reply as JSON only.",
         f"""TONE: {tone['label']} — {tone['direction']}
 
 BRIEF
@@ -203,6 +208,7 @@ Call to action: {analysis.get('callToAction', '')}
 Must say verbatim: {' | '.join(analysis.get('mustSay') or []) or 'nothing specific'}
 Do not say: {' | '.join(analysis.get('avoid') or []) or 'nothing specific'}
 Client's own promotion notes: {customer.get('promotion') or 'none'}
+REQUIRED: {identity_rule}
 {disclaimer_block}{revision_block}
 
 Return JSON:
@@ -218,7 +224,7 @@ The script fields contain only words to be spoken. No labels, no "VO:", no times
 def tighten_script(script: str, seconds: int, trim_words: int, tone_id: str,
                    analysis: dict, customer: dict) -> dict:
     """The read came back over the slot. Cut words without losing the offer,
-    the brand name, the call to action or any required disclaimer."""
+    the brand name, URL, call to action or any required disclaimer."""
     tone = tone_by_id(tone_id) or {}
     disclaimer = str((customer or {}).get("disclaimer") or "").strip()
     current = len([w for w in re.split(r"\s+", script or "") if w])
@@ -227,12 +233,15 @@ def tighten_script(script: str, seconds: int, trim_words: int, tone_id: str,
 
     return chat_json(
         "You are a radio copy editor. You cut for time. You never drop the brand "
-        "name, the offer, the call to action or a required disclaimer — you cut "
+        "name, URL, offer, call to action or a required disclaimer — you cut "
         "adjectives, subordinate clauses and setup instead. Reply as JSON only.",
         f"""This :{seconds} read came in {trim_words} word{plural} too long for the slot.
 
 TONE: {tone.get('label', '')} — keep it.
 Brand name and call to action are mandatory: {(analysis or {}).get('callToAction', '')}
+Company name that must remain: {customer.get('company') or customer.get('client') or ''}
+URL that must remain: {customer.get('landing_url') or customer.get('home_url') or ''}
+{f'Phone number that must remain: {customer.get("phone")}' if customer.get('include_phone') and customer.get('phone') else ''}
 {f'This disclaimer must survive word for word: "{disclaimer}"' if disclaimer else ''}
 
 CURRENT SCRIPT ({current} words)
