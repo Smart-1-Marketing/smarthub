@@ -306,9 +306,25 @@ def run():
     check("[live campaigns] the account rail paginates ten at a time",
           "ACCOUNT_PAGE_SIZE = 10" in campaign_page_src
           and "accountPager" in campaign_page_src)
+    check("[live campaigns] account cards override the shared blue button treatment",
+          ".s1d-page button.account-item" in campaign_page_src
+          and "background:#eaf2ff !important" in campaign_page_src)
     check("[live campaigns] typed confirmations travel to the server",
           "confirmation: requiredWord" in campaign_page_src
           and all(word in campaign_page_src for word in ("ENABLE", "PAUSE", "DELETE")))
+
+    generator_page_src = Path("modules/ads_builder/templates/ads_generator.html").read_text(encoding="utf-8")
+    check("[generator] the long form is a six-step guided workflow",
+          "const WIZARD_STEPS = ['Client', 'Campaign', 'Locations', 'Business', 'Budget', 'Review & generate']" in generator_page_src
+          and generator_page_src.count('data-wizard-step="') == 6
+          and "nextWizardStep" in generator_page_src and "previousWizardStep" in generator_page_src)
+    check("[generator] the final step reviews the campaign before generation",
+          "generatorReview" in generator_page_src and "prepareGeneratorReview" in generator_page_src
+          and "wizardValidationMessage" in generator_page_src)
+    check("[generator] tours reveal the guided step containing their target",
+          "s1-reveal-target" in generator_page_src
+          and "s1-reveal-target" in Path("hub/static/hub-help.js").read_text(encoding="utf-8")
+          and "s1-reveal-target" in Path("hub/static/hub-demo.js").read_text(encoding="utf-8"))
 
     # Status changes are protected below the browser too. A direct caller must
     # provide the action word, and deleting uses Google's irreversible remove.
