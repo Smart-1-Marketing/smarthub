@@ -51,7 +51,7 @@
           </article>
 
           <article class="sf-card sf-status-card">
-            <div class="sf-card-label"><span>SmartForecast status</span><button class="sf-link-btn" data-go="report" type="button">View report →</button></div>
+            <div class="sf-card-label"><span>SmartForecast status {{ help_dot('smartforecast.dashboard.status') if help_dot is defined else '' }}</span><button class="sf-link-btn" data-go="report" type="button">View report →</button></div>
             <div class="sf-status-row"><span class="sf-status-pill is-active" id="statusPill"><i></i><b id="statusText">Active</b></span><label class="sf-switch"><input id="pauseToggle" type="checkbox"><span></span><em id="pauseLabel">Running</em></label></div>
             <dl class="sf-state-list">
               <div><dt>Winning trigger</dt><dd id="stateTrigger">Extreme Heat</dd></div>
@@ -80,7 +80,7 @@
       </section>
 
       <section class="sf-view" id="sf-panel-setup" data-panel="setup" role="tabpanel" aria-labelledby="sf-tab-setup" hidden>
-        <div class="sf-pagehead"><div><p class="sf-kicker">Installation &amp; identity</p><h1>Website Setup</h1><p>Connect the client, location, embed, and brand behavior.</p></div><button class="sf-btn sf-btn-primary" id="saveSetup" type="button">Save setup</button></div>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Installation &amp; identity</p><h1>Website Setup {{ help_dot('smartforecast.setup.installation') if help_dot is defined else '' }}</h1><p>Connect the client, location, embed, and brand behavior.</p></div><button class="sf-btn sf-btn-primary" id="saveSetup" type="button">Save setup</button></div>
         <div class="sf-form-layout">
           <form class="sf-card sf-form-card" id="setupForm">
             <div class="sf-section-title"><span>01</span><div><h2>Site &amp; location</h2><p>The primary ZIP drives forecasts and reporting.</p></div></div>
@@ -137,14 +137,14 @@
       </section>
 
       <section class="sf-view" id="sf-panel-triggers" data-panel="triggers" role="tabpanel" aria-labelledby="sf-tab-triggers" hidden>
-        <div class="sf-pagehead"><div><p class="sf-kicker">Data-driven lifecycle rules</p><h1>Weather Triggers</h1><p>Two confirming checks prevent forecast flicker. Official alerts activate immediately.</p></div><div class="sf-legend"><span><i class="pre"></i>Pre-event</span><span><i class="active"></i>Active</span><span><i class="post"></i>Post-event</span></div></div>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Data-driven lifecycle rules</p><h1>Weather Triggers {{ help_dot('smartforecast.triggers.lifecycle') if help_dot is defined else '' }}</h1><p>Two confirming checks prevent forecast flicker. Official alerts activate immediately.</p></div><div class="sf-legend"><span><i class="pre"></i>Pre-event</span><span><i class="active"></i>Active</span><span><i class="post"></i>Post-event</span></div></div>
         <section class="sf-card sf-pack-card"><div><p class="sf-kicker">Industry catalog</p><h2>Apply a relevance pack</h2><p id="packDescription">Choose editable rules and draft lifecycle copy for this client.</p></div><div class="sf-pack-action"><select id="packSelect" aria-label="Industry pack"></select><button class="sf-btn sf-btn-primary" id="applyPack" type="button">Apply pack</button></div></section>
         <div class="sf-trigger-summary"><div><strong id="ruleEnabledCount">0</strong><span>enabled</span></div><div><strong>2×</strong><span>checks to activate</span></div><div><strong>2×</strong><span>checks to clear</span></div><div><strong>∞</strong><span>official alert speed</span></div></div>
         <div class="sf-rule-list" id="ruleList"></div>
       </section>
 
       <section class="sf-view" id="sf-panel-content" data-panel="content" role="tabpanel" aria-labelledby="sf-tab-content" hidden>
-        <div class="sf-pagehead"><div><p class="sf-kicker">Message, CTA &amp; imagery</p><h1>Content &amp; Images</h1><p>Save drafts safely, then approve the exact version that should reach the client website.</p></div><div class="sf-page-actions"><button class="sf-btn sf-btn-ghost" id="saveContent" type="button">Save draft</button><button class="sf-btn sf-btn-primary" id="publishContent" type="button">Approve &amp; publish</button></div></div>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Message, CTA &amp; imagery</p><h1>Content &amp; Images {{ help_dot('smartforecast.content.approval') if help_dot is defined else '' }}</h1><p>Save drafts safely, then approve the exact version that should reach the client website.</p></div><div class="sf-page-actions"><button class="sf-btn sf-btn-ghost" id="saveContent" type="button">Save draft</button><button class="sf-btn sf-btn-primary" id="publishContent" type="button">Approve &amp; publish</button></div></div>
         <div class="sf-content-layout">
           <aside class="sf-card sf-variant-list"><div class="sf-card-label"><span>Homepage hero variants</span></div><div id="variantList"></div></aside>
           <form class="sf-card sf-content-editor" id="contentForm">
@@ -164,7 +164,7 @@
       </section>
 
       <section class="sf-view" id="sf-panel-preview" data-panel="preview" role="tabpanel" aria-labelledby="sf-tab-preview" hidden>
-        <div class="sf-pagehead"><div><p class="sf-kicker">Test before installation</p><h1>Preview / Simulator</h1><p>Change the weather, see the winning trigger, then inspect both responsive shapes.</p></div><div class="sf-device-toggle"><button class="is-active" data-device="desktop" type="button">Desktop</button><button data-device="mobile" type="button">Mobile</button></div></div>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Test before installation</p><h1>Preview / Simulator {{ help_dot('smartforecast.preview.simulator') if help_dot is defined else '' }}</h1><p>Change the weather, see the winning trigger, then inspect both responsive shapes.</p></div><div class="sf-device-toggle"><button class="is-active" data-device="desktop" type="button">Desktop</button><button data-device="mobile" type="button">Mobile</button></div></div>
         <div class="sf-simulator-layout">
           <form class="sf-card sf-simulator" id="simulatorForm">
             <div class="sf-card-label"><span>Simulate weather</span><small>No live site changes</small></div>
@@ -197,7 +197,7 @@
       </section>
 
       <section class="sf-view" id="sf-panel-report" data-panel="report" role="tabpanel" aria-labelledby="sf-tab-report" hidden>
-        <div class="sf-pagehead"><div><p class="sf-kicker">Lifecycle + engagement evidence</p><h1>Trigger Report</h1><p>Operational history and privacy-conscious engagement, reported separately from causal lift.</p></div><div class="sf-page-actions"><a class="sf-btn sf-btn-ghost" id="exportCsv" href="api/report.csv">Lifecycle CSV</a><a class="sf-btn sf-btn-ghost" id="exportEngagementCsv" href="api/engagement.csv">Engagement CSV</a></div></div>
+        <div class="sf-pagehead"><div><p class="sf-kicker">Lifecycle + engagement evidence</p><h1>Trigger Report {{ help_dot('smartforecast.report.history') if help_dot is defined else '' }}</h1><p>Operational history and privacy-conscious engagement, reported separately from causal lift.</p></div><div class="sf-page-actions"><a class="sf-btn sf-btn-ghost" id="exportCsv" href="api/report.csv">Lifecycle CSV</a><a class="sf-btn sf-btn-ghost" id="exportEngagementCsv" href="api/engagement.csv">Engagement CSV</a></div></div>
         <div class="sf-report-stats"><article><span>Weather events detected</span><strong id="reportEvents">0</strong><small>Last 30 days</small></article><article><span>Website activations</span><strong id="reportActivations">0</strong><small>Last 30 days</small></article><article><span>Hours personalized</span><strong id="reportHours">0</strong><small>Active + post-event</small></article><article><span>Recorded transitions</span><strong id="reportTransitions">0</strong><small>Immutable ledger</small></article><article><span>Personalized views</span><strong id="reportViews">0</strong><small>Deduplicated hourly</small></article><article><span>CTA clicks</span><strong id="reportClicks">0</strong><small id="reportClickRate">0% of views</small></article><article><span>Conversions</span><strong id="reportConversions">0</strong><small id="reportConversionRate">0% of views</small></article><article><span>Unique sessions</span><strong id="reportSessions">0</strong><small>Hashed, no cookies</small></article></div>
         <div class="sf-report-layout">
           <section class="sf-card sf-timeline-card"><div class="sf-card-label"><span>Trigger timeline</span><small>Recent activity</small></div><div class="sf-timeline" id="timeline"></div></section>

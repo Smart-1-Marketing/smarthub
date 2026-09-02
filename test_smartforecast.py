@@ -209,6 +209,7 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertEqual(entries[-1]["module"], "smartforecast")
         self.assertEqual(entries[-1]["type"], "site_paused")
         self.assertEqual(entries[-1]["actor"], "release-tester@example.com")
+        self.assertEqual(entries[-1]["client"], "Quality Air Columbus")
         self.assertNotIn("token", entries[-1])
 
     def test_pause_returns_public_embed_to_baseline(self):

@@ -1778,6 +1778,38 @@ REGISTRY: list[Help] = [
        "still be marked, so a row nobody can close does not read as "
        "waiting for ever."),
 
+    # ---------------- SmartForecast ----------------
+    _h("smartforecast.dashboard.status", "What the live status means",
+       "The winning trigger is the highest-priority eligible rule after "
+       "lifecycle stability checks. Pausing immediately serves the approved "
+       "default content while preserving rules, drafts and history, so it is "
+       "the safe stop control when a campaign needs review."),
+    _h("smartforecast.setup.installation", "One site, one weather location",
+       "The primary postal code and timezone decide which forecast is read "
+       "and when each observation belongs. The embed token is a public "
+       "identifier rather than a staff credential; rotate it if the embed "
+       "has been shared somewhere it should no longer load."),
+    _h("smartforecast.triggers.lifecycle", "Rules move through a lifecycle",
+       "Pre-event, active-event and post-event are separate approved messages "
+       "for one weather rule. Ordinary forecasts must satisfy consecutive "
+       "checks before activating or clearing to prevent flicker; official "
+       "alerts can activate immediately."),
+    _h("smartforecast.content.approval", "Draft first, publish deliberately",
+       "Saving changes only the staff draft. The public embed keeps serving "
+       "the last approved version until Approve & publish is pressed, so copy, "
+       "CTA destinations, mobile crops and alt text can be reviewed without "
+       "changing the client's website."),
+    _h("smartforecast.preview.simulator", "A safe forecast rehearsal",
+       "Simulation evaluates the same priority and lifecycle rules as a live "
+       "weather check without changing the website. Enable the record option "
+       "only when you intentionally want the scenario written as an actual "
+       "observation and applied to the current state."),
+    _h("smartforecast.report.history", "Evidence, not causal attribution",
+       "Lifecycle history records which rule won, why and when. Engagement "
+       "counts are privacy-minimized interactions with the embed; they are "
+       "reported separately and do not claim that weather messaging caused a "
+       "lead or sale without a controlled comparison."),
+
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}
