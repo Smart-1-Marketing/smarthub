@@ -80,6 +80,23 @@ class SmartForecastEngineTests(unittest.TestCase):
         self.assertEqual(result["weekend_wind_mph"], 13)
         self.assertEqual(result["sustained_heat_days"], 1)
 
+    def test_readability_math_matches_wcag_and_defaults_pass(self):
+        from modules.smartforecast.readability import assess_readability, contrast_ratio
+        self.assertEqual(round(contrast_ratio("#000000", "#ffffff")), 21)
+        result = assess_readability({}, {"overlay_opacity": 0})
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(all(check["ratio"] >= 4.5 for check in result["checks"]))
+
+    def test_readability_rejects_invisible_text_and_button_pairs(self):
+        from modules.smartforecast.readability import assess_readability
+        result = assess_readability({
+            "headline_color": "#303b46", "body_color": "#303b46",
+            "button_color": "#ffffff", "button_text": "#ffffff",
+        }, {})
+        self.assertFalse(result["ok"])
+        self.assertEqual({check["key"] for check in result["checks"] if not check["passed"]},
+                         {"headline", "body", "button"})
+
 
 class SmartForecastStoreAndRoutesTests(unittest.TestCase):
     def setUp(self):
@@ -132,6 +149,13 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
             self.assertIn(label, html)
         self.assertIn('role="tablist"', html)
         self.assertIn("Launch preflight", html)
+        self.assertIn("Readability guard", html)
+        self.assertEqual(html.count('type="button" data-dialog-close'), 4)
+        javascript = (Path(__file__).parent / "modules" / "smartforecast" / "static" /
+                      "smartforecast.js").read_text(encoding="utf-8")
+        self.assertIn("REQUEST_TIMEOUT_MS = 15000", javascript)
+        self.assertIn("loadController?.abort()", javascript)
+        self.assertIn(".sf-view\").forEach(panel => panel.hidden = true", javascript)
         sim = self.client.post("/api/simulate", json={
             "temperature": 96, "feels_like": 103, "forecast_high": 98,
             "forecast_low": 74, "rain_probability": 10, "snow_inches": 0,
@@ -144,6 +168,7 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         embed = self.client.get(f"/embed/{token}")
         self.assertEqual(embed.status_code, 200)
         self.assertIn("smartforecast-hvac-hero.png", embed.get_data(as_text=True))
+        self.assertIn("fixed copy-area scrim", embed.get_data(as_text=True))
         exported = self.client.get("/api/report.csv")
         self.assertEqual(exported.status_code, 200)
         self.assertIn("recorded_at,trigger,phase,event", exported.get_data(as_text=True))
@@ -264,6 +289,42 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertEqual(published["approval_status"], "published")
         now_live = self.client.get(f"/api/public/embed/{token}").get_json()["content"]["headline"]
         self.assertEqual(now_live, changed["headline"])
+
+    def test_unreadable_brand_cannot_publish_or_pass_preflight(self):
+        bootstrap = self.client.get("/api/bootstrap").get_json()
+        site = bootstrap["site"]
+        history_before = len(bootstrap["history"])
+        response = self.client.post("/api/setup", json={
+            **site,
+            "branding": {
+                **site["branding"],
+                "headline_color": "#303b46",
+                "body_color": "#303b46",
+                "button_color": "#ffffff",
+                "button_text": "#ffffff",
+            },
+        })
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        readability = next(item for item in data["preflight"]["checks"]
+                           if item["key"] == "readability")
+        self.assertEqual(readability["status"], "fail")
+        variant = data["current_variant"]
+        self.assertFalse(variant["readability"]["ok"])
+        publish = self.client.post(f"/api/content/{variant['id']}/publish", json={})
+        self.assertEqual(publish.status_code, 400)
+        self.assertIn("4.5:1 required", publish.get_json()["error"])
+        self.assertEqual(len(self.client.get("/api/bootstrap").get_json()["history"]),
+                         history_before)
+
+    def test_brand_colors_are_css_safe(self):
+        site = self.client.get("/api/bootstrap").get_json()["site"]
+        response = self.client.post("/api/setup", json={
+            **site,
+            "branding": {**site["branding"], "headline_color": "red;}body{display:none"},
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["site"]["branding"]["headline_color"], "#ffffff")
 
     def test_rotating_embed_token_invalidates_the_old_token(self):
         old = self.client.get("/api/bootstrap").get_json()["site"]["embed_token"]
