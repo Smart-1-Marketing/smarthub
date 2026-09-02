@@ -41,6 +41,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from flask import Flask
+
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
@@ -184,6 +186,13 @@ check("the footage button names our video library",
       "Search video library" in _blueprint, True)
 check("the picker says owned footage is searched first",
       "We search our owned footage first" in _blueprint_js, True)
+check("Video Search suggestions have their own first shelf",
+      "Suggested from Video Search" in _blueprint_js, True)
+check("outside providers are clearly secondary",
+      "More stock options" in _blueprint_js, True)
+check("the API keeps Video Search results separate from stock",
+      '"video_search_results": owned_results' in
+      (ROOT / "modules/commercial_builder/routes/stock.py").read_text(), True)
 
 for name in provider_check.PROVIDERS:
     check(f"{name} has a check defined", name in provider_check._CHECKS, True)
@@ -203,15 +212,23 @@ class _OwnedLibrary:
     def ready():
         return True
 
+    @staticmethod
+    def cutoff():
+        return "2026-09-01T00:00:00Z"
+
     def search(self, query, *, orientation, limit):
         self.calls.append((query, orientation, limit))
         rows = {
             "roofing crew": [
-                {"id": "ours-1", "tier": "OWNED", "preview_url": "one.mp4"},
+                {"id": "ours-1", "tier": "OWNED", "preview_url": "one.mp4",
+                 "description": "general contractor walking outside"},
             ],
             "storm roof": [
-                {"id": "ours-1", "tier": "OWNED", "preview_url": "one.mp4"},
-                {"id": "ours-2", "tier": "OWNED", "preview_url": "two.mp4"},
+                {"id": "ours-1", "tier": "OWNED", "preview_url": "one.mp4",
+                 "description": "general contractor walking outside"},
+                {"id": "ours-2", "tier": "OWNED", "preview_url": "two.mp4",
+                 "description": "roofing crew repairing storm damage",
+                 "tags": ["roofing", "storm", "repair"], "bg_ready": True},
             ],
         }
         return {"results": rows.get(query, [])[:limit]}
@@ -222,16 +239,53 @@ _owned_library = _OwnedLibrary()
 stock_route.video_library = _owned_library
 try:
     _owned = stock_route._owned_queries(
-        ["roofing crew", "storm roof", "golden roof"], "landscape", 2)
+        ["roofing crew", "storm roof", "golden roof"], "landscape", 2,
+        "roofing crew repairs storm damage")
 finally:
     stock_route.video_library = _real_video_library
 
-check("a second expanded query is tried when the first does not fill the shelf",
-      [c[0] for c in _owned_library.calls], ["roofing crew", "storm roof"])
-check("the owned shelf keeps one overall result cap",
-      [r["id"] for r in _owned], ["ours-1", "ours-2"])
-check("each query can look past a duplicate while the merged shelf stays capped",
-      [c[2] for c in _owned_library.calls], [2, 2])
+check("every expanded query is tried before Video Search suggestions are ranked",
+      [c[0] for c in _owned_library.calls],
+      ["roofing crew", "storm roof", "golden roof"])
+check("the relevant owned clip outranks a newer generic match",
+      [r["id"] for r in _owned], ["ours-2", "ours-1"])
+check("the Video Search shelf keeps one overall result cap",
+      len(_owned), 2)
+check("each query can look past duplicates before the merged shelf is capped",
+      [c[2] for c in _owned_library.calls], [2, 2, 2])
+
+
+# Exercise the response contract as well as the ranking helper. Commercial
+# Builder renders these as separate shelves; `results` stays for older callers.
+_real_expand = openai_service.expand_stock_queries
+_real_pexels_search = pexels_service.search
+_real_pixabay_search = pixabay_service.search
+stock_route.video_library = _owned_library
+openai_service.expand_stock_queries = lambda _q: ["roofing crew", "storm roof"]
+pexels_service.search = lambda q, *_a: [{
+    "id": f"pexels-{q}", "tier": "FREE", "provider": "pexels"}]
+pixabay_service.search = lambda q, *_a: [{
+    "id": f"pixabay-{q}", "tier": "FREE", "provider": "pixabay"}]
+try:
+    _stock_app = Flask("commercial-stock-contract")
+    _stock_app.register_blueprint(stock_route.bp)
+    _payload = _stock_app.test_client().get(
+        "/api/stock/search?q=roofing+crew+repairs+storm+damage&expand=true"
+    ).get_json()
+finally:
+    stock_route.video_library = _real_video_library
+    openai_service.expand_stock_queries = _real_expand
+    pexels_service.search = _real_pexels_search
+    pixabay_service.search = _real_pixabay_search
+
+check("the API identifies the Video Search shelf as first",
+      _payload["source_order"], ["video_search", "stock"])
+check("Video Search suggestions lead the backwards-compatible result list",
+      [r["id"] for r in _payload["results"][:2]], ["ours-2", "ours-1"])
+check("outside stock is not mixed into the Video Search shelf",
+      {r["tier"] for r in _payload["video_search_results"]}, {"OWNED"})
+check("Video Search clips are not repeated in the outside stock shelf",
+      {r["tier"] for r in _payload["stock_results"]}, {"FREE"})
 
 
 # ------------------------------------------- 5. no key is "not measured"

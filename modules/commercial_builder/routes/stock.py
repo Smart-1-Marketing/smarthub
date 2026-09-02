@@ -2,6 +2,7 @@
 library, Pexels and Pixabay simultaneously, merges results, and labels
 OWNED / FREE / PREMIUM instead of naming the provider."""
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, request
@@ -23,6 +24,12 @@ except Exception:                            # noqa: BLE001
 bp = Blueprint("cb_stock", __name__, url_prefix="/api/stock")
 
 _ORIENTATION_MAP = {"16:9": "landscape", "9:16": "portrait", "1:1": "square"}
+_WORD = re.compile(r"[a-z0-9]+")
+_STOP_WORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "in", "into", "is", "it", "of", "on", "or", "our", "that", "the",
+    "their", "this", "to", "with",
+}
 
 
 @bp.get("/search")
@@ -48,7 +55,7 @@ def search():
         # the owned library must receive them too or a search can claim it
         # checked our footage while asking it a much stricter question.
         owned_future = pool.submit(_owned_queries, queries, orientation,
-                                   per_provider)
+                                   per_provider, query)
         pexels_futures = [pool.submit(pexels_service.search, q, per_provider, orientation) for q in queries]
         pixabay_futures = [pool.submit(pixabay_service.search, q, per_provider, orientation) for q in queries]
         pexels_results = [r for f in pexels_futures for r in f.result()]
@@ -74,16 +81,25 @@ def search():
     # premium_stock — a clip we hold costs nothing, needs no licence check and
     # is the one a producer should reach for first. Ranking it below a Pexels
     # result would contradict the waterfall the rest of the module follows.
-    merged = owned_results + [m for m in merged if m["id"] not in
-                              {o["id"] for o in owned_results}]
+    owned_ids = {o["id"] for o in owned_results}
+    stock_results = [m for m in merged if m["id"] not in owned_ids]
+    merged = owned_results + stock_results
 
     return jsonify({
         "ok": True, "query": query, "queries_used": queries, "results": merged,
+        # Keep `results` for existing callers, but name the two shelves so the
+        # Commercial Builder cannot accidentally mix or demote footage from
+        # the Video Search tool when its picker changes again.
+        "video_search_results": owned_results,
+        "stock_results": stock_results,
+        "source_order": ["video_search", "stock"],
         "priority": ASSET_SOURCE_PRIORITY,
         "providers": {"owned": _owned_live(),
+                      "video_search": _owned_live(),
                       "pexels": pexels_service.is_live(),
                       "pixabay": pixabay_service.is_live()},
         "owned_note": _owned_note(),
+        "video_search_note": _owned_note(),
     })
 
 
@@ -118,31 +134,31 @@ def _owned(query, orientation, per_provider):
     raises: the owned library going down must not take the stock search with
     it -- a producer with two thirds of the results can still work.
     """
-    return _owned_queries([query], orientation, per_provider)
+    return _owned_queries([query], orientation, per_provider, query)
 
 
-def _owned_queries(queries, orientation, limit):
-    """Search our library with each short query until the result cap is full.
+def _owned_queries(queries, orientation, limit, scene_query=""):
+    """Search and relevance-rank the same library as the Video Search tool.
 
     OpenAI turns a scene description into up to three concrete searches for
     Pexels and Pixabay. Searching Cloudinary only with the original prose made
     every word an AND clause, so the owned shelf frequently returned nothing
-    even when one of the short queries matched it. Keep one overall cap and
-    de-duplicate clips that answer more than one query.
+    even when one of the short queries matched it. Search every short query,
+    de-duplicate the union, then rank it against the scene and those searches.
+    Stopping when the first query fills the shelf can hide a much more relevant
+    clip found by the second query merely because the first results are newer.
     """
     if not _owned_live():
         return []
     cap = max(1, int(limit or 1))
+    query_list = [str(q or "").strip() for q in (queries or [])
+                  if str(q or "").strip()]
     merged, seen = [], set()
-    for query in queries or []:
-        query = str(query or "").strip()
-        if not query:
-            continue
+    for query in query_list:
         try:
             found = video_library.search(
-                # Ask each query for the full cap: an earlier clip may match
-                # again, and asking only for the remaining slot can return
-                # that duplicate while hiding the next new clip.
+                # Ask every query for the full cap. The final ranking chooses
+                # the best union, and duplicates are removed below.
                 query, orientation=orientation or "", limit=cap)
         except Exception:                    # noqa: BLE001
             continue
@@ -154,6 +170,63 @@ def _owned_queries(queries, orientation, limit):
             if key:
                 seen.add(key)
             merged.append(item)
-            if len(merged) >= cap:
-                return merged
-    return merged
+    return _rank_owned(merged, scene_query, query_list)[:cap]
+
+
+def _rank_owned(items, scene_query, queries):
+    """Put the most relevant Video Search suggestions first.
+
+    Cloudinary returns newest-first. That is useful as a tie-breaker, but it
+    should not let a newer generic clip outrank footage whose indexed tags or
+    description closely match this scene.
+    """
+    indexed = list(enumerate(items or []))
+    return [item for _, item in sorted(
+        indexed,
+        key=lambda row: (-_owned_relevance(row[1], scene_query, queries),
+                         row[0]),
+    )]
+
+
+def _owned_relevance(item, scene_query, queries):
+    description = _normalise(item.get("description"))
+    raw_tags = item.get("tags") or []
+    if isinstance(raw_tags, str):
+        raw_tags = [raw_tags]
+    tags = _normalise(" ".join(str(tag) for tag in raw_tags))
+    identity = _normalise(" ".join(str(item.get(k) or "") for k in
+                                   ("public_id", "folder", "filename")))
+    all_text = " ".join((description, tags, identity))
+    description_terms = set(description.split())
+    tag_terms = set(tags.split())
+    identity_terms = set(identity.split())
+    score = 1 if item.get("bg_ready") else 0
+
+    # The producer's scene description is the strongest signal. Indexed tags
+    # are deliberately concise, so a matching tag is worth more than prose.
+    scene_terms = _terms(scene_query)
+    score += 8 * len(scene_terms & tag_terms)
+    score += 5 * len(scene_terms & description_terms)
+    score += 2 * len(scene_terms & identity_terms)
+
+    # Expanded Video Search phrases are concrete alternatives. Reward phrase
+    # matches and individual words, with a small preference for earlier AI
+    # suggestions while still allowing a clearly better later match to win.
+    for position, query in enumerate(queries or []):
+        phrase = _normalise(query)
+        terms = _terms(query)
+        preference = max(1, 3 - position)
+        if phrase and phrase in all_text:
+            score += 10 + preference
+        score += preference * len(terms & tag_terms)
+        score += len(terms & description_terms)
+    return score
+
+
+def _normalise(value):
+    return " ".join(_WORD.findall(str(value or "").lower()))
+
+
+def _terms(value):
+    return {word for word in _WORD.findall(str(value or "").lower())
+            if len(word) > 2 and word not in _STOP_WORDS}
