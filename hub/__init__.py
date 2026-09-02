@@ -806,7 +806,7 @@ def create_hub_app() -> Flask:
         return jsonify(work_log(name, limit, also=also))
 
     @app.route("/api/client/client-links", methods=["GET", "POST"])
-    def api_client_links():
+    def api_client_portal_links():
         """Manage the one customer-safe links page from Client 360."""
         gate = _require_api()
         if gate:
