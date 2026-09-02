@@ -176,11 +176,11 @@ EXPORT_PATH = "/"
 
 
 def _knack_export() -> list[Finding]:
-    """The committed export the month-over-month counts are measured in.
+    """The private fallback the month-over-month counts are measured in.
 
     Not a duplicate of the Knack panel on this page: that one reports whether
-    the *live* pull is working and how old its cache is. This is the export
-    checked into the repo, which nothing refreshes and which four cards on the
+    the *live* pull is working and how old its cache is. This is the optional
+    private fallback snapshot, refreshed out of band, which four cards on the
     dashboard are still measured in — and the dashboard says so in small grey
     text under the number, to a reader who cannot regenerate it.
     """
@@ -191,7 +191,7 @@ def _knack_export() -> list[Finding]:
         # fresh one, and guessing either way is the confident wrong answer.
         return [_not_measured("knack_export", EXPORT_PAGE, EXPORT_PATH,
                               "the products export names no month",
-                              "no thisMonth in clients_app/data/products.json")]
+                              "no thisMonth in the private products fallback")]
     if not state.get("stale"):
         return []
     return [Finding(
@@ -200,7 +200,7 @@ def _knack_export() -> list[Finding]:
               f"it is now {state['current_label']}. The new, lost, up and "
               "down counts on the scorecard are that month's, not this "
               "month's — the card labels them, in gray, under the number.",
-        fix="Re-export object_135 to clients_app/data/products.json.",
+        fix="Refresh products.json in the private CLIENTS_DATA_DIR mount.",
         count=1, level="low")]
 
 

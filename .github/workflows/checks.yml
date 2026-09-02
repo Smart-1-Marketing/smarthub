@@ -62,6 +62,7 @@ jobs:
       DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
       SECRET_KEY: ci-not-a-real-secret
       PANEL_PASSWORD: ci-not-a-real-password
+      CLIENTS_DATA_DIR: tests/fixtures/clients
 
     steps:
       - uses: actions/checkout@v7
@@ -120,6 +121,14 @@ jobs:
 
       - name: Ad builder module tests
         run: python test_ads_module.py
+
+      - name: Guided Ads optimization tests
+        run: |
+          if [ -f test_ads_optimization.py ]; then
+            python test_ads_optimization.py
+          else
+            echo "test_ads_optimization.py not on this branch — nothing to run."
+          fi
 
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
@@ -292,6 +301,16 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder dashboard layout tests
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_commercial_dashboard_layout.py ]; then
+            python test_commercial_dashboard_layout.py
+          else
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder client review tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -358,6 +377,22 @@ jobs:
             python test_commercial_meter.py
           else
             echo "test_commercial_meter.py not on this branch — nothing to run."
+          fi
+
+      - name: Commercial Builder dashboard rail
+        # The dashboard is the one screen in the module that asks the Hub for
+        # its icon rail and opts the generic accordion out, and its section
+        # rail is read by assistive technology — so both are asserted against
+        # the template rather than remembered. It arrived with no step naming
+        # it, which is the gap test_ci_gate.py exists to find: a check gated
+        # by nobody is a check that stops being run. Guarded like the steps
+        # around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_commercial_dashboard_layout.py ]; then
+            python test_commercial_dashboard_layout.py
+          else
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
           fi
 
       - name: Website block tests
@@ -1696,6 +1731,28 @@ jobs:
       # we asked for rather than the one Suite assigned.
       - name: companyId is not locationId, for the third time
         run: python3 test_ghl_blog.py
+      # The Client 360 forms card asked for forms with no sub-account and fell
+      # back to GHL_LEAD_LOCATION_ID -- the sub-account Smart 1's OWN leads are
+      # written into -- so every client's card showed the agency's form
+      # submissions under that client's name. A count that failed was dropped
+      # before the skipped tally, so all-forms-failing rendered as "no form
+      # submissions"; and a baseline nobody could read was recorded as 0.
+      - name: Whose forms, and what an empty card means
+        run: python3 test_ghl_forms.py
+      # The client-to-sub-account mapping, in its own store. Every
+      # location-scoped feature needs it, and getting a pairing wrong puts
+      # one client's work in another client's account -- so a proposal is
+      # exact or it is not a proposal, two candidates propose neither, and a
+      # sub-account already held is refused rather than reassigned.
+      - name: Which Suite sub-account belongs to which client
+        run: python3 test_suite_map.py
+      # Landed on main invoked by nothing, so test_ci_gate.py -- the check that
+      # exists to catch exactly this -- was already failing on main when this
+      # branch was cut. Wired here rather than left, because a test file the
+      # gate names and the workflow never runs is the sweep that has quietly
+      # stopped sweeping, which is worse than not having one.
+      - name: The Commercial Builder dashboard stays wired
+        run: python3 test_commercial_dashboard_layout.py
       # hub/audit_summary.py grounds every dollar figure in the two paragraphs
       # a prospect reads at the top of their own website audit, which is right
       # — the alternative is a model inventing what somebody spends. It

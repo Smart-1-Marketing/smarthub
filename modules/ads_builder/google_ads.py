@@ -16,7 +16,9 @@ from __future__ import annotations
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 from urllib.parse import urlencode, urlparse
 
 import requests
@@ -96,6 +98,7 @@ def assert_configured():
 # refresh token is the durable half and lives in the module's settings table
 # (and, better, in GOOGLE_ADS_REFRESH_TOKEN).
 _access_token = {"value": "", "expires_at": 0.0}
+_access_token_lock = Lock()
 
 
 def build_auth_url(state: str = "") -> str:
@@ -125,8 +128,10 @@ def exchange_code(code: str) -> dict:
     if not resp.ok:
         raise GoogleAdsError(_oauth_error(resp), status=resp.status_code, code="OAUTH_EXCHANGE_FAILED")
     data = resp.json()
-    _access_token["value"] = data.get("access_token", "")
-    _access_token["expires_at"] = time.time() + int(data.get("expires_in", 3600)) - 60
+    with _access_token_lock:
+        _access_token["value"] = data.get("access_token", "")
+        _access_token["expires_at"] = time.time() + int(data.get("expires_in", 3600)) - 60
+    clear_account_cache()
     return data
 
 
@@ -149,38 +154,43 @@ def refresh_token_value(store=None) -> str:
 
 
 def access_token(store=None) -> str:
-    if _access_token["value"] and time.time() < _access_token["expires_at"]:
+    # list_campaigns runs its two independent reads concurrently. Serialise a
+    # cold refresh so both threads do not exchange the same refresh token.
+    with _access_token_lock:
+        if _access_token["value"] and time.time() < _access_token["expires_at"]:
+            return _access_token["value"]
+
+        refresh = refresh_token_value(store)
+        if not refresh:
+            raise NotConnected(
+                "Google Ads is not connected. Open the Smart 1 Ads settings and click "
+                "Connect Google Ads, or set GOOGLE_ADS_REFRESH_TOKEN.",
+                status=400, code="NOT_CONNECTED",
+            )
+
+        c = cfg()
+        resp = requests.post(OAUTH_TOKEN_URL, data={
+            "client_id": c["client_id"],
+            "client_secret": c["client_secret"],
+            "refresh_token": refresh,
+            "grant_type": "refresh_token",
+        }, timeout=TIMEOUT)
+        if not resp.ok:
+            raise NotConnected(
+                "Could not refresh the Google token: " + _oauth_error(resp),
+                status=401, code="REFRESH_FAILED",
+            )
+        data = resp.json()
+        _access_token["value"] = data["access_token"]
+        _access_token["expires_at"] = time.time() + int(data.get("expires_in", 3600)) - 60
         return _access_token["value"]
-
-    refresh = refresh_token_value(store)
-    if not refresh:
-        raise NotConnected(
-            "Google Ads is not connected. Open the Smart 1 Ads settings and click "
-            "Connect Google Ads, or set GOOGLE_ADS_REFRESH_TOKEN.",
-            status=400, code="NOT_CONNECTED",
-        )
-
-    c = cfg()
-    resp = requests.post(OAUTH_TOKEN_URL, data={
-        "client_id": c["client_id"],
-        "client_secret": c["client_secret"],
-        "refresh_token": refresh,
-        "grant_type": "refresh_token",
-    }, timeout=TIMEOUT)
-    if not resp.ok:
-        raise NotConnected(
-            "Could not refresh the Google token: " + _oauth_error(resp),
-            status=401, code="REFRESH_FAILED",
-        )
-    data = resp.json()
-    _access_token["value"] = data["access_token"]
-    _access_token["expires_at"] = time.time() + int(data.get("expires_in", 3600)) - 60
-    return _access_token["value"]
 
 
 def forget_tokens():
-    _access_token["value"] = ""
-    _access_token["expires_at"] = 0.0
+    with _access_token_lock:
+        _access_token["value"] = ""
+        _access_token["expires_at"] = 0.0
+    clear_account_cache()
 
 
 # ---------------------------------------------------------------- requests
@@ -249,12 +259,14 @@ def request(method: str, path: str, body=None, *, store=None, customer_id=None,
     return resp.json() if resp.content else {}
 
 
-def search(customer_id, query: str, *, store=None, login_customer_id=None, page_size=1000):
+def search(customer_id, query: str, *, store=None, login_customer_id=None):
     """Run a GAQL query, following pagination to the end."""
     cid = digits(customer_id)
     rows, page_token = [], None
     while True:
-        body = {"query": query, "pageSize": page_size}
+        # Google Ads v19+ fixes Search pages at 10,000 rows and rejects an
+        # explicit pageSize with PAGE_SIZE_NOT_SUPPORTED.
+        body = {"query": query}
         if page_token:
             body["pageToken"] = page_token
         data = request("post", f"/customers/{cid}/googleAds:search", body,
@@ -275,7 +287,18 @@ def list_accessible_customers(store=None):
     return [digits(rn.split("/")[1]) for rn in data.get("resourceNames", [])]
 
 
-def list_client_accounts(store=None):
+ACCOUNT_CACHE_SECONDS = 300
+_account_cache = {}
+_account_cache_lock = Lock()
+
+
+def clear_account_cache():
+    """Forget the short-lived MCC picker cache after reconnecting Google."""
+    with _account_cache_lock:
+        _account_cache.clear()
+
+
+def _fetch_client_accounts(store=None):
     """Expand the manager account into a real account picker."""
     c = cfg()
     roots = [c["login_customer_id"]] if c["login_customer_id"] else list_accessible_customers(store)
@@ -322,6 +345,33 @@ def list_client_accounts(store=None):
     return sorted(seen.values(), key=lambda a: (not a["is_manager"], a["name"].lower()))
 
 
+def list_client_accounts(store=None, *, force=False):
+    """Return the account picker, holding a successful read for five minutes.
+
+    The hierarchy changes rarely and can include hundreds of accounts. The
+    cache is deliberately per worker: it bounds staleness without putting an
+    OAuth-derived account list into the shared database.
+    """
+    c = cfg()
+    cache_key = c["login_customer_id"] or "__accessible_accounts__"
+    now = time.monotonic()
+    with _account_cache_lock:
+        cached = _account_cache.get(cache_key)
+        if not force and cached and cached["expires_at"] > now:
+            return [dict(account) for account in cached["accounts"]]
+
+    accounts = _fetch_client_accounts(store)
+    # An unreachable root is kept in the picker with an error. Do not freeze a
+    # partial hierarchy; let the next request retry it.
+    if not any(account.get("error") for account in accounts):
+        with _account_cache_lock:
+            _account_cache[cache_key] = {
+                "expires_at": now + ACCOUNT_CACHE_SECONDS,
+                "accounts": [dict(account) for account in accounts],
+            }
+    return accounts
+
+
 DATE_RANGES = {
     "TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_14_DAYS", "LAST_30_DAYS",
     "THIS_MONTH", "LAST_MONTH", "LAST_90_DAYS",
@@ -330,9 +380,14 @@ DATE_RANGES = {
 _CAMPAIGN_FIELDS = """
     campaign.id, campaign.name, campaign.status,
     campaign.advertising_channel_type, campaign.bidding_strategy_type,
-    campaign.start_date, campaign.end_date,
+    campaign.start_date_time, campaign.end_date_time,
     campaign_budget.amount_micros, campaign_budget.id
 """
+
+
+def _date_part(value) -> str:
+    """Keep the Live Campaigns response date-only across Google API versions."""
+    return str(value or "").split(" ", 1)[0]
 
 
 def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
@@ -340,12 +395,31 @@ def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
         date_range = "LAST_30_DAYS"
     cid = digits(customer_id)
 
-    # Every non-removed campaign, including ones with no traffic in the window.
-    base_rows = search(cid, f"""
+    # Keep metadata separate from metrics: a segmented metrics query omits
+    # campaigns with zero traffic in the selected window. They are independent
+    # reads, so run them together instead of making the page pay both waits.
+    base_query = f"""
         SELECT {_CAMPAIGN_FIELDS}
         FROM campaign
         WHERE campaign.status != 'REMOVED'
-    """, store=store)
+    """
+    metric_query = f"""
+        SELECT campaign.id,
+               metrics.cost_micros, metrics.impressions, metrics.clicks,
+               metrics.ctr, metrics.average_cpc, metrics.conversions,
+               metrics.cost_per_conversion,
+               metrics.search_impression_share,
+               metrics.search_budget_lost_impression_share,
+               metrics.search_rank_lost_impression_share
+        FROM campaign
+        WHERE campaign.status != 'REMOVED'
+          AND segments.date DURING {date_range}
+    """
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="ads-campaigns") as pool:
+        base_future = pool.submit(search, cid, base_query, store=store)
+        metric_future = pool.submit(search, cid, metric_query, store=store)
+        base_rows = base_future.result()
+        metric_rows = metric_future.result()
 
     by_id = {}
     for row in base_rows:
@@ -358,22 +432,15 @@ def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
             "status": c.get("status", ""),
             "channel": c.get("advertisingChannelType", ""),
             "bidding_strategy": c.get("biddingStrategyType", ""),
-            "start_date": c.get("startDate", ""),
-            "end_date": c.get("endDate", ""),
+            "start_date": _date_part(c.get("startDateTime")),
+            "end_date": _date_part(c.get("endDateTime")),
             "daily_budget": micros((row.get("campaignBudget") or {}).get("amountMicros")),
             "cost": 0.0, "impressions": 0, "clicks": 0, "ctr": 0.0,
             "avg_cpc": 0.0, "conversions": 0.0, "cost_per_conversion": 0.0,
+            "search_impression_share": 0.0,
+            "search_budget_lost_share": 0.0,
+            "search_rank_lost_share": 0.0,
         }
-
-    metric_rows = search(cid, f"""
-        SELECT campaign.id,
-               metrics.cost_micros, metrics.impressions, metrics.clicks,
-               metrics.ctr, metrics.average_cpc, metrics.conversions,
-               metrics.cost_per_conversion
-        FROM campaign
-        WHERE campaign.status != 'REMOVED'
-          AND segments.date DURING {date_range}
-    """, store=store)
 
     for row in metric_rows:
         entry = by_id.get(str(row.get("campaign", {}).get("id")))
@@ -388,6 +455,13 @@ def list_campaigns(customer_id, date_range="LAST_30_DAYS", store=None):
             avg_cpc=micros(m.get("averageCpc")),
             conversions=float(m.get("conversions") or 0),
             cost_per_conversion=micros(m.get("costPerConversion")),
+            search_impression_share=float(m.get("searchImpressionShare") or 0),
+            search_budget_lost_share=float(
+                m.get("searchBudgetLostImpressionShare") or 0
+            ),
+            search_rank_lost_share=float(
+                m.get("searchRankLostImpressionShare") or 0
+            ),
         )
 
     return sorted(by_id.values(), key=lambda c: c["cost"], reverse=True)
@@ -439,13 +513,23 @@ def campaign_detail(customer_id, campaign_id, store=None):
 
 # ---------------------------------------------------------------- status
 ALLOWED_STATUS = {"ENABLED", "PAUSED", "REMOVED"}
+STATUS_CONFIRMATIONS = {
+    "ENABLED": "ENABLE",
+    "PAUSED": "PAUSE",
+    "REMOVED": "DELETE",
+}
 
 
-def set_campaign_status(customer_id, campaign_id, status, store=None):
+def set_campaign_status(customer_id, campaign_id, status, store=None, *, confirmation=None):
     status = str(status or "").upper()
     if status not in ALLOWED_STATUS:
         raise GoogleAdsError(
             f'Invalid status "{status}". Use ENABLED, PAUSED or REMOVED.', status=400
+        )
+    expected = STATUS_CONFIRMATIONS[status]
+    if str(confirmation or "").strip().upper() != expected:
+        raise GoogleAdsError(
+            f'Type "{expected}" to confirm this campaign change.', status=400
         )
     cid = digits(customer_id)
     resource = f"customers/{cid}/campaigns/{campaign_id}"
@@ -524,7 +608,9 @@ def _build_rsa(proposal: dict, group: dict):
 
 
 def _stamp(offset_days=0) -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=offset_days)).strftime("%Y%m%d")
+    return (datetime.now(timezone.utc) + timedelta(days=offset_days)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
 
 
 def deploy_proposal(customer_id, proposal: dict, *, store=None, campaign_name=None,
@@ -580,7 +666,7 @@ def deploy_proposal(customer_id, proposal: dict, *, store=None, campaign_name=No
         "advertisingChannelType": "SEARCH",
         "campaignBudget": budget_rn,
         "manualCpc": {"enhancedCpcEnabled": False},
-        "startDate": _stamp(1),
+        "startDateTime": _stamp(1),
         "networkSettings": {
             "targetGoogleSearch": True,
             "targetSearchNetwork": bool(search_partners),

@@ -94,6 +94,9 @@ HUB_PAGES = [
     # table from JavaScript.
     "/tools/domains",
     "/tools/google-match",
+    # And the third of the three matching screens, for the same reason:
+    # a hub route under /tools that draws every table from a fetch.
+    "/tools/suite-match",
     # Same shape again, and it hands the browser its field ids in a JSON
     # script block — the thing this checker learned to tell apart from code.
     "/tools/campaign-assets",

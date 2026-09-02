@@ -453,6 +453,100 @@ def create_hub_app() -> Flask:
         from . import google_index
         return jsonify(google_index.build(force=True))
 
+    # ---- which Suite sub-account belongs to which client ----------------
+    #
+    # /tools/suite-match, beside /tools/sites-match and /tools/google-match:
+    # the same shape of screen answering the same shape of question, and
+    # tiled with them on QA Reports rather than on Tools.
+    #
+    # Note the paths. "/suite" is a dispatcher-mounted module, so a hub route
+    # under it never receives the request — the first trap CLAUDE.md names.
+    # "/api/suite/..." starts with "/api", which is mounted nowhere, and
+    # "/tools/suite-match" is not under any "/tools/<mount>"; linkcheck is
+    # what proves both rather than this comment.
+    @app.route("/tools/suite-match")
+    def page_suite_match():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("suite_match.html", user=current_user(),
+                               active="qa")
+
+    @app.route("/api/suite/map")
+    def api_suite_map():
+        """What is recorded today. A read, so a GET."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        rows = suite_map.links()
+        return jsonify({"links": rows, "count": len(rows)})
+
+    @app.route("/api/suite/proposals", methods=["POST"])
+    def api_suite_proposals():
+        """Candidate pairings, and everything left over.
+
+        A POST behind a button, for the reason `hub/domain_purchase.py` gives
+        about its refresh and `hub/image_audit.reconcile()` about its sweep:
+        this walks every sub-account in the company a page at a time against
+        HighLevel's own rate limit, and a GET that does that is one a reload,
+        a prefetch or a link preview fires without anybody asking. Nothing is
+        written by looking — `proposals()` reads and `/api/suite/link` is the
+        press.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        return jsonify(suite_map.proposals())
+
+    @app.route("/api/suite/link", methods=["POST"])
+    def api_suite_link():
+        """Record one pairing, or a screenful of them.
+
+        `accept_many()` reports every row's own outcome rather than one
+        number, because a sub-account already recorded against somebody else
+        is refused by name and a count hides the refusals — the rule
+        `client_urls.accept_many()` works to.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        actor = current_user() or ""
+        pairs = body.get("pairs")
+        if isinstance(pairs, list):
+            out = suite_map.accept_many(pairs, by=actor)
+            if out.get("linked"):
+                audit.log("hub", "suite_locations_linked", actor=actor,
+                          detail=f"{out['linked']} sub-account(s)")
+            return jsonify(out)
+        out = suite_map.link(str(body.get("client") or ""),
+                             str(body.get("location_id") or ""), by=actor)
+        if out.get("ok"):
+            audit.log("hub", "suite_location_linked", actor=actor,
+                      client=out.get("client") or "",
+                      detail=str(out.get("location_id") or ""))
+        return jsonify(out)
+
+    @app.route("/api/suite/unlink", methods=["POST"])
+    def api_suite_unlink():
+        """Take a pairing off. A Hub overlay either way: nothing is written
+        to Smart 1 Suite or to Knack, so unlinking leaves both exactly as
+        they were."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        out = suite_map.unlink(client)
+        if out.get("ok"):
+            audit.log("hub", "suite_location_unlinked", actor=current_user(),
+                      client=client)
+        return jsonify(out)
+
     @app.route("/api/backup")
     def api_backup():
         """What of the JSON on the disk is mirrored into the database.
@@ -1841,9 +1935,14 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .ghl_forms import summary
+        # The url rides along so the client's sub-account can be resolved on
+        # domain as well as on name -- location_for() joins on either, and a
+        # client filed under a slightly different name is exactly the row a
+        # name-only match misses.
         return jsonify(summary(request.args.get("name", ""),
                                request.args.get("location", ""),
-                               request.args.get("period", "this_month")))
+                               request.args.get("period", "this_month"),
+                               request.args.get("url", "")))
 
     @app.route("/creative")
     def page_creative():
@@ -5328,7 +5427,18 @@ def create_hub_app() -> Flask:
     def clients_data(filename):
         if not current_user():
             return jsonify({"error": "Not authenticated."}), 401
-        return send_from_directory(os.path.join(CLIENTS_APP, "data"), filename)
+        # The prebuilt Clients bundle still requests these historical URLs,
+        # but the response now comes from the private Knack source (or the
+        # optional private CLIENTS_DATA_DIR fallback), never a committed file.
+        if filename == "products.json":
+            rows, source, age_minutes = knack_data._product_source()  # noqa: SLF001
+            return jsonify({"records": rows, "source": source,
+                            "ageMinutes": age_minutes})
+        if filename == "websites.json":
+            rows = knack_data.websites()
+            return jsonify({"records": rows,
+                            "source": knack_data.websites_source()})
+        return jsonify({"error": "Unknown client dataset."}), 404
 
     # ---------------- QuickBooks connect / lookup ----------------
     @app.route("/qb/connect")
@@ -5814,10 +5924,11 @@ def create_hub_app() -> Flask:
         state = knack_data.export_state()
         age = knack_data.data_age_hours()
         if age is None:
-            add("Smart 1 Team data", "error", "clients_app/data/products.json not found.")
+            add("Smart 1 Team data", "error",
+                "No private products fallback is configured or readable.")
         elif state["stale"]:
             add("Smart 1 Team data", "warn",
-                f"The committed products export is for {state['label']}, and "
+                f"The private fallback products export is for {state['label']}, and "
                 f"it is now {state['current_label']}. It is only read when "
                 "Knack cannot be reached, but that is when it matters.")
         elif not state["period"]:
@@ -5825,12 +5936,12 @@ def create_hub_app() -> Flask:
             # nothing can say how old it is. Named rather than passed off as
             # fresh — the whole failure this row had.
             add("Smart 1 Team data", "warn",
-                "The committed products export carries no month, so how old "
+                "The private fallback products export carries no month, so how old "
                 "it is cannot be measured. It is the fallback for when Knack "
                 "cannot be reached.")
         else:
             # The site count says which source answered. Products and websites
-            # each prefer the live Knack object and fall back to the committed
+            # each prefer the live Knack object and fall back to the private
             # export, and a count with no source on it reads as live whichever
             # it was — which is the whole reason the export went unnoticed.
             _wsrc = knack_data.websites_source()
@@ -5838,7 +5949,7 @@ def create_hub_app() -> Flask:
                 f"Export is current ({state['label']}) · "
                 f"{len(knack_data.products())} product rows · "
                 f"{len(knack_data.websites())} sites "
-                f"({'live from Knack' if _wsrc == 'knack' else 'committed export'}).")
+                f"({'live from Knack' if _wsrc == 'knack' else 'private fallback'}).")
 
         # --- GHL ---
         token, company = _cfg.ghl_token, _cfg.ghl_company_id

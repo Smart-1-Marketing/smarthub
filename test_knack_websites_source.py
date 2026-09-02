@@ -6,8 +6,8 @@
 
 `clients_registry.all_clients()` — which feeds client search, every client
 picker, Client 360's lookup and the social content link — built its domains
-from `clients_app/data/websites.json`: 610 rows, committed to the repo,
-refreshed by hand. Meanwhile `hub/knack_websites.py` had been reading the same
+from a static website export refreshed by hand. Meanwhile
+`hub/knack_websites.py` had been reading the same
 object live for the domain record, the renewals calendar and the orphan list.
 So the Hub held a live answer and a stale one to "what websites does this
 client have", and the load-bearing readers took the stale one — silently,
@@ -48,6 +48,7 @@ os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
 os.environ["SECRET_KEY"] = "web-source-test"
 os.environ["PANEL_PASSWORD"] = "test"
 os.environ["HUB_DATA_DIR"] = _TMP
+os.environ["CLIENTS_DATA_DIR"] = os.path.join(ROOT, "tests", "fixtures", "clients")
 
 PASS = FAIL = 0
 
@@ -141,7 +142,7 @@ _reset()
 
 rows, source, err = kd._website_source()                          # noqa: SLF001
 check("an outage falls back to the export rather than to nothing",
-      source == "export" and len(rows) > 100, (source, len(rows)))
+      source == "export" and len(rows) > 0, (source, len(rows)))
 check("and the reason travels with it, rather than reading as an empty registry",
       "unreachable" in err, err)
 
@@ -154,7 +155,7 @@ kw.rows = _boom
 _reset()
 rows, source, err = kd._website_source()                          # noqa: SLF001
 check("a raising pull is caught, not propagated to the page",
-      source == "export" and len(rows) > 100)
+      source == "export" and len(rows) > 0)
 check("and it is named by its exception", "RuntimeError" in err, err)
 
 kw.rows, kw.last_error = _real_rows, _real_err
@@ -171,20 +172,27 @@ check("summary() reads export_websites(), not websites()",
 check("and says why in the code rather than leaving it to be rediscovered",
       "measured differently" in src or "active" in src)
 
-kw.rows = lambda *a, **k: list(LIVE)
+summary_live_calls = []
+
+
+def _summary_live_rows(*a, **k):
+    summary_live_calls.append(True)
+    return list(LIVE)
+
+
+kw.rows = _summary_live_rows
 kw.last_error = lambda: ""
 _reset()
 totals = kd.summary()
-# The real assertion: with a live pull returning two rows, the dashboard's
-# website figures must still describe the 610-row export. If they followed the
-# live list, the card would read "2 active websites" and the H&M billing would
-# collapse to whatever those two carry — a confident wrong answer on the
-# CEO's dashboard, with nothing on the page saying the source had changed.
+# The real assertion: the dashboard's website figures must describe the
+# fallback export without consulting the live list. If it followed the live
+# list, its active count and H&M billing would collapse to fields object_153
+# does not publish — a confident wrong answer on the CEO's dashboard.
 check("websites_total still counts the export, not the live pull",
       totals["websites_total"] == len(kd.export_websites()),
       (totals["websites_total"], len(kd.export_websites())))
-check("and it is emphatically not the live row count",
-      totals["websites_total"] != len(LIVE))
+check("and calculating it never pulls the live rows",
+      not summary_live_calls, summary_live_calls)
 check("websites_active is measured off the export's own `active` field",
       totals["websites_active"] > 0, totals["websites_active"])
 check("so H&M billing is not collapsed to the live rows' fees",
@@ -257,7 +265,7 @@ except Exception as exc:                                          # noqa: BLE001
 if signed:
     check("the row renders", bool(signed.get("message")), signed)
     check("and says which source the site count came from",
-          "export" in signed["message"] or "live from Knack" in signed["message"],
+          "private fallback" in signed["message"] or "live from Knack" in signed["message"],
           signed["message"])
     check("without claiming a refresh time it cannot know",
           "Refreshed" not in signed["message"], signed["message"])
@@ -275,8 +283,8 @@ check("websites.json still loads", len(kd.export_websites()) > 0)
 # fix as the defect — the reason tools/spellcheck.py reads the AST and
 # CLAUDE.md says "prose is not a call site". This asserts what it now says.
 doc = kd.__doc__ or ""
-check("knack_data says plainly that nothing refreshes the exports",
-      "Nothing refreshes them" in doc, doc[:160])
+check("knack_data says plainly that fallback data is private",
+      "private mounted volume" in doc, doc[:200])
 check("and names them as a fallback rather than a source",
       "fall" in doc.lower() and "cannot be reached" in doc)
 check("the two dead files are accounted for rather than silently dropped",

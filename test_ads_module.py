@@ -162,6 +162,187 @@ def run():
     check("[unit] customer ids format with dashes",
           google_ads.format_customer_id("1234567890") == "123-456-7890")
 
+    # Google Ads v19+ fixes Search pages at 10,000 rows. Sending pageSize is
+    # not ignored -- v25 rejects the entire request. Pagination still follows
+    # Google's next token without it.
+    search_calls = []
+    search_pages = iter([
+        {"results": [{"campaign": {"id": "1"}}], "nextPageToken": "page-2"},
+        {"results": [{"campaign": {"id": "2"}}]},
+    ])
+
+    def fake_search_request(method, path, body=None, **kw):
+        search_calls.append({"method": method, "path": path, "body": body})
+        return next(search_pages)
+
+    real_request = google_ads.request
+    google_ads.request = fake_search_request
+    try:
+        paged_rows = google_ads.search("123-456-7890", "SELECT campaign.id FROM campaign")
+    finally:
+        google_ads.request = real_request
+    check("[google read] search omits unsupported pageSize",
+          all("pageSize" not in call["body"] for call in search_calls), search_calls)
+    check("[google read] search still follows Google's next page token",
+          len(paged_rows) == 2 and search_calls[1]["body"].get("pageToken") == "page-2",
+          search_calls)
+
+    # The MCC tree is the slow first request on Live campaigns. A successful
+    # hierarchy is held briefly, copied on return and dropped on reconnect.
+    account_searches = []
+    real_cfg, real_search = google_ads.cfg, google_ads.search
+
+    def fake_ads_cfg():
+        return {"login_customer_id": "1234567890"}
+
+    def fake_account_search(customer_id, query, **kw):
+        account_searches.append(customer_id)
+        return [
+            {"customerClient": {"id": "1234567890", "descriptiveName": "Agency MCC",
+                                "currencyCode": "USD", "timeZone": "America/New_York",
+                                "manager": True, "level": 0}},
+            {"customerClient": {"id": "2223334444", "descriptiveName": "Client Ads",
+                                "currencyCode": "USD", "timeZone": "America/New_York",
+                                "manager": False, "level": 1}},
+        ]
+
+    google_ads.cfg, google_ads.search = fake_ads_cfg, fake_account_search
+    google_ads.clear_account_cache()
+    try:
+        first_accounts = google_ads.list_client_accounts()
+        first_accounts[0]["name"] = "caller mutation"
+        second_accounts = google_ads.list_client_accounts()
+        google_ads.forget_tokens()
+        third_accounts = google_ads.list_client_accounts()
+    finally:
+        google_ads.cfg, google_ads.search = real_cfg, real_search
+        google_ads.clear_account_cache()
+    check("[google read] the MCC hierarchy is cached for repeated page loads",
+          len(account_searches) == 2, account_searches)
+    check("[google read] callers cannot mutate the cached account picker",
+          second_accounts[0]["name"] == "Agency MCC", second_accounts)
+    check("[google read] reconnecting invalidates the MCC cache",
+          third_accounts[0]["name"] == "Agency MCC", third_accounts)
+
+    # Metadata keeps zero-traffic campaigns visible; metrics supplies the
+    # selected range. They must remain separate but should overlap in time.
+    query_gate = threading.Barrier(2)
+    overlapped = []
+    campaign_queries = []
+    real_search = google_ads.search
+
+    def fake_campaign_search(customer_id, query, **kw):
+        campaign_queries.append(query)
+        try:
+            query_gate.wait(timeout=2)
+            overlapped.append(True)
+        except threading.BrokenBarrierError:
+            overlapped.append(False)
+        if "campaign_budget.amount_micros" in query:
+            return [{
+                "campaign": {"id": "77", "name": "Roofing", "status": "ENABLED",
+                             "advertisingChannelType": "SEARCH",
+                             "biddingStrategyType": "MAXIMIZE_CLICKS",
+                             "startDateTime": "2026-09-01 00:00:00",
+                             "endDateTime": "2037-12-30 23:59:59"},
+                "campaignBudget": {"amountMicros": "25000000"},
+            }]
+        return [{
+            "campaign": {"id": "77"},
+            "metrics": {"costMicros": "125000000", "impressions": "9000",
+                        "clicks": "450", "ctr": 0.05, "averageCpc": "277777",
+                        "conversions": 30, "costPerConversion": "4166666",
+                        "searchImpressionShare": 0.625,
+                        "searchBudgetLostImpressionShare": 0.15,
+                        "searchRankLostImpressionShare": 0.225},
+        }]
+
+    google_ads.search = fake_campaign_search
+    try:
+        live_campaigns = google_ads.list_campaigns("2223334444")
+    finally:
+        google_ads.search = real_search
+    check("[google read] campaign metadata and metrics run concurrently",
+          len(overlapped) == 2 and all(overlapped), overlapped)
+    metadata_query = next(q for q in campaign_queries if "campaign_budget.amount_micros" in q)
+    check("[google read] campaign dates use the v25 date-time fields",
+          "campaign.start_date_time" in metadata_query
+          and "campaign.end_date_time" in metadata_query
+          and "campaign.start_date," not in metadata_query
+          and "campaign.end_date," not in metadata_query,
+          metadata_query)
+    check("[google read] concurrent campaign rows still merge by id",
+          len(live_campaigns) == 1 and live_campaigns[0]["cost"] == 125.0
+          and live_campaigns[0]["daily_budget"] == 25.0, live_campaigns)
+    check("[google read] search share is requested and returned per campaign",
+          "metrics.search_impression_share" in next(
+              q for q in campaign_queries if "metrics.cost_micros" in q
+          )
+          and live_campaigns[0]["search_impression_share"] == 0.625
+          and live_campaigns[0]["search_budget_lost_share"] == 0.15
+          and live_campaigns[0]["search_rank_lost_share"] == 0.225,
+          live_campaigns)
+    check("[google read] v25 campaign datetimes keep the date-only UI contract",
+          live_campaigns[0]["start_date"] == "2026-09-01"
+          and live_campaigns[0]["end_date"] == "2037-12-30", live_campaigns)
+
+    campaign_page_src = Path("modules/ads_builder/templates/ads_campaigns.html").read_text()
+    check("[live campaigns] a saved account starts before MCC discovery finishes",
+          "earlyLoad = load(saved)" in campaign_page_src)
+    check("[live campaigns] a stale response cannot replace a newer account",
+          "generation !== loadGeneration" in campaign_page_src)
+    check("[live campaigns] the range event is not mistaken for a customer id",
+          "getElementById('range').onchange = () => load()" in campaign_page_src)
+    check("[live campaigns] enabled client accounts are the dashboard entry point",
+          "Active accounts" in campaign_page_src and "accountList" in campaign_page_src)
+    check("[live campaigns] campaign filters and sorting stay above the table",
+          all(key in campaign_page_src for key in
+              ("campaignSearch", "statusFilter", "channelFilter", "sortBy")))
+    check("[live campaigns] insights and search-share links open Google Ads",
+          "googleAdsUrl('insights')" in campaign_page_src
+          and "googleAdsUrl('campaigns')" in campaign_page_src
+          and "Search share" in campaign_page_src)
+    check("[live campaigns] typed confirmations travel to the server",
+          "confirmation: requiredWord" in campaign_page_src
+          and all(word in campaign_page_src for word in ("ENABLE", "PAUSE", "DELETE")))
+
+    # Status changes are protected below the browser too. A direct caller must
+    # provide the action word, and deleting uses Google's irreversible remove.
+    status_calls = []
+
+    def fake_status_request(method, path, body=None, **kw):
+        status_calls.append({"method": method, "path": path, "body": body})
+        return {"results": [{}]}
+
+    real_request = google_ads.request
+    google_ads.request = fake_status_request
+    refused_statuses = []
+    try:
+        for status, confirmation in (("ENABLED", ""), ("PAUSED", "enable"),
+                                     ("REMOVED", "remove")):
+            try:
+                google_ads.set_campaign_status(
+                    "2223334444", "77", status, confirmation=confirmation
+                )
+            except google_ads.GoogleAdsError:
+                refused_statuses.append(status)
+        google_ads.set_campaign_status(
+            "2223334444", "77", "PAUSED", confirmation="pause"
+        )
+        google_ads.set_campaign_status(
+            "2223334444", "77", "REMOVED", confirmation="DELETE"
+        )
+    finally:
+        google_ads.request = real_request
+    check("[google write] every campaign action needs its exact confirmation word",
+          refused_statuses == ["ENABLED", "PAUSED", "REMOVED"]
+          and len(status_calls) == 2, {"refused": refused_statuses,
+                                      "calls": status_calls})
+    check("[google write] delete is sent as an irreversible remove",
+          status_calls[1]["body"]["operations"][0].get("remove", "").endswith(
+              "/campaigns/77"
+          ), status_calls)
+
     # ------------------------------------------------- deploy payload shape
     # Build the mutate batch without touching the network, and assert the
     # things Google rejects campaigns for.
@@ -198,6 +379,11 @@ def run():
     check("[deploy] the campaign is PAUSED", campaign["status"] == "PAUSED")
     check("[deploy] the campaign is a Search campaign",
           campaign["advertisingChannelType"] == "SEARCH")
+    check("[deploy] campaign start uses the v25 date-time field",
+          "startDate" not in campaign
+          and len(campaign.get("startDateTime", "")) == 19
+          and campaign["startDateTime"][4] == "-"
+          and campaign["startDateTime"][10] == " ", campaign)
     check("[deploy] search partners are off by default",
           campaign["networkSettings"]["targetSearchNetwork"] is False)
     check("[deploy] display network is off",
@@ -458,6 +644,12 @@ def run():
     r = g(f"{BASE}/api/campaigns", timeout=10)
     check("campaigns without customer_id is a 400", r.status_code == 400)
 
+    r = g(f"{BASE}/api/optimization/scan", timeout=10)
+    check("optimization scans without customer_id are refused", r.status_code == 400)
+
+    r = p(f"{BASE}/api/optimization/action", json={}, timeout=10)
+    check("optimization writes need an account and one named action", r.status_code == 400)
+
     # proposals lifecycle, seeded directly (no OpenAI call needed)
     proposal = store.create_proposal("Northside Roofing Co", SAMPLE, created_by="todd@smart1marketing.com")
     pid = proposal["id"]
@@ -680,6 +872,7 @@ def run():
     for path, needle in (
         ("/", "Search existing clients"),
         ("/campaigns", "Live campaign data needs the Google Ads API"),
+        ("/optimization", "Optimization needs the Google Ads connection"),
         ("/approvals", "Northside Roofing Co"),
         (f"/proposal/{pid}", "Negative keyword vault"),
         (f"/proposal/{pid}/client", "Paid Search Estimate"),

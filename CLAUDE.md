@@ -1275,6 +1275,26 @@ whether the Cloudinary copy goes with it. It is named in the confirmation and
 says it cannot be undone, because for an image a client sent us our copy is
 very often the only copy.
 
+**And the gallery that link opened was one source's slice, read as the whole.**
+"See client image gallery" opened the SEO pipeline's archive scoped to the
+company — real images, correctly filtered, and a rep read it as everything we
+hold for the client while their uploads, display ads, logos and stock sat in
+the full gallery one module over. The link goes through
+`/tools/image-picker/gallery/for-client` now, which resolves the name under
+`provisioning.py`'s rules — exactly one gallery or none, never a substring —
+and lands on the full gallery, every folder and every source; a client with
+no full gallery yet lands on the SEO archive scoped to them, which is
+everything the Hub holds outside one. The two cannot bounce a reader between
+them, because the scoped SEO view offers a **Full client gallery** link only
+when the server resolved exactly one, and says it is the pipeline's own view
+rather than claiming to be every image saved. A view narrowed inside the full
+gallery — a group chip, a search, or both stacked — carries one **Show the
+full gallery** press back to everything, because the All chip and Clear each
+undo only half and "N of M shown" is a state somebody should not have to
+reverse-engineer their way out of. `c360` rides through the resolver's
+redirect, so "Back to <client>" survives the hop. `test_image_picker.py` and
+`test_client_images.py` assert all of it.
+
 **"Back" from a tool means the tool, and from a client record it means the
 client.** Every link out of Client 360 landed somewhere whose idea of back was
 its own parent, so a rep who opened the image gallery for Icon Solar got
@@ -1888,6 +1908,77 @@ was on no list: without a `?name=` the route **redirects to `/seo`**, so a
 sweep of bare paths lands on the list, reports it green, and the largest
 template in the Hub — 3,600 lines, drawn almost entirely from fetches — goes
 unchecked while reading as covered. Both it and `/seo/webmaster` are named now.
+
+**The mapping that every location-scoped feature waits on, in its own
+store.** Reading a client's Forms, pushing their Social Planner posts, minting
+a token at all — each needs one fact, which sub-account is theirs, and until
+it is recorded the feature has no answer for that client. It lived on
+`image_picker_clients.ghl_location_id`, a hand-typed column that exists
+because somebody provisioned an upload gallery. That was fine while the
+mapping was incidental and is the wrong home with the app installed across
+several hundred sub-accounts: it couples **"this client has a Suite
+sub-account"** to **"somebody made them an upload gallery"**, so mapping the
+book through it would create hundreds of gallery rows as a side effect nobody
+asked for — which `modules/image_picker/provisioning.py` is explicit about
+refusing.
+
+`hub/suite_map.py` is that store, and **nothing is migrated**: the old column
+is still read, the way `audit.LOG_NAMES` and `video_library.TAG_ALIASES` keep
+matching a spelling already on disk. **`suite_accounts.location_for()` stays
+the one reader** — it consults the new store then the old column — because two
+functions answering *which sub-account is this client* is how they come to
+disagree, and on this question a disagreement puts one client's work in
+another client's account.
+
+`proposals()` pairs sub-accounts to clients on **canonical domain first, then
+an exact normalised name, and never a substring**: "Riverside HVAC" must not
+collect "Riverside HVAC Supply". **Two candidates propose neither** and name
+both — two client records on one domain is the ambiguity that actually
+occurs. **Nothing is written by looking**; `link()` is the press, and a
+sub-account already recorded against somebody else is **refused by name**
+rather than reassigned, because silently taking the newer answer is exactly
+how the wrong page gets posted to. `accept_many()` reports every row's own
+outcome, the `client_urls.accept_many()` rule. It reads `/locations/search`
+rather than `ghl_oauth.installed_locations()` — that answers a different
+question and carries no website, and the domain is the only field in a
+location record that identifies a business exactly.
+
+**A card that asks for nobody's data gets somebody's.** Client 360's forms
+card fetches `/api/client/forms?name=…&period=…` and names no sub-account —
+and `ghl_forms.summary()` fell back to `GHL_LEAD_LOCATION_ID`, which
+`hub/config.py` describes as the sub-account *"leads are written into"*: Smart
+1's own. A form belongs to exactly one sub-account, so there was **no code
+path by which a client's own forms could reach that card**, and every client's
+record showed the agency's form submissions under that client's name. Not an
+empty card — a wrong one, wrong identically for all of them, which is why it
+read as a feature that had not been finished rather than as a bug. The
+location is resolved from the **client** now, through
+`suite_accounts.location_for()`, and there is no default: a client whose
+sub-account nobody has recorded has no answer, and saying so is the answer.
+
+**And two more in the same module, each rendering as a tidy nought.** A form
+whose submission count raised was dropped with `continue` placed *before* the
+`skipped` tally, so it left no trace at all — when every form failed, the card
+said *"No form submissions in September"* with `no_submissions: 0` and nothing
+anywhere reporting that nothing had been read. And a previous period that
+could not be counted was recorded as **0**, which prints "14 vs 0" and an
+up-arrow over a comparison that never happened. `unreadable` is counted and
+named beside `skipped` — *nobody filled it in* and *we could not ask* are
+different sentences — and an unmeasured baseline is `None`, which makes the
+aggregate baseline unmeasured too rather than comparing against a smaller sum
+and reporting a rise that is an artifact of the failure.
+
+**None of it was covered, which is how three failures shared one module.**
+`test_ghl_forms.py` stubs `_get` and asserts what the module does with each
+answer. Its own first draft then repeated the mistake it was written for: it
+set `GHL_LEAD_LOCATION_ID` *after* importing `hub`, and `config.settings` is a
+frozen dataclass built once at import — so the fallback field was `""`, there
+was no agency location to reach, and *"nothing was asked of the agency's own
+location"* passed against the unfixed code. The variable is set before the
+import now and the test asserts the fallback is really configured first.
+Reverted, eighteen checks go red; the `_delta` assertions are guarded because
+the old code raises on a `None` baseline and an assertion that raises takes
+every check after it out of the file.
 
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
@@ -3257,6 +3348,39 @@ the **help layer** panel on `/diagnostics` lists it, so the scenarios written
 against a screen that has since been rebuilt are a list somebody works down
 rather than something a learner meets one step at a time.
 
+**And the list is being worked down, which is what a backlog is for.** Three
+scenarios are repaired: `seo_images.first_batch` (eight of eleven steps dead),
+both `sales_builder` scenarios (seven between them). The repairs are two
+different jobs and the difference is the whole point. Most steps named a
+control that **exists under another selector** — `[name='max_edge']` where
+the page has `#maxEdge`, `[data-demo='save']` where it has `#btnSave` — and
+those are simply anchored, at the real id where the page's own script already
+depends on one and at a `data-demo` hook where the control is drawn by
+JavaScript from a row template and has no id to point at.
+
+**Two named a control the tool does not have, and those are rewritten rather
+than anchored** — the Web Tickets *"Sort by age"* rule, because a rep
+believes a walkthrough. The SEO Image Pipeline's step 2 said *"the specific
+page URL, not just the domain"* and drove a `page_url` field: that form asks
+for the **site** (its own placeholder is a bare domain) and, separately, an
+optional **Page name**, which is a name rather than a URL — so the step asked
+for the opposite of what the field wants. And the Proposal Builder's step 9
+said to **set the status to Converted**, which is not a status anybody sets:
+the pills offer Draft, Sent, Approved and Lost, and Converted is what a quote
+becomes once *Convert to IO* has built the insertion order behind it — the
+reason `hub/quote_validity.py` refuses to expire one. Both now describe the
+tool that is there, and step 9 points at the control
+`sales_builder.deliver` already named, so one hook serves both scenarios.
+
+**A repaired scenario is named in the test, and the backlog still is not.**
+Asserting the *count* would be the check switched on red that this section
+exists to avoid. What `test_help_layer.py` asserts instead is that a scenario
+somebody has worked to zero does not quietly come apart when a control it
+drives is renamed — and, in the other direction, that every scenario the list
+names still exists, or an entry outliving its scenario would pass by
+describing nothing, which is `check_stale_json_exemptions()`'s failure one
+shelf over. Both were confirmed red before they were confirmed green.
+
 **Five of them drove nothing at all, and that half is not a backlog.** A
 scenario with one step out of date is a walkthrough with a gap in it; one
 where *every* driving step names an element that is not there is a button
@@ -3751,18 +3875,39 @@ Client 360 and `/status` say which source answered, exactly as the products
 card already does — a stale export looks identical to live data on screen,
 which is the whole reason this went unnoticed.
 
+**And that assertion was counting on a 610-row export.** It proved the
+scorecard read the export by comparing `websites_total` against the export's
+own length and then against the live pull's — and the second half only means
+anything while the two lists are different lengths. That was free while the
+export was committed and 610 rows long. The day it moved out of source control
+the fixture behind it held **two**, which is exactly how many rows the test's
+synthetic live list holds, so the guard could no longer tell *reads the export*
+from *reads whichever source happens to hold the same number of rows*, and it
+reported a working `summary()` as broken. Going red is the lucky half: the same
+collision one row the other way would have passed on the bug as well, which is
+the failure `test_help_layer.py` had to undo when a count was compared against
+a set that collapsed the duplicate it was looking for.
+
+**The fix is to stop counting.** Whether two lists are the same length is a
+fact about a fixture; whether `summary()` consulted the live pull at all is a
+fact about `summary()`, and no fixture can collide with it. The live reader is
+a function that records having been called, and the assertion is that it never
+was — so the property the test exists to hold is asserted directly rather than
+inferred from an arithmetic coincidence, and the next person to re-sanitize a
+fixture cannot silently switch it off. The obvious repair — padding the live
+list until the counts differ — was written first and thrown away: it keeps the
+comparison alive and therefore keeps the collision possible, one fixture later.
+
 **`campaigns.json` and `live_products.json` are gone.** 7,854 rows and 2.1 MB
 of the first, 96 KB of the second, and not one reference to either anywhere in
 the repo — no reader, and for campaigns not even a `campaigns()` function.
 They were described here as *stale*, which implies a refresh would fix them;
-nothing would. `clients_app/data/` is `products.json` and `websites.json` now,
-both fallbacks rather than sources.
+nothing would. Real exports no longer live under `clients_app/data/`.
 
-**And nothing refreshes those two.** `hub/knack_data.py`'s header used to say
-they were kept current by "the existing `npm run refresh` flow / GitHub
-Action". There is no such workflow — `.github/workflows/` holds one file and
-it runs the checks. They are a hand-committed snapshot, which is survivable
-only because neither is the primary source any more.
+**Fallback exports are private.** `hub/knack_data.py` reads them only from the
+directory named by `CLIENTS_DATA_DIR`, which must be a private mounted volume
+outside the checkout. `.github/workflows/` uses sanitized fixtures. Never
+commit real client, campaign, website, analytics, or billing exports.
 
 **A staleness check measured against the wrong clock is worse than none.**
 `/status` read `products.json`'s mtime and printed it as "Refreshed Xh ago",
@@ -6802,8 +6947,8 @@ knowable from an order number.
 
 **A source that could not be read is not measured, and this is the strongest
 case of that rule in the Hub.** `knack_products.rows()` never raises: it falls
-back to a stale cache, then to the committed export, then to nothing. Read
-against the export — a snapshot nobody refreshes, whose rows are the raw Knack
+back to a stale cache, then to the private fallback, then to nothing. Read
+against the fallback — a snapshot refreshed out of band, whose rows are the raw Knack
 records rather than `_row()` output and so carry no IO number at all — *every*
 order reads as never trafficked, which is a report accusing the whole traffic
 team on the strength of a stale file. So the products must have come from
@@ -8948,7 +9093,7 @@ as "this campaign needs nothing", about every client at once. Two halves:
 however recently it was written, so `rows()` refetches rather than serving it;
 and `report()` asks whether the rows can answer the question *before* it
 reports that the answer is none, saying **not measured** instead of drawing an
-empty, confident table. The committed export carries none of these fields at
+empty, confident table. The private fallback carries none of these fields at
 all, which is the same statement.
 
 **A blank media partner sorts last, in its own group.** An empty string is not

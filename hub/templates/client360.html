@@ -809,7 +809,15 @@ function render(g,q){
 
   // ---------- Client images: what the SEO Image Pipeline has saved ----------
   const imgBase = '/tools/seo-images/';
-  const galleryHref  = imgBase+'gallery?company='+encodeURIComponent(name);
+  /* The gallery link opens the client's FULL gallery — every folder, every
+     source: their own uploads, display ads, logos, SEO images, stock — not
+     one pipeline's slice of it. The picker's resolver route does the name
+     matching (exactly one gallery or none, never a substring), and a client
+     with no full gallery yet lands on the SEO pipeline's archive for them,
+     which is everything the Hub holds outside one. hub-crumbs stamps c360
+     onto this link, and the resolver carries it through the redirect. */
+  const galleryHref  = '/tools/image-picker/gallery/for-client?name='+encodeURIComponent(name)
+    + (web0&&web0.domain ? '&url='+encodeURIComponent(web0.domain) : '');
   const optimizeHref = imgBase+'?company='+encodeURIComponent(name)
     + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
   const actsHost = document.getElementById('c-img-acts');
@@ -2551,8 +2559,13 @@ function renderForms(d){
   var el=document.getElementById('c-forms'); if(!el) return;
   if(d.error){ el.innerHTML='<div class="empty">'+esc(d.error)+'</div>'; return; }
   if(!d.forms || !d.forms.length){
+    /* "Nobody filled one in" and "we could not read them" are different
+       answers and only the first is good news, so the count of unreadable
+       forms is said out loud rather than being absorbed into a tidy nought. */
     el.innerHTML='<div class="empty">No form submissions in '+esc(d.label||'this period')+'.'+
-      (d.no_submissions?' '+d.no_submissions+' form(s) exist but had none.':'')+'</div>';
+      (d.no_submissions?' '+d.no_submissions+' form(s) exist but had none.':'')+
+      (d.unreadable?' '+d.unreadable+' form(s) could not be read, so this may not be the whole picture.':'')+
+      '</div>';
     return;
   }
   el.innerHTML =
@@ -2578,7 +2591,13 @@ function renderForms(d){
 function loadForms(name){
   var sel=document.getElementById('formsPeriod');
   var period = sel ? sel.value : 'this_month';
-  fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period,
+  /* __c360domain is already the client's own domain, set by render() from
+     their first website record. Reusing it rather than introducing a second
+     global for the same fact -- two descriptions of one thing is how they
+     come to disagree. */
+  var url = window.__c360domain || '';
+  fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period+
+        (url?'&url='+encodeURIComponent(url):''),
         {credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderForms).catch(function(){});
 }
@@ -2752,23 +2771,33 @@ function renderOwner(d){
   var opts='<option value="">— nobody —</option>'+(d.users||[]).map(function(u){
       return '<option value="'+esc(u.email)+'"'+(u.email===d.email?' selected':'')
         +'>'+esc(u.name)+'</option>'; }).join('');
+  /* Client 360 may make the first assignment, but it is not an assignment
+     management screen. Once somebody owns the client, show the answer without
+     offering a second place to change it. That keeps the decision on Client
+     Assignments, where partner rules and the rest of the book are visible. */
+  var assignmentControls=d.email
+    ? '<span class="muted" style="margin-left:auto;font-size:12px">Assignment changes are managed from Client Assignments.</span>'
+    : '<select id="c-owner-pick" style="margin-left:auto;padding:5px 8px;'
+      +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
+      +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Assign</a>'
+      /* Offered only while unassigned and where there is a rule to go back to.
+         An assigned client must not regain a reassignment control by having a
+         partner rule as well. */
+      +(d.rule&&d.source!=='rule'
+        ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
+          +'partner rule</a>' : '');
   el.innerHTML='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
     +'background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:9px 14px;'
     +'margin:0 0 12px;font-size:13px">'
     +'<span>&#128100; Assigned to '+who+'</span>'
     +(d.at?'<span class="muted">since '+esc(String(d.at).slice(0,10))
         +(d.by?' · '+esc(d.by):'')+'</span>':'')
-    +'<select id="c-owner-pick" style="margin-left:auto;padding:5px 8px;'
-    +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
-    +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Save</a>'
-    /* Offered only where there is a rule to go back to. A control that can
-       only ever do nothing is one people learn to skip past. */
-    +(d.rule&&d.source!=='rule'
-      ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
-        +'partner rule</a>' : '')
-    +'<a class="open-link" href="/my-clients">What is outstanding →</a>'
+    +assignmentControls
     +(d.user_error?'<div style="flex-basis:100%;font-size:12px;color:#7a5b00">'
         +esc(d.user_error)+'</div>':'')
+    +'<div id="c-owner-issues" style="flex-basis:100%;min-width:0">'
+      +'<span class="muted" style="font-size:12px">Checking outstanding issues…</span>'
+      +'</div>'
     +'</div>';
   var follow=document.getElementById('c-owner-follow');
   if(follow) follow.onclick=function(){
@@ -2810,11 +2839,56 @@ function renderOwner(d){
   };
 }
 
+function renderClientIssues(d){
+  var el=document.getElementById('c-owner-issues'); if(!el) return;
+  d=d||{};
+  if(d.ok===false||d.error){
+    el.innerHTML='<span class="pill warn">Outstanding issues could not be read.</span>';
+    return;
+  }
+  var issues=d.issues||[];
+  var warning=d.warning
+    ? '<div style="margin-top:8px;font-size:12px;color:#7a5b00">'+esc(d.warning)+'</div>'
+    : '';
+  if(!issues.length){
+    el.innerHTML=(d.complete
+      ? '<span class="muted" style="font-size:12px">No outstanding issues.</span>'
+      : '<span class="pill warn">Outstanding issues were only partially checked.</span>')
+      +warning;
+    return;
+  }
+  var rows=issues.map(function(issue){
+    return '<div style="padding:10px 0;border-top:1px solid #e2e8f0">'
+      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        +'<span class="pill warn">'+esc(issue.label||'Outstanding')+'</span>'
+        +'<b style="color:#172554">'+esc(issue.title||'Needs attention')+'</b>'
+      +'</div>'
+      +(issue.detail?'<div style="margin-top:5px;color:#334155">'+esc(issue.detail)+'</div>':'')
+      +(issue.where?'<div class="muted" style="margin-top:4px;font-size:12px">Handled in: '
+          +esc(issue.where)+'</div>':'')
+      +'</div>';
+  }).join('');
+  el.innerHTML='<details style="border-top:1px solid #dbe4f0;padding-top:8px">'
+    +'<summary style="cursor:pointer;color:#b45309;font-weight:700">'
+      +issues.length+' outstanding issue'+(issues.length===1?'':'s')
+      +' — show details</summary>'
+    +'<div style="padding-top:2px">'+rows+warning+'</div></details>';
+}
+
 function loadOwner(name){
   var el=document.getElementById('c-owner');
   if(!el||!name) return;
+  /* Start both reads together. The issue result waits for renderOwner() to
+     create its container, but it does not have to wait on the network. */
+  var issues=fetch('/api/client/issues?client='+encodeURIComponent(name),
+      {credentials:'same-origin'}).then(function(r){return r.json();});
   fetch('/api/client/owner?client='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(renderOwner)
+    .then(function(r){return r.json();}).then(function(d){
+      renderOwner(d);
+      issues.then(renderClientIssues).catch(function(){
+        renderClientIssues({ok:false,error:'unavailable'});
+      });
+    })
     /* "Nobody owns this" and "we could not read who owns it" are different
        answers, and drawing the first over the second is how a client gets
        assigned twice. */

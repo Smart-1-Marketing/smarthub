@@ -114,7 +114,11 @@ and alt text written into each asset's Cloudinary context.
 Images saved against a client surface in two places: a **Client Images** card
 at the bottom of that client's Client 360 record, and on the SEO client detail
 page with **See client image gallery** and **Optimize client images** buttons.
-The gallery (`/tools/seo-images/gallery?company=…`) groups by project.
+Client 360's gallery link opens the client's **full gallery** — every folder
+and every source, in Client Image Uploads — resolved by name through
+`/tools/image-picker/gallery/for-client`; the pipeline's own archive view
+(`/tools/seo-images/gallery?company=…`) groups by project and offers the way
+to the full gallery when the client has one.
 
 Each save is recorded in a searchable archive (`/var/data/seo-images/`) with
 copy-URL, copy-`<img>`-tag, edit-alt-later, delete, and CSV export. Filenames
@@ -204,10 +208,11 @@ a flag on System Status); it never takes the rest of the Hub down.
   three identities from the Google module. Tokens persist on the disk.
 - **Sites**: point `DATABASE_URL` at your existing Render Postgres (the same
   one the old smart1-simvoly-admin used — the schema is unchanged).
-- **Clients data**: `clients_app/data/*.json` are the same committed Knack
-  exports as before. Keep refreshing them exactly the way you do today
-  (`npm run refresh` in the old repo or the nightly GitHub Action), just
-  commit the JSONs into `clients_app/data/` here instead.
+- **Clients data**: Knack is the private source used by the Clients screen.
+  Never commit client or billing exports. For outage fallback, mount a private
+  directory containing `products.json` and `websites.json`, then set
+  `CLIENTS_DATA_DIR` to that directory. Sanitized test-only examples live in
+  `tests/fixtures/clients/`.
 - **Old services**: keep them running until you've verified each module in
   the Hub, then suspend them one at a time.
 

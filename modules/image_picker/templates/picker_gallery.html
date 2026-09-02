@@ -75,6 +75,12 @@
       <button class="btn quiet small" id="gSearchGo" type="button">Search</button>
       <button class="btn quiet small" id="gSearchClear" type="button" style="display:none">Clear</button>
       <span class="hint" id="filterMsg"></span>
+      {#- The way back to everything, whenever a chip or a search has
+          narrowed the view. The All chip and Clear each undo one half; a
+          reader who arrived on a filtered view — or stacked the two — needs
+          one press that says what it does, or "N of M shown" is a state
+          somebody has to reverse-engineer their way out of. -#}
+      <button class="btn quiet small" id="showFull" type="button" style="display:none">Show the full gallery</button>
     </div>
     <div class="note" id="visionNote" style="display:none;margin-bottom:10px"></div>
     <div class="chips" id="chips"></div>
@@ -183,6 +189,11 @@
        two right ones either side of it -- the trap CLAUDE.md names. */
     msg.textContent = (rows.length === ALL.length)
       ? "" : rows.length + " of " + ALL.length + " shown";
+    /* Offered whenever ANYTHING narrows the view -- the chip, the search, or
+       both. The "N of M" line above only sees the chip, because a search
+       narrows ALL itself, so it alone cannot say the view is partial. */
+    var full = document.getElementById("showFull");
+    if (full) full.style.display = (GROUP || QUERY) ? "" : "none";
   }
 
   function render(images){
@@ -431,6 +442,13 @@
   });
   document.getElementById("gSearchClear").addEventListener("click", function(){
     document.getElementById("gSearch").value = ""; runSearch();
+  });
+  /* One press back to everything: the search AND the group chip, because
+     either alone leaves a partial view reading as the library. */
+  document.getElementById("showFull").addEventListener("click", function(){
+    document.getElementById("gSearch").value = "";
+    GROUP = "";
+    runSearch();
   });
 
   document.addEventListener("click", function(e){

@@ -4,7 +4,8 @@ Each report returns {"columns": [...], "rows": [...], "note": str} where every
 row is a list matching the columns.  A cell may also be a {"text","href"} dict,
 which the report page renders as a link.  Everything else is plain text.
 
-Knack-only reports run straight off clients_app/data/*.json; the two invoice
+Knack-only reports read Knack live and may use the private CLIENTS_DATA_DIR
+fallback; the two invoice
 reports need a connected QuickBooks company and degrade with a friendly note
 when it isn't connected.
 """
@@ -52,7 +53,7 @@ _SRC = _threading.local()
 def _products() -> list[dict]:
     """The product rows every client report here is built from, live first.
 
-    These reports read `knack_data.products()` — the hand-committed export
+    These reports read `knack_data.products()` — the private fallback export
     that nothing refreshes — while Client 360 read the same object live
     through `_product_source()`. So the Hub held a current answer and a stale
     one to "what is this client running", and `/qa` took the stale one: the
@@ -2627,6 +2628,15 @@ EXTRAS = [
                     "client — searchable, with whoever it might belong to "
                     "and why.",
             "ico": "&#128202;", "href": "/tools/google-match"}),
+        ("Data Quality", "match-suite", {
+            "title": "Match Suite Sub-accounts",
+            "desc": "Every Smart 1 Suite sub-account the app is installed in "
+                    "that no client is recorded against \u2014 with the client "
+                    "each one is, matched on an exact domain first and an "
+                    "exact name second. Until this is recorded, a client's "
+                    "Forms card, their Social Planner push and every other "
+                    "location-scoped feature has no answer for them.",
+            "ico": "&#128279;", "href": "/tools/suite-match"}),
         ("Data Quality", "campaign-assets", {
             "title": "Campaign Assets Needed",
             "desc": "Every campaign on an insertion order still waiting on "
