@@ -689,6 +689,12 @@ MARK_EXEMPT = {
         "block would be several kilobytes on a page whose whole job is to "
         "load, to replace six working lines. Converging what it draws with "
         "the Hub's own arc is separate work.",
+    "modules/smartforecast/templates/embed.html":
+        "only sends privacy-minimized view and click telemetry with a "
+        "fire-and-forget keepalive request. The page never waits for that "
+        "request, disables no control, and allows the CTA navigation to "
+        "continue; drawing a wait mark would falsely claim the visitor is "
+        "blocked on analytics that deliberately cannot block them.",
 }
 
 _swept, _unmarked = [], []
