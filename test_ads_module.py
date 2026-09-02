@@ -298,10 +298,14 @@ def run():
     check("[live campaigns] campaign filters and sorting stay above the table",
           all(key in campaign_page_src for key in
               ("campaignSearch", "statusFilter", "channelFilter", "sortBy")))
-    check("[live campaigns] insights and search-share links open Google Ads",
-          "googleAdsUrl('insights')" in campaign_page_src
-          and "googleAdsUrl('campaigns')" in campaign_page_src
-          and "Search share" in campaign_page_src)
+    check("[live campaigns] account reports stay inside Smart 1 Ads",
+          "reportUrl('insights')" in campaign_page_src
+          and "reportUrl('search_share')" in campaign_page_src
+          and "reportUrl('recommendations')" in campaign_page_src
+          and "Google brand report" in campaign_page_src)
+    check("[live campaigns] the account rail paginates ten at a time",
+          "ACCOUNT_PAGE_SIZE = 10" in campaign_page_src
+          and "accountPager" in campaign_page_src)
     check("[live campaigns] typed confirmations travel to the server",
           "confirmation: requiredWord" in campaign_page_src
           and all(word in campaign_page_src for word in ("ENABLE", "PAUSE", "DELETE")))

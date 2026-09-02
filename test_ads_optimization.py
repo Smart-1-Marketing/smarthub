@@ -96,6 +96,17 @@ def run():
     check("weak day/hour slots are guidance, not automatic writes",
           any(i["category"] == "schedule" and not i.get("action") for i in result["items"]), result["items"])
     check("Google tag diagnostics remain visible", "tracking" in categories, categories)
+    check("content recommendations open an editable Hub builder instead of applying unseen content",
+          any(i.get("builder") == "tracking" and not i.get("action")
+              for i in result["items"] if i["source"] == "google"), result["items"])
+    check("every review item names its account and campaign scope",
+          all(item.get("account_name") == "Client Ads" and item.get("campaign_name")
+              for item in result["items"]), result["items"])
+    check("the full search-term scan identifies positive and negative candidates",
+          result["search_term_count"] == 2
+          and result["search_term_candidate_count"] == 2
+          and {row["action"] for row in result["search_terms"]}
+              == {"add_negative_keyword", "add_keyword"}, result["search_terms"])
 
     query_text = " ".join((optimization.SUMMARY_QUERY, optimization.CAMPAIGNS_QUERY,
                            optimization.SEARCH_TERMS_QUERY, optimization.KEYWORDS_QUERY,
@@ -194,10 +205,32 @@ def run():
           all(x in page for x in ("issueSearch", "categoryFilter", "priorityFilter", "Diagnostics", "Click costs", "Search terms", "Days & hours", "Bidding & tags")), None)
     check("the screen states that AI never auto-applies changes",
           "Nothing is changed automatically" in page and "AI suggestions remain drafts" in page, None)
-    check("the live account page links brand and optimization reports",
-          "Brand report" in live and "loadOptimizationSummary" in live, None)
+    check("the live account page links Hub-native Google reports and optimization",
+          "Google brand report" in live and "reportUrl('insights')" in live
+          and "reportUrl('search_share')" in live and "loadOptimizationSummary" in live, None)
     check("stale scans and stale score reads cannot replace a newer account",
           "generation !== scanGeneration" in page and "generation !== loadGeneration" in live, None)
+    check("both account rails paginate ten at a time",
+          "PAGE_SIZE = 10" in page and "accountPager" in page
+          and "ACCOUNT_PAGE_SIZE = 10" in live and "accountPager" in live, None)
+    check("the approval builder is visually ordered above the paginated queue",
+          ".opt-builder { order:3 }" in page and ".opt-queue { order:7 }" in page
+          and "buildMenu" in page and "issuePager" in page, None)
+    check("Google add recommendations route into editable builders",
+          "openRecommendationBuilder" in page and "Build the exact change inside the Hub" in page
+          and "builderRecommendation" in page, None)
+    check("search terms have a visible scanner and mandatory AI review path",
+          "Search term scanner" in page and "search_term_count" in page
+          and "reviewCurrentItemWithAi" in page and "itemNeedsAi" in page, None)
+    check("optimization approvals use one button without a second prompt",
+          "window.prompt" not in page and "confirmation = action === 'remove_keyword'" in page, None)
+    check("the initial account overview does not automatically reveal the queue",
+          "DEFAULT_OVERVIEW_ACCOUNT = '8315663727'" in page
+          and "await loadScan(false)" in page and "queueStarted = false" in page, None)
+    check("brand, insight, share, and recommendation reports render inside the Hub",
+          all(token in page for token in ("openReport('brand')", "openReport('insights')",
+                                           "openReport('search_share')", "openReport('recommendations')"))
+          and "https://ads.google.com/aw/insights" not in page, None)
 
     import modules.ads_builder.app as ads_app
     real_status = google_ads.connection_status
@@ -212,9 +245,15 @@ def run():
           and b"runAction" in rendered.data, rendered.status_code)
 
     drafts = optimization.ai_drafts({"account_name": "Client Ads", "campaigns": [{"id": "20", "name": "Efficient"}],
-                                      "winning_terms": [{"text": "emergency roof repair", "campaign_id": "20", "ad_group_id": "201"}]})
+                                      "winning_terms": [{"text": "emergency roof repair", "campaign_id": "20", "ad_group_id": "201"}],
+                                      "selected_items": [{"id": "term-1", "title": "Review term", "action": "add_keyword",
+                                                          "account_name": "Client Ads", "campaign_name": "Efficient",
+                                                          "data": {"text": "emergency roof repair", "match_type": "EXACT",
+                                                                   "campaign_id": "20", "ad_group_id": "201"}}]})
     check("AI has a measured-data fallback and never needs to auto-mutate",
           drafts["ai_used"] is False and drafts["keywords"][0]["text"] == "emergency roof repair", drafts)
+    check("an unavailable AI keeps selected approvals on hold",
+          drafts["reviews"][0]["id"] == "term-1" and drafts["reviews"][0]["verdict"] == "hold", drafts)
 
     print(f"\n{passed} passed, {failed} failed\n")
     return 1 if failed else 0

@@ -979,8 +979,9 @@ REGISTRY: list[Help] = [
 
     _h("ads_builder.optimization.accounts", "Start with the account, not a campaign",
        "This rail contains only active client accounts. Each score and Google "
-       "recommendation count loads independently, so one slow account cannot "
-       "hold up the rest of the book. Opening an account runs the detailed "
+       "recommendation count loads independently for the ten accounts on the "
+       "current page, so one slow account cannot hold up the rest of the book. "
+       "Opening an account runs the detailed "
        "search-term, keyword, schedule and diagnostics scan only for that "
        "client, which keeps the first page useful even with a large manager "
        "account.", step=1, selector="[data-tour='ads-opt-accounts']"),
@@ -993,8 +994,10 @@ REGISTRY: list[Help] = [
        "range is not enough evidence to rewrite when a campaign serves.",
        step=2, selector="[data-tour='ads-opt-queue']"),
     _h("ads_builder.optimization.actions", "Every change is a separate approval",
-       "Each button sends one Google Ads operation after you type the approval "
-       "word for that item. There is no bulk apply. New positive keywords are "
+       "The menu opens one exact Google Ads operation with its account, campaign "
+       "and proposed values visible and editable. Additions and search-term "
+       "decisions run through AI before the approval button is enabled. There is "
+       "no second confirmation and no bulk apply. New positive keywords are "
        "created paused for a final review; a negative is exact by default so a "
        "single poor query does not block a broader class of useful traffic. AI "
        "can draft keywords, sitelinks and an image direction, but a draft has "

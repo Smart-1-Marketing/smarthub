@@ -604,11 +604,14 @@ def api_optimization_ai():
         "account_name": body.get("account_name"), "focus": body.get("focus"),
         "campaigns": body.get("campaigns") or [],
         "winning_terms": body.get("winning_terms") or [],
+        "selected_items": body.get("selected_items") or [],
     })
     store.log_event(
         "OPTIMIZATION_AI_DRAFT", current_user(),
         customer_id=google_ads.digits(body.get("customer_id")),
-        focus=str(body.get("focus") or "all")[:40], ai_used=bool(drafts.get("ai_used")),
+        focus=str(body.get("focus") or "all")[:40],
+        selected_items=min(len(body.get("selected_items") or []), 20),
+        ai_used=bool(drafts.get("ai_used")),
     )
     return jsonify(drafts)
 
