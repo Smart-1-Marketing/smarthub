@@ -350,10 +350,15 @@ function render(g,q){
     const live=String(p.status||'').toLowerCase()==='live';
     const num=String(p.product_num||'').trim();
     const numPill=num?` <span class="pill neutral" title="Product number in Knack">Product #${esc(num)}</span>`:'';
+    /* Open the exact product folder when Knack supplied a Product #; otherwise
+       the IO is the narrowest honest context available. */
+    const galleryScope='/tools/image-picker/gallery/for-client?name='+encodeURIComponent(name)
+      +(num?'&product='+encodeURIComponent(num):(p.io?'&io='+encodeURIComponent(p.io):''));
+    const galleryLink=(num||p.io)?` <a class="open-link" href="${galleryScope}" title="Creative Information for this ${num?'product':'IO'}">Gallery →</a>`:'';
     const ioPill=p.io?(p.dash
       ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Insertion order — open Smart 1 Dashboard">IO #${esc(p.io)}</a>`
       :` <span class="pill neutral" title="Insertion order">IO #${esc(p.io)}</span>`):'';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${memberTag(p.member)}</td>`
+    return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${galleryLink}${memberTag(p.member)}</td>`
       + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
       + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
       + `<td>${money(p.monthly)}</td></tr>`;
