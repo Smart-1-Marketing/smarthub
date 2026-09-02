@@ -48,6 +48,12 @@ def _activity(type_: str, **extra) -> None:
     """Mirror material client changes into the Hub-wide activity ledger."""
     try:
         from hub import audit
+        # Client 360 files rows by client name. Routes already know the site,
+        # so enrich their activity here once instead of letting otherwise
+        # valid SmartForecast work disappear from the client's record.
+        if not extra.get("client") and extra.get("site_id"):
+            data = store().bootstrap(int(extra["site_id"]))
+            extra["client"] = data["site"]["client_name"]
         audit.log("smartforecast", type_, actor=_user(), **extra)
     except Exception:  # noqa: BLE001 — activity logging must never break the action
         pass
