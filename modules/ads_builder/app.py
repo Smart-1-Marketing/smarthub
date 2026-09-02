@@ -55,7 +55,7 @@ from hub import target_areas
 
 from . import (api_readiness, campaign_ai, client_link, copy_ideas, export,
                google_ads, keyword_plan, landing_page, logo as logo_lookup,
-               spec, store)
+               optimization, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 from hub.webargs import clamp_int
@@ -144,6 +144,11 @@ def page_generator_alias():
 @app.get("/campaigns")
 def page_campaigns():
     return render_template("ads_campaigns.html", status=google_ads.connection_status(store))
+
+
+@app.get("/optimization")
+def page_optimization():
+    return render_template("ads_optimization.html", status=google_ads.connection_status(store))
 
 
 @app.get("/approvals")
@@ -551,6 +556,64 @@ def api_campaign_status(campaign_id):
                     customer_id=google_ads.digits(customer_id),
                     campaign_id=campaign_id, status=str(status).upper())
     return jsonify({"ok": True, "campaign_id": campaign_id, "status": str(status).upper()})
+
+
+@app.get("/api/optimization/summary")
+def api_optimization_summary():
+    customer_id = request.args.get("customer_id", "")
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    return jsonify(optimization.account_summary(customer_id, store))
+
+
+@app.get("/api/optimization/scan")
+def api_optimization_scan():
+    customer_id = request.args.get("customer_id", "")
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    result = optimization.scan_account(
+        customer_id, request.args.get("date_range", "LAST_30_DAYS"), store
+    )
+    store.log_event(
+        "OPTIMIZATION_SCAN", current_user(), customer_id=google_ads.digits(customer_id),
+        date_range=result["date_range"], items=result["item_count"],
+    )
+    return jsonify(result)
+
+
+@app.post("/api/optimization/action")
+def api_optimization_action():
+    body = request.get_json(silent=True) or {}
+    customer_id, action = body.get("customer_id"), body.get("action")
+    if not customer_id or not action:
+        return jsonify({"error": "customer_id and action are required."}), 400
+    result = optimization.apply_action(customer_id, action, body, store)
+    # Log the normalized result, never the submitted base64 image or other raw
+    # browser payload. One event means one approved Google Ads mutation.
+    store.log_event(
+        "OPTIMIZATION_APPLIED", current_user(), customer_id=result["customer_id"],
+        optimization_action=result["action"], **result["detail"],
+    )
+    return jsonify(result)
+
+
+@app.post("/api/optimization/ai")
+def api_optimization_ai():
+    body = request.get_json(silent=True) or {}
+    drafts = optimization.ai_drafts({
+        "account_name": body.get("account_name"), "focus": body.get("focus"),
+        "campaigns": body.get("campaigns") or [],
+        "winning_terms": body.get("winning_terms") or [],
+        "selected_items": body.get("selected_items") or [],
+    })
+    store.log_event(
+        "OPTIMIZATION_AI_DRAFT", current_user(),
+        customer_id=google_ads.digits(body.get("customer_id")),
+        focus=str(body.get("focus") or "all")[:40],
+        selected_items=min(len(body.get("selected_items") or []), 20),
+        ai_used=bool(drafts.get("ai_used")),
+    )
+    return jsonify(drafts)
 
 
 @app.post("/api/generate")

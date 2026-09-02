@@ -16,6 +16,7 @@ All six Smart 1 internal tools combined into **one app, one Render service, one 
 | `/tools/utm/` | UTM Builder | *(new)* |
 | `/tools/image/` | Image Optimizer & Resizer | smart1-image-optimizer |
 | `/tools/pdf/` | PDF Optimizer | smart1-pdf-optimizer *(ported FastAPI → Flask)* |
+| `/tools/smartforecast/` | SmartForecast Dynamic Website | *(new)* |
 
 **One login gates everything** — shared team password + your name (12-hour
 sessions, per-IP throttling, every login and GHL create/delete recorded in the

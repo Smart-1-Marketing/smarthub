@@ -1,0 +1,671 @@
+{% extends "ads_base.html" %}
+{% set active = 'optimization' %}
+{% set screen = 'ads_builder.optimization' %}
+{% block title %}Optimization{% endblock %}
+{% block screentitle %}Optimization{% endblock %}
+{% block strap %}A guided, account-by-account Google Ads improvement queue{% endblock %}
+
+{% block head %}
+<style>
+  .opt-workspace { display:grid; grid-template-columns:minmax(250px,310px) minmax(0,1fr); gap:16px; align-items:start }
+  .opt-rail { position:sticky; top:16px; max-height:calc(100vh - 32px); display:flex; flex-direction:column; min-height:520px }
+  .opt-account-list { overflow:auto; margin:10px -4px 0; padding:0 4px 6px }
+  .opt-account { width:100%; display:block; text-align:left; padding:12px 13px; margin-bottom:7px;
+                 border-color:#cbd5e1; background:#fff; color:#0f172a; line-height:1.4 }
+  .opt-account.on { border-color:#60a5fa; background:var(--blue-soft); box-shadow:inset 3px 0 0 var(--blue) }
+  .opt-account-name { display:flex; justify-content:space-between; gap:8px; align-items:center;
+                      font-size:13.5px; font-weight:750; color:#0f172a }
+  .opt-account-meta { display:block; margin-top:4px; color:#334155; font-size:12px; font-weight:500 }
+  .opt-score { min-width:42px; text-align:center }
+  .opt-main { min-width:0; display:flex; flex-direction:column }
+  .opt-overview { order:1 } .opt-report { order:2 } .opt-builder { order:3 }
+  .opt-filter-card { order:4 } .opt-steps { order:5 } .opt-summary { order:6 }
+  .opt-queue { order:7 } .opt-search-terms { order:8 } .opt-ai { order:9 }
+  .opt-pager { display:flex; align-items:center; justify-content:space-between; gap:8px;
+               padding-top:9px; border-top:1px solid var(--line) }
+  .opt-pager .hint { color:#334155; font-weight:600 }
+  .opt-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start }
+  .opt-head h2 { margin:0 0 3px; font-size:21px }
+  .opt-links { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end }
+  .opt-controls { display:grid; grid-template-columns:minmax(190px,1.4fr) repeat(3,minmax(130px,1fr)) auto; gap:10px; align-items:end }
+  .step-strip { display:grid; grid-template-columns:repeat(7,minmax(105px,1fr)); gap:7px; margin-bottom:16px }
+  .step { border:1px solid var(--line); border-radius:9px; padding:9px; background:#fff;
+          font-size:11.5px; color:var(--muted); text-align:left; width:100% }
+  .step b { display:block; color:var(--ink); font-size:12px }
+  .step.has { border-color:#fde68a; background:var(--warn-soft) }
+  .issue { border:1px solid var(--line); border-left-width:4px; border-radius:10px; padding:13px 14px; margin-bottom:10px; background:#fff }
+  .issue.high { border-left-color:var(--bad) } .issue.medium { border-left-color:var(--warn) } .issue.low { border-left-color:#94a3b8 }
+  .issue-title { display:flex; gap:8px; align-items:flex-start; justify-content:space-between }
+  .issue-title h4 { margin:0; font-size:14px }
+  .issue p { margin:5px 0 0; color:#475569; font-size:12.5px }
+  .issue-context { margin-top:6px; color:#1e3a5f; font-size:12px; font-weight:700 }
+  .issue .next { color:var(--muted) }
+  .issue-actions { margin-top:10px; display:flex; gap:7px; align-items:center; flex-wrap:wrap }
+  .approval-note { font-size:11.5px; color:var(--muted) }
+  .tool-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px }
+  .tool-grid > .wide { grid-column:1/-1 }
+  .mini-tool { border:1px solid var(--line); border-radius:10px; padding:14px; background:#fbfdff }
+  .mini-tool h4 { margin:0 0 3px }
+  .builder-panel[hidden] { display:none }
+  .builder-menu { max-width:420px }
+  .approval-preview { margin-top:12px; padding:12px; border:1px solid #bfdbfe;
+                      border-radius:9px; background:#eff6ff; color:#1e3a5f; font-size:12.5px }
+  .approval-preview b { color:#0f172a }
+  .ai-review { margin-top:10px }
+  .metric-link { cursor:pointer; text-align:left; border:1px solid var(--line); width:100% }
+  .metric-link:hover { border-color:#60a5fa; background:#f8fbff }
+  .report-nav { display:flex; flex-wrap:wrap; gap:7px; margin:12px 0 }
+  .report-nav button.on { border-color:#60a5fa; background:var(--blue-soft); color:#1d4ed8 }
+  .compact-table { width:100%; border-collapse:collapse }
+  .compact-table th, .compact-table td { padding:8px 7px; border-bottom:1px solid var(--line); vertical-align:top }
+  .compact-table th { color:#334155; font-size:11.5px; text-align:left }
+  .compact-table td { color:#1e293b; font-size:12px }
+  .issue-select { display:flex; align-items:flex-start; gap:9px }
+  .issue-select input { width:auto; margin-top:3px }
+  .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px }
+  .form-grid .wide { grid-column:1/-1 }
+  .draft { border-top:1px solid var(--line); padding:10px 0 }
+  .draft:first-child { border-top:0 }
+  .partial-errors { margin-top:10px }
+  @media (max-width:1100px) { .step-strip { grid-template-columns:repeat(4,1fr) } .opt-controls { grid-template-columns:repeat(3,1fr) } }
+  @media (max-width:820px) {
+    .opt-workspace { grid-template-columns:1fr } .opt-rail { position:static; max-height:none; min-height:0 }
+    .opt-account-list { max-height:290px } .opt-head { display:block } .opt-links { justify-content:flex-start; margin-top:10px }
+    .tool-grid { grid-template-columns:1fr } .step-strip { grid-template-columns:repeat(2,1fr) }
+    .opt-controls, .form-grid { grid-template-columns:1fr 1fr }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="toast" style="display:none"></div>
+
+{% if not status.deploy_ready %}
+  <div class="note n-warn">
+    <b>Optimization needs the Google Ads connection</b>
+    The workspace reads account performance and recommendations before it suggests anything.
+    {% if status.blocks %}
+      Open <a href="{{ mount }}/settings">Settings</a> to finish the missing Google Ads setup.
+    {% else %}
+      Open <a href="{{ mount }}/settings">Settings</a> and connect Google Ads.
+    {% endif %}
+  </div>
+{% else %}
+<div class="note n-info" data-tour="ads-opt-safety">
+  <b>Nothing is changed automatically</b>
+  Smart 1 Ads scans and drafts. Every change has its own approval prompt, and AI suggestions remain drafts until you approve that exact item.
+</div>
+
+<div class="opt-workspace">
+  <aside class="card opt-rail" data-tour="ads-opt-accounts">
+    <h3 style="margin-bottom:0">Accounts needing work</h3>
+    <div class="hint" id="accountCount">Loading active accounts…</div>
+    <div style="margin-top:12px">
+      <label for="accountSearch">Find an account</label>
+      <input id="accountSearch" type="search" placeholder="Client name or account ID" oninput="onAccountSearch()">
+    </div>
+    <div class="opt-account-list" id="accountList"><span class="spin"></span> Loading accounts…</div>
+    <div class="opt-pager" id="accountPager"></div>
+  </aside>
+
+  <main class="opt-main">
+    <div class="card opt-overview" id="accountOverview"><span class="spin"></span> Loading account…</div>
+
+    <div class="card opt-report" id="accountReport" style="display:none">
+      <div class="row"><div><h3 style="margin:0" id="reportTitle">Google Ads account report</h3><div class="hint">Processed inside Smart 1 Ads for the selected account.</div></div><div class="spacer"></div><button class="b-sm" onclick="closeReport()">Close</button></div>
+      <div class="report-nav" id="reportNav"></div>
+      <div id="reportBody"></div>
+    </div>
+
+    <div class="card opt-filter-card">
+      <div class="opt-controls">
+        <div><label for="issueSearch">Find an optimization</label><input id="issueSearch" type="search" placeholder="Keyword, campaign, or task" oninput="startQueueFromFilters()"></div>
+        <div><label for="categoryFilter">Step</label><select id="categoryFilter" onchange="startQueueFromFilters()"><option value="">All steps</option></select></div>
+        <div><label for="priorityFilter">Priority</label><select id="priorityFilter" onchange="startQueueFromFilters()"><option value="">All priorities</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
+        <div><label for="dateRange">Performance window</label><select id="dateRange" onchange="loadScan(queueStarted)"><option value="LAST_7_DAYS">Last 7 days</option><option value="LAST_14_DAYS">Last 14 days</option><option value="LAST_30_DAYS" selected>Last 30 days</option><option value="LAST_90_DAYS">Last 90 days</option></select></div>
+        <div><button id="scanButton" class="b-primary" onclick="loadScan(true)">Scan account</button></div>
+      </div>
+    </div>
+
+    <div class="step-strip opt-steps" id="stepStrip"></div>
+    <div class="grid g4 opt-summary" id="summaryTiles" style="margin-bottom:16px"></div>
+
+    <div class="card opt-queue" data-tour="ads-opt-queue">
+      <div class="row"><div><h3 style="margin:0">What needs doing</h3><div class="hint" id="issueCount">Choose an account or a step to start the review.</div></div><div class="spacer"></div><button class="b-sm" onclick="selectIssuePage()" id="selectIssuesButton">Select this page</button><button class="b-sm" onclick="loadDrafts()" id="aiButton">Draft selected with AI</button></div>
+      <div id="partialErrors"></div>
+      <div id="issues" style="margin-top:14px"><div class="empty"><h4>Overall performance only</h4>Choose an account or one of the seven steps when you are ready to build the review queue.</div></div>
+      <div class="opt-pager" id="issuePager"></div>
+    </div>
+
+    <div class="card opt-builder" data-tour="ads-opt-actions">
+      <div class="row"><div><h3 style="margin:0">Build an approved item</h3><div class="hint">Choose one item, review the exact change, edit it, run AI where required, then approve once.</div></div></div>
+      <div class="builder-menu" style="margin-top:12px"><label for="buildMenu">Item to build</label><select id="buildMenu" onchange="showBuilder(this.value)"><option value="">Choose an item</option><option value="review">Review selected queue item</option><option value="sitelink">Add a sitelink</option><option value="image">Add an image</option><option value="cpa">Set Target CPA</option><option value="tracking">Tracking and diagnostics</option></select></div>
+      <div id="builderRecommendation" class="note n-info" style="display:none;margin-top:12px"></div>
+      <div class="tool-grid">
+        <section class="mini-tool builder-panel wide" id="reviewBuilder" data-builder="review" hidden>
+          <h4 id="reviewItemTitle">Review an item</h4><div class="issue-context" id="reviewItemContext"></div>
+          <div class="hint" id="reviewItemWhy"></div>
+          <div class="form-grid" id="reviewEditFields" style="margin-top:10px;display:none">
+            <div class="wide"><label>Keyword or search term</label><input id="reviewText" maxlength="80" oninput="invalidateItemAi()"></div>
+            <div><label>Match type</label><select id="reviewMatch" onchange="invalidateItemAi()"><option value="EXACT">Exact</option><option value="PHRASE">Phrase</option><option value="BROAD">Broad</option></select></div>
+          </div>
+          <div class="approval-preview" id="reviewItemPreview"></div>
+          <div class="ai-review" id="itemAiResult"></div>
+          <div class="row" style="margin-top:10px"><button class="b-sm" id="itemAiButton" onclick="reviewCurrentItemWithAi()">Run AI review</button><button id="itemApproveButton" class="b-primary" onclick="approveCurrentItem()" disabled>Approve this item</button></div>
+        </section>
+
+        <section class="mini-tool builder-panel" data-builder="sitelink" hidden>
+          <h4>Add a sitelink</h4><div class="hint">AI can draft the copy; you choose the campaign and final URL.</div>
+          <div class="form-grid" style="margin-top:10px">
+            <div class="wide"><label>Campaign</label><select id="sitelinkCampaign" onchange="invalidateBuilderAi('sitelink')"></select></div>
+            <div><label>Link text</label><input id="sitelinkText" maxlength="25" oninput="invalidateBuilderAi('sitelink')"></div>
+            <div><label>Final URL</label><input id="sitelinkUrl" type="url" placeholder="https://…" oninput="invalidateBuilderAi('sitelink')"></div>
+            <div><label>Description 1</label><input id="sitelinkD1" maxlength="35" oninput="invalidateBuilderAi('sitelink')"></div>
+            <div><label>Description 2</label><input id="sitelinkD2" maxlength="35" oninput="invalidateBuilderAi('sitelink')"></div>
+          </div>
+          <div class="approval-preview" id="sitelinkPreview">Enter the sitelink to see the exact proposed change.</div>
+          <div class="ai-review" id="sitelinkAiResult"></div>
+          <div class="row" style="margin-top:10px"><button class="b-sm" onclick="reviewSitelinkWithAi()">Run through AI</button><button id="sitelinkApprove" class="b-primary" onclick="approveSitelink()" disabled>Approve sitelink</button></div>
+        </section>
+
+        <section class="mini-tool builder-panel" data-builder="image" hidden>
+          <h4>Add an image asset</h4><div class="hint">Create or upload a brand-approved PNG/JPEG. Asset creation cannot be undone, but its campaign association can be managed in Google Ads.</div>
+          <div class="form-grid" style="margin-top:10px">
+            <div class="wide"><label>Campaign</label><select id="imageCampaign" onchange="invalidateBuilderAi('image')"></select></div>
+            <div><label>Asset name</label><input id="imageName" maxlength="128" placeholder="Campaign image" oninput="invalidateBuilderAi('image')"></div>
+            <div><label>PNG or JPEG</label><input id="imageFile" type="file" accept="image/png,image/jpeg" onchange="invalidateBuilderAi('image')"></div>
+            <div class="wide row"><a class="btn b-sm" href="/tools/image-creator/" target="_blank" rel="noopener">Open AI Image Creator ↗</a></div>
+          </div>
+          <div class="approval-preview" id="imagePreview">Choose a campaign and image to see the exact proposed change.</div>
+          <div class="ai-review" id="imageAiResult"></div>
+          <div class="row" style="margin-top:10px"><button class="b-sm" onclick="reviewImageWithAi()">Run through AI</button><button id="imageApprove" class="b-primary" onclick="approveImage()" disabled>Approve image</button></div>
+        </section>
+
+        <section class="mini-tool builder-panel" data-builder="cpa" hidden>
+          <h4>Set Target CPA</h4><div class="hint">Direct edits are limited to standard Maximize Conversions campaigns. Other campaigns use Google's individual bidding recommendation.</div>
+          <div class="form-grid" style="margin-top:10px">
+            <div><label>Compatible campaign</label><select id="cpaCampaign"></select></div>
+            <div><label>Target CPA</label><input id="targetCpa" type="number" min="0.01" step="0.01" placeholder="25.00"></div>
+            <div class="wide"><button onclick="approveTargetCpa()">Review and approve Target CPA</button></div>
+          </div>
+        </section>
+
+        <section class="mini-tool builder-panel" data-builder="tracking" hidden>
+          <h4>Tracking and diagnostics</h4><div class="hint">Google tag recommendations need the site and container checked together.</div>
+          <div class="row" style="margin-top:12px">
+            <a class="btn" id="gtmLink" href="/google/gtm-tools" target="_blank" rel="noopener">Open GTM Tools ↗</a>
+            <a class="btn" id="liveLink" href="{{ mount }}/campaigns">Open Live campaigns</a>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="card opt-search-terms" id="searchTermCard">
+      <div class="row"><div><h3 style="margin:0">Search term scanner</h3><div class="hint" id="termCount">Choose an account or Search terms step to review all measured queries.</div></div><div class="spacer"></div><select id="termActionFilter" onchange="termPage=1;renderSearchTerms()"><option value="">All search terms</option><option value="add_negative_keyword">Negative candidates</option><option value="add_keyword">Keyword candidates</option><option value="review">Review only</option></select></div>
+      <div style="margin-top:10px"><input id="termSearch" type="search" placeholder="Find a search term, account, or campaign" oninput="termPage=1;renderSearchTerms()"></div>
+      <div id="searchTerms" style="margin-top:12px"><div class="empty"><h4>Overall performance only</h4>Start with an account or the Search terms step.</div></div>
+      <div class="opt-pager" id="termPager"></div>
+    </div>
+
+    <div class="card opt-ai" id="aiDraftCard" style="display:none">
+      <div class="row"><div><h3 style="margin:0">AI-assisted drafts</h3><div class="hint">These are editable suggestions, not approved changes.</div></div><div class="spacer"></div><button class="b-sm" onclick="document.getElementById('aiDraftCard').style.display='none'">Close</button></div>
+      <div id="aiDrafts" style="margin-top:12px"></div>
+    </div>
+  </main>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block script %}
+{% if status.deploy_ready %}
+<script>
+const MOUNT = {{ mount|tojson }};
+const KEY = 's1ads_optimization_cid';
+const CATEGORIES = [
+  ['diagnostics','1. Diagnostics'], ['click_costs','2. Click costs'], ['search_terms','3. Search terms'],
+  ['keywords','4. Keywords'], ['schedule','5. Days & hours'], ['assets','6. Images & sitelinks'],
+  ['bidding','7. Bidding & tags'], ['tracking','7. Bidding & tags']
+];
+const DEFAULT_OVERVIEW_ACCOUNT = '8315663727';
+const PAGE_SIZE = 10;
+let accounts = [], summaries = {}, selectedId = '', scan = null, scanGeneration = 0;
+let accountPage = 1, issuePage = 1, termPage = 1, queueStarted = false, currentReport = '';
+let selectedIssues = new Set(), summaryLoading = new Set(), activeReviewItem = null, builderRecommendationItem = null;
+let aiReviewedItemId = '', sitelinkAiReady = false, imageAiReady = false;
+
+function selectedAccount() { return accounts.find(a => a.id === selectedId) || null; }
+function activeAccounts() { return accounts.filter(a => !a.is_manager && !a.error); }
+function scoreTone(score) { return score == null ? 't-mute' : score >= 80 ? 't-good' : score >= 60 ? 't-warn' : 't-bad'; }
+function categoryLabel(key) { const found = CATEGORIES.find(x => x[0] === key); return found ? found[1].replace(/^\d+\.\s*/, '') : titleise(key); }
+function statTile(label, value, foot) { return `<div class="s1d-tile"><div class="l">${label}</div><div class="v">${value}</div><div class="f">${foot || ''}</div></div>`; }
+function clickableTile(label, value, foot, onclick) { return `<button type="button" class="s1d-tile metric-link" onclick="${onclick}"><div class="l">${label}</div><div class="v">${value}</div><div class="f">${foot || ''}</div></button>`; }
+function accountName() { return selectedAccount()?.name || scan?.account_name || `Account ${selectedId}`; }
+function campaignName(id) { return (scan?.campaigns || []).find(c => c.id === String(id || ''))?.name || 'Account-wide'; }
+function onAccountSearch() { accountPage = 1; renderAccounts(); loadVisibleSummaries(); }
+function filteredAccounts() { const q = (document.getElementById('accountSearch').value || '').trim().toLowerCase(); return activeAccounts().filter(a => !q || a.name.toLowerCase().includes(q) || a.id.includes(q) || a.formatted_id.includes(q)); }
+function visibleAccounts() { const filtered = filteredAccounts(); const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); accountPage = Math.min(pages, Math.max(1, accountPage)); return filtered.slice((accountPage - 1) * PAGE_SIZE, accountPage * PAGE_SIZE); }
+function changeAccountPage(delta) { const pages = Math.max(1, Math.ceil(filteredAccounts().length / PAGE_SIZE)); accountPage = Math.min(pages, Math.max(1, accountPage + delta)); renderAccounts(); loadVisibleSummaries(); }
+function showSelectedAccountPage() { const index = filteredAccounts().findIndex(a => a.id === selectedId); if (index >= 0) accountPage = Math.floor(index / PAGE_SIZE) + 1; }
+
+function renderAccounts() {
+  const list = activeAccounts();
+  const filtered = filteredAccounts(), visible = visibleAccounts();
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  document.getElementById('accountCount').textContent = `${list.length} active account${list.length === 1 ? '' : 's'} · 10 per page`;
+  document.getElementById('accountList').innerHTML = visible.map(a => {
+    const s = summaries[a.id], score = s && s.score_percent;
+    const meta = s ? `${s.recommendation_count} Google recommendation${s.recommendation_count === 1 ? '' : 's'}` : 'Open for account details';
+    return `<button type="button" class="opt-account ${a.id === selectedId ? 'on' : ''}" onclick="selectAccount('${esc(a.id)}')">
+      <span class="opt-account-name"><span>${esc(a.name)}</span><span class="tag opt-score ${scoreTone(score)}">${score == null ? '—' : score + '%'}</span></span>
+      <span class="opt-account-meta">${esc(a.formatted_id)} · ${esc(meta)}</span>
+    </button>`;
+  }).join('') || '<div class="empty"><h4>No matching accounts</h4>Try a shorter client name.</div>';
+  document.getElementById('accountPager').innerHTML = filtered.length ?
+    `<button class="b-sm" onclick="changeAccountPage(-1)" ${accountPage === 1 ? 'disabled' : ''}>Previous</button><span class="hint">Page ${accountPage} of ${pages}</span><button class="b-sm" onclick="changeAccountPage(1)" ${accountPage === pages ? 'disabled' : ''}>Next</button>` : '';
+}
+
+function renderOverview(loading=false) {
+  const a = selectedAccount(), s = scan || summaries[selectedId] || {};
+  const name = a ? a.name : 'Choose an account';
+  const score = s.score_percent;
+  document.getElementById('accountOverview').innerHTML = `<div class="opt-head"><div>
+    <div class="s1d-crumb">Account optimization</div><h2>${esc(name)} ${a ? '<span class="tag t-good">Active</span>' : ''}</h2>
+    <div class="hint">${a ? esc(a.formatted_id + ' · ' + (a.currency || 'USD') + (a.time_zone ? ' · ' + a.time_zone : '')) : 'Select an account on the left.'}</div>
+  </div>${selectedId ? `<div class="opt-links">
+    <span class="tag ${scoreTone(score)}">Optimization score ${score == null ? 'not scored' : score + '%'}</span>
+    <button class="b-sm" onclick="openReport('brand')">Google brand report</button>
+    <button class="b-sm" onclick="openReport('insights')">Insights</button>
+    <button class="b-sm" onclick="openReport('search_share')">Search share</button>
+    <button class="b-sm" onclick="openReport('recommendations')">Google recommendations</button>
+    <a class="btn b-sm" href="${esc(MOUNT + '/campaigns?customer_id=' + selectedId)}">Live campaigns</a>
+  </div>` : ''}</div>${loading ? '<div class="hint" style="margin-top:12px"><span class="spin"></span> Scanning this account…</div>' : ''}`;
+  if (a) document.getElementById('gtmLink').href = `/google/gtm-tools?q=${encodeURIComponent(a.name)}`;
+  document.getElementById('liveLink').href = `${MOUNT}/campaigns?customer_id=${encodeURIComponent(selectedId)}`;
+}
+
+async function boot() {
+  try {
+    const data = await api('GET', MOUNT + '/api/accounts');
+    accounts = data.accounts || [];
+    const list = activeAccounts();
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get('customer_id');
+    const saved = localStorage.getItem(KEY);
+    const preferred = requested || (list.some(a => a.id === DEFAULT_OVERVIEW_ACCOUNT) ? DEFAULT_OVERVIEW_ACCOUNT : saved);
+    selectedId = list.some(a => a.id === preferred) ? preferred : (list[0] ? list[0].id : '');
+    currentReport = params.get('view') || '';
+    showSelectedAccountPage();
+    renderAccounts(); renderOverview(Boolean(selectedId));
+    loadVisibleSummaries();
+    if (selectedId) await loadScan(false);
+    else document.getElementById('issues').innerHTML = '<div class="empty"><h4>No active client accounts</h4>Check the manager account in Settings.</div>';
+  } catch (err) {
+    document.getElementById('accountList').innerHTML = `<div class="note n-bad"><b>Could not list accounts</b>${esc(err.message)}</div>`;
+  }
+}
+
+async function loadVisibleSummaries() {
+  const queue = visibleAccounts().filter(account => !summaries[account.id] && !summaryLoading.has(account.id));
+  queue.forEach(account => summaryLoading.add(account.id));
+  async function worker() {
+    while (queue.length) {
+      const account = queue.shift();
+      try {
+        summaries[account.id] = await api('GET', `${MOUNT}/api/optimization/summary?customer_id=${encodeURIComponent(account.id)}`);
+        renderAccounts(); if (account.id === selectedId && !scan) renderOverview(false);
+      } catch (err) { summaries[account.id] = {score_percent:null,recommendation_count:0,error:err.message}; renderAccounts(); }
+      finally { summaryLoading.delete(account.id); }
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+}
+
+async function selectAccount(id) {
+  if (!id) return;
+  if (id === selectedId && scan) { queueStarted = true; issuePage = 1; renderIssues(); renderSearchTerms(); return; }
+  selectedId = id; scan = null; queueStarted = true; issuePage = 1; termPage = 1; selectedIssues.clear(); localStorage.setItem(KEY, id);
+  renderAccounts(); renderOverview(true); document.getElementById('aiDraftCard').style.display = 'none';
+  await loadScan(true);
+}
+
+async function loadScan(revealQueue = true) {
+  if (!selectedId) return;
+  if (revealQueue) queueStarted = true;
+  const generation = ++scanGeneration, accountId = selectedId;
+  document.getElementById('scanButton').disabled = true;
+  if (queueStarted) document.getElementById('issues').innerHTML = '<div class="hint"><span class="spin"></span> Reading recommendations, click costs, search terms, keywords, and days/hours…</div>';
+  renderOverview(true);
+  try {
+    const range = document.getElementById('dateRange').value;
+    const data = await api('GET', `${MOUNT}/api/optimization/scan?customer_id=${encodeURIComponent(accountId)}&date_range=${encodeURIComponent(range)}`);
+    if (generation !== scanGeneration || accountId !== selectedId) return;
+    scan = data; summaries[accountId] = {...(summaries[accountId] || {}), score_percent:data.score_percent, score:data.score,
+      optimization_url:data.optimization_url, recommendation_count:data.recommendation_count};
+    renderAccounts(); renderOverview(false); renderFilters(); renderSteps(); renderSummary(); renderForms(); renderIssues(); renderSearchTerms(); renderPartialErrors();
+    if (currentReport) renderReport();
+  } catch (err) {
+    if (generation !== scanGeneration) return;
+    scan = null; renderOverview(false);
+    document.getElementById('issues').innerHTML = `<div class="note n-bad"><b>Could not scan this account</b>${esc(err.message)}</div>`;
+  } finally { if (generation === scanGeneration) document.getElementById('scanButton').disabled = false; }
+}
+
+function renderFilters() {
+  const current = document.getElementById('categoryFilter').value;
+  const cats = [...new Set((scan.items || []).map(i => i.category))];
+  document.getElementById('categoryFilter').innerHTML = '<option value="">All steps</option>' + cats.map(c => `<option value="${esc(c)}">${esc(categoryLabel(c))}</option>`).join('');
+  if (cats.includes(current)) document.getElementById('categoryFilter').value = current;
+}
+
+function renderSteps() {
+  const unique = [['diagnostics','Diagnostics'],['click_costs','Click costs'],['search_terms','Search terms'],['keywords','Keywords'],['schedule','Days & hours'],['assets','Assets'],['bidding','Bidding & tags']];
+  const counts = scan.category_counts || {};
+  document.getElementById('stepStrip').innerHTML = unique.map(([key,label], index) => {
+    const count = key === 'bidding' ? (counts.bidding || 0) + (counts.tracking || 0) : (counts[key] || 0);
+    return `<button type="button" class="step ${count ? 'has' : ''}" onclick="chooseStep('${esc(key)}')"><b>${index + 1}. ${esc(label)}</b>${count ? count + ' item' + (count === 1 ? '' : 's') : 'No issue found'}</button>`;
+  }).join('');
+}
+
+function startQueueFromFilters() { queueStarted = true; issuePage = 1; renderIssues(); renderSearchTerms(); }
+function chooseStep(key) {
+  queueStarted = true; issuePage = 1;
+  document.getElementById('categoryFilter').value = key;
+  renderIssues(); renderSearchTerms();
+  if (key === 'search_terms') document.getElementById('searchTermCard').scrollIntoView({behavior:'smooth'});
+  else document.querySelector('.opt-queue').scrollIntoView({behavior:'smooth'});
+}
+function showNeedsReview() { queueStarted = true; issuePage = 1; document.getElementById('categoryFilter').value = ''; document.getElementById('priorityFilter').value = ''; renderIssues(); document.querySelector('.opt-queue').scrollIntoView({behavior:'smooth'}); }
+
+function renderSummary() {
+  const t = scan.totals || {};
+  document.getElementById('summaryTiles').innerHTML =
+    statTile('Optimization score', scan.score_percent == null ? '—' : scan.score_percent + '%', scan.score_uplift ? `Up to ${(scan.score_uplift*100).toFixed(1)} points available` : 'Google account score') +
+    clickableTile('Needs review', scan.item_count, `${scan.recommendation_count} from Google · filter the scorecard`, 'showNeedsReview()') +
+    statTile('Average CPC', money2(t.avg_cpc), `${numf(t.clicks)} clicks`) +
+    statTile('Conversions', numf(t.conversions), `${money2(t.cost)} spend`);
+}
+
+function filteredIssues() {
+  if (!scan) return [];
+  const q = (document.getElementById('issueSearch').value || '').trim().toLowerCase();
+  const category = document.getElementById('categoryFilter').value, priority = document.getElementById('priorityFilter').value;
+  const order = {high:0,medium:1,low:2};
+  return (scan.items || []).filter(i => (!q || `${i.title} ${i.why} ${i.next_step} ${i.account_name || ''} ${i.campaign_name || ''}`.toLowerCase().includes(q)) &&
+    (!category || i.category === category) && (!priority || i.severity === priority)).sort((a,b) => order[a.severity] - order[b.severity]);
+}
+
+function changeIssuePage(delta) { const pages = Math.max(1, Math.ceil(filteredIssues().length / PAGE_SIZE)); issuePage = Math.min(pages, Math.max(1, issuePage + delta)); renderIssues(); }
+function toggleIssue(id, checked) { if (checked) selectedIssues.add(id); else selectedIssues.delete(id); }
+function issuePageItems() { const list = filteredIssues(); const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE)); issuePage = Math.min(pages, Math.max(1, issuePage)); return list.slice((issuePage - 1) * PAGE_SIZE, issuePage * PAGE_SIZE); }
+function selectIssuePage() { if (!queueStarted) return showNeedsReview(); issuePageItems().forEach(item => selectedIssues.add(item.id)); renderIssues(); }
+
+function issueActionControl(item) {
+  if (item.action) return `<button class="${item.action === 'remove_keyword' ? 'b-bad' : ''}" onclick="openIssueReview('${esc(item.id)}')">Review, edit, and approve</button><span class="approval-note">One visible item · one approval</span>`;
+  if (item.builder) {
+    const labels={search_terms:'Open search term scanner',sitelink:'Open sitelink builder',image:'Open image builder',cpa:'Open Target CPA builder',tracking:'Open tracking review'};
+    return `<button onclick="openRecommendationBuilder('${esc(item.id)}')">${esc(labels[item.builder] || 'Open guided builder')}</button><span class="approval-note">Build the exact change inside the Hub</span>`;
+  }
+  return '<span class="tag t-mute">Review only</span>';
+}
+
+function renderIssues() {
+  if (!scan) return;
+  const list = filteredIssues();
+  if (!queueStarted) {
+    document.getElementById('issueCount').textContent = 'Choose an account or a step to start the review.';
+    document.getElementById('issues').innerHTML = '<div class="empty"><h4>Overall performance only</h4>The account scorecards above are ready. Choose an account, a step, or Needs review to list work.</div>';
+    document.getElementById('issuePager').innerHTML = '';
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  issuePage = Math.min(pages, Math.max(1, issuePage));
+  const visible = issuePageItems();
+  document.getElementById('issueCount').textContent = `Showing ${visible.length} of ${list.length} filtered items · ${selectedIssues.size} selected for AI`;
+  document.getElementById('issues').innerHTML = visible.map(item => `<article class="issue ${esc(item.severity)}">
+    <div class="issue-select"><input type="checkbox" aria-label="Select ${esc(item.title)} for AI drafting" ${selectedIssues.has(item.id) ? 'checked' : ''} onchange="toggleIssue('${esc(item.id)}',this.checked)"><div style="flex:1"><div class="issue-title"><h4>${esc(item.title)}</h4><div><span class="tag ${item.severity === 'high' ? 't-bad' : item.severity === 'medium' ? 't-warn' : 't-mute'}">${esc(titleise(item.severity))}</span> <span class="tag ${item.source === 'google' ? 't-info' : 't-mute'}">${item.source === 'google' ? 'Google' : 'Smart 1'}</span></div></div>
+    <div class="issue-context">${esc(item.account_name || accountName())} · ${esc(item.campaign_name || 'Account-wide')}</div>
+    <p>${esc(item.why)}</p><p class="next"><b>Next:</b> ${esc(item.next_step)}</p>
+    <div class="issue-actions">${issueActionControl(item)}</div></div></div>
+  </article>`).join('') || '<div class="empty"><h4>No items match these filters</h4>Clear a filter or scan a wider date range.</div>';
+  document.getElementById('issuePager').innerHTML = list.length ? `<button class="b-sm" onclick="changeIssuePage(-1)" ${issuePage === 1 ? 'disabled' : ''}>Previous</button><span class="hint">Page ${issuePage} of ${pages}</span><button class="b-sm" onclick="changeIssuePage(1)" ${issuePage === pages ? 'disabled' : ''}>Next</button>` : '';
+}
+
+function renderPartialErrors() {
+  const errors = Object.entries(scan.errors || {});
+  document.getElementById('partialErrors').innerHTML = errors.length ? `<div class="note n-warn partial-errors"><b>${errors.length} scan section${errors.length === 1 ? '' : 's'} unavailable</b>${errors.map(([name,e]) => `${esc(titleise(name))}: ${esc(e.message)}`).join('<br>')}</div>` : '';
+}
+
+function renderForms() {
+  const options = (scan.campaigns || []).map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  document.getElementById('sitelinkCampaign').innerHTML = options || '<option value="">No campaigns</option>';
+  const searchOptions = (scan.campaigns || []).filter(c => c.channel === 'SEARCH').map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  document.getElementById('imageCampaign').innerHTML = searchOptions || '<option value="">No compatible Search campaigns</option>';
+  const compatible = (scan.campaigns || []).filter(c => c.bidding_strategy === 'MAXIMIZE_CONVERSIONS' && !c.portfolio_strategy);
+  document.getElementById('cpaCampaign').innerHTML = compatible.map(c => `<option value="${esc(c.id)}" data-cpa="${esc(c.target_cpa || '')}">${esc(c.name)}</option>`).join('') || '<option value="">No compatible campaigns</option>';
+  document.getElementById('cpaCampaign').onchange = () => { const o = document.getElementById('cpaCampaign').selectedOptions[0]; if (o && o.dataset.cpa) document.getElementById('targetCpa').value = o.dataset.cpa; };
+  document.getElementById('cpaCampaign').onchange();
+  renderSitelinkPreview(); renderImagePreview();
+}
+
+function showBuilder(name, keepRecommendation=false) {
+  if (!keepRecommendation) builderRecommendationItem = null;
+  document.querySelectorAll('[data-builder]').forEach(panel => panel.hidden = panel.dataset.builder !== name);
+  const note=document.getElementById('builderRecommendation');
+  if (builderRecommendationItem) {
+    note.style.display='block';
+    note.innerHTML=`<b>${esc(builderRecommendationItem.title)}</b>${esc(builderRecommendationItem.account_name || accountName())} · ${esc(builderRecommendationItem.campaign_name || 'Account-wide')}<br>${esc(builderRecommendationItem.next_step || builderRecommendationItem.why || '')}`;
+  } else { note.style.display='none'; note.innerHTML=''; }
+  if (name === 'review' && !activeReviewItem) document.getElementById('reviewItemPreview').innerHTML = 'Choose an item from What needs doing or the Search term scanner.';
+}
+
+function openRecommendationBuilder(id) {
+  const item=(scan?.items || []).find(i=>i.id===id); if (!item || !item.builder) return;
+  builderRecommendationItem=item; queueStarted=true;
+  if (item.builder === 'search_terms') {
+    document.getElementById('categoryFilter').value='search_terms'; issuePage=1; termPage=1;
+    renderIssues(); renderSearchTerms(); document.getElementById('searchTermCard').scrollIntoView({behavior:'smooth'}); return;
+  }
+  document.getElementById('buildMenu').value=item.builder; showBuilder(item.builder,true);
+  const selectIds={sitelink:'sitelinkCampaign',image:'imageCampaign',cpa:'cpaCampaign'};
+  const select=document.getElementById(selectIds[item.builder] || '');
+  if (select && item.campaign_id && [...select.options].some(o=>o.value===item.campaign_id)) select.value=item.campaign_id;
+  if (item.builder === 'sitelink') invalidateBuilderAi('sitelink');
+  if (item.builder === 'image') invalidateBuilderAi('image');
+  document.querySelector('.opt-builder').scrollIntoView({behavior:'smooth'});
+}
+
+function sitelinkData() { return {campaign_id:document.getElementById('sitelinkCampaign').value, link_text:document.getElementById('sitelinkText').value, final_url:document.getElementById('sitelinkUrl').value, description1:document.getElementById('sitelinkD1').value, description2:document.getElementById('sitelinkD2').value}; }
+function invalidateBuilderAi(kind) {
+  if (kind === 'sitelink') { sitelinkAiReady = false; document.getElementById('sitelinkApprove').disabled = true; document.getElementById('sitelinkAiResult').innerHTML = ''; renderSitelinkPreview(); }
+  if (kind === 'image') { imageAiReady = false; document.getElementById('imageApprove').disabled = true; document.getElementById('imageAiResult').innerHTML = ''; renderImagePreview(); }
+}
+function renderSitelinkPreview() { const d=sitelinkData(), campaign=campaignName(d.campaign_id); document.getElementById('sitelinkPreview').innerHTML = `<b>Proposed sitelink</b><br>${esc(accountName())} · ${esc(campaign)}<br>${esc(d.link_text || 'Link text')} → ${esc(d.final_url || 'Final URL')}<br>${esc(d.description1 || '')}${d.description2 ? ' · ' + esc(d.description2) : ''}`; }
+function renderImagePreview() { const file=document.getElementById('imageFile').files[0], campaign=campaignName(document.getElementById('imageCampaign').value); document.getElementById('imagePreview').innerHTML = `<b>Proposed image asset</b><br>${esc(accountName())} · ${esc(campaign)}<br>${esc(document.getElementById('imageName').value || file?.name || 'Asset name')} · ${esc(file?.name || 'No file selected')}`; }
+function invalidateItemAi() { aiReviewedItemId = ''; document.getElementById('itemApproveButton').disabled = itemNeedsAi(activeReviewItem); document.getElementById('itemAiResult').innerHTML = ''; renderReviewPreview(); }
+function itemNeedsAi(item) { return Boolean(item && ['add_negative_keyword','add_keyword','apply_recommendation'].includes(item.action)); }
+
+async function runAction(action, data) {
+  const confirmation = action === 'remove_keyword' ? 'REMOVE' : 'APPROVE';
+  await api('POST', MOUNT + '/api/optimization/action', {customer_id:selectedId, action, confirmation, ...data});
+  toast('good', 'One approved optimization was sent to Google Ads.');
+  await loadScan(true); return true;
+}
+
+function openIssueReview(id) {
+  const item = (scan?.items || []).find(i => i.id === id); if (!item || !item.action) return;
+  activeReviewItem = item; aiReviewedItemId = '';
+  document.getElementById('buildMenu').value = 'review'; showBuilder('review');
+  document.getElementById('reviewItemTitle').textContent = item.title;
+  document.getElementById('reviewItemContext').textContent = `${item.account_name || accountName()} · ${item.campaign_name || 'Account-wide'}`;
+  document.getElementById('reviewItemWhy').textContent = `${item.why} ${item.next_step || ''}`;
+  const editable = ['add_negative_keyword','add_keyword'].includes(item.action);
+  document.getElementById('reviewEditFields').style.display = editable ? 'grid' : 'none';
+  document.getElementById('reviewText').value = item.data?.text || '';
+  document.getElementById('reviewMatch').value = item.data?.match_type || 'EXACT';
+  document.getElementById('itemAiButton').style.display = itemNeedsAi(item) ? '' : 'none';
+  document.getElementById('itemApproveButton').disabled = itemNeedsAi(item);
+  document.getElementById('itemApproveButton').textContent = item.action === 'remove_keyword' ? 'Remove this keyword' : 'Approve this item';
+  document.getElementById('itemAiResult').innerHTML = '';
+  renderReviewPreview();
+  document.querySelector('.opt-builder').scrollIntoView({behavior:'smooth'});
+}
+
+function renderReviewPreview() {
+  if (!activeReviewItem) return;
+  const item=activeReviewItem, editable=['add_negative_keyword','add_keyword'].includes(item.action);
+  const exact = editable ? `<br><b>Text:</b> ${esc(document.getElementById('reviewText').value || '')} · ${esc(document.getElementById('reviewMatch').value)}` : `<br><b>Google Ads item:</b> ${esc(item.data?.type || item.data?.criterion_id || item.id)}`;
+  document.getElementById('reviewItemPreview').innerHTML = `<b>Exact proposed change</b><br>${esc(item.account_name || accountName())} · ${esc(item.campaign_name || 'Account-wide')}<br>${esc(titleise(item.action))}${exact}`;
+}
+
+async function approveCurrentItem() {
+  const item=activeReviewItem; if (!item) return;
+  if (itemNeedsAi(item) && aiReviewedItemId !== item.id) return toast('warn','Run the AI review for this exact edited item first.');
+  const data={...(item.data || {})};
+  if (['add_negative_keyword','add_keyword'].includes(item.action)) { data.text=document.getElementById('reviewText').value; data.match_type=document.getElementById('reviewMatch').value; }
+  try { await runAction(item.action, data); activeReviewItem=null; document.getElementById('buildMenu').value=''; showBuilder(''); }
+  catch (err) { toast('bad', `Google Ads did not apply this item: ${err.message}`); }
+}
+
+function itemForAi(item, overrideData) { return {id:item.id,title:item.title,category:item.category,action:item.action,account_name:item.account_name || accountName(),campaign_name:item.campaign_name || campaignName((overrideData || item.data || {}).campaign_id),data:overrideData || item.data || {}}; }
+async function requestAi(selected) {
+  return api('POST', MOUNT + '/api/optimization/ai', {customer_id:selectedId, account_name:accountName(), focus:document.getElementById('categoryFilter').value || 'all', campaigns:(scan?.campaigns || []).map(c => ({id:c.id,name:c.name})), winning_terms:scan?.winning_terms || [], selected_items:selected});
+}
+
+async function reviewCurrentItemWithAi() {
+  const item=activeReviewItem; if (!item) return;
+  const data={...(item.data || {})};
+  if (['add_negative_keyword','add_keyword'].includes(item.action)) { data.text=document.getElementById('reviewText').value; data.match_type=document.getElementById('reviewMatch').value; }
+  const button=document.getElementById('itemAiButton'); button.disabled=true; button.textContent='AI reviewing…';
+  try {
+    const d=await requestAi([itemForAi(item,data)]), review=(d.reviews || []).find(r => r.id === item.id);
+    if (!d.ai_used || !review) { document.getElementById('itemAiResult').innerHTML='<div class="note n-warn"><b>AI review unavailable</b>This item remains on hold and cannot be approved yet.</div>'; return; }
+    aiReviewedItemId=item.id; window.__currentAiReview=review;
+    const edit = review.suggested_text ? `<button class="b-sm" onclick="useCurrentAiEdit()">Use AI edit</button>` : '';
+    document.getElementById('itemAiResult').innerHTML=`<div class="note n-info"><b>AI review: ${esc(titleise(review.verdict))}</b>${esc(review.rationale || '')}${edit}</div>`;
+    document.getElementById('itemApproveButton').disabled=false;
+  } catch (err) { document.getElementById('itemAiResult').innerHTML=`<div class="note n-bad"><b>AI review failed</b>${esc(err.message)}</div>`; }
+  finally { button.disabled=false; button.textContent='Run AI review'; }
+}
+
+function useCurrentAiEdit() { const r=window.__currentAiReview; if (!r) return; if (r.suggested_text) document.getElementById('reviewText').value=r.suggested_text; if (['EXACT','PHRASE','BROAD'].includes(r.suggested_match_type)) document.getElementById('reviewMatch').value=r.suggested_match_type; renderReviewPreview(); }
+
+async function reviewSitelinkWithAi() {
+  const data=sitelinkData(); if (!data.campaign_id || !data.link_text || !data.final_url) return toast('warn','Choose a campaign, link text, and final URL first.');
+  document.getElementById('sitelinkAiResult').innerHTML='<div class="hint"><span class="spin"></span> AI is reviewing the proposed sitelink…</div>';
+  try {
+    const item={id:'builder-sitelink',title:'Add a sitelink',category:'assets',action:'add_sitelink',account_name:accountName(),campaign_name:campaignName(data.campaign_id),data};
+    const d=await requestAi([item]), review=(d.reviews || []).find(r => r.id === item.id), suggestion=(d.sitelinks || [])[0];
+    if (!d.ai_used || !review) { sitelinkAiReady=false; document.getElementById('sitelinkAiResult').innerHTML='<div class="note n-warn"><b>AI review unavailable</b>The sitelink remains on hold.</div>'; return; }
+    sitelinkAiReady=true; window.__sitelinkSuggestion=suggestion;
+    document.getElementById('sitelinkAiResult').innerHTML=`<div class="note n-info"><b>AI review: ${esc(titleise(review.verdict))}</b>${esc(review.rationale || '')}${suggestion ? '<button class="b-sm" onclick="useAiSitelinkSuggestion()">Use AI wording</button>' : ''}</div>`;
+    document.getElementById('sitelinkApprove').disabled=false;
+  } catch (err) { document.getElementById('sitelinkAiResult').innerHTML=`<div class="note n-bad"><b>AI review failed</b>${esc(err.message)}</div>`; }
+}
+
+function useAiSitelinkSuggestion() { const s=window.__sitelinkSuggestion; if (!s) return; document.getElementById('sitelinkText').value=s.link_text || document.getElementById('sitelinkText').value; document.getElementById('sitelinkD1').value=s.description1 || ''; document.getElementById('sitelinkD2').value=s.description2 || ''; renderSitelinkPreview(); }
+
+async function reviewImageWithAi() {
+  const file=document.getElementById('imageFile').files[0], campaignId=document.getElementById('imageCampaign').value;
+  if (!file || !campaignId) return toast('warn','Choose a campaign and image first.');
+  document.getElementById('imageAiResult').innerHTML='<div class="hint"><span class="spin"></span> AI is reviewing the campaign asset plan…</div>';
+  const item={id:'builder-image',title:'Add an image asset',category:'assets',action:'add_image',account_name:accountName(),campaign_name:campaignName(campaignId),data:{campaign_id:campaignId,text:document.getElementById('imageName').value || file.name}};
+  try { const d=await requestAi([item]), review=(d.reviews || []).find(r=>r.id===item.id); if (!d.ai_used || !review) { imageAiReady=false; document.getElementById('imageAiResult').innerHTML='<div class="note n-warn"><b>AI review unavailable</b>The image remains on hold.</div>'; return; } imageAiReady=true; document.getElementById('imageApprove').disabled=false; document.getElementById('imageAiResult').innerHTML=`<div class="note n-info"><b>AI review: ${esc(titleise(review.verdict))}</b>${esc(review.rationale || '')}<br><span class="hint">Inspect the actual image before approval; AI reviewed the account, campaign, and asset plan.</span></div>`; }
+  catch (err) { document.getElementById('imageAiResult').innerHTML=`<div class="note n-bad"><b>AI review failed</b>${esc(err.message)}</div>`; }
+}
+
+async function approveSitelink() {
+  if (!sitelinkAiReady) return toast('warn','Run the AI review for this exact sitelink first.');
+  try { await runAction('add_sitelink', sitelinkData()); } catch (err) { toast('bad', err.message); }
+}
+
+async function approveImage() {
+  if (!imageAiReady) return toast('warn','Run the AI review for this exact image plan first.');
+  const file = document.getElementById('imageFile').files[0];
+  if (!file) return toast('warn', 'Choose a PNG or JPEG first.');
+  if (file.size > 5 * 1024 * 1024) return toast('warn', 'Choose an image no larger than 5 MB.');
+  const imageData = await new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload=()=>resolve(reader.result); reader.onerror=()=>reject(new Error('Could not read that image.')); reader.readAsDataURL(file); });
+  try { await runAction('add_image', {campaign_id:document.getElementById('imageCampaign').value, name:document.getElementById('imageName').value || file.name, image_data:imageData}); }
+  catch (err) { toast('bad', err.message); }
+}
+
+async function approveTargetCpa() {
+  try { await runAction('set_target_cpa', {campaign_id:document.getElementById('cpaCampaign').value, target_cpa:document.getElementById('targetCpa').value}); }
+  catch (err) { toast('bad', err.message); }
+}
+
+async function loadDrafts() {
+  if (!scan) return;
+  const chosen=(scan.items || []).filter(item => selectedIssues.has(item.id));
+  if (!chosen.length) return toast('warn','Check one or more items in What needs doing first.');
+  const button = document.getElementById('aiButton'); button.disabled = true; button.textContent = 'Drafting…';
+  try {
+    const drafts = await requestAi(chosen.map(item => itemForAi(item)));
+    renderDrafts(drafts); document.getElementById('aiDraftCard').style.display = 'block'; document.getElementById('aiDraftCard').scrollIntoView({behavior:'smooth'});
+  } catch (err) { toast('bad', `Could not create drafts: ${err.message}`); }
+  finally { button.disabled=false; button.textContent='Draft selected with AI'; }
+}
+
+function renderDrafts(d) {
+  const reviewHtml = (d.reviews || []).map(r => { const item=(scan.items || []).find(i=>i.id===r.id); return `<div class="draft"><b>${esc(item?.title || r.id)}</b> <span class="tag ${r.verdict === 'approve' ? 't-good' : r.verdict === 'edit' ? 't-warn' : 't-mute'}">${esc(titleise(r.verdict))}</span><div class="issue-context">${esc(item?.account_name || accountName())} · ${esc(item?.campaign_name || 'Account-wide')}</div><div class="hint">${esc(r.rationale || '')}</div>${item?.action ? `<button class="b-sm" style="margin-top:6px" onclick="openIssueReview('${esc(item.id)}')">Open editable approval</button>` : ''}</div>`; }).join('');
+  const keywordHtml = (d.keywords || []).map((k,index) => `<div class="draft"><b>${esc(k.text)}</b> <span class="tag t-info">${esc(k.match_type || 'EXACT')}</span><div class="hint">${esc(k.reason || '')}</div><button class="b-sm" style="margin-top:6px" onclick="openDraftKeyword(${index})">Open editable keyword</button></div>`).join('');
+  window.__optDrafts = d;
+  const sitelinks = (d.sitelinks || []).map((s,index) => `<div class="draft"><b>${esc(s.link_text)}</b><div class="hint">${esc(s.description1 || '')} ${esc(s.description2 || '')}</div><button class="b-sm" style="margin-top:6px" onclick="useSitelinkDraft(${index})">Load into sitelink form</button></div>`).join('');
+  const images = (d.image_prompts || []).map(x => `<div class="draft"><b>Image direction</b><div class="hint">${esc(x.prompt)}</div><a class="btn b-sm" style="margin-top:6px" href="/tools/image-creator/" target="_blank" rel="noopener">Create in Image Creator ↗</a></div>`).join('');
+  document.getElementById('aiDrafts').innerHTML = `<div class="note ${d.ai_used ? 'n-info' : 'n-warn'}"><b>${d.ai_used ? 'AI reviews and drafts are ready' : 'AI unavailable — selected items remain on hold'}</b>No draft has changed Google Ads.</div><div><h4>Selected-item reviews</h4>${reviewHtml || '<div class="hint">No selected-item review was returned.</div>'}</div><div class="tool-grid"><div><h4>Keyword drafts</h4>${keywordHtml || '<div class="hint">No safe keyword draft was available.</div>'}</div><div><h4>Sitelink drafts</h4>${sitelinks || '<div class="hint">No sitelink was drafted without a verified URL.</div>'}<h4 style="margin-top:18px">Image directions</h4>${images}</div></div>`;
+}
+
+function openDraftKeyword(index) {
+  const k = (window.__optDrafts?.keywords || [])[index]; if (!k) return;
+  activeReviewItem={id:`ai-keyword-${index}`,title:`Add keyword “${k.text}”`,category:'keywords',action:'add_keyword',account_name:accountName(),campaign_name:campaignName(k.campaign_id),data:k};
+  openSyntheticReview();
+}
+function openSyntheticReview() { const item=activeReviewItem; document.getElementById('buildMenu').value='review'; showBuilder('review'); document.getElementById('reviewItemTitle').textContent=item.title; document.getElementById('reviewItemContext').textContent=`${item.account_name} · ${item.campaign_name}`; document.getElementById('reviewItemWhy').textContent=item.data.reason || 'AI-assisted draft. Review every field before approval.'; document.getElementById('reviewEditFields').style.display='grid'; document.getElementById('reviewText').value=item.data.text || ''; document.getElementById('reviewMatch').value=item.data.match_type || 'EXACT'; document.getElementById('itemAiButton').style.display=''; document.getElementById('itemApproveButton').disabled=true; aiReviewedItemId=''; renderReviewPreview(); document.querySelector('.opt-builder').scrollIntoView({behavior:'smooth'}); }
+function useSitelinkDraft(index) {
+  const s = (window.__optDrafts?.sitelinks || [])[index]; if (!s) return;
+  document.getElementById('sitelinkCampaign').value=s.campaign_id || ''; document.getElementById('sitelinkText').value=s.link_text || '';
+  document.getElementById('sitelinkUrl').value=s.final_url || ''; document.getElementById('sitelinkD1').value=s.description1 || ''; document.getElementById('sitelinkD2').value=s.description2 || '';
+  document.getElementById('buildMenu').value='sitelink'; showBuilder('sitelink'); sitelinkAiReady=Boolean(window.__optDrafts?.ai_used); document.getElementById('sitelinkApprove').disabled=!sitelinkAiReady; renderSitelinkPreview(); document.querySelector('.opt-builder').scrollIntoView({behavior:'smooth'}); toast('good', 'AI draft loaded. Review and edit every visible field before approval.');
+}
+
+function filteredSearchTerms() {
+  if (!scan) return [];
+  const q=(document.getElementById('termSearch').value || '').trim().toLowerCase(), action=document.getElementById('termActionFilter').value;
+  return (scan.search_terms || []).filter(row => (!q || `${row.text} ${row.account_name || ''} ${row.campaign_name || ''} ${row.ad_group_name || ''}`.toLowerCase().includes(q)) && (!action || (action === 'review' ? !row.action : row.action === action)));
+}
+function changeTermPage(delta) { const pages=Math.max(1,Math.ceil(filteredSearchTerms().length/PAGE_SIZE)); termPage=Math.min(pages,Math.max(1,termPage+delta)); renderSearchTerms(); }
+function renderSearchTerms() {
+  if (!scan || !queueStarted) { document.getElementById('termCount').textContent='Choose an account or Search terms step to review all measured queries.'; document.getElementById('searchTerms').innerHTML='<div class="empty"><h4>Overall performance only</h4>Start with an account or the Search terms step.</div>'; document.getElementById('termPager').innerHTML=''; return; }
+  const list=filteredSearchTerms(), pages=Math.max(1,Math.ceil(list.length/PAGE_SIZE)); termPage=Math.min(pages,Math.max(1,termPage)); const visible=list.slice((termPage-1)*PAGE_SIZE,termPage*PAGE_SIZE);
+  document.getElementById('termCount').textContent=`Scanned ${scan.search_term_count || 0} search terms · ${scan.search_term_candidate_count || 0} keyword or negative candidates`;
+  document.getElementById('searchTerms').innerHTML=visible.length ? `<div class="table-scroll"><table class="compact-table"><thead><tr><th>Account and campaign</th><th>Search term</th><th>Performance</th><th>Recommendation</th><th></th></tr></thead><tbody>${visible.map(row=>`<tr><td><b>${esc(row.account_name || accountName())}</b><br>${esc(row.campaign_name || 'Account-wide')}<br><span class="hint">${esc(row.ad_group_name || '')}</span></td><td><b>${esc(row.text)}</b></td><td>${numf(row.clicks)} clicks · ${money2(row.cost)}<br>${numf(row.conversions)} conversions</td><td>${esc(row.recommendation || 'Review only')}</td><td>${row.item_id ? `<button class="b-sm" onclick="openIssueReview('${esc(row.item_id)}')">Review with AI</button>` : '<span class="tag t-mute">Review</span>'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty"><h4>No search terms match</h4>Clear the search or recommendation filter.</div>';
+  document.getElementById('termPager').innerHTML=list.length ? `<button class="b-sm" onclick="changeTermPage(-1)" ${termPage===1?'disabled':''}>Previous</button><span class="hint">Page ${termPage} of ${pages}</span><button class="b-sm" onclick="changeTermPage(1)" ${termPage===pages?'disabled':''}>Next</button>` : '';
+}
+
+async function openReport(view) {
+  currentReport=view; document.getElementById('accountReport').style.display='block';
+  const url=new URL(window.location.href); url.searchParams.set('customer_id',selectedId); url.searchParams.set('view',view); history.replaceState({},'',url);
+  if (!scan) await loadScan(false); else renderReport();
+  document.getElementById('accountReport').scrollIntoView({behavior:'smooth'});
+}
+function closeReport() { currentReport=''; document.getElementById('accountReport').style.display='none'; const url=new URL(window.location.href); url.searchParams.delete('view'); history.replaceState({},'',url); }
+function reportCampaignRows(campaigns, mode) {
+  if (!campaigns.length) return '<div class="empty"><h4>No campaign data in this period</h4>Try a wider performance window.</div>';
+  const head=mode==='share' ? '<th>Campaign</th><th>Search share</th><th>Lost to budget</th><th>Lost to rank</th>' : '<th>Campaign</th><th>Spend</th><th>Clicks</th><th>Conversions</th><th>Average CPC</th>';
+  const rows=campaigns.map(c=>mode==='share' ? `<tr><td><b>${esc(c.name)}</b></td><td>${c.search_share?pctf(c.search_share):'—'}</td><td>${c.budget_lost_share?pctf(c.budget_lost_share):'—'}</td><td>${c.rank_lost_share?pctf(c.rank_lost_share):'—'}</td></tr>` : `<tr><td><b>${esc(c.name)}</b></td><td>${money2(c.cost)}</td><td>${numf(c.clicks)}</td><td>${numf(c.conversions)}</td><td>${money2(c.avg_cpc)}</td></tr>`).join('');
+  return `<div class="table-scroll"><table class="compact-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function renderReport() {
+  if (!scan || !currentReport) return;
+  const views=[['brand','Google brand report'],['insights','Insights'],['search_share','Search share'],['recommendations','Google recommendations']];
+  document.getElementById('accountReport').style.display='block'; document.getElementById('reportNav').innerHTML=views.map(([key,label])=>`<button class="b-sm ${currentReport===key?'on':''}" onclick="openReport('${key}')">${label}</button>`).join('');
+  const campaigns=scan.campaigns || [], totals=scan.totals || {};
+  if (currentReport==='brand') { document.getElementById('reportTitle').textContent='Google Ads brand report'; document.getElementById('reportBody').innerHTML=`<div class="note n-info"><b>${esc(accountName())}</b>This report is built inside Smart 1 Ads from this account’s Google Ads performance data.</div><div class="grid g4">${statTile('Spend',money2(totals.cost),'Selected period')}${statTile('Clicks',numf(totals.clicks),`${numf(campaigns.reduce((n,c)=>n+c.impressions,0))} impressions`)}${statTile('Conversions',numf(totals.conversions),'Google Ads conversions')}${statTile('Average CPC',money2(totals.avg_cpc),'Across measured campaigns')}</div>${reportCampaignRows(campaigns,'performance')}`; }
+  if (currentReport==='search_share') { document.getElementById('reportTitle').textContent='Search share'; document.getElementById('reportBody').innerHTML=`<div class="note n-info"><b>${esc(accountName())}</b>Search impression share and losses are read by account and campaign inside the Hub.</div>${reportCampaignRows(campaigns.filter(c=>c.channel==='SEARCH'),'share')}`; }
+  if (currentReport==='insights') { const insights=(scan.items || []).filter(i=>i.source==='smart1').slice(0,20); document.getElementById('reportTitle').textContent='Account insights'; document.getElementById('reportBody').innerHTML=insights.map(i=>`<div class="draft"><b>${esc(i.title)}</b><div class="issue-context">${esc(i.account_name || accountName())} · ${esc(i.campaign_name || 'Account-wide')}</div><div class="hint">${esc(i.why)}</div></div>`).join('') || '<div class="empty"><h4>No account insight found</h4>Try a wider performance window.</div>'; }
+  if (currentReport==='recommendations') { const recs=(scan.items || []).filter(i=>i.source==='google'); document.getElementById('reportTitle').textContent='Google recommendations'; document.getElementById('reportBody').innerHTML=recs.map(i=>`<div class="draft"><b>${esc(i.title)}</b><div class="issue-context">${esc(i.account_name || accountName())} · ${esc(i.campaign_name || 'Account-wide')}</div><div class="hint">${esc(i.next_step || i.why)}</div><div style="margin-top:6px">${issueActionControl(i)}</div></div>`).join('') || '<div class="empty"><h4>No active Google recommendations</h4>This account has no active recommendation resources right now.</div>'; }
+}
+
+boot();
+</script>
+{% endif %}
+{% endblock %}

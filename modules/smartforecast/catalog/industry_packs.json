@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "packs": [
+    {
+      "id": "hvac",
+      "name": "HVAC Comfort & Emergency",
+      "industry": "HVAC",
+      "description": "Heating and cooling readiness, emergency demand, and post-load follow-up.",
+      "goals": ["Emergency AC Repair", "AC Tune-Ups", "Furnace Repair", "Furnace Tune-Ups", "Indoor Air Quality"],
+      "rules": [
+        {
+          "id": "hvac_extreme_heat",
+          "name": "Extreme Heat",
+          "description": "High-load AC conditions or an official heat alert.",
+          "priority": 90,
+          "lead_hours": 72,
+          "min_duration_hours": 6,
+          "post_hours": 24,
+          "cooldown_hours": 6,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "any",
+          "forecast_conditions": [{"metric": "forecast_high", "operator": ">=", "value": 92}, {"metric": "feels_like", "operator": ">=", "value": 98}],
+          "active_conditions": [{"metric": "temperature", "operator": ">=", "value": 92}, {"metric": "feels_like", "operator": ">=", "value": 98}],
+          "official_alerts": ["Heat Advisory", "Excessive Heat Warning"],
+          "content": {
+            "pre_event": ["Heat wave approaching", "Extreme Heat Is Coming. Is Your AC Ready?", "Schedule a preventive check before the system is working at its hardest.", "Prepare My AC"],
+            "active_event": ["Emergency cooling help", "AC Trouble During Today’s Heat?", "Local cooling service is available while temperatures remain extreme.", "Get AC Help"],
+            "post_event": ["After the heat", "Did the Heat Push Your AC Too Hard?", "Unusual noise, weak airflow, or long cycles can signal damage after sustained load.", "Schedule an Inspection"]
+          }
+        },
+        {
+          "id": "hvac_sustained_heat",
+          "name": "Sustained Heat",
+          "description": "Three forecast days at or above 88°F.",
+          "priority": 80,
+          "lead_hours": 48,
+          "min_duration_hours": 12,
+          "post_hours": 24,
+          "cooldown_hours": 8,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "sustained_heat_days", "operator": ">=", "value": 3}],
+          "active_conditions": [{"metric": "sustained_heat_days", "operator": ">=", "value": 3}],
+          "official_alerts": [],
+          "content": {
+            "pre_event": ["Several hot days ahead", "A Long Stretch of Heat Is Coming", "Prepare your cooling system before multiple high-load days arrive.", "Schedule a Tune-Up"],
+            "active_event": ["Sustained heat", "Keep Your Home Comfortable Through the Heat", "If the system is falling behind, have it checked before a small issue becomes a failure.", "Request Service"],
+            "post_event": ["Heat-load follow-up", "How Did Your AC Handle the Heat?", "A post-heat inspection can catch wear before the next hot stretch.", "Check My System"]
+          }
+        },
+        {
+          "id": "hvac_hard_freeze",
+          "name": "Hard Freeze",
+          "description": "Furnace and pipe risk at 25°F or below.",
+          "priority": 85,
+          "lead_hours": 72,
+          "min_duration_hours": 6,
+          "post_hours": 36,
+          "cooldown_hours": 12,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "any",
+          "forecast_conditions": [{"metric": "forecast_low", "operator": "<=", "value": 25}],
+          "active_conditions": [{"metric": "temperature", "operator": "<=", "value": 25}],
+          "official_alerts": ["Freeze Warning", "Hard Freeze Warning"],
+          "content": {
+            "pre_event": ["Hard freeze approaching", "Protect Your Home Before Temperatures Plunge", "Confirm the furnace is ready before dangerous cold arrives.", "Prepare for the Freeze"],
+            "active_event": ["Heating help", "No Heat During the Freeze?", "Get local furnace help while temperatures remain dangerously low.", "Get Furnace Help"],
+            "post_event": ["After the freeze", "Did the Cold Reveal a Heating Problem?", "Have cold rooms, short cycling, or unusual noise inspected.", "Schedule an Inspection"]
+          }
+        },
+        {
+          "id": "hvac_high_humidity",
+          "name": "High Humidity",
+          "description": "Indoor comfort and air-quality opportunity during high dew point conditions.",
+          "priority": 55,
+          "lead_hours": 24,
+          "min_duration_hours": 4,
+          "post_hours": 12,
+          "cooldown_hours": 6,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "any",
+          "forecast_conditions": [{"metric": "dew_point", "operator": ">=", "value": 68}],
+          "active_conditions": [{"metric": "humidity", "operator": ">=", "value": 70}],
+          "official_alerts": [],
+          "content": {
+            "pre_event": ["Humidity rising", "Sticky Weather Is on the Way", "Your HVAC system should manage moisture as well as temperature.", "Check Indoor Comfort"],
+            "active_event": ["High humidity", "Cooling but Still Uncomfortable?", "High indoor humidity can point to airflow, sizing, or maintenance problems.", "Request a Comfort Check"],
+            "post_event": ["Humidity follow-up", "Lingering Moisture or Musty Air?", "An indoor-air-quality check can identify moisture and ventilation concerns.", "Schedule an Assessment"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "home_services",
+      "name": "Home Services Storm Response",
+      "industry": "Home Services",
+      "description": "Storm preparation and post-event demand for roofing, waterproofing, and plumbing.",
+      "goals": ["Roof Inspection", "Basement Waterproofing", "Emergency Plumbing", "Storm Restoration"],
+      "rules": [
+        {
+          "id": "roofing_severe_storm",
+          "name": "Roofing Severe Storm",
+          "description": "High wind or an official severe-storm warning with a five-day response window.",
+          "priority": 92,
+          "lead_hours": 24,
+          "min_duration_hours": 3,
+          "post_hours": 120,
+          "cooldown_hours": 12,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "any",
+          "forecast_conditions": [{"metric": "wind_mph", "operator": ">=", "value": 40}, {"metric": "rain_probability", "operator": ">=", "value": 80}],
+          "active_conditions": [{"metric": "wind_mph", "operator": ">=", "value": 40}],
+          "official_alerts": ["Severe Thunderstorm Warning", "Tornado Warning", "High Wind Warning"],
+          "content": {
+            "pre_event": ["Storm approaching", "Prepare Your Roof for Severe Weather", "Secure loose items and know who to call if wind or hail causes damage.", "Review Storm Readiness"],
+            "active_event": ["Safety first", "Severe Weather Is Affecting the Area", "Stay safe during the storm. Inspections can be scheduled when conditions clear.", "Request Follow-Up"],
+            "post_event": ["After the storm", "Concerned About Roof or Hail Damage?", "Schedule a documented inspection before hidden damage becomes a leak.", "Schedule a Roof Inspection"]
+          }
+        },
+        {
+          "id": "waterproofing_heavy_rain",
+          "name": "Waterproofing Heavy Rain",
+          "description": "Heavy rain preparation with a three-day post-event response window.",
+          "priority": 75,
+          "lead_hours": 48,
+          "min_duration_hours": 3,
+          "post_hours": 72,
+          "cooldown_hours": 8,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "rain_probability", "operator": ">=", "value": 75}],
+          "active_conditions": [{"metric": "rain_probability", "operator": ">=", "value": 80}],
+          "official_alerts": ["Flash Flood Warning", "Flood Warning"],
+          "content": {
+            "pre_event": ["Heavy rain forecast", "Is Your Basement Ready for the Rain?", "Check drains, pumps, and known moisture areas before the storm arrives.", "Prepare My Basement"],
+            "active_event": ["Heavy rain", "Water Entering Your Basement?", "Document the source and request help as soon as it is safe.", "Request Waterproofing Help"],
+            "post_event": ["After the rain", "Notice Dampness, Odor, or Wall Staining?", "A post-storm assessment can find water paths before the next rainfall.", "Schedule an Assessment"]
+          }
+        },
+        {
+          "id": "plumbing_hard_freeze",
+          "name": "Plumbing Hard Freeze",
+          "description": "Pipe-freeze preparation and a three-day thaw response window.",
+          "priority": 88,
+          "lead_hours": 72,
+          "min_duration_hours": 6,
+          "post_hours": 72,
+          "cooldown_hours": 12,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "any",
+          "forecast_conditions": [{"metric": "forecast_low", "operator": "<=", "value": 25}],
+          "active_conditions": [{"metric": "temperature", "operator": "<=", "value": 25}],
+          "official_alerts": ["Hard Freeze Warning", "Freeze Warning"],
+          "content": {
+            "pre_event": ["Freeze preparation", "Protect Vulnerable Pipes Before the Freeze", "Disconnect hoses, protect exposed plumbing, and know the main shutoff location.", "See Freeze Tips"],
+            "active_event": ["Frozen-pipe help", "No Water or a Suspected Frozen Pipe?", "Act carefully and request help before applying unsafe heat.", "Get Plumbing Help"],
+            "post_event": ["Thaw-period risk", "A Burst Pipe Can Appear as Temperatures Rise", "Watch for pressure loss, damp areas, and unexpected water use during the thaw.", "Request an Inspection"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rv",
+      "name": "RV Shopping Weather",
+      "industry": "RV Dealer",
+      "description": "Promotes favorable outdoor shopping windows instead of bad weather itself.",
+      "goals": ["Showroom Visits", "Weekend Sales", "Spring Inventory"],
+      "rules": [
+        {
+          "id": "rv_beautiful_weekend",
+          "name": "Beautiful RV Weekend",
+          "description": "A warm, dry, low-wind weekend shopping opportunity.",
+          "priority": 45,
+          "lead_hours": 72,
+          "min_duration_hours": 6,
+          "post_hours": 6,
+          "cooldown_hours": 12,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "weekend_high", "operator": ">=", "value": 68}, {"metric": "weekend_rain_probability", "operator": "<=", "value": 30}, {"metric": "weekend_wind_mph", "operator": "<", "value": 20}],
+          "active_conditions": [{"metric": "weekend_high", "operator": ">=", "value": 68}, {"metric": "weekend_rain_probability", "operator": "<=", "value": 30}],
+          "official_alerts": [],
+          "content": {
+            "pre_event": ["A great weekend ahead", "Perfect RV Shopping Weather This Weekend", "Walk the inventory, compare floorplans, and imagine the first trip of the season.", "Plan My Visit"],
+            "active_event": ["Beautiful shopping weather", "Come Explore the RV Lot Today", "Comfortable weather makes it a great day to tour models in person.", "Browse Available RVs"],
+            "post_event": ["Keep planning", "Missed the Weekend? Your Next Trip Still Starts Here", "Browse inventory and schedule a quieter personal walkthrough.", "Schedule a Walkthrough"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "marine",
+      "name": "Marine & Boating Weather",
+      "industry": "Marine / Boat Dealer",
+      "description": "Warm, dry, low-wind boating and showroom opportunities.",
+      "goals": ["Boat Sales", "Showroom Visits", "Spring Launch"],
+      "rules": [
+        {
+          "id": "marine_boating_weekend",
+          "name": "Boating Weekend",
+          "description": "Warm weekend conditions with low rain and wind.",
+          "priority": 50,
+          "lead_hours": 72,
+          "min_duration_hours": 6,
+          "post_hours": 6,
+          "cooldown_hours": 12,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "weekend_high", "operator": ">=", "value": 72}, {"metric": "weekend_rain_probability", "operator": "<=", "value": 25}, {"metric": "weekend_wind_mph", "operator": "<=", "value": 15}],
+          "active_conditions": [{"metric": "weekend_high", "operator": ">=", "value": 72}, {"metric": "weekend_rain_probability", "operator": "<=", "value": 25}],
+          "official_alerts": [],
+          "content": {
+            "pre_event": ["Boating weather ahead", "This Weekend Belongs on the Water", "Explore boats and service options before the best weather arrives.", "Plan a Showroom Visit"],
+            "active_event": ["A beautiful boating day", "Ready to Make More Weekends Like This?", "Tour available boats while today’s weather shows what the season can be.", "Explore Boats"],
+            "post_event": ["Plan the next outing", "Make the Next Great Boating Day Yours", "Schedule a walkthrough and find the right fit for your plans.", "Schedule a Walkthrough"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "restaurant",
+      "name": "Restaurant Weather Moments",
+      "industry": "Restaurant",
+      "description": "Short-duration dinner, delivery, and patio opportunities.",
+      "goals": ["Dinner Orders", "Delivery", "Patio Traffic"],
+      "rules": [
+        {
+          "id": "restaurant_rain_dinner",
+          "name": "Heavy Rain Tonight",
+          "description": "Promotes an easy dinner option on high-rain-probability days.",
+          "priority": 65,
+          "lead_hours": 12,
+          "min_duration_hours": 2,
+          "post_hours": 0,
+          "cooldown_hours": 3,
+          "activation_checks": 2,
+          "clear_checks": 1,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "rain_probability", "operator": ">=", "value": 70}],
+          "active_conditions": [{"metric": "rain_probability", "operator": ">=", "value": 75}],
+          "official_alerts": [],
+          "content": {
+            "pre_event": ["Rain tonight", "Let Us Handle Dinner", "Order ahead or reserve a comfortable table before the rain begins.", "Order or Reserve"],
+            "active_event": ["A cozy dinner option", "Stay Dry. Dinner Is Ready.", "Choose pickup, delivery, or a welcoming table indoors.", "Order Dinner"],
+            "post_event": ["Next meal", "Good Food Works in Any Forecast", "See today’s menu and plan your next visit.", "View the Menu"]
+          }
+        },
+        {
+          "id": "restaurant_patio_weather",
+          "name": "Patio Weather",
+          "description": "Comfortable, dry, low-wind conditions for outdoor dining.",
+          "priority": 40,
+          "lead_hours": 24,
+          "min_duration_hours": 2,
+          "post_hours": 0,
+          "cooldown_hours": 3,
+          "activation_checks": 2,
+          "clear_checks": 1,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "forecast_high", "operator": ">=", "value": 72}, {"metric": "forecast_high", "operator": "<=", "value": 85}, {"metric": "rain_probability", "operator": "<", "value": 20}, {"metric": "wind_mph", "operator": "<", "value": 15}],
+          "active_conditions": [{"metric": "temperature", "operator": ">=", "value": 72}, {"metric": "temperature", "operator": "<=", "value": 85}, {"metric": "rain_probability", "operator": "<", "value": 20}],
+          "official_alerts": [],
+          "content": {
+            "pre_event": ["Patio forecast", "Tomorrow Looks Perfect for the Patio", "Reserve an outdoor table while the forecast is warm and clear.", "Reserve a Patio Table"],
+            "active_event": ["Patio weather", "The Patio Is Calling", "Enjoy today’s comfortable weather with food and drinks outside.", "Reserve a Table"],
+            "post_event": ["Plan another visit", "There Is Always Something Good on the Menu", "See what is being served next.", "View the Menu"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ski",
+      "name": "Ski Fresh Snow",
+      "industry": "Ski Resort",
+      "description": "Fresh-snow forecast, live-event excitement, and a long powder window.",
+      "goals": ["Lift Tickets", "Lodging", "Season Passes"],
+      "rules": [
+        {
+          "id": "ski_fresh_snow",
+          "name": "Fresh Snow",
+          "description": "Three or more inches forecast with a 72-hour post-event powder window.",
+          "priority": 82,
+          "lead_hours": 72,
+          "min_duration_hours": 6,
+          "post_hours": 72,
+          "cooldown_hours": 6,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "snow_inches", "operator": ">=", "value": 3}],
+          "active_conditions": [{"metric": "snow_inches", "operator": ">=", "value": 3}],
+          "official_alerts": ["Winter Storm Warning"],
+          "content": {
+            "pre_event": ["Fresh snow forecast", "Fresh Snow Is on the Way", "Plan the trip before the storm and be ready for first tracks.", "Buy Lift Tickets"],
+            "active_event": ["It’s snowing", "Fresh Snow Is Falling Now", "Check operating updates and prepare for changing mountain conditions.", "View Mountain Status"],
+            "post_event": ["Powder window", "Fresh Powder Fell — Come Ski It", "The storm has passed, but the snow is still here.", "Plan My Ski Day"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "legal",
+      "name": "Legal Ice Response",
+      "industry": "Legal",
+      "description": "Restrained safety messaging before ice and service information afterward.",
+      "goals": ["Personal Injury Consultations", "Community Safety"],
+      "rules": [
+        {
+          "id": "legal_freezing_rain",
+          "name": "Ice / Freezing Rain",
+          "description": "Safety-forward ice messaging with a three-day post-event information window.",
+          "priority": 78,
+          "lead_hours": 24,
+          "min_duration_hours": 3,
+          "post_hours": 72,
+          "cooldown_hours": 12,
+          "activation_checks": 2,
+          "clear_checks": 2,
+          "condition_mode": "all",
+          "forecast_conditions": [{"metric": "rain_probability", "operator": ">=", "value": 50}, {"metric": "forecast_low", "operator": "<=", "value": 32}],
+          "active_conditions": [{"metric": "rain_probability", "operator": ">=", "value": 50}, {"metric": "temperature", "operator": "<=", "value": 32}],
+          "official_alerts": ["Ice Storm Warning", "Freezing Rain Advisory", "Winter Weather Advisory"],
+          "content": {
+            "pre_event": ["Ice safety reminder", "Use Extra Care as Icy Conditions Approach", "Allow more time, avoid untreated surfaces, and follow local safety guidance.", "Review Safety Resources"],
+            "active_event": ["Icy conditions", "Stay Safe During Freezing Rain", "Avoid unnecessary travel and document unsafe conditions only when it is safe to do so.", "See Community Resources"],
+            "post_event": ["After the ice", "Questions After an Ice-Related Injury?", "Learn what information may be useful when discussing an incident with an attorney.", "Request a Consultation"]
+          }
+        }
+      ]
+    }
+  ]
+}

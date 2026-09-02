@@ -298,10 +298,14 @@ def run():
     check("[live campaigns] campaign filters and sorting stay above the table",
           all(key in campaign_page_src for key in
               ("campaignSearch", "statusFilter", "channelFilter", "sortBy")))
-    check("[live campaigns] insights and search-share links open Google Ads",
-          "googleAdsUrl('insights')" in campaign_page_src
-          and "googleAdsUrl('campaigns')" in campaign_page_src
-          and "Search share" in campaign_page_src)
+    check("[live campaigns] account reports stay inside Smart 1 Ads",
+          "reportUrl('insights')" in campaign_page_src
+          and "reportUrl('search_share')" in campaign_page_src
+          and "reportUrl('recommendations')" in campaign_page_src
+          and "Google brand report" in campaign_page_src)
+    check("[live campaigns] the account rail paginates ten at a time",
+          "ACCOUNT_PAGE_SIZE = 10" in campaign_page_src
+          and "accountPager" in campaign_page_src)
     check("[live campaigns] typed confirmations travel to the server",
           "confirmation: requiredWord" in campaign_page_src
           and all(word in campaign_page_src for word in ("ENABLE", "PAUSE", "DELETE")))
@@ -644,6 +648,12 @@ def run():
     r = g(f"{BASE}/api/campaigns", timeout=10)
     check("campaigns without customer_id is a 400", r.status_code == 400)
 
+    r = g(f"{BASE}/api/optimization/scan", timeout=10)
+    check("optimization scans without customer_id are refused", r.status_code == 400)
+
+    r = p(f"{BASE}/api/optimization/action", json={}, timeout=10)
+    check("optimization writes need an account and one named action", r.status_code == 400)
+
     # proposals lifecycle, seeded directly (no OpenAI call needed)
     proposal = store.create_proposal("Northside Roofing Co", SAMPLE, created_by="todd@smart1marketing.com")
     pid = proposal["id"]
@@ -866,6 +876,7 @@ def run():
     for path, needle in (
         ("/", "Search existing clients"),
         ("/campaigns", "Live campaign data needs the Google Ads API"),
+        ("/optimization", "Optimization needs the Google Ads connection"),
         ("/approvals", "Northside Roofing Co"),
         (f"/proposal/{pid}", "Negative keyword vault"),
         (f"/proposal/{pid}/client", "Paid Search Estimate"),

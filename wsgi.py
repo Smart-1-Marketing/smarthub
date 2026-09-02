@@ -10,6 +10,7 @@ One process, one login, six tools:
     /suite/…         → Smart 1 Suite (GHL) control panel  [Python port]
     /tools/image/…   → Image optimizer
     /tools/pdf/…     → PDF optimizer                       [Python port]
+    /tools/smartforecast/… → Weather-triggered website personalization
 
 Every mounted module sits behind the Hub auth guard: no valid hub cookie,
 no access — pages redirect to /login, API paths get a 401 JSON.
@@ -98,6 +99,7 @@ _MOUNT_ACTIVE = {
     # tile sits on /creative beside Image Creator.
     "/tools/stock-photos": "creative",
     "/tools/site-blocks": "tools",
+    "/tools/smartforecast": "tools",
     # Creative, not Tools: it produces client-facing copy and pulls from the
     # image gallery, so it sits with Image Creator rather than with the
     # housekeeping utilities.
@@ -469,6 +471,16 @@ except Exception as _siteblk_exc:  # noqa: BLE001
     siteblk, siteblk_fb = None, _fallback_app("Website Blocks", str(_siteblk_exc))
 
 try:
+    import importlib as _il_smartforecast
+    smartforecast = _il_smartforecast.import_module("modules.smartforecast.app")
+    smartforecast_fb = None
+except Exception as _smartforecast_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    smartforecast, smartforecast_fb = None, _fallback_app(
+        "SmartForecast Dynamic Website", str(_smartforecast_exc))
+
+try:
     import importlib as _il_social
     social = _il_social.import_module("modules.social_planner.app")
     social_fb = None
@@ -696,6 +708,9 @@ _SOCIAL_PUBLIC = tuple(getattr(social, "PUBLIC_PREFIXES", ("/c/",))) \
 _FANRAD_PUBLIC = tuple(getattr(fanrad, "PUBLIC_PREFIXES",
                                ("/r/", "/api/public/", "/audio/"))) \
     if fanrad else ("/r/", "/api/public/", "/audio/")
+_SMARTFORECAST_PUBLIC = tuple(getattr(
+    smartforecast, "PUBLIC_PREFIXES", ("/embed/", "/api/public/"))) \
+    if smartforecast else ("/embed/", "/api/public/")
 
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
@@ -720,6 +735,12 @@ application = DispatcherMiddleware(hub_app, {
                            if stockp else stockp_fb,
     "/tools/site-blocks": _mount(siteblk.app, "/tools/site-blocks")
                           if siteblk else siteblk_fb,
+    # The editor, simulator and history stay behind Hub login. The iframe and
+    # its read-only JSON payload are public because they render on a client's
+    # own website; neither public route can change configuration or state.
+    "/tools/smartforecast": _mount(
+        smartforecast.app, "/tools/smartforecast",
+        public_prefixes=_SMARTFORECAST_PUBLIC) if smartforecast else smartforecast_fb,
     "/tools/social": _mount(social.app, "/tools/social",
                             public_prefixes=_SOCIAL_PUBLIC) if social else social_fb,
     "/tools/gpt-ads": _mount(gptads.app, "/tools/gpt-ads") if gptads else gptads_fb,

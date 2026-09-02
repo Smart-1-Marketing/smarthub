@@ -2,9 +2,10 @@
 
     python3 test_scheduler_health.py
 
-The scheduler now runs eleven jobs sharing one thread: the backups, the Google
-sweep, the Knack pulls, the domain registry, the video backlog and the weekly
-social idea batches. `status()` answered one question well — is a worker
+The scheduler runs its background jobs in one shared thread: the backups, the
+Google sweep, the Knack pulls, SmartForecast checks, the domain registry, the
+video backlog and the weekly social idea batches. `status()` answered one
+question well — is a worker
 holding the lock — and three others not at all.
 
 ## The three it could not answer

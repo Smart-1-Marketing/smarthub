@@ -656,9 +656,10 @@ def expand_stock_queries(visual_description):
     try:
         result = _chat_json(
             system=(
-                "Convert a video commercial scene description into 2-3 short, concrete stock "
-                "video search queries (3-6 words each) likely to return good results on Pexels/"
-                'Pixabay. Respond as JSON: {"queries":["...","...","..."]}'
+                "Convert a video commercial scene description into 2-3 short, concrete video "
+                "search queries (3-6 words each) likely to match our indexed owned-video "
+                "library as well as Pexels/Pixabay. Favor visible subjects, motion, setting, "
+                'and look. Respond as JSON: {"queries":["...","...","..."]}'
             ),
             user=visual_description,
             max_tokens=200,
