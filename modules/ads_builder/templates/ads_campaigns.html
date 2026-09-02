@@ -12,15 +12,20 @@
                   display:flex; flex-direction:column; min-height:480px }
   .account-rail h3 { margin-bottom:0 }
   .account-list { overflow:auto; margin:10px -4px 0; padding:0 4px 6px }
-  .account-item { width:100%; display:block; text-align:left; padding:11px 12px;
-                  margin-bottom:7px; border-color:var(--line); background:#fff }
+  .account-item { width:100%; display:block; text-align:left; padding:12px 13px;
+                  margin-bottom:7px; border-color:#cbd5e1; background:#fff; color:#0f172a;
+                  line-height:1.4 }
   .account-item:hover { border-color:#93c5fd !important; background:#f8fbff !important }
   .account-item.on { border-color:#60a5fa; background:var(--blue-soft);
                      box-shadow:inset 3px 0 0 var(--blue) }
-  .account-name { display:flex; align-items:center; gap:7px; font-weight:700; color:var(--ink) }
-  .account-meta, .account-kpi { display:block; color:var(--muted); font-size:11.5px;
-                                margin-top:2px; font-weight:400 }
-  .account-kpi { color:#475569 }
+  .account-name { display:flex; align-items:center; gap:7px; font-size:13.5px;
+                  font-weight:750; color:#0f172a }
+  .account-meta, .account-kpi { display:block; color:#475569; font-size:12px;
+                                margin-top:3px; font-weight:500 }
+  .account-kpi { color:#334155 }
+  .account-pager { display:flex; align-items:center; justify-content:space-between;
+                   gap:8px; padding-top:9px; border-top:1px solid var(--line) }
+  .account-pager .hint { color:#334155; font-weight:600 }
   .account-main { min-width:0 }
   .account-head { display:flex; gap:16px; justify-content:space-between; align-items:flex-start }
   .account-head h2 { margin:0 0 3px; font-size:21px }
@@ -86,11 +91,12 @@
       <div style="margin-top:12px">
         <label for="accountSearch">Find an account</label>
         <input id="accountSearch" type="search" placeholder="Client name or account ID"
-               oninput="renderAccounts()">
+               oninput="onAccountSearch()">
       </div>
       <div class="account-list" id="accountList">
         <span class="spin"></span> Loading accounts…
       </div>
+      <div class="account-pager" id="accountPager"></div>
     </aside>
 
     <section class="account-main">
@@ -170,6 +176,8 @@ let selectedCustomerId = '';
 let optimizationSummary = null;
 let loadGeneration = 0;
 let detailGeneration = 0;
+let accountPage = 1;
+const ACCOUNT_PAGE_SIZE = 10;
 
 function cid()   { return selectedCustomerId; }
 function range() { return document.getElementById('range').value; }
@@ -185,14 +193,35 @@ function activeAccounts() {
   return accounts.filter(a => !a.is_manager && !a.error);
 }
 
-function renderAccounts() {
-  const list = activeAccounts();
+function onAccountSearch() { accountPage = 1; renderAccounts(); }
+
+function filteredAccounts() {
   const q = (document.getElementById('accountSearch').value || '').trim().toLowerCase();
-  const visible = list.filter(a =>
+  return activeAccounts().filter(a =>
     !q || a.name.toLowerCase().includes(q) || a.formatted_id.includes(q) || a.id.includes(q)
   );
+}
+
+function changeAccountPage(delta) {
+  const pages = Math.max(1, Math.ceil(filteredAccounts().length / ACCOUNT_PAGE_SIZE));
+  accountPage = Math.min(pages, Math.max(1, accountPage + delta));
+  renderAccounts();
+}
+
+function showSelectedAccountPage() {
+  const index = filteredAccounts().findIndex(a => a.id === cid());
+  if (index >= 0) accountPage = Math.floor(index / ACCOUNT_PAGE_SIZE) + 1;
+}
+
+function renderAccounts() {
+  const list = activeAccounts();
+  const filtered = filteredAccounts();
+  const pages = Math.max(1, Math.ceil(filtered.length / ACCOUNT_PAGE_SIZE));
+  accountPage = Math.min(pages, Math.max(1, accountPage));
+  const start = (accountPage - 1) * ACCOUNT_PAGE_SIZE;
+  const visible = filtered.slice(start, start + ACCOUNT_PAGE_SIZE);
   document.getElementById('accountCount').textContent =
-    `${list.length} enabled client account${list.length === 1 ? '' : 's'}`;
+    `${list.length} enabled client account${list.length === 1 ? '' : 's'} · 10 per page`;
   document.getElementById('accountList').innerHTML = visible.map(a => {
     const isSelected = a.id === cid();
     const kpi = isSelected && campaigns.length
@@ -205,6 +234,14 @@ function renderAccounts() {
       <span class="account-kpi">${kpi}</span>
     </button>`;
   }).join('') || '<div class="empty"><h4>No matching accounts</h4>Try a shorter name or account ID.</div>';
+  document.getElementById('accountPager').innerHTML = filtered.length ?
+    `<button class="b-sm" onclick="changeAccountPage(-1)" ${accountPage === 1 ? 'disabled' : ''}>Previous</button>
+     <span class="hint">Page ${accountPage} of ${pages}</span>
+     <button class="b-sm" onclick="changeAccountPage(1)" ${accountPage === pages ? 'disabled' : ''}>Next</button>` : '';
+}
+
+function reportUrl(view) {
+  return `${MOUNT}/optimization?customer_id=${encodeURIComponent(cid())}&view=${encodeURIComponent(view)}`;
 }
 
 function renderAccountOverview(loading = false) {
@@ -215,10 +252,10 @@ function renderAccountOverview(loading = false) {
     : (cid() ? esc(cid()) : 'Select an active account on the left.');
   const links = cid() ? `
     <div class="account-links">
-      <a class="btn b-sm" target="_blank" rel="noopener" href="${esc(googleAdsUrl('overview'))}">Google Ads overview ↗</a>
-      <a class="btn b-sm" target="_blank" rel="noopener" href="${esc(googleAdsUrl('insights'))}">Insights ↗</a>
-      <a class="btn b-sm" target="_blank" rel="noopener" href="${esc(googleAdsUrl('campaigns'))}">Search share ↗</a>
-      <a class="btn b-sm" href="/client360?q=${encodeURIComponent(a ? a.name : '')}#creative">Brand report</a>
+      <a class="btn b-sm" href="${esc(reportUrl('brand'))}">Google brand report</a>
+      <a class="btn b-sm" href="${esc(reportUrl('insights'))}">Insights</a>
+      <a class="btn b-sm" href="${esc(reportUrl('search_share'))}">Search share</a>
+      <a class="btn b-sm" href="${esc(reportUrl('recommendations'))}">Google recommendations</a>
       <a class="btn b-sm" href="${MOUNT}/optimization?customer_id=${encodeURIComponent(cid())}">Optimization</a>
     </div>` : '';
   document.getElementById('accountOverview').innerHTML = `
@@ -250,6 +287,7 @@ async function boot() {
     const usable = activeAccounts();
     const savedIsUsable = saved && usable.some(a => a.id === saved);
     selectedCustomerId = savedIsUsable ? saved : (usable[0] ? usable[0].id : '');
+    showSelectedAccountPage();
     renderAccounts();
     renderAccountOverview(Boolean(selectedCustomerId));
     document.getElementById('range').onchange = () => load();
@@ -371,11 +409,11 @@ function renderDashboard() {
     statTile('Conversions', numf(totals.conversions),
       totals.conversions ? money2(totals.cost / totals.conversions) + ' CPA' : 'no conversions yet') +
     statTile('Search share', share ? pctf(share) : '—',
-      `<a target="_blank" rel="noopener" href="${esc(googleAdsUrl('campaigns'))}">Open search share ↗</a>`) +
+      `<a href="${esc(reportUrl('search_share'))}">View account search share</a>`) +
     statTile('Campaigns', campaigns.length, enabled + ' enabled') +
     statTile('Optimization', optimizationSummary && optimizationSummary.score_percent != null
       ? optimizationSummary.score_percent + '%' : '—',
-      `<a href="${MOUNT}/optimization?customer_id=${encodeURIComponent(cid())}">${optimizationSummary && optimizationSummary.recommendation_count != null ? optimizationSummary.recommendation_count + ' recommendations' : 'Open optimization'}</a>`);
+      `<a href="${esc(reportUrl('recommendations'))}">${optimizationSummary && optimizationSummary.recommendation_count != null ? optimizationSummary.recommendation_count + ' recommendations' : 'Open optimization'}</a>`);
   renderCampaignTable();
 }
 

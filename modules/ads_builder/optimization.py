@@ -273,20 +273,43 @@ RECOMMENDATION_COPY = {
     "CAMPAIGN_BUDGET": ("Review a budget-limited campaign", "diagnostics", "Compare the proposed spend with the approved budget."),
 }
 
+# Google recommendation resources do not always include the proposed content in
+# the list response. Route those types into a Hub editor so the trafficker sees
+# and can change the exact value before AI review and approval.
+RECOMMENDATION_BUILDERS = {
+    "KEYWORD": "search_terms",
+    "SITELINK_ASSET": "sitelink",
+    "TARGET_CPA_OPT_IN": "cpa",
+    "SET_TARGET_CPA": "cpa",
+    "FORECASTING_SET_TARGET_CPA": "cpa",
+    "DYNAMIC_IMAGE_EXTENSION_OPT_IN": "image",
+    "IMPROVE_GOOGLE_TAG_COVERAGE": "tracking",
+}
+RECOMMENDATION_GUIDANCE_ONLY = {
+    "RESPONSIVE_SEARCH_AD_IMPROVE_AD_STRENGTH",
+    "CAMPAIGN_BUDGET",
+}
 
-def _recommendation_items(recommendations: list[dict]) -> list[dict]:
+
+def _recommendation_items(recommendations: list[dict], campaign_names=None) -> list[dict]:
+    campaign_names = campaign_names or {}
     items = []
     for rec in recommendations:
         title, category, next_step = RECOMMENDATION_COPY.get(
             rec["type"],
             (rec["type"].replace("_", " ").title(), "diagnostics", "Review Google's recommendation and forecast."),
         )
+        builder = RECOMMENDATION_BUILDERS.get(rec["type"], "")
+        action = "" if builder or rec["type"] in RECOMMENDATION_GUIDANCE_ONLY else "apply_recommendation"
         items.append({
             "id": f"google-{rec['id']}", "source": "google", "category": category,
             "severity": "medium", "title": title,
             "why": "Google Ads has an active recommendation for this account.",
-            "next_step": next_step, "action": "apply_recommendation",
-            "confirmation": "APPROVE", "data": rec,
+            "next_step": next_step, "action": action, "builder": builder,
+            "confirmation": "APPROVE", "data": {
+                **rec,
+                "campaign_name": campaign_names.get(rec["campaign_id"], ""),
+            },
         })
     return items
 
@@ -308,7 +331,8 @@ def analyse_rows(customer_id: str, date_range: str, datasets: dict, errors=None)
     total_conversions = sum(c["conversions"] for c in campaigns)
     account_cpc = total_cost / total_clicks if total_clicks else 0
     score = customer.get("optimizationScore")
-    items = _recommendation_items(recommendations)
+    campaign_names = {c["id"]: c["name"] for c in campaigns}
+    items = _recommendation_items(recommendations, campaign_names)
 
     # High click cost: require a useful sample and compare to the account, not
     # a hard-coded industry price. Zero-conversion spend is also surfaced.
@@ -407,11 +431,48 @@ def analyse_rows(customer_id: str, date_range: str, datasets: dict, errors=None)
             "action": "", "data": {},
         })
 
+    account_name = str(customer.get("descriptiveName") or "")
+    term_actions = {}
+    for item in items:
+        data = item.get("data") or {}
+        campaign_id = str(data.get("campaign_id") or "")
+        item["account_name"] = account_name
+        item["campaign_id"] = campaign_id
+        item["campaign_name"] = str(
+            data.get("campaign_name") or campaign_names.get(campaign_id) or "Account-wide"
+        )
+        if item.get("action") in {"add_negative_keyword", "add_keyword"}:
+            term_key = (
+                str(data.get("ad_group_id") or ""),
+                re.sub(r"\s+", " ", str(data.get("text") or "").strip().lower()),
+            )
+            term_actions[term_key] = {
+                "item_id": item["id"], "action": item["action"],
+                "recommendation": (
+                    "Add as a negative keyword"
+                    if item["action"] == "add_negative_keyword"
+                    else "Add as a paused keyword"
+                ),
+            }
+
+    search_term_scan = []
+    for term in sorted(terms, key=lambda x: (x["cost"], x["clicks"], x["conversions"]), reverse=True):
+        term_key = (
+            term["ad_group_id"],
+            re.sub(r"\s+", " ", term["text"].strip().lower()),
+        )
+        suggested = term_actions.get(term_key) or {
+            "item_id": "", "action": "", "recommendation": "Review only"
+        }
+        search_term_scan.append({
+            **term, **suggested, "account_name": account_name,
+        })
+
     category_counts = Counter(item["category"] for item in items)
     return {
         "customer_id": google_ads.digits(customer_id),
         "date_range": date_range,
-        "account_name": str(customer.get("descriptiveName") or ""),
+        "account_name": account_name,
         "currency": str(customer.get("currencyCode") or "USD"),
         "score": None if score in (None, "") else _number(score),
         "score_percent": None if score in (None, "") else round(_number(score) * 100),
@@ -422,6 +483,9 @@ def analyse_rows(customer_id: str, date_range: str, datasets: dict, errors=None)
         "totals": {"cost": total_cost, "clicks": total_clicks, "conversions": total_conversions,
                    "avg_cpc": account_cpc, "campaigns": len(campaigns)},
         "campaigns": campaigns, "winning_terms": winners[:20], "items": items,
+        "search_terms": search_term_scan[:500],
+        "search_term_count": len(search_term_scan),
+        "search_term_candidate_count": sum(1 for row in search_term_scan if row["action"]),
         "errors": errors or {},
     }
 
@@ -632,12 +696,43 @@ def ai_drafts(context: dict) -> dict:
                 "text": text, "campaign_id": google_ads.digits((row or {}).get("campaign_id")),
                 "ad_group_id": google_ads.digits((row or {}).get("ad_group_id")),
             })
+    selected_items = []
+    for raw in (context.get("selected_items") or [])[:20]:
+        raw = raw or {}
+        data = raw.get("data") or {}
+        selected_items.append({
+            "id": str(raw.get("id") or "")[:120],
+            "title": str(raw.get("title") or "")[:240],
+            "category": str(raw.get("category") or "")[:40],
+            "action": str(raw.get("action") or "")[:60],
+            "account_name": str(raw.get("account_name") or context.get("account_name") or "")[:120],
+            "campaign_name": str(raw.get("campaign_name") or "")[:160],
+            "data": {
+                "campaign_id": google_ads.digits(data.get("campaign_id")),
+                "ad_group_id": google_ads.digits(data.get("ad_group_id")),
+                "text": re.sub(r"\s+", " ", str(data.get("text") or "").strip())[:80],
+                "match_type": str(data.get("match_type") or "")[:20].upper(),
+                "link_text": str(data.get("link_text") or "")[:25],
+                "description1": str(data.get("description1") or "")[:35],
+                "description2": str(data.get("description2") or "")[:35],
+                "final_url": google_ads.normalise_url(data.get("final_url")),
+                "clicks": _integer(data.get("clicks")),
+                "cost": _number(data.get("cost")),
+                "conversions": _number(data.get("conversions")),
+            },
+        })
     fallback = {
         "keywords": [{**row, "match_type": "EXACT",
                       "reason": "Measured converting search term; review before adding."}
                      for row in winning_terms[:5]],
         "sitelinks": [],
         "image_prompts": [{"prompt": f"Authentic, brand-safe campaign image for {str(context.get('account_name') or 'this advertiser')[:100]}; no text, logos, prices, offers, or unverifiable claims."}],
+        "reviews": [{
+            "id": row["id"], "verdict": "hold",
+            "suggested_text": row["data"]["text"],
+            "suggested_match_type": row["data"]["match_type"],
+            "rationale": "AI review is unavailable. Keep this item on hold until it can be reviewed.",
+        } for row in selected_items if row["id"]],
         "notes": ["AI was unavailable, so Smart 1 Ads returned only measured search-term drafts."],
         "ai_used": False,
     }
@@ -646,21 +741,26 @@ def ai_drafts(context: dict) -> dict:
         output = ai.chat_json([
             {"role": "system", "content": (
                 "You assist a Google Ads trafficker. Return JSON only with keys keywords, sitelinks, "
-                "image_prompts, notes. Never invent performance, offers, prices, claims, URLs, campaign IDs, "
+                "image_prompts, reviews, notes. Never invent performance, offers, prices, claims, URLs, campaign IDs, "
                 "or ad-group IDs. Keywords: text, match_type, campaign_id, ad_group_id, reason. Sitelinks: "
                 "link_text, description1, description2, final_url, campaign_id, reason. Image prompts: prompt. "
-                "Make at most 5 of each. Every output is a draft requiring human approval." )},
+                "Reviews: id, verdict (approve, edit, or hold), suggested_text, suggested_match_type, rationale. "
+                "Review every selected item using only the supplied performance evidence. Search-term reviews must "
+                "check intent before recommending a positive or negative keyword. Make at most 20 reviews and 5 of "
+                "each draft type. Every output is editable and requires human approval." )},
             {"role": "user", "content": json.dumps({
                 "account_name": str(context.get("account_name") or "")[:120],
                 "focus": str(context.get("focus") or "all")[:40],
                 "campaigns": (context.get("campaigns") or [])[:20],
                 "measured_winning_terms": winning_terms,
+                "selected_items": selected_items,
             }, default=str)[:12000]},
         ], module="ads_builder", purpose="optimization_drafts", max_tokens=1400, temperature=0.2)
     except Exception:  # AIUnavailable plus a defensive fallback for optional Hub imports
         return fallback
 
-    drafts = {"keywords": [], "sitelinks": [], "image_prompts": [], "notes": [], "ai_used": True}
+    drafts = {"keywords": [], "sitelinks": [], "image_prompts": [], "reviews": [],
+              "notes": [], "ai_used": True}
     allowed_groups = {row["ad_group_id"] for row in winning_terms if row["ad_group_id"]}
     allowed_campaigns = {google_ads.digits((c or {}).get("id")) for c in (context.get("campaigns") or [])[:20]}
     for row in (output.get("keywords") or [])[:5]:
@@ -685,6 +785,28 @@ def ai_drafts(context: dict) -> dict:
     drafts["image_prompts"] = [{"prompt": str((row or {}).get("prompt") or "")[:700]}
                                for row in (output.get("image_prompts") or [])[:5]
                                if str((row or {}).get("prompt") or "").strip()]
+    allowed_review_ids = {row["id"] for row in selected_items if row["id"]}
+    for row in (output.get("reviews") or [])[:20]:
+        review_id = str((row or {}).get("id") or "")[:120]
+        if review_id not in allowed_review_ids:
+            continue
+        verdict = str((row or {}).get("verdict") or "hold").strip().lower()
+        if verdict not in {"approve", "edit", "hold"}:
+            verdict = "hold"
+        drafts["reviews"].append({
+            "id": review_id, "verdict": verdict,
+            "suggested_text": re.sub(r"\s+", " ", str((row or {}).get("suggested_text") or "").strip())[:80],
+            "suggested_match_type": str((row or {}).get("suggested_match_type") or "").upper()[:20],
+            "rationale": str((row or {}).get("rationale") or "AI review completed.")[:500],
+        })
+    reviewed_ids = {row["id"] for row in drafts["reviews"]}
+    for row in selected_items:
+        if row["id"] and row["id"] not in reviewed_ids:
+            drafts["reviews"].append({
+                "id": row["id"], "verdict": "hold", "suggested_text": row["data"]["text"],
+                "suggested_match_type": row["data"]["match_type"],
+                "rationale": "AI did not return a review for this item; keep it on hold.",
+            })
     drafts["notes"] = [str(n)[:300] for n in (output.get("notes") or [])[:6]]
     if not drafts["image_prompts"]:
         drafts["image_prompts"] = fallback["image_prompts"]
