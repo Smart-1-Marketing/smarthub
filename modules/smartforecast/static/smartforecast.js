@@ -545,9 +545,17 @@
     const dialog = button.closest("dialog");
     if (dialog?.open) dialog.close("cancel");
   }));
-  $$(".sf-dialog").forEach(dialog => dialog.addEventListener("click", event => {
-    if (event.target === dialog) dialog.close("cancel");
-  }));
+  $$(".sf-dialog").forEach(dialog => {
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) dialog.close("cancel");
+    });
+    dialog.addEventListener("keydown", event => {
+      if (event.key === "Escape" && dialog.open) {
+        event.preventDefault();
+        dialog.close("cancel");
+      }
+    });
+  });
   $("#siteDialog").addEventListener("close", () => $("#siteForm").reset());
   $$("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
   $$("[data-install]").forEach(button => button.addEventListener("click", () => {

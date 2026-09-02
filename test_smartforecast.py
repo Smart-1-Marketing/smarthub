@@ -156,6 +156,10 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertIn("REQUEST_TIMEOUT_MS = 15000", javascript)
         self.assertIn("loadController?.abort()", javascript)
         self.assertIn(".sf-view\").forEach(panel => panel.hidden = true", javascript)
+        self.assertIn('event.key === "Escape"', javascript)
+        stylesheet = (Path(__file__).parent / "modules" / "smartforecast" / "static" /
+                      "smartforecast.css").read_text(encoding="utf-8")
+        self.assertIn(".sf-loading[hidden]{display:none!important}", stylesheet)
         sim = self.client.post("/api/simulate", json={
             "temperature": 96, "feels_like": 103, "forecast_high": 98,
             "forecast_low": 74, "rain_probability": 10, "snow_inches": 0,
