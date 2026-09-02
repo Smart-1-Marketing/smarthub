@@ -1143,12 +1143,6 @@ class SmartForecastStore:
                                  row["referrer_domain"], row["destination_url"], row["metadata_json"]])
         return output.getvalue()
 
-    def save_weather(self, snapshot: dict, source: str = "WeatherAPI", site_id: int = 1) -> int:
-        normalized = normalize_snapshot(snapshot)
-        with self._lock, self.connect() as con:
-            location = con.execute("SELECT id FROM locations WHERE site_id=? AND is_primary=1", (site_id,)).fetchone()
-            return self._insert_snapshot(con, location["id"], normalized, source)
-
     def _insert_snapshot(self, con: sqlite3.Connection, location_id: int,
                          snapshot: dict, source: str) -> int:
         now = utcnow()

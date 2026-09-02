@@ -44,6 +44,15 @@ def _user() -> str:
                request.headers.get("X-Smart1-User") or "SmartHub user")[:120]
 
 
+def _activity(type_: str, **extra) -> None:
+    """Mirror material client changes into the Hub-wide activity ledger."""
+    try:
+        from hub import audit
+        audit.log("smartforecast", type_, actor=_user(), **extra)
+    except Exception:  # noqa: BLE001 — activity logging must never break the action
+        pass
+
+
 def _staff_payload(data: dict) -> dict:
     site_id = int(data["site"]["id"])
     data["weather_provider_configured"] = provider.configured()
@@ -111,8 +120,12 @@ def api_qa_run():
 @app.route("/api/setup", methods=["POST"])
 def api_setup():
     try:
-        return jsonify(_staff_payload(store().save_setup(
-            request.get_json(silent=True) or {}, _site_id())))
+        site_id = _site_id()
+        result = _staff_payload(store().save_setup(
+            request.get_json(silent=True) or {}, site_id))
+        _activity("setup_updated", site_id=site_id,
+                  client=result.get("client", {}).get("name"))
+        return jsonify(result)
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -122,8 +135,11 @@ def api_setup():
 @app.route("/api/rules/<rule_id>", methods=["POST"])
 def api_rule(rule_id: str):
     try:
-        return jsonify({"ok": True, "rule": store().save_rule(
-            rule_id, request.get_json(silent=True) or {}, _site_id())})
+        site_id = _site_id()
+        rule = store().save_rule(
+            rule_id, request.get_json(silent=True) or {}, site_id)
+        _activity("rule_updated", site_id=site_id, rule_id=rule_id)
+        return jsonify({"ok": True, "rule": rule})
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -133,8 +149,11 @@ def api_rule(rule_id: str):
 @app.route("/api/content/<int:variant_id>", methods=["POST"])
 def api_content(variant_id: int):
     try:
-        return jsonify({"ok": True, "content": store().save_variant(
-            variant_id, request.get_json(silent=True) or {}, _site_id())})
+        site_id = _site_id()
+        content = store().save_variant(
+            variant_id, request.get_json(silent=True) or {}, site_id)
+        _activity("content_draft_saved", site_id=site_id, variant_id=variant_id)
+        return jsonify({"ok": True, "content": content})
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -144,8 +163,10 @@ def api_content(variant_id: int):
 @app.route("/api/content/<int:variant_id>/publish", methods=["POST"])
 def api_content_publish(variant_id: int):
     try:
-        return jsonify({"ok": True, "content": store().publish_variant(
-            variant_id, _site_id(), _user())})
+        site_id = _site_id()
+        content = store().publish_variant(variant_id, site_id, _user())
+        _activity("content_published", site_id=site_id, variant_id=variant_id)
+        return jsonify({"ok": True, "content": content})
     except LookupError as exc:
         return _error(exc, 404)
 
@@ -154,8 +175,13 @@ def api_content_publish(variant_id: int):
 def api_simulate():
     body = request.get_json(silent=True) or {}
     try:
+        site_id = _site_id()
+        persist = bool(body.get("persist"))
         result = store().run_simulation(
-            body, site_id=_site_id(), persist=bool(body.get("persist")))
+            body, site_id=site_id, persist=persist)
+        if persist:
+            _activity("simulation_persisted", site_id=site_id,
+                      trigger_id=(result.get("winner") or {}).get("id"))
         return jsonify({"ok": True, **result})
     except (TypeError, ValueError) as exc:
         return _error(exc)
@@ -164,15 +190,23 @@ def api_simulate():
 @app.route("/api/pause", methods=["POST"])
 def api_pause():
     body = request.get_json(silent=True) or {}
-    return jsonify(_staff_payload(store().set_paused(bool(body.get("paused")), _site_id())))
+    site_id = _site_id()
+    paused = bool(body.get("paused"))
+    result = _staff_payload(store().set_paused(paused, site_id))
+    _activity("site_paused" if paused else "site_resumed", site_id=site_id)
+    return jsonify(result)
 
 
 @app.route("/api/override", methods=["POST"])
 def api_override():
     body = request.get_json(silent=True) or {}
     try:
-        return jsonify(_staff_payload(store().force_override(
-            body, site_id=_site_id(), user=_user())))
+        site_id = _site_id()
+        result = _staff_payload(store().force_override(
+            body, site_id=site_id, user=_user()))
+        _activity("override_updated", site_id=site_id,
+                  active=bool(body.get("active")))
+        return jsonify(result)
     except (TypeError, ValueError) as exc:
         return _error(exc)
 
@@ -185,6 +219,8 @@ def api_weather_refresh():
         snapshot = provider.fetch_weather(data["site"]["postal_code"])
         evaluated = store().run_simulation(
             snapshot, site_id=site_id, persist=True, source="WeatherAPI")
+        _activity("weather_refreshed", site_id=site_id,
+                  snapshot_id=evaluated.get("snapshot_id"))
         return jsonify({"ok": True, "snapshot_id": evaluated.get("snapshot_id"), "weather": snapshot,
                         "evaluation": evaluated})
     except provider.WeatherProviderError as exc:
@@ -212,8 +248,11 @@ def api_sites():
     try:
         if request.method == "GET":
             return jsonify({"ok": True, "sites": store().list_sites()})
-        return jsonify(_staff_payload(store().create_site(
-            request.get_json(silent=True) or {}, user=_user()))), 201
+        result = _staff_payload(store().create_site(
+            request.get_json(silent=True) or {}, user=_user()))
+        _activity("site_created", site_id=result["site"]["id"],
+                  client=result.get("client", {}).get("name"))
+        return jsonify(result), 201
     except (TypeError, ValueError) as exc:
         return _error(exc)
     except LookupError as exc:
@@ -223,7 +262,10 @@ def api_sites():
 @app.route("/api/embed-token/rotate", methods=["POST"])
 def api_embed_token_rotate():
     try:
-        return jsonify(store().rotate_embed_token(_site_id(), _user()))
+        site_id = _site_id()
+        result = store().rotate_embed_token(site_id, _user())
+        _activity("embed_token_rotated", site_id=site_id)
+        return jsonify(result)
     except LookupError as exc:
         return _error(exc, 404)
 
@@ -231,7 +273,11 @@ def api_embed_token_rotate():
 @app.route("/api/packs/<pack_id>/apply", methods=["POST"])
 def api_pack_apply(pack_id: str):
     try:
-        return jsonify(_staff_payload(store().apply_pack(pack_id, _site_id(), _user())))
+        site_id = _site_id()
+        result = _staff_payload(store().apply_pack(pack_id, site_id, _user()))
+        _activity("industry_pack_applied", site_id=site_id, pack_id=pack_id,
+                  client=result.get("client", {}).get("name"))
+        return jsonify(result)
     except LookupError as exc:
         return _error(exc, 404)
 

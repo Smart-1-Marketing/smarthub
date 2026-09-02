@@ -86,6 +86,7 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db_path = str(Path(self.temp.name) / "smartforecast.sqlite3")
         os.environ["SMARTFORECAST_DB_PATH"] = self.db_path
+        os.environ["AUDIT_LOG_PATH"] = str(Path(self.temp.name) / "hub-audit.log.jsonl")
         from modules.smartforecast.app import app as app_object, _store_for_path
         _store_for_path.cache_clear()
         app_object.config.update(TESTING=True)
@@ -93,6 +94,7 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
 
     def tearDown(self):
         os.environ.pop("SMARTFORECAST_DB_PATH", None)
+        os.environ.pop("AUDIT_LOG_PATH", None)
         self.temp.cleanup()
 
     def test_schema_has_all_core_tables_and_seeded_demo(self):
@@ -194,6 +196,20 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         response = self.client.get("/api/public/embed/not-a-real-token")
         self.assertEqual(response.status_code, 404)
         self.assertFalse(response.get_json()["ok"])
+
+    def test_material_change_reaches_hub_activity_without_exposing_token(self):
+        self.client.get("/api/bootstrap")
+        response = self.client.post(
+            "/api/pause", json={"paused": True},
+            headers={"X-Smart1-User": "release-tester@example.com"},
+        )
+        self.assertEqual(response.status_code, 200)
+        audit_path = Path(self.temp.name) / "hub-audit.log.jsonl"
+        entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(entries[-1]["module"], "smartforecast")
+        self.assertEqual(entries[-1]["type"], "site_paused")
+        self.assertEqual(entries[-1]["actor"], "release-tester@example.com")
+        self.assertNotIn("token", entries[-1])
 
     def test_pause_returns_public_embed_to_baseline(self):
         bootstrap = self.client.get("/api/bootstrap").get_json()
