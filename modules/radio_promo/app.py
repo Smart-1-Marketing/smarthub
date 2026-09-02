@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
@@ -187,9 +188,10 @@ def api_create():
     client = (data.get("client") or "").strip()
     if not company and not client:
         return fail("Give the spot a business name, or pick a client.")
-    if not (data.get("home_url") or data.get("landing_url") or data.get("promotion")):
-        return fail("A home page, a landing page or promotion notes — the brief "
-                    "needs at least one of them to read.")
+    if not (data.get("home_url") or data.get("landing_url")):
+        return fail("Add a home page or landing-page URL. Every radio script must say it.")
+    if data.get("include_phone") and not str(data.get("phone") or "").strip():
+        return fail("Add the phone number to include it in every script.")
     data["spec"] = not client
     if client and not company:
         data["company"] = client
@@ -216,7 +218,7 @@ def api_settings(pid):
         return fail(str(exc), 404)
     data = body()
     allowed = ("client", "company", "project_name", "team_member", "home_url",
-               "landing_url", "promotion", "disclaimer", "pronunciations", "brand")
+               "landing_url", "include_phone", "phone", "promotion", "disclaimer", "pronunciations", "brand")
     changes = {k: data[k] for k in allowed if k in data}
     if "client" in changes:
         changes["client"] = (changes["client"] or "").strip()
@@ -273,6 +275,25 @@ def _decorate(slot_key: str, script: str, pronunciations: list) -> dict:
             "spoken": spoken["spoken"], "changes": spoken["changes"]}
 
 
+def _required_script_gaps(row: dict, script: str, slot: str) -> list[str]:
+    """Non-negotiables are checked in the app, not entrusted to a prompt."""
+    normalized = re.sub(r"\s+", " ", str(script or "").lower())
+    company = str(row.get("company") or row.get("client") or "").strip()
+    url = str(row.get("landing_url") or row.get("home_url") or "").strip()
+    gaps = []
+    if company and company.lower() not in normalized:
+        gaps.append("company name")
+    # Allow the spoken, protocol-free form as well as the literal URL.
+    url_words = re.sub(r"^https?://", "", url, flags=re.I).rstrip("/").lower()
+    if url_words and url_words not in normalized:
+        gaps.append("URL")
+    if row.get("include_phone") and str(row.get("phone") or "").strip() and str(row["phone"]).lower() not in normalized:
+        gaps.append("phone number")
+    if slot == "thirty" and speech.estimate_seconds(script) < 25:
+        gaps.append("a minimum 25-second :30 read")
+    return gaps
+
+
 @app.route("/api/projects/<pid>/scripts", methods=["POST"])
 def api_scripts(pid):
     try:
@@ -296,7 +317,11 @@ def api_scripts(pid):
     scripts = {"hook": written.get("hook", "")}
     for key in ("fifteen", "thirty"):
         part = written.get(key) or {}
-        scripts[key] = _decorate(key, str(part.get("script") or "").strip(), prons)
+        script = str(part.get("script") or "").strip()
+        gaps = _required_script_gaps(row, script, key)
+        if gaps:
+            return fail(f"The {key} script is missing " + ", ".join(gaps) + ". Please rewrite it.", 422)
+        scripts[key] = _decorate(key, script, prons)
         scripts[key]["notes"] = part.get("notes", "")
     row = store.update(pid, {"scripts": scripts, "tone_id": tone_id,
                              "status": "scripted"})
@@ -322,7 +347,11 @@ def api_script_edit(pid):
     if not scripts.get(slot):
         return fail("There's no script in that slot yet.")
     notes = scripts[slot].get("notes", "")
-    scripts[slot] = _decorate(slot, str(data.get("script") or "").strip(),
+    text = str(data.get("script") or "").strip()
+    gaps = _required_script_gaps(row, text, slot)
+    if gaps:
+        return fail("Every script must include " + ", ".join(gaps) + ".", 422)
+    scripts[slot] = _decorate(slot, text,
                               row.get("pronunciations") or [])
     scripts[slot]["notes"] = notes
     row = store.update(pid, {"scripts": scripts})
@@ -356,7 +385,11 @@ def api_tighten(pid):
     except ai.AIError as exc:
         return fail(str(exc), 502)
     notes = current.get("notes", "")
-    scripts[slot] = _decorate(slot, str(out.get("script") or "").strip(),
+    text = str(out.get("script") or "").strip()
+    gaps = _required_script_gaps(row, text, slot)
+    if gaps:
+        return fail("Could not tighten without removing " + ", ".join(gaps) + ".", 422)
+    scripts[slot] = _decorate(slot, text,
                               row.get("pronunciations") or [])
     scripts[slot]["notes"] = notes
     scripts[slot]["tighten_note"] = out.get("whatWentAndWhy", "")
@@ -432,6 +465,26 @@ def api_voice_by_id():
         return jsonify({"ok": True, "voice": voices.get_voice(vid)})
     except voices.VoiceError as exc:
         return fail(str(exc), 502)
+
+
+# -------------------------------------------------------------------- music
+@app.route("/api/projects/<pid>/music-beds", methods=["POST"])
+def api_music_bed(pid):
+    """Save a described bed. Playback is generated in the browser so a music
+    preview is available even when no external music provider is configured."""
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    prompt = str(body().get("prompt") or "").strip()
+    if not prompt:
+        return fail("Describe the music bed you want.")
+    beds = list(row.get("music_beds") or [])
+    beds.insert(0, {"id": "bed_" + str(len(beds) + 1), "prompt": prompt,
+                    "created_at": store.now()})
+    row = store.update(pid, {"music_beds": beds[:12]})
+    store.add_version(pid, "music-bed", {"prompt": prompt}, actor())
+    return jsonify({"ok": True, "project": row})
 
 
 @app.route("/api/voices/account")
