@@ -467,6 +467,44 @@ def api_voice_by_id():
         return fail(str(exc), 502)
 
 
+@app.route("/api/voices/clone", methods=["POST"])
+def api_voice_clone():
+    """Relay authorized audio directly to ElevenLabs; never retain it here."""
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return fail("Name the voice clone.")
+    if request.form.get("authorized") != "true":
+        return fail("Confirm that you own this voice or have the speaker's written permission.")
+    allowed = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac",
+               "audio/ogg", "audio/webm"}
+    samples = []
+    for upload in request.files.getlist("files"):
+        if not upload or not upload.filename:
+            continue
+        data = upload.read()
+        if not data:
+            continue
+        if len(data) > 25 * 1024 * 1024:
+            return fail(f"{upload.filename} is larger than the 25 MB upload limit.")
+        if upload.mimetype and upload.mimetype not in allowed:
+            return fail(f"{upload.filename} is not a supported audio format.")
+        samples.append((upload.filename, data, upload.mimetype or "audio/mpeg"))
+    if not samples:
+        return fail("Upload at least one MP3, WAV, M4A, AAC, OGG, or WebM recording.")
+    try:
+        voice = voices.clone_voice(name, samples, request.form.get("description") or "",
+                                   request.form.get("remove_noise") == "true")
+    except voices.VoiceError as exc:
+        return fail(str(exc), 502)
+    pid = request.form.get("project_id") or ""
+    if store.get(pid):
+        store.update(pid, {"voice_matches": [voice]})
+        store.add_version(pid, "voice-clone", {"voice_id": voice.get("voice_id"),
+                                                "name": voice.get("name")}, actor())
+    log("voice.clone", project=pid, voice=voice.get("voice_id"))
+    return jsonify({"ok": True, "voice": voice})
+
+
 # -------------------------------------------------------------------- music
 @app.route("/api/projects/<pid>/music-beds", methods=["POST"])
 def api_music_bed(pid):

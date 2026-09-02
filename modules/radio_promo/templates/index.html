@@ -195,6 +195,17 @@
       <span class="msg" id="castMsg"></span>
     </div>
     <div id="voiceList" data-demo="rp-voice" style="margin-top:12px"></div>
+    <details class="slot" style="margin-top:16px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--navy)">Clone an authorized voice from recordings</summary>
+      <p class="hint"><b>Upload:</b> 1–5 clear recordings of one speaker only, ideally 1–5 minutes total. Use MP3, WAV, M4A, AAC, OGG, or WebM; no music, calls, room echo, or other speakers. Keep each file under 25 MB. The files are sent directly to ElevenLabs and are not saved by Smart 1 Hub.</p>
+      <div class="grid" style="margin-top:12px">
+        <div><label class="f">Clone name</label><input type="text" id="cloneName" placeholder="Jane Smith — authorized clone"></div>
+        <div><label class="f">Describe the voice <span class="opt">optional</span></label><input type="text" id="cloneDescription" placeholder="Warm, confident American female"></div>
+      </div>
+      <div style="margin-top:10px"><label class="f">Voice recordings</label><input type="file" id="cloneFiles" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.webm" multiple></div>
+      <label class="hint" style="display:block;margin-top:10px"><input type="checkbox" id="cloneAuthorized"> I own this voice or have the speaker’s written permission to create and use this clone.</label>
+      <div class="rowbar"><button class="btn sec" onclick="cloneVoice()">Create voice clone</button><span class="msg" id="cloneMsg"></span></div>
+    </details>
   </div>
 
   <!-- 5. MUSIC -->
@@ -489,6 +500,21 @@ function drawVoices(list){
         <button class="btn sm" onclick="assign('thirty',${i})">Use for :30</button>
       </div>
     </div>`).join('');
+}
+
+async function cloneVoice(){
+  const files=[...$('cloneFiles').files];
+  if(!$('cloneName').value.trim()){ say('cloneMsg','Name the clone.','err'); return; }
+  if(!files.length){ say('cloneMsg','Add one or more recordings.','err'); return; }
+  if(!$('cloneAuthorized').checked){ say('cloneMsg','Written permission is required.','err'); return; }
+  const form=new FormData(); form.append('project_id',P.id); form.append('name',$('cloneName').value.trim());
+  form.append('description',$('cloneDescription').value.trim()); form.append('authorized','true');
+  files.forEach(f=>form.append('files',f)); say('cloneMsg','Creating the clone…','wait');
+  try{
+    const res=await fetch(MOUNT+'/api/voices/clone',{method:'POST',body:form}); const d=await res.json();
+    if(!res.ok||d.ok===false) throw new Error(d.error||'Could not create clone.');
+    say('cloneMsg','Clone ready. Listen to its sample below.','ok'); drawVoices([d.voice].concat(P.voice_matches||[]));
+  }catch(e){say('cloneMsg',e.message,'err');}
 }
 
 function bedTone(prompt){
