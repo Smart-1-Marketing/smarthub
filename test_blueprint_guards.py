@@ -266,6 +266,13 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     # that does not resolve answers the same 404 as one that never existed --
     # a client-facing URL that says "this one expired" tells somebody probing
     # which tokens are real.
+    "/client-links/<share_token>": "the one shareable index of a client's "
+                                   "own approvals, proofs and upload links. "
+                                   "The staff half that mints the token "
+                                   "(/api/client/client-links) is behind "
+                                   "_require_api, and the page is in CHROMELESS "
+                                   "so a customer never inherits the "
+                                   "staff sidebar with it",
     "/connect/<token>": "the Google Access consent page a client opens; they "
                         "have no Hub account and never will",
     "/connect/<token>/done": "where that flow lands them afterwards",
