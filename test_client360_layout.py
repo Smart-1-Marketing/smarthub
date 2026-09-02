@@ -189,9 +189,9 @@ const pending=[];
 const window={fetch:url=>new Promise(resolve=>pending.push({url,resolve}))};
 """ + GENERATION_SRC + """
 const applied=[];
-window.fetch('/client-a').then(()=>applied.push('A'));
+window.fetch('https://client-a.test/').then(()=>applied.push('A'));
 c360Generation++;
-window.fetch('/client-b').then(()=>applied.push('B'));
+window.fetch('https://client-b.test/').then(()=>applied.push('B'));
 pending[0].resolve({ok:true});
 pending[1].resolve({ok:true});
 setTimeout(()=>console.log(JSON.stringify(applied)), 0);
