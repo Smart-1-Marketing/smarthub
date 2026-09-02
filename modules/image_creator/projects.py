@@ -294,7 +294,12 @@ def export_to_cloudinary(data_url: str, name: str, client: str = "",
         raise ValueError("Nothing to export.")
     _, b64 = data_url.split(",", 1)
     raw = base64.b64decode(b64)
-    folder = f"{FOLDER}/exports/{slugify(client, 'unfiled')}"
+    # Completed exports share the client-work convention used by the gallery.
+    # A canvas draft still has its project-local preview; this is the finished
+    # file somebody handed to a client or attached to an IO.
+    from modules.image_picker.filing import asset_folder, file_asset
+    folder = asset_folder(client_name=client or "unfiled", tool="image-creator",
+                          project_name=project or name)
     res = cloudinary.uploader.upload(
         raw, folder=folder, public_id=slugify(name, "export"),
         overwrite=False, unique_filename=True, use_filename=False,
@@ -306,6 +311,14 @@ def export_to_cloudinary(data_url: str, name: str, client: str = "",
                         detail=res.get("public_id", ""))
     except Exception:                         # noqa: BLE001
         pass
-    return {"url": res.get("secure_url", ""), "public_id": res.get("public_id", ""),
+    out = {"url": res.get("secure_url", ""), "public_id": res.get("public_id", ""),
             "width": res.get("width"), "height": res.get("height"),
             "bytes": res.get("bytes")}
+    if client and out["url"] and out["public_id"]:
+        filed = file_asset(client_name=client, public_id=out["public_id"], url=out["url"],
+                           kind="graphic", filename=f"{slugify(name, 'export')}.png",
+                           alt=f"{name} — graphic for {client}", provider="image_creator",
+                           tool="image-creator", project_name=project or name,
+                           width=out["width"], height=out["height"], size_bytes=out["bytes"])
+        out["gallery"] = filed
+    return out

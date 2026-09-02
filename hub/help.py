@@ -816,7 +816,7 @@ REGISTRY: list[Help] = [
        "hours the ads run. The landing-page read is checked against what you "
        "tick, and a goal the page cannot do is reported — bidding for bookings "
        "against a page with no booking tool spends the budget and books nobody.",
-       step=3, selector="[data-tour='ads-goals']"),
+       step=4, selector="[data-tour='ads-goals']"),
     _h("ads_builder.generator.areas", "One campaign, several areas",
        "A dealer group with four rooftops is one campaign in four places. Typed "
        "into a single box the reach estimate sizes them as one, so each area is "
@@ -824,7 +824,7 @@ REGISTRY: list[Help] = [
        "Proposal Builder uses, so a campaign and its proposal cannot disagree "
        "about how big the audience is. The label and the reach under each row "
        "are redrawn without touching what you are typing.",
-       step=4, selector="[data-tour='ads-areas']"),
+       step=3, selector="[data-tour='ads-areas']"),
     _h("ads_builder.generator.donottarget", "This is an instruction, not a preference",
        "Whatever goes here is written into the negative keywords and kept out "
        "of the positive ones — a service they are dropping, a town they do not "

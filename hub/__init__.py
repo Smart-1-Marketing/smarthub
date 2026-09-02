@@ -3552,7 +3552,10 @@ def create_hub_app() -> Flask:
         client = (body.get("client") or "").strip()
         if not client:
             return jsonify({"error": "client is required."}), 400
-        social = seo.set_social(client, body.get("social") or {})
+        try:
+            social = seo.set_social(client, body.get("social") or {})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "social": social})
 

@@ -37,6 +37,37 @@
   .arearow .top strong { color:var(--navy); font-size:13.5px }
   .arearow .fields { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)) }
   .arearow .fields .field { margin:0 }
+  .ads-stepper { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 18px }
+  .ads-step { display:inline-flex; align-items:center; padding:7px 12px; border-radius:999px;
+              background:#eef0f4; color:#475569; font-size:12.5px; font-weight:700;
+              border:1px solid transparent }
+  .s1d-page button.ads-step { background:#e7f7ee !important; color:#08744f !important;
+                              border:1px solid #b7e5cc !important; padding:7px 12px }
+  .s1d-page button.ads-step:hover { background:#d5f0e0 !important; color:#075c40 !important }
+  .ads-step.active { background:var(--navy); color:#fff; border-color:var(--navy) }
+  .ads-step.future { background:#eef0f4; color:#475569 }
+  .ads-step-arrow { color:#94a3b8; font-size:15px }
+  .ads-wizard-step { display:none }
+  .ads-wizard-step.is-active { display:block }
+  .ads-wizard-actions { display:flex; align-items:center; gap:10px; margin-top:4px;
+                        padding:14px 16px; background:#fff; border:1px solid var(--line);
+                        border-radius:12px }
+  .s1d-page .ads-wizard-actions button.wizard-back { background:#fff !important;
+                                                     color:#1e293b !important;
+                                                     border:1px solid #cbd5e1 !important }
+  .wizard-progress { color:#334155; font-size:12.5px; font-weight:650 }
+  .generator-review { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+                      gap:10px; margin-bottom:14px }
+  .generator-review > div { padding:11px 12px; border:1px solid var(--line);
+                            border-radius:9px; background:#f8fafc; color:#334155;
+                            font-size:12.5px }
+  .generator-review b { display:block; color:var(--navy); margin-bottom:3px }
+  @media (max-width:700px) {
+    .ads-step-arrow { display:none }
+    .ads-stepper { display:grid; grid-template-columns:1fr 1fr }
+    .ads-step { justify-content:center; text-align:center }
+    .generator-review { grid-template-columns:1fr }
+  }
 </style>
 {% endblock %}
 
@@ -52,12 +83,15 @@
   </div>
 {% endif %}
 
+<nav class="ads-stepper" id="generatorStepper" aria-label="Campaign generator steps"></nav>
+<div id="wizardError" aria-live="polite"></div>
+
 <form id="gen" onsubmit="return false">
   {# The client comes first and is looked up, not typed. A campaign filed under
      a name nobody recognizes does not reach the client's record, and a name
      typed slightly differently ("Riverside HVAC" vs "Riverside HVAC LLC")
      reaches the wrong one — which is worse. #}
-  <div class="card" data-tour="ads-client">
+  <div class="card ads-wizard-step is-active" data-wizard-step="0" data-tour="ads-client">
     <h3>Client {{ help_dot('ads_builder.generator.client') if help_dot is defined else '' }} <span class="sub">look one up, or start a new one</span></h3>
 
     <div id="clientSearch">
@@ -107,7 +141,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card ads-wizard-step" data-wizard-step="1">
     <h3>Campaign and objective</h3>
     <div class="grid g2">
       <div class="field"><label>Client / business name</label>
@@ -135,7 +169,7 @@
      one campaign in four places, and typing them into a single field makes the
      reach estimate size them as one — hub/target_areas.py exists for exactly
      this, and this is the same list the Proposal Builder captures. #}
-  <div class="card" data-tour="ads-areas">
+  <div class="card ads-wizard-step" data-wizard-step="2" data-tour="ads-areas">
     <h3>Where the ads run {{ help_dot('ads_builder.generator.areas') if help_dot is defined else '' }} <span class="sub">one campaign can target several areas</span></h3>
     <div id="areaRows"></div>
     <div class="row" style="margin-top:10px">
@@ -145,7 +179,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card ads-wizard-step" data-wizard-step="3">
     <h3>About the business <span class="sub">this is what the AI plans the campaign from</span></h3>
     <div class="grid g2">
       <div class="field"><label>Are they targeting… {{ help_dot('ads_builder.generator.audience') if help_dot is defined else '' }}</label>
@@ -216,7 +250,7 @@
       <textarea id="notes" placeholder="Competitors, seasonality, services to exclude…"></textarea></div>
   </div>
 
-  <div class="card" data-tour="ads-budget">
+  <div class="card ads-wizard-step" data-wizard-step="4" data-tour="ads-budget">
     <h3>Budget {{ help_dot('ads_builder.generator.budget') if help_dot is defined else '' }} <span class="sub">drag to see what the money actually buys</span></h3>
     <label class="pick" style="margin-bottom:12px">
       <input type="checkbox" id="noBudget" onchange="toggleBudget()">
@@ -246,8 +280,9 @@
     </div>
   </div>
 
-  <div class="card" data-tour="ads-generate">
-    <h3>Generate {{ help_dot('ads_builder.generator.build') if help_dot is defined else '' }}</h3>
+  <div class="card ads-wizard-step" data-wizard-step="5" data-tour="ads-generate">
+    <h3>Review and generate {{ help_dot('ads_builder.generator.build') if help_dot is defined else '' }}</h3>
+    <div class="generator-review" id="generatorReview"></div>
     <div id="genError"></div>
     <div class="row end">
       <button class="b-primary" id="go" data-demo="ads-generate" onclick="generate()">Generate campaign</button>
@@ -315,6 +350,13 @@
       sizing the budget tiers. This usually takes 30–60 seconds.
     </div>
   </div>
+
+  <div class="ads-wizard-actions noprint">
+    <button type="button" class="wizard-back" id="wizardBack" onclick="previousWizardStep()">← Back</button>
+    <span class="wizard-progress" id="wizardProgress" aria-live="polite"></span>
+    <div class="spacer"></div>
+    <button type="button" class="b-primary" id="wizardNext" onclick="nextWizardStep()">Continue →</button>
+  </div>
 </form>
 {% endblock %}
 
@@ -324,6 +366,88 @@ const MOUNT = {{ mount|tojson }};
 let debounce;
 let clientDebounce;
 let clientMode = '';          // '' | 'picked' | 'new'
+const WIZARD_STEPS = ['Client', 'Campaign', 'Locations', 'Business', 'Budget', 'Review & generate'];
+let wizardStep = 0;
+
+function renderWizardStepper() {
+  document.getElementById('generatorStepper').innerHTML = WIZARD_STEPS.map((label, i) => {
+    const state = i < wizardStep ? 'done' : i === wizardStep ? 'active' : 'future';
+    const step = i < wizardStep
+      ? `<button type="button" class="ads-step ${state}" onclick="showWizardStep(${i})">${i + 1}. ${esc(label)}</button>`
+      : `<span class="ads-step ${state}" ${i === wizardStep ? 'aria-current="step"' : ''}>${i + 1}. ${esc(label)}</span>`;
+    return step + (i < WIZARD_STEPS.length - 1 ? '<span class="ads-step-arrow" aria-hidden="true">›</span>' : '');
+  }).join('');
+}
+
+function showWizardStep(index, scroll=true) {
+  wizardStep = Math.max(0, Math.min(WIZARD_STEPS.length - 1, Number(index) || 0));
+  document.querySelectorAll('.ads-wizard-step').forEach(panel => {
+    const active = Number(panel.dataset.wizardStep) === wizardStep;
+    panel.classList.toggle('is-active', active);
+    panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+  });
+  renderWizardStepper();
+  document.getElementById('wizardBack').disabled = wizardStep === 0;
+  document.getElementById('wizardNext').style.display = wizardStep === WIZARD_STEPS.length - 1 ? 'none' : '';
+  document.getElementById('wizardProgress').textContent = `Step ${wizardStep + 1} of ${WIZARD_STEPS.length} · ${WIZARD_STEPS[wizardStep]}`;
+  document.getElementById('wizardError').innerHTML = '';
+  if (wizardStep === WIZARD_STEPS.length - 1) prepareGeneratorReview();
+  if (scroll) document.getElementById('generatorStepper').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function wizardProblem(message) {
+  document.getElementById('wizardError').innerHTML = `<div class="note n-bad"><b>Finish this step first</b>${esc(message)}</div>`;
+  document.getElementById('generatorStepper').scrollIntoView({behavior:'smooth', block:'start'});
+  return false;
+}
+
+function areaIsComplete(a) {
+  if (a.type === 'City/ZIP + Radius') return Boolean(String(a.origin || '').trim());
+  if (a.type === 'DMA') return Boolean(String(a.dma || '').trim());
+  if (a.type === 'Statewide') return Boolean(String(a.state || '').trim());
+  return Boolean(String(a.other || '').trim() || String(a.zips || '').trim());
+}
+
+function validateWizardStep(index) {
+  const message = wizardValidationMessage(index);
+  if (message) return wizardProblem(message);
+  return true;
+}
+
+function wizardValidationMessage(index) {
+  if (index === 0 && !clientMode) return 'Choose an existing client or identify this as a new client.';
+  if (index === 1 && !document.getElementById('businessName').value.trim()) return 'Enter the client or business name.';
+  if (index === 1 && !document.getElementById('websiteUrl').value.trim()) return 'Enter the landing page URL the ads will use.';
+  if (index === 2 && !areas.some(areaIsComplete)) return 'Complete at least one location so the campaign has a place to run.';
+  return '';
+}
+
+function nextWizardStep() {
+  if (!validateWizardStep(wizardStep)) return;
+  showWizardStep(wizardStep + 1);
+}
+
+function previousWizardStep() { showWizardStep(wizardStep - 1); }
+
+function prepareGeneratorReview() {
+  const selectedGoals = Array.from(document.querySelectorAll('#conversionActions input:checked')).map(el => titleise(el.value));
+  const locations = areas.filter(areaIsComplete).map(a => a.name || a.origin || a.dma || a.state || a.other || a.zips);
+  const noBudget = document.getElementById('noBudget').checked;
+  const rows = [
+    ['Client', document.getElementById('businessName').value.trim() || 'Not provided'],
+    ['Campaign', `${document.getElementById('objective').value} · ${document.getElementById('websiteUrl').value.trim() || 'No landing page'}`],
+    ['Locations', locations.join(', ') || 'Not provided'],
+    ['Business brief', document.getElementById('productOrService').value.trim() || 'No additional product or service detail'],
+    ['Conversions', selectedGoals.join(', ') || 'No conversion actions selected'],
+    ['Budget', noBudget ? 'No budget provided · AI will size three tiers' : `${money(document.getElementById('budget').value)} per month`],
+  ];
+  document.getElementById('generatorReview').innerHTML = rows.map(([label,value]) => `<div><b>${esc(label)}</b>${esc(value)}</div>`).join('');
+}
+
+document.addEventListener('s1-reveal-target', function (event) {
+  const panel = event.target.closest && event.target.closest('.ads-wizard-step');
+  if (panel) showWizardStep(Number(panel.dataset.wizardStep), false);
+});
 
 // ---------------------------------------------------------------- client
 function searchClientsSoon() {
@@ -383,7 +507,7 @@ function newClient() {
   document.getElementById('clientSearch').style.display = 'none';
   document.getElementById('clientPicked').style.display = 'none';
   document.getElementById('clientNew').style.display = '';
-  document.getElementById('businessName').focus();
+  document.getElementById('contactName').focus();
 }
 
 function clearClient() {
@@ -554,6 +678,10 @@ function toggleBudget() {
 }
 
 async function generate() {
+  for (const requiredStep of [0, 1, 2]) {
+    const message = wizardValidationMessage(requiredStep);
+    if (message) { showWizardStep(requiredStep); wizardProblem(message); return; }
+  }
   const noBudget = document.getElementById('noBudget').checked;
   const body = {
     businessName: document.getElementById('businessName').value.trim(),
@@ -679,5 +807,6 @@ function stopBuild() {
 checkBudget();
 areas.push(blankArea());
 drawAreas();
+showWizardStep(0, false);
 </script>
 {% endblock %}
