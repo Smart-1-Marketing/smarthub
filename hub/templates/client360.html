@@ -21,6 +21,23 @@
 .c360-surface{min-width:0}
 .c360-view{display:none}
 .c360-view.on{display:block;margin-bottom:14px}
+.c360-view .grid-2{min-width:0}
+/* Suite account rows replace the cramped four-column table so names, email,
+   and actions wrap naturally inside the Overview column. */
+.c360-suite-list{display:grid;gap:10px}
+.c360-suite-account{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:start;padding:11px 0;border-bottom:1px solid var(--line-soft,#edf2f7)}
+.c360-suite-account:last-child{border-bottom:0;padding-bottom:0}
+.c360-suite-account .suite-name,.c360-suite-account .suite-meta{min-width:0;overflow-wrap:anywhere}
+.c360-suite-account .suite-meta{grid-column:1 / -1;color:#64748b;font-size:12px}
+.c360-suite-account .suite-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+/* Proposals are record-wide and their table wraps rather than scrolling. */
+.c360-proposals-card{grid-column:1 / -1}
+.c360-proposals-card .card-b{overflow-x:visible}
+.c360-proposals-table{table-layout:fixed}
+.c360-proposals-table th,.c360-proposals-table td{overflow-wrap:anywhere}
+.c360-proposals-table th:nth-child(1){width:30%}.c360-proposals-table th:nth-child(2){width:15%}.c360-proposals-table th:nth-child(3){width:11%}.c360-proposals-table th:nth-child(4){width:16%}.c360-proposals-table th:nth-child(5){width:12%}.c360-proposals-table th:nth-child(6){width:16%}
+.c360-proposals-table td:last-child{white-space:normal!important}
+.c360-proposals-table td:last-child .gbtn,.c360-proposals-table td:last-child .btn-ghost{margin:2px 3px 2px 0}
 .c360-view > .grid-2:empty::after{content:"Nothing in this section for this client.";
   display:block;padding:14px;color:#64748b;font-size:13px}
 .c360-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
@@ -32,6 +49,15 @@
   .c360-work{grid-template-columns:1fr}
   .c360-rail{position:static;flex-direction:row;flex-wrap:wrap}
   .c360-rail .rl{width:auto}
+  .c360-suite-account{grid-template-columns:1fr}
+  .c360-suite-account .suite-actions{justify-content:flex-start}
+}
+@media(max-width:640px){
+  .c360-proposals-table thead{display:none}
+  .c360-proposals-table,.c360-proposals-table tbody,.c360-proposals-table tr,.c360-proposals-table td{display:block;width:100%}
+  .c360-proposals-table tr{padding:10px 0;border-bottom:1px solid var(--line-soft,#edf2f7)}
+  .c360-proposals-table td{padding:4px 0;border:0}
+  .c360-proposals-table td:empty{display:none}
 }
 </style>
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
@@ -362,7 +388,7 @@ function render(g,q){
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
+  html+=`<div class="card c360-proposals-card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
       <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
       <a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a>
@@ -614,13 +640,14 @@ function render(g,q){
     // attached accounts not in the search results still show
     suiteAtt.forEach(a=>{ if(!res.some(l=>(l.id||l._id)===a.id)) res.push({id:a.id,name:a.name,_attachedOnly:true}); });
     if(!res.length){$('c-ghl').innerHTML=addBtn();return}
-    $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
+    $('c-ghl').innerHTML='<div class="c360-suite-list">'+
       res.map((l,i)=>{const lid=l.id||l._id||'';
         const isAtt=attIds.has(lid);
-        return `<tr><td><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td>
-          <td style="white-space:nowrap"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
+        return `<div class="c360-suite-account"><div class="suite-name"><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</div>
+          <div class="suite-actions"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
           ${isAtt?`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">un-attach</a>`
-                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</td></tr>`;}).join('')+'</tbody></table>';
+                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</div>
+          <div class="suite-meta">${esc(l.city||'—')}${l.email?' · '+esc(l.email):''}</div></div>`;}).join('')+'</div>';
     document.querySelectorAll('.suite-att').forEach(btn=>{
       btn.onclick=()=>{
         const l=res[parseInt(btn.dataset.i,10)];
@@ -671,7 +698,7 @@ function render(g,q){
     rows.sort(function(a,b){ return (b.d||'').localeCompare(a.d||''); });
 
     host.innerHTML =
-      '<table><thead><tr><th>Proposal</th><th>Where from</th><th>Monthly</th>'
+      '<table class="c360-proposals-table"><thead><tr><th>Proposal</th><th>Where from</th><th>Monthly</th>'
       + '<th>Status</th><th>Date</th><th></th></tr></thead><tbody>'
       + rows.map(function(r){
           var p = r.p;

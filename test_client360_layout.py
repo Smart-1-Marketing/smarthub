@@ -142,6 +142,14 @@ check("the group button keeps the class loadGroup() addresses it by",
       'class="s1-acc-group"' in REC)
 check("the record asks for the icon rail like the other workbenches",
       'data-s1hub-collapse="1"' in REC)
+check("Proposals spans the complete Overview row",
+      'class="card c360-proposals-card"' in REC)
+check("the proposal table wraps inside its card rather than scrolling",
+      'class="c360-proposals-table"' in REC
+      and '.c360-proposals-card .card-b{overflow-x:visible}' in REC)
+check("Suite accounts use a wrapping account layout rather than a wide table",
+      'class="c360-suite-list"' in REC
+      and 'class="c360-suite-account"' in REC)
 
 # ------------------------------------------------------------------------
 section("3. Assignment and outstanding-work behavior")
