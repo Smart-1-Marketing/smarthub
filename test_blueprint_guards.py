@@ -309,6 +309,19 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                         "photographs through",
     "/tools/social/c/*": "the four pages a client swipes ideas and approves "
                          "posts on, reached by one signed link per client",
+    "/tools/smartforecast/embed/<token>": "the forecast widget a client frames "
+                                          "on their own website; the module "
+                                          "declares /embed/ in its own "
+                                          "PUBLIC_PREFIXES, and an unknown "
+                                          "token renders embed_missing.html "
+                                          "rather than saying which tokens "
+                                          "are real",
+    "/tools/smartforecast/api/public/embed/<token>": "that widget reading its "
+                                                     "own forecast. It sets "
+                                                     "Access-Control-Allow-Origin "
+                                                     "because it is fetched "
+                                                     "from the client's "
+                                                     "domain rather than ours",
 }
 
 
@@ -359,6 +372,10 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                          "saving their preferences, submitting a request and "
                          "sending us a photograph. All five are the client "
                          "half of the Social Content Planner",
+    "/tools/smartforecast/api/public/embed/<token>/event": "the widget "
+        "reporting that somebody looked at it. It runs on the client's own "
+        "page, so there is no session to hold; the token is what scopes the "
+        "engagement to one embed, and an unknown one is refused",
 }
 
 
