@@ -43,7 +43,12 @@ def search():
     queries = openai_service.expand_stock_queries(query) if use_ai_queries else [query]
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        owned_future = pool.submit(_owned, query, orientation, per_provider)
+        # The scene description is expanded because full shot prose is a poor
+        # search query. The free providers already received those short terms;
+        # the owned library must receive them too or a search can claim it
+        # checked our footage while asking it a much stricter question.
+        owned_future = pool.submit(_owned_queries, queries, orientation,
+                                   per_provider)
         pexels_futures = [pool.submit(pexels_service.search, q, per_provider, orientation) for q in queries]
         pixabay_futures = [pool.submit(pixabay_service.search, q, per_provider, orientation) for q in queries]
         pexels_results = [r for f in pexels_futures for r in f.result()]
@@ -113,11 +118,42 @@ def _owned(query, orientation, per_provider):
     raises: the owned library going down must not take the stock search with
     it -- a producer with two thirds of the results can still work.
     """
+    return _owned_queries([query], orientation, per_provider)
+
+
+def _owned_queries(queries, orientation, limit):
+    """Search our library with each short query until the result cap is full.
+
+    OpenAI turns a scene description into up to three concrete searches for
+    Pexels and Pixabay. Searching Cloudinary only with the original prose made
+    every word an AND clause, so the owned shelf frequently returned nothing
+    even when one of the short queries matched it. Keep one overall cap and
+    de-duplicate clips that answer more than one query.
+    """
     if not _owned_live():
         return []
-    try:
-        found = video_library.search(query, orientation=orientation or "",
-                                     limit=per_provider)
-    except Exception:                        # noqa: BLE001
-        return []
-    return found.get("results") or []
+    cap = max(1, int(limit or 1))
+    merged, seen = [], set()
+    for query in queries or []:
+        query = str(query or "").strip()
+        if not query:
+            continue
+        try:
+            found = video_library.search(
+                # Ask each query for the full cap: an earlier clip may match
+                # again, and asking only for the remaining slot can return
+                # that duplicate while hiding the next new clip.
+                query, orientation=orientation or "", limit=cap)
+        except Exception:                    # noqa: BLE001
+            continue
+        for item in found.get("results") or []:
+            key = (item.get("id") or item.get("preview_url") or
+                   item.get("full_url") or item.get("thumbnail"))
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            merged.append(item)
+            if len(merged) >= cap:
+                return merged
+    return merged

@@ -356,8 +356,13 @@
     picker.innerHTML = "";
     const box = CB.el(`
       <div class="cb-card" style="margin-top:10px;padding:12px;">
+        <div class="cb-flex-between" style="margin-bottom:4px;">
+          <strong>Our video library + stock</strong>
+          <a href="/tools/video-backgrounds/" target="_blank" rel="noopener">Open full library</a>
+        </div>
+        <p class="cb-hint" style="margin:0 0 8px;">We search our owned footage first, then Pexels and Pixabay.</p>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <input type="search" placeholder="Search stock video…" class="stock-q" style="flex:1;">
+          <input type="search" placeholder="Search our video library and stock…" class="stock-q" style="flex:1;">
           <button class="cb-btn cb-btn-sm stock-go">Search</button>
         </div>
         <div class="stock-results cb-choice-grid"></div>

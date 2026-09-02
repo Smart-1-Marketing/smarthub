@@ -97,6 +97,7 @@ from modules.commercial_builder.services import pexels_service           # noqa:
 from modules.commercial_builder.services import pixabay_service          # noqa: E402
 from modules.commercial_builder.services import provider_check           # noqa: E402
 from modules.commercial_builder.services import runway_service           # noqa: E402
+from modules.commercial_builder.routes import stock as stock_route       # noqa: E402
 
 
 # ------------------------------------------- 1. every spelling, at call time
@@ -177,10 +178,60 @@ check("the template no longer draws a hard-coded V1.5 chip",
 check("and renders one chip per provider from the status list",
       "{% for p in providers %}" in _dash, True)
 
+_blueprint = (ROOT / "modules/commercial_builder/templates/commercial_blueprint.html").read_text()
+_blueprint_js = (ROOT / "modules/commercial_builder/static/js/blueprint.js").read_text()
+check("the footage button names our video library",
+      "Search video library" in _blueprint, True)
+check("the picker says owned footage is searched first",
+      "We search our owned footage first" in _blueprint_js, True)
+
 for name in provider_check.PROVIDERS:
     check(f"{name} has a check defined", name in provider_check._CHECKS, True)
     check(f"{name} says what breaks without it", bool(provider_check.COSTS.get(name)), True)
     check(f"{name} names the env var it wants", bool(provider_check.ENV_NAMES.get(name)), True)
+
+
+# -------------------------------------- 4b. our footage gets the good queries
+section("The owned video library gets the same short searches as stock")
+
+
+class _OwnedLibrary:
+    def __init__(self):
+        self.calls = []
+
+    @staticmethod
+    def ready():
+        return True
+
+    def search(self, query, *, orientation, limit):
+        self.calls.append((query, orientation, limit))
+        rows = {
+            "roofing crew": [
+                {"id": "ours-1", "tier": "OWNED", "preview_url": "one.mp4"},
+            ],
+            "storm roof": [
+                {"id": "ours-1", "tier": "OWNED", "preview_url": "one.mp4"},
+                {"id": "ours-2", "tier": "OWNED", "preview_url": "two.mp4"},
+            ],
+        }
+        return {"results": rows.get(query, [])[:limit]}
+
+
+_real_video_library = stock_route.video_library
+_owned_library = _OwnedLibrary()
+stock_route.video_library = _owned_library
+try:
+    _owned = stock_route._owned_queries(
+        ["roofing crew", "storm roof", "golden roof"], "landscape", 2)
+finally:
+    stock_route.video_library = _real_video_library
+
+check("a second expanded query is tried when the first does not fill the shelf",
+      [c[0] for c in _owned_library.calls], ["roofing crew", "storm roof"])
+check("the owned shelf keeps one overall result cap",
+      [r["id"] for r in _owned], ["ours-1", "ours-2"])
+check("each query can look past a duplicate while the merged shelf stays capped",
+      [c[2] for c in _owned_library.calls], [2, 2])
 
 
 # ------------------------------------------- 5. no key is "not measured"
