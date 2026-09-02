@@ -87,6 +87,8 @@ SOURCE_LABELS = {
     "unsplash": "Unsplash", "pexels": "Pexels", "pixabay": "Pixabay",
     "library": "Our own library",
     "io_creative": "Creative for their insertion orders",
+    "io_builder": "IO documents",
+    "creative_information": "Creative information",
     "animated_ad": "Animated display ads",
     "blog": "Blog images",
     "seo_image": "SEO images",
@@ -133,7 +135,7 @@ WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
            "display_ads", "ad_builder", "logo", "logo_brand", "logo_scan",
            "client_logos", "bg_remover", "cutout", "image_creator", "graphic",
            "page_image_optimizer", "page_image", "commercial_builder",
-           "commercial", "gpt_ads", "prospect")
+           "commercial", "gpt_ads", "prospect", "io_builder")
 
 
 def source_tiers() -> dict:
