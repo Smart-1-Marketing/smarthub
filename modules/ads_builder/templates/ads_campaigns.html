@@ -167,6 +167,7 @@ const ACTION_WORDS = {ENABLED: 'ENABLE', PAUSED: 'PAUSE', REMOVED: 'DELETE'};
 let accounts = [];
 let campaigns = [];
 let selectedCustomerId = '';
+let optimizationSummary = null;
 let loadGeneration = 0;
 let detailGeneration = 0;
 
@@ -217,6 +218,8 @@ function renderAccountOverview(loading = false) {
       <a class="btn b-sm" target="_blank" rel="noopener" href="${esc(googleAdsUrl('overview'))}">Google Ads overview ↗</a>
       <a class="btn b-sm" target="_blank" rel="noopener" href="${esc(googleAdsUrl('insights'))}">Insights ↗</a>
       <a class="btn b-sm" target="_blank" rel="noopener" href="${esc(googleAdsUrl('campaigns'))}">Search share ↗</a>
+      <a class="btn b-sm" href="/client360?q=${encodeURIComponent(a ? a.name : '')}#creative">Brand report</a>
+      <a class="btn b-sm" href="${MOUNT}/optimization?customer_id=${encodeURIComponent(cid())}">Optimization</a>
     </div>` : '';
   document.getElementById('accountOverview').innerHTML = `
     <div class="account-head">
@@ -231,7 +234,8 @@ function renderAccountOverview(loading = false) {
 }
 
 async function boot() {
-  const saved = localStorage.getItem(KEY);
+  const requested = new URLSearchParams(window.location.search).get('customer_id');
+  const saved = requested || localStorage.getItem(KEY);
   // The last account is enough to start the useful read. Populate the active
   // account dashboard alongside it instead of holding campaigns behind MCC discovery.
   let earlyLoad = null;
@@ -275,6 +279,7 @@ async function selectAccount(customerId) {
   if (!customerId || customerId === cid()) return;
   selectedCustomerId = customerId;
   campaigns = [];
+  optimizationSummary = null;
   localStorage.setItem(KEY, customerId);
   closeCampaignDetail();
   renderAccounts();
@@ -285,6 +290,7 @@ async function selectAccount(customerId) {
 async function load(customerId = cid()) {
   if (!customerId) return;
   selectedCustomerId = customerId;
+  optimizationSummary = null;
   const generation = ++loadGeneration;
   const requestedRange = range();
   const box = document.getElementById('campaigns');
@@ -300,6 +306,7 @@ async function load(customerId = cid()) {
     renderDashboard();
     renderAccounts();
     renderAccountOverview(false);
+    loadOptimizationSummary(customerId, generation);
   } catch (err) {
     if (generation !== loadGeneration) return;
     campaigns = [];
@@ -311,6 +318,19 @@ async function load(customerId = cid()) {
     if (generation === loadGeneration) {
       document.getElementById('reload').disabled = false;
     }
+  }
+}
+
+async function loadOptimizationSummary(customerId, generation) {
+  try {
+    const data = await api('GET', `${MOUNT}/api/optimization/summary?customer_id=${encodeURIComponent(customerId)}`);
+    if (generation !== loadGeneration || customerId !== cid()) return;
+    optimizationSummary = data;
+    renderDashboard();
+  } catch (err) {
+    if (generation !== loadGeneration || customerId !== cid()) return;
+    optimizationSummary = {score_percent:null, recommendation_count:null, error:err.message};
+    renderDashboard();
   }
 }
 
@@ -352,7 +372,10 @@ function renderDashboard() {
       totals.conversions ? money2(totals.cost / totals.conversions) + ' CPA' : 'no conversions yet') +
     statTile('Search share', share ? pctf(share) : '—',
       `<a target="_blank" rel="noopener" href="${esc(googleAdsUrl('campaigns'))}">Open search share ↗</a>`) +
-    statTile('Campaigns', campaigns.length, enabled + ' enabled');
+    statTile('Campaigns', campaigns.length, enabled + ' enabled') +
+    statTile('Optimization', optimizationSummary && optimizationSummary.score_percent != null
+      ? optimizationSummary.score_percent + '%' : '—',
+      `<a href="${MOUNT}/optimization?customer_id=${encodeURIComponent(cid())}">${optimizationSummary && optimizationSummary.recommendation_count != null ? optimizationSummary.recommendation_count + ' recommendations' : 'Open optimization'}</a>`);
   renderCampaignTable();
 }
 
