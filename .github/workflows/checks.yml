@@ -122,6 +122,14 @@ jobs:
       - name: Ad builder module tests
         run: python test_ads_module.py
 
+      - name: Guided Ads optimization tests
+        run: |
+          if [ -f test_ads_optimization.py ]; then
+            python test_ads_optimization.py
+          else
+            echo "test_ads_optimization.py not on this branch — nothing to run."
+          fi
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an
