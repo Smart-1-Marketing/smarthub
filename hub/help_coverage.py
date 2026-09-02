@@ -153,6 +153,7 @@ PREFIXES: dict[str, str] = {
     "/tools/google-access/": "google_access",
     "/tools/seo-images/house": "seo_images",
     "/tools/utm/": "utm",
+    "/tools/smartforecast/": "smartforecast",
 }
 
 # Tiled for staff and served to somebody who is not staff. The help layer is
