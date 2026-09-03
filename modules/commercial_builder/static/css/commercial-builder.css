@@ -434,3 +434,16 @@ a.cb-step.done:hover{background:#d5f0e0;}
    names who set the 2 — so the source is on every row and never optional. */
 .cb-source{display:block;margin-top:2px;font-size:11px;color:var(--cb-text-muted);}
 
+
+/* Generated audio — the effect drafts on a scene card and the composed beds
+   on the Music step. A bare <audio> is a browser's own control and is
+   deliberately left as one: it is the widget every reader already knows how
+   to scrub, and restyling it would be a shell of a player we then have to
+   keep working in three browsers. What the row needs is only that the player
+   takes the space and the verdict beside it does not wrap onto its own line. */
+.cb-audio-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+.cb-audio-row audio{flex:1 1 240px;min-width:0;max-width:380px;height:34px;}
+.cb-audio-row .cb-hint{flex:0 0 auto;white-space:nowrap;}
+/* The attached effect, named on the card itself. An attached asset a rep
+   cannot see without reopening the picker is one they attach twice. */
+.sfx-note:not(:empty){color:var(--cb-text-muted);font-size:12px;}

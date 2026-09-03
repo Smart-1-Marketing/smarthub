@@ -19,8 +19,8 @@ import time
 
 import requests
 
-from ..config import (OUTPUT_FORMATS, MUSIC_LEVELS, QR_CODE_RULES, LOGO_PERSISTENCE_RULES,
-                      CHROMA_KEY_COLOR, logo_persistence_eligible)
+from ..config import (OUTPUT_FORMATS, QR_CODE_RULES, LOGO_PERSISTENCE_RULES,
+                      CHROMA_KEY_COLOR, ducked_db, logo_persistence_eligible)
 
 BASE_URL = "https://api.creatomate.com/v1"
 
@@ -36,6 +36,12 @@ TRACK_VOICE = 2
 TRACK_MUSIC = 3
 TRACK_PRESENTER = 4     # keyed spokesperson, above the footage it is keyed over
 TRACK_LOGO_BUG = 5      # the brand mark stays on top of everything
+# Sound effects get a track of their own rather than sharing the music's:
+# elements on one track play SEQUENTIALLY, and a whoosh at 0:04 handed to the
+# track a sixty-second bed is already occupying is an argument about ordering
+# nobody wins. One track is enough for all of them because each effect is
+# capped to its own scene below, so two can never overlap.
+TRACK_SFX = 6
 
 # corner id -> (x anchor%, y anchor%) for overlay placement, with a small
 # inset so nothing sits flush against the frame edge (text-safe area).
@@ -86,7 +92,11 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
     width, height = _FORMAT_DIMS.get(format_id, (1920, 1080))
     music = project_dict.get("music") or {}
     music_level = music.get("level", "Medium")
-    music_low_db, music_ducked_db = MUSIC_LEVELS.get(music_level, MUSIC_LEVELS["Medium"])
+    # One reading of the pair, shared with qc_service through config.ducked_db
+    # — two lookups of one table, each with its own fallback, is how the panel
+    # and the render come to disagree about how loud something is.
+    _levels = ducked_db(music_level)
+    music_low_db, music_ducked_db = _levels["bed"], _levels["ducked"]
 
     cta = project_dict.get("cta") or {}
     platform = project_dict.get("platform", "both")
@@ -147,6 +157,16 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
             "id": "voice", "track": TRACK_VOICE, "time": 0, "type": "audio",
             "source": voice_track_url, "volume": "100%",
         })
+    # Sound effects. Same tier as a scene's footage — sourced per scene, and
+    # ducked by the SAME two numbers the bed is, rather than a second gain
+    # system invented for audio that is not music. A scene with narration on
+    # it gets the ducked level; one without gets the bed level, which is
+    # exactly what `_music_ducking_keyframes` does for the bed one element up.
+    for scene in scenes:
+        sfx = _sfx_element(scene, music_low_db, music_ducked_db)
+        if sfx:
+            audio_elements.append(sfx)
+
     if music_track_url:
         # Ducking: quiet under narration, up in the gaps. Real per-scene VO
         # timing drives the automation keyframes so the voice always dominates.
@@ -233,6 +253,52 @@ def _presenter_element(scene):
             "threshold": 0.25,
         }
     return element
+
+
+def _sfx_element(scene, bed_db, ducked_db_value):
+    """One scene's generated sound effect, or None.
+
+    Three things it has to get right.
+
+    **It is capped to its own scene.** An effect generated longer than the
+    shot it sits on would run into the next one, and on a shared track that
+    is two elements arguing about the same seconds; capped, the guarantee
+    that nothing on TRACK_SFX overlaps is true by construction rather than by
+    hope. A short effect is left short — padding it would be inventing audio.
+
+    **The gain is the bed's**, read from the same `MUSIC_LEVELS` pair. A
+    second scale for effects would be a second answer to "how loud is
+    anything under the read", and the two would drift the first time either
+    was edited.
+
+    **A scene with no measured length still gets its effect**, at whatever
+    the provider produced: `seconds` is None whenever the returned file was
+    not the constant-bitrate MP3 we asked for, and dropping the effect over a
+    length we could not derive would lose real audio to a measurement
+    problem.
+    """
+    sfx = (scene.get("asset_meta") or {}).get("sfx") or {}
+    url = sfx.get("url")
+    if not url:
+        return None
+    scene_seconds = round(float(scene.get("end") or 0) - float(scene.get("start") or 0), 2)
+    if scene_seconds <= 0:
+        return None
+    try:
+        clip = float(sfx.get("seconds") or 0)
+    except (TypeError, ValueError):
+        clip = 0.0
+    duration = round(min(clip, scene_seconds), 2) if clip > 0 else scene_seconds
+    has_vo = bool((scene.get("narration") or "").strip())
+    return {
+        "id": f"sfx_{scene['id']}",
+        "track": TRACK_SFX,
+        "time": scene["start"],
+        "duration": duration,
+        "type": "audio",
+        "source": url,
+        "volume": f"{ducked_db_value if has_vo else bed_db}dB",
+    }
 
 
 def _cta_overlay_elements(cta, project_dict, scene, platform):

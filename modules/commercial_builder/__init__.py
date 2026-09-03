@@ -18,7 +18,7 @@ route under one blueprint.
 from flask import Blueprint
 
 from .db import db, STANDALONE
-from .routes import (clients, projects, scripts, stock, voices, heygen, render, assets,
+from .routes import (audio, clients, projects, scripts, stock, voices, heygen, render, assets,
                      providers, pages, review)
 
 # Login. This module is blueprint-registered on the hub app, NOT dispatcher-
@@ -104,6 +104,7 @@ def create_blueprint():
     bp.register_blueprint(heygen.bp)
     bp.register_blueprint(render.bp)
     bp.register_blueprint(assets.bp)
+    bp.register_blueprint(audio.bp)
     bp.register_blueprint(providers.bp)
     bp.register_blueprint(review.bp)
     return bp

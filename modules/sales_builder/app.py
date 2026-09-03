@@ -80,10 +80,12 @@ from hub.webargs import clamp_int
 # edited anyway, so it moves onto the shared implementations rather than
 # keeping local copies of geography, prompt and Suite logic.
 from hub import business_description as hub_desc
+from hub import consulting_scope as hub_scope
 from hub import creative_needs as hub_creative
 from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
 from hub import kpi_framework as hub_kpi
+from hub import product_intake as hub_intake
 from hub import proposal_spec as hub_spec
 from hub import quote_validity as hub_validity
 from hub import rate_card as hub_rate_card
@@ -753,6 +755,16 @@ def api_config():
         # Planner made about its calendar, for the same reason.
         "creative_sizes": _creative_sizes(),
         "rate_rules": hub_rate_card.rate_rules_for_js(),
+        # The catch-all line, served for the same reason -- and here the
+        # reason is sharper than convenience. `hub.product_intake.CONSULTING`
+        # is deliberately NOT a row in data/rate_card.json: that file is the
+        # wholesale card, `check_drift()` holds it against the IO template's
+        # embedded copy, and inventing a product inside it would make both of
+        # those lie. It is a line the Hub writes, so the Hub is where it is
+        # defined -- and the IO recognises it by its product string exactly,
+        # so a hand-typed copy in this template is a silent dropped line the
+        # day either end is edited.
+        "consulting": consulting_spec(),
         # The cover's industry-trends block, served rather than mirrored: the
         # PDF and the Word export read hub_spec.industry_trends() directly,
         # and the preview reads this -- one table, three renderers.
@@ -767,6 +779,151 @@ def api_config():
         # an empty pill row over an "Add a KPI…" box.
         "kpi_choices": hub_kpi.choices(),
     })
+
+
+# What a person reads, kept apart from what the insertion order matches on.
+#
+# The Proposal Builder sells two things with "consulting" in the name and they
+# are not the same product: `state["consulting"]` is a monthly RETAINER --
+# Suite coaching and campaign strategy, priced from hours, riding beside the
+# licence in the Investment Summary because it is recurring platform work that
+# a paused campaign does not stop. This is the other one: a single ENGAGEMENT,
+# scoped and priced on its own, quoted on the media plan and trafficked as an
+# insertion-order line.
+#
+# Both belong on the card, and a client reading "Consulting & Strategy" in one
+# place and "Consulting & Strategic Services" in another cannot tell which
+# charge is which -- two names for what reads as one thing, which is the drift
+# this codebase spends most of its rules refusing. So the ENGAGEMENT is called
+# a Strategy Engagement everywhere a person reads it.
+#
+# The product string underneath does NOT move. It is the join: the IO
+# recognises the catch-all by that exact name, `product_intake` owns it, and
+# renaming it would orphan every line already quoted under it -- the rule
+# `audit.LOG_NAMES` and `video_library.TAG_ALIASES` already work to, where the
+# stored name stays and the displayed one changes.
+CONSULTING_DISPLAY = "Strategy Engagement"
+
+# The engagement is priced by formula rather than by proportional budget
+# share, which is how every other line on the plan gets its dollars: strategy
+# and consulting is not media, so slicing it out of the same budget pool as
+# the channels it is meant to be advising on prices it against a number it
+# has nothing to do with. A baseline covers the standing scope -- the
+# meetings, the reporting, the oversight -- and each additional product on
+# the plan adds real coordination work, so the price grows with the plan
+# rather than standing still while the campaign around it gets bigger.
+# Served through consulting_spec() rather than hard-coded in the template a
+# second time -- the rule this file states at length about rate_rules and
+# creative_sizes -- so a price change lands in one place.
+CONSULTING_BASE = 300
+CONSULTING_PER_PRODUCT = 50
+
+
+def consulting_spec() -> dict:
+    """The catch-all line as the wizard needs it, from the one definition.
+
+    `hub.product_intake.CONSULTING` is the whole of the join. What is added
+    here is presentation: the name a person reads, the label shape the
+    plan's own rows use (`category — name`), because every other line on the
+    plan carries one and a row without it renders as a different kind of
+    thing, and the pricing formula the browser reads rather than restates.
+    """
+    spec = dict(hub_intake.CONSULTING)
+    return {"product": spec["product"], "category": spec["category"],
+            "listed_rate": spec.get("listed_rate") or "",
+            "display": CONSULTING_DISPLAY,
+            "label": f'{spec["category"]} — {CONSULTING_DISPLAY}',
+            "description_hint": spec.get("description") or "",
+            "base": CONSULTING_BASE,
+            "per_product": CONSULTING_PER_PRODUCT}
+
+
+def consulting_price(other_count: int) -> float:
+    """The formula the plan editor's own `consultingPrice()` mirrors.
+
+    A baseline plus a per-product amount for every OTHER line already on the
+    plan -- consulting does not count itself. Kept here, even though nothing
+    server-side currently prices a fresh line from scratch, because
+    `campaign_cost()` only ever reads `item["dollars"]` as saved by the
+    browser: this is the one place both readings can be checked against, the
+    same reason `hub/kpi_framework.py` exists beside a JS mirror rather than
+    only inside the mirror.
+    """
+    try:
+        n = max(0, int(other_count or 0))
+    except (TypeError, ValueError):
+        n = 0
+    return float(CONSULTING_BASE + CONSULTING_PER_PRODUCT * n)
+
+
+def is_consulting(item) -> bool:
+    """Whether a plan line is the catch-all rather than a card product.
+
+    Read from the product string rather than a flag on the row, because that
+    string is what the insertion order matches on and a row saved before the
+    flag existed still has to answer.
+    """
+    return (str((item or {}).get("product") or "").strip()
+            == hub_intake.CONSULTING["product"])
+
+
+def consulting_unresolved(state) -> list:
+    """Consulting lines that cannot yet go on an insertion order.
+
+    The rule is `product_intake.question_for()`'s, not a second copy of it:
+    a consulting line with no description is one the trafficking team cannot
+    action, because the product string is the same on every such line and the
+    description is the only thing that says what was sold. It is a *question*
+    rather than a refusal, which is the shape that module already chose -- a
+    rep mid-thought must be able to put the line on the plan and answer this
+    afterwards.
+    """
+    out = []
+    for item in (state or {}).get("items") or []:
+        if not is_consulting(item):
+            continue
+        entry = hub_intake.as_consulting(
+            str(item.get("label") or item.get("product") or ""),
+            str(item.get("description") or ""))
+        # `question_for()` asks in the order the IO intake needs answers, and
+        # the basis and the term come before the description. A plan line
+        # always has both, so they travel -- without them the question comes
+        # back as "monthly or one-time?" about a line whose basis is on the
+        # screen, which is a question nobody can act on.
+        basis = str(item.get("basis") or "monthly")
+        entry["basis"] = basis
+        if basis == hub_intake.MONTHLY:
+            entry["term_months"] = (item.get("termMonths")
+                                    or item.get("term_months") or 1)
+        # as_consulting() falls the description back to the query, which is
+        # right for the IO intake -- there the query is what the rep typed off
+        # the proposal. Here the query is our own product string, so that
+        # fallback would answer the question with the name of the thing being
+        # asked about. Asked on the description alone.
+        if not str(item.get("description") or "").strip():
+            entry["description"] = ""
+            out.append({"label": str(item.get("label") or entry["product"]),
+                        "question": hub_intake.question_for(entry)})
+    return out
+
+
+@app.post("/api/consulting-scope")
+def api_consulting_scope():
+    """A description suggestion for the Strategy Engagement line, built from
+    what this campaign actually engages.
+
+    Reads `hub.consulting_scope`, the one description of what "strategy and
+    consulting" covers -- a suggestion the rep's own text always wins over,
+    the overlay rule this codebase applies everywhere else a value someone
+    typed is offered a better guess. Nothing is applied by this call; the
+    browser only ever seeds a box a person can still edit or clear before
+    pressing "+ Add a strategy engagement".
+    """
+    body = request.get_json(force=True) or {}
+    state = {"items": body.get("items") or [],
+             "objectives": body.get("objectives") or []}
+    return jsonify({"ok": True, "description": hub_scope.description(state),
+                    "keys": hub_scope.applicable_keys(state)})
 
 
 def _creative_sizes() -> dict:
@@ -2037,7 +2194,19 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                 rows = [[*plan["columns"][:4], f"Total ({plan['months']} mo)",
                          plan["columns"][5]]]
                 for r in plan["rows"]:
-                    rows.append([_p(r["product"], st_small),
+                    # The catch-all line's description rides in the Product
+                    # cell, because that column is where a reader looks to see
+                    # what they are buying and every consulting row prints the
+                    # same product string. Which rows carry one is the
+                    # server's decision; each renderer only draws it, the way
+                    # monthly_label already works.
+                    # _p() escapes the whole string and turns a newline into
+                    # a line break, so the description is passed as text
+                    # rather than as markup -- built as markup here it would
+                    # have printed the tags at the client.
+                    rows.append([_p(r["product"] + ("\n" + r["description"]
+                                                    if r.get("description") else ""),
+                                    st_small),
                                  _p(r["category"], st_small),
                                  _p(r["rate"], st_small),
                                  (r["monthly_label"] if r["monthly_label"]
@@ -2469,7 +2638,8 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                 hdr[i].paragraphs[0].runs[0].font.bold = True
             for r in plan["rows"]:
                 row = t2.add_row().cells
-                row[0].text = r["product"]
+                row[0].text = (r["product"] + "\n" + r["description"]
+                               if r.get("description") else r["product"])
                 row[1].text = r["category"]
                 row[2].text = r["rate"]
                 row[3].text = r["monthly_label"] or _money(r["monthly"])
@@ -2747,8 +2917,15 @@ def expected_results(state):
             unpriced.append(hub_rate_card.quote_label(item.get("product"),
                                                       item.get("category")))
         rows.append({
-            "product": hub_rate_card.quote_label(item.get("product"),
-                                                 item.get("category")),
+            # The engagement reads as a Strategy Engagement on the client's
+            # document; the product string stays underneath as the IO's join.
+            # Without this the media plan says "Consulting & Strategic
+            # Services" a few inches from the Investment Summary's "Consulting
+            # & Strategy" retainer, and a client cannot tell the two charges
+            # apart.
+            "product": (CONSULTING_DISPLAY if is_consulting(item)
+                        else hub_rate_card.quote_label(item.get("product"),
+                                                       item.get("category"))),
             "category": item.get("category") or "",
             "medium": hub_creative.medium_of(item),
             "quoted_rate": quoted,
@@ -2761,6 +2938,13 @@ def expected_results(state):
             "units": units,
             "unit_label": delivery.get("unit_label") or "",
             "note": delivery.get("note") or "",
+            # Only the catch-all line carries one, and for that line it is the
+            # whole of what was sold: every consulting row on every proposal
+            # prints the same product string, so without this the client's
+            # media plan reads "Consulting & Strategic Services — $5,000" and
+            # says nothing about the engagement they are agreeing to.
+            "description": (str(item.get("description") or "").strip()
+                            if is_consulting(item) else ""),
         })
 
     totals["campaign"] = round(sum(r["campaign"] for r in rows), 2)
@@ -2954,6 +3138,7 @@ def media_plan_rows(state) -> dict:
             "campaign": r["campaign"],
             "units": units, "unit_label": label, "delivery": delivery,
             "basis": r.get("basis") or "monthly",
+            "description": r.get("description") or "",
         })
     # The totals are campaign_cost()'s, so this table, the cover, the
     # investment summary, the insertion order and the dashboard all print one
@@ -3500,6 +3685,48 @@ def api_business_description():
                     "warnings": hub_desc.check(description)})
 
 
+# The prompt below asks for exactly these five headings, in this exact
+# wording, as plain text lines -- nothing here renders Markdown, so a
+# heading is a line that matches one of these rather than a "##" to strip.
+_LANDING_HEADINGS = ("CTA Status", "Strengths", "Required Fixes Before Launch",
+                     "Recommended Improvements", "Tracking Checks")
+
+
+def _landing_sections(review: str) -> dict:
+    """The review's own headed sections, split apart.
+
+    A heading the model dropped is simply absent rather than guessed at --
+    the sections dict always has all five keys, empty where nothing was
+    written under them.
+    """
+    sections: dict = {h: [] for h in _LANDING_HEADINGS}
+    current = None
+    for raw in str(review or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        matched = next((h for h in _LANDING_HEADINGS
+                        if line.lower().rstrip(":") == h.lower()), None)
+        if matched:
+            current = matched
+            continue
+        if current is None:
+            continue
+        sections[current].append(line.lstrip("•").strip() if line.startswith("•") else line)
+    return sections
+
+
+def _landing_fixes(review: str) -> list:
+    """The launch-blocking items, as a flat list of sentences.
+
+    Read from "Required Fixes Before Launch" alone -- the heading the prompt
+    reserves for what must change before the page can be used, kept apart
+    from "Recommended Improvements", which is optional polish and never
+    drives the two-choice panel this feeds.
+    """
+    return [s for s in _landing_sections(review).get("Required Fixes Before Launch", []) if s]
+
+
 def _headings_line(observed):
     """Read from `modules/ads_builder/landing_page.py`, which is where the
     shape it describes comes from. The IO Builder's landing review needs the
@@ -3586,7 +3813,13 @@ def api_review_landing_page():
                         "error": "The page was read, but the AI review failed",
                         "detail": str(exc)}), 502
     return jsonify({"ok": True, "review": review, "url": observed.get("url") or url,
-                    "observed": observed, "summary": _lp.summary_line(observed)})
+                    "observed": observed, "summary": _lp.summary_line(observed),
+                    # The launch-blocking fixes, pulled out of the review's own
+                    # heading rather than the whole prose -- this is what
+                    # auto-populates the Recommended landing setup panel, so
+                    # a rep reads the same finding twice (once here, once
+                    # under the panel it feeds) rather than a paraphrase of it.
+                    "fixes": _landing_fixes(review)})
 
 
 @app.post("/api/zipcodes-in-radius")
@@ -3865,6 +4098,107 @@ def api_find_targets():
                  "does not mean the search failed." if not out else
                  "Researched, not verified. Tick what belongs on this campaign; "
                  "check any address before it is used to build a geo-fence."),
+    })
+
+
+def _parse_audience_reply(reply: str) -> list:
+    """A Pickaxe chat reply, split into one audience candidate per line.
+
+    The reply is prose from a chat agent, not JSON -- `hub/pickaxe.py`'s own
+    VERIFY note says the response shape is transcribed from Pickaxe's
+    published examples rather than exercised, so this reads defensively:
+    one candidate per line, a leading bullet, dash or number stripped, and
+    a line that reads like a heading or a whole sentence rather than a
+    short name is left out rather than offered as an audience nobody could
+    act on.
+    """
+    out = []
+    for raw in str(reply or "").split("\n"):
+        line = re.sub(r"^[-•*]\s*", "", raw.strip())
+        line = re.sub(r"^\d+[.)]\s*", "", line).strip()
+        if not line or line.endswith(":") or len(line) > 120:
+            continue
+        out.append(line)
+    return out
+
+
+@app.post("/api/find-audiences")
+def api_find_audiences():
+    """Up to twenty additional audience suggestions, from the Pick Axe agent.
+
+    `hub/pickaxe_registry.AUDIENCE_FINDER` carries the agency's own audience
+    catalog and topics taxonomy as a knowledge base neither this Hub nor a
+    plain model call holds, which is why it earns a live call rather than
+    being absorbed into a prompt the way the rest of Pickaxe's agents were
+    (`hub/pickaxe.py`'s own docstring names it as one of the two that do).
+
+    Falls back to the Hub's own model on `PickaxeUnavailable` -- the same
+    contract every Pickaxe caller uses -- and the response names which one
+    actually answered, because a rep reading a suggestion should be able to
+    tell whether it came off the agency's own catalog or a guess. Everything
+    comes back `accepted: false`: the rule `/api/find-targets` already
+    follows and `modules/ads_builder`'s own competitor research follows too
+    -- nothing reaches the campaign until a person ticks it.
+    """
+    body = request.get_json(force=True) or {}
+    client = str(body.get("client") or "").strip()
+    industry = str(body.get("industry") or "").strip()
+    sells = str(body.get("sells") or "").strip()
+    objectives = [str(o) for o in (body.get("objectives") or []) if str(o).strip()]
+    existing = [str(a).strip() for a in (body.get("existing") or []) if str(a).strip()]
+    target = ", ".join(p for p in [industry, sells, ", ".join(objectives)] if p) \
+        or "this client's likely customers"
+
+    source, names = "pickaxe", []
+    try:
+        from hub import pickaxe as hub_pickaxe
+        from hub.pickaxe_registry import AUDIENCE_FINDER, fill
+        reply = hub_pickaxe.ask(
+            AUDIENCE_FINDER["pickaxe_id"], module="sales_builder",
+            purpose="audience_finder", workspace_id=AUDIENCE_FINDER["workspace_id"],
+            inputs=fill(AUDIENCE_FINDER, client=client, target=target))
+        names = _parse_audience_reply(reply)
+    except Exception as exc:                            # noqa: BLE001
+        from hub.pickaxe import PickaxeUnavailable
+        if not isinstance(exc, PickaxeUnavailable):
+            logger.exception("Audience Finder failed")
+        source = "ai"
+        prompt = (
+            "You are a media planner building the audience targeting for a "
+            "local advertising campaign.\n"
+            f"Client: {client or 'the advertiser'}\n"
+            f"Industry: {industry or 'not given'}\n"
+            f"What they sell: {sells or 'not given'}\n"
+            f"Campaign goals: {', '.join(objectives) or 'not given'}\n"
+            + (f"Already on this campaign, do not repeat: {', '.join(existing[:40])}\n"
+               if existing else "")
+            + "\nSuggest up to 20 additional audience segments worth targeting -- "
+            "behavioral, contextual, demographic and CRM/lookback layers. Short "
+            "names only, no explanation.\n"
+            "Return STRICT JSON only: {\"audiences\":[\"...\"]}\n")
+        try:
+            raw = _json_from_ai(_openai_response(prompt, 3000))
+            names = [str(a) for a in (raw.get("audiences") or [])]
+        except Exception as exc2:                       # noqa: BLE001
+            return jsonify({"ok": False, "error": "The audience research did not run",
+                            "detail": str(exc2)}), 502
+
+    seen = {n.lower() for n in existing if n}
+    out = []
+    for name in names:
+        name = str(name).strip()[:120]
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        out.append({"name": name, "accepted": False})
+        if len(out) >= 20:
+            break
+    return jsonify({
+        "ok": True, "audiences": out, "source": source,
+        "note": ("Nothing came back for this campaign. That is an answer — it "
+                 "does not mean the search failed." if not out else
+                 f"{'From the agency audience catalog' if source == 'pickaxe' else 'Suggested by Smart 1'}, "
+                 "not verified. Tick what belongs on this campaign."),
     })
 
 
