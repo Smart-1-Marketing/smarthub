@@ -819,7 +819,7 @@ def qc_spelling_check(script_text, client_profile):
 # ---------------------------------------------------------------------------
 # 9. Vox explainer — the beat list (spec: the one step that needs a model)
 # ---------------------------------------------------------------------------
-def generate_vox_beats(source_kind, source_text, client_profile, *,
+def generate_vox_beats(source_text, client_profile, *,
                        title="", total_seconds=None, link=""):
     """Turn a topic, a document or a fetched page into a validated beat list.
 
@@ -840,14 +840,15 @@ def generate_vox_beats(source_kind, source_text, client_profile, *,
 
     total = float(total_seconds or vox_spec.TARGET_SECONDS)
     body = str(source_text or "").strip()
-    source_kind = vox_spec.clean_source_kind(source_kind)
 
-    # Decided by what was actually supplied rather than by the kind alone. The
-    # kind is the form's way of saying which field to show; a caller that hands
-    # over a link and no text has asked for that page to be read whatever it
-    # spelled the kind as, and gating the fetch on the string meant a typo
-    # silently ignored the link and answered "there is nothing to build an
-    # explainer from" about a page sitting right there in the request.
+    # This function takes no source kind, and that is the point rather than an
+    # omission. It used to, and gated the fetch on the string — so a caller
+    # that supplied a link and spelled the kind "lnk" had the link silently
+    # ignored and was told "there is nothing to build an explainer from" about
+    # a page sitting in the same request. What it needs is what was actually
+    # supplied: a link and no text means read the page. The kind is the form's
+    # way of choosing which box to show, and the caller that wants it on the
+    # record (`routes/vox.py`) keeps it there.
     if link and not body:
         # The page is fetched, not imagined. `analyze_website` above already
         # owns this shape; a model handed a bare URL writes a confident

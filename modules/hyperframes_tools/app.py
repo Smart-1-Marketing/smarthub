@@ -369,7 +369,6 @@ def draft_vox_beats():
     from modules.commercial_builder.services import openai_service
     data = request.get_json(silent=True) or {}
     result = openai_service.generate_vox_beats(
-        vox_spec.clean_source_kind(data.get("source_kind")),
         str(data.get("source_text") or ""),
         {}, title=str(data.get("title") or ""),
         total_seconds=vox_spec.TARGET_SECONDS,

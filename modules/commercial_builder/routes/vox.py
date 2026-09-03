@@ -115,7 +115,7 @@ def generate_vox_beats(project_id):
     link = str(data.get("link") or "").strip()
 
     result = openai_service.generate_vox_beats(
-        kind, text, client.to_dict(),
+        text, client.to_dict(),
         title=project.title or client.name,
         total_seconds=project.length_seconds,
         link=link)

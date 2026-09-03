@@ -276,8 +276,17 @@ import inspect                                                     # noqa: E402
 _gen_src = inspect.getsource(openai_service.generate_vox_beats)
 check("the fetch is decided by what was supplied, not by the kind string",
       'if link and not body:' in _gen_src, True)
-check("and the kind is normalized before anything reads it",
-      "vox_spec.clean_source_kind(source_kind)" in _gen_src, True)
+# The follow-on the bot caught: with the fetch no longer reading the string,
+# the parameter was assigned and never used. Dropped rather than kept alive —
+# what the function needs is what was supplied, and the caller that wants the
+# kind on the record keeps it there.
+check("and the function takes no source kind at all",
+      "source_kind" in _gen_src, False)
+import modules.commercial_builder.routes.vox as _vox_routes         # noqa: E402
+check("while the route still records which one was chosen",
+      "vox_spec.clean_source_kind(" in inspect.getsource(_vox_routes), True)
+check("and stores it on the project",
+      '"kind": kind' in inspect.getsource(_vox_routes), True)
 
 section("The fallback outline is built from the material and nothing else")
 outline = vox_spec.outline_from_text(
@@ -295,7 +304,6 @@ check("and every line came out of what was supplied",
 section("With no model, an outline still comes back and says so")
 from modules.commercial_builder.services import openai_service     # noqa: E402
 res = openai_service.generate_vox_beats(
-    "document",
     "Roofs fail in winter, which costs money. Homeowners delay repairs for "
     "years. A survey takes an hour. Ignoring it doubles the bill.",
     {}, title="Why roofs fail")
@@ -305,7 +313,7 @@ check("it answers", res["ok"], True)
 check("marked as ours rather than written", res["source"], "house")
 check("and it says which it got", bool(res["error"]), True)
 check("nothing to build from is refused by name",
-      openai_service.generate_vox_beats("topic", "", {})["ok"], False)
+      openai_service.generate_vox_beats("", {})["ok"], False)
 
 
 # ---------------------------------------------------------------------------
