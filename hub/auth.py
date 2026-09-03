@@ -10,11 +10,10 @@ timing-safe password compare + per-IP login throttling.
 import hashlib
 import hmac
 import os
-import secrets
 import threading
 import time
 
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired
 
 COOKIE_NAME = "s1hub_auth"
 SESSION_TTL_SECONDS = 12 * 60 * 60  # 12 hours

@@ -32,7 +32,7 @@ from dataclasses import dataclass, asdict
 from urllib.parse import urlencode
 
 import requests
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired
 
 from hub import audit
 

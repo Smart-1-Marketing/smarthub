@@ -22,7 +22,7 @@ import time
 from datetime import datetime, timezone
 
 import requests
-from itsdangerous import BadSignature, URLSafeTimedSerializer
+from itsdangerous import BadSignature
 
 AUTH_BASE = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"

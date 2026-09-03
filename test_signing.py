@@ -17,9 +17,17 @@ disagree.
 
 The sweep is the part that matters. A test naming the four call sites we fixed
 proves nothing about the ninth, so `no_literal_fallbacks()` reads the **AST**
-of every file that builds a serializer and requires the secret to come from
+of every file that signs and requires the secret to come from
 `hub/signing.py`. Prose is not a call site: `hub/signing.py` itself quotes all
 four literals to explain them, so the check reads calls rather than text.
+
+And *"every file that signs"* is not *"every file that imports a
+serializer"* -- selecting on the import is how this sweep quietly stops
+sweeping, because migrating a call site is exactly what removes it. Trimming
+the imports the rewire left unused dropped its scope from eight files to
+three, silently, and the count was the only thing that noticed. It selects on
+the serializer name **or** a reach into `hub/signing.py`, and the eight sites
+are named as well as counted.
 """
 from __future__ import annotations
 
@@ -63,8 +71,18 @@ _SWEEP_EXEMPT = {"hub/signing.py", "test_signing.py"}
 _SERIALIZERS = {"URLSafeSerializer", "URLSafeTimedSerializer"}
 
 
+# Selecting on the serializer name alone is how this sweep quietly stops
+# sweeping: migrating a call site to hub/signing.py removes its
+# `URLSafeTimedSerializer` import, so the file it was written to audit drops
+# out of its own scope. Found by trimming those imports and watching the count
+# fall from eight to three. A file that signs is one that constructs a
+# serializer OR reaches this module -- either way it is in scope, and only the
+# first kind can carry a literal.
+_REACHES_SIGNING = ("from hub import signing", "hub.signing", "from . import signing")
+
+
 def _signing_files():
-    """Every file that constructs an itsdangerous serializer."""
+    """Every file that signs, however it gets its secret."""
     out = []
     for path in sorted(list(ROOT.glob("hub/**/*.py")) + list(ROOT.glob("modules/**/*.py"))):
         rel = path.relative_to(ROOT).as_posix()
@@ -74,10 +92,25 @@ def _signing_files():
             src = path.read_text(errors="ignore")
         except Exception:                                   # noqa: BLE001
             continue
-        if not any(n in src for n in _SERIALIZERS):
+        if not any(n in src for n in _SERIALIZERS) \
+                and not any(n in src for n in _REACHES_SIGNING):
             continue
         out.append((rel, src))
     return out
+
+
+# Named, because a set of the right size and the wrong contents is the same
+# failure one step on. These are the eight signing sites the module was
+# written for; the sweep has to still be looking at each of them.
+_KNOWN_SIGNING_SITES = (
+    "hub/auth.py",
+    "hub/client_portal.py",
+    "hub/identity.py",
+    "hub/quickbooks.py",
+    "hub/users_routes.py",
+    "modules/social_planner/links.py",
+    "modules/suite_panel/app.py",
+)
 
 
 def no_literal_fallbacks():
@@ -124,8 +157,12 @@ def _literal_secrets(arg):
 
 section("Nothing signs with a literal out of its own source")
 _files = _signing_files()
-check("the sweep found the files that sign", len(_files) >= 4,
+_seen = {rel for rel, _ in _files}
+check("the sweep found the files that sign", len(_files) >= len(_KNOWN_SIGNING_SITES),
       f"only {len(_files)}")
+_missing = [f for f in _KNOWN_SIGNING_SITES if f not in _seen]
+check("and it still covers every site this module was written for",
+      not _missing, "dropped out of scope: " + ", ".join(_missing))
 _lits = no_literal_fallbacks()
 check("no serializer is constructed with a string literal secret", not _lits,
       "; ".join(_lits))
