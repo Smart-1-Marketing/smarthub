@@ -1,0 +1,351 @@
+{# Shared furniture for both Video Tools pages.
+
+   Macros rather than a base template because the two pages differ in the
+   middle -- one has an analysis step and a waveform, the other has a crop
+   preview -- and inheritance would put that difference in a block whose
+   contents were the whole page. What is genuinely shared is the top (pick a
+   clip), the bottom (the result and where it goes), the styles and the
+   JavaScript that talks to the six shared endpoints. Those are here, once. #}
+
+{% macro styles() %}
+<style>
+  .vt-steps{display:grid;gap:16px}
+  .vt-step{border:1px solid #e2e8f0;border-radius:10px;background:#fff}
+  .vt-step > h3{margin:0;padding:12px 16px;font-size:13px;font-weight:700;
+    letter-spacing:.4px;text-transform:uppercase;color:#64748b;
+    border-bottom:1px solid #eef2f7}
+  .vt-step > h3 .n{display:inline-flex;width:20px;height:20px;margin-right:8px;
+    align-items:center;justify-content:center;border-radius:50%;
+    background:#1a2e58;color:#fff;font-size:11px}
+  .vt-body{padding:16px}
+  .vt-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .vt-row input[type=text]{flex:1;min-width:280px;padding:9px 11px;
+    border:1px solid #cbd5e1;border-radius:7px;font-size:13.5px}
+  .vt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:10px;margin-top:12px;max-height:330px;overflow:auto}
+  .vt-card{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;
+    cursor:pointer;background:#f8fafc;text-align:left;padding:0}
+  .vt-card:hover{border-color:#1a2e58}
+  .vt-card.on{border-color:#1a2e58;box-shadow:0 0 0 2px rgba(26,46,88,.15)}
+  .vt-card img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;
+    background:#e2e8f0}
+  .vt-card .m{padding:7px 8px;font-size:11.5px;line-height:1.35;color:#475569;
+    word-break:break-word}
+  .vt-picked{display:flex;gap:14px;align-items:flex-start}
+  .vt-picked img{width:180px;border-radius:8px;background:#e2e8f0}
+  .vt-kv{font-size:12.5px;color:#475569;line-height:1.6}
+  .vt-kv b{color:#1e293b}
+  .vt-note{font-size:12.5px;color:#64748b;line-height:1.55;margin:8px 0 0}
+  .vt-warn{font-size:12.5px;line-height:1.55;margin:8px 0 0;padding:9px 11px;
+    border-radius:7px;background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+  .vt-bad{font-size:12.5px;line-height:1.55;margin:8px 0 0;padding:9px 11px;
+    border-radius:7px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+  .vt-ok{font-size:12.5px;line-height:1.55;margin:8px 0 0;padding:9px 11px;
+    border-radius:7px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+  .vt-btn{padding:9px 16px;border:0;border-radius:7px;background:#1a2e58;
+    color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+  .vt-btn[disabled]{opacity:.45;cursor:not-allowed}
+  .vt-btn.ghost{background:#fff;color:#1a2e58;border:1px solid #cbd5e1}
+  .vt-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+    gap:14px}
+  .vt-field label{display:block;font-size:12px;font-weight:600;color:#334155;
+    margin-bottom:4px}
+  .vt-field select,.vt-field input[type=number]{width:100%;padding:8px 10px;
+    border:1px solid #cbd5e1;border-radius:7px;font-size:13px}
+  .vt-field .hint{font-size:11.5px;color:#94a3b8;margin-top:4px;line-height:1.45}
+  .vt-video{width:100%;max-height:460px;background:#0f172a;border-radius:8px}
+  .vt-stat{display:flex;gap:22px;flex-wrap:wrap;margin:0 0 12px}
+  .vt-stat div{font-size:12px;color:#64748b}
+  .vt-stat b{display:block;font-size:19px;color:#1e293b;font-weight:700}
+  .vt-hide{display:none}
+  .vt-jobs{width:100%;border-collapse:collapse;font-size:12.5px}
+  .vt-jobs th{text-align:left;color:#64748b;font-weight:600;padding:6px 8px;
+    border-bottom:1px solid #eef2f7}
+  .vt-jobs td{padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#334155}
+</style>
+{% endmacro %}
+
+
+{% macro source_step() %}
+<section class="vt-step">
+  <h3><span class="n">1</span> Pick the video</h3>
+  <div class="vt-body">
+    <div class="vt-row">
+      <input type="text" id="vt-src" placeholder="Paste a Cloudinary link, or a public ID — or pick one below">
+      <button class="vt-btn ghost" id="vt-load">Use this</button>
+    </div>
+    <div class="vt-row" style="margin-top:10px">
+      <input type="text" id="vt-q" placeholder="Search the account by name">
+      <button class="vt-btn ghost" id="vt-search">Search</button>
+    </div>
+    <div class="vt-grid" id="vt-list"></div>
+    <p class="vt-bad vt-hide" id="vt-src-err"></p>
+    <div class="vt-picked vt-hide" id="vt-picked" style="margin-top:14px">
+      <img id="vt-poster" alt="">
+      <div class="vt-kv" id="vt-meta"></div>
+    </div>
+  </div>
+</section>
+{% endmacro %}
+
+
+{% macro result_step(number) %}
+<section class="vt-step vt-hide" id="vt-result">
+  <h3><span class="n">{{ number }}</span> The result</h3>
+  <div class="vt-body">
+    <p class="vt-note" id="vt-job-status">Building…</p>
+    <video class="vt-video vt-hide" id="vt-out" controls playsinline></video>
+    <div class="vt-row" style="margin-top:12px">
+      <input type="text" id="vt-client" placeholder="Client name (optional) — files it in their library">
+      <button class="vt-btn" id="vt-save" disabled>Save to the library</button>
+      <a class="vt-btn ghost vt-hide" id="vt-dl" download>Download</a>
+    </div>
+    <p class="vt-note">Saving stores this edit as an asset of its own. Until
+      then it is a derived file that follows the original — replace the
+      original and the edit changes with it.</p>
+    <p class="vt-ok vt-hide" id="vt-saved"></p>
+    <p class="vt-bad vt-hide" id="vt-job-err"></p>
+  </div>
+</section>
+
+<section class="vt-step" style="margin-top:16px">
+  <h3>Recent edits</h3>
+  <div class="vt-body">
+    <table class="vt-jobs"><tbody id="vt-jobs">
+      <tr><td style="color:#94a3b8">Nothing yet.</td></tr>
+    </tbody></table>
+  </div>
+</section>
+{% endmacro %}
+
+
+{% macro shared_js(mount, poll_ms) %}
+<script>
+// Everything both pages do with the six shared endpoints. The per-tool page
+// script below this one supplies `VT.onSource()` and calls `VT.render()`; it
+// never talks to fetch() itself, so the source picker, the polling and the
+// save flow exist once and cannot drift between the two tools.
+const VT = (function () {
+  const MOUNT = {{ mount|tojson }};
+  const $ = (id) => document.getElementById(id);
+  let source = null, job = null, timer = null, building = null;
+
+  const show = (el, on) => el && el.classList.toggle("vt-hide", !on);
+  const msg = (id, text, on) => { const e = $(id); if (!e) return;
+    if (text !== null) e.textContent = text; show(e, on !== false && !!e.textContent); };
+
+  async function post(path, body) {
+    const r = await fetch(MOUNT + path, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body || {})});
+    const data = await r.json().catch(() => ({error: "The server did not answer with JSON."}));
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  }
+  async function get(path) {
+    const r = await fetch(MOUNT + path);
+    const data = await r.json().catch(() => ({error: "The server did not answer with JSON."}));
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  }
+
+  // The Hub's own wait mark, and never a hand-rolled label swap.
+  //
+  // hub-thinking.js is on this page already -- these are blueprints on the
+  // hub app, so the hub's own injector reaches them -- and every wait here is
+  // one of the long ones it was written for: Cloudinary reading an asset,
+  // Cloudinary building a derived render (minutes), a vision call. A button
+  // that greys out and re-types its own label loses the label in whichever
+  // of its exit paths somebody forgets, and says nothing at all past six
+  // seconds, which is where a slow answer stops being distinguishable from a
+  // dead one.
+  //
+  // Guarded on window.S1Think, and the fallback is a handle with the same
+  // shape: a missing script costs the mark and never the message.
+  const HANDLE = {stage() { return this; }, done() { return this; }};
+  const busy = (el, kind, label) => (window.S1Think && el)
+    ? window.S1Think.busy(el, {kind, label}) : HANDLE;
+  const thinking = (el, kind, label) => (window.S1Think && el)
+    ? window.S1Think.attach(el, {kind, label}) : HANDLE;
+
+  const secs = (n) => {
+    n = Math.max(0, Number(n) || 0);
+    const m = Math.floor(n / 60), s = n - m * 60;
+    return m ? `${m}m ${s.toFixed(1)}s` : `${s.toFixed(1)}s`;
+  };
+
+  async function listSources(q) {
+    const box = $("vt-list");
+    box.innerHTML = '<div style="color:#94a3b8;font-size:12.5px">Loading…</div>';
+    let data;
+    try { data = await get("/api/sources?q=" + encodeURIComponent(q || "")); }
+    catch (e) { box.innerHTML = ""; msg("vt-src-err", e.message); return; }
+    box.innerHTML = "";
+    if (!data.ready) {
+      box.innerHTML = '<div style="color:#991b1b;font-size:12.5px">Cloudinary is'
+        + ' not configured on this deployment, so there is nothing to list.</div>';
+      return;
+    }
+    if (!data.items.length) {
+      box.innerHTML = '<div style="color:#94a3b8;font-size:12.5px">No videos matched.</div>';
+      return;
+    }
+    for (const item of data.items) {
+      const card = document.createElement("button");
+      card.className = "vt-card";
+      card.innerHTML = `<img src="${item.poster}" alt="" loading="lazy">
+        <div class="m">${item.public_id.split("/").pop()}<br>
+        <span style="color:#94a3b8">${item.width}&times;${item.height}
+        ${item.duration ? "· " + Math.round(item.duration) + "s" : ""}</span></div>`;
+      card.onclick = () => { $("vt-src").value = item.public_id; useSource(); };
+      box.appendChild(card);
+    }
+  }
+
+  async function useSource() {
+    msg("vt-src-err", "", false);
+    const raw = $("vt-src").value.trim();
+    if (!raw) { msg("vt-src-err", "Paste a link or pick a clip first."); return; }
+    let data;
+    const h = busy($("vt-load"), "scan", "Reading the clip…");
+    try { data = await post("/api/source", {source: raw}); }
+    catch (e) { source = null; msg("vt-src-err", e.message); show($("vt-picked"), false); return; }
+    finally { h.done(); }
+    source = data;
+    $("vt-poster").src = data.poster || "";
+    $("vt-meta").innerHTML = `<b>${data.public_id}</b><br>
+      ${data.width}&times;${data.height} · ${secs(data.duration)}
+      · ${(data.bytes / 1e6).toFixed(1)} MB
+      ${data.folder ? "<br>in <b>" + data.folder + "</b>" : ""}`;
+    show($("vt-picked"), true);
+    if (VT.onSource) VT.onSource(data);
+  }
+
+  function paint(row) {
+    job = row;
+    show($("vt-result"), true);
+    const out = $("vt-out"), save = $("vt-save"), dl = $("vt-dl");
+    if (row.status === "building") {
+      // Cloudinary's own server, for minutes -- the `scan` glyph, and the
+      // elapsed line past six seconds is the only thing separating a long
+      // render from a dead one. Re-attached rather than re-created on each
+      // poll, or the timer restarts every four seconds and the number that
+      // matters never grows.
+      // The clear happens ONCE, with the attach. `msg()` writes textContent,
+      // which removes the box this appended -- so clearing on every poll
+      // would wipe the mark on the second one, leave `building` truthy so it
+      // was never redrawn, and blank the status line for the rest of a render
+      // that is going perfectly well. The elapsed line would stop with it,
+      // silently, because it ends itself once its box leaves the page.
+      if (!building) {
+        msg("vt-job-status", "", false);
+        building = thinking("vt-job-status", "scan",
+          "Cloudinary is building this edit. It stays on this page — you can"
+          + " leave and come back to it under Recent edits.");
+        show($("vt-job-status"), true);
+      }
+      show(out, false); save.disabled = true; show(dl, false);
+    } else if (row.status === "failed") {
+      if (building) { building.done(); building = null; }
+      msg("vt-job-status", "This edit did not build.", false);
+      msg("vt-job-err", row.error || "Cloudinary did not say why.");
+      show(out, false); save.disabled = true; show(dl, false);
+    } else {
+      if (building) { building.done(); building = null; }
+      msg("vt-job-status", "Ready. Watch it before you save it — this is the"
+        + " only step where a bad cut is cheap to undo.");
+      out.src = row.result_url; show(out, true);
+      dl.href = row.result_url; show(dl, true);
+      save.disabled = !!row.saved_public_id;
+      if (row.saved_public_id) {
+        msg("vt-saved", "Saved as " + row.saved_public_id + ".");
+      }
+    }
+    if (row.status === "building") {
+      clearTimeout(timer);
+      timer = setTimeout(() => poll(row.id), {{ poll_ms|int }});
+    } else { loadJobs(); }
+  }
+
+  async function poll(id) {
+    try { paint(await get("/api/jobs/" + id)); }
+    catch (e) { msg("vt-job-err", e.message); }
+  }
+
+  async function render(path, body) {
+    msg("vt-job-err", "", false); msg("vt-saved", "", false);
+    show($("vt-result"), true);
+    // Ended before the line is written over, for the same reason: a render
+    // started while an earlier one is still building would otherwise remove
+    // the mark's box and leave the handle standing, so the new build would
+    // report nothing at all.
+    if (building) { building.done(); building = null; }
+    msg("vt-job-status", "Submitting…");
+    try { paint(await post(path, Object.assign({source: source.public_id}, body || {}))); }
+    catch (e) { msg("vt-job-status", "", false); msg("vt-job-err", e.message); }
+  }
+
+  async function save() {
+    if (!job) return;
+    // Cloudinary fetches the derived file itself, so this is their transfer
+    // rather than ours -- `scan`, and it is not quick on a long master.
+    const h = busy($("vt-save"), "scan", "Storing it…");
+    try {
+      const row = await post("/api/jobs/" + job.id + "/save",
+                             {client_name: $("vt-client").value.trim()});
+      job = row;
+      h.done();
+      // Saved once and only once: put the control back disabled rather than
+      // re-enabled, or a second press files a duplicate in a client's tree.
+      $("vt-save").disabled = true;
+      msg("vt-saved", "Saved as " + row.saved_public_id
+        + (row.client_name ? " — filed for " + row.client_name : "") + ".");
+      loadJobs();
+    } catch (e) { h.done(); msg("vt-job-err", e.message); $("vt-save").disabled = false; }
+  }
+
+  async function loadJobs() {
+    let data;
+    try { data = await get("/api/jobs"); } catch (e) { return; }
+    const body = $("vt-jobs");
+    if (!data.items.length) {
+      body.innerHTML = '<tr><td style="color:#94a3b8">Nothing yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = "";
+    for (const row of data.items) {
+      const tr = document.createElement("tr");
+      const where = row.saved_url
+        ? `<a href="${row.saved_url}" target="_blank" rel="noopener">saved</a>`
+        : (row.result_url ? `<a href="${row.result_url}" target="_blank" rel="noopener">preview</a>` : "&mdash;");
+      tr.innerHTML = `<td>${row.source_public_id.split("/").pop()}</td>
+        <td>${row.status}${row.error ? " — " + row.error.slice(0, 90) : ""}</td>
+        <td>${row.client_name || "&mdash;"}</td>
+        <td>${where}</td>`;
+      body.appendChild(tr);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    $("vt-load").onclick = useSource;
+    $("vt-search").onclick = () => listSources($("vt-q").value);
+    $("vt-q").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); listSources($("vt-q").value); } });
+    $("vt-src").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); useSource(); } });
+    $("vt-save").onclick = save;
+    // ?source= arrives from wherever the clip came from -- today that is the
+    // Commercial Builder's filing report, which hands over the stored copy's
+    // URL rather than an id, because a URL is what it has. `useSource()`
+    // resolves either.
+    const handed = new URLSearchParams(location.search).get("source");
+    if (handed) { $("vt-src").value = handed; useSource(); }
+    listSources("");
+    loadJobs();
+  });
+
+  return {get, post, render, secs, show, msg, busy, thinking, $,
+          get source() { return source; }, onSource: null};
+})();
+</script>
+{% endmacro %}
