@@ -382,6 +382,19 @@
         .forEach((c) => c.classList.remove("selected"));
       cell.classList.add("selected");
       musicMood = cell.dataset.value;
+      /* The tile is a prompt starter, so pressing it fills the box with the
+         words that will actually be sent -- and only when the box is empty or
+         still holds another mood's starter. A rep who has written their own
+         brief must not have it replaced by a tile press, which is the overlay
+         rule hub/client_urls.py works to: an offer goes into an empty field,
+         never over an answer somebody gave. */
+      const box = document.getElementById("music-prompt");
+      if (!box) return;
+      const typed = (box.value || "").trim();
+      if (!typed || STARTERS_SEEN.has(typed)) {
+        const starter = (MOOD_PROMPTS[musicMood] || "").trim();
+        if (starter) { box.value = starter; STARTERS_SEEN.add(starter); }
+      }
     });
   });
 
@@ -400,15 +413,17 @@
     });
   });
 
-  // Said out loud rather than left for somebody to discover at the render.
-  // The mood is captured and no track is attached by anything in this Hub, so
-  // claiming it will appear in the finished cut would be the Proposal
-  // Builder's four unread discovery questions all over again.
+  /* This note used to say no music library was connected and the render would
+     carry no bed until one was attached. That was true and is not any more,
+     and a note contradicting the panel directly beneath it costs both of them
+     their credibility -- so it says what is actually the case now: the
+     waveform is still an illustration of a mood rather than a reading of a
+     track, and a track is composed below. */
   const moodNote = document.getElementById("music-mood-note");
   if (moodNote) {
-    moodNote.textContent = "The waveforms illustrate the mood — they are not a track. "
-      + "No music library is connected yet, so this is a brief for whoever picks the "
-      + "bed, and the render carries no music until one is attached.";
+    moodNote.textContent = "The waveforms illustrate the mood — they are not a reading "
+      + "of any track. Pressing one fills in the prompt below; nothing is composed "
+      + "until you press Compose.";
   }
 
   document.getElementById("save-music-btn").addEventListener("click", async () => {
@@ -424,7 +439,145 @@
     } catch (e) { status.textContent = ""; }
   });
 
+  // ---------------------------------------------------------------- compose
+  //
+  // The Music step was a preset picker that generated nothing: a mood, a
+  // level, and no track for the level to duck. This is the half that was
+  // missing. Nothing composes on a page load or on a mood press -- it is
+  // billed per generation, so it takes a deliberate press, the rule the AI
+  // stills and AI video buttons on the Blueprint already follow.
+
+  const MOOD_PROMPTS = {};
+  const STARTERS_SEEN = new Set();
+
+  async function loadComposeOptions() {
+    const root = document.getElementById("compose-root");
+    if (!root) return;
+    let opts;
+    try {
+      opts = await CB.api(`/api/projects/${projectId}/audio/options`);
+    } catch (e) { return; }
+    (opts.moods || []).forEach((m) => {
+      MOOD_PROMPTS[m.id] = m.prompt || "";
+      if (m.prompt) STARTERS_SEEN.add(m.prompt.trim());
+    });
+    const intro = document.getElementById("compose-intro");
+    /* Three states rather than two. "Composing is switched off on this
+       deployment" and "there is no ElevenLabs key" send somebody to two
+       different places, and drawing a button that can only fail is what
+       neither of them deserves. */
+    if (!opts.enabled) {
+      root.querySelector("#compose-btn").disabled = true;
+      if (intro) {
+        intro.textContent = "Composing is switched off on this deployment "
+          + "(MUSIC_GENERATION_ENABLED), so the mood and level above are a brief for "
+          + "whoever picks the bed by hand.";
+      }
+      return;
+    }
+    if (intro) {
+      const secs = Math.round(((opts.length_ms || 0) / 1000) * 10) / 10;
+      intro.textContent = `Say what it should sound like, or press a mood above to fill `
+        + `this in. It is composed to ${secs}s — this spot's own runway — so the track `
+        + `never has to be trimmed to fit. Nothing is composed until you press the `
+        + `button; it is billed per generation.`;
+      if (opts.live === false) {
+        intro.textContent += " No ELEVENLABS_API key is set, so nothing will be produced.";
+      }
+    }
+    const box = document.getElementById("music-prompt");
+    if (box && !(box.value || "").trim() && (opts.music || {}).music_prompt) {
+      box.value = opts.music.music_prompt;
+    }
+    paintCurrentBed((opts.music || {}));
+  }
+
+  function paintCurrentBed(music) {
+    const line = document.getElementById("compose-current");
+    if (!line) return;
+    if (!music.music_track_url) { line.textContent = ""; return; }
+    /* A length that could not be derived says so rather than being left
+       blank: blank reads as "no problem", and the whole point of carrying
+       `music_seconds` is that QC can tell a measured agreement from an
+       unmeasured one. */
+    const len = music.music_seconds
+      ? `${music.music_seconds}s`
+      : "its length could not be measured";
+    line.textContent = `On the timeline: ${music.music_prompt || "a composed bed"} · ${len}.`;
+  }
+
+  const composeBtn = document.getElementById("compose-btn");
+  if (composeBtn) composeBtn.addEventListener("click", compose);
+
+  async function compose() {
+    const status = document.getElementById("compose-status");
+    const list = document.getElementById("compose-options");
+    const box = document.getElementById("music-prompt");
+    const prompt = ((box && box.value) || "").trim() || (MOOD_PROMPTS[musicMood] || "");
+    if (!prompt) {
+      status.textContent = "Describe the music, or press a mood above.";
+      return;
+    }
+    if (box && !box.value.trim()) box.value = prompt;
+    /* A billed wait, marked the way every other billed wait in this Hub is —
+       and a bed for a :60 is tens of seconds of real work, which past six
+       seconds is exactly what a hung page looks like without one. */
+    const busy = window.S1Think
+      ? window.S1Think.busy(composeBtn, { kind: "ai", label: "Composing\u2026" })
+      : null;
+    if (!window.S1Think) { composeBtn.disabled = true; composeBtn.textContent = "Composing\u2026"; }
+    status.textContent = "";
+    list.innerHTML = "";
+    let data;
+    try {
+      data = await CB.api(`/api/projects/${projectId}/music/compose`, {
+        method: "POST", body: { prompt, mood: musicMood },
+      });
+    } catch (e) {
+      return;                              // CB.api has already surfaced the reason
+    } finally {
+      if (busy) busy.done();
+      composeBtn.disabled = false;
+      composeBtn.textContent = "Compose 2 options";
+    }
+    if (data.note) status.textContent = data.note;
+    drawComposeOptions(list, data.options || []);
+  }
+
+  function drawComposeOptions(list, options) {
+    list.innerHTML = "";
+    if (!options.length) {
+      list.appendChild(CB.el('<p class="cb-hint">Nothing came back.</p>'));
+      return;
+    }
+    options.forEach((opt) => {
+      if (!opt.url) {
+        list.appendChild(CB.el(
+          `<p class="cb-word-count warn">Option ${opt.index + 1}: `
+          + `${CB.escapeHtml(opt.error || "no audio")}</p>`));
+        return;
+      }
+      const len = opt.seconds ? `${opt.seconds}s` : "length not measured";
+      const row = CB.el(`<div class="cb-audio-row">
+        <audio controls preload="none" src="${opt.url}"></audio>
+        <span class="cb-hint">${len}${opt.cached ? " \u00b7 reused" : ""}</span>
+        <button class="cb-btn cb-btn-sm music-use">Use this bed</button>
+      </div>`);
+      row.querySelector(".music-use").addEventListener("click", async () => {
+        const saved = await CB.api(`/api/projects/${projectId}/music/choose`, {
+          method: "POST",
+          body: { url: opt.url, public_id: opt.public_id, prompt: opt.prompt,
+                  seconds: opt.seconds },
+        });
+        CB.toast("Bed attached — the render will carry it.");
+        paintCurrentBed(saved.music || {});
+      });
+      list.appendChild(row);
+    });
+  }
+
   loadCharacteristics();
   loadVoices();
   loadClient();
+  loadComposeOptions();
 })();

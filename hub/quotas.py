@@ -247,6 +247,41 @@ def record_tts(text: str, *, module: str, model: str = "",
         pass
 
 
+# ElevenLabs sells two things this Hub buys, and only one of them is billed
+# by the character. Sound effects and music are billed per GENERATION, so a
+# row recorded under the same unit as a voiceover would be read as a handful
+# of characters of script -- the voice estimate would absorb a cost source
+# that is not measured in characters at all, and the number on the usage page
+# would go on looking right. `api` is what keeps them apart, and
+# `elevenlabs_estimate` reads it: the character total counts speech only, and
+# these get their own line beside it.
+AUDIO_GENERATION_KINDS = ("sound_effect", "music")
+
+
+def record_audio_generation(kind: str, *, module: str, seconds: float = 0.0,
+                            model: str = "", detail: str = "",
+                            ok: bool = True) -> None:
+    """One generated sound effect or composed music bed.
+
+    `units` is the generation, because that is how ElevenLabs bills these --
+    counting seconds would be the mistake counting ElevenLabs *renders*
+    would have made one product over. The seconds are carried in `nbytes`'
+    place as a separate figure so the estimate can say how much audio was
+    produced without pretending that is what was charged for.
+
+    An unrecognised kind is filed under its own name rather than dropped: a
+    third audio product added by ElevenLabs must show up as an unnamed row on
+    the usage page rather than as nothing at all.
+    """
+    try:
+        api = str(kind or "audio").strip().lower() or "audio"
+        record("elevenlabs", module=module, units=1, api=api,
+               model=model or "", detail=(detail or f"{seconds or 0:g}s")[:120],
+               nbytes=int(round(float(seconds or 0) * 1000)), ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def record_asset(*, module: str, kind: str = "upload", nbytes: int = 0,
                  detail: str = "", cached: bool = False) -> None:
     """One Cloudinary operation — an upload, a remote fetch or a delete."""
@@ -771,8 +806,30 @@ def elevenlabs_estimate(month: str | None = None, rows: list[dict] | None = None
     chars = credits = renders = failed = 0.0
     by_module: dict[str, dict] = {}
     by_model: dict[str, dict] = {}
+    # The second line item. A sound effect and a composed bed are billed per
+    # generation, so they are counted here and deliberately NOT added to
+    # `chars` -- a generation carries no characters, and letting one through
+    # would make the voice figure quietly wrong in the reassuring direction.
+    audio = {k: {"generations": 0, "seconds": 0.0, "failed": 0, "by_module": {}}
+             for k in AUDIO_GENERATION_KINDS}
+    audio_other: dict[str, dict] = {}
     for r in rows:
         if r.get("provider") != "elevenlabs":
+            continue
+        api = (r.get("api") or "").strip().lower()
+        if api:
+            bucket = audio.get(api)
+            if bucket is None:
+                bucket = audio_other.setdefault(
+                    api, {"generations": 0, "seconds": 0.0, "failed": 0,
+                          "by_module": {}})
+            if r.get("ok") is False:
+                bucket["failed"] += 1
+                continue
+            bucket["generations"] += int(r.get("units") or 1)
+            bucket["seconds"] += (int(r.get("bytes") or 0)) / 1000.0
+            bucket["by_module"][r.get("tool") or "unknown"] = (
+                bucket["by_module"].get(r.get("tool") or "unknown", 0) + 1)
             continue
         if r.get("ok") is False:
             failed += 1
@@ -805,7 +862,23 @@ def elevenlabs_estimate(month: str | None = None, rows: list[dict] | None = None
             "credits": round(credits, 1), "failed_renders": int(failed),
             "average_characters": int(chars / renders) if renders else None,
         },
-        "state": "measured" if renders else "not_measured",
+        "state": ("measured" if renders or any(
+            b["generations"] for b in list(audio.values()) + list(audio_other.values()))
+            else "not_measured"),
+        # Its own line, never folded into the characters above. No published
+        # per-generation rate is held for either product, so the count is real
+        # and the cost is *not measured* rather than invented -- the rule the
+        # rest of this file works to.
+        "audio_generations": {
+            **{k: {**v, "seconds": round(v["seconds"], 1)} for k, v in audio.items()},
+            **{k: {**v, "seconds": round(v["seconds"], 1)}
+               for k, v in audio_other.items()},
+        },
+        "audio_basis": ("Sound effects and music are billed per generation rather "
+                        "than per character, so they are counted apart and are not "
+                        "in the character total above. No per-generation rate is "
+                        "published on this deployment, so what they cost is not "
+                        "measured."),
         "account": (elevenlabs_account() if live else None),
         "estimated_cost": cost,
         "projected_month_end": _project(cost, month),
@@ -1182,6 +1255,20 @@ def _google_calls(src: str) -> bool:
                                    "requests.delete"))
 
 
+def _elevenlabs_calls(src: str) -> bool:
+    """A file that reaches one of ElevenLabs' three billed audio endpoints.
+
+    Speech, sound effects and music. `/music` on its own is far too ordinary
+    a string to match — a landing page naming a music path would read as a
+    provider call, which is the crying wolf `_brandfetch_calls` and
+    `PICKAXE`'s marker are each written to avoid — so the composer counts
+    only where the file plainly speaks to ElevenLabs as well.
+    """
+    if "/text-to-speech" in src or "/sound-generation" in src:
+        return True
+    return ('"/music"' in src or "'/music'" in src) and "elevenlabs" in src.lower()
+
+
 def _brandfetch_calls(src: str) -> bool:
     """A file that looks a CLIENT up, not one that checks the key still works.
 
@@ -1201,8 +1288,14 @@ def _brandfetch_calls(src: str) -> bool:
 
 _PROVIDER_MARKERS = {
     "elevenlabs": {
-        "calls": lambda src: "/text-to-speech" in src,
-        "recorded": ("record_tts", 'record("elevenlabs"'),
+        # Three endpoints, not one. `/sound-generation` and `/music` bill per
+        # generation and were outside every marker here, so a module could
+        # have spent on either with nothing able to name the gap -- which is
+        # exactly the state HeyGen, Runway and Creatomate were in before they
+        # were added.
+        "calls": _elevenlabs_calls,
+        "recorded": ("record_tts", "record_audio_generation",
+                     'record("elevenlabs"'),
         "detail": "Renders speech through ElevenLabs without recording the "
                   "characters, so this spend never reaches the usage page.",
         "fix": "Add quotas.record_tts(text, module=..., model=...) after the "
