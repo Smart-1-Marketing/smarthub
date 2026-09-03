@@ -52,29 +52,13 @@ means the button reads as never pressed.
 from flask import Blueprint, jsonify, request
 
 from ..db import db
-from ..models import (Client, CommercialProject, RenderApproval, RenderJob,
+from ..models import (Client, CommercialProject, RenderApproval,
                       SuiteDelivery)
 
 bp = Blueprint("cb_suite", __name__, url_prefix="/api/projects/<int:project_id>")
 
 # Writes on this blueprint that deliberately record nothing, with the reason.
 HOUSEKEEPING_ROUTES = {}
-
-try:
-    from hub import audit as _hub_audit
-    # Bound with the actor rather than passed one per call: `for_module`
-    # supplies `actor` itself, so a call site adding `actor=` raises a
-    # TypeError inside a swallow — the first trap `hub/audit.py` names. The
-    # lambda defers to call time because `_actor` is defined below.
-    _cb_log = _hub_audit.for_module("commercial_builder", lambda: _actor())
-except Exception:                                        # noqa: BLE001
-    def _cb_log(*_a, **_k):
-        return None
-
-try:
-    from hub import suite_opportunity
-except Exception:                                        # noqa: BLE001 — standalone
-    suite_opportunity = None
 
 
 def _actor():
@@ -89,6 +73,22 @@ def _actor():
     if isinstance(user, dict):
         return user.get("email") or user.get("name") or "Team"
     return str(user or "Team")
+
+
+try:
+    from hub import audit as _hub_audit
+    # Bound with the actor rather than passed one per call: `for_module`
+    # supplies `actor` itself, so a call site adding `actor=` raises a
+    # TypeError inside a swallow — the first trap `hub/audit.py` names.
+    _cb_log = _hub_audit.for_module("commercial_builder", _actor)
+except Exception:                                        # noqa: BLE001
+    def _cb_log(*_a, **_k):
+        return None
+
+try:
+    from hub import suite_opportunity
+except Exception:                                        # noqa: BLE001 — standalone
+    suite_opportunity = None
 
 
 def _delivery(project_id):

@@ -23,7 +23,6 @@ the copy that must still be, because a rule loosened until it stops crying
 wolf and then loosened once more is a rule that passes on everything.
 """
 
-import json
 import os
 import sys
 import tempfile

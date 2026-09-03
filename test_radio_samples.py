@@ -102,7 +102,18 @@ for spot in fan["spots"]:
     check(f"  and its stored grade agrees",
           (spot.get("grade") or {}).get("state"), "ok")
 
-for slot in DURATIONS:
+# The sample writes the pair, not the whole menu. Radio Promo sells four
+# lengths now, and iterating the catalog asked this sample for a :10 script it
+# was never meant to carry -- so the slots are read off the project, and the
+# set is asserted rather than left to whatever happened to be in the dict: a
+# loop over an empty selection is a clean sweep that checked nothing.
+promo_slots = [slot for slot in DURATIONS if slot["key"] in promo["slots"]]
+check("the sample says which lengths it writes",
+      [slot["key"] for slot in promo_slots], ["fifteen", "thirty"])
+check("  and it wrote a script for each of them",
+      sorted(k for k in promo["scripts"] if k != "hook"), ["fifteen", "thirty"])
+
+for slot in promo_slots:
     part = promo["scripts"][slot["key"]]
     inside = slot["low"] <= part["word_count"] <= slot["high"]
     check(f"promo :{slot['seconds']} is inside {slot['low']}-{slot['high']} "
