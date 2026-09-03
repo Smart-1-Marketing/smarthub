@@ -209,12 +209,13 @@ def run():
 
     monitoring.optimization.scan_account = lambda *a, **k: many
     applied.clear()
-    # Room for three operations only: three land, the rest are skipped.
-    out = monitoring.sweep(actor="test")
+    # Full headroom here: what is being asserted is the per-run cap on its own.
+    monitoring.sweep(actor="test")
     check("the cap holds through a real sweep",
           len(applied) == store.AUTO_APPLY_MAX_PER_RUN, len(applied))
 
     applied.clear()
+    # Room for the scan and three applies only, so the fourth is skipped.
     monitoring._headroom = lambda: (monitoring._cost_per_account() + 3,
                                     {"measured": True, "remaining": 9})
     out = monitoring.sweep(actor="test")

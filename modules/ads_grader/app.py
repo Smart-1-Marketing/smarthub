@@ -54,9 +54,19 @@ except Exception:                                        # noqa: BLE001
 
 
 def _client_ip() -> str:
+    """The address the rate limiter keys on, through the Hub's one reading.
+
+    `client_ip(headers, remote_addr)` takes both -- called with neither it
+    raised TypeError straight into the guard below, so the shared LAST-HOP
+    rule never ran and this fell back to a fourth longhand copy of it.
+    hub/auth.py's own docstring is about exactly that: the first entry in
+    X-Forwarded-For is supplied by the client and trivially spoofed, it was
+    written out longhand at four call sites, and one of them had it backwards.
+    The fallback stays for a module running outside the Hub, and never raises.
+    """
     try:
         from hub.auth import client_ip
-        return client_ip()
+        return client_ip(request.headers, request.remote_addr or "")
     except Exception:                                    # noqa: BLE001
         return (request.headers.get("X-Forwarded-For", "").split(",")[-1].strip()
                 or request.remote_addr or "")
@@ -124,12 +134,16 @@ def api_start():
     state = store.start_session(lead_id=lead_id, name=body.get("name") or "",
                                 email=email, phone=phone, company=company,
                                 website=body.get("website") or "")
-    try:
-        url = grading.auth_url(state)
-    except grading.GraderError as exc:
+    # Asked as a question rather than by building a URL and discarding it:
+    # what this route needs to know is whether the tool can run at all, and
+    # /connect builds the real address when the visitor gets there.
+    ready, missing = grading.configured()
+    if not ready:
         # The lead is already filed, which is why this is a 503 with the lead
         # kept rather than a refusal that loses both.
-        return jsonify({"error": str(exc), "lead_saved": bool(lead_id)}), 503
+        return jsonify({"error": "This tool is not configured yet: "
+                                 + ", ".join(missing),
+                        "lead_saved": bool(lead_id)}), 503
     return jsonify({"ok": True, "lead_saved": bool(lead_id),
                     "connect_url": f"{MOUNT}/connect?state={state}"})
 

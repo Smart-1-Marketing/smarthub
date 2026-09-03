@@ -112,6 +112,44 @@ def run():
     check("the callback lets the token go rather than passing it on",
           "del token" in app_source)
 
+    # --------------------------------------------- the rate-limit key
+    print("\nThe address the rate limiter keys on")
+    # A regression pin, because this failed in SILENCE: _client_ip() called
+    # hub.auth.client_ip() with no arguments, which is a TypeError straight
+    # into its own guard, so the shared last-hop rule never ran and the
+    # module fell back to a fourth longhand copy of it. Driven rather than
+    # read, so the next call-signature change cannot quietly restore it.
+    # Comparing the two ANSWERS cannot fail: the fallback also takes the last
+    # hop, so it agrees with the shared rule and the assertion passes on the
+    # bug as well -- the vacuous-check failure test_suite_embed.py had to undo.
+    # What has to be asserted is that the shared function RAN, so it is stubbed
+    # with a sentinel no fallback could produce.
+    import hub.auth as _hub_auth
+    _seen = []
+    _real_client_ip = _hub_auth.client_ip
+
+    def _spy(headers, remote_addr=""):
+        _seen.append((headers.get("X-Forwarded-For", ""), remote_addr))
+        return "sentinel-from-the-shared-rule"
+
+    _hub_auth.client_ip = _spy
+    try:
+        with grader_app.app.test_request_context(
+                "/", headers={"X-Forwarded-For": "1.1.1.1, 9.9.9.9"},
+                environ_base={"REMOTE_ADDR": "5.5.5.5"}):
+            answer = grader_app._client_ip()
+    finally:
+        _hub_auth.client_ip = _real_client_ip
+    check("the module reads the Hub's own shared rule rather than a copy",
+          answer == "sentinel-from-the-shared-rule", answer)
+    check("...and hands it both arguments it takes",
+          _seen == [("1.1.1.1, 9.9.9.9", "5.5.5.5")], _seen)
+    with grader_app.app.test_request_context(
+            "/", headers={"X-Forwarded-For": "1.1.1.1, 9.9.9.9"},
+            environ_base={"REMOTE_ADDR": "5.5.5.5"}):
+        check("which answers the LAST hop, not the client-supplied first one",
+              grader_app._client_ip() == "9.9.9.9", grader_app._client_ip())
+
     # ------------------------------------------ the lead comes first
     print("\nThe lead is captured before OAuth starts")
     captured = []
