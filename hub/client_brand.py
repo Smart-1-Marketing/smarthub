@@ -144,6 +144,11 @@ NOT_WORK = {
     "ski":          "a lead off a landing page — the prospect's own name",
     "stadium":      "a lead off a landing page — the prospect's own name",
     "tourism":      "a lead off a landing page — the prospect's own name",
+    # The Google Ads Grader is the same shape one tool further out: a stranger
+    # connects their OWN account, so the name on the row is a prospect's
+    # business rather than a client we have produced anything for. The grade
+    # is a measurement of what they are already doing, not a deliverable.
+    "ads_grader":   "a graded prospect — their own account, not our work",
     # A join we recorded, not something the client received. Attaching a GA4
     # property says who owns it; it does not say we made anything.
     "google_index": "a resource joined to a client, not work delivered",

@@ -162,6 +162,13 @@ jobs:
         # have emailed nobody.
         run: python test_ads_performance_reports.py
 
+      - name: Public Google Ads Grader
+        # Two properties above all: the lead is captured before OAuth starts,
+        # so an abandoned consent screen costs the grade and not the prospect;
+        # and no credential is ever stored, asserted from the model columns
+        # rather than from the docstring.
+        run: python test_ads_grader.py
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an
