@@ -1586,6 +1586,15 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
+      # One design into the whole size set. The failure it exists to catch is
+      # a resize that produced a broken ad and reported success -- silent from
+      # every direction, because the frame renders and the file uploads and it
+      # is the client who sees a headline printed through a button. Also holds
+      # the two halves of the propagation rule, which fail in opposite
+      # directions: copy must reach a hand-tuned frame and layout must not.
+      - name: One design, the whole size set
+        run: python3 test_magic_resize.py
+
       # The primitives four screens of one product share. It also walks the
       # rendered HTML to assert the page wrapper still contains the page: one
       # stray closing tag ends it early, after which every rule scoped to it

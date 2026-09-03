@@ -41,6 +41,7 @@ CREATIVE_PREFIXES = (
     # Images
     "/tools/display-ads",
     "/tools/image-creator",
+    "/tools/magic-resize",
     "/tools/image",              # Image Optimizer & Resizer
     "/tools/bg-remover",
     "/tools/page-images",

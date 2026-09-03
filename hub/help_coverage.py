@@ -112,6 +112,7 @@ PREFIXES: dict[str, str] = {
     # Creative
     "/tools/display-ads/_hub/start": "display_ads",
     "/tools/image-creator/": "image_creator",
+    "/tools/magic-resize/": "magic_resize",
     "/tools/image/": "image_optimizer",
     "/tools/bg-remover/": "bg_remover",
     "/tools/page-images/": "page_images",

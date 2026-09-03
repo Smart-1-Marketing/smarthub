@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Magic Resize{% endblock %} · Smart 1 Hub</title>
+<style>
+  .mr-frame-shell{overflow-x:auto}
+  .mr-canvas{position:relative;background:#fff;border:1px solid #d7dee8;
+             box-shadow:0 1px 2px rgba(16,32,52,.06)}
+  .mr-obj{position:absolute;box-sizing:border-box;overflow:hidden;
+          font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .mr-obj.is-text{display:flex;align-items:center;line-height:1.15}
+  .mr-obj.is-bg{background:#e8eef6}
+  .mr-obj.is-logo{background:#dfe8f4;border:1px dashed #8fa8c6}
+  .mr-obj.is-cta{background:#0b5cd5;color:#fff;display:flex;
+                 align-items:center;justify-content:center;border-radius:4px}
+  .mr-obj.is-product{background:#e6efe6;border:1px dashed #9dbb9d}
+  .mr-obj.is-decorative{background:rgba(120,140,165,.18)}
+  .mr-obj.is-untagged{background:repeating-linear-gradient(45deg,#fff5e0,
+                      #fff5e0 6px,#ffe9bd 6px,#ffe9bd 12px);
+                      border:1px dashed #d2a24c}
+  .mr-obj .mr-tag{font-size:9px;color:#4a5f7a;padding:1px 3px}
+  .mr-grid{display:grid;gap:18px;
+           grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .mr-find{margin:0;padding-left:16px;font-size:12px}
+  .mr-find li{margin:2px 0}
+  .mr-find .lv-fail{color:#a3232b}
+  .mr-find .lv-warn{color:#8a5a00}
+  .mr-find .lv-note{color:#4a5f7a}
+  .mr-src{font-size:11px;color:#5d6f86}
+</style>
+</head>
+<body>
+<div class="s1d-page">
+  <div class="s1d-head">
+    <h1 class="s1d-title">{% block heading %}Magic Resize{% endblock %}</h1>
+    <div class="s1d-actions">{% block actions %}{% endblock %}</div>
+  </div>
+  {% block body %}{% endblock %}
+  <p class="mr-src" style="margin-top:28px">Smart 1 Hub {{ version }}</p>
+</div>
+</body>
+</html>

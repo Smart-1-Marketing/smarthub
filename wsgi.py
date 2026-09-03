@@ -94,6 +94,9 @@ _MOUNT_ACTIVE = {
     "/sales/builder": "salesb", "/sales/proposals": "salesb",
     "/tools/image": "tools", "/tools/pdf": "tools", "/tools/seo-images": "tools",
     "/tools/image-creator": "tools", "/tools/bg-remover": "tools",
+    # Creative rather than Tools: it produces the finished size set a client
+    # receives, and its tile sits on /creative beside Image Creator.
+    "/tools/magic-resize": "creative",
     "/tools/utm": "tools",
     # Creative rather than Tools: it sources imagery for client work and its
     # tile sits on /creative beside Image Creator.
@@ -435,6 +438,15 @@ except Exception as _ic_exc:  # noqa: BLE001
     imgcreator, imgcreator_fb = None, _fallback_app("Image Creator", str(_ic_exc))
 
 try:
+    import importlib as _il_mr
+    magicresize = _il_mr.import_module("modules.magic_resize.app")
+    magicresize_fb = None
+except Exception as _mr_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    magicresize, magicresize_fb = None, _fallback_app("Magic Resize", str(_mr_exc))
+
+try:
     import importlib as _il5
     bgrem = _il5.import_module("modules.bg_remover.app")
     bgrem_fb = None
@@ -726,6 +738,10 @@ application = DispatcherMiddleware(hub_app, {
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/seo-images": _mount(seoimg.app, "/tools/seo-images") if seoimg else seoimg_fb,
     "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,
+    # Not /tools/display-ads: that prefix is the Display Ad Builder's, and
+    # DispatcherMiddleware routes purely by prefix, so a second module under
+    # it never receives a request.
+    "/tools/magic-resize": _mount(magicresize.app, "/tools/magic-resize") if magicresize else magicresize_fb,
     "/tools/bg-remover": _mount(bgrem.app, "/tools/bg-remover") if bgrem else bgrem_fb,
     "/tools/utm": _mount(utm.app, "/tools/utm") if utm else utm_fb,
     # Searches the three free stock libraries and our own Cloudinary folders in
