@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -550,8 +551,26 @@ _OPENAI_RECORDERS = ("note_usage", "note_sdk_usage", "_record(", "record(")
 
 
 def _openai_spends(text: str) -> bool:
-    return (any(e in text for e in _OPENAI_ENDPOINTS)
-            or any(c in text for c in _OPENAI_SDK_CALLS))
+    """Does this text reach a billed OpenAI endpoint?
+
+    The SDK spellings are matched on a WORD BOUNDARY rather than as a bare
+    substring, because `images.generate` is a substring of
+    `pmax_images.generate_asset_image` -- a Smart 1 Ads helper that reaches
+    OpenAI through its own recorded path and was reported as an unrecorded
+    call site on the strength of its own name. That is the substring trap this
+    codebase names in three other places -- a class match on `btn` also
+    matching `subtle`, and an unreferenced-function scan crediting a name
+    because a longer function name contains it -- and a check with a false
+    positive is a check somebody switches off, taking the real findings with
+    it.
+
+    A URL fragment needs no such guard: `/v1/images/generations` cannot be a
+    coincidence of an identifier.
+    """
+    if any(e in text for e in _OPENAI_ENDPOINTS):
+        return True
+    return any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(call), text)
+               for call in _OPENAI_SDK_CALLS)
 
 
 def openai_spend_unrecorded(src: str) -> bool:

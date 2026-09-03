@@ -51,11 +51,14 @@ async function start() {
     email: document.getElementById('email').value.trim(),
     phone: document.getElementById('phone').value.trim(),
   };
-  button.disabled = true;
-  const label = button.textContent;
-  // A mark, because the next thing that happens is a redirect to Google and a
-  // button that grays out saying nothing reads as a page that broke.
-  button.innerHTML = '<span class="spin"></span> One moment…';
+  // The Hub's shared mark: the next thing that happens is a redirect to
+  // Google, and a button that grays out saying nothing reads as a page that
+  // broke. busy() keeps the button's own label to put back, and a page that
+  // failed to run the block costs the mark rather than the press.
+  const wait = window.S1Wait
+    ? S1Wait.busy(button, {kind: 'wait', label: 'One moment\u2026'})
+    : {done: function () { button.disabled = false; }};
+  if (!window.S1Wait) { button.disabled = true; }
   box.innerHTML = '';
   try {
     const resp = await fetch(MOUNT + '/api/start', {
@@ -65,19 +68,17 @@ async function start() {
     if (!resp.ok) {
       // The lead is already filed when the grader itself is unavailable, and
       // saying so is the difference between "we lost you" and "we have you".
+      wait.done();
       box.innerHTML = '<div class="' + (data.lead_saved ? 'warn' : 'bad') + '">'
         + esc(data.error || 'That did not work.')
         + (data.lead_saved ? ' Your details are with us either way.' : '')
         + '</div>';
-      button.disabled = false;
-      button.textContent = label;
       return;
     }
     window.location.href = data.connect_url;
   } catch (err) {
+    wait.done();
     box.innerHTML = '<div class="bad">' + esc(err.message) + '</div>';
-    button.disabled = false;
-    button.textContent = label;
   }
 }
 </script>

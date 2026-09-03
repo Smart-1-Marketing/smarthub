@@ -434,6 +434,7 @@ FULL_ASSET_ON_PURPOSE = {
     ("modules/ad_builder/public/embed.html", "l.kind || 'logo'"): _LOGO,
     ("modules/ads_builder/templates/_estimate_doc.html", "logo.url"): _LOGO,
     ("modules/ads_builder/templates/ads_proposal.html", 'alt="logo"'): _LOGO,
+    ("modules/ads_builder/templates/ads_proposal.html", 'alt="Logo"'): _LOGO,
     ("modules/scans/templates/scan_detail.html", "mark.url"): _LOGO,
     ("modules/scans/templates/scan_detail.html", "preview.url"):
         "one provider screenshot per breakpoint in the scan's dedicated "

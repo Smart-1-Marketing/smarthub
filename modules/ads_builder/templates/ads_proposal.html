@@ -358,7 +358,7 @@
         <div style="min-width:220px">
           <div><b>{{ req.label }}</b> <span class="hint" style="display:inline">{{ req.ratio }}{{ ', required' if req.minimum else ', optional' }}</span></div>
           {% if got and got[0].url %}
-            <img src="{{ got[0].url }}" alt="{{ req.label }}" style="max-width:200px;border-radius:6px;margin-top:5px">
+            <img src="{{ got[0].thumb or got[0].url }}" alt="{{ req.label }}" style="max-width:200px;border-radius:6px;margin-top:5px">
           {% else %}
             <div class="hint" style="margin-top:5px">Not supplied yet.</div>
           {% endif %}

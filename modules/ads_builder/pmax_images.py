@@ -168,6 +168,13 @@ def generate_asset_image(role: str, prompt: str, *, client: str = "",
     url = stored.get("url") if isinstance(stored, dict) else getattr(stored, "url", "")
     return {
         "role": role, "url": url or "",
+        # Derived on the row rather than in the template: a 1200x628 hero drawn
+        # into a 200px box is the full asset delivered to draw a tile, and
+        # Cloudinary bills a credit per gigabyte delivered. hub/storage.py is
+        # the one reading of what a preview is; the deploy still uploads the
+        # ORIGINAL, because the preview is what a screen shows and never what
+        # a client's campaign runs.
+        "thumb": storage.preview_url(url or ""),
         "width": processed.width, "height": processed.height,
         "ratio": entry["ratio"], "label": entry["label"],
         "prompt": str(prompt)[:600],

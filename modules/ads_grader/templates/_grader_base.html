@@ -37,12 +37,14 @@
   .bad { background:#fdecec; border-left:3px solid var(--bad); padding:10px 14px;
          border-radius:0 6px 6px 0; margin-top:12px; font-size:13.5px }
   .foot { color:var(--muted); font-size:12px; margin-top:18px; text-align:center }
-  .spin { display:inline-block; width:13px; height:13px; border:2px solid rgba(0,158,210,.3);
-          border-top-color:var(--blue); border-radius:50%; animation:s 1.9s linear infinite;
-          vertical-align:-2px }
-  @keyframes s { to { transform:rotate(360deg) } }
-  @media (prefers-reduced-motion:reduce) { .spin { animation:none } }
 </style>
+{# The Hub's own wait mark, rather than a fifth hand-rolled spinner. This page
+   is served to a stranger and carries none of the Hub's chrome -- which is
+   exactly how the seven client-facing pages hub/thinking.py was written for
+   lost theirs, since hub-thinking.js rides in with the chrome. Guarded like
+   every helper call here, so a Jinja environment that never got
+   install_template_helpers() loses the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
 </head>
 <body>
 <div class="wrap">

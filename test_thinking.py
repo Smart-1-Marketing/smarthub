@@ -720,8 +720,14 @@ for _mod in sorted((ROOT / "modules").iterdir()):
                     if not re.search(r"\b(?:fetch|sendBeacon)\s*\(", _src):
                         continue      # nothing to wait on, nothing to mark
                     _full = _src
-                    for _inc in re.findall(r'\{%-?\s*(?:include|import)\s+"([^"]+)"',
-                                           _src):
+                    # `extends` as well as `include`: a base template is the
+                    # ordinary place to put a block every page in a module
+                    # needs, and a sweep that does not follow inheritance
+                    # reports a page as unmarked because its mark is one file
+                    # up. Found by modules/ads_grader, whose four pages all
+                    # carry it through _grader_base.html.
+                    for _inc in re.findall(
+                            r'\{%-?\s*(?:include|import|extends)\s+"([^"]+)"', _src):
                         for _c in _mod.rglob(_inc):
                             _full += _c.read_text(encoding="utf-8", errors="ignore")
                     _rel = str(_t.relative_to(ROOT))

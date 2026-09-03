@@ -212,6 +212,9 @@ def _normalise_images(images) -> list[dict]:
         out.append({
             "role": role,
             "url": str(item.get("url") or "").strip()[:2000],
+            # Carried through normalisation, or a saved campaign re-read would
+            # lose it and the tile would go back to drawing the full asset.
+            "thumb": str(item.get("thumb") or "").strip()[:2000],
             "name": " ".join(str(item.get("name") or "").split())[:128],
             "prompt": " ".join(str(item.get("prompt") or "").split())[:600],
             "width": item.get("width"), "height": item.get("height"),
