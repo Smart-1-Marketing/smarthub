@@ -70,8 +70,10 @@ def section(title):
     print(f"\n{title}\n{'-' * len(title)}")
 
 
+import importlib                                                 # noqa: E402
+
 from hub import record_health as rh                              # noqa: E402
-from hub import seo, upsell, sales_status, client_health, knack_data  # noqa: E402
+from hub import seo                                              # noqa: E402
 
 TODAY = dt.date(2026, 9, 3)
 
@@ -97,7 +99,7 @@ class Stub:
     def __enter__(self):
         for dotted, value in self.targets.items():
             mod, attr = dotted.rsplit(".", 1)
-            m = sys.modules["hub." + mod]
+            m = importlib.import_module("hub." + mod)
             self.saved[dotted] = getattr(m, attr)
             setattr(m, attr, value)
         return self
@@ -178,7 +180,6 @@ check("and the SEO queue rows carry the record's own section link",
       any(q.get("href", "").endswith("#blogs") for q in out["queue"]))
 
 section("1b. Deep links")
-from hub.templates import __path__ as _tp                        # noqa: E402,F401
 REC = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
 SECTION_KEYS = set(re.findall(r"\{key:'([a-z]+)'", REC[REC.find("const C360_SECTIONS"):REC.find("/* ---- end c360 sections")]))
 check("the template declares rail sections", len(SECTION_KEYS) >= 6)

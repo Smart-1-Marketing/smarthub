@@ -332,10 +332,11 @@ check("and GHL is never asked when the Knack half cannot answer", saas.calls == 
 section("The probe is read-only")
 
 import ast                                                       # noqa: E402
+import pathlib                                                   # noqa: E402
 probe = os.path.join(ROOT, "tools", "probe_ghl_saas.py")
 check("tools/probe_ghl_saas.py exists", os.path.exists(probe))
 if os.path.exists(probe):
-    src = open(probe, encoding="utf-8").read()
+    src = pathlib.Path(probe).read_text(encoding="utf-8")
     tree = ast.parse(src)
     calls = {n.func.attr for n in ast.walk(tree)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
