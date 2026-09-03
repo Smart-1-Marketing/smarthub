@@ -1280,16 +1280,61 @@ def _plan_monthly_price(plan: dict) -> float:
 # "canceled" are not.
 _ACTIVE_SUB_STATUSES = {"active", "trialing", "past_due"}
 
+# The statuses this report deliberately leaves OUT, named so that a string
+# in neither set is a finding rather than a silent drop. Before this list
+# existed, `status not in _ACTIVE_SUB_STATUSES` treated "canceled" and a
+# spelling nobody here had ever seen exactly alike -- and the second one is
+# a paying client quietly vanishing from a billing report. Both sets are
+# transcribed from Stripe's vocabulary and have NOT been confirmed against a
+# live response; tools/probe_ghl_saas.py prints what GHL actually returns.
+_INACTIVE_SUB_STATUSES = {"paused", "canceled", "cancelled", "incomplete",
+                          "incomplete_expired", "unpaid"}
 
-def _ghl_billing_rows() -> list:
+
+def _unknown_status_note(rows: list) -> str:
+    """One sentence naming every sub-account whose billing status is in
+    neither set -- empty when there are none.
+
+    A status this report has never heard of is excluded from the totals
+    (nothing here can say whether it bills), and that exclusion is printed
+    rather than silent: a billing report that under-reports quietly is
+    worse than one that says what it could not count.
+    """
+    odd = [r for r in rows
+           if r["status"] not in _ACTIVE_SUB_STATUSES
+           and r["status"] not in _INACTIVE_SUB_STATUSES]
+    if not odd:
+        return ""
+    statuses = sorted({r["status"] or "(blank)" for r in odd})
+    names = [r["raw_name"] for r in odd]
+    shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+    n = len(odd)
+    return (f"{n} sub-account{'s' if n != 1 else ''} had a billing status this "
+            f"report does not recognise ({', '.join(statuses)}) and "
+            f"{'are' if n != 1 else 'is'} left out of every figure above rather "
+            f"than guessed at: {shown}. Run tools/probe_ghl_saas.py and add the "
+            "status to the right list in hub/qa.py.")
+
+
+def _ghl_billing_rows() -> tuple:
     """One row per GHL sub-account that has ever been in SaaS mode, resolved
     to a plan name/price and matched to its Smart 1 client record in Knack
-    (by normalized business name — same fuzzy match used in invoice_off())."""
+    (by normalized business name — same fuzzy match used in invoice_off()).
+
+    Returns `(rows, caveats)`. A caveat is a sentence about a source that
+    answered partially: the plan catalogue refusing leaves every row at $0
+    with a bare plan id, which is a confident-looking answer on a failed
+    read, so it is named on the report rather than passed off as a total.
+    """
     locations = _ghl_saas_locations()
+    caveats: list[str] = []
     try:
         plans = _ghl_agency_plans()
-    except RuntimeError:
+    except RuntimeError as exc:
         plans = {}
+        caveats.append("The agency plan catalogue could not be read, so every "
+                       "Monthly figure is $0 and the Plan column shows the raw "
+                       f"plan id — the totals are not measured. ({exc})")
 
     from hub import client_key as ck
 
@@ -1345,7 +1390,7 @@ def _ghl_billing_rows() -> list:
             # can resolve in ten seconds.
             "match_candidates": hit_info.get("candidates") or [],
         })
-    return rows
+    return rows, caveats
 
 
 def ghl_billing_no_products() -> dict:
@@ -1363,7 +1408,7 @@ def ghl_billing_no_products() -> dict:
     if why:
         return _unmeasured(columns, why)
     try:
-        rows_raw = _ghl_billing_rows()
+        rows_raw, caveats = _ghl_billing_rows()
     except RuntimeError as exc:
         # "error", not "note": a failed API call must never render as the
         # green "Nothing to report — all clear" empty state. An audit that
@@ -1398,6 +1443,7 @@ def ghl_billing_no_products() -> dict:
                  "unmatched with the candidates listed rather than guessed at "
                  "— a wrong match is what makes this report disagree with the "
                  "invoices.")
+    note = " ".join([note, _unknown_status_note(rows_raw), *caveats]).strip()
     return {"columns": columns, "rows": [r for _, r in rows], "note": note}
 
 
@@ -1415,7 +1461,7 @@ def ghl_billing_this_month() -> dict:
     if why:
         return _unmeasured(columns, why)
     try:
-        rows_raw = _ghl_billing_rows()
+        rows_raw, caveats = _ghl_billing_rows()
     except RuntimeError as exc:
         # "error", not "note": a failed API call must never render as the
         # green "Nothing to report — all clear" empty state. An audit that
@@ -1434,13 +1480,11 @@ def ghl_billing_this_month() -> dict:
         ]))
         total += r["monthly"]
     rows.sort(key=lambda t: -t[0])
-    return {
-        "columns": columns,
-        "rows": [r for _, r in rows],
-        "note": (f"{len(rows)} Smart 1 Suite sub-accounts with active, trialing or "
-                 f"past-due billing this month — {_money(total)}/mo total. Plan and "
-                 "price come from the agency's SaaS Configurator plans."),
-    }
+    note = (f"{len(rows)} Smart 1 Suite sub-accounts with active, trialing or "
+            f"past-due billing this month — {_money(total)}/mo total. Plan and "
+            "price come from the agency's SaaS Configurator plans.")
+    note = " ".join([note, _unknown_status_note(rows_raw), *caveats]).strip()
+    return {"columns": columns, "rows": [r for _, r in rows], "note": note}
 
 
 # ---------------------------------------- invoice-off partner assignments

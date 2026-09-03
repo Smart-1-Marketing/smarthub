@@ -1606,6 +1606,14 @@ jobs:
       # run by nobody but a person who thought to type them -- and the file
       # making the claim is the file listing them. This asserts it in both
       # directions, so the next check added cannot be gated by nobody.
+      - name: Suite billing reports against a stubbed SaaS API
+        # The two GHL billing reports had never been run live and had no test.
+        # An unrecognised subscription status is named on the report rather
+        # than dropped, a refused plan catalogue is said rather than passed
+        # off as $0, and GHL refusing or the company id being unset is never
+        # an all-clear. tools/probe_ghl_saas.py is the read-only live half.
+        run: python3 test_ghl_billing.py
+
       - name: The gate runs every check a person runs
         run: python3 test_ci_gate.py
 
