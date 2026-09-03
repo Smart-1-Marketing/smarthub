@@ -1594,6 +1594,29 @@ REGISTRY: list[Help] = [
        "wrong exactly where the whole call to action lives. The runtime "
        "is checked against the slot, with a one-button tighten when the "
        "read comes in long."),
+    _h("radio_promo.build.music", "The bed is composed, not picked",
+       "There is no library of cleared tracks here — a bed is composed "
+       "to the length of the spot it sits under, so nothing has to be "
+       "trimmed to fit, and each mood tile shows on its tooltip the "
+       "words it will actually send. Composing is billed per "
+       "generation, so it is a button and never a page load. Three "
+       "answers are all real: compose one, upload a track the client "
+       "already has, or run a straight read with no bed. What is not "
+       "an answer is a bed you only described — that is what this step "
+       "used to save, and a described bed ships as silence under the "
+       "voice, which is why the checks stop it."),
+    _h("radio_promo.build.mix", "Mixed here, measured there",
+       "The mix is rendered in your browser, because there is no audio "
+       "decoder on the server at all — but the length filed against "
+       "the spot is read back off the finished file's own header, so it "
+       "is measured from the bytes we stored rather than reported by "
+       "this page. The bed ducks under the read at the dB pair the "
+       "level names, which is the same table the Commercial Builder's "
+       "video spots duck by. A read that overruns its slot is never "
+       "trimmed to fit — trimming clips the end off the phone number — "
+       "so it comes back measured and over, and tightening the script "
+       "is the fix. Findings stop a mix being filed; filing one anyway "
+       "needs a reason, and it is recorded against your name."),
 
     # ---------------- Fan Radio ----------------
     _h("fan_radio.build.setup", "Football flavor, nobody's trademark",

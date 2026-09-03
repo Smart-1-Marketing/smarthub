@@ -60,7 +60,7 @@
     // "Video Search", not "Video Backgrounds": the mount kept its name so
     // every existing link still resolves, and the tool did not.
     "video-backgrounds": "Video Search",
-    "radio-promo": "Radio Promo", "fan-radio": "Fan Radio",
+    "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
     // Tools
     "website-audit": "Website Audit", "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",

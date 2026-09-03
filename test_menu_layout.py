@@ -100,7 +100,7 @@ IMAGES = [
 ]
 VIDEOS = [("Commercial Builder", "/tools/commercial-builder/"),
           ("Video Search", "/tools/video-backgrounds/")]
-AUDIO = [("Radio Promo", "/tools/radio-promo/"),
+AUDIO = [("Radio Ad Creator", "/tools/radio-promo/"),
          ("Fan Radio", "/tools/fan-radio/")]
 
 for label, tiles in (("Images", IMAGES), ("Videos", VIDEOS), ("Audio", AUDIO)):
