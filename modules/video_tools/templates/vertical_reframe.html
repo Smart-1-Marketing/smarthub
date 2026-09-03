@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% import "_video_tools.html" as vt %}
+{% block title %}Vertical Reframe — Smart 1 Hub{% endblock %}
+{% block content %}
+{# The honest framing, on the page rather than only in reframe.py: this makes
+   a landscape master usable vertically, which is not the same as a spot built
+   vertical. Saying so here is what keeps it from being used as if it were. #}
+<div class="page-head">
+  <h2>Vertical Reframe {{ help_dot('video_tools.reframe') if help_dot is defined else '' }}</h2>
+  <p>Turns a 16:9 master into 9:16, 4:5 or 1:1, keeping the subject in frame
+     rather than cropping down the middle. A new file — the original is not
+     touched.</p>
+</div>
+
+{{ vt.styles() }}
+
+<div class="vt-steps">
+  {{ vt.source_step() }}
+
+  <section class="vt-step">
+    <h3><span class="n">2</span> The shape</h3>
+    <div class="vt-body">
+      <div class="vt-fields">
+        <div class="vt-field">
+          <label for="f-ratio">Output</label>
+          <select id="f-ratio">
+            {% for key, value in ratios.items() %}
+              <option value="{{ key }}" {{ 'selected' if key == cfg.DEFAULT_RATIO }}>{{ value.label }} — {{ value.w }}&times;{{ value.h }}</option>
+            {% endfor %}
+          </select>
+          <div class="hint" id="h-ratio"></div>
+        </div>
+        <div class="vt-field">
+          <label for="f-mode">How</label>
+          <select id="f-mode">
+            {% for key, value in modes.items() %}
+              <option value="{{ key }}" {{ 'selected' if key == cfg.DEFAULT_MODE }}>{{ value.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="hint" id="h-mode"></div>
+        </div>
+        <div class="vt-field" id="w-focus">
+          <label for="f-focus">Keep in frame</label>
+          <select id="f-focus">
+            {% for key, value in focus.items() %}
+              <option value="{{ key }}" {{ 'selected' if key == cfg.DEFAULT_FOCUS }}>{{ value.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="hint">Automatic follows the subject and re-frames at
+            each shot change. Dead center never surprises anybody.</div>
+        </div>
+        <div class="vt-field">
+          <label for="f-mute">Audio</label>
+          <select id="f-mute">
+            <option value="0" selected>Keep it</option>
+            <option value="1">Strip it (silent loop)</option>
+          </select>
+          <div class="hint">Strip it for a background loop. Keep it for
+            anything a person watches.</div>
+        </div>
+      </div>
+      <div class="vt-row" style="margin-top:14px">
+        <button class="vt-btn ghost" id="f-plan" disabled>Preview the crop</button>
+        {# Not automatic, and the button says what it costs. The module beside
+           this one settled the same question the same way: an AI call that
+           fires on page load is a bill nobody chose to pay. #}
+        <button class="vt-btn ghost" id="f-preflight" disabled>Check what I would lose (AI)</button>
+      </div>
+      <p class="vt-bad vt-hide" id="f-err"></p>
+    </div>
+  </section>
+
+  <section class="vt-step vt-hide" id="vt-preview">
+    <h3><span class="n">3</span> What it looks like</h3>
+    <div class="vt-body">
+      <div class="vt-stat" id="p-stat"></div>
+      <video class="vt-video" id="p-video" controls playsinline style="max-height:520px"></video>
+      <p class="vt-note">This preview is the real transformation — what you
+        save is what you are watching. Cloudinary builds it on first play, so
+        a long clip takes a moment to start.</p>
+      <div id="p-notes"></div>
+      <div id="p-pre"></div>
+      <div class="vt-row" style="margin-top:14px">
+        <button class="vt-btn" id="f-render">Make this version</button>
+      </div>
+    </div>
+  </section>
+
+  {{ vt.result_step(4) }}
+</div>
+
+{{ vt.shared_js('/tools/vertical-reframe', cfg.JOB_POLL_SECONDS * 1000) }}
+<script>
+(function () {
+  const $ = VT.$;
+  const RATIOS = {{ ratios|tojson }};
+  const MODES = {{ modes|tojson }};
+
+  const opts = () => ({
+    ratio: $("f-ratio").value,
+    mode: $("f-mode").value,
+    focus: $("f-focus").value,
+    mute: $("f-mute").value === "1",
+  });
+
+  function hints() {
+    $("h-ratio").textContent = (RATIOS[$("f-ratio").value] || {}).note || "";
+    $("h-mode").textContent = (MODES[$("f-mode").value] || {}).note || "";
+    // Framing is a choice between things to keep. Padding discards nothing,
+    // so there is nothing to choose and the control is hidden rather than
+    // shown doing nothing.
+    VT.show($("w-focus"), $("f-mode").value !== "blur");
+  }
+
+  VT.onSource = function (src) {
+    $("f-plan").disabled = false;
+    $("f-preflight").disabled = false;
+    VT.show($("vt-preview"), false);
+    VT.msg("f-err", "", false);
+  };
+
+  async function plan() {
+    if (!VT.source) return;
+    VT.msg("f-err", "", false);
+    const h = VT.busy($("f-plan"), "scan", "Working out the crop…");
+    try {
+      const data = await VT.post("/api/plan",
+        Object.assign({source: VT.source.public_id}, opts()));
+      const p = data.plan, loss = p.loss || {};
+      $("p-video").src = data.preview_url;
+      $("p-stat").innerHTML = `
+        <div><b>${p.width}&times;${p.height}</b>output</div>
+        <div><b>${VT.source.width}&times;${VT.source.height}</b>source</div>
+        <div><b>${loss.kept_width_pct !== undefined ? loss.kept_width_pct + "%" : "—"}</b>of the width kept</div>
+        <div><b>${loss.kept_area_pct !== undefined ? loss.kept_area_pct + "%" : "—"}</b>of the frame kept</div>`;
+      $("p-notes").innerHTML = (p.notes || []).map(n =>
+        `<p class="vt-warn">${n}</p>`).join("");
+      $("p-pre").innerHTML = "";
+      VT.show($("vt-preview"), true);
+    } catch (e) { VT.msg("f-err", e.message); }
+    finally { h.done(); }
+  }
+
+  async function preflight() {
+    if (!VT.source) return;
+    VT.msg("f-err", "", false);
+    // A model reading three stills: tens of seconds, and billed. The `ai`
+    // glyph is the one Client 360 already draws on its own AI control, so the
+    // two read as the same thing happening.
+    const h = VT.busy($("f-preflight"), "ai", "Looking at three frames…");
+    try {
+      const data = await VT.post("/api/preflight",
+        Object.assign({source: VT.source.public_id}, opts()));
+      VT.show($("vt-preview"), true);
+      $("p-pre").innerHTML =
+        '<p class="vt-warn"><b>Frame check</b><br>'
+        + String(data.reading || "").replace(/\n/g, "<br>") + "</p>"
+        + '<div style="display:flex;gap:8px;margin-top:8px">'
+        + data.frames.map(f => `<img src="${f}" alt="" style="width:33%;border-radius:6px">`).join("")
+        + "</div>";
+    } catch (e) { VT.msg("f-err", e.message); }
+    finally { h.done(); }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    hints();
+    $("f-plan").onclick = plan;
+    $("f-preflight").onclick = preflight;
+    $("f-render").onclick = () => VT.render("/api/render", opts());
+    for (const id of ["f-ratio", "f-mode", "f-focus", "f-mute"]) {
+      $(id).addEventListener("change", () => {
+        hints();
+        VT.show($("vt-preview"), false);
+      });
+    }
+  });
+})();
+</script>
+{% endblock %}

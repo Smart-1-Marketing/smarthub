@@ -60,6 +60,10 @@
     // "Video Search", not "Video Backgrounds": the mount kept its name so
     // every existing link still resolves, and the tool did not.
     "video-backgrounds": "Video Search",
+    // Two tools from modules/video_tools. Spelled out rather than left to
+    // pretty(), which would title-case the segment into "Dead Air" and drop
+    // the noun that says what the tool does.
+    "dead-air": "Dead Air Cutter", "vertical-reframe": "Vertical Reframe",
     "radio-promo": "Radio Promo", "fan-radio": "Fan Radio",
     // Tools
     "website-audit": "Website Audit", "builder": "Proposal Builder",
@@ -132,7 +136,8 @@
   var CREATIVE = ["seo-images", "image-creator", "bg-remover", "image",
                   "image-picker", "radio-promo", "fan-radio", "landing-ads",
                   "page-images", "commercial-builder", "display-ads",
-                  "stock-photos", "video-backgrounds"];
+                  "stock-photos", "video-backgrounds", "dead-air",
+                  "vertical-reframe"];
   CREATIVE.forEach(function (k) { PARENT[k] = ["/creative", "Creative"]; });
 
   function pretty(seg) {
