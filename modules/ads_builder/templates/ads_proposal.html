@@ -276,7 +276,112 @@
   <div id="ideasSemPanel"></div>
 </div>
 
-{# ---------------------------------------------------------------- ad groups #}
+{# ------------------------------------------------------------- asset groups #}
+{# A Performance Max campaign has no keywords at all, so the whole keyword
+   half of this page is not "empty" for one -- it is about a different product.
+   Rendered through it, a rep reads a keyword card with nothing in it and
+   concludes the generation failed. #}
+{% if campaign_type == 'PERFORMANCE_MAX' %}
+<div class="card">
+  <div class="row" style="margin-bottom:6px">
+    <h3 style="margin:0">Asset groups</h3>
+    <span style="color:#64748b;font-size:12.5px">Performance Max has no keywords.
+      Google assembles the ad from these assets across Search, YouTube, Display,
+      Discover, Gmail and Maps.</span>
+  </div>
+  {% if pmax and pmax.errors %}
+    <div class="note n-bad" style="margin-top:8px">
+      <b>Google will refuse this campaign as it stands</b>
+      <ul style="margin:6px 0 0 18px">
+        {% for e in pmax.errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    <div class="note n-good" style="margin-top:8px">
+      <b>Every required asset is present</b>
+      Deploy still creates the campaign paused, as it does for a search campaign.
+    </div>
+  {% endif %}
+  {% if pmax and pmax.warnings %}
+    {# Amber, and never a refusal: these are ad strength, and a check that
+       refuses a deployable asset group is a check somebody switches off. #}
+    <div class="note n-warn" style="margin-top:8px">
+      <b>Deployable, and these would make it stronger</b>
+      <ul style="margin:6px 0 0 18px">
+        {% for w in pmax.warnings %}<li>{{ w }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+  <div class="row" style="margin-top:10px">
+    <button class="b-sm" onclick="attachLogo()">Attach the client's logo</button>
+    <span class="hint" style="margin-left:8px">Looked up on their record, never
+      generated — a wrong logo is worse than none.</span>
+  </div>
+  <div id="pmaxMsg"></div>
+  <div class="hint" style="margin-top:10px">{{ pmax.note if pmax else '' }}</div>
+</div>
+
+{% for g in c.assetGroups or [] %}
+{% set group_index = loop.index0 %}
+<div class="card">
+  <h3>{{ g.name }}<span class="sub">{{ (g.headlines or [])|length }} headlines ·
+    {{ (g.descriptions or [])|length }} descriptions ·
+    {{ (g.images or [])|length }} image{{ '' if (g.images or [])|length == 1 else 's' }}</span></h3>
+  {% if g.theme %}<p style="margin-top:0;color:#64748b">{{ g.theme }}</p>{% endif %}
+  <div class="grid g2" style="margin-top:10px">
+    <div>
+      <label>Headlines (max {{ pmax_spec.TEXT_ASSETS.headlines.max_chars }} chars)</label>
+      <div class="chips">{% for h in g.headlines or [] %}<span class="chip">{{ h }}<span class="mt">{{ h|length }}</span></span>{% endfor %}</div>
+    </div>
+    <div>
+      <label>Long headlines (max {{ pmax_spec.TEXT_ASSETS.longHeadlines.max_chars }} chars)</label>
+      <div class="chips">{% for h in g.longHeadlines or [] %}<span class="chip">{{ h }}<span class="mt">{{ h|length }}</span></span>{% endfor %}</div>
+    </div>
+  </div>
+  <div style="margin-top:10px">
+    <label>Descriptions (max {{ pmax_spec.TEXT_ASSETS.descriptions.max_chars }} chars,
+      at least one {{ pmax_spec.TEXT_ASSETS.descriptions.short_max_chars }} or fewer)</label>
+    <div class="chips">{% for d in g.descriptions or [] %}<span class="chip">{{ d }}<span class="mt">{{ d|length }}</span></span>{% endfor %}</div>
+  </div>
+  {% if g.searchThemes %}
+  <div style="margin-top:10px">
+    <label>Search themes</label>
+    <div class="hint">A signal, not a targeting list — Performance Max has no match types.</div>
+    <div class="chips">{% for t in g.searchThemes %}<span class="chip">{{ t }}</span>{% endfor %}</div>
+  </div>
+  {% endif %}
+  <div style="margin-top:12px">
+    <label>Images</label>
+    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-start">
+      {% for role, req in pmax_spec.IMAGE_ASSETS.items() %}
+        {% set got = (g.images or [])|selectattr('role', 'equalto', role)|list %}
+        <div style="min-width:220px">
+          <div><b>{{ req.label }}</b> <span class="hint" style="display:inline">{{ req.ratio }}{{ ', required' if req.minimum else ', optional' }}</span></div>
+          {% if got and got[0].url %}
+            <img src="{{ got[0].url }}" alt="{{ req.label }}" style="max-width:200px;border-radius:6px;margin-top:5px">
+          {% else %}
+            <div class="hint" style="margin-top:5px">Not supplied yet.</div>
+          {% endif %}
+          <button class="b-sm" style="margin-top:5px"
+                  onclick="makeImage({{ group_index }}, '{{ role }}', this)">Generate</button>
+        </div>
+      {% endfor %}
+      {% set logos = (g.images or [])|selectattr('role', 'equalto', 'logo')|list %}
+      <div style="min-width:220px">
+        <div><b>{{ pmax_spec.LOGO_ASSETS.logo.label }}</b> <span class="hint" style="display:inline">{{ pmax_spec.LOGO_ASSETS.logo.ratio }}, required</span></div>
+        {% if logos and logos[0].url %}
+          <img src="{{ logos[0].url }}" alt="Logo" style="max-width:200px;border-radius:6px;margin-top:5px">
+        {% else %}
+          <div class="hint" style="margin-top:5px">Not attached. Use the button above — a logo is looked up, never generated.</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="hint" style="margin-top:8px">{{ pmax_spec.VIDEO_NOTE }}</div>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
 <div class="card" data-tour="ads-keywords">
   <div class="row" style="margin-bottom:6px">
     <h3 style="margin:0">Keywords {{ help_dot('ads_builder.proposal.keywords') if help_dot is defined else '' }}</h3>
@@ -330,6 +435,7 @@
   {% endif %}
 </div>
 {% endfor %}
+{% endif %}
 
 {# ------------------------------------------------------------------ assets #}
 <div class="card">
@@ -767,6 +873,42 @@ function toggleCut(el) {
   const btn = document.getElementById('applyCuts');
   btn.disabled = !n;
   btn.textContent = n ? `Remove ${n} selected` : 'Remove selected';
+}
+
+async function makeImage(groupIndex, role, button) {
+  // The mark, because this is a billed model call of tens of seconds behind a
+  // button that would otherwise gray out and say nothing.
+  const wait = (window.S1Think && S1Think.attach)
+    ? S1Think.attach(button, {kind: 'ai', label: 'Drawing the image'}) : null;
+  button.disabled = true;
+  try {
+    const out = await api('POST', `${MOUNT}/api/pmax/image`,
+      {proposal_id: PID, group_index: groupIndex, role: role});
+    if (wait) wait.done();
+    // Reloaded rather than patched in place: the validation panel above is
+    // server-rendered from the same campaign, and updating the picture without
+    // it would leave a refusal on screen that has just been satisfied.
+    window.location.reload();
+    return out;
+  } catch (err) {
+    if (wait) wait.done();
+    button.disabled = false;
+    document.getElementById('pmaxMsg').innerHTML =
+      `<div class="note n-bad"><b>That image was not made</b>${esc(err.message)}</div>`;
+  }
+}
+
+async function attachLogo() {
+  const box = document.getElementById('pmaxMsg');
+  box.innerHTML = '<div class="hint"><span class="spin"></span> Looking the logo up…</div>';
+  try {
+    await api('POST', `${MOUNT}/api/pmax/logo`, {proposal_id: PID});
+    window.location.reload();
+  } catch (err) {
+    // Named rather than a bare failure: "they have no logo on file" and "the
+    // lookup could not run" send somebody to two different places.
+    box.innerHTML = `<div class="note n-warn"><b>No logo was attached</b>${esc(err.message)}</div>`;
+  }
 }
 
 async function applyCuts() {

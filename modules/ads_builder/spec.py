@@ -200,6 +200,36 @@ def _text(value, limit: int = 2000) -> str:
     return str(value or "").strip()[:limit]
 
 
+# What kind of campaign this proposal is. SEARCH is the default and stays the
+# default: every proposal written before this existed is one, and a campaign
+# type that had to be back-filled onto stored records would be a migration
+# wearing a feature. Performance Max is a genuinely different product -- no
+# keywords, asset groups instead of ad groups, a different generation prompt
+# and a different mutate -- so it is a choice made before generation rather
+# than a switch flipped afterwards.
+CAMPAIGN_TYPES = ("SEARCH", "PERFORMANCE_MAX")
+DEFAULT_CAMPAIGN_TYPE = "SEARCH"
+
+CAMPAIGN_TYPE_LABELS = {
+    "SEARCH": "Search",
+    "PERFORMANCE_MAX": "Performance Max",
+}
+
+
+def campaign_type_of(value) -> str:
+    """The campaign type on a proposal, defaulting rather than failing.
+
+    Read from the campaign rather than stored in a column: create_all() adds
+    no column to an existing table, so one here would be silently absent on
+    the live Postgres while every local test passed -- and a stored proposal
+    written before this existed carries nothing, which is Search.
+    """
+    if isinstance(value, dict):
+        value = value.get("campaignType")
+    text = str(value or "").strip().upper().replace(" ", "_").replace("-", "_")
+    return text if text in CAMPAIGN_TYPES else DEFAULT_CAMPAIGN_TYPE
+
+
 def normalise_intake(body: dict) -> dict:
     """Everything the rep answered at the start, in one shape.
 

@@ -150,6 +150,12 @@ jobs:
         # what it returned before.
         run: python test_ad_intel.py
 
+      - name: Performance Max campaign type
+        # The half asserted hardest is the one that must not have moved: a
+        # Search proposal generates and deploys byte-for-byte as it did, and a
+        # proposal written before campaignType existed still reads as Search.
+        run: python test_ads_pmax.py
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an
