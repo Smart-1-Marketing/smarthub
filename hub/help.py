@@ -605,6 +605,45 @@ REGISTRY: list[Help] = [
        "screen or printed. Transparent background only works on PNG and WebP.",
        step=6, selector="[data-tour='export']"),
 
+    # ---------------- Magic Resize ----------------
+    # No `step=` and no `selector=` on any of these, and no `data-screen` on
+    # either template: a tour is offered only where one is registered, and
+    # naming a screen with no steps is how a page comes to serve four other
+    # screens' steps over elements that are not on it.
+    _h("magic_resize.start", "One design, the whole set",
+       "Resize takes a finished design and produces every size in a bundle "
+       "from it. Sizes close in shape to the design are scaled and put back "
+       "against the same edges; sizes that are a different shape are laid out "
+       "from a fixed house template instead, because a square squeezed into a "
+       "leaderboard is eight thin elements rather than a leaderboard."),
+    _h("magic_resize.source", "It starts from an Image Creator project",
+       "Paste the id of the design you want the set built from. The objects "
+       "come across as objects — text stays text and a logo stays a logo — "
+       "so every frame it produces can still be opened and edited."),
+    _h("magic_resize.bundle", "Pick the buy, not the sizes",
+       "Display Standard is the IAB set most display inventory is sold in. "
+       "Google adds the two Responsive Display asset sizes, which are an "
+       "asset pool Google lays out itself rather than banners it serves "
+       "whole. Social is the feed and story set."),
+    _h("magic_resize.sizes", "Where each number comes from",
+       "Every size the S1M CREATIVE SPEC KIT publishes is read from the kit "
+       "at load, so this tool and the requirement sheet a client is sent "
+       "cannot disagree about a dimension or a weight. The handful the kit "
+       "maps no unit for are ours and say so, and a file at one of those is "
+       "reported as not measured rather than judged against the unit it "
+       "happens to resemble."),
+    _h("magic_resize.roles", "A role is what makes a resize work",
+       "Knowing that this object is the logo and that one is the call to "
+       "action is what lets a leaderboard put the logo left and flow the copy "
+       "beside it. An untagged object is placed by geometry alone and is left "
+       "out of the template layouts, so it is worth setting one."),
+    _h("magic_resize.qc", "What blocks, and what only warns",
+       "A missing logo, a missing call to action, something covering the call "
+       "to action, an object past the frame edge and two objects overlapping "
+       "all mark a frame for review. The type-size floor only warns: no "
+       "platform publishes a minimum for display, so a hard failure there "
+       "would be our opinion wearing a platform's name."),
+
     # ---------------- Background Remover ----------------
     _h("bg_remover.upload.credits", "This one costs money",
        "Each cutout spends a remove.bg credit. The remaining balance is shown "

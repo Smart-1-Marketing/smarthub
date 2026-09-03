@@ -53,6 +53,7 @@
     "suite": "Suite", "google": "Google Finder", "clients": "Clients",
     // Creative
     "display-ads": "Display Ad Builder", "image-creator": "Image Creator",
+    "magic-resize": "Magic Resize",
     "image": "Image Optimizer & Resizer", "bg-remover": "Background Remover",
     "page-images": "Page Image Optimizer", "image-picker": "Client Image Uploads",
     "seo-images": "SEO Image Pipeline", "landing-ads": "Landing Page Ads",
@@ -134,7 +135,7 @@
   // URLs stayed under /tools/, so the trail kept sending people back to a page
   // their tool is no longer listed on. Display Ad Builder and Stock Photo
   // Search joined them later and were missed for the same reason.
-  var CREATIVE = ["seo-images", "image-creator", "bg-remover", "image",
+  var CREATIVE = ["seo-images", "image-creator", "magic-resize", "bg-remover", "image",
                   "image-picker", "radio-promo", "fan-radio", "landing-ads",
                   "page-images", "commercial-builder", "display-ads",
                   "stock-photos", "video-backgrounds", "dead-air",

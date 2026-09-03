@@ -1,0 +1,208 @@
+{% extends "_base.html" %}
+{% block title %}{{ project.name }}{% endblock %}
+{% block heading %}{{ project.name }}{% endblock %}
+{% block actions %}
+  <a class="s1d-btn ghost" href="{{ request.script_root }}/">All size sets</a>
+  <button class="s1d-btn ghost" id="mr-rebuild">Resize all</button>
+  <button class="s1d-btn" id="mr-export">Download the pack</button>
+{% endblock %}
+{% block body %}
+
+<div class="s1d-card">
+  <div class="s1d-rows">
+    <div><span class="s1d-l">Client</span><span class="s1d-v">{{ project.client or 'Not filed against a client' }}</span></div>
+    <div><span class="s1d-l">Design</span><span class="s1d-v">{{ project.source.width }}&times;{{ project.source.height }}, {{ project.source.objects|length }} objects</span></div>
+    <div><span class="s1d-l">Bundle</span><span class="s1d-v">{{ bundles[project.bundle].label if project.bundle in bundles else project.bundle }}</span></div>
+  </div>
+  <p class="mr-src" id="mr-msg"></p>
+</div>
+
+<div class="s1d-card">
+  <h2 class="s1d-h">
+    What each object is
+    {{ help_dot('magic_resize.roles') if help_dot is defined else '' }}
+  </h2>
+  <p>A role is what makes a resize work: it is how a leaderboard knows to put
+     the logo left and flow the copy beside it rather than shrinking the whole
+     stack. An untagged object is placed by geometry alone and is left out of
+     every template layout, so it is worth setting.</p>
+  <div class="mr-frame-shell">
+  <table class="s1d-table">
+    <thead><tr><th>Object</th><th>Kind</th><th>Role</th></tr></thead>
+    <tbody>
+      {% for o in project.source.objects %}
+      <tr>
+        <td>{{ o.text[:40] if o.text else o.id }}</td>
+        <td>{{ o.kind }}</td>
+        <td>
+          <select class="mr-role" data-object="{{ o.id }}">
+            <option value=""{% if not o.role %} selected{% endif %}>Not set</option>
+            {% for r in roles %}
+              <option value="{{ r.key }}"{% if o.role == r.key %} selected{% endif %}>{{ r.label }}</option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="mr-src">Changing a role rebuilds the frames that may be rebuilt.
+     A frame somebody has hand-tuned is never rebuilt by a change here.</p>
+</div>
+
+<h2 class="s1d-h">The set</h2>
+<div class="mr-grid" id="mr-frames">
+{% for sid, f in project.frames.items() %}
+  <div class="s1d-card" data-size="{{ sid }}">
+    <h3 class="s1d-h">{{ f.label or sid }} — {{ f.width }}&times;{{ f.height }}</h3>
+    <p>
+      <span class="s1d-pill {{ 'bad' if f.status == 'needs_review' else ('warn' if f.status in ('ai','edited') else 'ok') }}">
+        {{ {'auto':'Built','needs_review':'Needs review','ai':'AI adjusted','edited':'Hand-tuned'}.get(f.status, f.status) }}
+      </span>
+    </p>
+    {% set scale = (280.0 / f.width) if f.width > 280 else 1.0 %}
+    <div class="mr-frame-shell">
+      <div class="mr-canvas" style="width:{{ (f.width * scale)|round(1) }}px;height:{{ (f.height * scale)|round(1) }}px">
+        {% for o in f.objects %}
+          <div class="mr-obj is-{{ o.role or 'untagged' }}{{ ' is-text' if o.kind == 'text' else '' }}"
+               style="left:{{ (o.x * scale)|round(2) }}px;top:{{ (o.y * scale)|round(2) }}px;
+                      width:{{ (o.w * scale)|round(2) }}px;height:{{ (o.h * scale)|round(2) }}px;
+                      {% if o.kind == 'text' %}font-size:{{ ((o.fontSize or 12) * scale)|round(2) }}px;{% endif %}">
+            {% if o.kind == 'text' %}{{ o.text }}{% else %}<span class="mr-tag">{{ o.role or 'untagged' }}</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    <p class="mr-src">{{ f.tier_reason }}</p>
+    {% if f.findings %}
+      <ul class="mr-find">
+        {% for x in f.findings %}
+          <li class="lv-{{ x.level }}">{{ x.message }}{% if x.source == 'house' %} <em>(ours)</em>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% if f.unplaced %}
+      <p class="mr-src">Left out of this layout:
+        {% for u in f.unplaced %}{{ u.role or 'untagged' }}{% if not loop.last %}, {% endif %}{% endfor %}.
+        Nothing is deleted — those objects are still on the design.</p>
+    {% endif %}
+    {% if f.status == 'needs_review' %}
+      <button class="s1d-btn ghost mr-recompose" data-size="{{ sid }}">Recompose with AI</button>
+      <span class="mr-src mr-recompose-msg" data-size="{{ sid }}"></span>
+    {% endif %}
+  </div>
+{% else %}
+  <p>No frames yet. Press <strong>Resize all</strong>.</p>
+{% endfor %}
+</div>
+
+<div class="s1d-card">
+  <h2 class="s1d-h">
+    How a frame is judged
+    {{ help_dot('magic_resize.qc') if help_dot is defined else '' }}
+  </h2>
+  <p>A file's weight is judged by the spec kit, through
+     <code>hub/creative_specs.py</code>, so this tool and the requirement the
+     client was sent cannot disagree. A size the kit weighs nothing for is
+     reported as <strong>not measured</strong> rather than judged against a
+     unit it merely resembles.</p>
+  <p>Whether a logo and a call to action are present, whether anything covers
+     the call to action, and the {{ min_font }}px type floor are
+     <strong>ours</strong>. The type floor is advisory and blocks nothing:
+     {{ min_font_source }}</p>
+</div>
+
+<script>
+(function(){
+  var root = {{ project.id | tojson }};
+  var msg  = document.getElementById('mr-msg');
+  function say(t){ if(msg) msg.textContent = t; }
+
+  function post(path, body){
+    return fetch('../api/projects/' + root + path, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body || {})
+    }).then(function(r){
+      return r.json().then(function(d){ return {ok:r.ok, d:d}; });
+    });
+  }
+
+  var rebuild = document.getElementById('mr-rebuild');
+  if(rebuild) rebuild.addEventListener('click', function(){
+    var wait = (window.S1Think && window.S1Think.attach)
+      ? window.S1Think.attach(msg, {kind:'wait'}) : null;
+    say('Resizing…');
+    post('/resize', {}).then(function(res){
+      if(wait) wait.done();
+      if(!res.ok){ say(res.d.error || 'That could not be resized.'); return; }
+      window.location.reload();
+    }).catch(function(e){ if(wait) wait.done(); say('That could not be resized: ' + e); });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.mr-role'), function(sel){
+    sel.addEventListener('change', function(){
+      var map = {};
+      Array.prototype.forEach.call(document.querySelectorAll('.mr-role'), function(s){
+        map[s.getAttribute('data-object')] = s.value;
+      });
+      say('Saving roles…');
+      fetch('../api/projects/' + root).then(function(r){ return r.json(); })
+        .then(function(d){
+          var src = d.project.source;
+          src.objects.forEach(function(o){
+            if(Object.prototype.hasOwnProperty.call(map, o.id)) o.role = map[o.id];
+          });
+          return post('/source', {source: src, kind: 'layout'});
+        })
+        .then(function(res){
+          if(!res.ok){ say(res.d.error || 'Roles could not be saved.'); return; }
+          var kept = (res.d.layout && res.d.layout.skipped) || [];
+          say(kept.length
+            ? ('Rebuilt. ' + kept.length + ' hand-tuned frame(s) left as they were.')
+            : 'Rebuilt.');
+          window.location.reload();
+        })
+        .catch(function(e){ say('Roles could not be saved: ' + e); });
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.mr-recompose'), function(btn){
+    btn.addEventListener('click', function(){
+      var size = btn.getAttribute('data-size');
+      var line = document.querySelector('.mr-recompose-msg[data-size="' + size + '"]');
+      var wait = (window.S1Think && window.S1Think.attach)
+        ? window.S1Think.attach(line, {kind:'ai'}) : null;
+      if(line) line.textContent = 'Asking for a layout…';
+      post('/frames/' + size + '/recompose', {}).then(function(res){
+        if(wait) wait.done();
+        if(!res.ok){
+          if(line) line.textContent = res.d.error || 'No layout came back.';
+          return;
+        }
+        var clean = res.d.clean ? 'nothing outstanding' : 'still has findings';
+        if(line) line.textContent =
+          'A layout came back (' + clean + '). Keeping it marks the frame as AI adjusted.';
+        if(window.confirm('Keep this layout for ' + size + '?')){
+          post('/frames/' + size + '/recompose/keep', {objects: res.d.objects})
+            .then(function(k){
+              if(!k.ok){ if(line) line.textContent = k.d.error || 'That could not be kept.'; return; }
+              window.location.reload();
+            });
+        }
+      }).catch(function(e){
+        if(wait) wait.done();
+        if(line) line.textContent = 'No layout came back: ' + e;
+      });
+    });
+  });
+
+  var exportBtn = document.getElementById('mr-export');
+  if(exportBtn) exportBtn.addEventListener('click', function(){
+    say('The pack is built from frames rendered in the browser. Rendering is ' +
+        'part of the editing surface, which is not wired up yet — see the ' +
+        'build note on this tool.');
+  });
+})();
+</script>
+{% endblock %}

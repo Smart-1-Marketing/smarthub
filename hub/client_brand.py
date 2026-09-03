@@ -30,6 +30,7 @@ from hub import audit, seo
 WORK_KINDS = {
     "seo_images":           ("Images optimized", "SEO Image Pipeline"),
     "image_creator":        ("Graphic created", "Image Creator"),
+    "magic_resize":         ("Ad set resized", "Magic Resize"),
     "image_picker":         ("Images added to library", "Image Picker"),
     "page_image_optimizer": ("Page images fixed", "Page Image Optimizer"),
     "bg_remover":           ("Cut-out produced", "Background Remover"),
