@@ -1606,6 +1606,13 @@ jobs:
       # run by nobody but a person who thought to type them -- and the file
       # making the claim is the file listing them. This asserts it in both
       # directions, so the next check added cannot be gated by nobody.
+      - name: Client 360 derived health strip
+        # hub/record_health.client360(): every pill derived from the stores,
+        # a source that refuses drawn as its own state rather than a clean
+        # one, a client with nothing on file drawn as unknown, the blogs
+        # rule shared with the SEO record, and the renderer driven in node.
+        run: python3 test_client360_health.py
+
       - name: Suite billing reports against a stubbed SaaS API
         # The two GHL billing reports had never been run live and had no test.
         # An unrecognised subscription status is named on the report rather

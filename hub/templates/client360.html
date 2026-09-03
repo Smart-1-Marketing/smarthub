@@ -19,6 +19,24 @@
 .c360-rail .rl:hover{background:#f4f6fa}
 .c360-rail .rl.on{background:#eff4ff;color:#1d4ed8}
 .c360-surface{min-width:0}
+/* The derived health strip. One pill per source, each a fact the stores
+   hold; a source that could not be read is its own state (unread) and is
+   never drawn as a clean one, and a client with nothing on file is idle. */
+.c360-health{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px}
+.c360-hp{display:inline-flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid #dbe4f0;
+  border-radius:999px;background:#fff;color:#1e293b;font:500 12.5px 'Segoe UI',system-ui,sans-serif;
+  cursor:pointer;text-decoration:none;line-height:1.2}
+.c360-hp:hover{background:#f4f7fc}
+.c360-hp .hdot{width:8px;height:8px;border-radius:50%;background:#cbd5e1;flex:none}
+.c360-hp.ok .hdot{background:#059669}
+.c360-hp.warn .hdot{background:#b45309}
+.c360-hp.bad .hdot{background:#dc2626}
+.c360-hp.unread{border-style:dashed;color:#64748b}
+.c360-hp.unread .hdot{background:transparent;border:2px solid #94a3b8;width:6px;height:6px}
+.c360-hp.idle{color:#64748b}
+.c360-hp .lab{font-weight:700;margin-right:2px}
+.c360-hp .lab::after{content:':'}
+.c360-health .c360-hnote{flex-basis:100%;font-size:12px;color:#7a5b00;margin-top:-2px}
 .c360-view{display:none}
 .c360-view.on{display:block;margin-bottom:14px}
 .c360-view .grid-2{min-width:0}
@@ -137,6 +155,23 @@ function fetchJson(...args){
     throw new Error(body.error||`Request failed (${response.status}).`);
   });
 }
+/* The strip. Fetched apart from the record so a health source that is slow
+   or refusing costs the strip and never the page; a later render() makes an
+   earlier answer inert, the rule every other card on this page follows. */
+function loadHealth(name){
+  const box=$('c360Health'); if(!box) return;
+  const gen=c360Generation;
+  box.hidden=true;
+  fetchJson('/api/client/health?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(h=>{ if(gen!==c360Generation) return; box.innerHTML=renderC360Health(h); box.hidden=false; })
+    .catch(err=>{ if(gen!==c360Generation) return;
+      box.innerHTML=renderC360Health({error:'The health summary could not be read ('+esc(err.message||'')+').'});
+      box.hidden=false; });
+}
+document.addEventListener('click',function(e){
+  const go=e.target.closest&&e.target.closest('.c360-hp[data-go]');
+  if(go) showC360Section(go.dataset.go);
+});
 function safeExternalUrl(value){
   try{
     const url=new URL(String(value||''));
@@ -200,6 +235,37 @@ function c360SectionFor(title){
   return 'overview';
 }
 /* ---- end c360 sections ---- */
+/* ---- c360 health (lifted and driven in node by test_client360_health.py) ---- */
+/* Draws hub/record_health.client360()'s payload. Pure: takes the payload and
+   returns markup, so the test can run it without a browser. Every pill is a
+   fact the stores hold, and the three empties are kept apart -- `ok` is
+   measured and clear, `idle` is measured and nothing there, `unread` is a
+   source that would not answer -- because a strip that draws the third as
+   the first is a report answering zero when it could not look. */
+const C360_HEALTH_STATES={ok:'ok',warn:'warn',bad:'bad',idle:'idle',unread:'unread'};
+function renderC360Health(h){
+  if(!h||h.error){
+    return '<span class="c360-hnote">'+esc((h&&h.error)||'The health summary could not be built.')+'</span>';
+  }
+  const pills=(h.pills||[]).map(function(p){
+    const st=C360_HEALTH_STATES[p.state]||'idle';
+    const title=esc(p.detail||'');
+    const body='<span class="hdot"></span><span><span class="lab">'+esc(p.label)+'</span>'
+      +'<span class="val">'+esc(p.value)+'</span></span>';
+    if(p.href){
+      return '<a class="c360-hp '+st+'" href="'+esc(p.href)+'" title="'+title+'">'+body+'</a>';
+    }
+    return '<button type="button" class="c360-hp '+st+'" data-go="'+esc(p.go||'overview')
+      +'" title="'+title+'">'+body+'</button>';
+  });
+  let note='';
+  if(h.unread&&h.unread.length){
+    note='<span class="c360-hnote">Not measured: '+h.unread.map(esc).join('; ')
+      +'. Anything those would have raised is missing from this strip, not absent from it.</span>';
+  }
+  return pills.join('')+note;
+}
+/* ---- end c360 health ---- */
 function showC360Section(key){
   window.__c360sec=key;
   const work=document.querySelector('.c360-work'); if(!work) return;
@@ -324,6 +390,7 @@ function render(g,q){
     +'</div>';
 
   let html=head
+    +'<div class="c360-health" id="c360Health" hidden></div>'
     +'<div class="c360-work" data-s1-workspace="1">'
     +'<nav class="c360-rail" id="c360Rail" aria-label="Record sections"></nav>'
     +'<div class="c360-surface" id="c360Surface"></div>'
@@ -614,6 +681,7 @@ function render(g,q){
   html+='</div></div>';               // close the staging grid and its wrapper
   $('results').innerHTML=html;
   sectionize();                       // move every card into its section
+  loadHealth(name);
 
   const term=(name||q);
 
