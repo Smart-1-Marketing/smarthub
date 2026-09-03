@@ -111,6 +111,29 @@ REGISTRY: list[Help] = [
        "match \u2014 three different answers that would otherwise look "
        "identical."),
 
+    _h("video_tools.dead_air", "It reads the level, not the words",
+       "Every other silence cutter transcribes the audio and cuts the gaps "
+       "between words, which is wrong on our work: a music bed, a sound "
+       "effect and a held beat all read as silence to a transcript, and all "
+       "of them get removed. This one reads the audio\u2019s actual level \u2014 "
+       "from a waveform image Cloudinary draws, which is also the picture "
+       "shown on the page \u2014 so sound under a montage counts as sound. "
+       "Two controls decide the result: the gap is what counts as dead air, "
+       "and the air left behind at each cut is what decides whether the "
+       "output sounds edited or just faster. Look at the cut list before you "
+       "render; that is the step where a bad cut is free to undo."),
+    _h("video_tools.reframe", "What a crop costs, said out loud",
+       "A 16:9 frame cropped to 9:16 keeps under a third of its width, and "
+       "automatic framing keeps ONE subject rather than all of them \u2014 a "
+       "second person, a product on the table, a lower third or a corner "
+       "logo goes, and the preview is where you find that out. The page "
+       "reports both numbers rather than only the flattering one. The "
+       "alternative mode pads the frame against a blurred blow-up of itself "
+       "and loses nothing, which is right for a wide shot and weak for "
+       "anything already tight. Either way this is a cutdown of a landscape "
+       "master, not a spot built vertical: sound-off legibility and a "
+       "two-second hook are decisions, not a crop."),
+
     # ---------------- Social content requests ----------------
     # This screen shipped with no explanation on it at all, which is exactly
     # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
