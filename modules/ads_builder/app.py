@@ -55,7 +55,7 @@ from hub import target_areas
 
 from . import (api_readiness, campaign_ai, client_link, copy_ideas, export,
                google_ads, keyword_plan, landing_page, logo as logo_lookup,
-               optimization, spec, store)
+               monitoring, optimization, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 from hub.webargs import clamp_int
@@ -556,6 +556,17 @@ def api_campaign_status(campaign_id):
                     customer_id=google_ads.digits(customer_id),
                     campaign_id=campaign_id, status=str(status).upper())
     return jsonify({"ok": True, "campaign_id": campaign_id, "status": str(status).upper()})
+
+
+@app.get("/api/optimization/monitor")
+def api_optimization_monitor():
+    """What the scheduled sweep already found, before anybody presses Scan.
+
+    Reads the stored runs rather than reaching Google: this loads with the
+    page, and a panel that costs six operations per account on every visit is
+    the per-visit pull the daily quota cannot afford.
+    """
+    return jsonify(monitoring.account_panel())
 
 
 @app.get("/api/optimization/summary")

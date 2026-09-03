@@ -578,6 +578,36 @@ def job_smartforecast_maintenance(app) -> dict:
         return store().run_maintenance()
 
 
+def job_ads_optimization_scan(app) -> dict:
+    """Sweep every live Google Ads account we deployed, twice a day.
+
+    `optimization.scan_account()` has always been able to answer this; it just
+    only ran when a rep opened the optimization page and pressed Scan. So an
+    account that started spending on nothing was found whenever somebody next
+    looked at it, and nothing in the Hub could say "three accounts need
+    attention" without being asked about one account at a time.
+
+    Twice daily rather than hourly because what it reads is a 30-day window:
+    an account's answer does not change between ticks, and each sweep spends
+    six Google operations per account out of a daily budget a rep's own deploy
+    shares. `monitoring.sweep()` paces itself against that budget and skips
+    rather than exhausts it.
+
+    Safe to run late, skip and repeat, as the job contract requires: every run
+    appends its own row per account and overwrites nothing, so a double run
+    costs a duplicate reading rather than a wrong one.
+    """
+    try:
+        from modules.ads_builder import monitoring
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the store reaches the shared engine and the activity
+        # mirror reaches hub/audit -- the flask.g trap that had the Google
+        # sweep reporting an empty book from a background thread.
+        return monitoring.sweep(actor="scheduler")
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -603,6 +633,8 @@ JOBS = {
                           "Offer another week's ideas to clients who are swiping."),
     "llms_verify":       (720, job_verify_llms_txt,
                           "Re-check every published client llms.txt end to end."),
+    "ads_optimization":  (720, job_ads_optimization_scan,
+                          "Scan every live Google Ads account for optimization findings."),
     "smartforecast":     (30, job_smartforecast_weather,
                           "Refresh due weather caches and evaluate website triggers."),
     "smartforecast_backup": (720, job_smartforecast_backup,

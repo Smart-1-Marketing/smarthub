@@ -130,6 +130,13 @@ jobs:
             echo "test_ads_optimization.py not on this branch — nothing to run."
           fi
 
+      - name: Scheduled Google Ads optimization sweep
+        # The half that makes account monitoring unattended: every live account
+        # gets a row, one account's Google failure does not cost the rest their
+        # scan, and the run paces itself against the day's operation budget
+        # instead of spending the last of it.
+        run: python test_ads_optimization_scheduler.py
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an

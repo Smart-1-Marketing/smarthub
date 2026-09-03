@@ -1158,6 +1158,66 @@ def google_estimate(month: str | None = None, rows: list[dict] | None = None,
     }
 
 
+
+# --- Google Ads: is there room to fire a batch today? ------------------------
+
+# A scheduled sweep spends the same daily allowance a rep's own deploy does,
+# and it spends it unattended. 90% leaves the last tenth for the person who is
+# actually waiting on a mutate, which is the whole reason this is a margin
+# rather than the ceiling itself.
+ADS_QUOTA_SAFETY = 0.90
+
+# One scan_account() is six independent GAQL queries — summary,
+# recommendations, campaigns, search terms, keywords and schedule. Named here
+# because a caller pacing itself against `remaining` has to know what an
+# account costs, and counting it wrong is how a run walks straight past the
+# margin it was checking.
+ADS_QUERIES_PER_SCAN = 6
+
+
+def ads_headroom(rows: list[dict] | None = None) -> dict:
+    """What is left of today's Google Ads operation budget.
+
+    Read once before a batch rather than per account: `ledger()` is a full
+    scan of the activity log, so a caller that loops accounts should take the
+    `remaining` this returns as an allowance and decrement it locally by
+    `ADS_QUERIES_PER_SCAN` as it goes. The arithmetic is the caller's because
+    only the caller knows what it is about to spend.
+
+    **A quota nobody published is not a quota of zero.** With
+    GOOGLE_ADS_DAILY_QUOTA set to 0 there is no ceiling to compare against, so
+    this answers `measured: False` and `exhausted: False` — refusing to scan
+    on the strength of a number nobody stated would silence the feature over
+    an absence, and Google's own refusal is the backstop either way. That is
+    the same rule the estimator itself works to: not measured is never a
+    clean zero and never a red cross.
+    """
+    api = {}
+    for row in google_estimate(rows=rows).get("apis") or []:
+        if row.get("key") == "ads":
+            api = row
+            break
+    used = int(api.get("today") or 0)
+    quota = api.get("daily_quota")
+    if not quota:
+        return {"measured": False, "used_today": used, "daily_quota": None,
+                "safety_limit": None, "remaining": None, "exhausted": False,
+                "percent": None,
+                "note": "Google publishes no ceiling here that this deployment "
+                        "can cite; set GOOGLE_ADS_DAILY_QUOTA to compare "
+                        "against your account's actual grant."}
+    quota = int(quota)
+    limit = int(quota * ADS_QUOTA_SAFETY)
+    remaining = max(0, limit - used)
+    return {
+        "measured": True, "used_today": used, "daily_quota": quota,
+        "safety_limit": limit, "remaining": remaining,
+        "exhausted": remaining <= 0,
+        "percent": round(100 * used / quota) if quota else None,
+        "note": (f"{used} of {quota} operations used today; unattended work "
+                 f"stops at {limit} so a rep's own deploy still has room."),
+    }
+
 ESTIMATORS = {
     "elevenlabs": elevenlabs_estimate,
     "cloudinary": cloudinary_estimate,

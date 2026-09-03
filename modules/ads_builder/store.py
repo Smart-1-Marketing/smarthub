@@ -149,6 +149,59 @@ class Share(Base):
         }
 
 
+class OptimizationRun(Base):
+    """One account's optimization scan, kept so the answer outlives the click.
+
+    A separate table rather than columns on ``ads_proposals``: a scan result is
+    not a proposal, several proposals can name one Google account, and
+    ``create_all()`` creates a missing TABLE but never adds a column to an
+    existing one — so a column added there would be silently absent on the live
+    Postgres while every local test passed.
+
+    ``items_json`` carries the whole ``analyse_rows()`` output for the same
+    reason ``Proposal.campaign_json`` carries the whole campaign: the shape
+    grows a field every time a detector is added, and a column-per-finding
+    schema would have to be migrated for each of them.
+
+    A scan that failed entirely still gets a row, with ``error`` set. Silence
+    and "we looked and the account is clean" are different answers and only one
+    of them means there is nothing to do.
+    """
+    __tablename__ = "ads_optimization_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    customer_id = Column(String(20), default="", index=True)
+    client_name = Column(String(300), default="")
+    scanned_at = Column(DateTime(timezone=True), default=now, index=True)
+    date_range = Column(String(40), default="LAST_30_DAYS")
+    item_count = Column(Integer, default=0)
+    high_severity_count = Column(Integer, default=0)
+    triggered = Column(String(20), default="scheduled")
+    items_json = Column(Text, default="{}")
+    error = Column(Text, default="")
+
+    @property
+    def result(self) -> dict:
+        return json.loads(self.items_json or "{}")
+
+    def as_dict(self, *, with_result: bool = False) -> dict:
+        row = {
+            "id": self.id,
+            "customer_id": self.customer_id or "",
+            "client_name": self.client_name or "",
+            "scanned_at": self.scanned_at.isoformat() if self.scanned_at else None,
+            "date_range": self.date_range or "",
+            "item_count": self.item_count or 0,
+            "high_severity_count": self.high_severity_count or 0,
+            "triggered": self.triggered or "",
+            "error": self.error or "",
+            "measured": not self.error,
+        }
+        if with_result:
+            row["result"] = self.result
+        return row
+
+
 class Setting(Base):
     __tablename__ = "ads_settings"
     key = Column(String(80), primary_key=True)
@@ -223,12 +276,18 @@ def create_proposal(client_name, campaign, created_by="", google_customer_id="")
         return row.as_dict()
 
 
-def list_proposals(limit=200) -> list:
+def list_proposals(limit=200, status=None) -> list:
+    """Proposals, newest first, optionally narrowed to one status.
+
+    Filtered in the query rather than by the caller: the scheduled sweep wants
+    only DEPLOYED rows and reading the whole book to throw most of it away is a
+    full campaign-blob deserialisation per proposal, twice a day, for nothing.
+    """
     with SessionLocal() as s:
-        rows = s.scalars(
-            select(Proposal).order_by(Proposal.updated_at.desc()).limit(limit)
-        ).all()
-        return [r.as_dict() for r in rows]
+        query = select(Proposal).order_by(Proposal.updated_at.desc())
+        if status:
+            query = query.where(Proposal.status == str(status))
+        return [r.as_dict() for r in s.scalars(query.limit(limit)).all()]
 
 
 def get_proposal(public_id) -> dict | None:
@@ -325,6 +384,81 @@ def update_campaign(public_id, campaign: dict) -> dict | None:
         row.updated_at = now()
         s.commit()
         return row.as_dict()
+
+
+# ------------------------------------------------- live account monitoring
+def deployed_accounts(limit=500) -> list:
+    """Every live Google Ads account this Hub deployed, once each.
+
+    "Live" is a DEPLOYED proposal carrying a customer id, which is the only
+    thing here that says we actually put a campaign into somebody's account.
+    Deduped on the account rather than the proposal, because two proposals for
+    one client are one account to scan and scanning it twice spends the daily
+    operation budget to learn the same thing.
+
+    The client name is whichever proposal touched the account most recently —
+    ``list_proposals`` orders on ``updated_at``, so a client renamed on a later
+    proposal wins, which is the answer somebody reading a scan wants.
+    """
+    seen: dict[str, dict] = {}
+    for row in list_proposals(limit=limit, status="DEPLOYED"):
+        cid = "".join(ch for ch in str(row.get("google_customer_id") or "") if ch.isdigit())
+        if not cid or cid in seen:
+            continue
+        seen[cid] = {"customer_id": cid,
+                     "client_name": row.get("client_name") or "",
+                     "proposal_id": row.get("id") or ""}
+    return list(seen.values())
+
+
+def record_optimization_run(customer_id, *, client_name="", date_range="",
+                            result=None, error="", triggered="scheduled") -> dict:
+    """Keep one account's scan. A failed scan is a row, not a silence."""
+    result = result or {}
+    items = result.get("items") or []
+    with SessionLocal() as s:
+        row = OptimizationRun(
+            customer_id=str(customer_id or "")[:20],
+            client_name=str(client_name or "")[:300],
+            date_range=str(date_range or "")[:40],
+            item_count=int(result.get("item_count") or len(items)),
+            high_severity_count=sum(1 for i in items if i.get("severity") == "high"),
+            triggered=str(triggered or "scheduled")[:20],
+            items_json=json.dumps(result, default=str),
+            error=str(error or "")[:2000],
+        )
+        s.add(row)
+        s.commit()
+        return row.as_dict()
+
+
+def latest_optimization_run(customer_id, *, with_result=False) -> dict | None:
+    cid = str(customer_id or "")
+    with SessionLocal() as s:
+        row = s.scalar(
+            select(OptimizationRun)
+            .where(OptimizationRun.customer_id == cid)
+            .order_by(OptimizationRun.scanned_at.desc(), OptimizationRun.id.desc())
+        )
+        return row.as_dict(with_result=with_result) if row else None
+
+
+def latest_optimization_runs(limit=100) -> list:
+    """The newest run per account, for the panel that opens before anyone scans."""
+    out: dict[str, dict] = {}
+    with SessionLocal() as s:
+        rows = s.scalars(
+            select(OptimizationRun)
+            .order_by(OptimizationRun.scanned_at.desc(), OptimizationRun.id.desc())
+            .limit(max(1, int(limit)) * 10)
+        ).all()
+    for row in rows:
+        cid = row.customer_id or ""
+        if cid and cid not in out:
+            out[cid] = row.as_dict()
+        if len(out) >= limit:
+            break
+    return list(out.values())
 
 
 # --------------------------------------------------- client estimate links

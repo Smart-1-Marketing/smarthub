@@ -105,6 +105,14 @@
   Smart 1 Ads scans and drafts. Every change has its own approval prompt, and AI suggestions remain drafts until you approve that exact item.
 </div>
 
+<div class="card" id="monitorCard" data-tour="ads-opt-monitor" style="margin-bottom:14px">
+  <div class="row"><div>
+    <h3 style="margin:0">Automatic scans</h3>
+    <div class="hint" id="monitorNote">Reading the last automatic sweep…</div>
+  </div></div>
+  <div id="monitorBody" style="margin-top:10px"><span class="spin"></span> Loading…</div>
+</div>
+
 <div class="opt-workspace">
   <aside class="card opt-rail" data-tour="ads-opt-accounts">
     <h3 style="margin-bottom:0">Accounts needing work</h3>
@@ -292,7 +300,70 @@ function renderOverview(loading=false) {
   document.getElementById('liveLink').href = `${MOUNT}/campaigns?customer_id=${encodeURIComponent(selectedId)}`;
 }
 
+let monitor = null;
+
+function monitorAgeLabel(iso) {
+  if (!iso) return '';
+  const then = Date.parse(iso);
+  if (!then) return '';
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 60) return mins + ' min ago';
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+  return Math.round(hours / 24) + ' days ago';
+}
+
+function renderMonitor() {
+  const note = document.getElementById('monitorNote');
+  const body = document.getElementById('monitorBody');
+  if (!monitor) {
+    // "We could not read the stored scans" is not "no account needs work".
+    note.textContent = 'The stored scans could not be read, so nothing here is measured.';
+    body.innerHTML = '<div class="note n-warn"><b>Not measured</b>Press Scan on an account to read it live.</div>';
+    return;
+  }
+  const rows = monitor.accounts || [];
+  if (!rows.length) {
+    note.textContent = 'No deployed proposal carries a Google account yet.';
+    body.innerHTML = '<div class="empty"><h4>Nothing is being swept</h4>An account is swept once a proposal for it is deployed.</div>';
+    return;
+  }
+  const scanned = rows.filter(r => r.last_run && !r.last_run.error);
+  const needing = scanned.filter(r => r.last_run.high_severity_count > 0);
+  const never = rows.filter(r => !r.last_run);
+  const failed = rows.filter(r => r.last_run && r.last_run.error);
+  note.textContent = monitor.note || '';
+  body.innerHTML =
+    '<div class="s1d-tiles">' +
+      statTile('Accounts swept', scanned.length + ' of ' + rows.length, 'On the Hub scheduler') +
+      statTile('Need attention', needing.length, needing.length ? 'At least one high-severity finding' : 'No high-severity finding in the last sweep') +
+      statTile('Never swept', never.length, never.length ? 'Not scanned yet — not the same as clean' : 'Every account has a reading') +
+      statTile('Could not be read', failed.length, failed.length ? 'Google refused the last scan' : 'No scan failed') +
+    '</div>' +
+    '<div class="opt-monitor-rows" style="margin-top:10px">' + rows.map(r => {
+      const run = r.last_run;
+      const name = esc(r.client_name || r.customer_id);
+      if (!run) return `<div class="hint">${name} — <b>never swept</b></div>`;
+      if (run.error) return `<div class="hint">${name} — <b>last scan could not be read</b> (${esc(run.error)})</div>`;
+      return `<div class="hint">${name} — ${run.item_count} item${run.item_count === 1 ? '' : 's'}` +
+             ` (${run.high_severity_count} high severity), ${esc(monitorAgeLabel(run.scanned_at))}</div>`;
+    }).join('') + '</div>';
+}
+
+async function loadMonitor() {
+  try {
+    monitor = await api('GET', MOUNT + '/api/optimization/monitor');
+  } catch (err) {
+    monitor = null;
+  }
+  renderMonitor();
+}
+
 async function boot() {
+  // Outside the try below, and not awaited: the stored sweep is our own
+  // database and answers whether or not Google will list accounts today. A
+  // Google outage must not take the one panel that still has something to say.
+  loadMonitor();
   try {
     const data = await api('GET', MOUNT + '/api/accounts');
     accounts = data.accounts || [];
