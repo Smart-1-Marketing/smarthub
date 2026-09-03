@@ -24,7 +24,6 @@ finding along with it.
 """
 from __future__ import annotations
 
-from typing import Any
 
 from . import roles as R
 from . import sizes as S

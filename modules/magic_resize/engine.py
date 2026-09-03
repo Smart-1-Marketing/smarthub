@@ -31,11 +31,9 @@ nearest thing is how a disclaimer ends up where the headline goes.
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from . import qc
 from . import roles as R
-from . import sizes as S
 from . import templates_layout as L
 
 AUTO = "auto"

@@ -40,7 +40,6 @@ import os
 import re
 import secrets
 import threading
-from typing import Any
 
 from hub import jsonstore
 

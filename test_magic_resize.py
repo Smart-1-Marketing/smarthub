@@ -485,10 +485,42 @@ else:
     check("...and says why", bool(unmeasured.get("note")), True)
 
     # A frame that cannot get under its ceiling above the quality floor.
-    stubborn = noisy(320, 50)
-    hard = export.prepare("mobile_banner", noisy(320, 50) * 1, fmt="png")
-    check("a frame that cannot fit is reported rather than shipped soft",
-          hard.get("ok") in (True, False), True)
+    #
+    # Stubbed rather than fixtured, and deliberately: an image small enough to
+    # be a banner and incompressible enough to survive the whole ladder does
+    # not exist at these sizes, so the only way to cover this branch with a
+    # real file is not to cover it. And it is the branch that decides whether
+    # a soft file reaches a client, which makes it the one most worth having.
+    class _Stubborn:
+        class _Out:
+            def __init__(self, data):
+                self.data = data
+
+        def optimise(self, data, **kw):
+            return self._Out(b"x" * (200 * 1024))
+
+    _real_images = export.hub_images
+    export.hub_images = _Stubborn()
+    try:
+        stuck = export.prepare("med_rect", heavy, fmt="png")
+    finally:
+        export.hub_images = _real_images
+
+    check("a frame that cannot fit is not reported as ok", stuck["ok"], False)
+    check("...and the error names the floor it stopped at",
+          str(export.QUALITY_FLOOR) in stuck["error"])
+    check("...and says what to do rather than only that it failed",
+          "Simplify" in stuck["error"])
+    check("...and still carries its best attempt rather than nothing",
+          stuck["bytes"] > 0)
+
+    blob4, report4 = export.bundle([stuck])
+    import zipfile as _zf
+    names4 = _zf.ZipFile(io.BytesIO(blob4)).namelist()
+    check("a real unfit frame is left out of the pack",
+          [r["included"] for r in report4], [False])
+    check("...and the pack says so rather than being quietly short",
+          names4, ["NOT-IN-THIS-ZIP.txt"])
 
     blob, report = export.bundle([out, {**unmeasured, "size_id": "large_rect"}])
     check("the pack is a real zip", blob[:2], b"PK")

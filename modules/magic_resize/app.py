@@ -14,10 +14,9 @@ exempt from the login or from the chrome.
 """
 from __future__ import annotations
 
-import json
+import io
 
 from flask import Flask, jsonify, render_template, request, send_file
-import io
 
 from . import engine, export, fabric_io, qc, recompose, roles as R, sizes as S
 from . import store

@@ -33,7 +33,6 @@ explicit press.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from . import qc
 from . import roles as R
