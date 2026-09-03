@@ -2043,9 +2043,11 @@ who will never have an account.
 
 **The check is a sweep, not a list of the three we fixed.** A test naming
 those modules proves nothing about the next blueprint. `test_blueprint_guards.py`
-boots the composed app, requests **every** static route it serves with no
-session at all, and requires each one it reaches to be in an allowlist that
-says *why* it is public — the crawler files, the health probes, the chrome's
+boots the composed app, requests **every** route it serves with no
+session at all — the parameterized ones too, which for a long time it skipped
+and which are where every client-facing surface in this Hub lives — and
+requires each one it reaches to be in an allowlist that says *why* it is
+public — the crawler files, the health probes, the chrome's
 own scripts, the help registry, the Suite SSO frame, the calculator embed,
 the nine landing pages, the MSA signing page. A new open route fails the run
 without anybody having thought to add an assertion for it. The allowlist is
@@ -7410,13 +7412,49 @@ have broken — writes each result against the client, and logs a row only when
 something is failing: a clean sweep is a *state*, and writing one every night
 for ever is the noise `hub/google_index.py` had to learn to stop making.
 
-**`test_blueprint_guards.py` cannot see this route, and that is worth knowing
-rather than working around.** Its sweep probes every route **with no variable
-in it**, so `/llms/<slug>/llms.txt` is never requested and an allowlist entry
-for it would be reported stale by that file's own staleness check. The
-openness is asserted directly in `test_llms_hosting.py` instead — anonymous,
-through the composed app, headers included. Any future dynamic public route
-has the same blind spot.
+**`test_blueprint_guards.py` could not see this route, and the note saying
+so was read for a year as a limitation rather than as the gap it was.** Its
+sweep probed every route **with no variable in it**, so `/llms/<slug>/llms.txt`
+was never requested — and neither was anything else with a `<` in it, which is
+**330 of the 1048 routes the composed app serves**. That third is not a
+remainder: every client-facing surface in this Hub is addressed by a token or
+a slug, so "which parameterized routes answer a stranger" is very nearly the
+question that file exists to ask, and it was the half nobody had asked.
+
+It is swept now, with an inert value nothing in the book matches. **A 404 is
+reached, not refused** — a guard runs in `before_request`, ahead of the view,
+so it redirects whether or not the token resolves; a route answering 404 has
+nothing in front of it. That is what makes an unresolvable id a fair probe
+rather than a way of dodging the question, and it is why nearly every answer
+in that section is a 404 and the reading still holds.
+
+**It went in green**, which is the only way it was worth adding: all 63
+reachable routes are the token- and slug-addressed client surfaces the design
+intends — the scan widget and its report, the proposal a client accepts, the
+paid-search estimate, the commercial review link, the radio approval page, the
+client's four social pages, the upload picker, the calculators, the MSA PDF,
+the Google Access consent flow and the static assets each of those loads. Each
+is named with the reason it is public, in **two more dicts** rather than an
+extension of the existing pair: an entry written for a fixed page must not
+quietly cover a parameterized route added under the same prefix later, which
+is the same reason reads and writes were split in the first place.
+
+**Two things it had to get right, and the second nearly repeated the failure
+this file was rewritten once to close.** A probe value has to *build*: an
+integer converter refuses a word and a uuid converter refuses both, so a first
+pass that picked the value from the converter's class name — and got that name
+wrong for integers — silently dropped **76 rules**, printed a healthy-looking
+count, and swept 254 rules while claiming 330. Values are tried in turn now
+and anything that would not build at all is **named rather than passed over**.
+And the two client-facing halves are asserted from opposite ends: four
+surfaces are checked **by name** to still open for a client, because a
+parameterized route falling *behind* the login is a sign-in form in front of
+somebody who will never have an account — the failure Fan Radio shipped with
+for as long as it took anybody to send the link.
+
+The direct assertion in `test_llms_hosting.py` stays — anonymous, through the
+composed app, headers included — because that one is about the crawler headers
+as well as the openness.
 
 ## A placement is judged by its leads, so the page counts them
 
@@ -11656,11 +11694,15 @@ python3 test_display_ads.py        # the display layouts, the build screen's con
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
-                                   #   composed app serves -- reads and writes, hub
-                                   #   app and all thirty-one mounts -- probed with no
-                                   #   session, against allowlists that say why each
-                                   #   is public; and a walk that finds no mounts is
-                                   #   a failure rather than an empty sweep
+                                   #   composed app serves -- reads and writes,
+                                   #   fixed paths and the third addressed by a
+                                   #   token or a slug, hub app and all
+                                   #   thirty-one mounts -- probed with no
+                                   #   session, against allowlists that say why
+                                   #   each is public; and a walk that finds no
+                                   #   mounts, or a rule it could not build a
+                                   #   probe for, is a failure rather than an
+                                   #   empty sweep
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
                                    #   and a template nothing renders, which no
                                    #   other check here can see
