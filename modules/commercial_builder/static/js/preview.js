@@ -16,6 +16,7 @@
     abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
     publisher_rules: "Publisher rules", compliance: "Advertising rules",
     archetype_ready: "What this spot needs",
+    sfx_gain_conflict: "Sound effect level", music_length_mismatch: "Music length",
   };
 
   /* A recommendation and a refusal are not the same finding, and painting

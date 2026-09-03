@@ -307,6 +307,8 @@
     node.querySelector(".spokesperson-btn").addEventListener("click", () => openSpokespersonPicker(node, scene));
     node.querySelector(".upload-btn").addEventListener("click", () => openUploadPicker(node, scene));
     node.querySelector(".client-asset-btn").addEventListener("click", () => openClientAssetPicker(node, scene));
+    node.querySelector(".sfx-btn").addEventListener("click", () => openSfxPicker(node, scene));
+    paintSfxNote(node, scene);
 
     node.querySelector(".regen-btn").addEventListener("click", async (e) => {
       e.target.disabled = true;
@@ -513,6 +515,159 @@
 
     picker.innerHTML = "";
     picker.appendChild(box);
+  }
+
+  // ------------------------------------------------------ Add Sound Effect
+  //
+  // The fifth source on a scene card, and the first one that is audio. Two
+  // drafts per press, nothing generated on a page load, and the attached one
+  // is named on the card rather than left as a state you can only see by
+  // opening the picker again -- an attached asset a rep cannot see is one
+  // they attach twice.
+
+  function paintSfxNote(card, scene) {
+    const note = card.querySelector(".sfx-note");
+    if (!note) return;
+    const sfx = (scene.asset_meta || {}).sfx || {};
+    if (!sfx.url) { note.textContent = ""; return; }
+    const len = sfx.seconds ? `${sfx.seconds}s` : "length not measured";
+    note.innerHTML = `\u{1F50A} <strong>${CB.escapeHtml(sfx.prompt || "Sound effect")}</strong>`
+      + ` \u00b7 ${len} \u00b7 <a href="#" class="sfx-clear">remove</a>`;
+    note.querySelector(".sfx-clear").addEventListener("click", async (e) => {
+      e.preventDefault();
+      await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/sound-effect`,
+                   { method: "DELETE" });
+      loadScenes();
+    });
+  }
+
+  async function openSfxPicker(card, scene) {
+    closeExistingPickers();
+    const picker = card.querySelector(".asset-picker");
+    const sceneSeconds = Math.round((scene.end - scene.start) * 10) / 10;
+    let limits = { min: 0.5, max: 30 };
+    try {
+      const opts = await CB.api(`/api/projects/${projectId}/audio/options`);
+      if (opts && opts.sfx_duration) limits = opts.sfx_duration;
+    } catch (e) { /* the defaults are the published ones; a failed read costs nothing */ }
+
+    /* A shot longer than ElevenLabs will generate is not offered as a length.
+       The server refuses it by name either way, which is right — but a picker
+       that offers a value its own server rejects has wasted the press, and on
+       a :60 with four long shots it wastes it every time. */
+    const matchable = sceneSeconds >= limits.min && sceneSeconds <= limits.max;
+
+    /* Blank is offered FIRST and is the default, because it is very often the
+       right answer: a thump and a thirty-second ambience are not the same
+       length, and the model reads that from the description better than a
+       slider does. The scene's own length is offered beside it because an
+       effect longer than its shot is trimmed at the render -- said here,
+       where it can still be changed, rather than discovered in the file. */
+    const box = CB.el(`
+      <div class="cb-card" style="margin-top:10px;padding:12px;">
+        <div class="cb-flex-between" style="margin-bottom:4px;">
+          <strong>Sound effect for this shot</strong>
+          <button class="cb-btn cb-btn-sm sfx-close">Close</button>
+        </div>
+        <div class="cb-field">
+          <input type="text" class="sfx-prompt" placeholder="cinematic whoosh \u00b7 car door slam \u00b7 cash register">
+        </div>
+        <div class="cb-field">
+          <label class="cb-label">Length</label>
+          <select class="sfx-duration">
+            <option value="">Let the model decide from the description</option>
+            ${matchable
+              ? `<option value="${sceneSeconds}">Match this shot \u2014 ${sceneSeconds}s</option>`
+              : ""}
+            <option value="1">1s \u2014 a hit or a stinger</option>
+            <option value="3">3s \u2014 a transition</option>
+            <option value="8">8s \u2014 a bed of ambience</option>
+          </select>
+          <p class="cb-hint">ElevenLabs generates between ${limits.min}s and ${limits.max}s.
+            Anything longer than this shot is trimmed to it at the render.</p>
+        </div>
+        <div class="cb-flex-between">
+          <button class="cb-btn cb-btn-primary sfx-go">Generate 2 options</button>
+          <span class="cb-hint sfx-status"></span>
+        </div>
+        <div class="sfx-options" style="margin-top:10px;"></div>
+      </div>`);
+    picker.innerHTML = "";
+    picker.appendChild(box);
+
+    const promptInput = box.querySelector(".sfx-prompt");
+    promptInput.value = ((scene.asset_meta || {}).sfx || {}).prompt || "";
+    box.querySelector(".sfx-close").addEventListener("click", () => { picker.innerHTML = ""; });
+    box.querySelector(".sfx-go").addEventListener("click", () =>
+      generateSfx(box, scene, promptInput.value,
+                  box.querySelector(".sfx-duration").value));
+  }
+
+  async function generateSfx(box, scene, prompt, duration) {
+    const status = box.querySelector(".sfx-status");
+    const list = box.querySelector(".sfx-options");
+    const btn = box.querySelector(".sfx-go");
+    if (!(prompt || "").trim()) {
+      status.textContent = "Say what the sound is first.";
+      return;
+    }
+    /* A billed wait behind a button, marked the way every other billed wait
+       in this Hub is. Guarded on window.S1Think so a page that failed to load
+       the script loses the mark rather than the press. */
+    const busy = (btn && window.S1Think)
+      ? window.S1Think.busy(btn, { kind: "ai", label: "Generating\u2026" })
+      : null;
+    if (btn && !window.S1Think) { btn.disabled = true; btn.textContent = "Generating\u2026"; }
+    status.textContent = "";
+    list.innerHTML = "";
+    let data;
+    try {
+      data = await CB.api(
+        `/api/projects/${projectId}/scenes/${scene.id}/sound-effect`,
+        { method: "POST", body: { prompt: prompt.trim(), duration_seconds: duration || null } });
+    } catch (e) {
+      return;                              // CB.api has already surfaced the reason
+    } finally {
+      if (busy) busy.done();
+      if (btn) { btn.disabled = false; btn.textContent = "Generate 2 options"; }
+    }
+    if (data.note) status.textContent = data.note;
+    drawSfxOptions(list, scene, data.options || []);
+  }
+
+  function drawSfxOptions(list, scene, options) {
+    list.innerHTML = "";
+    if (!options.length) {
+      list.appendChild(CB.el('<p class="cb-hint">Nothing came back.</p>'));
+      return;
+    }
+    options.forEach((opt) => {
+      /* A failed option carries its own reason rather than the batch
+         collapsing into one -- asking for two and getting one is ordinary,
+         and reporting the whole press as failed throws away the one that
+         worked. */
+      if (!opt.url) {
+        list.appendChild(CB.el(
+          `<p class="cb-word-count warn">Option ${opt.index + 1}: ${CB.escapeHtml(opt.error || "no audio")}</p>`));
+        return;
+      }
+      const len = opt.seconds ? `${opt.seconds}s` : "length not measured";
+      const row = CB.el(`<div class="cb-audio-row">
+        <audio controls preload="none" src="${opt.url}"></audio>
+        <span class="cb-hint">${len}${opt.cached ? " \u00b7 reused" : ""}</span>
+        <button class="cb-btn cb-btn-sm sfx-use">Use this</button>
+      </div>`);
+      row.querySelector(".sfx-use").addEventListener("click", async () => {
+        await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/sound-effect/choose`, {
+          method: "POST",
+          body: { url: opt.url, public_id: opt.public_id, prompt: opt.prompt,
+                  seconds: opt.seconds, requested_seconds: opt.requested_seconds },
+        });
+        CB.toast("Sound effect attached to this shot.");
+        loadScenes();
+      });
+      list.appendChild(row);
+    });
   }
 
   // -------------------------------------------------------- Use Spokesperson
@@ -763,6 +918,7 @@
     abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
     publisher_rules: "Publisher rules", compliance: "Advertising rules",
     archetype_ready: "What this spot needs",
+    sfx_gain_conflict: "Sound effect level", music_length_mismatch: "Music length",
   };
 
   // Severity comes off the server now. It used to be an ADVISORY set kept by

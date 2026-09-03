@@ -2882,6 +2882,90 @@ the voice track survives a music save, because the failure is invisible from
 both ends: the panel says "generated", the render says "succeeded", and the
 file is silent.
 
+**And the Music step it fixed was still a preset picker with no presets.** A
+mood, a level, and nothing to duck: `MUSIC_LEVELS` fed two real dB numbers
+into the render's automation keyframes and the track those keyframes acted on
+did not exist, so the level slider was the most carefully-drawn control in the
+tool and it changed nothing. Sound effects were absent altogether — a whoosh
+on a transition, a stinger under the end card, the noise of the thing being
+advertised — on a tool that will render a finished commercial.
+
+`services/elevenlabs_audio_service.py` is both, wired from the two official
+ElevenLabs Agent Skills (`sound-effects` and `music`). It is a **neighbour**
+of `elevenlabs_service.py` rather than part of it, and the split is the whole
+reason the usage page still says anything true: that module renders speech,
+billed **by the character**, and every one of its decisions — the casting, the
+pronunciation dictionaries, `record_tts` counting the text actually sent —
+follows from that. These two endpoints bill **by the generation**. One module
+answering to both names would make "what did the voice cost" unanswerable, and
+`quotas.record_audio_generation()` files them under their own `api` so
+`elevenlabs_estimate()` counts them on their own line: a thirty-second bed
+folded into the character total reads as a handful of characters of script,
+and the voice figure goes on looking right while quietly absorbing a cost
+source that is not measured in characters at all. The marker went with it —
+`_PROVIDER_MARKERS["elevenlabs"]` knew `/text-to-speech` and nothing else, so
+either new endpoint could have spent with **nothing able to name the gap**,
+which is exactly the state HeyGen, Runway and Creatomate were in.
+
+**A published limit is refused by name, never clamped.** 0.5-30s for an
+effect, 3s-10min for a bed, transcribed into `config.py` rather than fetched
+for the reason `hub/creative_specs.py` gives about the spec kit. Somebody who
+asked for forty seconds of rain and silently got thirty has been told
+something different from what they asked for, on a file that then goes into a
+spot — `hub/quote_validity.py`'s rule about a quote window, wearing a noise.
+And the **music length is not asked of the caller at all**: it is
+`config.music_length_ms(project.length_seconds)`, the same runway QC measures
+the scenes against, so the track lands at the right length rather than being
+trimmed afterwards and a browser cannot request a length the spot does not
+have.
+
+**A duration is derived or it is not measured.** Nothing here decodes audio.
+Both endpoints are asked for a constant-bitrate MP3 and the length is
+arithmetic on the byte count; where the response comes back as anything else
+`seconds` is `None`, and `music_length_mismatch` renders that as *not
+measured* rather than as a tick over a length nobody checked. Which is the
+only reason that check is worth having: its two other answers are cheap and
+this one is the honest half.
+
+**A retry never re-spends, on either worker.** The cache is keyed on the
+content — prompt, duration, influence, length — and lives on the **shared data
+disk**, because gunicorn runs two workers and a module-level dict is a cache
+that works about half the time. That is the trap `modules/bg_remover` had to
+undo on the one module whose own docstring opens by saying it is deliberately
+careful with credits, and `suite_panel`'s double-submit claim before it. The
+client is **part of the key**: a hit points at a stored asset in somebody's
+own Cloudinary tree, and handing one client's folder to another as a cache hit
+would put their audio on another client's spot.
+
+**On the timeline, an effect is not a second gain system.** It gets a track of
+its own (`TRACK_SFX`) because elements sharing a track play *sequentially*,
+and it is **capped to the shot it sits on** — which is what makes "nothing on
+that track overlaps" true by construction rather than by hope. Its volume is
+the bed's own pair, through `config.ducked_db()`, which `creatomate_service`
+and `qc_service` now both read: two lookups of one table, each with its own
+fallback, is how the panel and the render come to disagree about how loud
+something is. `sfx_gain_conflict` judges it against the **middle** setting read
+out of `MUSIC_LEVELS` rather than a literal, and reports a level the table
+does not know as its own finding — because the render is then using a pair
+nobody picked.
+
+**Both checks advise and neither refuses.** A bed a second short of the runway
+is a real thing to notice before the render and a perfectly shippable spot
+either way; a check that refuses the correct thing is a check somebody
+switches off, which is the `QR_CODE_RULES` lesson. Both are in `ADVISORY_CHECKS`
+and in **both** screens' `QC_LABELS` — a check absent from a label map is
+skipped silently by the render loop, which is how `scene_assets` never
+appeared on the panel it was written for.
+
+**The CTA stinger, the transition whoosh and the audio-only spot needed no
+code.** The end card *is* a scene and so is the boundary a whoosh lands on, so
+both are the scene route with a different prompt; and a VO-only radio spot is
+this wizard with the visual steps unused, which is why `modules/fan_radio` and
+`modules/radio_promo` gain nothing here and need nothing — the service is
+shared, so wiring it into either later is additive rather than a rewrite.
+`test_commercial_audio.py` asserts all of it, and every new check was
+confirmed red against the defect it was written for first.
+
 **A picture may encode something, or it may assert something.** The Voice and
 Music steps are tiles rather than dropdowns now, and the rule they follow is
 worth keeping: **draw a graphic where it carries real information, and use a
@@ -2892,9 +2976,13 @@ two dB figures in `MUSIC_LEVELS`, which are the same numbers
 `creatomate_service` turns into the ducking keyframes, so what is on screen is
 what renders. Nothing is drawn for gender, age or accent — a face or a flag
 there would assert something the tool does not know. The mood waveforms are the
-one illustration, and they are **labelled as one**: no music library is
-connected, so a picture that reads as a waveform of a chosen track would be
-claiming a track exists. Each casting tile also prints the words it will
+one illustration, and they are **labelled as one**: nothing has been composed
+at the moment a mood is pressed, so a picture that reads as a waveform of a
+chosen track would be claiming a track exists. That sentence used to end "no
+music library is connected", which stopped being true the day the bed was
+composed rather than picked — a note contradicting the panel directly beneath
+it costs both of them their credibility, which is why it moved with the
+feature rather than after it. Each casting tile also prints the words it will
 actually match on (`characteristics_detail()`), because "Announcer" is not a
 mood — it is a search for *announcer, commercial, broadcast, promo* in the text
 ElevenLabs publishes, and a screen that says so lets somebody pick differently
@@ -5510,6 +5598,99 @@ the PDF and the Word export alike, in **one** gate in front of the twelve
 a setting comes to be honoured by eleven of the twelve. An edited table is
 drawn in amber in the builder with the generated one one click away, and its
 badge says it no longer recomputes, which is exactly true.
+
+### The one line the rate card does not name
+
+`hub/product_intake.CONSULTING` has defined **Consulting & Strategic
+Services** all along, and its own docstring says what it is for: a line *"used
+when a proposal committed to something the rate card does not name, so the
+commitment reaches the insertion order rather than being dropped for lack of a
+product code."* **The proposal could not make that commitment.** Every push
+into `S.items` came from a rate-card row, and the card has no consulting
+product — 19 categories, and the nearest thing is *Google Analytics
+Consultation* under SEO, which is installing and repairing GA goals rather
+than strategy work.
+
+So the catch-all was reachable only from the IO's **intake** — the path for a
+proposal uploaded as a file, read back and classified line by line. A rep
+selling strategy work either left it off the quote and added it at IO time, so
+the client signed a document that never mentioned it, or did not sell it. The
+mechanism was built at the far end of a journey the near end could not start.
+
+**It is still not a row on the card, and that refusal is the load-bearing
+part.** `product_intake.py` says why in a comment older than this feature:
+that file is the wholesale card, `check_drift()` holds it against the IO
+template's embedded copy, and inventing a product inside it would make both of
+those lie. There is a **third** copy in the proposal wizard, and it must not
+gain the line either. So the definition is **served** rather than mirrored —
+`/api/config` carries it, beside the creative sizes and the markup rule, for
+the reason that section already gives — and `test_proposal_consulting.py`
+requires the wizard to hand-type the product string **nowhere**.
+
+**The join is that string, and it is exact.** The IO recognises the catch-all
+by product name, so a hand-typed copy in the wizard is a line the insertion
+order silently drops the day either end is edited. Asserted byte-for-byte
+against the IO template's own constant.
+
+**A description is required, and that is `question_for()`'s rule rather than a
+second one.** Every consulting line ever quoted prints the same product
+string, so with none the client reads *"Consulting & Strategic Services —
+$5,000"* against nothing and trafficking reads a line it cannot action. It is
+refused **by name** at the control rather than added blank, because a line
+that reports a clean success and arrives meaningless is the whole failure
+being closed. One trap in reading that rule: `question_for()` asks the basis
+and the term **before** the description, so a plan line must hand over both or
+the question comes back as *"monthly or one-time?"* about a line whose basis
+is on the screen.
+
+**And the description has to survive both journeys, which is where it was
+actually being lost.** The IO's intake already carried it to special
+instructions — but `ioDataPayload()` sent **no `specialInstructions` at all**,
+so a Hub proposal converted straight through arrived with a product name and a
+budget. Both ends are closed now: the client's media plan draws it under the
+product (decided once in `media_plan_rows()`, drawn by the preview, the PDF
+and the Word export the way `monthly_label` already is), and the conversion
+writes it onto special instructions in the shape the IO's own intake appends
+to, plus into `internalRequirements` under its own product heading, which is
+what the internal PDF prints and what trafficking reads.
+
+**Two of the three downstream behaviours were already right**, which is worth
+knowing before anybody "fixes" them: `gated_media()` returns nothing for a
+consulting plan, so it does not ask who is supplying creative for a workshop;
+and `channel_lines()` leaves it out of Recommended Channel Strategy, because a
+line with no rate and no gated medium is a fee rather than a channel. Both are
+asserted so they stay true.
+
+**Consulting lines dedupe on the description, not the product.** Two
+engagements at two prices is the ordinary case — a strategy workshop and a
+quarterly review — and every other line on the plan dedupes on a product
+string all of these share.
+
+**And there are two consulting products, which is a thing to know before
+renaming either.** `state["consulting"]` is a monthly **retainer** — Suite
+coaching and campaign strategy, priced from estimated hours, riding beside the
+licence in the Investment Summary because it is recurring platform work a
+paused campaign does not stop. This is the other one: a single **engagement**,
+scoped and priced on its own, quoted on the media plan and trafficked as an
+insertion-order line. Both are real, and they arrived from two directions
+within a day of each other.
+
+What that cost is the name. A client reading *"Consulting & Strategy"* in the
+Investment Summary and *"Consulting & Strategic Services"* on the media plan
+cannot tell which charge is which — two names for what reads as one thing,
+which is the drift most of the rules in this file exist to refuse. So the
+engagement is a **Strategy Engagement** everywhere a person reads it:
+the plan editor, the preview, the PDF, the Word export.
+
+**The product string underneath does not move with it.** It is the join — the
+IO recognises the catch-all by that exact name, `product_intake` owns it, and
+renaming it would orphan every line already quoted under it. `audit.LOG_NAMES`
+and `video_library.TAG_ALIASES`' rule, one document over: the stored name
+stays and the displayed one changes. `is_consulting()` keys on the product
+string rather than the display name for the same reason, and
+`test_proposal_consulting.py` asserts both halves — that the client's row
+prints the display name, and that the join is byte-identical to the IO's
+constant regardless.
 
 ### One product, one name — or the IO quietly carries 88 of 90
 
@@ -11502,6 +11683,12 @@ python3 test_proposal_share.py     # the client's copy: who opened it, how often
 python3 test_proposal_targeting.py # the coverage map, the pasted location list,
                                    #   the competitor research, and a bulleted
                                    #   list that reaches the client as a list
+python3 test_proposal_consulting.py # the one line the card does not name: the
+                                   #   card stays the wholesale card, the join
+                                   #   is an exact string, a description is
+                                   #   required because the product name is
+                                   #   shared, and it survives to both the
+                                   #   client's plan and the insertion order
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
                                    #   the 2x quoted rate, the product a goal leads
                                    #   with, ZIP exceptions and what the Suite covers
@@ -11636,6 +11823,12 @@ python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,
                                    #   and a library of what was actually delivered
+python3 test_commercial_audio.py   # generated sound effects and music: a published
+                                   #   limit refused by name rather than clamped, a
+                                   #   retry that cannot re-spend on either worker, a
+                                   #   length derived or not measured, a generation
+                                   #   counted apart from a character of speech, and
+                                   #   an effect capped to the shot it sits on
 python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose

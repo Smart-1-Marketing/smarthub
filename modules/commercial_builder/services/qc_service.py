@@ -7,6 +7,7 @@ from hub import script_contents
 from . import openai_service, abcd_service
 from .. import compliance_spec, library_spec
 from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
+                      MUSIC_LEVEL_REFERENCE, MUSIC_LENGTH_TOLERANCE_S, ducked_db,
                       qr_eligible, qr_required, qr_default_on, is_social,
                       logo_persistence_eligible, short_form_phrase,
                       spec_channels, spec_channel_mode, publishers_refusing_qr,
@@ -48,6 +49,11 @@ ADVISORY_CHECKS = {
     # so is worth a warning — but a rep may have the customer lined up and
     # not have typed it here, so it asks rather than refuses.
     "archetype_ready",
+    # Both generated-audio checks advise and neither refuses. A bed a second
+    # short of the runway is a real thing to notice before the render and a
+    # perfectly shippable spot either way — the same reasoning `qr_code`
+    # carries, one track down.
+    "sfx_gain_conflict", "music_length_mismatch",
 }
 
 # The published creative specification. Imported defensively because this
@@ -88,6 +94,8 @@ def run_qc(project_dict, client_dict, scenes):
     checks["publisher_rules"] = _check_publisher_rules(project_dict)
     checks["compliance"] = _check_compliance(project_dict, client_dict)
     checks["archetype_ready"] = _check_archetype(project_dict)
+    checks["sfx_gain_conflict"] = _check_sfx_gain(project_dict, scenes)
+    checks["music_length_mismatch"] = _check_music_length(project_dict)
 
     for key, result in checks.items():
         if key.startswith("_"):
@@ -140,6 +148,93 @@ def _check_archetype(project_dict):
                "step if that is wrong)" if source != "chosen" else "")
             + ". ")
     return {"passed": False, "level": LEVEL_WARN, "message": lead + asks}
+
+
+def _check_sfx_gain(project_dict, scenes):
+    """A sound effect sitting on top of the read rather than under it.
+
+    Every effect is ducked by the same pair as the bed (`config.ducked_db`),
+    so the question is not whether ducking happens — it always does — but
+    whether the level somebody picked ducks it far enough to keep the words
+    audible. Judged against the **middle** setting, read out of
+    `MUSIC_LEVELS` rather than typed as a number: a threshold written as a
+    literal is a house figure nobody can trace back to anything, and one
+    derived from the table moves with it.
+
+    Two findings, kept apart because they are fixed in different places. A
+    level this table does not know is a project carrying a spelling nothing
+    here recognises, which means the render is using the Medium pair that
+    nobody chose — and that is worth saying whether or not any effect is
+    loud.
+    """
+    level = (project_dict.get("music") or {}).get("level", "Medium")
+    levels = ducked_db(level)
+    loud = [s for s in scenes
+            if ((s.get("asset_meta") or {}).get("sfx") or {}).get("url")
+            and (s.get("narration") or "").strip()]
+    if not levels["known"]:
+        return {"passed": False,
+                "message": (f"The music level is recorded as “{level}”, which is not "
+                            f"one this tool knows, so both the bed and every sound "
+                            f"effect render at the {MUSIC_LEVEL_REFERENCE} levels "
+                            f"nobody picked. Set it on the Voice & music step.")}
+    if not loud:
+        return {"passed": True,
+                "message": ("No sound effect is sitting under narration, or none "
+                            "has been added." if not any(
+                                ((s.get("asset_meta") or {}).get("sfx") or {}).get("url")
+                                for s in scenes)
+                            else "Every sound effect ducks under the read.")}
+    reference = ducked_db(MUSIC_LEVEL_REFERENCE)["ducked"]
+    if levels["ducked"] <= reference:
+        return {"passed": True,
+                "message": (f"{len(loud)} sound effect(s) sit under narration and duck "
+                            f"to {levels['ducked']} dB, at or below the "
+                            f"{MUSIC_LEVEL_REFERENCE} setting.")}
+    return {"passed": False,
+            "message": (f"Shot(s) {_join([s.get('order_index', 0) + 1 for s in loud])} "
+                        f"carry a sound effect over narration, and at the “{level}” "
+                        f"level everything ducks only to {levels['ducked']} dB — "
+                        f"louder than the {MUSIC_LEVEL_REFERENCE} setting's "
+                        f"{reference} dB. Worth a listen, or drop the level a step.")}
+
+
+def _check_music_length(project_dict):
+    """Whether the bed that came back is the length that was asked for.
+
+    Three answers, not two. The tolerance is **ours** and is said to be —
+    ElevenLabs publishes none — the rule `services/abcd_service.HOUSE_LEGIBILITY`
+    works to.
+
+    The middle answer is the one worth having: a track whose length could not
+    be derived is *not measured*, never a tick. `elevenlabs_audio_service`
+    only computes a duration where the response came back as the
+    constant-bitrate MP3 it asked for, and a green tick over a length nobody
+    measured is the confident wrong answer this file exists to avoid.
+    """
+    music = project_dict.get("music") or {}
+    if not music.get("music_track_url"):
+        return {"passed": True,
+                "message": "No generated bed on this spot, so there is no length to check."}
+    got = music.get("music_seconds")
+    want_ms = music.get("music_requested_ms")
+    if got is None or not want_ms:
+        return {"passed": False,
+                "message": ("The bed is attached, and its length could not be measured — "
+                            "the file did not come back in the constant-bitrate format "
+                            "we asked for, so this is not measured rather than agreed. "
+                            "Play it before rendering.")}
+    want = float(want_ms) / 1000.0
+    drift = round(float(got) - want, 2)
+    if abs(drift) <= MUSIC_LENGTH_TOLERANCE_S:
+        return {"passed": True,
+                "message": f"The bed is {got:g}s against the {want:g}s asked for."}
+    direction = "longer than" if drift > 0 else "short of"
+    return {"passed": False,
+            "message": (f"The bed came back {got:g}s — {abs(drift):g}s {direction} the "
+                        f"{want:g}s asked for, past the {MUSIC_LENGTH_TOLERANCE_S:g}s "
+                        f"this tool allows (ours, not a published figure). "
+                        f"{'It will be cut off at the end.' if drift > 0 else 'The last of the spot will run dry.'}")}
 
 
 def _check_compliance(project_dict, client_dict):
