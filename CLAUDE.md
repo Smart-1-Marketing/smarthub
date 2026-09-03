@@ -5511,6 +5511,99 @@ a setting comes to be honoured by eleven of the twelve. An edited table is
 drawn in amber in the builder with the generated one one click away, and its
 badge says it no longer recomputes, which is exactly true.
 
+### The one line the rate card does not name
+
+`hub/product_intake.CONSULTING` has defined **Consulting & Strategic
+Services** all along, and its own docstring says what it is for: a line *"used
+when a proposal committed to something the rate card does not name, so the
+commitment reaches the insertion order rather than being dropped for lack of a
+product code."* **The proposal could not make that commitment.** Every push
+into `S.items` came from a rate-card row, and the card has no consulting
+product — 19 categories, and the nearest thing is *Google Analytics
+Consultation* under SEO, which is installing and repairing GA goals rather
+than strategy work.
+
+So the catch-all was reachable only from the IO's **intake** — the path for a
+proposal uploaded as a file, read back and classified line by line. A rep
+selling strategy work either left it off the quote and added it at IO time, so
+the client signed a document that never mentioned it, or did not sell it. The
+mechanism was built at the far end of a journey the near end could not start.
+
+**It is still not a row on the card, and that refusal is the load-bearing
+part.** `product_intake.py` says why in a comment older than this feature:
+that file is the wholesale card, `check_drift()` holds it against the IO
+template's embedded copy, and inventing a product inside it would make both of
+those lie. There is a **third** copy in the proposal wizard, and it must not
+gain the line either. So the definition is **served** rather than mirrored —
+`/api/config` carries it, beside the creative sizes and the markup rule, for
+the reason that section already gives — and `test_proposal_consulting.py`
+requires the wizard to hand-type the product string **nowhere**.
+
+**The join is that string, and it is exact.** The IO recognises the catch-all
+by product name, so a hand-typed copy in the wizard is a line the insertion
+order silently drops the day either end is edited. Asserted byte-for-byte
+against the IO template's own constant.
+
+**A description is required, and that is `question_for()`'s rule rather than a
+second one.** Every consulting line ever quoted prints the same product
+string, so with none the client reads *"Consulting & Strategic Services —
+$5,000"* against nothing and trafficking reads a line it cannot action. It is
+refused **by name** at the control rather than added blank, because a line
+that reports a clean success and arrives meaningless is the whole failure
+being closed. One trap in reading that rule: `question_for()` asks the basis
+and the term **before** the description, so a plan line must hand over both or
+the question comes back as *"monthly or one-time?"* about a line whose basis
+is on the screen.
+
+**And the description has to survive both journeys, which is where it was
+actually being lost.** The IO's intake already carried it to special
+instructions — but `ioDataPayload()` sent **no `specialInstructions` at all**,
+so a Hub proposal converted straight through arrived with a product name and a
+budget. Both ends are closed now: the client's media plan draws it under the
+product (decided once in `media_plan_rows()`, drawn by the preview, the PDF
+and the Word export the way `monthly_label` already is), and the conversion
+writes it onto special instructions in the shape the IO's own intake appends
+to, plus into `internalRequirements` under its own product heading, which is
+what the internal PDF prints and what trafficking reads.
+
+**Two of the three downstream behaviours were already right**, which is worth
+knowing before anybody "fixes" them: `gated_media()` returns nothing for a
+consulting plan, so it does not ask who is supplying creative for a workshop;
+and `channel_lines()` leaves it out of Recommended Channel Strategy, because a
+line with no rate and no gated medium is a fee rather than a channel. Both are
+asserted so they stay true.
+
+**Consulting lines dedupe on the description, not the product.** Two
+engagements at two prices is the ordinary case — a strategy workshop and a
+quarterly review — and every other line on the plan dedupes on a product
+string all of these share.
+
+**And there are two consulting products, which is a thing to know before
+renaming either.** `state["consulting"]` is a monthly **retainer** — Suite
+coaching and campaign strategy, priced from estimated hours, riding beside the
+licence in the Investment Summary because it is recurring platform work a
+paused campaign does not stop. This is the other one: a single **engagement**,
+scoped and priced on its own, quoted on the media plan and trafficked as an
+insertion-order line. Both are real, and they arrived from two directions
+within a day of each other.
+
+What that cost is the name. A client reading *"Consulting & Strategy"* in the
+Investment Summary and *"Consulting & Strategic Services"* on the media plan
+cannot tell which charge is which — two names for what reads as one thing,
+which is the drift most of the rules in this file exist to refuse. So the
+engagement is a **Strategy Engagement** everywhere a person reads it:
+the plan editor, the preview, the PDF, the Word export.
+
+**The product string underneath does not move with it.** It is the join — the
+IO recognises the catch-all by that exact name, `product_intake` owns it, and
+renaming it would orphan every line already quoted under it. `audit.LOG_NAMES`
+and `video_library.TAG_ALIASES`' rule, one document over: the stored name
+stays and the displayed one changes. `is_consulting()` keys on the product
+string rather than the display name for the same reason, and
+`test_proposal_consulting.py` asserts both halves — that the client's row
+prints the display name, and that the join is byte-identical to the IO's
+constant regardless.
+
 ### One product, one name — or the IO quietly carries 88 of 90
 
 Two products were both called **Google Grant** — a $125 one-time setup fee and
@@ -11502,6 +11595,12 @@ python3 test_proposal_share.py     # the client's copy: who opened it, how often
 python3 test_proposal_targeting.py # the coverage map, the pasted location list,
                                    #   the competitor research, and a bulleted
                                    #   list that reaches the client as a list
+python3 test_proposal_consulting.py # the one line the card does not name: the
+                                   #   card stays the wholesale card, the join
+                                   #   is an exact string, a description is
+                                   #   required because the product name is
+                                   #   shared, and it survives to both the
+                                   #   client's plan and the insertion order
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
                                    #   the 2x quoted rate, the product a goal leads
                                    #   with, ZIP exceptions and what the Suite covers

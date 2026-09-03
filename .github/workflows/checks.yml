@@ -619,6 +619,14 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: The consulting line the rate card does not name
+        run: |
+          if [ -f test_proposal_consulting.py ]; then
+            python test_proposal_consulting.py
+          else
+            echo "test_proposal_consulting.py not on this branch — nothing to run."
+          fi
+
       - name: Rate card coverage — every product, on a proposal that renders
         # The tests around the card check its rules against the rows somebody
         # thought to write down, which is the set that was already right. This
