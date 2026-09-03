@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% import "_video_tools.html" as vt %}
+{% block title %}Dead Air Cutter — Smart 1 Hub{% endblock %}
+{% block content %}
+{# What this tool measures is worth stating on the page, not only in the code.
+   It reads the audio LEVEL, not the words: a music bed, a sound effect and a
+   held beat are all sound, and none of them is dead air. That is the whole
+   difference from every transcript-based silence cutter, and it is the thing
+   a rep needs to know before pointing it at a finished spot. #}
+<div class="page-head">
+  <h2>Dead Air Cutter {{ help_dot('video_tools.dead_air') if help_dot is defined else '' }}</h2>
+  <p>Finds the stretches where nothing is happening in the audio and takes them
+     out, leaving a little air at each cut so it does not sound clipped.
+     Nothing is overwritten — the edit is a new file.</p>
+</div>
+
+{{ vt.styles() }}
+
+<div class="vt-steps">
+  {{ vt.source_step() }}
+
+  <section class="vt-step" id="vt-settings">
+    <h3><span class="n">2</span> How tight</h3>
+    <div class="vt-body">
+      <div class="vt-fields">
+        <div class="vt-field">
+          <label for="f-gap">Cut pauses longer than</label>
+          <input type="number" id="f-gap" value="{{ cfg.DEFAULT_GAP }}"
+                 min="{{ cfg.MIN_GAP }}" max="{{ cfg.MAX_GAP }}" step="0.05">
+          <div class="hint">Seconds. Below about half a second you are cutting
+            the rhythm of the speech, and the listener hears the edit.</div>
+        </div>
+        <div class="vt-field">
+          <label for="f-breath">Leave behind</label>
+          <input type="number" id="f-breath" value="{{ cfg.DEFAULT_BREATH }}"
+                 min="0" max="{{ cfg.MAX_BREATH }}" step="0.05">
+          <div class="hint">Seconds of air kept at each cut. This is the
+            control that decides whether it sounds edited or just faster.</div>
+        </div>
+        <div class="vt-field">
+          <label for="f-sens">What counts as quiet</label>
+          <select id="f-sens">
+            {% for key, value in sensitivity.items() %}
+              <option value="{{ key }}" {{ 'selected' if key == cfg.DEFAULT_SENSITIVITY }}>{{ key|capitalize }}</option>
+            {% endfor %}
+          </select>
+          <div class="hint">Gentle keeps room tone. Aggressive cuts breaths
+            and low background noise too.</div>
+        </div>
+        <div class="vt-field">
+          <label for="f-ends">Head and tail</label>
+          <select id="f-ends">
+            <option value="1" selected>Trim the silence at both ends</option>
+            <option value="0">Leave the ends alone</option>
+          </select>
+          <div class="hint">Leave them alone when the spot holds on a logo
+            over silence — that ending is deliberate.</div>
+        </div>
+      </div>
+      <div class="vt-row" style="margin-top:14px">
+        <button class="vt-btn ghost" id="f-analyze" disabled>Show me what it would cut</button>
+      </div>
+      <p class="vt-bad vt-hide" id="f-err"></p>
+    </div>
+  </section>
+
+  <section class="vt-step vt-hide" id="vt-plan">
+    <h3><span class="n">3</span> What it would cut</h3>
+    <div class="vt-body">
+      <div class="vt-stat" id="p-stat"></div>
+      {# The waveform is the picture the decision was made from, with the cuts
+         drawn on it -- not a redrawing. Somebody who disagrees with a cut can
+         see the audio it was made against. #}
+      <div style="position:relative;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+        <img id="p-wave" alt="Waveform of this clip's audio" style="display:block;width:100%;height:120px">
+        <div id="p-marks" style="position:absolute;inset:0;pointer-events:none"></div>
+      </div>
+      <p class="vt-note">Red is what goes. Every one of those stretches is
+        below the level you set for longer than the gap you set.</p>
+      <div id="p-notes"></div>
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;font-size:12.5px;color:#475569">Every cut, listed</summary>
+        <table class="vt-jobs" style="margin-top:8px"><tbody id="p-cuts"></tbody></table>
+      </details>
+      <div class="vt-row" style="margin-top:14px">
+        <button class="vt-btn" id="f-render">Make the cut</button>
+        <span class="vt-note" style="margin:0">Builds a new file. The original
+          is not touched.</span>
+      </div>
+    </div>
+  </section>
+
+  {{ vt.result_step(4) }}
+</div>
+
+{{ vt.shared_js('/tools/dead-air', cfg.JOB_POLL_SECONDS * 1000) }}
+<script>
+(function () {
+  const $ = VT.$;
+  let plan = null;
+
+  const opts = () => ({
+    gap: parseFloat($("f-gap").value),
+    breath: parseFloat($("f-breath").value),
+    sensitivity: $("f-sens").value,
+    trim_ends: $("f-ends").value === "1",
+  });
+
+  VT.onSource = function (src) {
+    $("f-analyze").disabled = false;
+    VT.show($("vt-plan"), false);
+    if (src.has_audio === false) {
+      VT.msg("f-err", "This clip has no audio track, so there is no dead air "
+        + "to find. Vertical Reframe is the tool for a silent clip.");
+    } else { VT.msg("f-err", "", false); }
+  };
+
+  async function analyze() {
+    if (!VT.source) return;
+    VT.msg("f-err", "", false);
+    // Somebody else's server twice over -- Cloudinary reads the asset and then
+    // draws the waveform -- so the `scan` glyph, and the label comes back on
+    // its own rather than being re-typed here. Re-typing it is how the button
+    // ends up saying "Reading the audio…" for ever on whichever exit path
+    // somebody forgets.
+    const h = VT.busy($("f-analyze"), "scan", "Reading the audio…");
+    try {
+      const data = await VT.post("/api/analyze",
+        Object.assign({source: VT.source.public_id}, opts()));
+      plan = data.plan;
+      draw(data);
+      VT.show($("vt-plan"), true);
+    } catch (e) { VT.msg("f-err", e.message); }
+    finally { h.done(); }
+  }
+
+  function draw(data) {
+    const p = data.plan, d = p.duration || 1;
+    $("p-wave").src = data.waveform.url;
+    $("p-stat").innerHTML = `
+      <div><b>${VT.secs(p.duration)}</b>now</div>
+      <div><b>${VT.secs(p.kept)}</b>after</div>
+      <div><b>${VT.secs(p.removed)}</b>removed</div>
+      <div><b>${p.cuts.length}</b>cut${p.cuts.length === 1 ? "" : "s"}</div>`;
+    $("p-marks").innerHTML = p.cuts.map(c =>
+      `<div style="position:absolute;top:0;bottom:0;left:${(c.start / d * 100).toFixed(3)}%;
+        width:${Math.max(0.25, (c.removed / d * 100)).toFixed(3)}%;
+        background:rgba(220,38,38,.35);border-left:1px solid #dc2626"></div>`).join("");
+    $("p-notes").innerHTML = (p.notes || []).map(n =>
+      `<p class="vt-warn">${n}</p>`).join("");
+    $("p-cuts").innerHTML = p.cuts.length
+      ? p.cuts.map((c, i) => `<tr><td>${i + 1}</td>
+          <td>${c.start.toFixed(2)}s &rarr; ${c.end.toFixed(2)}s</td>
+          <td>${c.removed.toFixed(2)}s out</td><td>${c.where}</td></tr>`).join("")
+      : '<tr><td style="color:#94a3b8">No cuts at these settings.</td></tr>';
+    $("f-render").disabled = !p.cuts.length;
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    $("f-analyze").onclick = analyze;
+    $("f-render").onclick = () => VT.render("/api/render", opts());
+    // Re-analyzing on every keystroke would be a request per digit. Changing a
+    // setting invalidates the plan instead, so nobody renders a cut list that
+    // no longer matches the numbers on screen.
+    for (const id of ["f-gap", "f-breath", "f-sens", "f-ends"]) {
+      $(id).addEventListener("change", () => VT.show($("vt-plan"), false));
+    }
+  });
+})();
+</script>
+{% endblock %}

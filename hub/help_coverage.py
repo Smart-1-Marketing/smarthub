@@ -123,6 +123,8 @@ PREFIXES: dict[str, str] = {
     "/tools/stock-photos/": "stock_photos",
     "/tools/commercial-builder/": "commercial_builder",
     "/tools/video-backgrounds/": "video_backgrounds",
+    "/tools/dead-air/": "video_tools",
+    "/tools/vertical-reframe/": "video_tools",
     "/tools/radio-promo/": "radio_promo",
     "/tools/fan-radio/": "fan_radio",
     # Client tools

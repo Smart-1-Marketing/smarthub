@@ -56,6 +56,11 @@ WORK_KINDS = {
     # client's record would say we made them a spot we did not.
     "paint_animation":      ("Paint animation", "Paint Animation"),
     "vox_explainer":        ("Explainer video", "Vox Explainer"),
+    # Both Video Tools log under one name, because they file one kind of thing
+    # against a client: a cut of their video, saved into their library. The
+    # tool that made it is on the row; splitting the table by it would put two
+    # lines on the record for what a person did in one sitting.
+    "video_tools":          ("Video edit", "Video Tools"),
     # Keyed on `utm`, which is the name the module actually logs under --
     # `modules/utm_builder/app.py` does `hub_audit.log("utm", …)`. This table
     # said `utm_builder`, work_log() drops a module it cannot name, and so

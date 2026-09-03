@@ -1079,6 +1079,21 @@ jobs:
             echo "test_video_library.py not on this branch — nothing to run."
           fi
 
+      - name: Video Tools tests
+        # Dead Air Cutter and Vertical Reframe. No network: every decision the
+        # module makes lives in pure functions handed synthetic waveforms and
+        # known frame sizes, and the wiring half boots the app with Cloudinary
+        # and OpenAI deliberately unset -- an unconfigured account has to read
+        # as unconfigured rather than as an empty library, which is one of the
+        # things this file asserts. Guarded like the steps above so the
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_video_tools.py ]; then
+            python test_video_tools.py
+          else
+            echo "test_video_tools.py not on this branch — nothing to run."
+          fi
+
       - name: Web ticket field tests
         # The pinned object_107 ids, the form built from them, and what a
         # write may and may not contain. Guarded like the steps above so this
