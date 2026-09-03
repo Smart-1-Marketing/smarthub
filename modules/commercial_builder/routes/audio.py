@@ -116,6 +116,11 @@ def _store(client, data, public_id, filename):
             try:
                 os.unlink(tmp_path)
             except OSError:
+                # The bytes are already in Cloudinary, or the upload already
+                # failed and said why. A temp file that will not delete must
+                # not turn either of those into a third answer -- and this is
+                # a `finally`, so raising here would replace the return the
+                # caller is about to read with an error about housekeeping.
                 pass
     url = stored.get("secure_url")
     if not url:

@@ -215,6 +215,11 @@ def remember(digest, row):
         try:
             os.unlink(tmp)
         except OSError:
+            # The write we were cleaning up after has already failed, and we
+            # return with nothing cached either way. A part-written .tmp that
+            # will not delete is swept on the next successful write, and
+            # raising here would cost the caller the generation it just paid
+            # for to report a file it never asked about.
             pass
         return
     _sweep()
@@ -238,6 +243,11 @@ def _sweep():
                 try:
                     os.unlink(path)
                 except OSError:
+                    # Two gunicorn workers sweep the same directory, so the
+                    # ordinary case is that the other one removed this entry
+                    # between the listing and here. Either way an expired
+                    # entry that survives one sweep is retried on the next;
+                    # stopping would leave every entry after it uncollected.
                     pass
                 continue
             entries.append((st.st_mtime, path))
@@ -245,8 +255,17 @@ def _sweep():
             try:
                 os.unlink(path)
             except OSError:
+                # Same race, trimming to the cap rather than by age. One entry
+                # that will not go leaves the cache a row over its ceiling
+                # until the next write, which is a bounded cost; abandoning
+                # the loop would leave it unbounded.
                 pass
     except OSError:
+        # The whole sweep is opportunistic. A data directory that cannot be
+        # listed at all -- a disk being replaced under us, a permission that
+        # moved -- costs housekeeping and must not cost the generation the
+        # caller is in the middle of storing: `remember()` promises it never
+        # raises, and this is the last thing it does.
         pass
 
 
@@ -404,4 +423,8 @@ def _meter(kind, seconds, model, *, ok):
         _q.record_audio_generation(kind, module="commercial_builder",
                                    seconds=seconds, model=model, ok=ok)
     except Exception:                                    # noqa: BLE001
+        # A meter must never cost a file. With no Hub to import there is
+        # nothing to record into, and a recorder that raised would throw away
+        # audio ElevenLabs has already been paid for -- which is the one
+        # outcome worse than an unrecorded call.
         pass
