@@ -110,7 +110,7 @@ def generate_vox_beats(project_id):
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
 
-    kind = str(data.get("source_kind") or "topic").strip().lower()
+    kind = vox_spec.clean_source_kind(data.get("source_kind"))
     text = str(data.get("source_text") or "").strip()
     link = str(data.get("link") or "").strip()
 

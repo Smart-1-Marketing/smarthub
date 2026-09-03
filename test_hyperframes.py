@@ -253,6 +253,32 @@ section("Every beat field this module validates is one the template is sent")
 check("nothing is validated and then dropped on the way out",
       vox_spec.check_spec(), [])
 
+from modules.commercial_builder.services import openai_service     # noqa: E402,F811
+
+section("The source kind is a closed set, and a link is read from the request")
+# A review bot found `_SOURCE_IDS` declared and never read — the shape this
+# repo counts six of, and the closed-vocabulary rule its two neighbours in
+# that file already follow.
+check("a real kind survives", vox_spec.clean_source_kind("link"), "link")
+check("case and padding are cleaned", vox_spec.clean_source_kind(" LINK "), "link")
+check("a typo falls back rather than reaching code with no branch for it",
+      vox_spec.clean_source_kind("lnk"), vox_spec.DEFAULT_SOURCE_KIND)
+check("and so does nothing at all", vox_spec.clean_source_kind(None),
+      vox_spec.DEFAULT_SOURCE_KIND)
+check("every kind the form offers is one it accepts",
+      sorted(vox_spec.clean_source_kind(k["id"]) for k in vox_spec.SOURCE_KINDS),
+      sorted(k["id"] for k in vox_spec.SOURCE_KINDS))
+# The latent bug the unused constant was pointing at: whether to fetch was
+# gated on the kind STRING, so a typo silently ignored a link sitting in the
+# request and answered "there is nothing to build an explainer from" about a
+# page that was right there.
+import inspect                                                     # noqa: E402
+_gen_src = inspect.getsource(openai_service.generate_vox_beats)
+check("the fetch is decided by what was supplied, not by the kind string",
+      'if link and not body:' in _gen_src, True)
+check("and the kind is normalized before anything reads it",
+      "vox_spec.clean_source_kind(source_kind)" in _gen_src, True)
+
 section("The fallback outline is built from the material and nothing else")
 outline = vox_spec.outline_from_text(
     "The roof leaks in winter, which costs money. Homeowners delay for years. "

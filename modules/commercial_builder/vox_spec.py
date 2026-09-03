@@ -66,6 +66,7 @@ __all__ = [
     "COMMERCIAL_TYPE", "PLATFORMS", "FORMATS", "SOURCE_KINDS", "TREATMENTS",
     "MIN_BEATS", "MAX_BEATS", "TARGET_SECONDS",
     "validate", "rebalance", "outline_from_text", "beats_seconds",
+    "clean_source_kind",
     "platform_note", "check_spec",
 ]
 
@@ -99,6 +100,7 @@ SOURCE_KINDS = [
      "hint": "A page we read and explain. The page is fetched, not imagined."},
 ]
 _SOURCE_IDS = {s["id"] for s in SOURCE_KINDS}
+DEFAULT_SOURCE_KIND = "topic"
 
 # The visual treatments the template draws. Closed, because a treatment
 # outside this set reaches a template with no branch for it and renders the
@@ -267,6 +269,20 @@ def rebalance(beats, *, total_seconds: float = TARGET_SECONDS) -> list[dict]:
 def beats_seconds(beats) -> float:
     return round(sum(float((b or {}).get("seconds") or 0)
                      for b in (beats or []) if isinstance(b, dict)), 2)
+
+
+def clean_source_kind(value) -> str:
+    """One of the kinds this module offers, or the default.
+
+    The closed-vocabulary rule its two neighbours in this file already follow:
+    a value outside the set reaches code that has no branch for it and behaves
+    as some default while the screen reports what was asked for. `_SOURCE_IDS`
+    was written for exactly this and had no caller, which a review bot was
+    right to name — a constant declared and never read is the shape this repo
+    counts six of.
+    """
+    kind = str(value or "").strip().lower()
+    return kind if kind in _SOURCE_IDS else DEFAULT_SOURCE_KIND
 
 
 def _clean(value, limit: int) -> str:

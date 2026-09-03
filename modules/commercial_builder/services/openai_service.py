@@ -840,8 +840,15 @@ def generate_vox_beats(source_kind, source_text, client_profile, *,
 
     total = float(total_seconds or vox_spec.TARGET_SECONDS)
     body = str(source_text or "").strip()
+    source_kind = vox_spec.clean_source_kind(source_kind)
 
-    if str(source_kind or "").strip().lower() == "link" and link and not body:
+    # Decided by what was actually supplied rather than by the kind alone. The
+    # kind is the form's way of saying which field to show; a caller that hands
+    # over a link and no text has asked for that page to be read whatever it
+    # spelled the kind as, and gating the fetch on the string meant a typo
+    # silently ignored the link and answered "there is nothing to build an
+    # explainer from" about a page sitting right there in the request.
+    if link and not body:
         # The page is fetched, not imagined. `analyze_website` above already
         # owns this shape; a model handed a bare URL writes a confident
         # explainer about a page nobody has read, which is the failure
