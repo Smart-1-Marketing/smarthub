@@ -237,11 +237,20 @@ tbody tr.total td{font-weight:800;background:#f8fbff;color:var(--navy)}
     });
   }
 
+  /* The height the host page sets the iframe to. `document.body`, never
+     `documentElement`: the root element's scrollHeight is floored by the
+     viewport the parent has already given us, so once the frame had grown
+     it could never come back down and a collapsed section left a tall
+     empty gap on the client's page. The body measures the content alone.
+     A ResizeObserver reports growth nothing here triggered -- a font swap,
+     a wrapped error line -- the way modules/scans/templates/widget.html
+     already does; the host's /embed.js applies whatever it is sent. */
   function measure(){
     if (window.parent === window) return;
-    var h = document.documentElement.scrollHeight;
+    var h = document.body.scrollHeight + 12;
     window.parent.postMessage({type:'s1calc:height', height:h, slug:SLUG}, '*');
   }
+  if (window.ResizeObserver) new ResizeObserver(measure).observe(document.body);
 
   $('calcForm').addEventListener('submit', function(e){
     e.preventDefault();

@@ -145,9 +145,16 @@ PUBLIC_EMBEDDABLE: tuple[str, ...] = (
 # two carry a variable slug (/api/<slug>/estimate) and no prefix can separate
 # them from a fixed sibling. Checked first, so adding a prefix above can never
 # quietly re-admit something listed here.
-PUBLIC_EXCLUDED: tuple[str, ...] = (
-    "/tools/calculators/api/health",
-)
+# Read from the module rather than restated: the same list gates the login
+# on the blueprint (hub/blueprint_guard.py, `excluded=`), and a route named
+# in one and not the other is a diagnostic that cannot be framed but
+# answers anyone with the URL -- which is exactly what it did while this
+# tuple was the only copy.
+try:
+    from modules.calculators import public_excluded as _calc_public_excluded
+    PUBLIC_EXCLUDED: tuple[str, ...] = tuple(_calc_public_excluded())
+except Exception:  # noqa: BLE001 -- the module missing is not a reason to widen
+    PUBLIC_EXCLUDED = ("/tools/calculators/api/health",)
 
 SAFE_METHODS = ("GET", "HEAD")
 

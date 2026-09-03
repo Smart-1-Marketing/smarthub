@@ -136,8 +136,11 @@ PUBLIC: dict[str, str] = {
                                    "embedded calculator",
 
     # --- module health, deliberately outside the login ---
-    "/tools/calculators/api/health": "reports slugs and whether lead delivery "
-                                     "is configured; no client data",
+    # /tools/calculators/api/health is NOT here any more: it reports which
+    # CALC_WEBHOOK_ overrides are set and the delivery route, and it is the
+    # one staff route under that module's public /api/ prefix. The guard
+    # excludes it by name (modules/calculators/app.py, PUBLIC_EXCLUDED) and
+    # test_calculator_embeds.py asserts a stranger gets a 401.
     "/tools/google-access/api/health": "reports whether the OAuth client "
                                        "and scopes are set; no client data",
     "/tools/image-picker/api/health": "reports whether Cloudinary is "
