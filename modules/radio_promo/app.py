@@ -57,8 +57,8 @@ from flask import Flask, jsonify, render_template, request
 
 from . import VERSION, VERSION_DATE
 from . import ai, speech, store, voices
-from .catalog import (DEFAULT_SLOTS, DURATIONS, SLOT_KEYS, TONES,
-                      VOICE_CHARACTERISTICS, duration_by_key, slots_of, tone_by_id)
+from .catalog import (DURATIONS, SLOT_KEYS, TONES, VOICE_CHARACTERISTICS,
+                      duration_by_key, slots_of, tone_by_id)
 
 try:
     from hub import radio_spec
