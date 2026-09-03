@@ -13,7 +13,7 @@ Two assumptions in those reports have never been checked against a live
 answer: the shape of the v3 page (`locations` / `pagination.hasNext` /
 `subscriptionInfo.subscriptionStatus`) and whether `active`, `trialing` and
 `past_due` are the strings GHL sends. One run of this answers both. Anything
-the reports would not recognise is flagged here in the same words the report
+the reports would not recognize is flagged here in the same words the report
 uses, so the fix -- adding the string to `_ACTIVE_SUB_STATUSES` or
 `_INACTIVE_SUB_STATUSES` in hub/qa.py -- is one line.
 
@@ -90,7 +90,7 @@ def main(argv: list[str]) -> int:
         elif status in qa._INACTIVE_SUB_STATUSES:
             verdict = "left out as not billing"
         else:
-            verdict = "NOT RECOGNISED -- the reports would name and exclude this"
+            verdict = "NOT RECOGNIZED -- the reports would name and exclude this"
         print(f"  {status:<22} {n:>5}   {verdict}")
 
     print(f"\nGET /saas/agency-plans/{company}")

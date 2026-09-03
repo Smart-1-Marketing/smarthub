@@ -15,14 +15,14 @@ actually returns, and nothing here changes until it has been run.
 
 Four things it holds, worst first:
 
-  * An unrecognised subscription status is NAMED, never dropped. Before this
+  * An unrecognized subscription status is NAMED, never dropped. Before this
     a string in neither list was excluded exactly as "canceled" was, and the
     difference between those is a paying client vanishing from a billing
     report with every screen green.
   * A source that could not be read is never an all-clear: GHL refusing,
     the company id unset, and the Knack export unreadable each render as
     "could not check", and none is stored as the day's answer.
-  * The plan catalogue refusing is said on the report, not passed off as
+  * The plan catalog refusing is said on the report, not passed off as
     every client costing $0.
   * Pagination walks every page and stops on the last, and the fixture is
     the shape the code assumes so the day the probe disagrees the fixture
@@ -188,7 +188,7 @@ check("both reports run without an error", not no_products.get("error")
       f"{no_products.get('error')!r} / {this_month.get('error')!r}")
 check("the locations page was asked for under the company id",
       any(p == "/saas/saas-locations/comp_test" for p, _ in saas.calls), saas.calls)
-check("the plan catalogue was read once per report",
+check("the plan catalog was read once per report",
       sum(1 for p, _ in saas.calls if p.startswith("/saas/agency-plans/")) == 2)
 
 check("this-month lists exactly the active, trialing and past-due accounts",
@@ -198,7 +198,7 @@ check("and a canceled or paused one is left out silently -- those are known",
       "Done Deal Realty" not in _names(this_month)
       and "Pause Pottery" not in _names(this_month))
 check("biggest bill first", _names(this_month)[0] == "Acme Roofing", _names(this_month))
-check("the plan title and monthly price come off the catalogue",
+check("the plan title and monthly price come off the catalog",
       this_month["rows"][0][2] == "Suite Pro" and "297" in this_month["rows"][0][3],
       this_month["rows"][0])
 check("the total is the sum of what was counted",
@@ -216,8 +216,8 @@ check("a Knack client links to their record",
       isinstance(no_products["rows"][0][0], dict)
       or isinstance(no_products["rows"][1][0], dict), no_products["rows"])
 check("no unknown-status line when every status is known",
-      "does not recognise" not in no_products["note"]
-      and "does not recognise" not in this_month["note"])
+      "does not recognize" not in no_products["note"]
+      and "does not recognize" not in this_month["note"])
 check("both are stored as the day's answer",
       report_cache.is_answer(no_products) and report_cache.is_answer(this_month))
 check("both are JSON-encodable",
@@ -246,8 +246,8 @@ pages_asked = [p.get("page") for path, p in saas.calls if "saas-locations" in pa
 check("an empty page ends the walk even when hasNext says otherwise",
       pages_asked == [1, 2, 1, 2], pages_asked)
 
-# ---------------------------------------------- 3. a status nobody recognises
-section("An unrecognised subscription status is named, never dropped")
+# ---------------------------------------------- 3. a status nobody recognizes
+section("An unrecognized subscription status is named, never dropped")
 
 odd = {"locations": [
     _loc("loc_acme", "Acme Roofing", "active"),
@@ -262,7 +262,7 @@ for label, rep in (("no-products", no_products), ("this-month", this_month)):
           "Newfangled Co" not in _names(rep) and "Blank Status Co" not in _names(rep),
           _names(rep))
     check(f"{label}: and the report says so, with the count",
-          "2 sub-accounts had a billing status this report does not recognise"
+          "2 sub-accounts had a billing status this report does not recognize"
           in rep["note"], rep["note"])
     check(f"{label}: naming the statuses", "frozen" in rep["note"]
           and "(blank)" in rep["note"], rep["note"])
@@ -280,16 +280,16 @@ check("the vocabulary in the code has the three billing statuses it started with
 check("and the two lists never overlap",
       not (qa._ACTIVE_SUB_STATUSES & qa._INACTIVE_SUB_STATUSES))
 
-# ---------------------------------------------- 4. the plan catalogue refusing
-section("The plan catalogue refusing is said, not passed off as $0")
+# ---------------------------------------------- 4. the plan catalog refusing
+section("The plan catalog refusing is said, not passed off as $0")
 
 no_products, this_month = run_with(FakeSaas([PAGE_ONE], plans_error="HTTP 403"))
 check("the rows are still listed", len(this_month["rows"]) == 3, _names(this_month))
 check("every Monthly reads $0", all("$0" in r[3] for r in this_month["rows"]),
       [r[3] for r in this_month["rows"]])
 for label, rep in (("no-products", no_products), ("this-month", this_month)):
-    check(f"{label}: says the plan catalogue could not be read",
-          "plan catalogue could not be read" in rep["note"], rep["note"])
+    check(f"{label}: says the plan catalog could not be read",
+          "plan catalog could not be read" in rep["note"], rep["note"])
     check(f"{label}: and that the totals are therefore not measured",
           "not measured" in rep["note"])
     check(f"{label}: carrying the reason", "HTTP 403" in rep["note"])

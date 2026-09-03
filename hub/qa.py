@@ -1310,7 +1310,7 @@ def _unknown_status_note(rows: list) -> str:
     shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5 else "")
     n = len(odd)
     return (f"{n} sub-account{'s' if n != 1 else ''} had a billing status this "
-            f"report does not recognise ({', '.join(statuses)}) and "
+            f"report does not recognize ({', '.join(statuses)}) and "
             f"{'are' if n != 1 else 'is'} left out of every figure above rather "
             f"than guessed at: {shown}. Run tools/probe_ghl_saas.py and add the "
             "status to the right list in hub/qa.py.")
@@ -1322,7 +1322,7 @@ def _ghl_billing_rows() -> tuple:
     (by normalized business name — same fuzzy match used in invoice_off()).
 
     Returns `(rows, caveats)`. A caveat is a sentence about a source that
-    answered partially: the plan catalogue refusing leaves every row at $0
+    answered partially: the plan catalog refusing leaves every row at $0
     with a bare plan id, which is a confident-looking answer on a failed
     read, so it is named on the report rather than passed off as a total.
     """
@@ -1332,7 +1332,7 @@ def _ghl_billing_rows() -> tuple:
         plans = _ghl_agency_plans()
     except RuntimeError as exc:
         plans = {}
-        caveats.append("The agency plan catalogue could not be read, so every "
+        caveats.append("The agency plan catalog could not be read, so every "
                        "Monthly figure is $0 and the Plan column shows the raw "
                        f"plan id — the totals are not measured. ({exc})")
 
@@ -2097,7 +2097,7 @@ def sites_billing() -> dict:
       what it failed to match is a row nobody can settle.
     * **"We could not look" is not "all clear."** `unavailable()` covers every
       way this report cannot answer — QuickBooks unreadable, the site list
-      unreadable or empty, the catalogue unreadable, and the three products
+      unreadable or empty, the catalog unreadable, and the three products
       missing from it — and the page renders that as *Not measured* rather than
       as a green tick. A registry that could not be read costs one matching
       rule rather than the report, so it is said in the note instead.
@@ -2217,7 +2217,7 @@ def sites_billing() -> dict:
             rows.append(charge_row(rec, {"text": "Active", "pill": "ok"}))
             styles.append(None)
 
-    cat = rep.get("catalogue") or {}
+    cat = rep.get("catalog") or {}
     missing, similar = cat.get("missing") or [], cat.get("similar") or []
     miss_note = ""
     if rep.get("registry_error"):
