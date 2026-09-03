@@ -132,6 +132,15 @@
 <div id="scenes-wrap" data-demo="cb-scenes" data-project-id="{{ project.id }}" data-client-id="{{ client.id }}"
      data-client-slug="{{ client.slug }}" data-length="{{ project.length_seconds }}"></div>
 
+{# The paint styles as data rather than as Jinja interpolated into a real
+   script block: `tools/jscheck.py` can hand a JSON block to `node --check`
+   and has to skip anything carrying {{ }}. The vocabulary is the server's
+   (`hyperframes.PAINT_STYLES`), so a style added to the template cannot
+   leave the picker offering a set the renderer no longer draws. #}
+{% if hf_ready %}
+<script id="paint-styles-data" type="application/json">{{ paint_styles|tojson }}</script>
+{% endif %}
+
 <template id="scene-card-tpl">
   <div class="cb-scene-card">
     <div>
@@ -184,6 +193,15 @@
         <button class="cb-btn spokesperson-btn">Use Spokesperson</button>
         <button class="cb-btn upload-btn">Upload</button>
         <button class="cb-btn client-asset-btn">Use Client Asset</button>
+        {# A treatment, not a footage source, which is why it sits with the
+           other sources rather than in the numbered AI pair above: it has no
+           dependency on a frame existing first. Drawn only where the render
+           service is actually configured — a button that consents and then
+           fails for a reason nothing to do with the rep is the failure
+           Google Access's Ads tickbox already paid for. #}
+        {% if hf_ready %}
+        <button class="cb-btn paint-btn" title="Hand-drawn, paint-on or living-painting treatment">Paint animation</button>
+        {% endif %}
       </div>
       <div class="cb-scene-actions">
         <button class="cb-btn more-narration-btn">✎ More narration</button>

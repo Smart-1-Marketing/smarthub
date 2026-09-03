@@ -16,6 +16,7 @@
     abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
     publisher_rules: "Publisher rules", compliance: "Advertising rules",
     archetype_ready: "What this spot needs",
+    render_service: "Render service", vox_duration: "Explainer length",
   };
 
   /* A recommendation and a refusal are not the same finding, and painting

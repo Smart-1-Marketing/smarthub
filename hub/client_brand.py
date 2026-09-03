@@ -50,6 +50,12 @@ WORK_KINDS = {
     "display_ads":          ("Display ads", "Display Ad Builder"),
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
+    # The two HyperFrames tools. Their own names rather than folded into
+    # commercial_builder: both are also reachable inside that wizard, but a
+    # standalone paint animation is not a commercial and reading as one on a
+    # client's record would say we made them a spot we did not.
+    "paint_animation":      ("Paint animation", "Paint Animation"),
+    "vox_explainer":        ("Explainer video", "Vox Explainer"),
     # Keyed on `utm`, which is the name the module actually logs under --
     # `modules/utm_builder/app.py` does `hub_audit.log("utm", …)`. This table
     # said `utm_builder`, work_log() drops a module it cannot name, and so

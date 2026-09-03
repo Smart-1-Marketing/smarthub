@@ -814,3 +814,95 @@ def qc_spelling_check(script_text, client_profile):
     except Exception:
         pass
     return issues
+
+
+# ---------------------------------------------------------------------------
+# 9. Vox explainer — the beat list (spec: the one step that needs a model)
+# ---------------------------------------------------------------------------
+def generate_vox_beats(source_kind, source_text, client_profile, *,
+                       title="", total_seconds=None, link=""):
+    """Turn a topic, a document or a fetched page into a validated beat list.
+
+    Everything downstream of this is deterministic — `hub/hyperframes.py`
+    fills a pre-authored template and headless Chrome renders it — so this is
+    the whole of the content intelligence in the feature, and the whole of its
+    risk. What comes back goes straight through `vox_spec.validate()`: the
+    model writes JSON and the template consumes JSON, and nothing else checks
+    that the two agree.
+
+    Returns `{"beats", "dropped", "ok", "seconds", "source", "error"}`.
+    `source` is "ai" or "house", because **"we could not ask the model" is not
+    "there is nothing to explain"** — with no key, or on a failure, the outline
+    still comes back built from the supplied text and the screen says which it
+    got. A tool that returns nothing when a provider is down reads as broken.
+    """
+    from .. import vox_spec
+
+    total = float(total_seconds or vox_spec.TARGET_SECONDS)
+    body = str(source_text or "").strip()
+
+    if str(source_kind or "").strip().lower() == "link" and link and not body:
+        # The page is fetched, not imagined. `analyze_website` above already
+        # owns this shape; a model handed a bare URL writes a confident
+        # explainer about a page nobody has read, which is the failure
+        # `modules/ads_builder/landing_page.py` exists to undo.
+        try:
+            import requests
+            r = requests.get(link if link.startswith("http") else f"https://{link}",
+                             timeout=8,
+                             headers={"User-Agent": "Mozilla/5.0 (Smart1CreativeHub/1.0)"})
+            body = re.sub(r"<[^>]+>", " ", r.text)[:8000]
+        except Exception:  # noqa: BLE001
+            return {"beats": [], "dropped": [], "ok": False, "seconds": 0.0,
+                    "source": "none",
+                    "error": "That page could not be fetched, so there is "
+                             "nothing to explain from. Paste the text instead."}
+
+    if not body:
+        return {"beats": [], "dropped": [], "ok": False, "seconds": 0.0,
+                "source": "none",
+                "error": "There is nothing to build an explainer from yet — "
+                         "give it a topic, some text, or a link."}
+
+    def _house(reason=""):
+        outline = vox_spec.outline_from_text(body, title=title, total_seconds=total)
+        checked = vox_spec.validate(outline, total_seconds=total)
+        checked["source"] = "house"
+        checked["error"] = reason
+        return checked
+
+    if not is_live():
+        return _house("No OpenAI key is set, so this outline was built from "
+                      "your own text rather than written. Every line in it "
+                      "came out of what you supplied.")
+
+    try:
+        result = _chat_json(
+            system=vox_spec.prompt_system(),
+            user=json.dumps({
+                "title": title,
+                "target_seconds": total,
+                "client": client_profile or {},
+                "material": body[:8000],
+            }),
+            max_tokens=1600,
+        )
+    except Exception as e:  # noqa: BLE001
+        # The provider's own sentence, not an invented diagnosis of it —
+        # `hub/openai_responses.py`'s rule. The outline still comes back.
+        return _house(f"The model could not be reached, so this outline was "
+                      f"built from your own text. ({e})")
+
+    checked = vox_spec.validate(result, total_seconds=total)
+    checked["source"] = "ai"
+    checked["error"] = ""
+    if not checked["ok"]:
+        # Too few usable beats is a truncated answer, not an explainer. The
+        # house outline is a worse piece and an honest one, and saying which
+        # is the half that matters -- an empty answer read as a success is the
+        # failure the IO Builder's four dead AI buttons each had.
+        fallback = _house("The model returned too little to build an explainer "
+                          "from, so this outline came from your own text.")
+        fallback["dropped"] = checked["dropped"] + fallback["dropped"]
+        return fallback
+    return checked

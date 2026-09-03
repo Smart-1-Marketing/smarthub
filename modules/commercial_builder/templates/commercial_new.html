@@ -88,9 +88,18 @@
         {# The walkthrough's "Choose it" lands on ONE option: hub-demo.js calls
            node.click(), and clicking the grid selects nothing. :30 because
            that is what BUILD_ORDER builds first and cuts the others down from. #}
-        <div class="cb-choice" data-value="{{ l }}"{% if l == 30 %} data-demo="cb-length"{% endif %}>
+        <div class="cb-choice" data-value="{{ l }}" data-slot="broadcast"{% if l == 30 %} data-demo="cb-length"{% endif %}>
           <div class="cb-choice-title">:{{ '%02d'|format(l) }}</div>
           <div class="cb-choice-sub">{{ length_notes.get(l, {}).get('label', '') }}</div>
+        </div>
+      {% endfor %}
+      {# A Vox explainer's own three, hidden until that type is picked. They are
+         not broadcast slots and the broadcast list cannot express them -- it
+         stops at 60, which is this format's minimum. #}
+      {% for l in vox_lengths %}
+        <div class="cb-choice" data-value="{{ l }}" data-slot="vox" style="display:none;">
+          <div class="cb-choice-title">:{{ l }}</div>
+          <div class="cb-choice-sub">Vox explainer</div>
         </div>
       {% endfor %}
     </div>
@@ -139,7 +148,14 @@
         <div class="cb-choice" data-value="{{ t.id }}"><div class="cb-choice-title">{{ t.label }}</div></div>
       {% endfor %}
     </div>
+    <div id="type-note"></div>
   </div>
+
+  {# What a Vox explainer is allowed to be, as data. The server refuses the
+     rest by name -- a rule the form keeps while the write breaks it is not a
+     rule -- and this is what stops the form offering a combination it will
+     then be told off for. #}
+  <script id="vox-rules-data" type="application/json">{{ vox_rules|tojson }}</script>
 
   <button class="cb-btn cb-btn-primary" id="start-btn">Continue to Brief →</button>
 </div>

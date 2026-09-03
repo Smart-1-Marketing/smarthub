@@ -1,0 +1,83 @@
+{% extends "_layout.html" %}
+{% block title %}Beats — {{ project.title }}{% endblock %}
+{% set screen = "commercial_builder.vox" %}
+{# No walkthrough is written for this screen. hub-demo.js highlights the
+   current step's selector on the page you are standing on and its perform()
+   opens with `if (!node) return`, so a walkthrough offered where its elements
+   are not is a ring anchored to nothing and a "Do it for me" that returns in
+   silence — worse than no button. #}
+{% set no_demo = true %}
+{% block content %}
+
+{% include "_stepper.html" %}
+
+<div class="cb-page-head">
+  <div><h1>Beats — {{ client.name }}</h1>
+    <p>A {{ vox_min }}–{{ vox_max }} second editorial explainer, made of
+       {{ min_beats }}–{{ max_beats }} beats. Each one is a claim.</p></div>
+  <a class="cb-btn cb-btn-primary"
+     href="{{ url_for('commercial_builder.cb_pages.preview', project_id=project.id) }}">Continue to Preview &amp; render →</a>
+</div>
+
+{% if not hf_ready %}
+{# Said where the work is, rather than the page pretending to work and the
+   render failing at the moment somebody is waiting on it. #}
+<div class="cb-note"><strong>The render service is not available</strong>
+  <p>{{ hf_note }} You can still write and edit the beats — nothing here needs
+     it until you render.</p></div>
+{% endif %}
+
+<div class="cb-card" id="vox-root" style="margin-bottom:16px;"
+     data-project-id="{{ project.id }}">
+  <h3 style="margin-top:0;">What is this explaining?
+    {{ help_dot('commercial_builder.vox.source') if help_dot is defined else '' }}
+  </h3>
+  <p class="cb-hint" style="margin-top:0;">A link is fetched and read, not guessed at.
+     Whatever you give it is the only thing the beats are allowed to be built from.</p>
+
+  <div class="cb-field">
+    <label class="cb-label" for="vox-kind">Source</label>
+    <select id="vox-kind">
+      {% for k in source_kinds %}<option value="{{ k.id }}" title="{{ k.hint }}">{{ k.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <p class="cb-hint" id="vox-kind-hint" style="margin-top:2px;"></p>
+
+  <div class="cb-field" id="vox-text-field">
+    <label class="cb-label" for="vox-text">The material</label>
+    <textarea id="vox-text" rows="5"
+              placeholder="A topic in one line, or paste the document."></textarea>
+  </div>
+  <div class="cb-field" id="vox-link-field" style="display:none;">
+    <label class="cb-label" for="vox-link">The page</label>
+    <input type="url" id="vox-link" placeholder="https://…">
+  </div>
+
+  <button class="cb-btn cb-btn-primary" id="vox-generate">Write the beats</button>
+  <div id="vox-generate-note" style="margin-top:8px;"></div>
+</div>
+
+<div class="cb-card" style="margin-bottom:16px;">
+  <div class="cb-flex-between" style="margin-bottom:6px;">
+    <h3 style="margin:0;">The beats
+      {{ help_dot('commercial_builder.vox.beats') if help_dot is defined else '' }}
+    </h3>
+    <span class="cb-hint" id="vox-duration"></span>
+  </div>
+  <p class="cb-hint" style="margin-top:0;">Edit anything here — it is held to the same
+     rules the written version is, and the seconds are rebalanced to fit the window.</p>
+  <div id="vox-beats"><div class="cb-empty">No beats yet.</div></div>
+  <div style="margin-top:10px;">
+    <button class="cb-btn" id="vox-save">Save the beats</button>
+    <button class="cb-btn" id="vox-add">+ Add a beat</button>
+  </div>
+  <div id="vox-save-note" style="margin-top:8px;"></div>
+</div>
+
+{# The vocabulary as data rather than Jinja inside a real script block, so
+   tools/jscheck.py can hand it to node --check. #}
+<script id="vox-treatments-data" type="application/json">{{ treatments|tojson }}</script>
+<script id="vox-kinds-data" type="application/json">{{ source_kinds|tojson }}</script>
+
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/vox.js') }}"></script>{% endblock %}

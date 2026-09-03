@@ -51,6 +51,8 @@ CREATIVE_PREFIXES = (
     # Videos
     "/tools/commercial-builder",
     "/tools/video-backgrounds",
+    "/tools/paint-animation",
+    "/tools/vox-explainer",
     # Audio
     "/tools/radio-promo",
     "/tools/fan-radio",
