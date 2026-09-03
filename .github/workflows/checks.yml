@@ -137,6 +137,13 @@ jobs:
         # instead of spending the last of it.
         run: python test_ads_optimization_scheduler.py
 
+      - name: Auto-applied Google Ads changes
+        # Nobody presses anything at the moment one of these happens, so what
+        # this asserts is mostly the refusals: off by default, high severity
+        # only, inside a per-run cap and the day's operation budget, and one
+        # activity row per change naming the client and the mutate.
+        run: python test_ads_optimization_autoapply.py
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an

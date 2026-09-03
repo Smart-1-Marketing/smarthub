@@ -69,6 +69,75 @@ def _cost_per_account() -> int:
         return 6
 
 
+def _auto_appliable(result: dict, categories) -> list[dict]:
+    """The findings unattended work is allowed to act on, in the order it will.
+
+    Three gates, and each is doing its own job. The **category** is what a rep
+    switched on. The **action** is what actually reaches Google, checked
+    separately because a detector added under an allowed heading tomorrow must
+    not become an unattended write by inheriting it. And **high severity
+    only**: the medium and low findings are the ones worth a human reading,
+    and acting on those is what turns an assistant into something nobody
+    trusts.
+
+    Costliest first, so a run that hits the cap has stopped the most expensive
+    waste rather than an arbitrary ten items.
+    """
+    allowed = set(categories or [])
+    if not allowed:
+        return []
+    picked = [item for item in (result.get("items") or [])
+              if item.get("category") in allowed
+              and item.get("action") in store.AUTO_APPLY_ACTIONS
+              and item.get("severity") == "high"]
+    picked.sort(key=lambda i: float((i.get("data") or {}).get("cost") or 0), reverse=True)
+    return picked[:store.AUTO_APPLY_MAX_PER_RUN]
+
+
+def _auto_apply(account: dict, result: dict, actor: str, allowance) -> tuple[dict, object]:
+    """Apply what this account has opted into, one item at a time.
+
+    Nobody clicked anything, so the activity row is the only account of what
+    changed -- it carries the finding, the reason the detector gave and the
+    exact mutate, because a rep reading a client record has to be able to see
+    what happened and reverse it by hand. Every apply is its own row: one row
+    covering ten mutates is a record nobody can act on.
+    """
+    cid = account["customer_id"]
+    settings = store.auto_apply_settings(cid)
+    if not settings["enabled"]:
+        return {"enabled": False, "applied": 0, "failed": 0, "considered": 0}, allowance
+    candidates = _auto_appliable(result, settings["categories"])
+    applied, failed, skipped = 0, 0, 0
+    for item in candidates:
+        if allowance is not None and allowance < 1:
+            skipped += 1
+            continue
+        action = item["action"]
+        payload = dict(item.get("data") or {})
+        payload["confirmation"] = optimization.ACTION_CONFIRMATIONS[action]
+        error = ""
+        try:
+            outcome = optimization.apply_action(cid, action, payload, store)
+            detail = outcome.get("detail") or {}
+            applied += 1
+        except Exception as exc:                         # noqa: BLE001
+            detail, error = {}, f"{type(exc).__name__}: {getattr(exc, 'message', None) or exc}"[:500]
+            failed += 1
+        if allowance is not None:
+            allowance = max(0, allowance - 1)
+        store.log_event(
+            "OPTIMIZATION_AUTO_APPLIED", actor,
+            client=account["client_name"], customer_id=cid,
+            optimization_action=action, finding=item.get("title", ""),
+            why=item.get("why", ""), category=item.get("category", ""),
+            item_id=item.get("id", ""), error=error, **detail,
+        )
+    return ({"enabled": True, "applied": applied, "failed": failed,
+             "considered": len(candidates), "quota_skipped": skipped},
+            allowance)
+
+
 def sweep(actor: str = "scheduler", date_range: str = DEFAULT_DATE_RANGE,
           triggered: str = "scheduled", limit: int = MAX_ACCOUNTS_PER_RUN) -> dict:
     """Scan every live account once, persist each result, report the run."""
@@ -83,6 +152,7 @@ def sweep(actor: str = "scheduler", date_range: str = DEFAULT_DATE_RANGE,
     allowance, headroom = _headroom()
     per_account = _cost_per_account()
     scanned = failed = quota_skipped = high = 0
+    auto_applied = auto_failed = auto_accounts = 0
     failures: list[dict] = []
 
     for account in accounts:
@@ -112,6 +182,13 @@ def sweep(actor: str = "scheduler", date_range: str = DEFAULT_DATE_RANGE,
         else:
             scanned += 1
             high += row["high_severity_count"]
+            # Only on a scan that answered: acting on an empty result set is
+            # acting on the absence of a reading rather than on a finding.
+            auto, allowance = _auto_apply(account, result, actor, allowance)
+            auto_applied += auto["applied"]
+            auto_failed += auto["failed"]
+            if auto["enabled"]:
+                auto_accounts += 1
 
         # On the client's own record, not only in this module's table: a rep
         # reading a client 360 page should see that we looked and what we
@@ -127,6 +204,8 @@ def sweep(actor: str = "scheduler", date_range: str = DEFAULT_DATE_RANGE,
         "ok": True, "accounts": len(accounts), "scanned": scanned,
         "failed": failed, "high_severity": high,
         "quota_skipped": quota_skipped,
+        "auto_apply": {"accounts": auto_accounts, "applied": auto_applied,
+                       "failed": auto_failed},
         "quota": {k: headroom.get(k) for k in
                   ("measured", "used_today", "daily_quota", "remaining", "note")},
         "failures": failures[:10],
@@ -143,11 +222,19 @@ def account_panel(limit: int = 100) -> dict:
     runs = {r["customer_id"]: r for r in store.latest_optimization_runs(limit=limit)}
     rows = []
     for account in store.deployed_accounts(limit=limit * 5)[:limit]:
-        rows.append({**account, "last_run": runs.get(account["customer_id"])})
+        rows.append({**account,
+                     "last_run": runs.get(account["customer_id"]),
+                     "auto_apply": store.auto_apply_settings(account["customer_id"])})
     return {
         "accounts": rows,
         "measured": True,
+        # Served rather than restated in the page: a screen offering a category
+        # the write refuses is a control that reports a clean save and changes
+        # nothing.
+        "auto_apply_categories": list(store.AUTO_APPLY_CATEGORIES),
+        "auto_apply_cap": store.AUTO_APPLY_MAX_PER_RUN,
         "note": ("Automatic scans run on the Hub scheduler. An account with no "
                  "last scan has not been swept yet — which is not the same as "
-                 "an account with nothing to act on."),
+                 "an account with nothing to act on. Auto-apply is off for "
+                 "every account until somebody turns it on."),
     }

@@ -202,6 +202,45 @@ class OptimizationRun(Base):
         return row
 
 
+class AutoApply(Base):
+    """Whether unattended work may change one Google Ads account, and what of.
+
+    **Off until somebody turns it on, account by account.** Applying a change
+    to a client's live account with nobody having pressed anything is a
+    business decision rather than an engineering one, so the absence of a row
+    here means no — a new account cannot inherit it and a fresh install cannot
+    start with it.
+
+    Keyed on the **Google account** rather than on a proposal, which is a
+    deliberate departure from the shape of every other setting in this module.
+    The sweep is per account: two proposals naming one customer id and
+    disagreeing about whether it auto-applies is a question nothing here could
+    answer, and picking the more recent one would be the guess
+    hub/client_key.py exists to refuse.
+
+    A table rather than columns on ``ads_proposals`` for the reason ``Share``
+    already gives: ``create_all()`` creates a missing TABLE and never adds a
+    column to an existing one, so a column added there would be silently
+    absent on the live Postgres while every local test passed.
+    """
+    __tablename__ = "ads_auto_apply"
+
+    customer_id = Column(String(20), primary_key=True)
+    enabled = Column(Integer, default=0)
+    categories_json = Column(Text, default="[]")
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+    updated_by = Column(String(200), default="")
+
+    def as_dict(self) -> dict:
+        return {
+            "customer_id": self.customer_id or "",
+            "enabled": bool(self.enabled),
+            "categories": json.loads(self.categories_json or "[]"),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "updated_by": self.updated_by or "",
+        }
+
+
 class Setting(Base):
     __tablename__ = "ads_settings"
     key = Column(String(80), primary_key=True)
@@ -459,6 +498,65 @@ def latest_optimization_runs(limit=100) -> list:
         if len(out) >= limit:
             break
     return list(out.values())
+
+
+# ---------------------------------------------------------- auto-apply
+# The whole universe of findings unattended work may act on, and it is
+# deliberately the two lowest-blast-radius ones. Adding a negative keyword
+# stops spend on a term we are not bidding on deliberately; pausing a keyword
+# keeps the criterion and its history and is one press in Google Ads to undo.
+# Everything else in ACTION_CONFIRMATIONS -- applying one of Google's own
+# recommendations, removing a criterion outright, creating sitelinks or images,
+# changing a Target CPA -- either cannot be undone or changes how the account
+# bids, and none of those belongs to a job nobody is watching.
+AUTO_APPLY_CATEGORIES = ("keyword_pauses", "search_terms")
+
+# One account, one run. A cap rather than a rate: what this is protecting
+# against is one badly-measured account firing hundreds of mutates unattended,
+# and whatever is left is offered again on the next sweep with a rep able to
+# read it first.
+AUTO_APPLY_MAX_PER_RUN = 10
+
+# The category says which finding; this says which mutate. Both, because a
+# category is a heading a detector chose and an action is what actually reaches
+# Google -- a detector added under an allowed category tomorrow must not become
+# an unattended write by inheriting the heading.
+AUTO_APPLY_ACTIONS = ("add_negative_keyword", "pause_keyword")
+
+
+def auto_apply_settings(customer_id) -> dict:
+    """What unattended work may do to one account. Absent means no."""
+    cid = str(customer_id or "")
+    with SessionLocal() as s:
+        row = s.get(AutoApply, cid)
+        if row:
+            return row.as_dict()
+    return {"customer_id": cid, "enabled": False, "categories": [],
+            "updated_at": None, "updated_by": ""}
+
+
+def set_auto_apply(customer_id, *, enabled, categories=None, actor="") -> dict:
+    """Turn it on or off for one account, and say which findings.
+
+    A category outside AUTO_APPLY_CATEGORIES is dropped rather than stored: the
+    allowlist is the safety rule, and a value that survived here would be one
+    the sweep then had to re-check.
+    """
+    cid = str(customer_id or "").strip()
+    if not cid:
+        raise ValueError("customer_id is required.")
+    kept = [c for c in (categories or []) if c in AUTO_APPLY_CATEGORIES]
+    with SessionLocal() as s:
+        row = s.get(AutoApply, cid)
+        if not row:
+            row = AutoApply(customer_id=cid)
+            s.add(row)
+        row.enabled = 1 if enabled else 0
+        row.categories_json = json.dumps(kept)
+        row.updated_by = str(actor or "")[:200]
+        row.updated_at = now()
+        s.commit()
+        return row.as_dict()
 
 
 # --------------------------------------------------- client estimate links

@@ -569,6 +569,31 @@ def api_optimization_monitor():
     return jsonify(monitoring.account_panel())
 
 
+@app.post("/api/optimization/auto-apply")
+def api_optimization_auto_apply():
+    """Turn unattended changes on or off for one Google Ads account.
+
+    A real control rather than a database field nobody can see: auto-apply
+    changes a client's live account with nobody pressing anything at the
+    moment it happens, so the one thing that must be visible is whether it is
+    on. It defaults to off and the write refuses a category outside the
+    allowlist rather than storing one the sweep would then have to re-check.
+    """
+    body = request.get_json(silent=True) or {}
+    customer_id = google_ads.digits(body.get("customer_id"))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    settings = store.set_auto_apply(
+        customer_id, enabled=bool(body.get("enabled")),
+        categories=body.get("categories") or [], actor=current_user(),
+    )
+    store.log_event("OPTIMIZATION_AUTO_APPLY_SET", current_user(),
+                    customer_id=customer_id, enabled=settings["enabled"],
+                    categories=",".join(settings["categories"]))
+    return jsonify({"ok": True, "settings": settings,
+                    "categories": list(store.AUTO_APPLY_CATEGORIES)})
+
+
 @app.get("/api/optimization/summary")
 def api_optimization_summary():
     customer_id = request.args.get("customer_id", "")
