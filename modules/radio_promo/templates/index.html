@@ -16,6 +16,8 @@
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 80px}
   a.back{color:var(--blue);text-decoration:none;font-size:13px}
   .card.off{opacity:.45;pointer-events:none}
+  /* One workflow screen at a time — this is a builder, not a long intake form. */
+  .view{display:none}.view.active{display:block}.view.off{opacity:1;pointer-events:auto}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
   h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
@@ -70,8 +72,8 @@
   .aclist div{padding:8px 11px;cursor:pointer;font-size:13px}
   .aclist div:hover{background:var(--soft)}
   .flow{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin:20px 0}
-  .flow span{font-size:12px;font-weight:650;color:var(--muted);padding:6px 9px;border-radius:15px;background:#e2e8f0}
-  .flow span.active{background:var(--navy);color:#fff}.flow i{color:var(--muted);font-style:normal}
+  .flow button{border:0;font:650 12px inherit;color:var(--muted);padding:6px 9px;border-radius:15px;background:#e2e8f0;cursor:pointer}
+  .flow button.active{background:var(--navy);color:#fff}.flow button:disabled{cursor:default;opacity:.65}.flow i{color:var(--muted);font-style:normal}
 </style>
 </head>
 <body data-module="radio_promo">
@@ -82,11 +84,11 @@
      Write one on <b>spec</b> to win the business, or attach it to a client and it files
      under their name, shows on their record, and can be pushed to the Suite.</p>
   <div class="flow" aria-label="Radio commercial workflow">
-    <span class="active">1. Start</span><i>›</i><span>2. Brief</span><i>›</i><span>3. Script</span><i>›</i><span>4. Voice</span><i>›</i><span>5. Music</span><i>›</i><span>6. Record</span><i>›</i><span>7. Package</span>
+    <button class="active" onclick="goView('setup')">1. Start</button><i>›</i><button disabled onclick="goView('brief')">2. Brief</button><i>›</i><button disabled onclick="goView('copy')">3. Script</button><i>›</i><button disabled onclick="goView('cast')">4. Voice</button><i>›</i><button disabled onclick="goView('music')">5. Music</button><i>›</i><button disabled onclick="goView('booth')">6. Record</button><i>›</i><button disabled onclick="goView('pack')">7. Package</button>
   </div>
 
   <!-- 1. SETUP -->
-  <div class="card" id="c-setup">
+  <div class="card view active" id="c-setup">
     <h2><span class="n">1</span> Who is this for? {{ help_dot('radio_promo.build.setup') if help_dot is defined else '' }}</h2>
     <div class="modes">
       <div class="mode on" id="m-spec" onclick="setMode('spec')">
@@ -156,7 +158,7 @@
   </div>
 
   <!-- 2. BRIEF + TONE -->
-  <div class="card off" id="c-brief">
+  <div class="card view off" id="c-brief">
     <h2><span class="n">2</span> Brief &amp; tone</h2>
     <div id="briefBox"></div>
     <div class="tones" id="toneList"></div>
@@ -167,7 +169,7 @@
   </div>
 
   <!-- 3. COPY -->
-  <div class="card off" id="c-copy">
+  <div class="card view off" id="c-copy">
     <h2><span class="n">3</span> Copy</h2>
     <div id="copyBox"></div>
     <div style="margin-top:12px">
@@ -182,7 +184,7 @@
   </div>
 
   <!-- 4. CAST -->
-  <div class="card off" id="c-cast">
+  <div class="card view off" id="c-cast">
     <h2><span class="n">4</span> Cast {{ help_dot('radio_promo.build.cast') if help_dot is defined else '' }}</h2>
     <div id="castPicks"></div>
     <div class="rowbar">
@@ -209,15 +211,15 @@
   </div>
 
   <!-- 5. MUSIC -->
-  <div class="card off" id="c-music">
+  <div class="card view off" id="c-music">
     <h2><span class="n">5</span> Music bed</h2>
     <p class="hint">Listen to a bed before using it. Describe a new bed to create a playable preview.</p>
     <div id="musicList"></div>
-    <div class="rowbar"><input type="text" id="musicPrompt" placeholder="Warm acoustic guitar, light percussion, hopeful build…" style="flex:1;min-width:260px"><button class="btn" onclick="createMusicBed()">Create music bed</button><span class="msg" id="musicMsg"></span></div>
+    <div class="rowbar"><input type="text" id="musicPrompt" placeholder="Warm acoustic guitar, light percussion, hopeful build…" style="flex:1;min-width:260px"><button class="btn" onclick="createMusicBed()">Create music bed</button><button class="btn sec" onclick="goView('booth')">Continue to recording</button><span class="msg" id="musicMsg"></span></div>
   </div>
 
   <!-- 5. BOOTH -->
-  <div class="card off" id="c-booth">
+  <div class="card view off" id="c-booth">
     <h2><span class="n">6</span> Booth {{ help_dot('radio_promo.build.booth') if help_dot is defined else '' }}</h2>
     <div id="boothBox"></div>
     <div class="rowbar">
@@ -228,7 +230,7 @@
   </div>
 
   <!-- 6. PACKAGE -->
-  <div class="card off" id="c-pack">
+  <div class="card view off" id="c-pack">
     <h2><span class="n">7</span> Package</h2>
     <div id="packBox"></div>
     <div class="rowbar">
@@ -289,7 +291,33 @@ function setMode(m){
   $('clientBox').style.display = m==='client' ? '' : 'none';
 }
 function togglePhone(){ $('phoneBox').style.display = $('include_phone').value==='yes' ? '' : 'none'; }
-function setFlow(step){ document.querySelectorAll('.flow span').forEach((el,i)=>el.classList.toggle('active', i===step-1)); }
+const VIEWS=['setup','brief','copy','cast','music','booth','pack'];
+function unlockedStep(){
+  if(!P) return 1;
+  if((P.spots||[]).length) return 7;
+  if((P.voice_matches||[]).length) return 6;
+  if((P.scripts||{}).fifteen) return 4;
+  if(P.analysis) return 2;
+  return 1;
+}
+function setFlow(step){
+  document.querySelectorAll('.flow button').forEach((el,i)=>{
+    el.classList.toggle('active', i===step-1);
+    el.disabled=i+1>unlockedStep();
+  });
+}
+function showView(name){
+  const step=VIEWS.indexOf(name)+1;
+  if(step<1 || step>unlockedStep()) return;
+  document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active',el.id==='c-'+name));
+  setFlow(step); window.scrollTo({top:0,behavior:'smooth'});
+}
+function goView(name){
+  if(name==='music') renderMusicBeds();
+  if(name==='cast') renderCast();
+  if(name==='pack') renderPack();
+  showView(name);
+}
 
 let acTimer = null;
 function searchClients(){
@@ -338,8 +366,7 @@ async function start(){
 
 /* ---------- brief + tone ---------- */
 function renderBrief(){
-  setFlow(2);
-  open('c-brief', true);
+  showView('brief');
   const a = P.analysis || {};
   const recs = (a.recommendedTones||[]).map(r => r.toneId);
   $('briefBox').innerHTML = `
@@ -388,8 +415,7 @@ async function writeScripts(isRevision){
 function slotName(k){ return k==='fifteen' ? ':15' : ':30'; }
 
 function renderCopy(){
-  setFlow(3);
-  open('c-copy', true); open('c-cast', true);
+  showView('copy');
   const s = P.scripts || {};
   $('copyBox').innerHTML = (s.hook ? `<p class="hint" style="margin-top:0">Hook: <b>${esc(s.hook)}</b></p>` : '') +
     ['fifteen','thirty'].map(k => {
@@ -410,6 +436,7 @@ function renderCopy(){
     }).join('');
   renderSpoken();
   renderCast();
+  $('copyBox').insertAdjacentHTML('beforeend','<div class="rowbar"><button class="btn" onclick="goView(\'cast\')">Continue to voice casting</button></div>');
 }
 
 async function saveScript(k){
@@ -487,7 +514,7 @@ async function voiceById(){
 }
 
 function drawVoices(list){
-  setFlow(4); open('c-music', true); renderMusicBeds();
+  showView('cast');
   P.voice_matches = list;
   $('voiceList').innerHTML = list.map((v,i) => `
     <div class="voice" id="v-${i}">
@@ -499,7 +526,7 @@ function drawVoices(list){
         <button class="btn sm" onclick="assign('fifteen',${i})">Use for :15</button>
         <button class="btn sm" onclick="assign('thirty',${i})">Use for :30</button>
       </div>
-    </div>`).join('');
+    </div>`).join('') + '<div class="rowbar"><button class="btn" onclick="goView(\'music\')">Continue to music bed</button></div>';
 }
 
 async function cloneVoice(){
@@ -548,7 +575,7 @@ function assign(slot, i){
 async function render(slot){
   const v = assigned[slot];
   if(!v) return;
-  open('c-booth', true);
+  showView('booth');
   say('boothMsg','Recording the '+slotName(slot)+'…');
   try{
     const d = await api('/api/projects/'+P.id+'/render', {method:'POST',
@@ -561,8 +588,7 @@ async function render(slot){
 
 /* ---------- booth ---------- */
 function renderBooth(){
-  setFlow(6);
-  open('c-booth', true); open('c-pack', true);
+  showView('booth');
   $('boothBox').innerHTML = (P.spots||[]).map(s => `
     <div class="slot">
       <h3><span>${slotName(s.slot)} — ${esc(s.voice_name||'')}</span>
@@ -578,7 +604,7 @@ function renderBooth(){
         <a class="btn sec sm" href="${esc(s.audio_url)}" download>Download</a>
       </div>
     </div>`).join('') || '<p class="hint">Assign a voice above and the spot records here.</p>';
-  renderPack();
+  renderPack(false);
 }
 
 async function approve(slot, val){
@@ -612,8 +638,8 @@ async function makeBanner(){
 }
 
 /* ---------- package ---------- */
-function renderPack(){
-  setFlow(7);
+function renderPack(navigate=true){
+  if(navigate) showView('pack');
   const approved = (P.spots||[]).filter(s=>s.approved).length;
   $('packBox').innerHTML = `
     <p>${P.spec?'<span class="tag spec">spec</span>':'<span class="tag client">'+esc(P.client)+'</span>'}
