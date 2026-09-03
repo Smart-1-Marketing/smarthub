@@ -184,7 +184,15 @@
         <button class="cb-btn spokesperson-btn">Use Spokesperson</button>
         <button class="cb-btn upload-btn">Upload</button>
         <button class="cb-btn client-asset-btn">Use Client Asset</button>
+        {# The fifth source, and the only one that is audio. A sound effect is
+           a sourcing-layer asset like any other -- generated on a press,
+           never automatically, and attached to this shot rather than to the
+           spot. The end card is a scene too, so a CTA stinger is this button
+           on the last row; a transition whoosh is this button on the shot the
+           transition lands in. #}
+        <button class="cb-btn sfx-btn">🔊 Add Sound Effect</button>
       </div>
+      <p class="cb-hint sfx-note" style="margin:2px 0 6px;"></p>
       <div class="cb-scene-actions">
         <button class="cb-btn more-narration-btn">✎ More narration</button>
         <button class="cb-btn regen-btn">↻ Regenerate</button>
