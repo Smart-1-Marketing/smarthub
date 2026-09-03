@@ -545,10 +545,27 @@ class Settings:
         def row(name, ok, required, note):
             return {"name": name, "state": "ok" if ok else ("error" if required else "warn"),
                     "required": required, "note": note}
+
+        def _signing_row(spellings):
+            try:
+                from hub import signing as _signing
+                rep = _signing.report()
+            except Exception:                           # noqa: BLE001
+                return row("Secret key", bool(self.secret_key), True,
+                           f"{spellings} — signing state could not be read.")
+            return {"name": "Secret key", "state": rep["state"], "required": True,
+                    "note": f"{spellings} — {rep['detail']}"}
         return [
-            row("Secret key", bool(self.secret_key), True,
-                f"{self.spellings('secret_key')} — sessions are not signed without it, "
-                "so everyone is logged out by every restart."),
+            # Read from hub/signing.py rather than described here. This row
+            # said "sessions are not signed without it, so everyone is logged
+            # out by every restart" -- a true account of the two call sites
+            # that fell back to a random secret and a wrong one about the four
+            # that fell back to a literal, where nobody was logged out and
+            # anybody could forge a cookie. One reading, so the row and the
+            # thing it describes cannot disagree; and `bool(secret_key)` is
+            # not the question either, since a placeholder is set and is not a
+            # secret.
+            _signing_row(self.spellings('secret_key')),
             row("Hub password", bool(self.panel_password), True, "PANEL_PASSWORD — login is open without it."),
             row("Database", bool(self.database_url), False, "DATABASE_URL — falls back to local SQLite."),
             row("Public base URL", bool(self.public_base_url), False,

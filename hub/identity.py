@@ -82,22 +82,22 @@ def admin_emails() -> set[str]:
     return _csv("HUB_ADMIN_EMAILS")
 
 
+def _signing_timed(salt):
+    from hub import signing as _signing
+    return _signing.timed_serializer(salt)
+
+
 def _secret() -> str:
     """The signing secret, under every name it answers to.
 
     hub/auth.py signs the same cookie and must agree with this; both read
     hub.config so neither can know a spelling the other does not.
     """
-    try:
-        from hub.config import settings as _cfg
-        s = _cfg.secret_key
-    except Exception:                               # noqa: BLE001
-        s = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
-             or os.environ.get("SESSION_SECRET") or "")
-    return s or secrets.token_hex(32)
+    from hub import signing as _signing
+    return _signing.value()
 
 
-_serializer = URLSafeTimedSerializer(_secret(), salt="s1hub-session")
+_serializer = _signing_timed("s1hub-session")
 
 
 @dataclass(frozen=True)

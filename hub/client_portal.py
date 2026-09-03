@@ -32,10 +32,16 @@ def _key(client: str) -> str:
 
 
 def _serializer(secret: str):
-    # The Hub's authentication uses the environment-backed secret rather than
-    # Flask's session config, which is intentionally unset in this app.
-    secret = secret or os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SESSION_SECRET")
-    return URLSafeSerializer(secret or "smart1-client-links-development", salt="smart1-client-links-v1")
+    # Through hub/signing.py. The Hub's authentication uses the
+    # environment-backed secret rather than Flask's session config, which is
+    # intentionally unset in this app -- so the caller's `secret` is usually
+    # empty and the fallback is what actually signs. It was a literal in this
+    # file, which is a token anybody reading the source can mint for any
+    # client; an ephemeral one costs the link and cannot be forged.
+    from hub import signing as _signing
+    if secret and not _signing.is_weak(secret):
+        return URLSafeSerializer(secret, salt="smart1-client-links-v1")
+    return _signing.serializer("smart1-client-links-v1")
 
 
 def token(client: str, secret: str) -> str:

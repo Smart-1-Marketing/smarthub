@@ -71,9 +71,17 @@ def _secret() -> str:
     # and a fallback that names a single name is how a deployment setting the
     # other one silently gets an ephemeral secret — which here would mean
     # every client's link changing on every restart, with nothing saying so.
-    return secret or os.environ.get("SECRET_KEY") \
-        or os.environ.get("FLASK_SECRET_KEY") \
-        or os.environ.get("SESSION_SECRET") or "s1hub-social-dev"
+    # Through hub/signing.py, which resolves every spelling and, with none
+    # set, hands back an ephemeral secret rather than the literal that used to
+    # sit here. A literal is the same string on every deployment, so a link to
+    # any client's approvals page could be minted by anybody reading this file;
+    # an ephemeral one means the links stop resolving after a restart, which
+    # `signing.report()` says out loud on /status rather than leaving to be
+    # discovered by a client whose page went quiet.
+    from hub import signing as _signing
+    if secret and not _signing.is_weak(secret):
+        return secret
+    return _signing.value()
 
 
 def _serializer() -> URLSafeSerializer:

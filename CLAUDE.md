@@ -1080,6 +1080,62 @@ enough to fix this goes wrong in the other direction just as quietly.
 names both as known absences rather than leaving them implicit, so building one
 makes the assertion the reminder to point the page at it.
 
+## A fallback secret in the source is a forgeable token
+
+`hub/signing.py`. Eight things here are signed with `itsdangerous` and six
+resolved the secret their own way, which is the drift `hub/storage.py` exists
+to stop wearing a signature. The difference between the six is what happens
+when **no secret is set**, and two of them had it right.
+
+**`hub/auth.py` and `hub/identity.py` fell back to a random ephemeral
+secret**, and auth.py's comment says why: everybody re-logs-in after a
+restart, which is noticed and cannot be forged. It fails **closed**.
+
+**Four fell back to a literal in their own source** — `"dev-only"`,
+`"smart1-client-links-development"`, `"s1hub"`, `"s1hub-social-dev"` — which
+fails **open**: it is the same string on every deployment, so anybody who can
+read the file can mint a token. The worst is `hub/users_routes.py`, which
+signs the **per-account session cookie** carrying the user id, the role and
+the must-change-password flag, read by the middleware in `wsgi.py` in front
+of every mounted module. With `SECRET_KEY` unset, a cookie signed `"dev-only"`
+claiming `{"r": "admin", "c": false}` was accepted as an **Admin session
+belonging to no account**. That was minted and accepted before the fix.
+
+**And the safe half was not safe either.** `auth.py` and `identity.py` sign
+the *same salt* (`s1hub-session`) and each generated its **own**
+`secrets.token_hex(32)` at import — so with nothing set they disagreed inside
+a single process and each refused the other's cookie, silently, which reads
+as a sign-in that does not stick. identity.py's own docstring claimed the
+opposite: *"both read hub.config so neither can know a spelling the other
+does not"* — true of the spellings, false of the fallback. The ephemeral
+secret is resolved **once per process** now, so two readers of one salt agree
+by construction rather than by both being configured.
+
+Three rules. **Never a literal** — there is a real secret or an ephemeral
+one and no third branch. **A placeholder is not a secret**: `hub/config.py`
+has detected the env.example values all along and no signing site asked it,
+and the four literals are on that list too, because from the day they were
+written down they were known secrets; nothing speculative is added beside
+them, the `ALIASES` rule. And **say what it costs, because it is not the same
+cost for everybody** — an ephemeral secret is a re-login for a session cookie
+and a **dead link on somebody else's website** for a client's social or
+approvals page, so `report()` names the state and `/status` prints it.
+
+**The status row was describing two of the eight.** `hub/config.py` has said
+*"sessions are not signed without it, so everyone is logged out by every
+restart"* the whole time — a true account of the two that failed closed and a
+wrong one about the four where nobody was logged out and anybody could forge
+a cookie. It reads `signing.report()` now, so the row and the thing it
+describes cannot disagree; and `bool(secret_key)` was not the question
+either, since a placeholder is set, is not a secret, and used to read **ok**.
+
+`test_signing.py`'s core is a **sweep**: a test naming the four call sites we
+fixed proves nothing about the ninth, so it reads the **AST** of every file
+constructing a serializer and requires the secret to come from
+`hub/signing.py`. Prose is not a call site, for the seventh time in this file
+— `hub/signing.py` quotes all four literals to explain them. Both defects were
+reverted and confirmed red before they were confirmed green.
+
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
 check said yes. `hub/config.py` detects the known placeholders. Render also
@@ -11533,6 +11589,12 @@ python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS pan
 python3 test_webargs.py            # a caller's number: never a 500, never a
                                    #   negative slice, and the three call
                                    #   sites the shared helper never reached
+python3 test_signing.py            # what this Hub signs with: a literal
+                                   #   fallback is a forgeable admin session,
+                                   #   a placeholder is set and is not a
+                                   #   secret, and two readers of one salt
+                                   #   that each generated their own random
+                                   #   secret refused each other's cookies
 python3 test_analytics_ask.py      # a GA4 comparison keyed on the tag Google
                                    #   actually sends, a time series left in
                                    #   the order it was asked for, and a total
