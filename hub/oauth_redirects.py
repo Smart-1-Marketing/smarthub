@@ -58,6 +58,7 @@ link is still being built from the old hostname.
 from __future__ import annotations
 
 import os
+import re
 from urllib.parse import urlsplit
 
 # Where each provider's registration screen is, in one string so the panel and
@@ -74,6 +75,41 @@ def _env(name: str) -> str:
     # the hub/config.py rule, because a value read at import is a value from
     # whatever the environment looked like at boot.
     return (os.environ.get(name) or "").strip().strip('"').strip("'")
+
+
+def pinned_uri(raw: str) -> tuple[str, str]:
+    """One redirect URI out of a value somebody pasted, or why it is not one.
+
+    Returns `(uri, problem)`: exactly one of the two is non-empty, and an
+    unset value is `("", "")` -- absent is not malformed, and the two are
+    reported differently.
+
+    Written for the incident that made this panel necessary: two Authorised
+    redirect URIs pasted into one environment variable, comma-joined, which
+    `urlencode` happily sent to Google as a single `redirect_uri` and Google
+    answered with a mismatch error in front of whoever pressed Connect. The
+    value is validated once, here, where both readers of it -- the flow that
+    builds the auth URL and the panel that says what to register -- get the
+    same answer; validating at each call site is how one of them keeps
+    accepting the value the other refuses.
+    """
+    value = (raw or "").strip().strip('"').strip("'")
+    if not value:
+        return "", ""
+    if "," in value or ";" in value:
+        parts = [x for x in re.split(r"[,;]", value) if x.strip()]
+        return "", (f"holds {len(parts)} values joined with a comma. Google "
+                    f"matches the redirect URI as one exact string, so this "
+                    f"variable takes exactly one of them")
+    if re.search(r"\s", value):
+        return "", ("has whitespace inside it. A redirect URI is one exact "
+                    "string with no spaces in it")
+    if value.count("://") > 1:
+        return "", ("holds more than one URL. This variable takes exactly one "
+                    "redirect URI")
+    if not value.startswith(("https://", "http://")):
+        return "", "does not start with https://, so it is not a URL Google can send anyone back to"
+    return value, ""
 
 
 def _origin(url: str) -> str:
@@ -199,6 +235,7 @@ def rows(request_origin: str = "") -> list[dict]:
 
         uris: list[str] = []
         problem = ""
+        malformed = ""
         if source == HOST:
             # One string per hostname. This is the whole reason the panel
             # exists: a second domain answering for the service silently
@@ -221,8 +258,14 @@ def rows(request_origin: str = "") -> list[dict]:
                 problem = ("PUBLIC_BASE_URL is not set, so this callback is "
                            "built with no hostname at all and cannot work.")
         else:
-            pinned = _env(source)
-            if pinned:
+            pinned, malformed = pinned_uri(_env(source))
+            if malformed:
+                # Misconfigured, in words, before anything else is decided:
+                # this is the value that failed at redirect time in front of
+                # a client, and it is somebody's to fix whether or not the
+                # flow is otherwise in use.
+                problem = f"{source} {malformed}."
+            elif pinned:
                 uris = [pinned]
                 host = _host_of(pinned)
                 if hosts and host not in {_host_of(h["origin"]) for h in hosts}:
@@ -240,6 +283,11 @@ def rows(request_origin: str = "") -> list[dict]:
             state, note = "off", (
                 "No OAuth client is set (" + " / ".join(flow["client"]) +
                 "), so there is nothing to register yet.")
+        elif malformed:
+            # A parked flow with a *missing* URI is not a to-do; a parked flow
+            # with a *malformed* one is, because the value is wrong on its
+            # own and the day the flow is switched on it fails at Google.
+            state, note = "warn", "Misconfigured: " + problem
         elif missing:
             state, note = "off", (
                 "Not in use on this deployment: " + ", ".join(missing) +

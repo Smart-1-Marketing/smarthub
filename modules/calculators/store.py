@@ -224,21 +224,12 @@ def _override_env(slug):
     return "CALC_WEBHOOK_" + slug.upper().replace("-", "_")
 
 
-def webhook_url(app, slug):
-    """The legacy per-calculator override, or "".
-
-    Not the delivery route — see `delivery_status()`. Kept because a
-    deployment that set one is entitled to have it keep working, and because
-    it is an explicit per-calculator opt-out the page names.
-
-    `CALCULATORS_LEAD_WEBHOOK_URL`, the shared one, is deliberately not read
-    any more: it was only ever reached when the panel raised, and it would
-    then have posted a lead the panel had already stored — the double write
-    the panel exists to prevent. The inbound Suite webhook behind it is
-    retired, so what it bought was a duplicate contact while that trigger was
-    live and a silent hole once it was not.
-    """
-    return (os.environ.get(_override_env(slug)) or "").strip()
+# There used to be a `webhook_url(app, slug)` helper here that nothing
+# called: `send_webhook()` re-derived the same environment name inline.
+# One reader now, and the shared `CALCULATORS_LEAD_WEBHOOK_URL` is
+# deliberately not read for delivery at all -- it was only ever reached when
+# the panel raised, and it would then have posted a lead the panel had
+# already stored, the double write the panel exists to prevent.
 
 
 def delivery_status(app, slugs=()):
@@ -284,7 +275,7 @@ def send_webhook(app, row, calc_title):
     retired, and posting there after the panel had already stored the lead is
     exactly the second contact the panel exists to prevent.
     """
-    per = os.environ.get("CALC_WEBHOOK_" + row.slug.upper().replace("-", "_"))
+    per = (os.environ.get(_override_env(row.slug)) or "").strip()
     if not per:
         try:
             from hub import leads as hub_leads

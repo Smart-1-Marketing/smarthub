@@ -59,6 +59,14 @@ MOUNT = "/tools/calculators"
 # Routes below the mount that must stay outside the Hub login. Register these
 # with the Hub's AuthGuard when merging (see README).
 PUBLIC_PREFIXES = ("/c/", "/embed/", "/api/", "/embed.js")
+# The one staff route under a public prefix. The embedded calculator calls
+# /api/<slug>/estimate and /api/<slug>/unlock from a client's page, and a
+# variable slug cannot be told from a fixed sibling by prefix -- so /api/ is
+# public and this is named out of it, for the login gate here and for the
+# framing allowlist in hub/suite_embed.py, which reads it from here. It
+# reports the calculator slugs, the database state and the lead delivery
+# configuration: staff information, and it answered anyone with the URL.
+PUBLIC_EXCLUDED = ("/api/health",)
 
 
 # The guard sits on the blueprint rather than on each view: `wsgi.py` wraps
@@ -73,7 +81,8 @@ PUBLIC_PREFIXES = ("/c/", "/embed/", "/api/", "/embed.js")
 # needs no second spelling of what is public.
 try:
     from hub.blueprint_guard import install as _install_guard
-    _install_guard(bp, mount=MOUNT, public=PUBLIC_PREFIXES)
+    _install_guard(bp, mount=MOUNT, public=PUBLIC_PREFIXES,
+                   excluded=PUBLIC_EXCLUDED)
 except Exception:  # noqa: BLE001 — standalone, outside the Hub
     pass
 

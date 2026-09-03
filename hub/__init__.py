@@ -790,6 +790,26 @@ def create_hub_app() -> Flask:
         from . import website_audit
         return jsonify(website_audit.audit(request.args.get("domain", "")))
 
+    @app.route("/api/client/health")
+    def api_client_health():
+        """The derived health strip on Client 360 -- hub/record_health.py.
+
+        Under `/api/client/` for the reason `/api/client/audit` gives: that
+        prefix is what `hub/suite_embed.EMBEDDABLE` allowlists, so a strip
+        pointed anywhere else draws on every screen except inside the Suite
+        frame. Read-only; every source names its own failure rather than
+        raising, so this answers 200 with `measured: False` where a source
+        refused and never 500s the page it summarizes.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import record_health
+        name = request.args.get("name", "")
+        if not name.strip():
+            return jsonify({"ok": False, "error": "A client is required."}), 400
+        return jsonify(record_health.client360(name))
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""

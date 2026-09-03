@@ -204,14 +204,47 @@ def _split_name(full: str) -> tuple[str, str]:
     return parts[0], " ".join(parts[1:])
 
 
+def report_field_ids() -> dict:
+    """The custom-field ids the report links are written into, read at call
+    time under the names hub/config.py declares. Empty where unset."""
+    from hub.config import LEAD_PDF_FIELD_ENV, LEAD_REPORT_FIELD_ENV
+    return {"report_url": _env(LEAD_REPORT_FIELD_ENV),
+            "pdf_url": _env(LEAD_PDF_FIELD_ENV)}
+
+
+def report_links(row: dict) -> dict:
+    """What a lead row carries that a Suite workflow would want to email,
+    and whether it can be sent.
+
+    `report_url` is the audit or scan page (the row's `meta`), `pdf_url` the
+    row's own field. `sent` names the ones a configured custom field will
+    carry; `dropped` names the ones the row holds and no field is configured
+    for -- which is the state the leads panel and the status page say out
+    loud, because a workflow emailing a blank link is worse than one that
+    never fires.
+    """
+    meta = row.get("meta") or {}
+    links = {"report_url": str(meta.get("report_url") or meta.get("audit_url") or "").strip()[:500],
+             "pdf_url": str(row.get("pdf_url") or "").strip()[:500]}
+    ids = report_field_ids()
+    return {
+        **links,
+        "sent": [k for k, v in links.items() if v and ids.get(k)],
+        "dropped": [k for k, v in links.items() if v and not ids.get(k)],
+        "field_ids": ids,
+    }
+
+
 def payload_for(row: dict) -> dict:
     """The upsert body for one stored lead row.
 
     Only fields GoHighLevel has a real home for are mapped. Anything else stays
     in the Hub's own store, which already has it — inventing custom fields here
     would need their ids and would silently drop the value when they don't
-    exist.
+    exist. The two links a workflow emails are the exception, and only under
+    ids somebody configured: see `report_links()`.
     """
+    from hub import lead_tags
     loc = location_id()
     fields = row.get("fields") or {}
 
@@ -239,9 +272,13 @@ def payload_for(row: dict) -> dict:
         # they did on the webhook's tags.
         "source": (f"Smart 1 Hub · {row.get('source') or 'lead'}"
                    + (f" · {row.get('page')}" if row.get("page") else ""))[:300],
-        "tags": [t for t in ("smart1-hub", row.get("source") or "",
-                             row.get("page") or "") if t][:10],
+        "tags": lead_tags.tags_for(row),
     }
+    links = report_links(row)
+    custom = [{"id": links["field_ids"][k], "field_value": links[k]}
+              for k in links["sent"]]
+    if custom:
+        body["customFields"] = custom
     return {k: v for k, v in body.items() if v not in ("", None, [])} | {"locationId": loc}
 
 
@@ -348,6 +385,42 @@ def find_location_by_name(name: str = "") -> dict:
                      f'No sub-account name contains "{want}".')}
 
 
+def custom_fields(loc: str) -> dict:
+    """The contact custom fields on the lead location: id, name, key, type.
+
+    Read-only. `GET /locations/{id}/customFields` — the same call the Hub's
+    own field-creation script makes to check its work. A refusal is
+    `{"ok": False, "error": ...}` rather than an empty list, because "there
+    are no custom fields" and "the token cannot list them" are different
+    situations and the second is the one somebody has to fix first.
+    """
+    try:
+        import requests
+        r = requests.get(f"{BASE}/locations/{loc}/customFields",
+                         headers=_headers(), timeout=TIMEOUT)
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "fields": [], "error": f"Couldn't reach Smart 1 Suite ({type(exc).__name__})."}
+    if not r.ok:
+        return {"ok": False, "fields": [],
+                "error": f"HTTP {r.status_code}: {str(r.text)[:180]}. The token may lack "
+                         "the locations/customFields.readonly scope."}
+    try:
+        data = r.json() if r.text else {}
+    except ValueError:
+        data = {}
+    raw = data.get("customFields") if isinstance(data, dict) else data
+    fields = []
+    for f in raw or []:
+        if not isinstance(f, dict):
+            continue
+        model = str(f.get("model") or "contact").lower()
+        fields.append({"id": str(f.get("id") or ""), "name": str(f.get("name") or ""),
+                       "key": str(f.get("fieldKey") or f.get("key") or ""),
+                       "type": str(f.get("dataType") or ""), "model": model})
+    return {"ok": True, "fields": [f for f in fields if f["model"] == "contact"],
+            "count": len(fields)}
+
+
 def preflight(find: bool = False) -> dict:
     """Check the configuration against the live API before trusting it.
 
@@ -407,9 +480,37 @@ def preflight(find: bool = False) -> dict:
               f"Couldn't reach Smart 1 Suite ({type(exc).__name__}).")
         return out
 
+    # The contact custom fields, so the two ids the report links need are
+    # read off this answer rather than guessed. A read, like the rest; a
+    # location whose fields cannot be listed is said, not skipped.
+    out["custom_fields"] = custom_fields(loc)
+    ids = report_field_ids()
+    known = {f.get("id"): f for f in out["custom_fields"].get("fields") or []}
+    if ids["report_url"] or ids["pdf_url"]:
+        bad = [k for k, v in ids.items() if v and known and v not in known]
+        if bad:
+            check("Report-link custom fields exist on the location", False,
+                  "Configured but not on this sub-account: " + ", ".join(
+                      f"{k}={_mask(ids[k])}" for k in bad)
+                  + ". Pick ids from the custom_fields list below.")
+        else:
+            check("Report-link custom fields exist on the location", True,
+                  ", ".join(f"{k} → {(known.get(v) or {}).get('name') or _mask(v)}"
+                            for k, v in ids.items() if v)
+                  + ("" if ids["report_url"] and ids["pdf_url"]
+                     else ". One of the two is unset; that link stays on the Hub row."))
+    else:
+        check("Report-link custom fields are configured", False,
+              "GHL_LEAD_REPORT_URL_FIELD_ID and GHL_LEAD_PDF_URL_FIELD_ID are unset, "
+              "so a workflow emailing the report has no link. Create two contact "
+              "custom fields in Suite and set their ids from the list below.")
+
     if find:
         out["lookup"] = find_location_by_name()
-    out["ready"] = all(c["ok"] for c in out["checks"])
+    # The custom-field check is a to-do rather than a failure: leads deliver
+    # without it, and it is only the emailed link that is missing.
+    out["ready"] = all(c["ok"] for c in out["checks"]
+                       if not c["check"].startswith("Report-link"))
     out["note"] = ("Reads only — no contact was created. A green preflight means "
                    "the token reaches the right sub-account; the first real lead "
                    "is still what proves the write."

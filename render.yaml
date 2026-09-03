@@ -25,6 +25,33 @@ services:
         sync: false
       - key: GHL_PIPELINE_STAGE_ID
         sync: false
+      # The API version header every Suite call sends. Optional; the code
+      # defaults to 2021-07-28, which is the v2 Contacts API's own.
+      - key: GHL_API_VERSION
+        sync: false
+      # ---- Lead delivery into Smart 1 Suite ----
+      # The Smart 1 Marketing SUB-ACCOUNT id, and the one variable that makes
+      # lead delivery work at all: without it every landing page, calculator
+      # and scan widget stores its leads and delivers none. It is a location
+      # id and NOT GHL_COMPANY_ID -- the Hub refuses the two being equal,
+      # because a company id used here files leads against the agency where
+      # nobody looks. /api/leads/ghl/preflight?find=1 looks it up by name.
+      - key: GHL_LEAD_LOCATION_ID
+        sync: false
+      # The two CONTACT custom fields the report and PDF links are written
+      # into, by id, so a Suite workflow on the lead's tag can email the
+      # link. Read the ids off /api/leads/ghl/preflight; never guess them.
+      - key: GHL_LEAD_REPORT_URL_FIELD_ID
+        sync: false
+      - key: GHL_LEAD_PDF_URL_FIELD_ID
+        sync: false
+      # /api/leads/capture is unauthenticated by design (landing pages post
+      # to it); this caps submissions per visitor IP per window so a script
+      # cannot bury the real leads. 0 turns the limit off.
+      - key: LEADS_RATE_LIMIT
+        sync: false
+      - key: LEADS_RATE_WINDOW_SECONDS
+        sync: false
       - key: BRANDFETCH_API_KEY
         sync: false
       # ---- Sites (Simvoly) ----
@@ -89,6 +116,11 @@ services:
         sync: false
       - key: GOOGLE_ADS_LOGIN_CUSTOMER_ID
         sync: false
+      # Exactly one URI, matching the Authorised redirect URI registered in
+      # Google Cloud Console character for character. In production it is
+      #   https://smart1.agency/tools/ads/oauth/callback
+      # Not the onrender.com hostname, and never two URIs joined with a
+      # comma -- Google matches one exact string.
       - key: GOOGLE_ADS_REDIRECT_URI
         sync: false
       - key: GOOGLE_ADS_REFRESH_TOKEN

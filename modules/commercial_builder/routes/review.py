@@ -49,6 +49,18 @@ except Exception:  # noqa: BLE001 — standalone, no Hub to log into
     def _cb_log(*_a, **_k):
         return None
 
+try:
+    from hub import leads as _hub_leads
+except Exception:  # noqa: BLE001 — standalone, no Hub to deliver through
+    _hub_leads = None
+
+# The source tag the review contact carries into Smart 1 Suite -- registered
+# in hub/lead_tags.py, where the Suite workflow that emails the link is
+# recorded against it. The Hub has no mail sender: "send" here means "write
+# the client's contact into Suite tagged so the workflow sends", the way
+# every landing page and the scan widget deliver.
+REVIEW_SOURCE = "commercial_review"
+
 bp = Blueprint("cb_review", __name__)
 
 # Every path on this blueprint a client with no Hub login may reach. Read by
@@ -275,7 +287,65 @@ def send_for_review(project_id):
     row = share.to_dict()
     row["url"] = _share_url(share.token)
     row["round_state"] = state
+    row["delivery"] = _deliver_review(
+        project, share, row["url"],
+        name=str(body.get("reviewer_name") or "").strip()[:200],
+        email=str(body.get("reviewer_email") or "").strip()[:200])
     return jsonify({"ok": True, "review": row})
+
+
+def _deliver_review(project, share, url: str, *, name: str, email: str) -> dict:
+    """Write the reviewer into Smart 1 Suite, tagged for the review workflow.
+
+    The same path the scan widget's lead takes -- `hub.leads.capture_and_
+    deliver`, one row stored first, the contact upserted second, the share
+    link carried in the report-link custom field -- rather than a second
+    route to GHL. Three answers, never folded: `sent` is a contact Suite
+    confirmed, `held` is a lead the Hub stored and could not deliver (the
+    row stays queued on /sales/leads), and `skipped` is no email given, in
+    which case the rep sends the link by hand exactly as before.
+
+    Nothing here may cost the link: the share is committed before this runs
+    and every failure lands in `note` rather than in a 500 -- a review link
+    that exists and could not be emailed is the ordinary case until the
+    Suite workflow is built, and the panel says which it was.
+    """
+    client_name = getattr(getattr(project, "client", None), "name", "") or ""
+    if not email:
+        return {"state": "skipped", "sent": False,
+                "note": "No email given, so the link was not filed for sending — "
+                        "copy it and send it yourself."}
+    if _hub_leads is None:
+        return {"state": "held", "sent": False,
+                "note": "Running outside the Hub, so nothing could be filed in Suite."}
+    try:
+        out = _hub_leads.capture_and_deliver(
+            source=REVIEW_SOURCE,
+            page=project.title or f"Commercial #{project.id}",
+            fields={"name": name, "email": email, "company": client_name,
+                    "website": getattr(getattr(project, "client", None), "website", "") or "",
+                    "round": str(share.round_no)},
+            client=client_name,
+            meta={"report_url": url, "project": project.id, "share_id": share.id,
+                  "round": share.round_no, "kind": "commercial_review"})
+    except Exception as exc:  # noqa: BLE001 — never costs the link
+        _log("commercial_review_delivery_failed", project=project,
+             detail=f"Round {share.round_no}: {type(exc).__name__}")
+        return {"state": "held", "sent": False,
+                "note": f"The link exists, but filing it in Suite failed ({type(exc).__name__}). "
+                        "Send it by hand."}
+    sent = bool(out.get("delivered"))
+    _log("commercial_review_delivered" if sent else "commercial_review_delivery_held",
+         project=project,
+         detail=f"Round {share.round_no} to {email}" + ("" if sent else f" — {out.get('note', '')}"))
+    return {"state": "sent" if sent else "held", "sent": sent,
+            "lead_id": out.get("lead_id", ""),
+            "note": (f"Filed in Smart 1 Suite as a contact tagged {REVIEW_SOURCE}; the "
+                     "review email goes out from the Suite workflow on that tag."
+                     if sent else
+                     "The link exists, but it did not reach Suite: "
+                     + str(out.get("note") or "") + " It is queued on /sales/leads; "
+                     "send the link by hand meanwhile.")}
 
 
 @bp.post("/api/projects/<int:project_id>/reviews/<int:share_id>/revoke")
