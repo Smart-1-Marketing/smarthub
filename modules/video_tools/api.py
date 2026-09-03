@@ -21,28 +21,6 @@ from . import config, edits, reframe, silence, sources, waveform
 from .db import db
 from .models import VideoJob
 
-try:
-    from hub import audit as _hub_audit
-    # The actor is bound HERE rather than passed at each call site, because
-    # `for_module()` with no `actor_fn` writes `actor=None` and `audit.log()`
-    # drops a falsy actor without comment -- so every row this module wrote
-    # would name nobody, and no check anywhere reports an entry that is
-    # merely anonymous. Bound once, the route added next month is attributed
-    # without having to remember.
-    _log = _hub_audit.for_module("video_tools", lambda: _actor())
-except Exception:                                     # noqa: BLE001 — standalone
-    def _log(*_a, **_k):
-        return None
-
-try:
-    from hub.webargs import clamp_int
-except Exception:                                     # noqa: BLE001
-    def clamp_int(raw, default, low=1, high=200):
-        try:
-            return max(low, min(high, int(float(raw))))
-        except (TypeError, ValueError):
-            return default
-
 
 def _actor() -> str:
     """Who is doing this, read the way the rest of the Hub reads it.
@@ -61,6 +39,36 @@ def _actor() -> str:
         return str(current_user() or "")[:60]
     except Exception:                                 # noqa: BLE001 — standalone
         return ""
+
+
+# `_actor` is defined ABOVE this, and the order is load-bearing rather than
+# tidy. `for_module()` takes the function itself, so the name has to exist by
+# the time this line runs -- and a NameError here would be caught by the
+# `except` below and silently swap the real logger for the no-op stub, so
+# every row this module writes would vanish with nothing anywhere saying so.
+# That is the same failure the docstring above describes, arriving through a
+# different door: it costs the whole log rather than the actor on it.
+#
+# The actor is bound HERE rather than passed at each call site, because
+# `for_module()` with no `actor_fn` writes `actor=None` and `audit.log()`
+# drops a falsy actor without comment -- so every row would name nobody, and
+# no check anywhere reports an entry that is merely anonymous. Bound once,
+# the route added next month is attributed without having to remember.
+try:
+    from hub import audit as _hub_audit
+    _log = _hub_audit.for_module("video_tools", _actor)
+except Exception:                                     # noqa: BLE001 — standalone
+    def _log(*_a, **_k):
+        return None
+
+try:
+    from hub.webargs import clamp_int
+except Exception:                                     # noqa: BLE001
+    def clamp_int(raw, default, low=1, high=200):
+        try:
+            return max(low, min(high, int(float(raw))))
+        except (TypeError, ValueError):
+            return default
 
 
 def _fail(message: str, code: int = 400):
