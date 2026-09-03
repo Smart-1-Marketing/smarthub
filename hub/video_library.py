@@ -556,7 +556,21 @@ def background_url(public_id: str, *, width: int = 1920, height: int = 1080,
         size.append(f"h_{int(height)}")
     if size:
         size.append("c_fill")
-        size.append("g_auto")
+        # `g_auto` GOES IN A COMPONENT OF ITS OWN, and every URL this function
+        # has ever produced was rejected for putting it inline.
+        #
+        # Cloudinary answers `w_1920,h_1080,c_fill,g_auto` with "g_auto must be
+        # in a transformation component by itself" and builds the identical
+        # crop written as `g_auto/w_1920,h_1080,c_fill`. The rule is video-only
+        # -- the same string is fine on an image -- which is why it survived:
+        # `poster_url()` below has no gravity, so every thumbnail in the Video
+        # Search results rendered while every video URL beside it 400'd. A
+        # gallery of working stills over dead links is indistinguishable from
+        # a working tool until somebody clicks one.
+        #
+        # Found while building modules/video_tools, which had to learn the same
+        # rule, and confirmed by submitting both forms to the live account.
+        chain.append("g_auto")
     fetch = "f_auto:video" if fmt == "auto" else f"f_{fmt}"
     chain.append(",".join([fetch, "q_auto", *size, "ac_none"]))
     ext = "mp4" if fmt == "auto" else fmt

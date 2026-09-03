@@ -6519,6 +6519,20 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Video Tools ----------------
+    # Two blueprints from one module (Dead Air Cutter, Vertical Reframe), and
+    # blueprints for the third time for the third reason: neither
+    # /tools/dead-air nor /tools/vertical-reframe is a prefix wsgi.py mounts,
+    # so both belong to the hub app.
+    try:
+        from modules.video_tools import register_video_tools
+        register_video_tools(app)
+    except Exception as _vt_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _vt_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- User accounts ----------------
     # Registered after init_db (models bind to the shared instance) and before
     # the help layer, so /diagnostics/users exists by the time the sidebar
