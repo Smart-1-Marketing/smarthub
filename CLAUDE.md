@@ -2625,6 +2625,205 @@ call to action is the website is handed to the voice raw. Named rather than
 quietly merged — one shared reader is what closes it, and it changes what a
 client hears.
 
+**A music bed that generated nothing, on the tool whose whole output is
+sound.** `modules/radio_promo` is the general radio builder — fifteen tones,
+the brief read off the client's own site, a matched :15/:30 written to the
+clock, ElevenLabs casting, measured runtime, a one-button tighten. Its Music
+step saved a **text prompt** and the builder then played three oscillators at a
+pitch chosen by a regex over that prompt. So a rep described a bed, pressed
+Listen, heard a tone, and filed a spot with **silence under the voice** — the
+placeholder failure `qrcode_service` paid for on a CTV end card, one medium
+over, and invisible from both ends because every screen reported success and
+the thing that was missing is a thing you have to play the file to notice.
+
+The module's own docstring said why it was like that, and it was true: *"What
+did not [carry over]: ffmpeg music beds and loudness mastering (no ffmpeg in
+the Hub runtime)."* There is still no ffmpeg, ffprobe, pydub or numpy here.
+**Neither half of the job needs one.** A bed is *composed* by ElevenLabs at the
+spot's own length — `services/elevenlabs_audio_service.py` was built for
+exactly this and its own note already said the audio-only path reaches it as
+it stands — so nothing is ever trimmed to fit. And the voice is mixed over it
+**in the browser**, through the Web Audio API, which decodes both tracks, ducks
+the bed under the read and hands back a WAV.
+
+**Which is what makes the length honest.** A WAV states its sample rate,
+channel count and data length in its own header, so `radio_spec.wav_seconds()`
+is arithmetic on the bytes we stored — measured by us, not reported by the page
+that made them, which is the `_dimensions()` rule in `modules/bg_remover`
+wearing a stopwatch. An uploaded **MP3** is the opposite case and says so: it
+is at a bitrate nobody here chose, so its length is *not measured*, never a
+number and never zero. The mix route refuses anything that is not a readable
+WAV rather than filing a deliverable of unknown length, and it ignores a
+`seconds` field the page supplies — `test_radio_ads.py` posts a 29.9s file
+claiming 30.0 and requires 29.9 to be what is filed.
+
+**The encoder and the probe are two implementations of one format, and if they
+drift nothing can be filed at all.** So `toWav` is lifted out of the template
+and driven in **node** against `radio_spec.wav_seconds()` across mono, stereo
+and two sample rates — the arrangement `test_menu_layout.py` uses over
+`hub-crumbs.js`, for the same reason: a copy restated in the test is a third
+thing to keep in step.
+
+**The dB pair is Commercial Builder's, read and not restated.**
+`config.ducked_db()`'s own note says two lookups of one table is how the panel
+and the render come to disagree about how loud something is — so a radio spot
+and a video spot duck their beds by the same amount, from the same table, and
+`hub/radio_spec.py` keeps **no fallback copy of it**. The consequence is stated
+rather than discovered: where that import fails, `available()` says so and the
+step refuses, because a bed mixed at numbers nobody published is worse than a
+step that says it cannot run. The test matches those numbers as **numbers**,
+not as substrings — the first draft's `"-9" in source` was true of the
+character class `[A-Za-z0-9-]` in the phone-number pattern and reported a file
+with no dB literal in it at all, which is the false positive that gets a check
+switched off.
+
+**"Licensed bed" was the wrong check, and provenance is the right one.** The
+build spec asked for a blocking check against a catalog of cleared tracks.
+There is no such catalog — a bed is composed on demand or uploaded by whoever
+is making the spot — so what actually protects a client is `bed_source`: real
+audio, with a source recorded against it. A **described-only** bed blocks and a
+**mock-mode** bed blocks, because both ship as silence; a mock bed is refused
+at the door rather than saved and blocked later. And **no bed at all passes**,
+because a sponsor mention and a news-style read are ordinary radio spots that
+ship without music, and a check that refuses the correct thing is one somebody
+switches off — which here would cost the call-to-action check with it.
+
+**And the route that made those beds is gone rather than kept.** Once the
+builder composed instead of describing, nothing posted to
+`/api/projects/<pid>/music-beds` any more — and the only state it could still
+produce is a bed with no audio behind it, which is precisely what `bed_source`
+now blocks. Keeping a write path whose only product is a state the checks
+refuse is keeping a way to make the mistake, and its docstring had already
+started claiming a role in a flow that no longer called it. The **rows** are
+not orphaned: a project on disk carries `music_beds`, and the Music step offers
+each of those descriptions as a one-press prompt to compose from, so words
+somebody wrote before any of this existed are reachable and now worth
+something.
+
+**`not_measured` is never folded into `pass`**, and `measured` excludes the one
+row that is deliberately reserved. Loudness and clipping need a decoder this
+runtime does not have, so `vo_clarity` is a row that says so rather than a row
+that is absent — an absent row is a report shape that changes the day somebody
+adds the check. Counted into `measured`, it would make that flag False on every
+spot ever built and therefore say nothing, which is the assertion that cannot
+fail wearing a QC report.
+
+**Nothing here refuses a render; filing is what needs a reason.** `QR_CODE_RULES`
+is the precedent. A blocking finding answers **409 with the report** rather
+than filing quietly, and an override is available — recorded against a name,
+with the reason required, because an override nobody can explain later is not a
+record.
+
+**The call-to-action check exists because both platforms this was specced
+against report the same finding**: the commonest reason a self-serve radio spot
+underperforms is that it never says what to do next. A phone number, a web
+address or a code, with the **matched words quoted** so a reader can find them
+in the script — and the spoken form counted too, since `speech.py` spells a web
+address out loud and a script through that pass carries no dot at all. It
+refuses to fire on ordinary copy: a zip code, an area code, a year, a founding
+date. A check that fires on every spot is one nobody reads.
+
+**The browser has to fetch both tracks to mix them, and a CORS refusal is a
+button that does nothing.** So both are read back through one same-origin route
+whose allowlist is **the project's own row** — a `ref` names a slot and a role
+and the URL comes from what this service already recorded. Nothing takes a URL
+from the caller, which is the rule `assets.generatedImagePath()` in the ad
+builder had to be given after a path in a POST body could lift any readable
+file into a web-served folder.
+
+**A variation carries the choices and never the audio.** The intake, the brief,
+the tone, the pronunciations and the scripts come across; a rendered read and a
+finished mix do not, because audio of the previous wording filed under a new
+name is the wrong file and it plays perfectly well. The lineage is on both
+rows. What is *not* there is the denylist that was written beside the
+allowlist: it named spots, mixes, beds, versions, banner, share, feedback and
+pushed, and **`store.create()` already refused every one of them** — a second
+guard that cannot fire reads as the mechanism and is not one, which is the
+shape this file counts six of, so it is gone and the test asserts the store
+instead.
+
+**The :60 is opt-in, and its budget is not the one the spec asked for.** Each
+length is a model call and a slot somebody then has to record, so a project
+still writes the :15/:30 pair unless it says otherwise, and a row saved before
+that field existed reads as the pair rather than being migrated. The spec asked
+for **150–180 words**; at the house pace of 2.6 words/second that `speech.py`
+holds, 180 words is a **69-second read** — a :60 written to the top of that
+range cannot be recorded inside its own slot, so it comes back over, gets
+tightened, and the budget that sent it there was ours. It is **140–170**, the
+same deliberate overshoot the :15 and :30 already carry.
+
+**And the numbers stopped being written down twice.** `renderCopy` carried 42
+and 85 as literals and the AI system prompt stated the budgets in prose, which
+is why a :60 could not be added without editing three places. The prompt line
+is derived from the table, the template reads the table the server sends, and
+the JSON shape the writer is asked for is built from the slots in play — so the
+model is never asked for a length nobody wants. Its token ceiling scales with
+the words asked for, anchored on the 1400 the pair has always used, because a
+ceiling sized for two scripts truncates three and a truncated response arrives
+as an **empty text body** rather than as the ceiling it is.
+
+**One setting the browser read was served by nothing.** `lead_in_ms` — the
+moment of bed before the read starts — was read as `(M.lead_in_ms||0)` and sent
+by no route, so the bed began on the same sample as the first syllable on every
+mix, and the `||0` is what hid it. Fixed, and then swept: `test_radio_ads.py`
+reads every `M.<setting>` the template touches and requires each to be a key
+`mix_defaults()` actually returns, because a one-off fix does not catch the
+next one.
+
+**A read that overruns is never trimmed to fit.** The mix is rendered at the
+longer of the slot and the voice, so a long read comes back **measured and
+over** and the length check names it — trimming clips the end off the phone
+number, which is the rule `grade_duration()` already states about a render and
+`save_links()` states about an archive. A bed shorter than the spot is
+**reported rather than looped**: a loop puts an audible seam in the middle of a
+client's commercial, and saying the last few seconds carry no music is
+something somebody can act on.
+
+**Two things from the build spec are deliberately not here, and both are the
+same decision.** The spec's step 6 is a **client review link** and its step 7 a
+**Suite notification** on mix-ready, and each is written in the spec itself as
+"reuse the shared thing once it exists" — `hub/review_share.py`, and the
+Commercial Builder's render-completion workflow. Neither exists. What does exist
+is `modules/fan_radio`, which has a complete client approval surface for a radio
+spot already: one share link per project, a random token, no login, `noindex`,
+approve or comment per spot, feedback landing back against the spot it belongs
+to. Building a second one here would be two client-facing approval pages for
+one medium, differing in whatever each remembered — which is the two-proposal
+-builders failure this file opens with, and the reason this work went into
+`radio_promo` rather than into a third radio module in the first place.
+
+So the honest next step is **not** a share page in `radio_promo`: it is lifting
+Fan Radio's out into the shared layer beside `hub/radio_spec.py` and having
+both tools read it, at which point the notification has one place to hang off
+too. That is its own piece of work with its own test, and it is named here
+rather than half-started, because a second half-built approval flow is worse
+than one tool having the only one.
+
+**A public_id that names a slot has to replace what is already there.**
+`upload_asset` passed `overwrite=False` on every call, and the public_ids it
+builds are deterministic — `mix-thirty`, `bed-thirty`, `<slot>-<voice>` — so
+re-mixing or re-recording one slot lands on the asset the last attempt wrote.
+With overwrite off, Cloudinary keeps the **old bytes** while the store records
+the **new measured length**, so the file a client is sent and the duration filed
+against it disagree; and where Cloudinary refuses outright, `upload_asset`'s own
+`except` drops the asset onto the persistent disk instead, which is wiped on
+every redeploy, reporting a clean success either way. The disk branch has
+always overwritten, which is the other half of the same inconsistency. This
+was **already true of the re-render path** before any of this work, so that one
+is fixed with the four new ones rather than left as the older defect it is.
+`test_radio_ads.py` sweeps every `upload_asset` call whose public_id carries a
+slot — matched on **balanced parens**, because the regex the first draft used
+stopped early on the multi-line calls and passed "every one of them" against
+three of five, which is the sweep that quietly stops sweeping.
+
+**The tile is the Radio Ad Creator; everything underneath it is still
+`radio_promo`.** The mount, the help keys, the log name and the Cloudinary
+folder do not move — renaming the mount breaks every link in a rep's history,
+renaming a help key orphans the bubble, and renaming the log name orphans every
+row already on disk. It is the `billboard` and Video Search rule, and
+`test_menu_layout.py` is what holds the tile's name against the trail that
+names it.
+
 **Three answers, and the fourth state is not an answer.** Approve/reject
 forces "yes, but fix the phone number" into whichever end is nearest, the rule
 `modules/ads_builder/spec.py` arrived at for the paid-search estimate; the
@@ -11813,6 +12012,16 @@ python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,
                                    #   and a long read flagged rather than trimmed
+python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
+                                   #   composed to the spot's own length rather
+                                   #   than a prompt saved and a tone played, the
+                                   #   dB pair read from the one shared music
+                                   #   table, the browser's WAV encoder held
+                                   #   against the server's own probe in node,
+                                   #   not-measured never folded into pass, an
+                                   #   override that needs a reason and a name,
+                                   #   and a variation that carries the scripts
+                                   #   without the audio
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,

@@ -64,13 +64,64 @@ TONES = [
 # its template read it from here.
 VOICE_CHARACTERISTICS = voice_casting.CHARACTERISTICS
 
-# Word budgets are the studio's, measured at a natural read pace.
+# Word budgets are the studio's, measured at the natural 2.6 words/second read
+# `speech.WORDS_PER_SECOND` holds. Every other reader of these numbers reads
+# them from here: the AI system prompt states them, the builder colors the
+# word count against them and `hub/radio_spec.qc()` judges the script on them,
+# and each of those was a hand-typed second copy of the table before now.
+#
+# THE :60 IS 140-170, NOT the 150-180 the build spec asked for. At this pace
+# 180 words is a 69-second read, so a :60 written to the top of that range
+# cannot be recorded inside its own slot -- it comes back over, gets tightened,
+# and the budget that sent it there was ours. 170 words is 65 seconds, which is
+# the same deliberate overshoot the :15 and :30 carry: `grade_duration()` flags
+# a render more than 0.4s long, so the top of a budget is allowed to be a
+# little over the clock and the measured read is what actually decides it.
 DURATIONS = [
-    {"seconds": 15, "key": "fifteen", "word_target": "35-42 words", "low": 35, "high": 42},
+    {"seconds": 15, "key": "fifteen", "label": ":15",
+     "word_target": "35-42 words", "low": 35, "high": 42},
     # A :30 is never a short tag. At the normal 2.6 words/second read this
     # floor is just over 25 seconds, leaving room for natural pauses.
-    {"seconds": 30, "key": "thirty", "word_target": "65-85 words (25+ second read)", "low": 65, "high": 85},
+    {"seconds": 30, "key": "thirty", "label": ":30",
+     "word_target": "65-85 words (25+ second read)", "low": 65, "high": 85},
+    {"seconds": 60, "key": "sixty", "label": ":60",
+     "word_target": "140-170 words (50+ second read)", "low": 140, "high": 170},
 ]
+
+# The pair every project has always produced. A :60 is opt-in rather than a
+# third script on every job: writing one costs a model call and a slot nobody
+# asked for, and a project saved before this existed carries no slot list at
+# all -- `slots_of()` reads that as the pair rather than migrating rows nobody
+# has re-opened, the rule `hub/target_areas.from_legacy()` works to.
+DEFAULT_SLOTS = ("fifteen", "thirty")
+
+SLOT_KEYS = tuple(d["key"] for d in DURATIONS)
+
+
+def slots_of(row: dict | None) -> tuple[str, ...]:
+    """Which lengths this project is writing, in clock order.
+
+    Unknown keys are dropped rather than carried: a slot nothing can price or
+    grade would reach the writer as a length with no budget behind it.
+    """
+    asked = list((row or {}).get("slots") or ())
+    keys = tuple(k for k in SLOT_KEYS if k in asked)
+    return keys or tuple(DEFAULT_SLOTS)
+
+
+def budget_line() -> str:
+    """The word budgets as one sentence, for the writer's system prompt.
+
+    Derived rather than typed, because the prompt is what the model is
+    actually held to and a stale copy of it there is a script written to a
+    budget the checker no longer uses.
+    """
+    parts = []
+    for slot in DURATIONS:
+        floor = int(round(slot["low"] / 2.6))
+        parts.append(f'a {slot["label"]} runs {slot["low"]}-{slot["high"]} words '
+                     f'and at least {floor} seconds')
+    return "; ".join(parts)
 
 
 def tone_by_id(tone_id: str) -> dict | None:

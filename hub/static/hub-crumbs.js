@@ -64,7 +64,7 @@
     // pretty(), which would title-case the segment into "Dead Air" and drop
     // the noun that says what the tool does.
     "dead-air": "Dead Air Cutter", "vertical-reframe": "Vertical Reframe",
-    "radio-promo": "Radio Promo", "fan-radio": "Fan Radio",
+    "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
     // Tools
     "website-audit": "Website Audit", "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
