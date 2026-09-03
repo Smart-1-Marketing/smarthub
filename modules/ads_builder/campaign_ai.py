@@ -23,7 +23,7 @@ import requests
 
 from hub import target_areas
 
-from . import spec
+from . import ad_intel, spec
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 TIMEOUT = 180
@@ -465,7 +465,17 @@ Competitors the CLIENT named: {intake.get('competitors') or 'none given'}"""
 
     data = _chat(COMPETITOR_SYSTEM, user, purpose="competitors", model=model,
                  max_tokens=2000, temperature=0.5)
-    return {
+
+    # A third bucket, never a blend into the two above. "Somebody's crawler saw
+    # this competitor's ad running" and "a model thought of this name" are
+    # claims of different strength about the same question, and a reader has to
+    # be able to tell them apart -- the rule hub/scan_facts.py applies to a logo
+    # photographed off a page. Unconfigured this is None and the key is absent
+    # entirely, so nothing on any screen promises a picture the Hub cannot
+    # produce.
+    verified = ad_intel.verified_competitor_data(campaign.get("websiteUrl") or "")
+
+    result = {
         "named": [{"name": _trunc(x.get("name"), 120), "note": _trunc(x.get("note"), 300)}
                   for x in (data.get("named") or [])[:20] if isinstance(x, dict) and x.get("name")],
         "researched": [{"name": _trunc(x.get("name"), 120), "why": _trunc(x.get("why"), 300),
@@ -479,6 +489,9 @@ Competitors the CLIENT named: {intake.get('competitors') or 'none given'}"""
         "note": "Names under “our research” are the model's suggestion and have not been "
                 "verified. Check them before repeating them to the client.",
     }
+    if verified:
+        result["verified"] = verified
+    return result
 
 
 TIER_SYSTEM = """You size Google Ads search budgets into three tiers a client can choose between.

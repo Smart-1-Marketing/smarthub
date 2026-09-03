@@ -53,7 +53,7 @@ from flask import (Flask, jsonify, make_response, redirect, render_template,
 from . import VERSION, VERSION_DATE
 from hub import target_areas
 
-from . import (api_readiness, campaign_ai, client_link, copy_ideas, export,
+from . import (ad_intel, api_readiness, campaign_ai, client_link, copy_ideas, export,
                google_ads, keyword_plan, landing_page, logo as logo_lookup,
                monitoring, optimization, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
@@ -391,6 +391,10 @@ def page_settings():
         tiers=[{"key": k, "label": l, "note": n} for k, l, n in keyword_plan.ACCESS_TIERS],
         openai_configured=bool(campaign_ai.openai_key()),
         openai_model=campaign_ai.openai_model(),
+        # Named on the one screen somebody can act on it from -- the variable
+        # is here rather than in front of a rep who cannot set it, which is
+        # the rule modules/ads_builder/logo.py already works to.
+        ad_intel=ad_intel.status(),
         expected_redirect=(os.environ.get("PUBLIC_BASE_URL", "").rstrip("/") + MOUNT
                            + "/oauth/callback"),
     )

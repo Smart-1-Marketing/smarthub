@@ -144,6 +144,12 @@ jobs:
         # activity row per change naming the client and the mutate.
         run: python test_ads_optimization_autoapply.py
 
+      - name: Competitor ad intelligence scaffolding
+        # The state this ships in is the one that matters: no vendor chosen, so
+        # the feature is invisible and research_competitors returns exactly
+        # what it returned before.
+        run: python test_ad_intel.py
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an

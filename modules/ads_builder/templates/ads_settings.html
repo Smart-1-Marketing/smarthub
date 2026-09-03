@@ -21,6 +21,15 @@
         <td>{{ 'The Hub OPENAI_API_KEY. No Google access of any kind.' if openai_configured else 'OPENAI_API_KEY on this service.' }}</td>
       </tr>
       <tr>
+        {# Off is the ordinary state, not a fault: no competitor ad-intelligence
+           provider has been chosen or paid for, so this is drawn neutral
+           rather than amber -- an absence somebody has decided on reads
+           differently from something that is broken. #}
+        <td>Verified competitor ads</td>
+        <td><span class="tag {{ 't-good' if ad_intel.configured else '' }}">{{ 'Ready' if ad_intel.configured else 'Not switched on' }}</span></td>
+        <td>{{ ad_intel.note }}</td>
+      </tr>
+      <tr>
         <td>Review, comment, approve</td>
         <td><span class="tag t-good">Ready</span></td>
         <td>Nothing — it is the Hub's own store.</td>
