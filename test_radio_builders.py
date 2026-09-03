@@ -599,16 +599,24 @@ section("The word budgets the two tools quote are the same clock")
 # =====================================================================
 # A script written in one and moved to the other must not need re-timing.
 
-check("Radio Promo sells two slots", [d["key"] for d in DURATIONS],
-      ["fifteen", "thirty"])
-check("Fan Radio sells the same two lengths", fan_catalog.LENGTH_IDS, [15, 30])
-check("and they agree that a :15 and a :30 are what a radio spot is",
-      sorted(d["seconds"] for d in DURATIONS), fan_catalog.LENGTH_IDS)
+# Radio Promo sells the two units Fan Radio does and two more either side of
+# them — the :10 sponsorship tag and the :60. That is a superset rather than a
+# disagreement: the assertion is not that the two menus match, which would
+# make adding a unit to one a failure, but that every length Fan Radio sells
+# is one Radio Promo can also write, so a spot moved between them lands on a
+# slot that exists at both ends.
+check("Radio Promo sells the pair and the two units either side",
+      [d["key"] for d in DURATIONS], ["ten", "fifteen", "thirty", "sixty"])
+check("Fan Radio sells the pair", fan_catalog.LENGTH_IDS, [15, 30])
+check("and every length Fan Radio sells, Radio Promo can write",
+      [s for s in fan_catalog.LENGTH_IDS
+       if s not in [d["seconds"] for d in DURATIONS]], [])
 
 # They are budgets, not limits, and the numbers are deliberately close
 # rather than identical — Radio Promo's are the studio's, measured at a
 # natural read pace. What must not happen is one calling a script long that
-# the other calls short.
+# the other calls short. Only the lengths both sell can be compared; the :10
+# and the :60 have no Fan Radio budget to contradict.
 for seconds, key in ((15, "fifteen"), (30, "thirty")):
     promo_slot = duration_by_key(key)
     fan_slot = fan_catalog.budget(seconds)

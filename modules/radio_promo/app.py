@@ -28,14 +28,17 @@ from __future__ import annotations
 import base64
 import io
 import os
-import re
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
 from . import VERSION, VERSION_DATE
-from . import ai, speech, store, voices
-from .catalog import DURATIONS, TONES, VOICE_CHARACTERISTICS, duration_by_key, tone_by_id
+from . import ai, qc, speech, store, voices
+from .catalog import (DEFAULT_SLOTS, DURATIONS, TONES, VOICE_CHARACTERISTICS,
+                      budget_line, duration_by_key, length_warning,
+                      normalize_slots, structure_for, tone_by_id)
+
+from hub import script_contents
 
 try:
     from hub import audit as hub_audit
@@ -145,9 +148,14 @@ def _version() -> str:
 
 @app.route("/")
 def index():
+    slots = [dict(slot, budget=budget_line(slot["key"]),
+                  warning=length_warning(slot["key"]),
+                  beats=structure_for(slot["key"]))
+             for slot in DURATIONS]
     return render_template("index.html", version=_version(), tones=TONES,
                            characteristics=VOICE_CHARACTERISTICS,
-                           durations=DURATIONS, mount=MOUNT)
+                           durations=slots, default_slots=list(DEFAULT_SLOTS),
+                           mount=MOUNT)
 
 
 @app.route("/library")
@@ -220,6 +228,8 @@ def api_settings(pid):
     allowed = ("client", "company", "project_name", "team_member", "home_url",
                "landing_url", "include_phone", "phone", "promotion", "disclaimer", "pronunciations", "brand")
     changes = {k: data[k] for k in allowed if k in data}
+    if "slots" in data:
+        changes["slots"] = normalize_slots(data.get("slots"))
     if "client" in changes:
         changes["client"] = (changes["client"] or "").strip()
     row = store.update(pid, changes)
@@ -275,22 +285,39 @@ def _decorate(slot_key: str, script: str, pronunciations: list) -> dict:
             "spoken": spoken["spoken"], "changes": spoken["changes"]}
 
 
+def project_slots(row: dict) -> list:
+    """The lengths this project writes.
+
+    Read from the row rather than hardcoded, and normalized on the way out, so
+    a project saved before the menu widened writes the pair it always wrote
+    and a row carrying a slot this build no longer offers cannot reach the
+    prompt. Every route that used to test `in ("fifteen", "thirty")` asks this.
+    """
+    return normalize_slots(row.get("slots") or DEFAULT_SLOTS)
+
+
+def _qc(row: dict) -> dict:
+    """Every named check for this project's chosen reads."""
+    return qc.run(row, project_slots(row), required=qc.required_for(row))
+
+
 def _required_script_gaps(row: dict, script: str, slot: str) -> list[str]:
-    """Non-negotiables are checked in the app, not entrusted to a prompt."""
-    normalized = re.sub(r"\s+", " ", str(script or "").lower())
-    company = str(row.get("company") or row.get("client") or "").strip()
-    url = str(row.get("landing_url") or row.get("home_url") or "").strip()
-    gaps = []
-    if company and company.lower() not in normalized:
-        gaps.append("company name")
-    # Allow the spoken, protocol-free form as well as the literal URL.
-    url_words = re.sub(r"^https?://", "", url, flags=re.I).rstrip("/").lower()
-    if url_words and url_words not in normalized:
-        gaps.append("URL")
-    if row.get("include_phone") and str(row.get("phone") or "").strip() and str(row["phone"]).lower() not in normalized:
-        gaps.append("phone number")
-    if slot == "thirty" and speech.estimate_seconds(script) < 25:
-        gaps.append("a minimum 25-second :30 read")
+    """Non-negotiables are checked in the app, not entrusted to a prompt.
+
+    The three content rules are `hub/script_contents.py` now, because the
+    Commercial Builder has to answer the same question and was answering a
+    much easier one — see that module. Radio has one channel, so nothing is
+    `shown`: if the read does not say it, nobody gets it.
+
+    The minimum-read rule stays here. It is about the clock rather than the
+    copy, and it is radio's own: a :30 slot is sold by the second.
+    """
+    result = script_contents.check(qc.facts_for(row), spoken=script,
+                                   require=qc.required_for(row))
+    gaps = script_contents.gap_labels(result)
+    floor = (duration_by_key(slot) or {}).get("min_seconds")
+    if floor and speech.estimate_seconds(script) < floor:
+        gaps.append(f"a minimum {floor:g}-second :{(duration_by_key(slot) or {}).get('seconds')} read")
     return gaps
 
 
@@ -306,16 +333,17 @@ def api_scripts(pid):
         return fail("Pick a tone first.")
     if not row.get("analysis"):
         return fail("Read the site first — the brief feeds the script.")
+    slots = normalize_slots(data.get("slots") or row.get("slots") or DEFAULT_SLOTS)
     try:
         written = ai.write_scripts(row["analysis"], row.get("brand") or {}, row,
                                    tone_id, (data.get("revision_note") or "").strip(),
-                                   row.get("scripts"))
+                                   row.get("scripts"), slots)
     except ai.AIError as exc:
         return fail(str(exc), 502)
 
     prons = row.get("pronunciations") or []
     scripts = {"hook": written.get("hook", "")}
-    for key in ("fifteen", "thirty"):
+    for key in slots:
         part = written.get(key) or {}
         script = str(part.get("script") or "").strip()
         gaps = _required_script_gaps(row, script, key)
@@ -324,12 +352,12 @@ def api_scripts(pid):
         scripts[key] = _decorate(key, script, prons)
         scripts[key]["notes"] = part.get("notes", "")
     row = store.update(pid, {"scripts": scripts, "tone_id": tone_id,
-                             "status": "scripted"})
+                             "slots": slots, "status": "scripted"})
     store.add_version(pid, "revision" if data.get("revision_note") else "draft",
                       {"tone_id": tone_id, "scripts": scripts,
                        "note": data.get("revision_note", "")}, actor())
     log("project.scripts", project=pid, tone=tone_id)
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/script/edit", methods=["POST"])
@@ -341,7 +369,7 @@ def api_script_edit(pid):
         return fail(str(exc), 404)
     data = body()
     slot = data.get("slot")
-    if slot not in ("fifteen", "thirty"):
+    if slot not in project_slots(row):
         return fail("Unknown slot.")
     scripts = dict(row.get("scripts") or {})
     if not scripts.get(slot):
@@ -356,7 +384,7 @@ def api_script_edit(pid):
     scripts[slot]["notes"] = notes
     row = store.update(pid, {"scripts": scripts})
     store.add_version(pid, "hand-edit", {"slot": slot, "scripts": scripts}, actor())
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/tighten", methods=["POST"])
@@ -368,7 +396,7 @@ def api_tighten(pid):
         return fail(str(exc), 404)
     data = body()
     slot = data.get("slot")
-    if slot not in ("fifteen", "thirty"):
+    if slot not in project_slots(row):
         return fail("Unknown slot.")
     scripts = dict(row.get("scripts") or {})
     current = scripts.get(slot) or {}
@@ -396,7 +424,7 @@ def api_tighten(pid):
     row = store.update(pid, {"scripts": scripts})
     store.add_version(pid, "tighten", {"slot": slot, "trim_words": trim,
                                        "scripts": scripts}, actor())
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/pronunciations", methods=["POST"])
@@ -409,13 +437,23 @@ def api_pronunciations(pid):
     prons = [p for p in (body().get("pronunciations") or [])
              if isinstance(p, dict) and str(p.get("from") or "").strip()]
     scripts = dict(row.get("scripts") or {})
-    for slot in ("fifteen", "thirty"):
+    for slot in project_slots(row):
         if scripts.get(slot, {}).get("script"):
             notes = scripts[slot].get("notes", "")
             scripts[slot] = _decorate(slot, scripts[slot]["script"], prons)
             scripts[slot]["notes"] = notes
     row = store.update(pid, {"pronunciations": prons, "scripts": scripts})
     return jsonify({"ok": True, "project": row})
+
+
+@app.route("/api/projects/<pid>/qc")
+def api_qc(pid):
+    """The panel, on demand. Cheap: it reads the copy and reaches no provider."""
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    return jsonify({"ok": True, "qc": _qc(row)})
 
 
 @app.route("/api/speech/preview", methods=["POST"])
@@ -542,7 +580,7 @@ def api_render(pid):
         return fail(str(exc), 404)
     data = body()
     slot = data.get("slot")
-    if slot not in ("fifteen", "thirty"):
+    if slot not in project_slots(row):
         return fail("Unknown slot.")
     script = (row.get("scripts") or {}).get(slot) or {}
     if not script.get("spoken"):
@@ -550,6 +588,14 @@ def api_render(pid):
     voice_id = (data.get("voice_id") or "").strip()
     if not voice_id:
         return fail("Assign a voice to this spot first.")
+    # ElevenLabs bills the character, so a read with a fact wrong in it is
+    # money spent twice. Only the checks that cannot be wrong refuse — the
+    # timing verdict is an estimate and is reported rather than enforced.
+    panel = qc.run_slot(row, slot, required=qc.required_for(row))
+    stopped = qc.blocking(panel)
+    if stopped:
+        return fail("This read is not ready to record: " + " ".join(
+            panel["checks"][key]["message"] for key in stopped), 422)
 
     try:
         out = voices.render_audio(voice_id, script["spoken"],

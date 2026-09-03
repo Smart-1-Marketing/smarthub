@@ -1519,6 +1519,26 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      # Commercial Builder <-> Radio Promo parity. One reader for "the copy
+      # has to actually say it": Radio Promo checked its scripts literally and
+      # the Commercial Builder asked whether a field was set on a client
+      # record, which is a much easier question -- a spot whose end card had
+      # been deleted passed with the phone number sitting in a database
+      # column. The three false positives that shared rule closes are held
+      # against the findings it must keep making, because a rule loosened
+      # until it stops crying wolf and then loosened once more passes on
+      # everything. Radio Promo's QC panel runs on the copy rather than after
+      # the render, and the line between what may refuse a billed record and
+      # what may only report is certainty rather than severity: a timing
+      # verdict is words divided by a read pace, so refusing a render on it
+      # would refuse a correct read. The :10 and the :60 were unbuildable and
+      # the slot keys were hardcoded in six places. And the finished
+      # commercial reaches Smart 1 Suite through the Hub's one contact write
+      # path, revising the opportunity it already opened rather than adding a
+      # second to the same client's pipeline.
+      - name: Builder parity — the copy, the panel, the lengths, the Suite
+        run: python3 test_builder_parity.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were

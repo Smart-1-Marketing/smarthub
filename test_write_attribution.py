@@ -148,6 +148,11 @@ TRIAGED = {
                      "submit_render", "approve_render", "acknowledge_compliance",
                      "send_for_review", "revoke_review", "client_decide",
                      "client_comment", "save_pronunciation",
+                     # The finished spot reaching the client's own CRM
+                     # account. Same class as approving a cut: it is a write
+                     # into somebody else's Suite sub-account, and an
+                     # unattributable one is the thing this sweep exists for.
+                     "push_to_suite",
                      "generate_full_voiceover", "upload_scene_asset",
                      "generate_ai_video"],
         "after_provider": {},

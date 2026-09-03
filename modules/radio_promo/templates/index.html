@@ -150,6 +150,12 @@
       <label class="f">Required disclaimer <span class="opt">optional — read verbatim, counts against the word budget</span></label>
       <textarea id="disclaimer" style="min-height:52px"></textarea>
     </div>
+    <div style="margin-top:14px">
+      <label class="f">Lengths to write {{ help_dot('radio_promo.build.lengths') if help_dot is defined else '' }}
+        <span class="opt">written together so they share a hook</span></label>
+      <div id="slotPicker"></div>
+      <div class="hint" id="slotWarning" style="margin-top:8px"></div>
+    </div>
     <div class="rowbar">
       <button class="btn" id="startBtn" onclick="start()">Read the site &amp; brief it</button>
       <a class="btn sec" href="library">Library</a>
@@ -163,7 +169,7 @@
     <div id="briefBox"></div>
     <div class="tones" id="toneList"></div>
     <div class="rowbar">
-      <button class="btn" id="scriptBtn" data-demo="rp-generate" onclick="writeScripts()" disabled>Write the :15 and :30</button>
+      <button class="btn" id="scriptBtn" data-demo="rp-generate" onclick="writeScripts()" disabled>Write the reads</button>
       <span class="msg" id="briefMsg"></span>
     </div>
   </div>
@@ -173,13 +179,14 @@
     <h2><span class="n">3</span> Copy</h2>
     <div id="copyBox"></div>
     <div style="margin-top:12px">
-      <label class="f">Ask for a change <span class="opt">— rewrites both lengths together</span></label>
+      <label class="f">Ask for a change <span class="opt">— rewrites every length together</span></label>
       <div class="rowbar" style="margin-top:0">
         <input type="text" id="revision" placeholder="Lead with the price, drop the second question."
                style="flex:1;min-width:260px">
         <button class="btn sec" onclick="writeScripts(true)">Rewrite</button>
       </div>
     </div>
+    <div id="qcBox" style="margin-top:14px"></div>
     <div class="hint" id="spokenBox"></div>
   </div>
 
@@ -247,10 +254,16 @@
 const TONES = {{ tones|tojson }};
 const CHARS = {{ characteristics|tojson }};
 const MOUNT = {{ mount|tojson }};
+const DURATIONS = {{ durations|tojson }};
+const DEFAULT_SLOTS = {{ default_slots|tojson }};
+const SLOT = Object.fromEntries(DURATIONS.map(d => [d.key, d]));
+// The lengths this project writes. The server normalizes and stores
+// them; this is only what the screen is currently drawing.
+let slots = DEFAULT_SLOTS.slice();
 let P = null;              // current project
 let mode = 'spec';
 let want = {gender:'any', age:'any', accent:'american', energy:'conversational', delivery:'spokesperson'};
-let assigned = {fifteen:null, thirty:null};
+let assigned = {};
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
@@ -296,7 +309,7 @@ function unlockedStep(){
   if(!P) return 1;
   if((P.spots||[]).length) return 7;
   if((P.voice_matches||[]).length) return 6;
-  if((P.scripts||{}).fifteen) return 4;
+  if(Object.keys(P.scripts||{}).some(k => k !== 'hook')) return 4;
   if(P.analysis) return 2;
   return 1;
 }
@@ -351,7 +364,7 @@ async function start(){
       team_member:$('team_member').value.trim(), home_url:$('home_url').value.trim(),
       landing_url:$('landing_url').value.trim(), promotion:$('promotion').value.trim(),
       disclaimer:$('disclaimer').value.trim(), include_phone:$('include_phone').value==='yes',
-      phone:$('phone').value.trim()
+      phone:$('phone').value.trim(), slots: slots.slice()
     };
     const created = await api('/api/projects', {method:'POST', body:JSON.stringify(payload)});
     P = created.project;
@@ -404,24 +417,79 @@ async function writeScripts(isRevision){
   say('briefMsg','Writing to the clock…','ai');
   try{
     const d = await api('/api/projects/'+P.id+'/scripts', {method:'POST', body:JSON.stringify({
-      tone_id:P.tone_id, revision_note: isRevision ? $('revision').value.trim() : ''})});
-    P = d.project;
+      tone_id:P.tone_id, slots: projectSlots(),
+      revision_note: isRevision ? $('revision').value.trim() : ''})});
+    P = d.project; P._qc = d.qc;
     say('briefMsg','Written.','ok');
     if(isRevision) $('revision').value='';
     renderCopy();
   }catch(e){ say('briefMsg', e.message, 'err'); }
 }
 
-function slotName(k){ return k==='fifteen' ? ':15' : ':30'; }
+function slotName(k){ return ':' + ((SLOT[k]||{}).seconds || '?'); }
+function projectSlots(){
+  const chosen = (P && P.slots && P.slots.length) ? P.slots : slots;
+  // Ordered by the catalog, never by the order they were ticked, so a :60
+  // and a :15 read the same way round however they were picked.
+  return DURATIONS.map(d => d.key).filter(k => chosen.indexOf(k) >= 0);
+}
+
+/* The picker, and the cost note beside it. A length is a spend decision --
+   ElevenLabs bills the character -- and a decision nobody was told they were
+   taking is the one that gets regretted, so the note is drawn at pick time
+   rather than after the read has been generated. */
+function drawSlotPicker(){
+  const box = $('slotPicker'); if(!box) return;
+  box.innerHTML = DURATIONS.map(d => {
+    const on = slots.indexOf(d.key) >= 0;
+    return `<label class="slot" style="display:block;margin-bottom:8px;cursor:pointer">
+      <span style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+        <b style="color:var(--navy)"><input type="checkbox" data-slot="${d.key}" ${on?'checked':''}
+           onchange="toggleSlot('${d.key}', this.checked)"> :${d.seconds} — ${esc(d.label)}</b>
+        <span class="opt">${esc(d.budget||'')}</span>
+      </span>
+      <span class="hint" style="display:block;margin:4px 0 0 22px">${esc(d.note||'')}
+        <i>${esc(d.cost||'')}</i></span>
+    </label>`;
+  }).join('');
+  drawSlotWarning();
+}
+function toggleSlot(key, on){
+  slots = on ? slots.concat([key]) : slots.filter(k => k !== key);
+  if(!slots.length){ slots = [key]; drawSlotPicker(); return; }
+  drawSlotWarning();
+}
+/* Only the lengths that carry one. A note on every length is a note nobody
+   reads, and then the one that mattered goes past unread too. */
+function drawSlotWarning(){
+  const box = $('slotWarning'); if(!box) return;
+  const notes = projectSlots().map(k => (SLOT[k]||{}).warning).filter(Boolean);
+  box.innerHTML = notes.map(n => `<p style="margin:4px 0"><b>Worth knowing:</b> ${esc(n)}</p>`).join('');
+}
+
+/* The beats the read is built on, drawn beside the copy. The plan was in the
+   prompt, where nobody could see it -- so a script that had wandered from it
+   read exactly like one written to it. */
+function beatRail(k){
+  const beats = (SLOT[k]||{}).beats || [];
+  if(!beats.length) return '';
+  return `<details style="margin-top:8px"><summary class="hint" style="cursor:pointer">
+      How a :${(SLOT[k]||{}).seconds} is built</summary>
+    <table style="margin-top:6px"><tr><th>Beat</th><th>Where</th><th>What it does</th></tr>` +
+    beats.map(b => `<tr><td><b>${esc(b.label)}</b></td>
+      <td>${b.start_pct}–${b.end_pct}%</td><td>${esc(b.guidance)}</td></tr>`).join('') +
+    `</table></details>`;
+}
 
 function renderCopy(){
   showView('copy');
   const s = P.scripts || {};
   $('copyBox').innerHTML = (s.hook ? `<p class="hint" style="margin-top:0">Hook: <b>${esc(s.hook)}</b></p>` : '') +
-    ['fifteen','thirty'].map(k => {
+    projectSlots().map(k => {
       const v = s[k]; if(!v) return '';
-      const over = v.word_count > (k==='fifteen'?42:85);
-      const under = v.word_count < (k==='fifteen'?35:70);
+      const def = SLOT[k] || {};
+      const over = def.high != null && v.word_count > def.high;
+      const under = def.low != null && v.word_count < def.low;
       const cls = over ? 'long' : (under ? 'short' : 'good');
       return `<div class="slot">
         <h3><span>${slotName(k)} — ${esc(v.notes||'')}</span>
@@ -432,8 +500,10 @@ function renderCopy(){
           ${over?`<button class="btn sec sm" onclick="tighten('${k}')">Tighten to fit</button>`:''}
           <span class="hint" style="margin:0">${esc(v.tighten_note||'')}</span>
         </div>
+        ${beatRail(k)}
       </div>`;
     }).join('');
+  renderQc(P._qc);
   renderSpoken();
   renderCast();
   $('copyBox').insertAdjacentHTML('beforeend','<div class="rowbar"><button class="btn" onclick="goView(\'cast\')">Continue to voice casting</button></div>');
@@ -443,20 +513,49 @@ async function saveScript(k){
   try{
     const d = await api('/api/projects/'+P.id+'/script/edit', {method:'POST',
       body:JSON.stringify({slot:k, script:$('sc-'+k).value})});
-    P = d.project; renderCopy();
+    P = d.project; P._qc = d.qc; renderCopy();
   }catch(e){ alert(e.message); }
 }
 
 async function tighten(k){
   try{
     const d = await api('/api/projects/'+P.id+'/tighten', {method:'POST', body:JSON.stringify({slot:k})});
-    P = d.project; renderCopy();
+    P = d.project; P._qc = d.qc; renderCopy();
   }catch(e){ alert(e.message); }
+}
+
+/* The QC panel. Red is a fact about the text and refuses a record; amber is
+   a craft note and does not. Nothing here is drawn as a tick over a check
+   that could not run — an unwritten read is gray, not green. */
+const QC_LABELS = {
+  script_contents:'Says the brand, the address and the phone',
+  read_length:'Lands on the clock', word_budget:'Inside the word budget',
+  disclaimer:'Disclaimer word for word', invented_claims:'Nothing invented',
+  invented_claims_soft:'No unsubstantiated claims',
+  brand_mentions:'Brand said often enough', stage_directions:'Spoken words only',
+  beat_coverage:'Built on the beats'};
+
+function renderQc(panel){
+  const box = $('qcBox'); if(!box) return;
+  if(!panel || !(panel.slots||[]).length){ box.innerHTML=''; return; }
+  box.innerHTML = panel.slots.map(s => {
+    const rows = Object.keys(s.checks).map(k => {
+      const c = s.checks[k];
+      const dot = c.level==='pass' ? '&#10003;' : (c.level==='fail' ? '&#10007;' : (c.level==='warn' ? '!' : '&ndash;'));
+      const tint = c.level==='fail' ? 'long' : (c.level==='warn' ? 'short' : (c.level==='pass' ? 'good' : ''));
+      return `<tr><td><span class="meter ${tint}">${dot}</span></td>
+        <td><b>${esc(QC_LABELS[k]||k)}</b></td><td>${esc(c.message||'')}</td></tr>`;
+    }).join('');
+    const head = s.ready ? '<span class="meter good">ready to record</span>'
+      : `<span class="meter ${s.failed.length?'long':'short'}">${s.failed.length?'not ready':'nothing recorded yet'}</span>`;
+    return `<div class="slot"><h3><span>Checks — ${slotName(s.slot)}</span>${head}</h3>
+      <table>${rows}</table></div>`;
+  }).join('');
 }
 
 function renderSpoken(){
   const rows = [];
-  ['fifteen','thirty'].forEach(k => ((P.scripts||{})[k]||{}).changes?.forEach(c =>
+  projectSlots().forEach(k => ((P.scripts||{})[k]||{}).changes?.forEach(c =>
     rows.push(`<tr><td>${esc(c.from)}</td><td>${esc(c.to)}</td><td>${esc(c.why)}</td></tr>`)));
   $('spokenBox').innerHTML = rows.length
     ? `<b>How it will be read</b><table style="margin-top:6px"><tr><th>Written</th><th>Spoken</th><th>Why</th></tr>${rows.join('')}</table>`
@@ -523,8 +622,7 @@ function drawVoices(list){
         ${(v.match_reasons||[]).length?' — matches: '+ (v.match_reasons||[]).map(esc).join(', '):''}</div>
       ${v.preview_url?`<audio controls preload="none" src="${esc(v.preview_url)}"></audio>`:''}
       <div class="rowbar">
-        <button class="btn sm" onclick="assign('fifteen',${i})">Use for :15</button>
-        <button class="btn sm" onclick="assign('thirty',${i})">Use for :30</button>
+        ${projectSlots().map(k => `<button class="btn sm" onclick="assign('${k}',${i})">Use for ${slotName(k)}</button>`).join('')}
       </div>
     </div>`).join('') + '<div class="rowbar"><button class="btn" onclick="goView(\'music\')">Continue to music bed</button></div>';
 }
@@ -669,6 +767,7 @@ async function pushGhl(){
 }
 
 /* ---------- session recovery: the project id lives in the URL ---------- */
+drawSlotPicker();
 (async function resume(){
   const m = /p=([\w-]+)/.exec(location.hash||'');
   if(!m) return;
@@ -679,8 +778,18 @@ async function pushGhl(){
     ['company','project_name','team_member','home_url','landing_url','promotion','disclaimer','phone'].forEach(k=>{ if($(k)) $(k).value = P[k]||''; });
     if($('include_phone')) { $('include_phone').value=P.include_phone?'yes':'no'; togglePhone(); }
     if($('client')) $('client').value = P.client||'';
+    // A project saved before the length menu widened carries no slots at all,
+    // and reads as the pair it was written with rather than as a project with
+    // no lengths.
+    slots = (P.slots && P.slots.length) ? P.slots.slice() : DEFAULT_SLOTS.slice();
+    drawSlotPicker();
     if(P.analysis) renderBrief();
-    if(P.scripts && P.scripts.fifteen) renderCopy();
+    if(Object.keys(P.scripts||{}).some(k => k !== 'hook')){
+      renderCopy();
+      // The panel is cheap and reaches no provider, so a resumed session gets
+      // a live one rather than a blank where the checks should be.
+      try { P._qc = (await api('/api/projects/'+P.id+'/qc')).qc; renderQc(P._qc); } catch(e){}
+    }
     if((P.spots||[]).length) renderBooth();
   }catch(e){ location.hash=''; }
 })();

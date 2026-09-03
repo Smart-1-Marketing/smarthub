@@ -19,6 +19,8 @@ import secrets
 import threading
 from hub import jsonstore
 
+from .catalog import normalize_slots
+
 _lock = threading.Lock()
 MAX_PROJECTS = 4000
 
@@ -89,6 +91,11 @@ def create(fields: dict) -> dict:
         "promotion": (fields.get("promotion") or "").strip(),
         "disclaimer": (fields.get("disclaimer") or "").strip(),
         "pronunciations": fields.get("pronunciations") or [],
+        # Which lengths this project writes. Normalised on the way in, so a
+        # row can never carry a slot the catalog cannot describe; a row
+        # written before the menu widened has no key at all and every reader
+        # falls back to the pair the studio shipped.
+        "slots": normalize_slots(fields.get("slots")),
         "brand": fields.get("brand") or {},
         "analysis": None,
         "tone_id": "",

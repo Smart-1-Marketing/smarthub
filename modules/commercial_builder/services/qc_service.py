@@ -2,6 +2,8 @@
 allowed to render. Each check returns {"passed": bool, "message": str} so
 the storyboard/review UI can render a simple pass/warn list."""
 
+from hub import script_contents
+
 from . import openai_service, abcd_service
 from .. import compliance_spec, library_spec
 from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
@@ -16,7 +18,7 @@ from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RUL
 # This lived in TWO JavaScript files, each with its own hand-kept `ADVISORY`
 # set — a second and third copy of a decision the server already had all the
 # information to make. Two panels drawing the same finding in different
-# colours is the thing `hub/jsonstore.unmirrored_json_writers()` exists to
+# colors is the thing `hub/jsonstore.unmirrored_json_writers()` exists to
 # stop, one screen along.
 #
 # Every check carries a `level` now. `_all_passed` means "nothing FAILED", so
@@ -69,7 +71,7 @@ def run_qc(project_dict, client_dict, scenes):
     checks["timing"] = _check_timing(project_dict, scenes)
     checks["scene_assets"] = _check_scene_assets(scenes)
     checks["voice_fits"] = _check_voice_fits(project_dict)
-    checks["cta"] = _check_cta(project_dict, client_dict)
+    checks["cta"] = _check_cta(project_dict, client_dict, scenes)
     checks["brand"] = _check_brand(client_dict)
     checks["resolution"] = _check_resolution(scenes)
     checks["aspect_ratio"] = _check_aspect_ratio(scenes, project_dict)
@@ -270,21 +272,88 @@ def _check_voice_fits(project_dict):
                        f"will likely feel rushed or drag."}
 
 
-def _check_cta(project_dict, client_dict):
+def _check_cta(project_dict, client_dict, scenes=()):
+    """Does the finished spot actually give the viewer somewhere to go?
+
+    This used to ask whether a website or a phone number was *set on the
+    client record*, which is a different and much easier question. The
+    renderer reads neither: `creatomate_service` draws the end card from
+    `project.cta` and draws it only where there is a CTA scene to draw it in.
+    So a project whose end card was deleted, or whose contact details never
+    made it off the client record onto the CTA, passed this check with the
+    phone number sitting in a database column and no way for anybody watching
+    to reach the business.
+
+    The rule is `hub/script_contents.py` now, shared with Radio Promo, which
+    was already checking its scripts properly and is where the shape came
+    from. The difference between the two media is the whole reason that
+    function takes `spoken` and `shown` apart: radio has one channel and must
+    say it, and a television spot that holds the address on the end card
+    without a word of narration about it is most well-made spots.
+
+    The address is checked as the **clean domain**, because that is what this
+    tool commits to putting on screen -- `_clean_domain` deliberately draws
+    "BrandName.com" rather than a long campaign path. A narration that reads
+    the whole landing URL still satisfies it.
+    """
     cta = project_dict.get("cta") or {}
-    has_contact = bool(cta.get("website") or cta.get("phone") or client_dict.get("website")
-                        or client_dict.get("phone"))
+    website = cta.get("website") or client_dict.get("website") or ""
+    phone = cta.get("phone") or client_dict.get("phone") or ""
+
     if project_dict.get("length_seconds") == 5:
         # :05 bumpers are brand recall only — a website/logo is enough, a
         # phone number/QR is explicitly NOT expected per the best-practices
         # brief ("do not include a phone number/QR code here").
-        has_contact = bool(cta.get("website") or client_dict.get("website") or client_dict.get("logo_url"))
+        has_contact = bool(website or client_dict.get("logo_url"))
         return {"passed": has_contact,
                 "message": "Logo/website present for brand recall." if has_contact else
                            "No logo or website set — a :05 bumper needs at least one for brand recall."}
-    return {"passed": has_contact,
-            "message": "Website or phone included in CTA." if has_contact else
-                       "No website or phone number set on the CTA scene."}
+
+    if not (website or phone):
+        return {"passed": False,
+                "message": "No website or phone number set on the CTA scene."}
+
+    scenes = list(scenes or [])
+    end_card = [s for s in scenes if s.get("is_cta")]
+    spoken = " ".join((s.get("narration") or "") for s in scenes)
+    # Only what the end card will actually draw. With no CTA scene there is no
+    # end card, so nothing is shown however well the fields are filled in.
+    shown = " ".join(filter(None, [
+        project_dict.get("title") or client_dict.get("name") or "",
+        cta.get("offer") or "", cta.get("headline") or "",
+        _clean_end_card_domain(website), phone])) if end_card else ""
+
+    facts = {"company": client_dict.get("name") or "",
+             "url": _clean_end_card_domain(website), "phone": phone}
+    result = script_contents.check(facts, spoken=spoken, shown=shown,
+                                   require=("url", "phone"))
+    if not result["measured"]:
+        return {"passed": False,
+                "message": "Nothing is narrated and there is no end card, so the "
+                           "contact details reach nobody."}
+    missing = script_contents.gap_labels(result)
+    if missing:
+        where = ("There is no end card scene, so " if not end_card else "")
+        return {"passed": False,
+                "message": (where + "the spot never says or shows "
+                            + ", ".join(missing) + ".").capitalize()}
+    carried = ", ".join(f"{item['label']} ({item['where']})"
+                        for item in result["carried"])
+    return {"passed": True, "message": f"The spot carries {carried}."}
+
+
+def _clean_end_card_domain(website):
+    """The domain as the end card will draw it.
+
+    creatomate_service._clean_domain owns this; imported through the service
+    rather than reimplemented, so a change to what the end card prints cannot
+    leave this check asking about a different string.
+    """
+    try:
+        from .creatomate_service import _clean_domain
+        return _clean_domain(website) or ""
+    except Exception:                            # noqa: BLE001 — standalone
+        return str(website or "")
 
 
 def _check_brand(client_dict):

@@ -19,7 +19,7 @@ from flask import Blueprint
 
 from .db import db, STANDALONE
 from .routes import (clients, projects, scripts, stock, voices, heygen, render, assets,
-                     providers, pages, review)
+                     providers, pages, review, suite)
 
 # Login. This module is blueprint-registered on the hub app, NOT dispatcher-
 # mounted, so wsgi.py's AuthGuard never sees it — that wrapper only covers
@@ -106,6 +106,7 @@ def create_blueprint():
     bp.register_blueprint(assets.bp)
     bp.register_blueprint(providers.bp)
     bp.register_blueprint(review.bp)
+    bp.register_blueprint(suite.bp)
     return bp
 
 

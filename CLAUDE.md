@@ -11626,6 +11626,12 @@ python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,
                                    #   and a long read flagged rather than trimmed
+python3 test_builder_parity.py     # the two builders answering one question
+                                   #   the same way: the copy has to actually
+                                   #   say it, a named QC panel run on the copy
+                                   #   rather than after the render, the :10 and
+                                   #   the :60 that were unbuildable, and the
+                                   #   finished spot reaching the Suite
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,

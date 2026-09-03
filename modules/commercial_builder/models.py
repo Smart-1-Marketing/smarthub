@@ -250,6 +250,54 @@ class RenderApproval(db.Model):
         }
 
 
+class SuiteDelivery(db.Model):
+    """An approved cut was filed as an opportunity in Smart 1 Suite.
+
+    Its own table for the reason `RenderApproval` gives above: `create_all()`
+    creates missing TABLES and never adds a column to an existing one, so an
+    `opportunity_id` on `cb_projects` would exist on every local SQLite run
+    and be silently absent on the live Postgres, with every test green.
+
+    The `opportunity_id` is the load-bearing field and it is why this is a
+    record rather than a boolean. `suite_opportunity.upsert_opportunity`
+    updates an opportunity it is handed an id for and creates a new one when
+    it is not, so a second push with nothing to read back is a second
+    opportunity on the same client's pipeline for the same spot — which is
+    the duplicate `upsert_from_ghl` learned about from GoHighLevel first.
+
+    A push that Suite refused is recorded too, with `ok` false and the reason
+    on it. "Nobody pushed this" and "we pushed it and Suite said no" are
+    different situations and only the first is somebody pressing a button.
+    """
+    __tablename__ = "cb_suite_deliveries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"),
+                           nullable=False, unique=True)
+    opportunity_id = db.Column(db.String(120))
+    contact_id = db.Column(db.String(120))
+    contact_name = db.Column(db.String(200))
+    pushed_by = db.Column(db.String(200))
+    pushed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # How many approved cuts went with it, so the record says what was
+    # delivered rather than only that something was.
+    cut_count = db.Column(db.Integer, default=0)
+    ok = db.Column(db.Boolean, default=False)
+    reason = db.Column(db.Text)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "project_id": self.project_id,
+            "opportunity_id": self.opportunity_id or "",
+            "contact_id": self.contact_id or "",
+            "contact_name": self.contact_name or "",
+            "pushed_by": self.pushed_by or "",
+            "pushed_at": self.pushed_at.isoformat() if self.pushed_at else None,
+            "cut_count": int(self.cut_count or 0),
+            "ok": bool(self.ok), "reason": self.reason or "",
+        }
+
+
 class Campaign(db.Model):
     """Groups multiple length/aspect-ratio commercials under one master concept (spec section 15)."""
     __tablename__ = "cb_campaigns"

@@ -24,10 +24,11 @@ bookkeeping that can break the thing it describes is worse than none.
 
 from .db import db
 from .models import (ComplianceAck, CommercialProject, RenderApproval,
-                     RenderJob, ReviewShare, Scene, Variation)
+                     RenderJob, ReviewShare, Scene, SuiteDelivery,
+                     Variation)
 
 # Keyed on a project, and outside every cascade that reaches one.
-ORPHANABLE = (RenderApproval, ReviewShare, ComplianceAck)
+ORPHANABLE = (RenderApproval, ReviewShare, ComplianceAck, SuiteDelivery)
 
 # What each count is called in a sentence somebody reads. Ordered: the spot
 # first, then the three records whose loss is the reason a delete is refused
@@ -39,10 +40,12 @@ NAMED = (
     ("approved_cuts", "approved cut", "approved cuts"),
     ("review_rounds", "review round", "review rounds"),
     ("compliance_acks", "compliance sign-off", "compliance sign-offs"),
+    ("suite_deliveries", "Suite delivery", "Suite deliveries"),
 )
 
 _ZERO = {"projects": 0, "scenes": 0, "render_jobs": 0, "approved_cuts": 0,
-         "review_rounds": 0, "compliance_acks": 0, "variations": 0}
+         "review_rounds": 0, "compliance_acks": 0, "variations": 0,
+         "suite_deliveries": 0}
 
 
 def project_ids_for_client(client_id) -> list:
@@ -70,7 +73,8 @@ def work_behind(project_ids) -> dict:
         for key, model in (("scenes", Scene), ("render_jobs", RenderJob),
                            ("approved_cuts", RenderApproval),
                            ("review_rounds", ReviewShare),
-                           ("compliance_acks", ComplianceAck)):
+                           ("compliance_acks", ComplianceAck),
+                           ("suite_deliveries", SuiteDelivery)):
             out[key] = model.query.filter(model.project_id.in_(pids)).count()
         out["variations"] = Variation.query.filter(
             Variation.parent_project_id.in_(pids)

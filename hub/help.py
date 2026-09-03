@@ -1559,6 +1559,18 @@ REGISTRY: list[Help] = [
        "wins the account and the spot becomes theirs. The required "
        "disclaimer is read verbatim and counts against the word budget, "
        "so a long one buys a shorter sell."),
+    _h("radio_promo.build.lengths", "Every length is a spend decision",
+       "The reads are written in one call so they share a hook, which is "
+       "why they are picked before anything is written rather than added "
+       "one at a time afterwards. ElevenLabs bills the character, so a "
+       ":60 is about twice a :30 to make and twice as much again every "
+       "time it is re-recorded — build one where the air is bought for it "
+       "and cut a shorter length alongside for everywhere else. The :10 "
+       "is a sponsorship tag: one idea and the brand, with no offer and "
+       "no phone number, because ten seconds is gone before anybody can "
+       "act on it. A :30 and a :60 also carry a floor on the read, since "
+       "those slots are sold by the second and a short one is air "
+       "somebody paid for."),
     _h("radio_promo.build.cast", "Cast by ear, not by list",
        "The ranking reads the labels ElevenLabs publishes against what "
        "you asked for, and it is a ranking, never a filter — a "
