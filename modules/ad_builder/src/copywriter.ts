@@ -172,15 +172,45 @@ export interface GeneratedCopy {
   warnings: string[];
 }
 
-/** Words that must never appear, per Amazon's guidance and basic taste. */
-const BANNED = /\b(hurry|act now|last chance|limited time only|don't miss out)\b/i;
+/**
+ * Words that must never appear, per Amazon's guidance and basic taste.
+ *
+ * One list, two readings of it, so they cannot come to disagree about what
+ * pressure language is: `BANNED` asks whether a line carries any, and
+ * `BANNED_CUT` takes it out. `BANNED_CUT` also swallows the punctuation that
+ * joined the phrase to the rest of the line -- removing the words alone left
+ * headlines beginning with a comma or an em dash, which is copy nobody wrote
+ * reaching the client's banner.
+ */
+export const PRESSURE_PHRASES = [
+  'hurry',
+  'act now',
+  'last chance',
+  'limited time only',
+  "don't miss out",
+] as const;
+
+const PRESSURE_ALT = PRESSURE_PHRASES.join('|');
+const BANNED = new RegExp(String.raw`\b(?:${PRESSURE_ALT})\b`, 'i');
+const BANNED_CUT = new RegExp(
+  String.raw`\s*[-\u2013\u2014,;:!]*\s*\b(?:${PRESSURE_ALT})\b\s*[-\u2013\u2014,;:!]*\s*`,
+  'gi',
+);
 
 function sanitise(text: string | null | undefined, max: number, warnings: string[], where: string): string | undefined {
   if (!text) return undefined;
   let t = String(text).replace(/\s+/g, ' ').trim().replace(/!+/g, '');
   if (BANNED.test(t)) {
-    warnings.push(`Removed pressure language from ${where}: "${t}"`);
-    t = t.replace(BANNED, '').replace(/\s{2,}/g, ' ').trim();
+    // Every occurrence, not the first: the regex used to carry no `g`, so
+    // "Act now -- last chance on winter service" lost "Act now" and kept
+    // "last chance", under a warning saying the pressure language was gone.
+    const before = t;
+    t = t.replace(BANNED_CUT, ' ').replace(/\s{2,}/g, ' ').trim();
+    warnings.push(
+      t
+        ? `Removed pressure language from ${where}: "${before}" became "${t}".`
+        : `Dropped ${where}: it was nothing but pressure language ("${before}").`,
+    );
   }
   const words = t.split(/\s+/).filter(Boolean);
   if (words.length > max) {
