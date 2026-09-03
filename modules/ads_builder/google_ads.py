@@ -61,13 +61,33 @@ def format_customer_id(value) -> str:
     return f"{d[:3]}-{d[3:6]}-{d[6:]}" if len(d) == 10 else d
 
 
+def _redirect_uri() -> tuple[str, str]:
+    """`(uri, problem)` for GOOGLE_ADS_REDIRECT_URI, validated where it is read.
+
+    The rule lives in hub/oauth_redirects.py so the panel that says what to
+    register and the flow that sends it cannot disagree about whether the
+    value is one URI. A comma-joined pair used to pass straight through
+    `urlencode` here and fail at Google's consent screen; now it reads as
+    unset, with the reason carried beside it, and `/connect` refuses before
+    anybody is sent anywhere.
+    """
+    raw = os.environ.get("GOOGLE_ADS_REDIRECT_URI", "")
+    try:
+        from hub.oauth_redirects import pinned_uri
+    except Exception:  # noqa: BLE001 — standalone, outside the Hub
+        return raw.strip().strip('"').strip("'"), ""
+    return pinned_uri(raw)
+
+
 def cfg() -> dict:
+    redirect_uri, redirect_problem = _redirect_uri()
     return {
         "client_id": os.environ.get("GOOGLE_ADS_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID", ""),
         "client_secret": os.environ.get("GOOGLE_ADS_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         "developer_token": os.environ.get("GOOGLE_ADS_DEVELOPER_TOKEN", ""),
         "login_customer_id": digits(os.environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID", "")),
-        "redirect_uri": os.environ.get("GOOGLE_ADS_REDIRECT_URI", ""),
+        "redirect_uri": redirect_uri,
+        "redirect_uri_problem": redirect_problem,
         "version": os.environ.get("GOOGLE_ADS_API_VERSION", "v25"),
     }
 
@@ -837,6 +857,14 @@ def connection_status(store=None) -> dict:
     from_env = bool(os.environ.get("GOOGLE_ADS_REFRESH_TOKEN", "").strip())
     from_db = bool(store and (store.get_setting("google_refresh_token") or "").strip())
     configured = bool(c["client_id"] and c["client_secret"] and c["developer_token"])
+    # One list, read twice: `missing` and `blocks` used to each carry their
+    # own copy of these four lines, which is two lists to keep in step.
+    required = (
+        ("GOOGLE_ADS_CLIENT_ID", c["client_id"]),
+        ("GOOGLE_ADS_CLIENT_SECRET", c["client_secret"]),
+        ("GOOGLE_ADS_DEVELOPER_TOKEN", c["developer_token"]),
+        ("GOOGLE_ADS_REDIRECT_URI", c["redirect_uri"]),
+    )
     return {
         "configured": configured,
         "connected": from_env or from_db,
@@ -850,19 +878,16 @@ def connection_status(store=None) -> dict:
         "api_version": c["version"],
         "login_customer_id": format_customer_id(c["login_customer_id"]) if c["login_customer_id"] else None,
         "redirect_uri": c["redirect_uri"],
-        "missing": [name for name, value in (
-            ("GOOGLE_ADS_CLIENT_ID", c["client_id"]),
-            ("GOOGLE_ADS_CLIENT_SECRET", c["client_secret"]),
-            ("GOOGLE_ADS_DEVELOPER_TOKEN", c["developer_token"]),
-            ("GOOGLE_ADS_REDIRECT_URI", c["redirect_uri"]),
-        ) if not value],
+        # Set and unusable is a different sentence from not set: the value
+        # is there, and the person reading this needs to know why it counts
+        # as missing rather than being told to set what they already set.
+        "redirect_uri_problem": c["redirect_uri_problem"],
+        "missing": [name for name, value in required if not value],
         "blocks": [
-            {"name": name, "why": BLOCKS[name]}
-            for name, value in (
-                ("GOOGLE_ADS_CLIENT_ID", c["client_id"]),
-                ("GOOGLE_ADS_CLIENT_SECRET", c["client_secret"]),
-                ("GOOGLE_ADS_DEVELOPER_TOKEN", c["developer_token"]),
-                ("GOOGLE_ADS_REDIRECT_URI", c["redirect_uri"]),
-            ) if not value
+            {"name": name,
+             "why": (f"it is set, but {c['redirect_uri_problem']}"
+                     if name == "GOOGLE_ADS_REDIRECT_URI" and c["redirect_uri_problem"]
+                     else BLOCKS[name])}
+            for name, value in required if not value
         ],
     }

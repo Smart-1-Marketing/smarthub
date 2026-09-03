@@ -89,6 +89,11 @@ services:
         sync: false
       - key: GOOGLE_ADS_LOGIN_CUSTOMER_ID
         sync: false
+      # Exactly one URI, matching the Authorised redirect URI registered in
+      # Google Cloud Console character for character. In production it is
+      #   https://smart1.agency/tools/ads/oauth/callback
+      # Not the onrender.com hostname, and never two URIs joined with a
+      # comma -- Google matches one exact string.
       - key: GOOGLE_ADS_REDIRECT_URI
         sync: false
       - key: GOOGLE_ADS_REFRESH_TOKEN
