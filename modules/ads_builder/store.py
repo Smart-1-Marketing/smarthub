@@ -241,6 +241,89 @@ class AutoApply(Base):
         }
 
 
+class PerformanceReport(Base):
+    """One monthly report we built for a client, and the link they read it at.
+
+    A row per send rather than a column on the proposal: a client gets one of
+    these every month for as long as the campaign runs, and the question
+    somebody asks later is "what did we send them in July", which a single
+    latest-report column cannot answer.
+
+    The token is the whole security model, the way `Share.token` is: an
+    unguessable string, and revoked / deleted / never-existed all answer the
+    same 404, because a client-facing URL that says "that one expired" tells
+    somebody probing which tokens are real.
+    """
+    __tablename__ = "ads_performance_reports"
+
+    token = Column(String(64), primary_key=True)
+    customer_id = Column(String(20), default="", index=True)
+    client_name = Column(String(300), default="")
+    proposal_id = Column(String(40), default="", index=True)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+    period_label = Column(String(80), default="")
+    cadence = Column(String(20), default="")
+    recipient = Column(String(200), default="")
+    delivered = Column(Integer, default=0)
+    delivery_note = Column(Text, default="")
+    report_json = Column(Text, default="{}")
+    revoked = Column(Integer, default=0)
+
+    @property
+    def report(self) -> dict:
+        return json.loads(self.report_json or "{}")
+
+    def as_dict(self, *, with_report: bool = False) -> dict:
+        row = {
+            "token": self.token,
+            "customer_id": self.customer_id or "",
+            "client_name": self.client_name or "",
+            "proposal_id": self.proposal_id or "",
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "period_label": self.period_label or "",
+            "cadence": self.cadence or "",
+            "recipient": self.recipient or "",
+            "delivered": bool(self.delivered),
+            "delivery_note": self.delivery_note or "",
+            "revoked": bool(self.revoked),
+        }
+        if with_report:
+            row["report"] = self.report
+        return row
+
+
+class ReportSchedule(Base):
+    """Whether one Google Ads account gets a recurring report, and how often.
+
+    **Off until somebody turns it on**, per account, exactly like AutoApply and
+    for the same reason: a report going to a client's inbox on a schedule is a
+    commitment somebody has to make on purpose, and a deployed campaign
+    inheriting one is a promise nobody gave.
+
+    A table rather than a column on ``ads_proposals``: ``create_all()`` creates
+    a missing table and never adds a column to an existing one.
+    """
+    __tablename__ = "ads_report_schedules"
+
+    customer_id = Column(String(20), primary_key=True)
+    cadence = Column(String(20), default="")
+    recipient = Column(String(200), default="")
+    last_sent_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+    updated_by = Column(String(200), default="")
+
+    def as_dict(self) -> dict:
+        return {
+            "customer_id": self.customer_id or "",
+            "cadence": self.cadence or "",
+            "recipient": self.recipient or "",
+            "last_sent_at": self.last_sent_at.isoformat() if self.last_sent_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "updated_by": self.updated_by or "",
+            "enabled": bool(self.cadence),
+        }
+
+
 class Setting(Base):
     __tablename__ = "ads_settings"
     key = Column(String(80), primary_key=True)
@@ -557,6 +640,128 @@ def set_auto_apply(customer_id, *, enabled, categories=None, actor="") -> dict:
         row.updated_at = now()
         s.commit()
         return row.as_dict()
+
+
+# ------------------------------------------------ recurring client reports
+# What a rep may pick, and the interval each one means. Off is not in the list
+# because off is the absence of a row -- a cadence nobody set is nothing to
+# read, which is what makes the default safe rather than remembered.
+REPORT_CADENCES = {"weekly": 7, "monthly": 30}
+
+
+def report_schedule(customer_id) -> dict:
+    """Whether this account gets a recurring report. Absent means no."""
+    cid = str(customer_id or "")
+    with SessionLocal() as s:
+        row = s.get(ReportSchedule, cid)
+        if row:
+            return row.as_dict()
+    return {"customer_id": cid, "cadence": "", "recipient": "", "last_sent_at": None,
+            "updated_at": None, "updated_by": "", "enabled": False}
+
+
+def set_report_schedule(customer_id, *, cadence, recipient="", actor="") -> dict:
+    """Turn a recurring report on or off for one account.
+
+    A cadence outside REPORT_CADENCES is refused by name rather than stored:
+    an unrecognised interval would read as enabled on every screen and be due
+    never, which is the quietest way a promise to a client goes unkept.
+    """
+    cid = str(customer_id or "").strip()
+    if not cid:
+        raise ValueError("customer_id is required.")
+    cadence = str(cadence or "").strip().lower()
+    if cadence and cadence not in REPORT_CADENCES:
+        raise ValueError(f'"{cadence}" is not a cadence. '
+                         f'Use {" or ".join(sorted(REPORT_CADENCES))}, or none to switch it off.')
+    with SessionLocal() as s:
+        row = s.get(ReportSchedule, cid)
+        if not row:
+            row = ReportSchedule(customer_id=cid)
+            s.add(row)
+        row.cadence = cadence
+        row.recipient = str(recipient or "").strip()[:200]
+        row.updated_by = str(actor or "")[:200]
+        row.updated_at = now()
+        s.commit()
+        return row.as_dict()
+
+
+def mark_report_sent(customer_id) -> None:
+    with SessionLocal() as s:
+        row = s.get(ReportSchedule, str(customer_id or ""))
+        if row:
+            row.last_sent_at = now()
+            s.commit()
+
+
+def due_report_accounts() -> list[dict]:
+    """Accounts whose recurring report is due, oldest first.
+
+    Due is decided from each account's OWN last send rather than from the
+    job's schedule -- the shape purchased_domains and social_ideas already
+    use -- so a redeploy cannot send two reports in a day and a leader that
+    restarted through the window picks the send up rather than skipping it.
+    """
+    from datetime import timedelta
+    right_now = now()
+    out = []
+    with SessionLocal() as s:
+        for row in s.scalars(select(ReportSchedule)).all():
+            if not row.cadence or row.cadence not in REPORT_CADENCES:
+                continue
+            days = REPORT_CADENCES[row.cadence]
+            last = row.last_sent_at
+            if last and last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if last and right_now - last < timedelta(days=days):
+                continue
+            out.append({**row.as_dict(), "due_since": (last or right_now).isoformat()})
+    out.sort(key=lambda r: r["last_sent_at"] or "")
+    return out
+
+
+def create_performance_report(customer_id, *, client_name="", proposal_id="",
+                              report=None, cadence="", recipient="",
+                              period_label="") -> dict:
+    token = secrets.token_urlsafe(24)
+    with SessionLocal() as s:
+        s.add(PerformanceReport(
+            token=token, customer_id=str(customer_id or "")[:20],
+            client_name=str(client_name or "")[:300],
+            proposal_id=str(proposal_id or "")[:40],
+            cadence=str(cadence or "")[:20],
+            recipient=str(recipient or "")[:200],
+            period_label=str(period_label or "")[:80],
+            report_json=json.dumps(report or {}, default=str)))
+        s.commit()
+    return get_performance_report(token, with_report=True)
+
+
+def get_performance_report(token, *, with_report=False) -> dict | None:
+    with SessionLocal() as s:
+        row = s.scalar(select(PerformanceReport)
+                       .where(PerformanceReport.token == str(token or "")))
+        return row.as_dict(with_report=with_report) if row else None
+
+
+def note_report_delivered(token, *, delivered: bool, note: str = "") -> None:
+    with SessionLocal() as s:
+        row = s.scalar(select(PerformanceReport)
+                       .where(PerformanceReport.token == str(token or "")))
+        if row:
+            row.delivered = 1 if delivered else 0
+            row.delivery_note = str(note or "")[:2000]
+            s.commit()
+
+
+def performance_reports_for(customer_id, limit=24) -> list:
+    with SessionLocal() as s:
+        rows = s.scalars(
+            select(PerformanceReport)
+            .where(PerformanceReport.customer_id == str(customer_id or ""))
+            .order_by(PerformanceReport.created_at.desc()).limit(limit)).all()
+        return [r.as_dict() for r in rows]
 
 
 # --------------------------------------------------- client estimate links

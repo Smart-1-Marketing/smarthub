@@ -349,6 +349,7 @@ function monitorRow(r) {
   const cats = (monitor.auto_apply_categories || []);
   const on = r.auto_apply && r.auto_apply.enabled;
   const chosen = new Set((r.auto_apply && r.auto_apply.categories) || []);
+  const cadence = (r.report && r.report.cadence) || '';
   let state;
   if (!run) state = '<b>never swept</b> — not the same as nothing to act on';
   else if (run.error) state = `<b>last scan could not be read</b> (${esc(run.error)})`;
@@ -370,7 +371,36 @@ function monitorRow(r) {
       ${on ? `<span>Up to ${monitor.auto_apply_cap} changes per sweep, each one logged on the client record.</span>`
            : '<span>Off. Nothing is changed in this account unless somebody presses a button.</span>'}
     </div>
+    <div class="hint" style="margin-top:5px">
+      <label style="display:inline-flex;gap:5px;align-items:center;margin-right:10px;font-weight:400">
+        Recurring client report
+        <select data-report-cadence="${esc(r.customer_id)}" onchange="saveReport('${esc(r.customer_id)}')">
+          <option value="">Off</option>
+          ${(monitor.report_cadences || []).map(c =>
+            `<option value="${esc(c)}" ${cadence === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+      </label>
+      <input type="email" data-report-email="${esc(r.customer_id)}" placeholder="client email"
+             value="${esc((r.report && r.report.recipient) || '')}"
+             onchange="saveReport('${esc(r.customer_id)}')" style="width:15rem">
+      ${cadence
+        ? `<span>Sent ${esc(cadence)} to the address above. Smart 1 Suite matches a contact
+             on the address, so a wrong one creates a duplicate rather than updating theirs.</span>`
+        : '<span>Off. No report goes to this client on a schedule.</span>'}
+    </div>
   </div>`;
+}
+
+async function saveReport(customerId) {
+  const cadence = document.querySelector(`[data-report-cadence="${customerId}"]`).value;
+  const recipient = document.querySelector(`[data-report-email="${customerId}"]`).value.trim();
+  try {
+    await api('POST', MOUNT + '/api/reports/schedule',
+              {customer_id: customerId, cadence, recipient});
+  } catch (err) {
+    alert('That could not be saved: ' + err.message);
+  }
+  await loadMonitor();
 }
 
 async function saveAutoApply(customerId) {

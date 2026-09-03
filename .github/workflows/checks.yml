@@ -156,6 +156,12 @@ jobs:
         # proposal written before campaignType existed still reads as Search.
         run: python test_ads_pmax.py
 
+      - name: Recurring client Google Ads reports
+        # Off until somebody turns it on, a month that could not be measured is
+        # never sent, and delivery stops at hub/leads.py -- this Hub claims to
+        # have emailed nobody.
+        run: python test_ads_performance_reports.py
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an

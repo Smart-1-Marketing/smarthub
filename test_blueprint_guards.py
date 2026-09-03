@@ -303,6 +303,9 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/scans/r/<token>.pdf": "the same report as a document",
     "/tools/ads/estimate/<token>": "the paid-search estimate a client reads "
                                    "and answers",
+    "/tools/ads/r/<token>": "the monthly Google Ads performance report a "
+                            "client is sent",
+    "/tools/ads/r/<token>.pdf": "the same report as a document",
     "/tools/calculators/c/<slug>": "the standalone media calculator an ad can "
                                    "point at",
     "/tools/calculators/embed/<slug>": "the framed copy on "

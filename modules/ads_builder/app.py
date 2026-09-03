@@ -55,7 +55,8 @@ from hub import target_areas
 
 from . import (ad_intel, api_readiness, campaign_ai, client_link, copy_ideas, export,
                google_ads, keyword_plan, landing_page, logo as logo_lookup,
-               monitoring, optimization, pmax_images, pmax_spec, spec, store)
+               monitoring, optimization, performance_pdf, performance_report,
+               pmax_images, pmax_spec, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 from hub.webargs import clamp_int
@@ -288,7 +289,11 @@ def api_export_summary(public_id):
 # It is read-only except for two writes, both scoped to one token: a change
 # request and a response. Neither can reach another proposal, and neither can
 # edit the campaign — a client asks for a change, a rep makes it.
-PUBLIC_PREFIXES = ("/estimate/",)
+#
+# /r/ joins it for the recurring performance report: same shape, same reasons,
+# and read-only -- there is nothing on that page for a client to answer, so it
+# has no write route at all.
+PUBLIC_PREFIXES = ("/estimate/", "/r/")
 
 
 def _share_or_none(token):
@@ -325,6 +330,97 @@ def page_client_estimate(token):
         outcomes=spec.OUTCOMES,
         today=f"{today:%B} {today.day}, {today.year}",
     )
+
+
+@app.get("/r/<token>")
+def page_performance_report(token):
+    """One month of a client's Google Ads performance, at an unguessable link.
+
+    Revoked, deleted and never-existed all answer the same 404, because a
+    client-facing URL that says "that one expired" tells somebody probing
+    which tokens are real -- the rule the estimate link already works to.
+    """
+    row = store.get_performance_report(token, with_report=True)
+    if not row or row["revoked"]:
+        return render_template("ads_estimate_gone.html"), 404
+    return render_template("ads_performance_report.html",
+                           row=row, r=row["report"], mount=MOUNT, token=token)
+
+
+@app.get("/r/<token>.pdf")
+def page_performance_report_pdf(token):
+    row = store.get_performance_report(token, with_report=True)
+    if not row or row["revoked"]:
+        return render_template("ads_estimate_gone.html"), 404
+    pdf = performance_pdf.build(row["report"])
+    response = make_response(pdf)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = (
+        f'inline; filename="{performance_report.filename(row["report"])}"')
+    return response
+
+
+@app.post("/api/reports/schedule")
+def api_report_schedule():
+    """Turn a recurring client report on or off for one account.
+
+    Opt-in, per account, and off for everything until somebody presses this: a
+    report arriving in a client's inbox on a schedule is a commitment, and a
+    deployed campaign inheriting one is a promise nobody gave.
+    """
+    body = request.get_json(silent=True) or {}
+    customer_id = google_ads.digits(body.get("customer_id"))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    cadence = str(body.get("cadence") or "").strip().lower()
+    recipient = str(body.get("recipient") or "").strip()
+    if cadence and not recipient:
+        # Refused rather than saved half-set: a schedule with no address is a
+        # report nobody receives, reporting a clean save.
+        return jsonify({"error": "A recurring report needs an email address to "
+                                 "send to. Check it is the client's own — "
+                                 "Smart 1 Suite matches a contact on the "
+                                 "address, so a wrong one creates a duplicate "
+                                 "rather than updating theirs."}), 400
+    try:
+        schedule = store.set_report_schedule(
+            customer_id, cadence=cadence, recipient=recipient, actor=current_user())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    store.log_event("REPORT_SCHEDULE_SET", current_user(),
+                    customer_id=customer_id, cadence=cadence or "off",
+                    recipient=bool(recipient))
+    return jsonify({"ok": True, "schedule": schedule,
+                    "cadences": sorted(store.REPORT_CADENCES)})
+
+
+@app.post("/api/reports/send")
+def api_report_send():
+    """Build and file one client's report now, outside the schedule."""
+    body = request.get_json(silent=True) or {}
+    customer_id = google_ads.digits(body.get("customer_id"))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    schedule = store.report_schedule(customer_id)
+    account = next((a for a in store.deployed_accounts(limit=500)
+                    if a["customer_id"] == customer_id),
+                   {"customer_id": customer_id, "client_name": "", "proposal_id": ""})
+    outcome = monitoring.send_report(
+        account, cadence=schedule["cadence"], recipient=schedule["recipient"],
+        actor=current_user())
+    if not outcome.get("ok"):
+        return jsonify(outcome), 502
+    return jsonify(outcome)
+
+
+@app.get("/api/reports")
+def api_reports_list():
+    customer_id = google_ads.digits(request.args.get("customer_id", ""))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    return jsonify({"schedule": store.report_schedule(customer_id),
+                    "cadences": sorted(store.REPORT_CADENCES),
+                    "reports": store.performance_reports_for(customer_id)})
 
 
 @app.post("/estimate/<token>/change")

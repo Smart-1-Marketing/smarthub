@@ -608,6 +608,36 @@ def job_ads_optimization_scan(app) -> dict:
         return monitoring.sweep(actor="scheduler")
 
 
+def job_ads_performance_reports(app) -> dict:
+    """Send every recurring client Google Ads report that is due.
+
+    Opt-in per account and off for everything until somebody turns it on: a
+    report arriving in a client's inbox on a schedule is a commitment, and a
+    deployed campaign inheriting one is a promise nobody gave. Due is decided
+    from each account's own last send rather than from this job's tick -- the
+    purchased_domains shape -- so a redeploy cannot send two in a day and a
+    leader that restarted through the window picks the send up.
+
+    It stops at hub/leads.py: there is no mail sender in this Hub, so what a
+    send does is put the report link on the client's Smart 1 Suite contact
+    under the two custom fields hub/ghl_contacts.py already carries. The email
+    is a Suite workflow.
+
+    Safe to run late, skip and repeat: a report that could not be measured is
+    not sent and not stamped, so it is simply due again rather than reaching a
+    client as a month of zeros.
+    """
+    try:
+        from modules.ads_builder import monitoring
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the store reaches the shared engine and hub/leads.py
+        # reads the data root -- the flask.g trap that had the Google sweep
+        # reporting an empty book from a background thread.
+        return monitoring.report_sweep(actor="scheduler")
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -635,6 +665,8 @@ JOBS = {
                           "Re-check every published client llms.txt end to end."),
     "ads_optimization":  (720, job_ads_optimization_scan,
                           "Scan every live Google Ads account for optimization findings."),
+    "ads_reports":       (720, job_ads_performance_reports,
+                          "Send the recurring client Google Ads reports that are due."),
     "smartforecast":     (30, job_smartforecast_weather,
                           "Refresh due weather caches and evaluate website triggers."),
     "smartforecast_backup": (720, job_smartforecast_backup,
