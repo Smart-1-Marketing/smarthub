@@ -291,6 +291,23 @@ jobs:
             echo "test_commercial_providers.py not on this branch — nothing to run."
           fi
 
+      - name: HyperFrames render service tests
+        # The two HyperFrames skills -- paint animation and the Vox explainer --
+        # and the sidecar renderer both ride on. Unlike every other provider
+        # here that is a self-hosted service rather than a hosted API, so the
+        # failures are its own: a mock that reports success and produces no
+        # file, a beat list a model wrote that the template cannot read, and a
+        # storyboard QC gate refusing a spot that has no storyboard.
+        #
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_hyperframes.py ]; then
+            python test_hyperframes.py
+          else
+            echo "test_hyperframes.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder wizard tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.

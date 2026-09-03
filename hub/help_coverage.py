@@ -115,6 +115,8 @@ PREFIXES: dict[str, str] = {
     "/tools/image/": "image_optimizer",
     "/tools/bg-remover/": "bg_remover",
     "/tools/page-images/": "page_images",
+    "/tools/paint-animation/": "paint_animation",
+    "/tools/vox-explainer/": "vox_explainer",
     "/tools/image-picker/": "image_picker",
     "/tools/seo-images/": "seo_images",
     "/tools/landing-ads/": "landing_ads",

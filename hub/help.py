@@ -1087,6 +1087,66 @@ REGISTRY: list[Help] = [
     # worse than absent was a module-wide walkthrough offered on screens whose
     # selectors did not exist there, so "Do it for me" returned in silence.
 
+    # ---------------- The two HyperFrames tools ----------------
+    # Placed on the standalone screens only. Deliberately no `step=` and no
+    # `data-screen` on either template: a tour is offered where one is
+    # registered, and naming a screen with no steps is the silence Smart 1 Ads
+    # shipped on Settings and Live campaigns.
+
+    _h("paint_animation.what", "A treatment, not a spot",
+       "This draws one thing painting itself on \u2014 a line of copy, a logo, a "
+       "product shot. It is a piece of a commercial rather than a whole one: "
+       "good for a logo reveal, a hand-drawn underline under an offer, or a "
+       "short social clip. For the whole piece use the Vox Explainer, or the "
+       "Commercial Builder if it is a spot somebody is buying airtime for. It "
+       "renders on our own service rather than a paid provider, so a render "
+       "costs nothing per press \u2014 what it costs is a few minutes."),
+
+    _h("paint_animation.style", "Three modes, and they want different inputs",
+       "Handwriting writes copy on stroke by stroke and wants words. Paint-on "
+       "paints a picture in and wants an image \u2014 a logo or a product shot. "
+       "Living painting gives a still continuous motion, which is what to pick "
+       "for something that has to hold under narration. Give it the wrong "
+       "input and it still renders; it just has nothing to do."),
+
+    _h("paint_animation.client", "Optional, and it is what keeps the file",
+       "Leave it blank and the clip is yours to download and nothing is filed "
+       "anywhere. Pick a client and the finished file is copied into their "
+       "Cloudinary library and written onto their 360 record \u2014 which is the "
+       "only way it survives, because the link the render service gives back "
+       "is swept. It has to be a client we actually have: a name that matches "
+       "nothing is refused rather than filed under a client nothing joins to."),
+
+    _h("vox_explainer.what", "A 60\u201390 second argument, not a commercial",
+       "An editorial collage piece \u2014 typography and cut-out imagery making "
+       "one case in a numbered sequence of claims. It is a YouTube or social "
+       "piece; nobody sells a slot this length on CTV, which is why the "
+       "Commercial Builder only offers it on those two platforms. Everything "
+       "after the beat list is deterministic: the same beats always render the "
+       "same film."),
+
+    _h("vox_explainer.source", "It only knows what you give it",
+       "A topic, a pasted document, or a link \u2014 and a link is fetched and "
+       "read rather than guessed at. Nothing outside what you supply reaches "
+       "the beats: the model is told not to invent a statistic, a price, a date "
+       "or a quotation, and a beat it cannot support is meant to be left out. "
+       "With no OpenAI key set you still get an outline, built from your own "
+       "sentences, and the screen says that is what happened."),
+
+    _h("vox_explainer.beats", "Read these before you render",
+       "Each beat is one claim: a headline, a line of support, and how it is "
+       "drawn. Rendering takes a few minutes, so this list is the only thing "
+       "you can correct before it \u2014 which is why writing the beats and "
+       "rendering them are two separate presses. Anything you edit is held to "
+       "the same rules the written version is, and the seconds are rebalanced "
+       "to fit the window rather than trusted."),
+
+    _h("vox_explainer.client", "Optional, and it is what keeps the file",
+       "Same as the paint tool: blank means the render is yours to download "
+       "and nothing is filed. Pick a client and it is copied into their "
+       "library and written onto their record, which is what stops it "
+       "disappearing when the render service sweeps its own output."),
+
     _h("commercial_builder.start.client", "Pick the client, don\u2019t retype them",
        "The first option searches the agency\u2019s real client list. Take it where "
        "you can: a commercial filed under a name typed by hand joins to nothing "
@@ -1236,6 +1296,23 @@ REGISTRY: list[Help] = [
        "the second one as well. It ducks under the narration automatically, "
        "by the same amount the music does.",
        step=7, selector=".sfx-btn"),
+
+    _h("commercial_builder.vox.source", "It only knows what you give it",
+       "A topic, a pasted document, or a link \u2014 and a link is fetched and "
+       "read rather than guessed at. Nothing outside what you supply reaches "
+       "the beats: no invented statistic, price, date or quotation, and a beat "
+       "the material cannot support is left out rather than filled in. With no "
+       "OpenAI key you still get an outline, built from your own sentences, "
+       "and the screen says so."),
+
+    _h("commercial_builder.vox.beats", "A beat list, not a storyboard",
+       "This spot has no scenes: a Vox explainer is rendered whole from these "
+       "beats, which is why it has this step instead of Concepts, Blueprint, "
+       "Voice and CTA. Each beat is one claim. Read them before you render \u2014 "
+       "rendering is a few minutes and this list is the only thing you can "
+       "correct before it. Anything you edit is held to the same rules the "
+       "written version is, and the seconds are rebalanced into the "
+       "60\u201390 second window rather than trusted."),
 
     _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",
        "Ranked against the account\u2019s own voices by the same casting rules the "

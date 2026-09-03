@@ -613,7 +613,24 @@ COMMERCIAL_TYPES = [
     {"id": "testimonial", "label": "Testimonial-style"},
     {"id": "weather_triggered", "label": "Weather-triggered commercial"},
     {"id": "seasonal", "label": "Seasonal commercial"},
+    # The ninth, and the only one that is not a storyboard of scenes. A Vox
+    # explainer is an editorial collage piece rendered whole by
+    # `hub/hyperframes.py` from a beat list, so it takes its own wizard step
+    # instead of Concepts/Blueprint/Voice/CTA -- and it is gated to the two
+    # platforms and the three lengths it is actually a placement for. See
+    # `vox_spec.py`; the id is on disk from the first project built with it
+    # and is never renamed.
+    {"id": "vox_explainer", "label": "Vox-style explainer (60–90s)"},
 ]
+
+# A Vox explainer is not a broadcast slot, so it is deliberately NOT offered at
+# :05/:15/:30/:60 -- those are the durations inventory is sold in.
+# `COMMERCIAL_LENGTHS` stops at 60, which is this format's *minimum*, so it
+# carries its own list rather than being squeezed into one that cannot express
+# it. Read by the Start page and by the create route; the create route is the
+# half that counts, because a rule the form keeps while the write breaks it is
+# not a rule.
+VOX_LENGTHS = [60, 75, 90]
 
 TONE_OPTIONS = [
     "Professional", "Friendly", "Urgent", "Funny",
