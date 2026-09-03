@@ -78,6 +78,26 @@ export function slug(s: string): string {
 }
 
 /**
+ * One reading of what a folder path is, because three things derive from it.
+ *
+ * A folder arrives from a slug, from a manifest, or typed at the command line
+ * -- and the README's own folder tree prints it with a trailing slash, which
+ * is what somebody copies. `folderExpression()` trimmed that off for itself
+ * and every other reader took the raw string, so the search found the right
+ * assets while the gallery's filename and its heading were built from a
+ * different idea of the same folder.
+ *
+ * Trailing and leading slashes go, and a run of them collapses: `a//b` and
+ * `a/b` are one folder in Cloudinary and must not be two here.
+ */
+export function normalizeFolder(folder: string): string {
+  return String(folder ?? '')
+    .trim()
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\/+|\/+$/g, '');
+}
+
+/**
  * The search clause matching one folder tree, in either folder mode.
  *
  * Four terms rather than two, and the pair that looks redundant is the point:
@@ -101,7 +121,7 @@ export function folderExpression(
   folder: string,
   opts: { recursive?: boolean } = {},
 ): string {
-  const clean = String(folder ?? '').trim().replace(/^\/+|\/+$/g, '').replace(/"/g, '');
+  const clean = normalizeFolder(folder).replace(/"/g, '');
   if (!clean) return '';
   const terms = ['asset_folder', 'folder'].flatMap((field) =>
     opts.recursive === false

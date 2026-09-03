@@ -947,6 +947,17 @@ jobs:
             echo "test_client360_layout.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder dashboard layout tests
+        # The dashboard's sections, and the rail label assistive technology
+        # reads. Guarded like the steps above so this workflow stays mergeable
+        # on a branch that predates the file.
+        run: |
+          if [ -f test_commercial_dashboard_layout.py ]; then
+            python test_commercial_dashboard_layout.py
+          else
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
+          fi
+
       - name: Image download and shared zip builder tests
         # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
         # picker's gallery download now that it runs on the shared builder.
