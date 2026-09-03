@@ -52,9 +52,12 @@ const CB = (() => {
      extend _layout.html, so it loads none of this. test_commercial_mock.py
      asserts that rather than trusting it. */
   /* Only routes that actually report it. Each was driven with every key
-     unset and its response read: these six answer `live: false` or
+     unset and its response read: every one of these answers `live: false` or
      `mock: true`, and a table naming a route that never fires is one nobody
-     can trust — hub/config.py's ALIASES rule, wearing a provider.
+     can trust — hub/config.py's ALIASES rule, wearing a provider. Not
+     counted in the comment, deliberately: a number in prose beside a list is
+     a number that stops matching the list the first time one is added, which
+     is what happened the day sound effects and music arrived.
 
      Three are deliberately absent and named so their absence is a decision
      rather than an oversight. `/render` and `/voiceover/full` carry no such
@@ -70,6 +73,8 @@ const CB = (() => {
     [/\/generate-ai/, "AI stills", "no image was generated \u2014 set OPENAI_API_KEY"],
     [/\/generate-video/, "AI video", "no clip was generated \u2014 set RUNWAY_API_KEY"],
     [/\/spokesperson/, "The spokesperson clip", "no clip was generated \u2014 set HEYGEN_API"],
+    [/\/sound-effect$/, "Sound effects", "no sound was generated \u2014 set ELEVENLABS_API"],
+    [/\/music\/compose$/, "The music bed", "no music was composed \u2014 set ELEVENLABS_API"],
   ];
   const _mocked = new Map();
 

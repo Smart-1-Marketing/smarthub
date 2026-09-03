@@ -16,6 +16,7 @@
     abcd_pacing: "Pacing", abcd_brand_window: "Brand window",
     publisher_rules: "Publisher rules", compliance: "Advertising rules",
     archetype_ready: "What this spot needs",
+    sfx_gain_conflict: "Sound effect level", music_length_mismatch: "Music length",
   };
 
   /* A recommendation and a refusal are not the same finding, and painting
@@ -270,7 +271,28 @@
     return CB.el(`<div class="cb-note ${bad ? "" : "good"}" style="margin:8px 0 0;">`
       + `<strong>Approved${approval.approved_by ? " by " + CB.escapeHtml(approval.approved_by) : ""}</strong>`
       + `<p>${bits.join(" ")}${approval.filing_error
-          ? " " + CB.escapeHtml(approval.filing_error) : ""}</p></div>`);
+          ? " " + CB.escapeHtml(approval.filing_error) : ""}</p>`
+      + nextSteps(approval) + "</div>");
+  }
+
+  // Where a finished spot goes next.
+  //
+  // A landscape master is not the social cut, and until now the only way to
+  // get one was to download this file and hand it to somebody with an editor
+  // -- which is where an approved spot stopped being tracked. modules/
+  // video_tools takes a Cloudinary link and resolves it back to the asset, so
+  // the stored copy's URL is the whole handoff; there is nothing to export.
+  //
+  // Only on the STORED copy, never on the render URL. The stored copy is the
+  // client's asset and survives; the render URL is Creatomate's and expires,
+  // and an edit derived from an expiring URL is an edit that stops working.
+  function nextSteps(approval) {
+    if (!approval.stored_url) return "";
+    const src = encodeURIComponent(approval.stored_url);
+    return '<p style="margin-top:6px;">Next: '
+      + `<a href="/tools/vertical-reframe/?source=${src}">make a 9:16 cut</a>`
+      + ` &middot; <a href="/tools/dead-air/?source=${src}">cut the dead air</a>`
+      + "</p>";
   }
 
   async function approve(job, btn, override) {

@@ -111,6 +111,29 @@ REGISTRY: list[Help] = [
        "match \u2014 three different answers that would otherwise look "
        "identical."),
 
+    _h("video_tools.dead_air", "It reads the level, not the words",
+       "Every other silence cutter transcribes the audio and cuts the gaps "
+       "between words, which is wrong on our work: a music bed, a sound "
+       "effect and a held beat all read as silence to a transcript, and all "
+       "of them get removed. This one reads the audio\u2019s actual level \u2014 "
+       "from a waveform image Cloudinary draws, which is also the picture "
+       "shown on the page \u2014 so sound under a montage counts as sound. "
+       "Two controls decide the result: the gap is what counts as dead air, "
+       "and the air left behind at each cut is what decides whether the "
+       "output sounds edited or just faster. Look at the cut list before you "
+       "render; that is the step where a bad cut is free to undo."),
+    _h("video_tools.reframe", "What a crop costs, said out loud",
+       "A 16:9 frame cropped to 9:16 keeps under a third of its width, and "
+       "automatic framing keeps ONE subject rather than all of them \u2014 a "
+       "second person, a product on the table, a lower third or a corner "
+       "logo goes, and the preview is where you find that out. The page "
+       "reports both numbers rather than only the flattering one. The "
+       "alternative mode pads the frame against a blurred blow-up of itself "
+       "and loses nothing, which is right for a wide shot and weak for "
+       "anything already tight. Either way this is a cutdown of a landscape "
+       "master, not a spot built vertical: sound-off legibility and a "
+       "two-second hook are decisions, not a crop."),
+
     # ---------------- Social content requests ----------------
     # This screen shipped with no explanation on it at all, which is exactly
     # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
@@ -1242,6 +1265,16 @@ REGISTRY: list[Help] = [
        "Footage we already own is listed first and badged OWNED: it costs "
        "nothing and needs no license check.",
        step=6, selector=".cb-step-pair"),
+    _h("commercial_builder.blueprint.sfx", "A sound effect is sourced, like footage",
+       "Two drafts per press, and nothing is generated until you press \u2014 it is "
+       "billed per generation, like the stills and the AI video beside it. "
+       "Leave the length blank and the model reads it from the description, "
+       "which is usually right: a door slam and a bed of rain are not the "
+       "same length. Anything longer than this shot is trimmed to it at the "
+       "render, so an effect meant to carry across two shots wants to be on "
+       "the second one as well. It ducks under the narration automatically, "
+       "by the same amount the music does.",
+       step=7, selector=".sfx-btn"),
 
     _h("commercial_builder.voice.cast", "Say what it should sound like, then listen",
        "Ranked against the account\u2019s own voices by the same casting rules the "
@@ -1266,6 +1299,16 @@ REGISTRY: list[Help] = [
        "rather than by what is said \u2014 on a feed, where most people watch "
        "muted, it is doing very little.",
        step=4, selector="#music-mood-choices"),
+    _h("commercial_builder.voice.compose", "The bed is composed, not picked off a shelf",
+       "This step used to capture a mood and a level and generate nothing, so "
+       "the level was ducking a track that did not exist. The prompt here is "
+       "what ElevenLabs is actually asked for \u2014 press a mood above to fill it "
+       "in, or write your own. It is composed to this spot\u2019s own runway, so "
+       "the track never has to be trimmed to fit, and it is billed per "
+       "generation: nothing happens until you press. Two options come back "
+       "because one is a coin toss; the one you keep goes on the timeline and "
+       "the level above is what ducks it under the read.",
+       step=5, selector="#music-prompt"),
 
     _h("commercial_builder.cta.style", "The end card is the only part that asks for anything",
        "Style decides what dominates the frame: the logo, the offer, the "
