@@ -2043,9 +2043,11 @@ who will never have an account.
 
 **The check is a sweep, not a list of the three we fixed.** A test naming
 those modules proves nothing about the next blueprint. `test_blueprint_guards.py`
-boots the composed app, requests **every** static route it serves with no
-session at all, and requires each one it reaches to be in an allowlist that
-says *why* it is public — the crawler files, the health probes, the chrome's
+boots the composed app, requests **every** route it serves with no
+session at all — the parameterized ones too, which for a long time it skipped
+and which are where every client-facing surface in this Hub lives — and
+requires each one it reaches to be in an allowlist that says *why* it is
+public — the crawler files, the health probes, the chrome's
 own scripts, the help registry, the Suite SSO frame, the calculator embed,
 the nine landing pages, the MSA signing page. A new open route fails the run
 without anybody having thought to add an assertion for it. The allowlist is
@@ -5597,6 +5599,99 @@ a setting comes to be honoured by eleven of the twelve. An edited table is
 drawn in amber in the builder with the generated one one click away, and its
 badge says it no longer recomputes, which is exactly true.
 
+### The one line the rate card does not name
+
+`hub/product_intake.CONSULTING` has defined **Consulting & Strategic
+Services** all along, and its own docstring says what it is for: a line *"used
+when a proposal committed to something the rate card does not name, so the
+commitment reaches the insertion order rather than being dropped for lack of a
+product code."* **The proposal could not make that commitment.** Every push
+into `S.items` came from a rate-card row, and the card has no consulting
+product — 19 categories, and the nearest thing is *Google Analytics
+Consultation* under SEO, which is installing and repairing GA goals rather
+than strategy work.
+
+So the catch-all was reachable only from the IO's **intake** — the path for a
+proposal uploaded as a file, read back and classified line by line. A rep
+selling strategy work either left it off the quote and added it at IO time, so
+the client signed a document that never mentioned it, or did not sell it. The
+mechanism was built at the far end of a journey the near end could not start.
+
+**It is still not a row on the card, and that refusal is the load-bearing
+part.** `product_intake.py` says why in a comment older than this feature:
+that file is the wholesale card, `check_drift()` holds it against the IO
+template's embedded copy, and inventing a product inside it would make both of
+those lie. There is a **third** copy in the proposal wizard, and it must not
+gain the line either. So the definition is **served** rather than mirrored —
+`/api/config` carries it, beside the creative sizes and the markup rule, for
+the reason that section already gives — and `test_proposal_consulting.py`
+requires the wizard to hand-type the product string **nowhere**.
+
+**The join is that string, and it is exact.** The IO recognises the catch-all
+by product name, so a hand-typed copy in the wizard is a line the insertion
+order silently drops the day either end is edited. Asserted byte-for-byte
+against the IO template's own constant.
+
+**A description is required, and that is `question_for()`'s rule rather than a
+second one.** Every consulting line ever quoted prints the same product
+string, so with none the client reads *"Consulting & Strategic Services —
+$5,000"* against nothing and trafficking reads a line it cannot action. It is
+refused **by name** at the control rather than added blank, because a line
+that reports a clean success and arrives meaningless is the whole failure
+being closed. One trap in reading that rule: `question_for()` asks the basis
+and the term **before** the description, so a plan line must hand over both or
+the question comes back as *"monthly or one-time?"* about a line whose basis
+is on the screen.
+
+**And the description has to survive both journeys, which is where it was
+actually being lost.** The IO's intake already carried it to special
+instructions — but `ioDataPayload()` sent **no `specialInstructions` at all**,
+so a Hub proposal converted straight through arrived with a product name and a
+budget. Both ends are closed now: the client's media plan draws it under the
+product (decided once in `media_plan_rows()`, drawn by the preview, the PDF
+and the Word export the way `monthly_label` already is), and the conversion
+writes it onto special instructions in the shape the IO's own intake appends
+to, plus into `internalRequirements` under its own product heading, which is
+what the internal PDF prints and what trafficking reads.
+
+**Two of the three downstream behaviours were already right**, which is worth
+knowing before anybody "fixes" them: `gated_media()` returns nothing for a
+consulting plan, so it does not ask who is supplying creative for a workshop;
+and `channel_lines()` leaves it out of Recommended Channel Strategy, because a
+line with no rate and no gated medium is a fee rather than a channel. Both are
+asserted so they stay true.
+
+**Consulting lines dedupe on the description, not the product.** Two
+engagements at two prices is the ordinary case — a strategy workshop and a
+quarterly review — and every other line on the plan dedupes on a product
+string all of these share.
+
+**And there are two consulting products, which is a thing to know before
+renaming either.** `state["consulting"]` is a monthly **retainer** — Suite
+coaching and campaign strategy, priced from estimated hours, riding beside the
+licence in the Investment Summary because it is recurring platform work a
+paused campaign does not stop. This is the other one: a single **engagement**,
+scoped and priced on its own, quoted on the media plan and trafficked as an
+insertion-order line. Both are real, and they arrived from two directions
+within a day of each other.
+
+What that cost is the name. A client reading *"Consulting & Strategy"* in the
+Investment Summary and *"Consulting & Strategic Services"* on the media plan
+cannot tell which charge is which — two names for what reads as one thing,
+which is the drift most of the rules in this file exist to refuse. So the
+engagement is a **Strategy Engagement** everywhere a person reads it:
+the plan editor, the preview, the PDF, the Word export.
+
+**The product string underneath does not move with it.** It is the join — the
+IO recognises the catch-all by that exact name, `product_intake` owns it, and
+renaming it would orphan every line already quoted under it. `audit.LOG_NAMES`
+and `video_library.TAG_ALIASES`' rule, one document over: the stored name
+stays and the displayed one changes. `is_consulting()` keys on the product
+string rather than the display name for the same reason, and
+`test_proposal_consulting.py` asserts both halves — that the client's row
+prints the display name, and that the join is byte-identical to the IO's
+constant regardless.
+
 ### One product, one name — or the IO quietly carries 88 of 90
 
 Two products were both called **Google Grant** — a $125 one-time setup fee and
@@ -7498,13 +7593,49 @@ have broken — writes each result against the client, and logs a row only when
 something is failing: a clean sweep is a *state*, and writing one every night
 for ever is the noise `hub/google_index.py` had to learn to stop making.
 
-**`test_blueprint_guards.py` cannot see this route, and that is worth knowing
-rather than working around.** Its sweep probes every route **with no variable
-in it**, so `/llms/<slug>/llms.txt` is never requested and an allowlist entry
-for it would be reported stale by that file's own staleness check. The
-openness is asserted directly in `test_llms_hosting.py` instead — anonymous,
-through the composed app, headers included. Any future dynamic public route
-has the same blind spot.
+**`test_blueprint_guards.py` could not see this route, and the note saying
+so was read for a year as a limitation rather than as the gap it was.** Its
+sweep probed every route **with no variable in it**, so `/llms/<slug>/llms.txt`
+was never requested — and neither was anything else with a `<` in it, which is
+**330 of the 1048 routes the composed app serves**. That third is not a
+remainder: every client-facing surface in this Hub is addressed by a token or
+a slug, so "which parameterized routes answer a stranger" is very nearly the
+question that file exists to ask, and it was the half nobody had asked.
+
+It is swept now, with an inert value nothing in the book matches. **A 404 is
+reached, not refused** — a guard runs in `before_request`, ahead of the view,
+so it redirects whether or not the token resolves; a route answering 404 has
+nothing in front of it. That is what makes an unresolvable id a fair probe
+rather than a way of dodging the question, and it is why nearly every answer
+in that section is a 404 and the reading still holds.
+
+**It went in green**, which is the only way it was worth adding: all 63
+reachable routes are the token- and slug-addressed client surfaces the design
+intends — the scan widget and its report, the proposal a client accepts, the
+paid-search estimate, the commercial review link, the radio approval page, the
+client's four social pages, the upload picker, the calculators, the MSA PDF,
+the Google Access consent flow and the static assets each of those loads. Each
+is named with the reason it is public, in **two more dicts** rather than an
+extension of the existing pair: an entry written for a fixed page must not
+quietly cover a parameterized route added under the same prefix later, which
+is the same reason reads and writes were split in the first place.
+
+**Two things it had to get right, and the second nearly repeated the failure
+this file was rewritten once to close.** A probe value has to *build*: an
+integer converter refuses a word and a uuid converter refuses both, so a first
+pass that picked the value from the converter's class name — and got that name
+wrong for integers — silently dropped **76 rules**, printed a healthy-looking
+count, and swept 254 rules while claiming 330. Values are tried in turn now
+and anything that would not build at all is **named rather than passed over**.
+And the two client-facing halves are asserted from opposite ends: four
+surfaces are checked **by name** to still open for a client, because a
+parameterized route falling *behind* the login is a sign-in form in front of
+somebody who will never have an account — the failure Fan Radio shipped with
+for as long as it took anybody to send the link.
+
+The direct assertion in `test_llms_hosting.py` stays — anonymous, through the
+composed app, headers included — because that one is about the crawler headers
+as well as the openness.
 
 ## A placement is judged by its leads, so the page counts them
 
@@ -10204,6 +10335,39 @@ the folder's own assets were matched by a contains rather than an equality.
 `folderMode` still decides the shape of a dry-run public_id, which is a
 different question and a real one.
 
+**And fixing the search left the folder with two readings of itself.**
+`folderExpression()` trims a trailing slash before it builds its clause; the
+gallery's *heading* and its *output filename* took the string exactly as
+handed in. That asymmetry is the whole failure, because the README's own
+folder tree prints the folder **with** a trailing slash -- so pasting it
+searched the right tree, found the right assets, and then wrote them to
+`gallery_.html`, which is the same file for every project: build a second
+gallery and it silently replaces the first, with a success line naming the
+file it had just overwritten. The heading went the same way, `slice(-2)` on
+`[..., 'summer-solar', '']` giving *"summer-solar — "* -- the client's name
+gone and a dash left hanging. A doubled separator does it to the heading
+alone, since `pop()` cannot see an empty segment in the middle.
+`normalizeFolder()` is the one reading now, and `folderExpression()` reads it
+too rather than keeping its own.
+
+**And a relative path is relative to the page that carries it.** A dry run's
+manifest holds no hosted URL, so a simulated asset is drawn from a file on
+this disk -- `path.relative()` against `out/reports`, hard-coded, whatever
+`--out` had actually been given. A gallery written anywhere else had **every
+image broken** and still printed the file it had written. The output path is
+decided before the assets are built now and `assetsFromManifest()` takes the
+directory, because the page's own location is the only thing that path can be
+computed from. It was right for the default, which is exactly why it stood.
+
+`main()` is guarded on `require.main` so importing the file for its helpers
+does not run the command -- unguarded, a test that imports it throws on an
+empty argv and calls `process.exit(1)` on the test runner.
+`tests/gallery.test.ts` asserts all of it, and one of its assertions had to be
+retargeted first: the doubled-separator case was pinned on the *filename*,
+where `pop()` is immune to an empty middle segment, so it was a property that
+could not fail -- the same shape as pinning a rounding bug on a figure too
+large to round to zero.
+
 **The scan photographed their website and nobody was shown the photograph.**
 `website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
 so an operator judging brand colour on a dark canvas had to open the client's
@@ -11519,6 +11683,12 @@ python3 test_proposal_share.py     # the client's copy: who opened it, how often
 python3 test_proposal_targeting.py # the coverage map, the pasted location list,
                                    #   the competitor research, and a bulleted
                                    #   list that reaches the client as a list
+python3 test_proposal_consulting.py # the one line the card does not name: the
+                                   #   card stays the wholesale card, the join
+                                   #   is an exact string, a description is
+                                   #   required because the product name is
+                                   #   shared, and it survives to both the
+                                   #   client's plan and the insertion order
 python3 test_proposal_spec.py      # the 13-part spec, the creative gate, ROI math,
                                    #   the 2x quoted rate, the product a goal leads
                                    #   with, ZIP exceptions and what the Suite covers
@@ -11601,6 +11771,10 @@ python3 test_client360_layout.py   # the record's cards land in their rail
                                    #   every card into Overview with the page
                                    #   still looking complete — and the four
                                    #   actions the accordion's toolbar carried
+python3 test_commercial_dashboard_layout.py
+                                   #   the Commercial Builder dashboard's own
+                                   #   sections, and the rail label assistive
+                                   #   technology reads
 python3 test_client_images.py      # every module that logs client work is one the
                                    #   record can name; deleting a client image, the
                                    #   count, the one brand
@@ -11713,11 +11887,15 @@ python3 test_display_ads.py        # the display layouts, the build screen's con
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
-                                   #   composed app serves -- reads and writes, hub
-                                   #   app and all thirty-one mounts -- probed with no
-                                   #   session, against allowlists that say why each
-                                   #   is public; and a walk that finds no mounts is
-                                   #   a failure rather than an empty sweep
+                                   #   composed app serves -- reads and writes,
+                                   #   fixed paths and the third addressed by a
+                                   #   token or a slug, hub app and all
+                                   #   thirty-one mounts -- probed with no
+                                   #   session, against allowlists that say why
+                                   #   each is public; and a walk that finds no
+                                   #   mounts, or a rule it could not build a
+                                   #   probe for, is a failure rather than an
+                                   #   empty sweep
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
                                    #   and a template nothing renders, which no
                                    #   other check here can see
