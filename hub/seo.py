@@ -13,6 +13,7 @@ import json
 import os
 import re
 import threading
+from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 import requests
@@ -174,10 +175,32 @@ _SOCIAL_KEYS = ("facebook", "instagram", "linkedin", "twitter", "youtube",
                 "tiktok", "pinterest", "yelp", "gbp")
 
 
+def _social_url(value: object) -> str:
+    """Return a usable outbound social URL or reject unsafe schemes."""
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in ("https", "http") or not parts.hostname:
+        raise ValueError("Social links must be complete http:// or https:// URLs.")
+    return url
+
+
 def get_social(client: str, domain: str = "") -> dict:
     """Social URLs for a client — saved values, seeded from Brandfetch."""
     store = load_store(client)
-    social = dict(store.get("social") or {})
+    # Older records and imported provider data predate URL validation. Filter
+    # them on read as well, so a stale javascript: value can never become an
+    # outbound link merely because it was saved before this validation existed.
+    social = {}
+    for key, value in (store.get("social") or {}).items():
+        key = str(key).lower().strip()
+        if key not in _SOCIAL_KEYS:
+            continue
+        try:
+            social[key] = _social_url(value)
+        except ValueError:
+            continue
     if not social:
         b = brand_for(client, domain) or {}
         raw = b.get("social") or {}
@@ -187,7 +210,10 @@ def get_social(client: str, domain: str = "") -> dict:
         for k, v in raw.items():
             nk = keymap.get(k, k.lower())
             if v and nk in _SOCIAL_KEYS:
-                social[nk] = v
+                try:
+                    social[nk] = _social_url(v)
+                except ValueError:
+                    continue
     return social
 
 
@@ -202,10 +228,10 @@ def set_social(client: str, updates: dict) -> dict:
     for k, v in (updates or {}).items():
         k = str(k).lower().strip()
         v = str(v or "").strip()
-        if not k:
+        if k not in _SOCIAL_KEYS:
             continue
         if v:
-            social[k] = v
+            social[k] = _social_url(v)
         else:
             social.pop(k, None)
     save_store(client, store)

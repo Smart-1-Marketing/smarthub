@@ -55,6 +55,7 @@ def section(title):
 
 
 REC = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+KNACK = (ROOT / "hub" / "knack_data.py").read_text(encoding="utf-8")
 
 # ------------------------------------------------------------------------
 section("1. The lifted section mapping, driven in node")
@@ -94,6 +95,7 @@ WANT = {
     "Social content requests": "social",
     "Tracked links": "social",
     "Form submissions": "social",
+    "Approvals & proof links": "social",
     "Work for this client": "work",
     "Web Tickets": "work",
 }
@@ -142,6 +144,63 @@ check("the group button keeps the class loadGroup() addresses it by",
       'class="s1-acc-group"' in REC)
 check("the record asks for the icon rail like the other workbenches",
       'data-s1hub-collapse="1"' in REC)
+check("Proposals spans the complete Overview row",
+      'class="card c360-proposals-card"' in REC)
+check("the proposal table wraps inside its card rather than scrolling",
+      'class="c360-proposals-table"' in REC
+      and '.c360-proposals-card .card-b{overflow-x:visible}' in REC)
+check("Suite accounts use a wrapping account layout rather than a wide table",
+      'class="c360-suite-list"' in REC
+      and 'class="c360-suite-account"' in REC)
+check("proposal upload makes a missing client website optional",
+      'id="up-url"' in REC and 'Website optional' in REC
+      and "if(scanWebsite){" in REC)
+check("proposal upload defines the date helper it calls",
+      'function todayISO(){' in REC
+      and 'value="${todayISO()}"' in REC)
+check("a newly attached website offers the site scan next step",
+      'Run a site scan now?' in REC and '/tools/website-audit?client=' in REC)
+check("Client 360 seeds searches from the complete shared client registry",
+      'from hub import clients_registry as _registry' in KNACK
+      and '_registry.search_clients(ql, limit=500)' in KNACK)
+check("a later record selection makes earlier fetch responses inert",
+      'let c360Generation=0;' in REC
+      and 'if(generation!==c360Generation) return stale();' in REC
+      and 'c360Generation++;' in REC)
+check("a later search cannot render an earlier search result",
+      'let c360SearchGeneration=0;' in REC
+      and 'if(searchGeneration!==c360SearchGeneration) return;' in REC)
+check("the social card validates an outbound URL before making a link",
+      'function safeExternalUrl(value)' in REC
+      and 'href="${esc(safeExternalUrl(v))}"' in REC)
+check("a failed card request is surfaced to the record rather than hidden",
+      'function showC360RequestFailure(status)' in REC
+      and "if(!response.ok) showC360RequestFailure(response.status);" in REC
+      and 'id="c360-request-status"' in REC)
+
+# Drive the real freshness guard. This is the failure a static spelling check
+# cannot catch: A starts, B replaces it, then A finishes after B. Only B may
+# settle a handler that can paint into the current record.
+g0 = REC.find("let c360Generation=0;")
+g1 = REC.find("function fetchJson", g0)
+GENERATION_SRC = REC[g0:g1] if 0 <= g0 < g1 else ""
+guard_driver = """
+const pending=[];
+const window={fetch:url=>new Promise(resolve=>pending.push({url,resolve}))};
+""" + GENERATION_SRC + """
+const applied=[];
+window.fetch('https://client-a.test/').then(()=>applied.push('A'));
+c360Generation++;
+window.fetch('https://client-b.test/').then(()=>applied.push('B'));
+pending[0].resolve({ok:true});
+pending[1].resolve({ok:true});
+setTimeout(()=>console.log(JSON.stringify(applied)), 0);
+"""
+guard_run = subprocess.run(["node", "-"], input=guard_driver,
+                           capture_output=True, text=True)
+check("a delayed first client's response cannot settle after a switch",
+      json.loads(guard_run.stdout or "[]") if guard_run.returncode == 0 else [],
+      ["B"])
 
 # ------------------------------------------------------------------------
 section("3. Assignment and outstanding-work behavior")

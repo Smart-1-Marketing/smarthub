@@ -409,11 +409,18 @@ def gallery_for_client():
     """
     name = (request.args.get("name") or "").strip()
     c360 = (request.args.get("c360") or "").strip()
+    filters = {key: str(request.args.get(key) or "").strip()[:80]
+               for key in ("io", "product", "tool")}
 
     def carry(target: str) -> str:
         if c360:
             from urllib.parse import quote
             target += ("&" if "?" in target else "?") + "c360=" + quote(c360)
+        if any(filters.values()):
+            from urllib.parse import quote
+            for key, value in filters.items():
+                if value:
+                    target += ("&" if "?" in target else "?") + key + "=" + quote(value)
         return target
 
     if not name:
@@ -779,12 +786,16 @@ def api_saved():
         limit = 60
     limit = max(1, min(200, limit))     # clamp BOTH ends -- ?limit=-1 was a 500 in Scans
 
-    rows = db.execute(
-        select(SavedImage)
-        .where(SavedImage.client_id == client.id)
-        .order_by(SavedImage.created_at.desc())
-        .limit(limit)
-    ).scalars().all()
+    q = select(SavedImage).where(SavedImage.client_id == client.id)
+    # These are exact context filters, so a Product #123 view cannot silently
+    # include a different product whose name happens to contain 123.
+    for field, column in (("io", SavedImage.io_number),
+                          ("product", SavedImage.product_number),
+                          ("tool", SavedImage.tool)):
+        value = str(request.args.get(field) or "").strip()
+        if value:
+            q = q.where(column == value[:80])
+    rows = db.execute(q.order_by(SavedImage.created_at.desc()).limit(limit)).scalars().all()
 
     # What a vision model saw in each one, where the sweep has reached it.
     # Carried beside the image rather than merged into it: a description is an
@@ -852,7 +863,7 @@ def api_delete(image_id: int):
     row = db.get(SavedImage, image_id)
     if not row or row.client_id != client.id:
         return jsonify({"ok": False, "error": "That image isn't in this gallery."}), 404
-    if row.cloudinary_public_id:
+    if row.cloudinary_public_id and not row.external:
         cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type)
     db.delete(row)
     db.commit()
@@ -1290,7 +1301,11 @@ def api_staff_file():
         width=body.get("width"), height=body.get("height"),
         size_bytes=body.get("bytes"), spec=body.get("spec"),
         provider=body.get("provider") or "",
-        saved_by=(g.get("hub_user") or "system"))
+        saved_by=(g.get("hub_user") or "system"),
+        tool=body.get("tool") or "", completed_on=body.get("completed_on") or "",
+        project_name=body.get("project_name") or "", io_number=body.get("io_number") or "",
+        product_number=body.get("product_number") or "",
+        external=bool(body.get("external")))
     if not out.get("ok"):
         return jsonify(out), 400
     if not out.get("duplicate"):
@@ -1298,6 +1313,25 @@ def api_staff_file():
                client=str(body.get("client")),
                filename=out["image"].get("filename") or "")
     return jsonify(out)
+
+
+@bp.route("/api/staff/import-link", methods=["POST"])
+@staff_only
+@db_guard
+def api_import_link():
+    """Add an existing Google Drive/shared Creative Information link.
+
+    This is an index operation, not a Drive copy.  It is therefore safe for
+    restricted client folders and preserves the file's existing permissions.
+    """
+    body = request.get_json(silent=True) or {}
+    out = filing.file_external_link(
+        client_name=body.get("client"), url=body.get("url"),
+        filename=body.get("filename") or "", tool=body.get("tool") or "creative-information",
+        project_name=body.get("project_name") or "", io_number=body.get("io_number") or "",
+        product_number=body.get("product_number") or "",
+        saved_by=(g.get("hub_user") or "system"))
+    return jsonify(out), (200 if out.get("ok") else 400)
 
 
 @bp.route("/api/clients", methods=["POST"])

@@ -213,6 +213,9 @@ def run():
     check("both account rails paginate ten at a time",
           "PAGE_SIZE = 10" in page and "accountPager" in page
           and "ACCOUNT_PAGE_SIZE = 10" in live and "accountPager" in live, None)
+    check("accounts needing work stay readable under the shared button theme",
+          ".s1d-page button.opt-account" in page
+          and "background:#eaf2ff !important" in page, None)
     check("the approval builder is visually ordered above the paginated queue",
           ".opt-builder { order:3 }" in page and ".opt-queue { order:7 }" in page
           and "buildMenu" in page and "issuePager" in page, None)

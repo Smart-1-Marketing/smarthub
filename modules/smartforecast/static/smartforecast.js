@@ -7,7 +7,14 @@
   let activeVariant = null;
   let installMode = "sites";
   let toastTimer = null;
-  let siteId = Math.max(1, Number(new URLSearchParams(location.search).get("site_id") || 1));
+  let loadVersion = 0;
+  let loadController = null;
+  const REQUEST_TIMEOUT_MS = 15000;
+  const parseSiteId = value => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
+  };
+  let siteId = parseSiteId(new URLSearchParams(location.search).get("site_id"));
 
   const titleCase = value => String(value || "").replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
   const phaseLabel = value => ({pre_event:"Pre-event", active_event:"Active event", post_event:"Post-event", default:"Default", manual:"Manual"}[value] || titleCase(value));
@@ -22,19 +29,102 @@
   };
   const formObject = form => Object.fromEntries(new FormData(form).entries());
 
+  const normalizeHex = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || ""))
+    ? String(value).toLowerCase() : fallback;
+  const hexRgb = value => {
+    const hex = normalizeHex(value, "#000000");
+    return [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
+  };
+  const luminance = value => {
+    const channel = item => {
+      const part = item / 255;
+      return part <= .04045 ? part / 12.92 : Math.pow((part + .055) / 1.055, 2.4);
+    };
+    const [red, green, blue] = hexRgb(value).map(channel);
+    return .2126 * red + .7152 * green + .0722 * blue;
+  };
+  const contrast = (first, second) => {
+    const values = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (values[0] + .05) / (values[1] + .05);
+  };
+  const composite = (foreground, background, alpha) => {
+    const front = hexRgb(foreground), back = hexRgb(background);
+    return "#" + front.map((value, index) => Math.round(alpha * value + (1 - alpha) * back[index])
+      .toString(16).padStart(2, "0")).join("");
+  };
+  const protectedBackground = composite("#051521", "#ffffff", .82);
+
+  function brandColors() {
+    const brand = model?.site?.branding || {};
+    return {
+      headline: normalizeHex($("#brandHeadline")?.value || brand.headline_color, "#ffffff"),
+      body: normalizeHex($("#brandBody")?.value || brand.body_color, "#dce7f2"),
+      button: normalizeHex($("#brandButton")?.value || brand.button_color, "#f6b544"),
+      buttonText: normalizeHex($("#brandButtonText")?.value || brand.button_text, "#071726"),
+    };
+  }
+
+  function readabilityResult() {
+    const colors = brandColors();
+    const checks = [
+      {label:"Headline", ratio:contrast(colors.headline, protectedBackground)},
+      {label:"Body text", ratio:contrast(colors.body, protectedBackground)},
+      {label:"Button label", ratio:contrast(colors.buttonText, colors.button)},
+    ].map(item => ({...item, passed:item.ratio >= 4.5}));
+    return {ok:checks.every(item => item.passed), checks, colors};
+  }
+
   async function api(path, options = {}) {
-    const {scoped = true, ...requestOptions} = options;
+    const {scoped = true, site = siteId, timeout = REQUEST_TIMEOUT_MS, signal: externalSignal,
+      ...requestOptions} = options;
     const url = new URL(base + path, location.origin);
     if (scoped && path.startsWith("/api/") && path !== "/api/sites") {
-      url.searchParams.set("site_id", siteId);
+      url.searchParams.set("site_id", parseSiteId(site));
     }
-    const response = await fetch(url.pathname + url.search, {
-      headers: {"Content-Type":"application/json", ...(requestOptions.headers || {})},
-      ...requestOptions,
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.ok === false) throw new Error(payload.error || `Request failed (${response.status})`);
-    return payload;
+    const controller = new AbortController();
+    let timedOut = false;
+    const relayAbort = () => controller.abort();
+    if (externalSignal?.aborted) relayAbort();
+    else externalSignal?.addEventListener("abort", relayAbort, {once:true});
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeout);
+    try {
+      const response = await fetch(url.pathname + url.search, {
+        headers: {"Content-Type":"application/json", ...(requestOptions.headers || {})},
+        ...requestOptions,
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || `Request failed (${response.status})`);
+      return payload;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error(timedOut ? "SmartForecast took too long to respond. Try again." : "Request cancelled.");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", relayAbort);
+    }
+  }
+
+  function setLoading(loading, message = "Reading one client’s site, weather, and trigger state…") {
+    const node = $("#loadingState");
+    node.hidden = !loading;
+    node.className = "sf-loading";
+    if (loading) {
+      node.innerHTML = `<span aria-hidden="true"></span><p>${escapeHtml(message)}</p>`;
+      $$(".sf-view").forEach(panel => panel.hidden = true);
+    }
+    $("#appMain").setAttribute("aria-busy", String(loading));
+  }
+
+  function showLoadError(error, retry) {
+    const node = $("#loadingState");
+    node.hidden = false;
+    node.className = "sf-loading is-error";
+    node.innerHTML = `<strong>SmartForecast could not load this website.</strong><p>${escapeHtml(error.message)}</p><button class="sf-btn sf-btn-primary" type="button">Try again</button>`;
+    $("button", node).addEventListener("click", retry);
+    $("#appMain").setAttribute("aria-busy", "false");
   }
 
   function toast(message, error = false) {
@@ -92,7 +182,7 @@
     renderPreview(activeVariant);
     renderReport();
     populateOverride();
-    $("#loadingState").hidden = true;
+    setLoading(false);
     const target = location.hash.slice(1);
     go(["dashboard","setup","triggers","content","preview","report"].includes(target) ? target : "dashboard");
   }
@@ -152,6 +242,7 @@
       img.src = safeUrl(content.desktop_image_url);
       img.alt = content.alt_text || "";
       img.style.objectPosition = content.desktop_focal || "50% 50%";
+      applyBrandColors($(".sf-message-preview"));
     }
   }
 
@@ -164,10 +255,13 @@
     const brand = site.branding || {};
     $("#brandFont").value = brand.font || "inherit";
     $("#brandHeadline").value = brand.headline_color || "#ffffff";
+    $("#brandBody").value = brand.body_color || "#dce7f2";
     $("#brandButton").value = brand.button_color || "#f6b544";
+    $("#brandButtonText").value = brand.button_text || "#071726";
     $("#brandRadius").value = brand.border_radius ?? 18;
     $("#brandMobileSize").value = brand.mobile_headline_size ?? 38;
     renderEmbedCode();
+    renderReadability();
   }
 
   function renderPreflight(preflight) {
@@ -311,6 +405,33 @@
     $("#cropDesktop").style.objectPosition = form.elements.desktop_focal.value || "50% 50%";
     $("#cropMobile").style.objectPosition = form.elements.mobile_focal.value || "50% 50%";
     $("#opacityOutput").textContent = Number(form.elements.overlay_opacity.value || 0).toFixed(2);
+    renderReadability();
+  }
+
+  function applyBrandColors(node) {
+    if (!node) return;
+    const colors = brandColors();
+    node.style.setProperty("--sf-head", colors.headline);
+    node.style.setProperty("--sf-body", colors.body);
+    node.style.setProperty("--sf-btn", colors.button);
+    node.style.setProperty("--sf-btn-text", colors.buttonText);
+  }
+
+  function renderReadability() {
+    const node = $("#readabilityGuard");
+    if (!node) return;
+    const result = readabilityResult();
+    node.classList.toggle("is-ready", result.ok);
+    node.classList.toggle("is-blocked", !result.ok);
+    $("#readabilityStatus").textContent = result.ok ? "WCAG AA pass" : "Fix before publishing";
+    $("#readabilityChecks").innerHTML = result.checks.map(item =>
+      `<li class="${item.passed ? "is-pass" : "is-fail"}"><span aria-hidden="true">${item.passed ? "✓" : "!"}</span><b>${escapeHtml(item.label)}</b><em>${item.ratio.toFixed(1)}:1</em></li>`
+    ).join("");
+    const publish = $("#publishContent");
+    publish.disabled = !result.ok;
+    publish.title = result.ok ? "Approve this content for the live website" : "Text must clear WCAG AA 4.5:1 contrast before publishing";
+    applyBrandColors($(".sf-message-preview"));
+    applyBrandColors($("#previewHero"));
   }
 
   function renderPreview(content) {
@@ -327,6 +448,8 @@
     $("#previewMobileSource").srcset = safeUrl(content.mobile_image_url) || safeUrl(content.desktop_image_url);
     const opacity = Math.max(0, Math.min(.9, Number(content.overlay_opacity || 0)));
     $(".sf-live-overlay").style.background = `linear-gradient(90deg,rgba(5,21,33,${Math.min(1, .82 + opacity)}),rgba(5,21,33,${Math.min(.94, .58 + opacity)}) 47%,rgba(5,21,33,${opacity}) 82%)`;
+    applyBrandColors($("#previewHero"));
+    renderReadability();
   }
 
   function renderReport() {
@@ -364,21 +487,43 @@
   }
 
   async function load() {
+    const requestId = ++loadVersion;
+    loadController?.abort();
+    const controller = new AbortController();
+    loadController = controller;
+    setLoading(true);
     try {
-      renderAll(await api("/api/bootstrap"));
+      const data = await api("/api/bootstrap", {site:siteId, signal:controller.signal});
+      if (requestId !== loadVersion) return;
+      renderAll(data);
     } catch (error) {
-      $("#loadingState").innerHTML = `<p>SmartForecast could not load: ${escapeHtml(error.message)}</p>`;
+      if (requestId !== loadVersion) return;
+      showLoadError(error, load);
       toast(error.message, true);
     }
   }
 
   async function loadSite(nextSiteId) {
-    siteId = Math.max(1, Number(nextSiteId || 1));
-    $("#loadingState").hidden = false;
+    const requestedSiteId = parseSiteId(nextSiteId);
+    const previousSiteId = parseSiteId(model?.site?.id || siteId);
+    const previousView = location.hash.slice(1) || "dashboard";
+    const requestId = ++loadVersion;
+    loadController?.abort();
+    const controller = new AbortController();
+    loadController = controller;
+    setLoading(true, `Loading ${$("#clientSelect").selectedOptions[0]?.textContent || "client website"}…`);
     try {
-      renderAll(await api("/api/bootstrap"));
+      const data = await api("/api/bootstrap", {site:requestedSiteId, signal:controller.signal});
+      if (requestId !== loadVersion) return;
+      siteId = requestedSiteId;
+      renderAll(data);
       toast(`Loaded ${model.site.client_name}`);
     } catch (error) {
+      if (requestId !== loadVersion) return;
+      siteId = previousSiteId;
+      $("#clientSelect").value = String(previousSiteId);
+      setLoading(false);
+      go(previousView);
       toast(error.message, true);
     }
   }
@@ -396,6 +541,22 @@
   });
   $("#clientSelect").addEventListener("change", event => loadSite(event.target.value));
   $("#addSite").addEventListener("click", () => $("#siteDialog").showModal());
+  $$("[data-dialog-close]").forEach(button => button.addEventListener("click", () => {
+    const dialog = button.closest("dialog");
+    if (dialog?.open) dialog.close("cancel");
+  }));
+  $$(".sf-dialog").forEach(dialog => {
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) dialog.close("cancel");
+    });
+    dialog.addEventListener("keydown", event => {
+      if (event.key === "Escape" && dialog.open) {
+        event.preventDefault();
+        dialog.close("cancel");
+      }
+    });
+  });
+  $("#siteDialog").addEventListener("close", () => $("#siteForm").reset());
   $$("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
   $$("[data-install]").forEach(button => button.addEventListener("click", () => {
     installMode = button.dataset.install;
@@ -417,7 +578,9 @@
       ...model.site.branding,
       font: $("#brandFont").value,
       headline_color: $("#brandHeadline").value,
+      body_color: $("#brandBody").value,
       button_color: $("#brandButton").value,
+      button_text: $("#brandButtonText").value,
       border_radius: Number($("#brandRadius").value),
       mobile_headline_size: Number($("#brandMobileSize").value),
     };
@@ -488,6 +651,8 @@
   });
 
   $("#contentForm").addEventListener("input", updateCrops);
+  ["brandHeadline", "brandBody", "brandButton", "brandButtonText"].forEach(id =>
+    $("#" + id).addEventListener("input", renderReadability));
   $("#saveContent").addEventListener("click", async () => {
     if (!activeVariant) return;
     const body = formObject($("#contentForm"));
@@ -547,7 +712,6 @@
   });
 
   $("#siteForm").addEventListener("submit", async event => {
-    if (event.submitter?.value === "cancel") return;
     event.preventDefault();
     const button = $("#createSite");
     button.disabled = true;

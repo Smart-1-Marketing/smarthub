@@ -32,6 +32,9 @@
   padding:4px 12px;font-size:12px;cursor:pointer;color:#46586E}
 .chip[aria-pressed="true"]{background:#0a2240;border-color:#0a2240;color:#fff}
 .chip .n{opacity:.65;margin-left:5px}
+.import-grid{display:grid;grid-template-columns:2fr repeat(3,minmax(120px,1fr)) auto;gap:8px;align-items:end}
+.import-grid label{font-size:11px;color:var(--ink-3)}
+.import-grid input{display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px;border:1px solid var(--line);border-radius:6px;font:13px inherit}
 </style>
 <header class="top">
   <div class="wrap">
@@ -56,6 +59,18 @@
   <div id="messages" aria-live="polite"></div>
 
   {% include "_upload_panel.html" %}
+
+  <section class="panel">
+    <div class="panel-head"><h2>Import Creative Information</h2></div>
+    <p class="hint">Add an existing Google Drive or secure shared-file link. The original file stays in its current folder and keeps its existing permissions.</p>
+    <div class="import-grid">
+      <label>Google Drive / shared-file URL<input id="importUrl" type="url" placeholder="https://drive.google.com/…"></label>
+      <label>IO #<input id="importIo" type="text" placeholder="Optional"></label>
+      <label>Product #<input id="importProduct" type="text" placeholder="Optional"></label>
+      <label>Project / file label<input id="importProject" type="text" placeholder="Optional"></label>
+      <button class="btn quiet small" id="importLink" type="button">Add to gallery</button>
+    </div>
+  </section>
 
   <section class="panel">
     <div class="panel-head"><h2>Library {{ help_dot('image_picker.gallery.library') if help_dot is defined else '' }}</h2><span class="hint" id="count"></span></div>
@@ -111,6 +126,8 @@
   "use strict";
   var BASE = {{ url_for('image_picker.admin')|tojson }}.replace(/\/$/,"");
   var CLIENT_ID = {{ client.id|tojson }};
+  var CLIENT_NAME = {{ client.name|tojson }};
+  var CONTEXT = new URLSearchParams(window.location.search);
   /* The label table comes from modules/image_picker/filing.py. A second copy
      here is how a kind added last month showed up in a client's gallery as a
      bare key under no heading at all. */
@@ -320,7 +337,11 @@
           (im.ghl_error ? '<br><span style="color:var(--ink-3);font-size:.72rem">' +
               esc(im.ghl_error.slice(0,90)) + '</span>' : '') + '</td>' +
         '<td style="color:var(--ink-3);font-size:.8rem">' +
-          esc(mdy(im.created_at)) + '<br>' + esc(dims) + ' ' + esc(kb) + '</td>' +
+          esc(im.completed_on || mdy(im.created_at)) + '<br>' +
+          (im.io_number ? 'IO #'+esc(im.io_number)+'<br>' : '') +
+          (im.product_number ? 'Product #'+esc(im.product_number)+'<br>' : '') +
+          (im.project_name ? esc(im.project_name)+'<br>' : '') +
+          esc(dims) + ' ' + esc(kb) + '</td>' +
         '<td><button class="btn quiet small del" type="button">Remove</button></td>' +
       '</tr>';
     }
@@ -388,7 +409,10 @@
   var QUERY = "";
 
   function load(){
-    api("/api/saved?limit=500" + (QUERY ? "&q=" + encodeURIComponent(QUERY) : ""))
+    var context = ['io','product','tool'].map(function(k){
+      var v = CONTEXT.get(k); return v ? '&'+k+'='+encodeURIComponent(v) : '';
+    }).join('');
+    api("/api/saved?limit=500" + context + (QUERY ? "&q=" + encodeURIComponent(QUERY) : ""))
       .then(function(d){
         if (!d.ok){ note("bad", "Couldn't load the gallery", d.error || ""); return; }
         ALL = d.images || [];
@@ -449,6 +473,23 @@
     document.getElementById("gSearch").value = "";
     GROUP = "";
     runSearch();
+  });
+
+  document.getElementById("importLink").addEventListener("click", function(){
+    var url = document.getElementById("importUrl").value.trim();
+    if (!url) { note("bad", "Link required", "Paste a Google Drive or secure shared-file URL."); return; }
+    var button = this; button.disabled = true;
+    fetch(BASE + "/api/staff/import-link?client_id=" + CLIENT_ID, {
+      method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({client:CLIENT_NAME,url:url,io_number:document.getElementById("importIo").value.trim(),
+        product_number:document.getElementById("importProduct").value.trim(),
+        project_name:document.getElementById("importProject").value.trim()})
+    }).then(function(r){return r.json();}).then(function(d){
+      button.disabled=false;
+      if (!d.ok) { note("bad", "Couldn’t add link", d.error || ""); return; }
+      document.getElementById("importUrl").value="";
+      note("ok", "Creative Information added", "The original Drive permissions were preserved."); load();
+    }).catch(function(){button.disabled=false; note("bad", "Couldn’t add link", "Try again.");});
   });
 
   document.addEventListener("click", function(e){

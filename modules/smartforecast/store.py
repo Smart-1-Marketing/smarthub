@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from . import packs as industry_catalog
 from .engine import advance_state, choose_winner, empty_state, iso, parse_time, simulate, utcnow
+from .readability import assess_readability, failure_message, normalize_hex
 
 
 SCHEMA = """
@@ -362,15 +363,20 @@ class SmartForecastStore:
                 (site_id,),
             ).fetchone()
             rules = self._rules(con, site_id)
+            branding = _loads(site["branding_json"], {})
             variants = [self._decorate_publication(con, self._variant_row(row)) for row in con.execute(
                 """SELECT v.* FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
                    WHERE s.site_id=? ORDER BY v.trigger_key,v.phase""", (site_id,))]
+            for variant in variants:
+                variant["readability"] = assess_readability(branding, variant)
             history = [self._history_row(row) for row in con.execute(
                 "SELECT * FROM trigger_event_history WHERE site_id=? ORDER BY recorded_at DESC LIMIT 100",
                 (site_id,))]
             state = _loads(site["state_json"], empty_state())
             selected = self._select_variant(con, site_id, state.get("current_trigger"), state.get("phase"))
             selected = self._decorate_publication(con, selected) if selected else None
+            if selected:
+                selected["readability"] = assess_readability(branding, selected)
             return {
                 "sites": self._sites(con),
                 "packs": self._pack_summaries(con, site_id, site["industry"]),
@@ -381,7 +387,7 @@ class SmartForecastStore:
                     "weather_provider": site["weather_provider"], "location_label": site["location_label"],
                     "postal_code": site["postal_code"], "timezone": site["timezone"],
                     "business_goals": _loads(site["business_goals_json"], []),
-                    "branding": _loads(site["branding_json"], {}),
+                    "branding": branding,
                     "embed_token": token["token"] if token else None,
                 },
                 "state": state,
@@ -448,6 +454,17 @@ class SmartForecastStore:
                 raise LookupError("Site not found")
             branding = _loads(current["branding_json"], {})
             branding.update(body.get("branding") or {})
+            branding["headline_color"] = normalize_hex(branding.get("headline_color"), "#ffffff")
+            branding["body_color"] = normalize_hex(branding.get("body_color"), "#dce7f2")
+            branding["button_color"] = normalize_hex(branding.get("button_color"), "#f6b544")
+            branding["button_text"] = normalize_hex(branding.get("button_text"), "#071726")
+            branding["border_radius"] = min(60, max(0, int(branding.get("border_radius") or 18)))
+            branding["mobile_headline_size"] = min(
+                72, max(24, int(branding.get("mobile_headline_size") or 38)))
+            branding["desktop_headline_size"] = min(
+                96, max(28, int(branding.get("desktop_headline_size") or 54)))
+            branding["headline_weight"] = min(
+                900, max(400, int(branding.get("headline_weight") or 800)))
             enabled = 1 if body.get("enabled", True) else 0
             interval = min(1440, max(5, int(body.get("check_interval_minutes") or 30)))
             con.execute(
@@ -662,7 +679,11 @@ class SmartForecastStore:
                    WHERE id=?""", (*values, opacity, variant_id))
             variant = self._variant_row(
                 con.execute("SELECT * FROM content_variants WHERE id=?", (variant_id,)).fetchone())
-            return self._decorate_publication(con, variant)
+            decorated = self._decorate_publication(con, variant)
+            branding = _loads(con.execute(
+                "SELECT branding_json FROM sites WHERE id=?", (site_id,)).fetchone()["branding_json"], {})
+            decorated["readability"] = assess_readability(branding, decorated)
+            return decorated
 
     def publish_variant(self, variant_id: int, site_id: int = 1,
                         user: str = "SmartHub user") -> dict:
@@ -673,6 +694,11 @@ class SmartForecastStore:
             ).fetchone()
             if not variant:
                 raise LookupError("Content variant not found")
+            branding = _loads(con.execute(
+                "SELECT branding_json FROM sites WHERE id=?", (site_id,)).fetchone()["branding_json"], {})
+            readability = assess_readability(branding, self._variant_row(variant))
+            if not readability["ok"]:
+                raise ValueError(failure_message(readability))
             self._publish_variant(con, variant_id, site_id, user)
             con.execute(
                 """INSERT INTO trigger_event_history(site_id,trigger_key,phase,event_type,recorded_at,
@@ -680,7 +706,9 @@ class SmartForecastStore:
                 (site_id, variant["trigger_key"], variant["phase"], "content_published",
                  iso(utcnow()), variant_id, f"Approved by {user[:120]}"),
             )
-            return self._decorate_publication(con, self._variant_row(variant))
+            decorated = self._decorate_publication(con, self._variant_row(variant))
+            decorated["readability"] = readability
+            return decorated
 
     def rotate_embed_token(self, site_id: int = 1, user: str = "SmartHub user") -> dict:
         with self._lock, self.connect() as con:
@@ -912,6 +940,23 @@ class SmartForecastStore:
             add("baseline_content", "Baseline SEO content", baseline_complete,
                 "Baseline headline, CTA, URL and alt text are complete." if baseline_complete else
                 "Complete the default headline, CTA, URL and image alt text.")
+
+            branding = _loads(site["branding_json"], {})
+            unreadable = []
+            published_rows = list(con.execute(
+                """SELECT v.name,p.payload_json FROM content_publications p
+                   JOIN content_variants v ON v.id=p.variant_id
+                   JOIN content_slots s ON s.id=v.slot_id WHERE s.site_id=?""", (site_id,)))
+            for row in published_rows:
+                result = assess_readability(branding, _loads(row["payload_json"], {}))
+                if not result["ok"]:
+                    failed = ", ".join(item["label"] for item in result["checks"]
+                                       if not item["passed"])
+                    unreadable.append(f"{row['name']}: {failed}")
+            add("readability", "Published text readability", not unreadable,
+                (f"All {len(published_rows)} published variant(s) clear WCAG AA 4.5:1 contrast."
+                 if not unreadable else
+                 f"{len(unreadable)} published variant(s) fail contrast: {'; '.join(unreadable[:3])}."))
 
             covered = {(item["trigger_key"], item["phase"]) for item in variants}
             missing = [f"{rule['name']} / {phase.replace('_', ' ')}"

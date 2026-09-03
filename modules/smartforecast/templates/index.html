@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='smartforecast.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='smartforecast-readability.css') }}">
 </head>
 <body>
   <div class="sf-shell">
@@ -112,7 +113,9 @@
               <div class="sf-fields two compact">
                 <label class="wide"><span>Font</span><select id="brandFont"><option value="inherit">Inherit website</option><option value="DM Sans">DM Sans</option><option value="Manrope">Manrope</option></select></label>
                 <label><span>Headline color</span><input id="brandHeadline" type="color"></label>
+                <label><span>Body color</span><input id="brandBody" type="color"></label>
                 <label><span>Button color</span><input id="brandButton" type="color"></label>
+                <label><span>Button text</span><input id="brandButtonText" type="color"></label>
                 <label><span>Border radius</span><input id="brandRadius" type="number" min="0" max="60"></label>
                 <label><span>Mobile headline</span><input id="brandMobileSize" type="number" min="24" max="72"></label>
               </div>
@@ -157,7 +160,12 @@
             </div>
             <div class="sf-fields two sf-spaced"><label><span>CTA label</span><input name="cta_label"></label><label><span>CTA URL</span><input name="cta_url" inputmode="url"></label></div>
             <div class="sf-section-title sf-spaced"><span>IMG</span><div><h2>Responsive imagery</h2><p>Mobile falls back to the desktop image and uses its own focal point.</p></div></div>
-            <div class="sf-fields two"><label class="wide"><span>Desktop image URL</span><input name="desktop_image_url"></label><label class="wide"><span>Mobile image URL <em>optional</em></span><input name="mobile_image_url"></label><label class="wide"><span>Alt text</span><input name="alt_text"></label><label><span>Desktop focal point</span><input name="desktop_focal" placeholder="66% 48%"></label><label><span>Mobile focal point</span><input name="mobile_focal" placeholder="58% 44%"></label><label><span>Overlay opacity</span><input name="overlay_opacity" type="range" min="0" max="0.9" step="0.05"><output id="opacityOutput">0.15</output></label></div>
+            <div class="sf-fields two"><label class="wide"><span>Desktop image URL</span><input name="desktop_image_url"></label><label class="wide"><span>Mobile image URL <em>optional</em></span><input name="mobile_image_url"></label><label class="wide"><span>Alt text</span><input name="alt_text"></label><label><span>Desktop focal point</span><input name="desktop_focal" placeholder="66% 48%"></label><label><span>Mobile focal point</span><input name="mobile_focal" placeholder="58% 44%"></label><label><span>Image overlay</span><input name="overlay_opacity" type="range" min="0" max="0.9" step="0.05"><output id="opacityOutput">0.15</output></label></div>
+            <section class="sf-readability is-ready" id="readabilityGuard" aria-live="polite">
+              <div><span>Readability guard</span><strong id="readabilityStatus">WCAG AA pass</strong></div>
+              <p>Text is checked at 4.5:1 against the protected copy area before anything can be published.</p>
+              <ul id="readabilityChecks"></ul>
+            </section>
           </form>
           <aside class="sf-card sf-crop-preview"><div class="sf-card-label"><span>Crop check</span><small>Desktop + mobile</small></div><div class="sf-crop-desktop"><img id="cropDesktop" alt=""><span>Desktop</span></div><div class="sf-crop-mobile"><img id="cropMobile" alt=""><span>Mobile</span></div></aside>
         </div>
@@ -209,15 +217,15 @@
 
   <dialog class="sf-dialog" id="overrideDialog">
     <form method="dialog" id="overrideForm">
-      <div class="sf-dialog-head"><div><p class="sf-kicker">Manual override</p><h2>Force a website message</h2></div><button value="cancel" aria-label="Close">×</button></div>
+      <div class="sf-dialog-head"><div><p class="sf-kicker">Manual override</p><h2>Force a website message</h2></div><button type="button" data-dialog-close aria-label="Close">×</button></div>
       <p>This is recorded in the trigger history and automatically expires.</p>
       <div class="sf-fields"><label><span>Content variant</span><select name="content_variant_id" id="overrideVariant"></select></label><label><span>Duration</span><select name="hours"><option value="2">2 hours</option><option value="4" selected>4 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="72">3 days</option></select></label><label><span>Reason</span><textarea name="note" rows="3" placeholder="Why this message is being forced"></textarea></label></div>
-      <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" value="cancel">Cancel</button><button class="sf-btn sf-btn-primary" id="applyOverride" value="default">Force message</button></div>
+      <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" type="button" data-dialog-close>Cancel</button><button class="sf-btn sf-btn-primary" id="applyOverride" value="default">Force message</button></div>
     </form>
   </dialog>
   <dialog class="sf-dialog" id="siteDialog" aria-labelledby="siteDialogTitle">
     <form method="dialog" id="siteForm">
-      <div class="sf-dialog-head"><div><p class="sf-kicker">Client onboarding</p><h2 id="siteDialogTitle">Add a SmartForecast website</h2></div><button value="cancel" aria-label="Close">×</button></div>
+      <div class="sf-dialog-head"><div><p class="sf-kicker">Client onboarding</p><h2 id="siteDialogTitle">Add a SmartForecast website</h2></div><button type="button" data-dialog-close aria-label="Close">×</button></div>
       <p>This creates an isolated site, baseline content, trigger assignments, and a new embed token.</p>
       <div class="sf-fields two">
         <label><span>Client name</span><input name="client_name" required autocomplete="organization"></label>
@@ -227,7 +235,7 @@
         <label><span>Industry</span><select name="industry"><option>HVAC</option><option>RV Dealer</option><option>Marine / Boat Dealer</option><option>Restaurant</option><option>Ski Resort</option><option>Legal</option><option>Home Services</option><option>General</option></select></label>
         <label><span>Platform</span><select name="platform"><option>Smart 1 Sites</option><option>WordPress</option><option>Other / HTML</option></select></label>
       </div>
-      <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" value="cancel">Cancel</button><button class="sf-btn sf-btn-primary" id="createSite" value="default">Create website</button></div>
+      <div class="sf-dialog-actions"><button class="sf-btn sf-btn-ghost" type="button" data-dialog-close>Cancel</button><button class="sf-btn sf-btn-primary" id="createSite" value="default">Create website</button></div>
     </form>
   </dialog>
   <div class="sf-toast" id="toast" role="status"></div>

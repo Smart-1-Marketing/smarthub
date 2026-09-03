@@ -175,6 +175,8 @@ def api_content_publish(variant_id: int):
         content = store().publish_variant(variant_id, site_id, _user())
         _activity("content_published", site_id=site_id, variant_id=variant_id)
         return jsonify({"ok": True, "content": content})
+    except (TypeError, ValueError) as exc:
+        return _error(exc)
     except LookupError as exc:
         return _error(exc, 404)
 

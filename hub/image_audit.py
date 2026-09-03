@@ -76,7 +76,7 @@ PRODUCERS = [
      "module": "modules/seo_images/app.py", "makes": "upload",
      "why": "Client photographs renamed and optimized for their website."},
     {"key": "image_picker", "label": "Client Image Uploads",
-     "provider": ["local", "camera", "url"],
+     "provider": ["local", "camera", "url", "google_drive"],
      "module": "modules/image_picker/filing.py", "makes": "upload",
      "why": "What a client sends us through their own upload link."},
     {"key": "blog_images", "label": "Blog featured images",
@@ -117,7 +117,7 @@ PRODUCERS = [
      "module": "modules/stock_photos/app.py", "makes": "choose",
      "why": "A stock or library photo taken for a client's creative."},
     {"key": "io_builder", "label": "IO creative uploads",
-     "provider": ["io_creative"],
+     "provider": ["io_creative", "io_builder"],
      "module": "modules/io_builder/app.py", "makes": "upload",
      "also": ["modules/io_builder/templates/index.html"],
      "why": "Creative attached to an insertion order."},
@@ -268,9 +268,10 @@ def producers() -> list[dict]:
     for p in PRODUCERS:
         files, evidence = _files(p["module"], p.get("filing_call", FILING_CALL))
         for extra in p.get("also") or []:
-            if files:
-                break
-            files, evidence = _files_via_route(extra)
+            route_files, route_evidence = _files_via_route(extra)
+            if route_files:
+                files = True
+                evidence = f"{evidence}; {route_evidence}" if evidence else route_evidence
         if not files and not evidence:
             evidence = f"no call to {FILING_CALL}() and no post to {FILING_ROUTE}"
         row = {**p, "files": files, "evidence": evidence}

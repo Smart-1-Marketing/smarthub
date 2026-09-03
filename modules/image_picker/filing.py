@@ -21,6 +21,9 @@ talk to its own process.
 from __future__ import annotations
 
 import logging
+import hashlib
+import re
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -54,6 +57,7 @@ KIND_LABELS = {
     "page_image": "Website images",
     "stock": "Stock photos",
     "commercial": "Commercial stills",
+    "creative_information": "Creative Information",
 }
 
 # A label declared here and written by nothing is the failure this codebase
@@ -83,6 +87,8 @@ SOURCE_LABELS = {
     "unsplash": "Unsplash", "pexels": "Pexels", "pixabay": "Pixabay",
     "library": "Our own library",
     "io_creative": "Creative for their insertion orders",
+    "io_builder": "IO documents",
+    "creative_information": "Creative information",
     "animated_ad": "Animated display ads",
     "blog": "Blog images",
     "seo_image": "SEO images",
@@ -129,7 +135,7 @@ WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
            "display_ads", "ad_builder", "logo", "logo_brand", "logo_scan",
            "client_logos", "bg_remover", "cutout", "image_creator", "graphic",
            "page_image_optimizer", "page_image", "commercial_builder",
-           "commercial", "gpt_ads", "prospect")
+           "commercial", "gpt_ads", "prospect", "io_builder")
 
 
 def source_tiers() -> dict:
@@ -167,13 +173,40 @@ def gallery_for_name(db, name: str, *, create: bool = False) -> PickerClient | N
     return client
 
 
+def asset_folder(*, client_name: str, tool: str, completed_on: str = "",
+                 io_number: str = "", product_number: str = "",
+                 project_name: str = "") -> str:
+    """The one folder convention for completed client work.
+
+    A product number is preferred because it is the durable link back to
+    Smart 1 Team.  When it is absent, the project name retains useful context
+    under the IO.  The values are slugged here so callers cannot create paths
+    from raw browser input.
+    """
+    def clean(value: str, fallback: str) -> str:
+        value = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+        return value[:100] or fallback
+    day = str(completed_on or "")[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        day = datetime.now(timezone.utc).date().isoformat()
+    leaf = (f"product-{clean(product_number, 'unassigned')}" if product_number
+            else f"project-{clean(project_name, 'general')}")
+    return "/".join([
+        "client-assets", clean(client_name, "client"), clean(tool, "tool"), day,
+        f"io-{clean(io_number, 'unassigned')}", leaf,
+    ])
+
+
 def file_asset(*, client_name: str, public_id: str, url: str,
                kind: str = "upload", label: str = "", key: str = "",
                filename: str = "", alt: str = "", resource_type: str = "image",
                width=None, height=None, size_bytes=None,
                spec: dict | None = None, provider: str = "",
                saved_by: str = "system", create_client: bool = True,
-               push_to_suite: bool = True) -> dict:
+               push_to_suite: bool = True, tool: str = "",
+               completed_on: str = "", project_name: str = "",
+               io_number: str = "", product_number: str = "",
+               external: bool = False) -> dict:
     """Record one asset in a client's gallery.
 
     Returns a dict with `ok`, and on success the `image` row and `gallery_url`.
@@ -189,6 +222,15 @@ def file_asset(*, client_name: str, public_id: str, url: str,
     kind = (kind or "upload").strip().lower()[:20]
     provider = (provider or kind).strip().lower()[:40]
     spec = spec if isinstance(spec, dict) else {}
+    tool = str(tool or provider or kind).strip()[:80]
+    completed_on = str(completed_on or "")[:10]
+    project_name = str(project_name or "")[:200]
+    io_number = str(io_number or "")[:80]
+    product_number = str(product_number or "")[:80]
+    folder = asset_folder(client_name=client_name, tool=tool,
+                          completed_on=completed_on, io_number=io_number,
+                          product_number=product_number,
+                          project_name=project_name)
 
     try:
         db = session()
@@ -225,6 +267,13 @@ def file_asset(*, client_name: str, public_id: str, url: str,
             spec_result=str(spec.get("result") or "")[:10] or None,
             spec_summary=str(spec.get("summary") or "") or None,
             spec_unit=str(((spec.get("unit") or {}).get("id")) or "")[:60] or None,
+            tool=tool or None,
+            completed_on=completed_on or None,
+            project_name=project_name or None,
+            io_number=io_number or None,
+            product_number=product_number or None,
+            asset_folder=folder,
+            external=bool(external),
             ghl_status="pending",
             saved_by=str(saved_by or "system")[:200],
         )
@@ -252,3 +301,27 @@ def file_asset(*, client_name: str, public_id: str, url: str,
 
     return {"ok": True, "image": img.to_dict(),
             "gallery_url": f"/tools/image-picker/gallery/{client.id}"}
+
+
+def file_external_link(*, client_name: str, url: str, filename: str = "",
+                       tool: str = "creative-information", project_name: str = "",
+                       io_number: str = "", product_number: str = "",
+                       saved_by: str = "system") -> dict:
+    """Index an existing Drive/shared file without moving or exposing it.
+
+    Drive permissions remain authoritative.  The gallery stores a labelled
+    reference and opens the original URL; it never tries to download a private
+    client document with an agency credential.
+    """
+    url = str(url or "").strip()
+    if not url.startswith("https://"):
+        return {"ok": False, "error": "Only secure shared-file links can be added."}
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+    return file_asset(
+        client_name=client_name, public_id=f"external/{digest}", url=url,
+        kind="creative_information", label="Creative Information",
+        filename=filename or "Google Drive file", resource_type="raw",
+        provider="google_drive", saved_by=saved_by, push_to_suite=False,
+        tool=tool, project_name=project_name, io_number=io_number,
+        product_number=product_number, external=True,
+    )

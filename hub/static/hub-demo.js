@@ -110,6 +110,8 @@
     var ring = document.querySelector(".s1-demo-ring");
     var t = el(sel);
     if (!t) { ring.style.display = "none"; return; }
+    try { t.dispatchEvent(new CustomEvent("s1-reveal-target", { bubbles: true })); }
+    catch (e) {}
     var r = t.getBoundingClientRect();
     ring.style.display = "block";
     ring.style.top = (r.top + window.scrollY - 5) + "px";

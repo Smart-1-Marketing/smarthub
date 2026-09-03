@@ -9,6 +9,10 @@
     .sf-embed img{width:100%;height:100%;object-fit:cover;object-position:{{ payload.content.desktop_focal }};display:block}.sf-copy{align-self:center;padding:clamp(30px,6vw,86px);max-width:760px}.sf-copy small{text-transform:uppercase;letter-spacing:.17em;color:#67d6e8;font-weight:800;font-size:clamp(11px,1.1vw,14px)}
     .sf-copy h1{font:{{ payload.branding.headline_weight|default(800) }} clamp(36px,5.1vw,{{ payload.branding.desktop_headline_size|default(54) }}px)/1.03 inherit;letter-spacing:-.045em;margin:.34em 0;color:var(--sf-head);text-wrap:balance}.sf-copy p{font-size:clamp(16px,1.5vw,20px);line-height:1.55;color:var(--sf-body);max-width:620px}.sf-copy a{display:inline-flex;margin-top:15px;padding:15px 22px;border-radius:max(8px,calc({{ payload.branding.border_radius|default(18) }}px - 6px));background:var(--sf-btn);color:var(--sf-btn-text);font-weight:800;text-decoration:none}
     @media(max-width:640px){.sf-embed{display:flex;flex-direction:column;min-height:560px}.sf-embed picture{position:relative;inset:auto;height:245px;z-index:-1}.sf-embed picture:after{background:linear-gradient(0deg,#071726 0%,transparent 58%)}.sf-embed img{object-position:{{ payload.content.mobile_focal }}}.sf-copy{padding:28px 24px 34px;margin-top:-32px}.sf-copy h1{font-size:{{ payload.branding.mobile_headline_size|default(38) }}px}.sf-copy a{width:100%;justify-content:center}}
+    /* A fixed copy-area scrim guarantees the same worst-case background that
+       the server-side WCAG gate measures, regardless of the source image. */
+    .sf-copy{position:relative;isolation:isolate}.sf-copy:before{content:"";position:absolute;z-index:-1;inset:clamp(12px,3vw,28px);inset-inline:clamp(12px,3vw,38px);background:linear-gradient(90deg,rgba(5,21,33,.94),rgba(5,21,33,.82));border-radius:14px;pointer-events:none}
+    @media(max-width:640px){.sf-copy:before{inset:8px 10px;background:rgba(5,21,33,.9)}}
   </style>
 </head>
 <body>

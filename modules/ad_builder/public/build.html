@@ -125,10 +125,19 @@
   .proofurl button { white-space: nowrap; }
 
   /* ---------- bench ---------- */
-  .bench { flex: 1; display: grid; grid-template-columns: 320px 1fr 300px; min-height: 0; }
+  .bench { flex: 1; display: grid; grid-template-columns: 320px minmax(0, 1fr) 300px; min-height: 0; }
   .col { overflow-y: auto; min-height: 0; }
   .col.left { border-right: 1px solid var(--line); background: var(--panel); }
   .col.right { border-left: 1px solid var(--line); background: var(--panel); }
+
+  /* The Hub opens creative tools with its navigation reduced to an icon rail.
+     That gives the bench another 168px, which used to become mostly empty
+     stage surround while the form stayed cramped. Give that room to the two
+     places an operator reads and compares: the brief on the left and the
+     size/QA rail on the right. The preview remains fluid in the middle. */
+  body.s1hub-collapsed .bench {
+    grid-template-columns: minmax(360px, 400px) minmax(0, 1fr) minmax(300px, 340px);
+  }
 
   .group { border-bottom: 1px solid var(--line); padding: 16px 18px; }
   .group h3 {
@@ -139,6 +148,7 @@
   .field:last-child { margin-bottom: 0; }
   label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 5px; }
   textarea { min-height: 58px; resize: vertical; }
+  .group-note { margin: -5px 0 11px; color: var(--ink-2); font-size: 12px; line-height: 1.4; }
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
   .palette-note { margin-top: 9px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
@@ -491,6 +501,13 @@
   .bgmode:hover { border-color: var(--ink-2); }
   .bgmode.on { border-color: var(--signal);
     box-shadow: 0 0 0 1px var(--signal) inset; font-weight: 600; }
+  .image-more { margin-top: 3px; }
+  .image-more > summary { color: var(--ink-2); cursor: pointer; font-size: 12px;
+    list-style: none; padding: 4px 0; }
+  .image-more > summary::-webkit-details-marker { display: none; }
+  .image-more > summary::before { content: '\25B8'; display: inline-block; margin-right: 6px; font-size: 10px; }
+  .image-more[open] > summary::before { transform: rotate(90deg); }
+  .image-more .bgmodes { margin: 7px 0 0; }
   .bgresults:not(:empty) { margin-bottom: 8px; }
   .bgmsg { font-size: 11.5px; color: var(--ink-2); display: block; margin-bottom: 6px; }
   /* Two columns, not four. A 76px-wide thumbnail of a photograph is a smear
@@ -552,6 +569,13 @@
   @media (max-width: 1100px) {
     .bench { grid-template-columns: 280px 1fr; }
     .col.right { display: none; }
+    body.s1hub-collapsed .bench { grid-template-columns: 300px minmax(0, 1fr); }
+  }
+  @media (max-width: 720px) {
+    body { height: auto; min-height: 100vh; overflow: auto; }
+    .bench, body.s1hub-collapsed .bench { grid-template-columns: 1fr; }
+    .col.left { border-right: 0; border-bottom: 1px solid var(--line); max-height: none; }
+    .stage { min-height: 440px; }
   }
 </style>
 </head>
@@ -996,15 +1020,27 @@
                'already filled in are left exactly as they are.', 'left') +
           '<div id="draftNote" style="font-size:11.5px;color:var(--ink-2);margin-top:5px"></div>' +
         '</div>' + fields + '</div>' +
+      /* Copy and layout are one decision: the words need a home before an
+         operator spends time sourcing a picture. Keeping the layout cards
+         immediately below the inputs also makes a quick message/layout pass
+         possible without scrolling through the image picker. */
+      '<div class="group"><h3>Layout</h3>' +
+        '<p class="group-note">Choose the structure that best supports this message.</p>' +
+        '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
+        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
       '<div class="group"><h3>Background</h3>' +
         '<div class="bgmodes">' +
           '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand color</button>' +
-          '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
           '<button type="button" class="bgmode" data-bgmode="gallery">From their image gallery</button>' +
           '<button type="button" class="bgmode" data-bgmode="upload">Upload a picture</button>' +
-          '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
-          '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
         '</div>' +
+        '<details class="image-more"><summary>More image sources</summary>' +
+          '<div class="bgmodes">' +
+            '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
+            '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
+            '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
+          '</div>' +
+        '</details>' +
         '<div id="bgResults" class="bgresults"></div>' +
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="bgNote">' +
           (concept().backgroundImage
@@ -1013,9 +1049,6 @@
         '</div>' +
         backgroundAdjust() +
         '</div>' +
-      '<div class="group"><h3>Layout</h3>' +
-        '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
-        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
       '<div class="group"><h3>Brand colors' +
         help('The five roles every layout resolves against. Changing one here ' +
              'changes it on every size in the set.') + '</h3>' +

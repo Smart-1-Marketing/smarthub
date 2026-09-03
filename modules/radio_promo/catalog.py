@@ -67,7 +67,9 @@ VOICE_CHARACTERISTICS = voice_casting.CHARACTERISTICS
 # Word budgets are the studio's, measured at a natural read pace.
 DURATIONS = [
     {"seconds": 15, "key": "fifteen", "word_target": "35-42 words", "low": 35, "high": 42},
-    {"seconds": 30, "key": "thirty", "word_target": "70-85 words", "low": 70, "high": 85},
+    # A :30 is never a short tag. At the normal 2.6 words/second read this
+    # floor is just over 25 seconds, leaving room for natural pauses.
+    {"seconds": 30, "key": "thirty", "word_target": "65-85 words (25+ second read)", "low": 65, "high": 85},
 ]
 
 

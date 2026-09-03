@@ -950,7 +950,18 @@ def _store_requirements_pdf(data, doc_type):
     pdf_bytes, title = _build_requirements_pdf(data, doc_type)
     client = _safe_filename(data.get('client'))
     start = _safe_filename(data.get('start') or 'no start date')
-    folder = f"smart1_campaigns/{client}/{start}/documents"
+    # Completed work uses the same discoverable contract as every other
+    # client asset: client / tool / completion date / IO / project.  The PDF
+    # remains a raw Cloudinary asset, but its location is no longer unique to
+    # this one tool's historical folder convention.
+    try:
+        from modules.image_picker.filing import asset_folder
+        folder = asset_folder(client_name=data.get("client") or client,
+                              tool="io-builder", completed_on="",
+                              io_number=data.get("orderNumber") or "",
+                              project_name="io-documents")
+    except Exception:
+        folder = f"smart1_campaigns/{client}/{start}/documents"
     secure_internal = os.getenv("SECURE_INTERNAL_PDF", "").strip().lower() in ("1", "true", "yes", "on")
     delivery_type = 'authenticated' if (secure_internal and doc_type == 'internal') else 'upload'
     # resource_type='raw', not 'image'. A PDF uploaded as an image type only
@@ -1021,6 +1032,21 @@ def _generate_named_pdf(doc_type):
     try:
         result, title = _store_requirements_pdf(data, doc_type)
         url = result.get('secure_url')
+        # An IO PDF is finished client work.  Recording it at creation time
+        # means the gallery and the Products & IOs link can find it before
+        # Knack has created its downstream product record.
+        try:
+            from modules.image_picker.filing import file_asset
+            file_asset(client_name=data.get("client") or "",
+                       public_id=result.get("public_id") or "", url=url or "",
+                       kind="io_creative", label="IO documents", filename=title + ".pdf",
+                       alt=title, resource_type="raw", provider="io_builder",
+                       saved_by=str(data.get("salesContact") or "system"),
+                       push_to_suite=False, tool="io-builder",
+                       project_name="IO documents",
+                       io_number=str(data.get("orderNumber") or ""))
+        except Exception:
+            logger.warning("Could not file completed IO PDF in client gallery", exc_info=True)
         return jsonify({
             'ok': True,
             'url': url,
