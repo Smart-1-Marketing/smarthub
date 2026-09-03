@@ -72,15 +72,26 @@
 
   <div id="review-send" style="display:none;margin-top:12px;">
     <div class="cb-field">
+      <label class="cb-label">Who is reviewing it <span class="cb-muted"
+        style="font-weight:400;">(optional — with an email, the link is filed in Smart 1 Suite for the review workflow to send)</span></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" id="review-name" placeholder="Their name" style="flex:1;min-width:140px;">
+        <input type="email" id="review-email" placeholder="their@email.com" style="flex:1;min-width:180px;">
+      </div>
+    </div>
+    <div class="cb-field">
       <label class="cb-label">A note to send with it <span class="cb-muted"
         style="font-weight:400;">(optional)</span></label>
       <input type="text" id="review-message"
              placeholder="Here is the :30 — the music is a placeholder for now.">
     </div>
     <button class="cb-btn cb-btn-primary" id="review-send-btn">Create a review link</button>
-    <p class="cb-hint">There is no mail sender in the Hub, so this makes the link
-      and you send it. Anyone holding it can watch the cut, leave notes against a
-      timestamp and answer — no login, nothing to install.</p>
+    <p class="cb-hint">There is no mail sender in the Hub. With an email, the reviewer is
+      written into Smart 1 Suite as a contact tagged <code>commercial_review</code>
+      with the link on it, and the Suite workflow on that tag does the sending;
+      without one, this makes the link and you send it. Either way anyone holding it
+      can watch the cut, leave notes against a timestamp and answer — no login,
+      nothing to install.</p>
   </div>
 
   <div id="review-link" style="display:none;margin-top:12px;"></div>

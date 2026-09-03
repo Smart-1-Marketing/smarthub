@@ -45,8 +45,8 @@ degrades to a missing icon rather than a dead page. Keep that pattern.
 
 **The scheduler saying it is running is not the jobs working.** `status()`
 answered one question well — is a worker holding the lock — and drew a green
-pill for any job whose last run succeeded, however long ago that was. Eleven
-jobs share one thread now, so a loop stuck on a long one stops every job
+pill for any job whose last run succeeded, however long ago that was. The
+jobs share one thread, so a loop stuck on a long one stops every job
 behind it: an hourly job that last ran three days ago read as healthy, and the
 only way to notice was to do that arithmetic eleven times. Overdue is measured
 now (`_overdue()`, past twice the interval with a five-minute floor so a
@@ -1275,6 +1275,26 @@ whether the Cloudinary copy goes with it. It is named in the confirmation and
 says it cannot be undone, because for an image a client sent us our copy is
 very often the only copy.
 
+**And the gallery that link opened was one source's slice, read as the whole.**
+"See client image gallery" opened the SEO pipeline's archive scoped to the
+company — real images, correctly filtered, and a rep read it as everything we
+hold for the client while their uploads, display ads, logos and stock sat in
+the full gallery one module over. The link goes through
+`/tools/image-picker/gallery/for-client` now, which resolves the name under
+`provisioning.py`'s rules — exactly one gallery or none, never a substring —
+and lands on the full gallery, every folder and every source; a client with
+no full gallery yet lands on the SEO archive scoped to them, which is
+everything the Hub holds outside one. The two cannot bounce a reader between
+them, because the scoped SEO view offers a **Full client gallery** link only
+when the server resolved exactly one, and says it is the pipeline's own view
+rather than claiming to be every image saved. A view narrowed inside the full
+gallery — a group chip, a search, or both stacked — carries one **Show the
+full gallery** press back to everything, because the All chip and Clear each
+undo only half and "N of M shown" is a state somebody should not have to
+reverse-engineer their way out of. `c360` rides through the resolver's
+redirect, so "Back to <client>" survives the hop. `test_image_picker.py` and
+`test_client_images.py` assert all of it.
+
 **"Back" from a tool means the tool, and from a client record it means the
 client.** Every link out of Client 360 landed somewhere whose idea of back was
 its own parent, so a rep who opened the image gallery for Icon Solar got
@@ -1889,6 +1909,77 @@ sweep of bare paths lands on the list, reports it green, and the largest
 template in the Hub — 3,600 lines, drawn almost entirely from fetches — goes
 unchecked while reading as covered. Both it and `/seo/webmaster` are named now.
 
+**The mapping that every location-scoped feature waits on, in its own
+store.** Reading a client's Forms, pushing their Social Planner posts, minting
+a token at all — each needs one fact, which sub-account is theirs, and until
+it is recorded the feature has no answer for that client. It lived on
+`image_picker_clients.ghl_location_id`, a hand-typed column that exists
+because somebody provisioned an upload gallery. That was fine while the
+mapping was incidental and is the wrong home with the app installed across
+several hundred sub-accounts: it couples **"this client has a Suite
+sub-account"** to **"somebody made them an upload gallery"**, so mapping the
+book through it would create hundreds of gallery rows as a side effect nobody
+asked for — which `modules/image_picker/provisioning.py` is explicit about
+refusing.
+
+`hub/suite_map.py` is that store, and **nothing is migrated**: the old column
+is still read, the way `audit.LOG_NAMES` and `video_library.TAG_ALIASES` keep
+matching a spelling already on disk. **`suite_accounts.location_for()` stays
+the one reader** — it consults the new store then the old column — because two
+functions answering *which sub-account is this client* is how they come to
+disagree, and on this question a disagreement puts one client's work in
+another client's account.
+
+`proposals()` pairs sub-accounts to clients on **canonical domain first, then
+an exact normalised name, and never a substring**: "Riverside HVAC" must not
+collect "Riverside HVAC Supply". **Two candidates propose neither** and name
+both — two client records on one domain is the ambiguity that actually
+occurs. **Nothing is written by looking**; `link()` is the press, and a
+sub-account already recorded against somebody else is **refused by name**
+rather than reassigned, because silently taking the newer answer is exactly
+how the wrong page gets posted to. `accept_many()` reports every row's own
+outcome, the `client_urls.accept_many()` rule. It reads `/locations/search`
+rather than `ghl_oauth.installed_locations()` — that answers a different
+question and carries no website, and the domain is the only field in a
+location record that identifies a business exactly.
+
+**A card that asks for nobody's data gets somebody's.** Client 360's forms
+card fetches `/api/client/forms?name=…&period=…` and names no sub-account —
+and `ghl_forms.summary()` fell back to `GHL_LEAD_LOCATION_ID`, which
+`hub/config.py` describes as the sub-account *"leads are written into"*: Smart
+1's own. A form belongs to exactly one sub-account, so there was **no code
+path by which a client's own forms could reach that card**, and every client's
+record showed the agency's form submissions under that client's name. Not an
+empty card — a wrong one, wrong identically for all of them, which is why it
+read as a feature that had not been finished rather than as a bug. The
+location is resolved from the **client** now, through
+`suite_accounts.location_for()`, and there is no default: a client whose
+sub-account nobody has recorded has no answer, and saying so is the answer.
+
+**And two more in the same module, each rendering as a tidy nought.** A form
+whose submission count raised was dropped with `continue` placed *before* the
+`skipped` tally, so it left no trace at all — when every form failed, the card
+said *"No form submissions in September"* with `no_submissions: 0` and nothing
+anywhere reporting that nothing had been read. And a previous period that
+could not be counted was recorded as **0**, which prints "14 vs 0" and an
+up-arrow over a comparison that never happened. `unreadable` is counted and
+named beside `skipped` — *nobody filled it in* and *we could not ask* are
+different sentences — and an unmeasured baseline is `None`, which makes the
+aggregate baseline unmeasured too rather than comparing against a smaller sum
+and reporting a rise that is an artifact of the failure.
+
+**None of it was covered, which is how three failures shared one module.**
+`test_ghl_forms.py` stubs `_get` and asserts what the module does with each
+answer. Its own first draft then repeated the mistake it was written for: it
+set `GHL_LEAD_LOCATION_ID` *after* importing `hub`, and `config.settings` is a
+frozen dataclass built once at import — so the fallback field was `""`, there
+was no agency location to reach, and *"nothing was asked of the agency's own
+location"* passed against the unfixed code. The variable is set before the
+import now and the test asserts the fallback is really configured first.
+Reverted, eighteen checks go red; the `_delta` assertions are guarded because
+the old code raises on a `None` baseline and an assertion that raises takes
+every check after it out of the file.
+
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
@@ -1952,9 +2043,11 @@ who will never have an account.
 
 **The check is a sweep, not a list of the three we fixed.** A test naming
 those modules proves nothing about the next blueprint. `test_blueprint_guards.py`
-boots the composed app, requests **every** static route it serves with no
-session at all, and requires each one it reaches to be in an allowlist that
-says *why* it is public — the crawler files, the health probes, the chrome's
+boots the composed app, requests **every** route it serves with no
+session at all — the parameterized ones too, which for a long time it skipped
+and which are where every client-facing surface in this Hub lives — and
+requires each one it reaches to be in an allowlist that says *why* it is
+public — the crawler files, the health probes, the chrome's
 own scripts, the help registry, the Suite SSO frame, the calculator embed,
 the nine landing pages, the MSA signing page. A new open route fails the run
 without anybody having thought to add an assertion for it. The allowlist is
@@ -7412,13 +7505,49 @@ have broken — writes each result against the client, and logs a row only when
 something is failing: a clean sweep is a *state*, and writing one every night
 for ever is the noise `hub/google_index.py` had to learn to stop making.
 
-**`test_blueprint_guards.py` cannot see this route, and that is worth knowing
-rather than working around.** Its sweep probes every route **with no variable
-in it**, so `/llms/<slug>/llms.txt` is never requested and an allowlist entry
-for it would be reported stale by that file's own staleness check. The
-openness is asserted directly in `test_llms_hosting.py` instead — anonymous,
-through the composed app, headers included. Any future dynamic public route
-has the same blind spot.
+**`test_blueprint_guards.py` could not see this route, and the note saying
+so was read for a year as a limitation rather than as the gap it was.** Its
+sweep probed every route **with no variable in it**, so `/llms/<slug>/llms.txt`
+was never requested — and neither was anything else with a `<` in it, which is
+**330 of the 1048 routes the composed app serves**. That third is not a
+remainder: every client-facing surface in this Hub is addressed by a token or
+a slug, so "which parameterized routes answer a stranger" is very nearly the
+question that file exists to ask, and it was the half nobody had asked.
+
+It is swept now, with an inert value nothing in the book matches. **A 404 is
+reached, not refused** — a guard runs in `before_request`, ahead of the view,
+so it redirects whether or not the token resolves; a route answering 404 has
+nothing in front of it. That is what makes an unresolvable id a fair probe
+rather than a way of dodging the question, and it is why nearly every answer
+in that section is a 404 and the reading still holds.
+
+**It went in green**, which is the only way it was worth adding: all 63
+reachable routes are the token- and slug-addressed client surfaces the design
+intends — the scan widget and its report, the proposal a client accepts, the
+paid-search estimate, the commercial review link, the radio approval page, the
+client's four social pages, the upload picker, the calculators, the MSA PDF,
+the Google Access consent flow and the static assets each of those loads. Each
+is named with the reason it is public, in **two more dicts** rather than an
+extension of the existing pair: an entry written for a fixed page must not
+quietly cover a parameterized route added under the same prefix later, which
+is the same reason reads and writes were split in the first place.
+
+**Two things it had to get right, and the second nearly repeated the failure
+this file was rewritten once to close.** A probe value has to *build*: an
+integer converter refuses a word and a uuid converter refuses both, so a first
+pass that picked the value from the converter's class name — and got that name
+wrong for integers — silently dropped **76 rules**, printed a healthy-looking
+count, and swept 254 rules while claiming 330. Values are tried in turn now
+and anything that would not build at all is **named rather than passed over**.
+And the two client-facing halves are asserted from opposite ends: four
+surfaces are checked **by name** to still open for a client, because a
+parameterized route falling *behind* the login is a sign-in form in front of
+somebody who will never have an account — the failure Fan Radio shipped with
+for as long as it took anybody to send the link.
+
+The direct assertion in `test_llms_hosting.py` stays — anonymous, through the
+composed app, headers included — because that one is about the crawler headers
+as well as the openness.
 
 ## A placement is judged by its leads, so the page counts them
 
@@ -10118,6 +10247,39 @@ the folder's own assets were matched by a contains rather than an equality.
 `folderMode` still decides the shape of a dry-run public_id, which is a
 different question and a real one.
 
+**And fixing the search left the folder with two readings of itself.**
+`folderExpression()` trims a trailing slash before it builds its clause; the
+gallery's *heading* and its *output filename* took the string exactly as
+handed in. That asymmetry is the whole failure, because the README's own
+folder tree prints the folder **with** a trailing slash -- so pasting it
+searched the right tree, found the right assets, and then wrote them to
+`gallery_.html`, which is the same file for every project: build a second
+gallery and it silently replaces the first, with a success line naming the
+file it had just overwritten. The heading went the same way, `slice(-2)` on
+`[..., 'summer-solar', '']` giving *"summer-solar — "* -- the client's name
+gone and a dash left hanging. A doubled separator does it to the heading
+alone, since `pop()` cannot see an empty segment in the middle.
+`normalizeFolder()` is the one reading now, and `folderExpression()` reads it
+too rather than keeping its own.
+
+**And a relative path is relative to the page that carries it.** A dry run's
+manifest holds no hosted URL, so a simulated asset is drawn from a file on
+this disk -- `path.relative()` against `out/reports`, hard-coded, whatever
+`--out` had actually been given. A gallery written anywhere else had **every
+image broken** and still printed the file it had written. The output path is
+decided before the assets are built now and `assetsFromManifest()` takes the
+directory, because the page's own location is the only thing that path can be
+computed from. It was right for the default, which is exactly why it stood.
+
+`main()` is guarded on `require.main` so importing the file for its helpers
+does not run the command -- unguarded, a test that imports it throws on an
+empty argv and calls `process.exit(1)` on the test runner.
+`tests/gallery.test.ts` asserts all of it, and one of its assertions had to be
+retargeted first: the doubled-separator case was pinned on the *filename*,
+where `pop()` is immune to an empty middle segment, so it was a property that
+could not fail -- the same shape as pinning a rounding bug on a figure too
+large to round to zero.
+
 **The scan photographed their website and nobody was shown the photograph.**
 `website_screenshot` came back from `/_hub/site-brand` and was drawn nowhere,
 so an operator judging brand colour on a dark canvas had to open the client's
@@ -11359,6 +11521,8 @@ python3 test_db_boot.py            # a database blip at boot is not a verdict fo
 python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   overdue, failure streaks, and the worker
                                    #   that cannot see the timings
+python3 test_smartforecast.py      # weather lifecycle rules, immutable history,
+                                   #   public embeds and Render disk recovery
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
 python3 test_qa_reports.py         # every report on /qa answers and is drawable,
@@ -11519,6 +11683,10 @@ python3 test_client360_layout.py   # the record's cards land in their rail
                                    #   every card into Overview with the page
                                    #   still looking complete — and the four
                                    #   actions the accordion's toolbar carried
+python3 test_commercial_dashboard_layout.py
+                                   #   the Commercial Builder dashboard's own
+                                   #   sections, and the rail label assistive
+                                   #   technology reads
 python3 test_client_images.py      # every module that logs client work is one the
                                    #   record can name; deleting a client image, the
                                    #   count, the one brand
@@ -11625,11 +11793,15 @@ python3 test_display_ads.py        # the display layouts, the build screen's con
 python3 test_user_accounts.py      # the roster, the two levels, the crawler block, the throttle,
                                    #   and the signed-in headcount on the dashboard
 python3 test_blueprint_guards.py   # nothing answers a stranger: every route the
-                                   #   composed app serves -- reads and writes, hub
-                                   #   app and all thirty-one mounts -- probed with no
-                                   #   session, against allowlists that say why each
-                                   #   is public; and a walk that finds no mounts is
-                                   #   a failure rather than an empty sweep
+                                   #   composed app serves -- reads and writes,
+                                   #   fixed paths and the third addressed by a
+                                   #   token or a slug, hub app and all
+                                   #   thirty-one mounts -- probed with no
+                                   #   session, against allowlists that say why
+                                   #   each is public; and a walk that finds no
+                                   #   mounts, or a rule it could not build a
+                                   #   probe for, is a failure rather than an
+                                   #   empty sweep
 python3 test_env_config.py         # one setting, every name it answers to, and who logs
                                    #   and a template nothing renders, which no
                                    #   other check here can see

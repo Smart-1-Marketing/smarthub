@@ -108,6 +108,9 @@
 
   <div class="hint">
     Redirect URI in use: <span class="mono brk">{{ status.redirect_uri or 'not set' }}</span><br>
+    {% if status.redirect_uri_problem %}
+      <span class="mono">GOOGLE_ADS_REDIRECT_URI</span> is set, but {{ status.redirect_uri_problem }}.<br>
+    {% endif %}
     {% if expected_redirect and expected_redirect != '/tools/ads/oauth/callback' %}
       Based on <span class="mono">PUBLIC_BASE_URL</span> it should be
       <span class="mono brk">{{ expected_redirect }}</span>.

@@ -53,6 +53,19 @@
   }
   .bar .btn, .bar select { flex: none; }
   .lockup { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
+  /* The workbench is stage five of the same journey that begins in intake.
+     Keeping this rail visible gives the editor a destination and makes the
+     save → render → deliver sequence explicit. */
+  .workflow { display:flex; align-items:center; gap:6px; padding:8px 16px;
+    background:var(--bg); border-bottom:1px solid var(--line); overflow-x:auto;
+    white-space:nowrap; flex:none; }
+  .workflow-title { color:var(--ink-2); font-size:10.5px; letter-spacing:.1em;
+    text-transform:uppercase; font-weight:700; margin-right:4px; }
+  .workflow-step { padding:4px 9px; border-radius:999px; background:var(--panel-2);
+    color:var(--ink-2); font-size:11.5px; font-weight:600; }
+  .workflow-step.done { background:rgba(53,192,137,.14); color:var(--pass); }
+  .workflow-step.active { background:var(--signal); color:#fff; }
+  .workflow-arrow { color:var(--ink-2); font-size:13px; }
   .lockup span { color: var(--ink-2); font-weight: 500; }
   .bar select, .bar button { font: inherit; }
   select, input[type=text], textarea {
@@ -112,10 +125,19 @@
   .proofurl button { white-space: nowrap; }
 
   /* ---------- bench ---------- */
-  .bench { flex: 1; display: grid; grid-template-columns: 320px 1fr 300px; min-height: 0; }
+  .bench { flex: 1; display: grid; grid-template-columns: 320px minmax(0, 1fr) 300px; min-height: 0; }
   .col { overflow-y: auto; min-height: 0; }
   .col.left { border-right: 1px solid var(--line); background: var(--panel); }
   .col.right { border-left: 1px solid var(--line); background: var(--panel); }
+
+  /* The Hub opens creative tools with its navigation reduced to an icon rail.
+     That gives the bench another 168px, which used to become mostly empty
+     stage surround while the form stayed cramped. Give that room to the two
+     places an operator reads and compares: the brief on the left and the
+     size/QA rail on the right. The preview remains fluid in the middle. */
+  body.s1hub-collapsed .bench {
+    grid-template-columns: minmax(360px, 400px) minmax(0, 1fr) minmax(300px, 340px);
+  }
 
   .group { border-bottom: 1px solid var(--line); padding: 16px 18px; }
   .group h3 {
@@ -126,6 +148,7 @@
   .field:last-child { margin-bottom: 0; }
   label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 5px; }
   textarea { min-height: 58px; resize: vertical; }
+  .group-note { margin: -5px 0 11px; color: var(--ink-2); font-size: 12px; line-height: 1.4; }
 
   .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
   .palette-note { margin-top: 9px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
@@ -478,6 +501,13 @@
   .bgmode:hover { border-color: var(--ink-2); }
   .bgmode.on { border-color: var(--signal);
     box-shadow: 0 0 0 1px var(--signal) inset; font-weight: 600; }
+  .image-more { margin-top: 3px; }
+  .image-more > summary { color: var(--ink-2); cursor: pointer; font-size: 12px;
+    list-style: none; padding: 4px 0; }
+  .image-more > summary::-webkit-details-marker { display: none; }
+  .image-more > summary::before { content: '\25B8'; display: inline-block; margin-right: 6px; font-size: 10px; }
+  .image-more[open] > summary::before { transform: rotate(90deg); }
+  .image-more .bgmodes { margin: 7px 0 0; }
   .bgresults:not(:empty) { margin-bottom: 8px; }
   .bgmsg { font-size: 11.5px; color: var(--ink-2); display: block; margin-bottom: 6px; }
   /* Two columns, not four. A 76px-wide thumbnail of a photograph is a smear
@@ -539,6 +569,13 @@
   @media (max-width: 1100px) {
     .bench { grid-template-columns: 280px 1fr; }
     .col.right { display: none; }
+    body.s1hub-collapsed .bench { grid-template-columns: 300px minmax(0, 1fr); }
+  }
+  @media (max-width: 720px) {
+    body { height: auto; min-height: 100vh; overflow: auto; }
+    .bench, body.s1hub-collapsed .bench { grid-template-columns: 1fr; }
+    .col.left { border-right: 0; border-bottom: 1px solid var(--line); max-height: none; }
+    .stage { min-height: 440px; }
   }
 </style>
 </head>
@@ -615,6 +652,17 @@
     title="Keep this client's brand, layout and design as a starting point, so the next ad for them is a form fill rather than a rebuild.">Save as preset…</button>
 </div>
 
+<div class="workflow" aria-label="Display ad workflow">
+  <span class="workflow-title">Display ad workflow</span>
+  <span class="workflow-step done">1. Start</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">2. Brief</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">3. Brand &amp; assets</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">4. Targeting</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step done">5. Message</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step active" id="designStage">6. Design</span><span class="workflow-arrow">›</span>
+  <span class="workflow-step" id="deliverStage">7. Render &amp; deliver</span>
+</div>
+
 <div class="nextstep" id="nextStep" hidden>
   <div class="nsmsg" id="nsMsg"></div>
   <div class="nsacts" id="nsActs"></div>
@@ -684,6 +732,80 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
+  /* Did the copy actually happen?
+     ---------------------------------------------------------------- copy
+     navigator.clipboard is absent on http and is allowed to refuse on
+     https, so a control that says "Copied" either way is reporting a
+     success it never had -- the failure CLAUDE.md names on the Smart 1 Ads
+     estimate, where a button that lies about copying is worse than one
+     that asks.
+
+     This page had three copy affordances and kept the rule at two of them:
+     the logo-palette swatches and the proof link both asked, and the
+     site-brand swatches -- the ones carrying the colors read off the
+     client's own website -- swallowed the rejection with an empty catch
+     and set "copied" on the next line regardless. A rule two of three call
+     sites keep is not a rule, so there is one reading of it now and the
+     fourth control is right by default.
+
+     Resolves TRUE only when the text is on the clipboard. execCommand is
+     the fallback rather than a second answer: it is what still works on
+     http, and it reports its own failure, so a caller never has to guess.
+     Nothing here throws -- a copy button that breaks the page it sits on
+     is worse than one that cannot copy.
+
+     LIFTED AND DRIVEN IN NODE: tests/copy-claim.test.ts reads the block
+     between the markers below and runs it against stubbed clipboards. A
+     copy restated in the test would be a third thing to keep in step. */
+  /* --- s1:copy-start --- */
+  function copyText(text, doc, nav) {
+    doc = doc || (typeof document !== 'undefined' ? document : null);
+    nav = nav || (typeof navigator !== 'undefined' ? navigator : null);
+    var value = String(text == null ? '' : text);
+
+    function byExecCommand() {
+      // No document to select into, or a host that refuses: say so rather
+      // than resolving true on the strength of having tried.
+      if (!doc || typeof doc.execCommand !== 'function') return false;
+      // EVERY step is inside the try, createElement included. The first
+      // version built the textarea above it, so a document that refused to
+      // create one threw straight out of the function that promises not
+      // to -- found by the test, not by reading it.
+      var box = null;
+      try {
+        box = doc.createElement('textarea');
+        box.value = value;
+        // Off-screen rather than hidden: a display:none element cannot be
+        // selected, so the copy would fail for a reason nothing reports.
+        box.setAttribute('style', 'position:fixed;top:-1000px;left:-1000px;opacity:0');
+        doc.body.appendChild(box);
+        box.select();
+        return doc.execCommand('copy') === true;
+      } catch (e) {
+        return false;
+      } finally {
+        try { box && box.parentNode && box.parentNode.removeChild(box); } catch (e) {}
+      }
+    }
+
+    if (nav && nav.clipboard && typeof nav.clipboard.writeText === 'function') {
+      // writeText is specified to return a promise and does not always: a
+      // throw here is synchronous, so Promise.resolve() around the CALL is
+      // too late to catch it. Found by the test, not by reading -- which is
+      // the whole reason this promises never to raise.
+      try {
+        return Promise.resolve(nav.clipboard.writeText(value)).then(
+          function () { return true; },
+          function () { return byExecCommand(); },
+        );
+      } catch (e) {
+        return Promise.resolve(byExecCommand());
+      }
+    }
+    return Promise.resolve(byExecCommand());
+  }
+  /* --- s1:copy-end --- */
+
   function concept() {
     if (!state.doc) return null;
     var cs = state.doc.campaign.concepts;
@@ -898,15 +1020,27 @@
                'already filled in are left exactly as they are.', 'left') +
           '<div id="draftNote" style="font-size:11.5px;color:var(--ink-2);margin-top:5px"></div>' +
         '</div>' + fields + '</div>' +
+      /* Copy and layout are one decision: the words need a home before an
+         operator spends time sourcing a picture. Keeping the layout cards
+         immediately below the inputs also makes a quick message/layout pass
+         possible without scrolling through the image picker. */
+      '<div class="group"><h3>Layout</h3>' +
+        '<p class="group-note">Choose the structure that best supports this message.</p>' +
+        '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
+        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
       '<div class="group"><h3>Background</h3>' +
         '<div class="bgmodes">' +
           '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand color</button>' +
-          '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
           '<button type="button" class="bgmode" data-bgmode="gallery">From their image gallery</button>' +
           '<button type="button" class="bgmode" data-bgmode="upload">Upload a picture</button>' +
-          '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
-          '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
         '</div>' +
+        '<details class="image-more"><summary>More image sources</summary>' +
+          '<div class="bgmodes">' +
+            '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
+            '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
+            '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
+          '</div>' +
+        '</details>' +
         '<div id="bgResults" class="bgresults"></div>' +
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="bgNote">' +
           (concept().backgroundImage
@@ -915,9 +1049,6 @@
         '</div>' +
         backgroundAdjust() +
         '</div>' +
-      '<div class="group"><h3>Layout</h3>' +
-        '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
-        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
       '<div class="group"><h3>Brand colors' +
         help('The five roles every layout resolves against. Changing one here ' +
              'changes it on every size in the set.') + '</h3>' +
@@ -1042,20 +1173,11 @@
         // Copied, never applied: which of the five roles a logo color should
         // become is a judgment, and guessing it moves four other things.
         //
-        // And it only claims to have copied when it did. navigator.clipboard
-        // is absent on http and is allowed to refuse, and a button that says
-        // "copied" either way is the one CLAUDE.md names on the Smart 1 Ads
-        // estimate -- worse than one that asks.
-        var said = function (ok) {
+        // And it claims a copy only when copyText says one happened.
+        copyText(hex).then(function (ok) {
           el.title = ok ? hex + ' copied \u2014 paste it into a swatch'
                         : hex + ' \u2014 could not copy, select and copy it by hand';
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(hex).then(function () { said(true); },
-                                                  function () { said(false); });
-        } else {
-          said(false);
-        }
+        });
       });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-font]'), function (el) {
@@ -1965,8 +2087,13 @@
           // Copied, not applied. Which of the five roles a site color should
           // become is a judgment -- their page background is not always the
           // ad's primary -- and guessing it would move four other things.
-          if (navigator.clipboard) navigator.clipboard.writeText(hex).catch(function () {});
-          el.title = hex + ' copied \u2014 paste it into a swatch below';
+          //
+          // And copied, not merely attempted: this one swallowed the
+          // rejection and set "copied" on the next line either way.
+          copyText(hex).then(function (ok) {
+            el.title = ok ? hex + ' copied \u2014 paste it into a swatch below'
+                          : hex + ' \u2014 could not copy, select and copy it by hand';
+          });
         });
       });
     });
@@ -3812,22 +3939,16 @@
         '</div>' +
       '</div>');
 
-    /* navigator.clipboard is not available on http and is allowed to refuse
-       on https. A button that reports a copy it never made is worse than one
-       that asks, so the last resort selects the text and says so. */
+    /* A button that reports a copy it never made is worse than one that
+       asks, so this asks copyText and draws what it answers. */
     $('proofCopy').addEventListener('click', function () {
       var box = $('proofUrlBox'), btn = this;
       function ok() { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy link'; }, 1600); }
+      // This one has a box on the page to fall back to, which the swatches
+      // do not: selecting the real URL and saying so beats a note nobody
+      // can act on.
       function manual() { box.focus(); box.select(); btn.textContent = 'Press Ctrl-C'; }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(box.value).then(ok, function () {
-          box.select();
-          try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
-        });
-        return;
-      }
-      box.select();
-      try { document.execCommand('copy') ? ok() : manual(); } catch (e) { manual(); }
+      copyText(box.value).then(function (copied) { copied ? ok() : manual(); });
     });
 
     $('decApprove').addEventListener('click', function () { recordDecision('approve'); });
@@ -3957,6 +4078,16 @@
     $('save').classList.toggle('primary', !state.saved);
     $('renderAll').classList.toggle('primary', state.saved);
     $('saveHint').style.display = state.saved ? 'none' : '';
+
+    var designStage = $('designStage');
+    var deliverStage = $('deliverStage');
+    if (state.rendered) {
+      designStage.className = 'workflow-step done';
+      deliverStage.className = 'workflow-step active';
+    } else {
+      designStage.className = 'workflow-step active';
+      deliverStage.className = 'workflow-step';
+    }
 
     // window.S1_BASE is set by the server only when the page is served under
     // a mount prefix, which is exactly the case where the Hub is in front of

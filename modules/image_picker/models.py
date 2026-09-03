@@ -84,6 +84,16 @@ _LATE_COLUMNS = [
     ("image_picker_clients", "business_category", "VARCHAR(120)"),
     ("image_picker_clients", "business_profile", "TEXT"),
     ("image_picker_clients", "ai_collections", "TEXT"),
+    # The gallery is the client work index.  These fields are deliberately on
+    # the asset row rather than inferred from a Cloudinary path: historical
+    # files and Google Drive links have no common physical path to parse.
+    ("image_picker_images", "tool", "VARCHAR(80)"),
+    ("image_picker_images", "completed_on", "VARCHAR(10)"),
+    ("image_picker_images", "project_name", "VARCHAR(200)"),
+    ("image_picker_images", "io_number", "VARCHAR(80)"),
+    ("image_picker_images", "product_number", "VARCHAR(80)"),
+    ("image_picker_images", "asset_folder", "VARCHAR(600)"),
+    ("image_picker_images", "external", "BOOLEAN DEFAULT 0"),
 ]
 
 
@@ -381,6 +391,17 @@ class SavedImage(Base):
     spec_summary = Column(Text, nullable=True)
     spec_unit = Column(String(60), nullable=True)       # e.g. medium_rectangle
 
+    # Completion context shared by every producing tool.  `asset_folder` is
+    # the canonical destination for new work; it is also useful for Drive
+    # references, whose source files intentionally stay in Drive.
+    tool = Column(String(80), nullable=True)
+    completed_on = Column(String(10), nullable=True)
+    project_name = Column(String(200), nullable=True)
+    io_number = Column(String(80), nullable=True)
+    product_number = Column(String(80), nullable=True)
+    asset_folder = Column(String(600), nullable=True)
+    external = Column(Boolean, nullable=False, default=False)
+
     saved_by = Column(String(200), nullable=True)   # hub user email, or "client"
     created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
 
@@ -424,6 +445,13 @@ class SavedImage(Base):
             "spec_result": self.spec_result,
             "spec_summary": self.spec_summary or "",
             "spec_unit": self.spec_unit,
+            "tool": self.tool or "",
+            "completed_on": self.completed_on or "",
+            "project_name": self.project_name or "",
+            "io_number": self.io_number or "",
+            "product_number": self.product_number or "",
+            "asset_folder": self.asset_folder or "",
+            "external": bool(self.external),
             "saved_by": self.saved_by,
             "created_at": iso(self.created_at),
         }

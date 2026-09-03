@@ -310,9 +310,27 @@ PUBLIC_TEMPLATES = ["widget.html", "widget_audit.html", "widget_waiting.html",
 # The backslash is not decoration: the copy this was written against lives in
 # a JS string literal as `We\'ll email`, and a class that did not allow one
 # read straight past the sentence it was written to find.
+# `inbox` is on the list because the copy that was live said "on its way to
+# your inbox too" and none of the six alternatives here matched it: the sweep
+# passed over a live promise for as long as it existed. A regex can only ever
+# say "does this look like a promise"; the question that matters is whether
+# the promise is BACKED, and that is asked below against hub/lead_tags.py.
 PROMISE = re.compile(
     r"(we\\?[’']?ll email|we will email|email your report|in your email"
-    r"|emailed to you|email it to you)", re.I)
+    r"|emailed to you|email it to you|inbox|we\\?[’']?ll send|will be sent to you"
+    r"|sent to you|check your e-?mail|on its way to you)", re.I)
+
+# Which source tag each public page's lead is captured under. A page may
+# promise a message only if a Suite workflow is recorded for that tag in
+# hub/lead_tags.py -- there is no mail sender here, so the workflow IS the
+# sender, and a promise on a tag with none is one nothing can keep.
+TEMPLATE_SOURCE = {
+    "widget.html": "scan_widget",
+    "widget_waiting.html": "scan_widget",
+    "widget_report.html": "scan_widget",
+    "widget_audit.html": "website_audit",
+    "widget_audit_report.html": "website_audit",
+}
 
 _BLOCK_COMMENT = re.compile(r"<!--.*?-->|\{#.*?#\}|/\*.*?\*/", re.S)
 _LINE_COMMENT = re.compile(r"^\s*//.*$", re.M)
@@ -329,12 +347,28 @@ def copy_only(src: str) -> str:
     return _LINE_COMMENT.sub("", _BLOCK_COMMENT.sub(" ", src))
 
 
+from hub import lead_tags                                          # noqa: E402
+
 for name in PUBLIC_TEMPLATES:
     path = TEMPLATES / name
     check(f"{name} is a page this module actually serves", path.exists(), True)
+    check(f"{name} names the tag its lead is captured under", name in TEMPLATE_SOURCE, True)
+    source = TEMPLATE_SOURCE.get(name, "")
+    check(f"...and that tag is in the registry", lead_tags.known(source), True)
     hit = PROMISE.search(copy_only(path.read_text()))
-    check(f"{name} promises no email",
-          hit.group(0) if hit else None, None)
+    if lead_tags.backed(source):
+        # A workflow is recorded for this tag, so a promise here is one
+        # something keeps. Nothing to refuse; say which workflow backs it.
+        check(f"{name} may promise a message: {source} is backed by "
+              f"{lead_tags.workflow_for(source)!r}", True, True)
+    else:
+        check(f"{name} promises no message, because no workflow is recorded "
+              f"for the {source!r} tag",
+              hit.group(0) if hit else None, None)
+
+check("the sweep bites on the copy that was live",
+      bool(PROMISE.search("we'll show the full report here, and it's on its "
+                          "way to your inbox too.")), True)
 
 check("a comment describing the promise is not the promise",
       PROMISE.search(copy_only(

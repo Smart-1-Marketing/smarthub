@@ -6,8 +6,8 @@
   <div class="wrap">
     <div class="mark">S1</div>
     <div>
-      <h1>{{ client.name }}</h1>
-      <div class="sub">Image library{% if is_staff %} · staff view{% endif %}</div>
+      <h1>Smart 1 Marketing</h1>
+      <div class="sub">{{ client.name }} · Image library{% if is_staff %} · staff view{% endif %}</div>
     </div>
     <div class="top-actions">
       {% if is_staff %}
@@ -25,7 +25,7 @@
     <h2>Pick photos for your marketing</h2>
     <p>
       Choose a topic or a service below and tap the photos you like. When you save,
-      they go straight into your image gallery and your Smart 1 Suite media library,
+      they go straight into your image gallery and your Smart 1 Marketing media library,
       ready to drop into a page or an email.
     </p>
   </section>
@@ -33,7 +33,7 @@
   {% if not providers_on.pexels and not providers_on.pixabay and not providers_on.unsplash %}
   <div class="note warn">
     <h3>Photo search isn't switched on yet</h3>
-    <p>No stock photo provider is configured. Your Smart 1 contact can turn this on.</p>
+    <p>No stock photo provider is configured. Your Smart 1 Marketing contact can turn this on.</p>
   </div>
   {% endif %}
 
@@ -403,7 +403,7 @@
       var pending = (d.saved || []).filter(function(s){ return s.ghl_status !== "sent"; }).length;
       var kind = (d.failed && d.failed.length) ? "warn" : "good";
       say(kind, d.summary,
-          pending ? "We'll keep trying the Smart 1 Suite copy — nothing is lost." : "");
+          pending ? "We'll keep trying the Smart 1 Marketing copy — nothing is lost." : "");
 
       state.picks = [];
       syncTray();

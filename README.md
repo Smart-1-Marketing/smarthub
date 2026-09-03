@@ -16,6 +16,7 @@ All six Smart 1 internal tools combined into **one app, one Render service, one 
 | `/tools/utm/` | UTM Builder | *(new)* |
 | `/tools/image/` | Image Optimizer & Resizer | smart1-image-optimizer |
 | `/tools/pdf/` | PDF Optimizer | smart1-pdf-optimizer *(ported FastAPI → Flask)* |
+| `/tools/smartforecast/` | SmartForecast Dynamic Website | *(new)* |
 
 **One login gates everything** — shared team password + your name (12-hour
 sessions, per-IP throttling, every login and GHL create/delete recorded in the
@@ -113,7 +114,11 @@ and alt text written into each asset's Cloudinary context.
 Images saved against a client surface in two places: a **Client Images** card
 at the bottom of that client's Client 360 record, and on the SEO client detail
 page with **See client image gallery** and **Optimize client images** buttons.
-The gallery (`/tools/seo-images/gallery?company=…`) groups by project.
+Client 360's gallery link opens the client's **full gallery** — every folder
+and every source, in Client Image Uploads — resolved by name through
+`/tools/image-picker/gallery/for-client`; the pipeline's own archive view
+(`/tools/seo-images/gallery?company=…`) groups by project and offers the way
+to the full gallery when the client has one.
 
 Each save is recorded in a searchable archive (`/var/data/seo-images/`) with
 copy-URL, copy-`<img>`-tag, edit-alt-later, delete, and CSV export. Filenames

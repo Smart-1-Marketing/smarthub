@@ -11,7 +11,7 @@
 
      Readability was the brief here: darker ink, a larger base size, 16px
      inputs (which also stops iOS zooming on focus), and generous spacing. The
-     form is split into four named steps with a progress bar, so a first-time
+     form is split into named steps with a progress bar, so a first-time
      visitor meets a short screen, not a wall of fields. */
   :root {
     --ink: #16222E;        /* near-black slate — high contrast on white */
@@ -45,6 +45,8 @@
   .lede { color: var(--ink-2); font-size: 15px; margin: 0 0 20px; }
 
   /* ---- progress stepper ---- */
+  .workflow-label { margin: 0 0 8px; color: var(--ink-2); font-size: 12px;
+    font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
   .steps { display: flex; gap: 6px; margin: 0 0 6px; }
   .steps .seg { flex: 1; }
   .steps .bar { height: 5px; border-radius: 3px; background: var(--line); transition: background .25s; }
@@ -284,7 +286,7 @@
       <button type="button" id="campSearchGo" style="padding:11px 20px;white-space:nowrap">Search</button>
     </div>
   </div>
-  <p class="lede">A few short steps. We handle the sizes, layouts and platform requirements from here.</p>
+  <p class="lede">We’ll take you from a clear brief to finished, platform-ready ads. Your choices stay visible all the way through.</p>
 
   <!-- team access gate: shown only when the server has INTAKE_CODE set -->
   <div id="gate" style="display:none;max-width:380px;margin:8px auto 0;text-align:center">
@@ -295,13 +297,18 @@
     <button type="button" id="gateGo" style="width:100%;margin-top:14px">Continue</button>
   </div>
 
-  <!-- progress stepper -->
+  <!-- This names the complete journey, including the staff design and delivery
+       stages that follow the intake. The Commercial Builder makes the whole
+       path visible; display work should not appear to end at copy approval. -->
+  <p class="workflow-label">Display ad workflow</p>
   <div class="steps" id="steps">
-    <div class="seg" data-goto="0"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">1</span></span><span class="t">Your Business</span></div></div>
-    <div class="seg" data-goto="1"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">2</span></span><span class="t">The Campaign</span></div></div>
-    <div class="seg" data-goto="2"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">3</span></span><span class="t">Logo &amp; Images</span></div></div>
-    <div class="seg" data-goto="3"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">4</span></span><span class="t">Where Ads Run</span></div></div>
-    <div class="seg" data-goto="4"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">5</span></span><span class="t">Review Message</span></div></div>
+    <div class="seg" data-goto="0"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">1</span></span><span class="t">Start</span></div></div>
+    <div class="seg" data-goto="1"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">2</span></span><span class="t">Brief</span></div></div>
+    <div class="seg" data-goto="2"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">3</span></span><span class="t">Brand &amp; assets</span></div></div>
+    <div class="seg" data-goto="3"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">4</span></span><span class="t">Targeting</span></div></div>
+    <div class="seg" data-goto="4"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">5</span></span><span class="t">Message</span></div></div>
+    <div class="seg" data-goto="5"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">6</span></span><span class="t">Design</span></div></div>
+    <div class="seg" data-goto="6"><div class="bar"></div><div class="lbl"><span class="num"><span class="n">7</span></span><span class="t">Render &amp; deliver</span></div></div>
   </div>
 
   <div id="banner"></div>
@@ -319,7 +326,7 @@
 
     <!-- ============================ STEP 1 ============================ -->
     <section class="step on" data-step="0">
-      <h2 class="steptitle">Your business</h2>
+      <h2 class="steptitle">Start with your business</h2>
       <p class="stepsub">So we can find your brand and reach you about the ads.</p>
 
       <div class="field" data-field="business">
@@ -349,7 +356,7 @@
 
     <!-- ============================ STEP 2 ============================ -->
     <section class="step" data-step="1">
-      <h2 class="steptitle">The campaign</h2>
+      <h2 class="steptitle">Build the brief</h2>
       <p class="stepsub">What you are advertising, and what a click should do.</p>
 
       <div class="row">
@@ -435,7 +442,7 @@
 
     <!-- ============================ STEP 3 ============================ -->
     <section class="step" data-step="2">
-      <h2 class="steptitle">Logo &amp; images</h2>
+      <h2 class="steptitle">Add brand &amp; assets</h2>
       <p class="stepsub">We grab what we can from your site. Add or replace anything here.</p>
 
       <!-- discovered brand + logo, or manual entry, lands here -->
@@ -500,7 +507,7 @@
 
     <!-- ============================ STEP 4 ============================ -->
     <section class="step" data-step="3">
-      <h2 class="steptitle">Where ads run</h2>
+      <h2 class="steptitle">Set targeting</h2>
       <p class="stepsub">The platforms and the area you want to reach.</p>
 
       <div class="field" data-field="platforms">
@@ -531,7 +538,7 @@
 
     <!-- ============================ STEP 5: copy approval ============================ -->
     <section class="step" data-step="4">
-      <h2 class="steptitle">Review your message</h2>
+      <h2 class="steptitle">Approve the message</h2>
       <p class="stepsub">We drafted this from your answers. Edit anything, then approve — nothing is built until you do.</p>
 
       <div id="copyLoading" style="padding:24px 0;color:var(--ink-2)"><svg class="s1mark" width="15" height="15" viewBox="0 0 24 24" role="img" aria-label="Writing your ad copy"><path class="s1mark-star" d="M12 3.2 13.6 9.1 19.4 10.7 13.6 12.3 12 18.2 10.4 12.3 4.6 10.7 10.4 9.1Z" fill="currentColor"/><circle class="s1mark-tw" cx="19.4" cy="4.9" r="1.7" fill="currentColor"/><circle class="s1mark-tw s1mark-tw2" cx="5.1" cy="19.2" r="1.3" fill="currentColor"/></svg> Writing your ad copy…<span class="s1clock" id="copyClock"></span></div>
@@ -804,7 +811,8 @@
     var last = i === STEPS.length - 1;
     nextBtn.style.display = last ? 'none' : '';
     submit.style.display = last ? '' : 'none';
-    stepOf.textContent = 'Step ' + (i + 1) + ' of ' + STEPS.length;
+    stepOf.textContent = 'Step ' + (i + 1) + ' of ' + STEPS.length +
+      (last ? ' — then we move into design, render & delivery.' : '');
 
     banner.innerHTML = '';
     if (i === 4) loadCopySuggestion();

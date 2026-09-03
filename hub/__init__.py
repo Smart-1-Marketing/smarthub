@@ -453,6 +453,100 @@ def create_hub_app() -> Flask:
         from . import google_index
         return jsonify(google_index.build(force=True))
 
+    # ---- which Suite sub-account belongs to which client ----------------
+    #
+    # /tools/suite-match, beside /tools/sites-match and /tools/google-match:
+    # the same shape of screen answering the same shape of question, and
+    # tiled with them on QA Reports rather than on Tools.
+    #
+    # Note the paths. "/suite" is a dispatcher-mounted module, so a hub route
+    # under it never receives the request — the first trap CLAUDE.md names.
+    # "/api/suite/..." starts with "/api", which is mounted nowhere, and
+    # "/tools/suite-match" is not under any "/tools/<mount>"; linkcheck is
+    # what proves both rather than this comment.
+    @app.route("/tools/suite-match")
+    def page_suite_match():
+        gate = _require_page()
+        if gate:
+            return gate
+        return render_template("suite_match.html", user=current_user(),
+                               active="qa")
+
+    @app.route("/api/suite/map")
+    def api_suite_map():
+        """What is recorded today. A read, so a GET."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        rows = suite_map.links()
+        return jsonify({"links": rows, "count": len(rows)})
+
+    @app.route("/api/suite/proposals", methods=["POST"])
+    def api_suite_proposals():
+        """Candidate pairings, and everything left over.
+
+        A POST behind a button, for the reason `hub/domain_purchase.py` gives
+        about its refresh and `hub/image_audit.reconcile()` about its sweep:
+        this walks every sub-account in the company a page at a time against
+        HighLevel's own rate limit, and a GET that does that is one a reload,
+        a prefetch or a link preview fires without anybody asking. Nothing is
+        written by looking — `proposals()` reads and `/api/suite/link` is the
+        press.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        return jsonify(suite_map.proposals())
+
+    @app.route("/api/suite/link", methods=["POST"])
+    def api_suite_link():
+        """Record one pairing, or a screenful of them.
+
+        `accept_many()` reports every row's own outcome rather than one
+        number, because a sub-account already recorded against somebody else
+        is refused by name and a count hides the refusals — the rule
+        `client_urls.accept_many()` works to.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        actor = current_user() or ""
+        pairs = body.get("pairs")
+        if isinstance(pairs, list):
+            out = suite_map.accept_many(pairs, by=actor)
+            if out.get("linked"):
+                audit.log("hub", "suite_locations_linked", actor=actor,
+                          detail=f"{out['linked']} sub-account(s)")
+            return jsonify(out)
+        out = suite_map.link(str(body.get("client") or ""),
+                             str(body.get("location_id") or ""), by=actor)
+        if out.get("ok"):
+            audit.log("hub", "suite_location_linked", actor=actor,
+                      client=out.get("client") or "",
+                      detail=str(out.get("location_id") or ""))
+        return jsonify(out)
+
+    @app.route("/api/suite/unlink", methods=["POST"])
+    def api_suite_unlink():
+        """Take a pairing off. A Hub overlay either way: nothing is written
+        to Smart 1 Suite or to Knack, so unlinking leaves both exactly as
+        they were."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        out = suite_map.unlink(client)
+        if out.get("ok"):
+            audit.log("hub", "suite_location_unlinked", actor=current_user(),
+                      client=client)
+        return jsonify(out)
+
     @app.route("/api/backup")
     def api_backup():
         """What of the JSON on the disk is mirrored into the database.
@@ -696,6 +790,26 @@ def create_hub_app() -> Flask:
         from . import website_audit
         return jsonify(website_audit.audit(request.args.get("domain", "")))
 
+    @app.route("/api/client/health")
+    def api_client_health():
+        """The derived health strip on Client 360 -- hub/record_health.py.
+
+        Under `/api/client/` for the reason `/api/client/audit` gives: that
+        prefix is what `hub/suite_embed.EMBEDDABLE` allowlists, so a strip
+        pointed anywhere else draws on every screen except inside the Suite
+        frame. Read-only; every source names its own failure rather than
+        raising, so this answers 200 with `measured: False` where a source
+        refused and never 500s the page it summarizes.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import record_health
+        name = request.args.get("name", "")
+        if not name.strip():
+            return jsonify({"ok": False, "error": "A client is required."}), 400
+        return jsonify(record_health.client360(name))
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""
@@ -710,6 +824,27 @@ def create_hub_app() -> Flask:
         # carries the member it belongs to — see hub/client_groups.py.
         also = client_groups.member_names(name, request.args.get("url", ""))
         return jsonify(work_log(name, limit, also=also))
+
+    @app.route("/api/client/client-links", methods=["GET", "POST"])
+    def api_client_portal_links():
+        """Manage the one customer-safe links page from Client 360."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_portal
+        body = request.get_json(silent=True) or {}
+        source = body if request.method == "POST" else request.args
+        client = str(source.get("name") or "").strip()
+        if not client:
+            return jsonify({"ok": False, "error": "Choose a client first."}), 400
+        if request.method == "POST" and body.get("label"):
+            saved = client_portal.add(client, body.get("label"), body.get("url"), body.get("kind", "Proof"))
+            if not saved.get("ok"):
+                return jsonify(saved), 400
+        share_token = client_portal.token(client, app.config.get("SECRET_KEY"))
+        return jsonify({"ok": True, "client": client,
+                        "url": request.url_root.rstrip("/") + "/client-links/" + share_token,
+                        "links": client_portal.links(client, request.url_root)})
 
     @app.route("/api/client/orders")
     def api_client_orders():
@@ -1841,9 +1976,14 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from .ghl_forms import summary
+        # The url rides along so the client's sub-account can be resolved on
+        # domain as well as on name -- location_for() joins on either, and a
+        # client filed under a slightly different name is exactly the row a
+        # name-only match misses.
         return jsonify(summary(request.args.get("name", ""),
                                request.args.get("location", ""),
-                               request.args.get("period", "this_month")))
+                               request.args.get("period", "this_month"),
+                               request.args.get("url", "")))
 
     @app.route("/creative")
     def page_creative():
@@ -3079,6 +3219,16 @@ def create_hub_app() -> Flask:
         return render_template("client360.html", user=current_user(), modules=MODULES,
                                active="c360", q=request.args.get("q", ""))
 
+    @app.route("/client-links/<share_token>")
+    def client_links(share_token):
+        """A deliberately chrome-free page a customer can keep and reopen."""
+        from . import client_portal
+        client = client_portal.client_from_token(share_token, app.config.get("SECRET_KEY"))
+        if not client:
+            return make_response("This client link is no longer valid.", 404)
+        return render_template("client_links.html", client=client,
+                               links=client_portal.links(client, request.url_root))
+
     @app.route("/tools")
     def tools():
         gate = _require_page()
@@ -3422,7 +3572,10 @@ def create_hub_app() -> Flask:
         client = (body.get("client") or "").strip()
         if not client:
             return jsonify({"error": "client is required."}), 400
-        social = seo.set_social(client, body.get("social") or {})
+        try:
+            social = seo.set_social(client, body.get("social") or {})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "social": social})
 
@@ -6104,6 +6257,9 @@ def create_hub_app() -> Flask:
     # keeps its chrome -- which is why this is the longer prefix and not
     # "/sales/landing".
     CHROMELESS = ("/login", "/signup", "/reset", "/signin", "/account",
+                  # A shareable customer index and the image-picker share
+                  # route must never inherit the Hub sidebar or help controls.
+                  "/client-links/", "/tools/image-picker/pick/",
                   # The forgotten-password page and the admin-only refusal both
                   # render on _users_base.html, which is a bare card with no
                   # <body> the injector would recognise -- and injecting the

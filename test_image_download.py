@@ -420,6 +420,9 @@ FULL_ASSET_ON_PURPOSE = {
         "one image per post card; the planner's rows do not carry a preview yet",
     ("modules/social_planner/templates/client_approve.html", "esc(p.image_url)"):
         "same, on the client's approval page",
+    ("modules/smartforecast/templates/embed.html", "payload.content.desktop_image_url"):
+        "the public campaign embed is the client website deliverable, not a "
+        "gallery tile; it intentionally serves the approved responsive asset",
 
     # A logo is small, is drawn at close to its own size, appears once rather
     # than in a grid, and is as often observed off the client's own site as

@@ -39,7 +39,7 @@ if os.path.exists(os.environ["HUB_LEADS_FILE"]):
 
 import requests
 
-from hub import ghl_contacts, leads
+from hub import ghl_contacts, leads, lead_tags
 
 FAILURES = []
 CALLS = {"n": 0}
@@ -105,6 +105,178 @@ READS_ALLOWED = {
 
 # Posting to something *named* like a webhook. Same allowance, same reason.
 POSTS_ALLOWED = {"modules/io_builder/app.py"}
+
+
+# --- The tags a lead carries, and the links a workflow emails ---------------
+#
+# Nothing here asserted anything about payload_for() before: requests.post was
+# stubbed and the body it was handed never inspected, so the tag tuple could
+# change and every test in the repo would pass. Suite workflows trigger on
+# those tags now, and the report link is what the workflow emails.
+def tag_and_link_checks():
+    os.environ["GHL_LEAD_LOCATION_ID"] = "LOC456"
+    for name in ("GHL_LEAD_REPORT_URL_FIELD_ID", "GHL_LEAD_PDF_URL_FIELD_ID"):
+        os.environ.pop(name, None)
+
+    print("the tags a scan widget lead carries")
+    scan = leads.capture("scan_widget", "smart1-home-page",
+                         {"name": "Sam Scan", "email": "s@example.com"},
+                         pdf_url="https://smart1.agency/scans/r/tok.pdf",
+                         meta={"report_url": "https://smart1.agency/scans/r/tok"})
+    body = ghl_contacts.payload_for(scan)
+    check("tag array", body["tags"], ["smart1-hub", "scan_widget", "smart1-home-page"])
+    check("...built by the registry", body["tags"], lead_tags.tags_for(scan))
+
+    print("the tags a website audit lead carries")
+    audit = leads.capture("website_audit", "website-audit", {"email": "w@example.com"},
+                          meta={"audit_url": "https://smart1.agency/scans/r/aud"})
+    check("tag array", ghl_contacts.payload_for(audit)["tags"],
+          ["smart1-hub", "website_audit", "website-audit"])
+
+    print("with no custom-field ids the links are held, and that is named")
+    check("no customFields in the body", "customFields" in body, False)
+    links = ghl_contacts.report_links(scan)
+    check("both links are reported as dropped", sorted(links["dropped"]), ["pdf_url", "report_url"])
+    check("and none as sent", links["sent"], [])
+    responds(200, {"contact": {"id": "CONTACT_SCAN", "new": True}})
+    leads.deliver(scan)
+    status = leads.route_status([scan])
+    check("the panel warns", bool(status["links_warning"]), True)
+    check("...naming both variables", "GHL_LEAD_REPORT_URL_FIELD_ID" in status["links_warning"]
+          and "GHL_LEAD_PDF_URL_FIELD_ID" in status["links_warning"], True)
+    check("...and counting the delivered lead whose link never went",
+          "1 delivered lead" in status["links_warning"], True)
+    check("...with a title the panel draws", bool(status["links_warning_title"]), True)
+    from hub import config as _config
+    fresh = _config.Settings()
+    row_ = next(r for r in fresh.status() if r["name"] == "Lead report links in Suite")
+    check("and the status page carries the same row, amber not red", row_["state"], "warn")
+
+    print("with the ids configured the links go as custom fields")
+    os.environ["GHL_LEAD_REPORT_URL_FIELD_ID"] = "cf_report_1"
+    os.environ["GHL_LEAD_PDF_URL_FIELD_ID"] = "cf_pdf_1"
+    body = ghl_contacts.payload_for(scan)
+    check("customFields carry both links", body.get("customFields"), [
+        {"id": "cf_report_1", "field_value": "https://smart1.agency/scans/r/tok"},
+        {"id": "cf_pdf_1", "field_value": "https://smart1.agency/scans/r/tok.pdf"}])
+    check("the audit page link rides under audit_url too",
+          ghl_contacts.payload_for(audit).get("customFields"),
+          [{"id": "cf_report_1", "field_value": "https://smart1.agency/scans/r/aud"}])
+    check("a lead with no link sends no empty field",
+          "customFields" in ghl_contacts.payload_for(
+              leads.capture("calculators", "IMS", {"email": "c@example.com"})), False)
+    check("and the panel stops warning", leads.route_status([scan])["links_warning"], "")
+    check("and the status row goes green",
+          next(r for r in _config.Settings().status()
+               if r["name"] == "Lead report links in Suite")["state"], "ok")
+
+    print("preflight lists the custom fields rather than guessing an id")
+    _real_get = requests.get
+
+    def _get(url, **kw):
+        if url.endswith("/customFields"):
+            return Resp(200, {"customFields": [
+                {"id": "cf_report_1", "name": "Report URL", "fieldKey": "contact.report_url",
+                 "dataType": "TEXT", "model": "contact"},
+                {"id": "cf_opp", "name": "Opp field", "model": "opportunity"}]})
+        return Resp(200, {"location": {"id": "LOC456", "name": "Smart 1 Marketing"}})
+    requests.get = _get
+    try:
+        pre = ghl_contacts.preflight()
+    finally:
+        requests.get = _real_get
+    fields = pre.get("custom_fields", {})
+    check("contact fields are listed with their ids", [f["id"] for f in fields.get("fields", [])],
+          ["cf_report_1"])
+    check("an opportunity field is not offered as a contact one",
+          any(f["id"] == "cf_opp" for f in fields.get("fields", [])), False)
+    bad = next(c for c in pre["checks"] if c["check"].startswith("Report-link"))
+    check("a configured id the location does not have is named", bad["ok"], False)
+    check("...by variable", "pdf_url" in bad["detail"], True)
+    check("and preflight is still ready -- the links are a to-do, not a blocker",
+          pre["ready"], True)
+    for name in ("GHL_LEAD_REPORT_URL_FIELD_ID", "GHL_LEAD_PDF_URL_FIELD_ID"):
+        os.environ.pop(name, None)
+
+
+# --- Every source tag a call site emits is one the registry knows ------------
+#
+# Suite workflows trigger on the source tag, so a source invented at a call
+# site with no entry here is a lead that sits untriggered while the panel
+# reads "delivered". Read from the AST: a source named in prose is not a call.
+# Both directions -- a registry entry no call site uses is stale and goes on
+# covering whatever is captured under that name next.
+#
+# `landing` is emitted by the built landing page's own JavaScript
+# (hub/landing_render.py), which posts to /api/leads/capture with the source
+# in the body, so no Python call site names it; it is declared here.
+JS_SOURCES = {"landing": "hub/landing_render.py"}
+
+
+def _literal_sources():
+    found = {}
+    for path in _sources():
+        try:
+            tree = ast.parse(path.read_text(errors="ignore"))
+        except SyntaxError:
+            continue
+        # A module-level NAME = "literal" is read as the literal -- the review
+        # route names its tag once and passes the constant, and a sweep that
+        # cannot follow that reports a registered tag as one nothing emits.
+        consts = {t.id: n.value.value for n in tree.body if isinstance(n, ast.Assign)
+                  for t in n.targets if isinstance(t, ast.Name)
+                  and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("capture_and_deliver", "capture")
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id.endswith("leads")):
+                continue
+            expr = None
+            for kw in node.keywords:
+                if kw.arg == "source":
+                    expr = kw.value
+            if expr is None and node.args:
+                expr = node.args[0]
+            # A literal, or a conditional choosing between literals -- the
+            # scan widget picks its source that way. Anything else is a
+            # value the sweep cannot read and is named as such.
+            leaves = [expr] if not isinstance(expr, ast.IfExp) else [expr.body, expr.orelse]
+            leaves = [ast.Constant(consts[l.id]) if isinstance(l, ast.Name) and l.id in consts else l
+                      for l in leaves]
+            for leaf in leaves:
+                if isinstance(leaf, ast.Constant) and isinstance(leaf.value, str):
+                    found.setdefault(leaf.value, []).append(f"{path.as_posix()}:{node.lineno}")
+                elif leaf is not None:
+                    found.setdefault("(not a literal)", []).append(f"{path.as_posix()}:{node.lineno}")
+    return found
+
+
+def source_registry_checks():
+    print("every source a call site emits is in hub/lead_tags.py")
+    found = _literal_sources()
+    check("the sweep found call sites", len(found) > 10, True)
+    unknown = sorted(s for s in found
+                     if s not in lead_tags.SOURCES and s not in lead_tags.CAPTURE_ONLY
+                     and s != "(not a literal)")
+    check("sources named at a call site and in neither table", unknown, [])
+    # hub/__init__.py's /api/leads/capture forwards whatever the body says,
+    # which is how the landing pages' `landing` arrives; that one is read.
+    check("the only non-literal source is the public capture route's pass-through",
+          [x for x in found.get("(not a literal)", []) if not x.startswith("hub/__init__.py")], [])
+    print("and no registry entry has outlived its call site")
+    stale = sorted(s for s in list(lead_tags.SOURCES) + list(lead_tags.CAPTURE_ONLY)
+                   if s not in found and s not in JS_SOURCES)
+    check("registry entries no call site emits", stale, [])
+    check("the JS-side source exists where it is said to",
+          all(name in pathlib.Path(where).read_text(errors="ignore")
+              for name, where in JS_SOURCES.items()), True)
+    check("every entry says what it is",
+          all(len(v.get("what", "")) > 10 for v in lead_tags.SOURCES.values()), True)
+    check("every entry has a workflow slot, None until one is built",
+          all("workflow" in v for v in lead_tags.SOURCES.values()), True)
+    check("a tag with no workflow is not backed", lead_tags.backed("scan_widget"),
+          bool(lead_tags.SOURCES["scan_widget"]["workflow"]))
 
 
 def _sources():
@@ -221,7 +393,9 @@ def main():
     row5 = leads.deliver(leads.capture("x", "/y", {"name": "No Contact Details"}))
     check("retryable", row5["retryable"], False)
 
+    tag_and_link_checks()
     webhook_source_checks()
+    source_registry_checks()
 
     print()
     if FAILURES:

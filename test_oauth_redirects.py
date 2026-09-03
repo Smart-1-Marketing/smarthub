@@ -147,6 +147,65 @@ ads = row(orx.rows("https://smart1.agency/"), "google_ads")
 check("a pinned URI on an unknown host is named", ads["state"], "warn")
 check("and names the host it points at", "smart1-hub.onrender.com" in ads["note"])
 
+# --------------------------------------------------------------------- 3b
+print("\nThe redirect URI is one exact string, validated where it is read")
+# The Aug 31 incident: two Authorised redirect URIs pasted into one variable,
+# comma-joined. `urlencode` sent the pair to Google as one redirect_uri and
+# the consent screen answered with a mismatch. The rule lives in
+# orx.pinned_uri(), and BOTH readers -- the panel and the flow that builds
+# the auth URL -- have to give the same answer, or one of them keeps sending
+# what the other refuses.
+import importlib                                                  # noqa: E402
+from modules.ads_builder import google_ads                        # noqa: E402
+
+GOOD = "https://smart1.agency/tools/ads/oauth/callback"
+COMMA = GOOD + ",https://smart1-hub.onrender.com/tools/ads/oauth/callback"
+SPACED = "https://smart1.agency/tools/ads/oauth/callback https://smart1-hub.onrender.com/x"
+
+check("one clean URI passes through unchanged", orx.pinned_uri(GOOD), (GOOD, ""))
+check("...with Render's literal quotes stripped", orx.pinned_uri(f'"{GOOD}"'), (GOOD, ""))
+check("unset is unset, not malformed", orx.pinned_uri(""), ("", ""))
+uri, why = orx.pinned_uri(COMMA)
+check("a comma-joined pair is refused", uri, "")
+check("...counting the values", "2 values" in why and "comma" in why, True)
+uri, why = orx.pinned_uri(SPACED)
+check("whitespace inside the value is refused", uri, "")
+check("...and says so in words", "whitespace" in why or "more than one" in why, True)
+check("two schemes with nothing between them are refused",
+      orx.pinned_uri("https://a.example/xhttps://b.example/y")[0], "")
+
+for label, value, expect_state in (("the correct single value", GOOD, "off"),
+                                   ("a comma-joined value", COMMA, "warn"),
+                                   ("a whitespace value", SPACED, "warn")):
+    # Parked (no developer token) on purpose: a missing URI on a parked flow
+    # is not a to-do, and a malformed one is, whatever the flow's state.
+    env(PUBLIC_BASE_URL="https://smart1.agency", GOOGLE_CLIENT_ID="cid",
+        GOOGLE_ADS_CLIENT_ID="ads", GOOGLE_ADS_REDIRECT_URI=value)
+    r = row(orx.rows("https://smart1.agency/"), "google_ads")
+    check(f"{label}: the panel reads {expect_state}", r["state"], expect_state)
+    importlib.reload(google_ads)
+    c = google_ads.cfg()
+    status = google_ads.connection_status()
+    if expect_state == "off":
+        check(f"{label}: the panel prints it", r["uris"], [GOOD])
+        check(f"{label}: and the code sends exactly what the panel prints",
+              c["redirect_uri"], r["uris"][0])
+        check(f"{label}: the flow does not count it as missing",
+              "GOOGLE_ADS_REDIRECT_URI" not in status["missing"])
+    else:
+        check(f"{label}: the panel prints no URI to register", r["uris"], [])
+        check(f"{label}: and says it is misconfigured, naming the variable",
+              r["note"].startswith("Misconfigured") and "GOOGLE_ADS_REDIRECT_URI" in r["note"],
+              True)
+        check(f"{label}: the flow reads it as unset", c["redirect_uri"], "")
+        check(f"{label}: carrying the reason", bool(c["redirect_uri_problem"]))
+        check(f"{label}: so /connect would refuse before sending anyone to Google",
+              "GOOGLE_ADS_REDIRECT_URI" in status["missing"])
+        block = next(b for b in status["blocks"] if b["name"] == "GOOGLE_ADS_REDIRECT_URI")
+        check(f"{label}: and the block says it is set rather than telling them to set it",
+              block["why"].startswith("it is set, but"), True)
+        check(f"{label}: never carries the value", value not in repr(r), True)
+
 # --------------------------------------------------------------------- 4
 print("\nNo credential value is ever carried")
 env(PUBLIC_BASE_URL="https://smart1.agency",

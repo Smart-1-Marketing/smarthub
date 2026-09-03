@@ -266,6 +266,11 @@ function renderNotices(d){
       esc(d.route_warning_title||'Check the delivery route')+'</b>'+
       esc(d.route_warning)+'</div>');
   }
+  if(d.links_warning){
+    items.push('<div class="lead-note"><b>'+
+      esc(d.links_warning_title||'Report links are not reaching Suite')+'</b>'+
+      esc(d.links_warning)+'</div>');
+  }
   if(d.note){ items.push('<div class="lead-note">'+esc(d.note)+'</div>'); }
   document.getElementById('noteList').innerHTML = items.length
     ? items.join('')

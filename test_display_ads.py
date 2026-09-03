@@ -736,6 +736,23 @@ def test_the_column_collapses_and_explains_itself_in_bubbles():
           screen.count('style="font-size:11.5px;color:var(--ink-2);margin-top:4px"') == 0)
 
 
+def test_layout_choice_follows_the_copy_inputs():
+    """The layout determines where the message can live.
+
+    It belongs directly after the copy fields, before background sourcing and
+    the more occasional brand/type controls. Otherwise an operator has to
+    scroll through a large image chooser before they can make the design
+    decision that changes how their headline reads.
+    """
+    screen = BUILD_HTML.read_text()
+    copy_group = screen.find("<div class=\"group\"><h3>Copy for ")
+    layout_group = screen.find("<div class=\"group\"><h3>Layout</h3>")
+    background_group = screen.find("<div class=\"group\"><h3>Background</h3>")
+    check("layout selection follows the copy inputs", copy_group < layout_group)
+    check("layout selection comes before the background chooser",
+          layout_group < background_group)
+
+
 def test_the_nav_starts_collapsed_on_the_builder():
     """It is a three-column bench and the nav takes a fifth of it — and so is
     every other creative tool, which is why the answer is one function rather

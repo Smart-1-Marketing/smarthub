@@ -65,9 +65,31 @@ def _answer(state: str, detail: str, **extra) -> dict:
 
 
 def location_for(name: str, url: str = "") -> dict:
-    """This client's Suite sub-account id, or which kind of nothing it is."""
+    """This client's Suite sub-account id, or which kind of nothing it is.
+
+    Two stores, one reader. `hub/suite_map.py` is where a pairing is recorded
+    now; `PickerClient.ghl_location_id` is where it used to be, and the rows
+    already there are real. Neither is migrated -- reading both costs one
+    pass, and a migration to fix a coupling problem is the worse trade. This
+    stays the ONLY function that answers the question, so the two stores
+    cannot come to disagree about whose sub-account a client's work goes to.
+    """
     if not str(name or "").strip():
         return _answer("not_connected", "No client was named.")
+
+    try:
+        from . import suite_map
+        found = suite_map.recorded_location(name, url)
+    except Exception:                                     # noqa: BLE001
+        found = {"state": "not_connected", "location_id": ""}
+    if str(found.get("location_id") or "").strip():
+        return _answer("connected", "", location_id=found["location_id"],
+                       matched_name=name, source="suite_map")
+    if found.get("state") == "ambiguous":
+        # Two sub-accounts for one client is not a thing to pick between.
+        return _answer("not_measured", found.get("detail") or
+                       "More than one sub-account is recorded for this client.",
+                       candidates=found.get("candidates") or [])
     try:
         from modules.image_picker.models import PickerClient
     except Exception as exc:                              # noqa: BLE001
@@ -134,6 +156,23 @@ def client_for_location(location_id: str) -> dict:
     location_id = str(location_id or "").strip()
     if not location_id:
         return _answer("not_connected", "No sub-account was named.")
+
+    # hub/suite_map.py first, the picker's own column second -- see
+    # location_for() above for why both are read and neither is migrated.
+    try:
+        from . import suite_map
+        found = suite_map.recorded_client(location_id)
+    except Exception:                                     # noqa: BLE001
+        found = {"state": "not_connected", "client": ""}
+    if str(found.get("client") or "").strip():
+        return _answer("connected", "", location_id=location_id,
+                       client=found["client"], client_url="",
+                       source="suite_map")
+    if found.get("state") == "ambiguous":
+        return _answer("ambiguous", found.get("detail") or
+                       "More than one client records this sub-account.",
+                       location_id=location_id,
+                       candidates=found.get("candidates") or [])
     try:
         from modules.image_picker.models import PickerClient
     except Exception as exc:                              # noqa: BLE001

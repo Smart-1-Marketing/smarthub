@@ -97,6 +97,17 @@ if [ -n "${OUTPUT_DIR:-}" ]; then
   echo "[adbuilder] output dir: ${OUTPUT_DIR}"
 fi
 
+# SmartForecast keeps its append-only event history on the persistent disk.
+# The JSON backup is also mirrored into the managed database, so a replacement
+# disk can rebuild this SQLite database during application boot.
+if [ -z "${SMARTFORECAST_DB_PATH:-}" ] && [ -d /var/data ]; then
+  export SMARTFORECAST_DB_PATH=/var/data/smartforecast/smartforecast.sqlite3
+fi
+if [ -n "${SMARTFORECAST_DB_PATH:-}" ]; then
+  mkdir -p "$(dirname "$SMARTFORECAST_DB_PATH")" || echo "[smartforecast] could not create database directory"
+  echo "[smartforecast] database: ${SMARTFORECAST_DB_PATH}"
+fi
+
 start_adbuilder() {
   # Loopback only. Binding this to 0.0.0.0 would publish an unauthenticated
   # renderer on the same host as the Hub.

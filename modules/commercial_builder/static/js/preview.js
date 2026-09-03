@@ -514,12 +514,26 @@
     sendBtn.addEventListener("click", async () => {
       sendBtn.disabled = true;
       try {
-        await CB.api(`/api/projects/${projectId}/reviews`, {
+        const res = await CB.api(`/api/projects/${projectId}/reviews`, {
           method: "POST",
-          body: { message: document.getElementById("review-message").value.trim() },
+          body: {
+            message: document.getElementById("review-message").value.trim(),
+            reviewer_name: (document.getElementById("review-name") || {}).value || "",
+            reviewer_email: (document.getElementById("review-email") || {}).value || "",
+          },
         });
         document.getElementById("review-message").value = "";
-        CB.toast("Review link created — copy it and send it to the client.");
+        // Three outcomes, said apart. "Sent" is a contact Suite confirmed;
+        // "held" is a link that exists and did not reach Suite -- the rep
+        // sends it by hand and the panel never claims otherwise.
+        const d = (res && res.review && res.review.delivery) || {};
+        if (d.state === "sent") {
+          CB.toast("Review link created and filed in Smart 1 Suite for the review workflow to send.");
+        } else if (d.state === "held") {
+          CB.toast("Review link created, but it could not be filed in Suite — copy it and send it yourself. " + (d.note || ""), true);
+        } else {
+          CB.toast("Review link created — copy it and send it to the client.");
+        }
         await loadReviews();
       } finally {
         sendBtn.disabled = false;

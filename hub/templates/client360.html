@@ -19,8 +19,54 @@
 .c360-rail .rl:hover{background:#f4f6fa}
 .c360-rail .rl.on{background:#eff4ff;color:#1d4ed8}
 .c360-surface{min-width:0}
+/* The derived health strip. One pill per source, each a fact the stores
+   hold; a source that could not be read is its own state (unread) and is
+   never drawn as a clean one, and a client with nothing on file is idle. */
+.c360-health{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px}
+.c360-hp{display:inline-flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid #dbe4f0;
+  border-radius:999px;background:#fff;color:#1e293b;font:500 12.5px 'Segoe UI',system-ui,sans-serif;
+  cursor:pointer;text-decoration:none;line-height:1.2}
+.c360-hp:hover{background:#f4f7fc}
+.c360-hp .hdot{width:8px;height:8px;border-radius:50%;background:#cbd5e1;flex:none}
+.c360-hp.ok .hdot{background:#059669}
+.c360-hp.warn .hdot{background:#b45309}
+.c360-hp.bad .hdot{background:#dc2626}
+.c360-hp.unread{border-style:dashed;color:#64748b}
+.c360-hp.unread .hdot{background:transparent;border:2px solid #94a3b8;width:6px;height:6px}
+.c360-hp.idle{color:#64748b}
+.c360-hp .lab{font-weight:700;margin-right:2px}
+.c360-hp .lab::after{content:':'}
+.c360-health .c360-hnote{flex-basis:100%;font-size:12px;color:#7a5b00;margin-top:-2px}
 .c360-view{display:none}
 .c360-view.on{display:block;margin-bottom:14px}
+.c360-view .grid-2{min-width:0}
+/* Suite account rows replace the cramped four-column table so names, email,
+   and actions wrap naturally inside the Overview column. */
+.c360-suite-list{display:grid;gap:10px}
+.c360-suite-account{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:start;padding:11px 0;border-bottom:1px solid var(--line-soft,#edf2f7)}
+.c360-suite-account:last-child{border-bottom:0;padding-bottom:0}
+.c360-suite-account .suite-name,.c360-suite-account .suite-meta{min-width:0;overflow-wrap:anywhere}
+.c360-suite-account .suite-meta{grid-column:1 / -1;color:#64748b;font-size:12px}
+.c360-suite-account .suite-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+/* Proposals are record-wide and their table wraps rather than scrolling. */
+.c360-proposals-card{grid-column:1 / -1}
+.c360-proposals-card .card-b{overflow-x:visible}
+.c360-proposals-table{table-layout:fixed}
+.c360-proposals-table th,.c360-proposals-table td{overflow-wrap:anywhere}
+.c360-proposals-table th:nth-child(1){width:30%}.c360-proposals-table th:nth-child(2){width:15%}.c360-proposals-table th:nth-child(3){width:11%}.c360-proposals-table th:nth-child(4){width:16%}.c360-proposals-table th:nth-child(5){width:12%}.c360-proposals-table th:nth-child(6){width:16%}
+.c360-proposals-table td:last-child{white-space:normal!important}
+.c360-proposals-table td:last-child .gbtn,.c360-proposals-table td:last-child .btn-ghost{margin:2px 3px 2px 0}
+/* A proposal file deserves a proper intake, not a loose row of controls. */
+.c360-proposal-upload{background:linear-gradient(135deg,#f8fbff,#f6f9fc);border:1px solid #d7e3f0;border-radius:12px;padding:16px;box-shadow:inset 0 1px #fff}
+.c360-proposal-upload h4{font-size:14px;color:var(--navy);margin:0 0 3px}
+.c360-proposal-upload .up-help{font-size:12px;color:var(--muted);margin:0 0 14px}
+.c360-proposal-upload .up-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.38fr);gap:10px;margin-bottom:10px}
+.c360-proposal-upload label{display:block;color:#526b89;font-size:11px;font-weight:700;letter-spacing:.03em;margin:0 0 4px;text-transform:uppercase}
+.c360-proposal-upload input,.c360-proposal-upload select{box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid #cbd9e8;border-radius:8px;background:#fff;font:13px inherit}
+.c360-proposal-upload input:focus,.c360-proposal-upload select:focus{outline:2px solid #bfdbfe;border-color:#60a5fa}
+.c360-proposal-upload .up-file{padding:10px;border:1px dashed #9ab5d1;border-radius:8px;background:#fff;margin-bottom:10px}
+.c360-proposal-upload .up-footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.c360-proposal-upload .up-url-note{padding:10px 11px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:12px;margin:0 0 10px}
 .c360-view > .grid-2:empty::after{content:"Nothing in this section for this client.";
   display:block;padding:14px;color:#64748b;font-size:13px}
 .c360-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
@@ -32,6 +78,16 @@
   .c360-work{grid-template-columns:1fr}
   .c360-rail{position:static;flex-direction:row;flex-wrap:wrap}
   .c360-rail .rl{width:auto}
+  .c360-suite-account{grid-template-columns:1fr}
+  .c360-suite-account .suite-actions{justify-content:flex-start}
+  .c360-proposal-upload .up-grid{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .c360-proposals-table thead{display:none}
+  .c360-proposals-table,.c360-proposals-table tbody,.c360-proposals-table tr,.c360-proposals-table td{display:block;width:100%}
+  .c360-proposals-table tr{padding:10px 0;border-bottom:1px solid var(--line-soft,#edf2f7)}
+  .c360-proposals-table td{padding:4px 0;border:0}
+  .c360-proposals-table td:empty{display:none}
 }
 </style>
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
@@ -71,6 +127,58 @@ const user_name={{ (user or '')|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
 let groups=[];
+
+/* A record starts many requests at once. Do not let responses from a prior
+   selected client paint into the replacement DOM. A generation guard avoids
+   triggering old loaders' recovery handlers, as an aborted request would. */
+let c360Generation=0;
+const nativeC360Fetch=window.fetch.bind(window);
+window.fetch=function(...args){
+  const generation=c360Generation;
+  const stale=()=>new Promise(()=>{});
+  return nativeC360Fetch(...args).then(
+    response=>{
+      if(generation!==c360Generation) return stale();
+      if(!response.ok) showC360RequestFailure(response.status);
+      return response;
+    },
+    error=>generation===c360Generation?Promise.reject(error):stale());
+};
+function showC360RequestFailure(status){
+  const host=document.getElementById('c360-request-status');
+  if(host) host.textContent=`Some Client 360 data could not be loaded (HTTP ${status}). Refresh to try again.`;
+}
+function fetchJson(...args){
+  return fetch(...args).then(async response=>{
+    if(response.ok) return response.json();
+    const body=await response.json().catch(()=>({}));
+    throw new Error(body.error||`Request failed (${response.status}).`);
+  });
+}
+/* The strip. Fetched apart from the record so a health source that is slow
+   or refusing costs the strip and never the page; a later render() makes an
+   earlier answer inert, the rule every other card on this page follows. */
+function loadHealth(name){
+  const box=$('c360Health'); if(!box) return;
+  const gen=c360Generation;
+  box.hidden=true;
+  fetchJson('/api/client/health?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(h=>{ if(gen!==c360Generation) return; box.innerHTML=renderC360Health(h); box.hidden=false; })
+    .catch(err=>{ if(gen!==c360Generation) return;
+      box.innerHTML=renderC360Health({error:'The health summary could not be read ('+esc(err.message||'')+').'});
+      box.hidden=false; });
+}
+document.addEventListener('click',function(e){
+  const go=e.target.closest&&e.target.closest('.c360-hp[data-go]');
+  if(go) showC360Section(go.dataset.go);
+});
+function safeExternalUrl(value){
+  try{
+    const url=new URL(String(value||''));
+    return ['https:','http:'].includes(url.protocol)&&url.hostname?url.href:'';
+  }catch(e){ return ''; }
+}
+let c360SearchGeneration=0;
 
 /* A grouped record shows more than one company's rows side by side. The group
    is a billing relationship, not a rename, so every row that came from another
@@ -115,7 +223,7 @@ const C360_SECTIONS=[
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
-  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions']},
+  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
   {key:'work',     label:'Work & requests',   match:['work for this','web tickets']},
 ];
 function c360SectionFor(title){
@@ -127,6 +235,37 @@ function c360SectionFor(title){
   return 'overview';
 }
 /* ---- end c360 sections ---- */
+/* ---- c360 health (lifted and driven in node by test_client360_health.py) ---- */
+/* Draws hub/record_health.client360()'s payload. Pure: takes the payload and
+   returns markup, so the test can run it without a browser. Every pill is a
+   fact the stores hold, and the three empties are kept apart -- `ok` is
+   measured and clear, `idle` is measured and nothing there, `unread` is a
+   source that would not answer -- because a strip that draws the third as
+   the first is a report answering zero when it could not look. */
+const C360_HEALTH_STATES={ok:'ok',warn:'warn',bad:'bad',idle:'idle',unread:'unread'};
+function renderC360Health(h){
+  if(!h||h.error){
+    return '<span class="c360-hnote">'+esc((h&&h.error)||'The health summary could not be built.')+'</span>';
+  }
+  const pills=(h.pills||[]).map(function(p){
+    const st=C360_HEALTH_STATES[p.state]||'idle';
+    const title=esc(p.detail||'');
+    const body='<span class="hdot"></span><span><span class="lab">'+esc(p.label)+'</span>'
+      +'<span class="val">'+esc(p.value)+'</span></span>';
+    if(p.href){
+      return '<a class="c360-hp '+st+'" href="'+esc(p.href)+'" title="'+title+'">'+body+'</a>';
+    }
+    return '<button type="button" class="c360-hp '+st+'" data-go="'+esc(p.go||'overview')
+      +'" title="'+title+'">'+body+'</button>';
+  });
+  let note='';
+  if(h.unread&&h.unread.length){
+    note='<span class="c360-hnote">Not measured: '+h.unread.map(esc).join('; ')
+      +'. Anything those would have raised is missing from this strip, not absent from it.</span>';
+  }
+  return pills.join('')+note;
+}
+/* ---- end c360 health ---- */
 function showC360Section(key){
   window.__c360sec=key;
   const work=document.querySelector('.c360-work'); if(!work) return;
@@ -158,13 +297,25 @@ function sectionize(){
   showC360Section(want==='all'||C360_SECTIONS.some(s=>s.key===want)?want:'overview');
 }
 
+/* Keep the upload form self-contained.  This page used to call todayISO()
+   without defining it, so clicking "Upload proposal" threw before the form
+   could be displayed.  Build the date in local time so the value does not
+   jump to tomorrow or yesterday around UTC midnight. */
+function todayISO(){
+  const now=new Date();
+  const offset=now.getTimezoneOffset()*60000;
+  return new Date(now.getTime()-offset).toISOString().slice(0,10);
+}
+
 async function run(){
+  const searchGeneration=++c360SearchGeneration;
   const q=$('q').value.trim();
   if(!q){return}
   history.replaceState(null,'','/client360?q='+encodeURIComponent(q));
   $('picker').style.display='none';
   $('results').innerHTML='<div class="empty">Searching all systems… <span class="spin"></span></div>';
-  const d=await fetch('/api/c360?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>({groups:[]}));
+  const d=await fetchJson('/api/c360?q='+encodeURIComponent(q)).catch(()=>({groups:[]}));
+  if(searchGeneration!==c360SearchGeneration) return;
   groups=d.groups||[];
   if(!groups.length){ $('results').innerHTML='<div class="empty">No Smart 1 Team / website match — showing live systems only.</div>'; render({client:q,products:[],websites:[],creative:[],gtm_containers:[]},q); return; }
   if(groups.length>1){
@@ -179,6 +330,7 @@ function pick(i){
 }
 
 function render(g,q){
+  c360Generation++;
   window.__trafficStarted=null;
   const name=g.client||q;
   window.CURRENT_CLIENT = name;
@@ -187,6 +339,7 @@ function render(g,q){
   const liveCount=g.products.filter(p=>String(p.status||'').toLowerCase()==='live').length;
   const web0=(g.websites||[])[0]||null;
   window.__c360domain=web0&&web0.domain?String(web0.domain).replace(/^https?:\/\//,'').replace(/\/.*$/,''):'';
+  const c360Website=(web0&&(web0.liveUrl||web0.domain))?String(web0.liveUrl||web0.domain):'';
 
   // ---------- header: Smart 1 Site badge · active billing · dashboard link ----------
   let head=`
@@ -220,6 +373,7 @@ function render(g,q){
   head+='<div id="c-owner"></div>';
   head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
+  head+='<div id="c360-request-status" class="muted" role="status" style="margin:-6px 0 10px;font-size:12px;color:#b45309"></div>';
 
   /* Page actions. hub-accordion.js used to bolt these onto its
      Expand/Collapse bar; the accordion stays off this page now (see
@@ -236,6 +390,7 @@ function render(g,q){
     +'</div>';
 
   let html=head
+    +'<div class="c360-health" id="c360Health" hidden></div>'
     +'<div class="c360-work" data-s1-workspace="1">'
     +'<nav class="c360-rail" id="c360Rail" aria-label="Record sections"></nav>'
     +'<div class="c360-surface" id="c360Surface"></div>'
@@ -262,10 +417,15 @@ function render(g,q){
     const live=String(p.status||'').toLowerCase()==='live';
     const num=String(p.product_num||'').trim();
     const numPill=num?` <span class="pill neutral" title="Product number in Knack">Product #${esc(num)}</span>`:'';
+    /* Open the exact product folder when Knack supplied a Product #; otherwise
+       the IO is the narrowest honest context available. */
+    const galleryScope='/tools/image-picker/gallery/for-client?name='+encodeURIComponent(name)
+      +(num?'&product='+encodeURIComponent(num):(p.io?'&io='+encodeURIComponent(p.io):''));
+    const galleryLink=(num||p.io)?` <a class="open-link" href="${galleryScope}" title="Creative Information for this ${num?'product':'IO'}">Gallery →</a>`:'';
     const ioPill=p.io?(p.dash
       ?` <a class="pill info" href="${esc(p.dash)}" target="_blank" rel="noopener" style="text-decoration:none" title="Insertion order — open Smart 1 Dashboard">IO #${esc(p.io)}</a>`
       :` <span class="pill neutral" title="Insertion order">IO #${esc(p.io)}</span>`):'';
-    return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${memberTag(p.member)}</td>`
+    return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${galleryLink}${memberTag(p.member)}</td>`
       + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
       + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
       + `<td>${money(p.monthly)}</td></tr>`;
@@ -362,7 +522,7 @@ function render(g,q){
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
+  html+=`<div class="card c360-proposals-card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
       <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
       <a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a>
@@ -421,6 +581,11 @@ function render(g,q){
     <span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Work for this client</h3>
     <div class="right" id="c-work-sum"></div></div>
     <div class="card-b" id="c-work"><div class="empty">Loading…</div></div></div>`;
+
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0f2fe;color:#075985">Client</span><h3>Approvals &amp; proof links</h3>
+    <div class="right"><a class="open-link" id="c-client-links-open" target="_blank" rel="noopener">Open client page →</a></div></div>
+    <div class="card-b" id="c-client-links"><div class="empty">Loading client-ready links…</div></div></div>`;
 
   // ---------- Site health (latest Insites scan: what's broken + speed) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
@@ -516,6 +681,7 @@ function render(g,q){
   html+='</div></div>';               // close the staging grid and its wrapper
   $('results').innerHTML=html;
   sectionize();                       // move every card into its section
+  loadHealth(name);
 
   const term=(name||q);
 
@@ -614,13 +780,14 @@ function render(g,q){
     // attached accounts not in the search results still show
     suiteAtt.forEach(a=>{ if(!res.some(l=>(l.id||l._id)===a.id)) res.push({id:a.id,name:a.name,_attachedOnly:true}); });
     if(!res.length){$('c-ghl').innerHTML=addBtn();return}
-    $('c-ghl').innerHTML='<table><thead><tr><th>Account</th><th>City</th><th>Email</th><th></th></tr></thead><tbody>'+
+    $('c-ghl').innerHTML='<div class="c360-suite-list">'+
       res.map((l,i)=>{const lid=l.id||l._id||'';
         const isAtt=attIds.has(lid);
-        return `<tr><td><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</td><td>${esc(l.city||'')}</td><td>${esc(l.email||'')}</td>
-          <td style="white-space:nowrap"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
+        return `<div class="c360-suite-account"><div class="suite-name"><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</div>
+          <div class="suite-actions"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
           ${isAtt?`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">un-attach</a>`
-                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</td></tr>`;}).join('')+'</tbody></table>';
+                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</div>
+          <div class="suite-meta">${esc(l.city||'—')}${l.email?' · '+esc(l.email):''}</div></div>`;}).join('')+'</div>';
     document.querySelectorAll('.suite-att').forEach(btn=>{
       btn.onclick=()=>{
         const l=res[parseInt(btn.dataset.i,10)];
@@ -671,7 +838,7 @@ function render(g,q){
     rows.sort(function(a,b){ return (b.d||'').localeCompare(a.d||''); });
 
     host.innerHTML =
-      '<table><thead><tr><th>Proposal</th><th>Where from</th><th>Monthly</th>'
+      '<table class="c360-proposals-table"><thead><tr><th>Proposal</th><th>Where from</th><th>Monthly</th>'
       + '<th>Status</th><th>Date</th><th></th></tr></thead><tbody>'
       + rows.map(function(r){
           var p = r.p;
@@ -809,7 +976,15 @@ function render(g,q){
 
   // ---------- Client images: what the SEO Image Pipeline has saved ----------
   const imgBase = '/tools/seo-images/';
-  const galleryHref  = imgBase+'gallery?company='+encodeURIComponent(name);
+  /* The gallery link opens the client's FULL gallery — every folder, every
+     source: their own uploads, display ads, logos, SEO images, stock — not
+     one pipeline's slice of it. The picker's resolver route does the name
+     matching (exactly one gallery or none, never a substring), and a client
+     with no full gallery yet lands on the SEO pipeline's archive for them,
+     which is everything the Hub holds outside one. hub-crumbs stamps c360
+     onto this link, and the resolver carries it through the redirect. */
+  const galleryHref  = '/tools/image-picker/gallery/for-client?name='+encodeURIComponent(name)
+    + (web0&&web0.domain ? '&url='+encodeURIComponent(web0.domain) : '');
   const optimizeHref = imgBase+'?company='+encodeURIComponent(name)
     + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
   const actsHost = document.getElementById('c-img-acts');
@@ -1154,26 +1329,17 @@ function render(g,q){
     const box=$('c-props-uploadbox');
     if(box.style.display==='block'){box.style.display='none';return}
     box.style.display='block';
-    box.innerHTML=`<div style="background:var(--bg-soft,#f8fafc);border:1px dashed var(--line);border-radius:10px;padding:12px">
-      <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
-        <input id="up-title" placeholder="Proposal name (optional)"
-          style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-        <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Date sent to client</label>
-        <input id="up-date" data-demo="date-sent" type="date" value="${todayISO()}"
-          style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 150px;gap:8px;margin-bottom:8px">
-        <input id="up-value" placeholder="Monthly value quoted (optional) — e.g. $4,500"
-          style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-        <div><label class="muted" style="font-size:11px;display:block;margin-bottom:2px">Term</label>
-        <select id="up-term" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit;width:100%;box-sizing:border-box">
-          <option value="monthly">monthly</option><option value="one_time">one-time</option><option value="annual">annual</option></select></div>
-      </div>
-      <input id="up-file" data-demo="proposal-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        style="font:12.5px inherit;margin-bottom:8px">
-      <div><button class="btn-primary" id="up-go" style="padding:7px 14px">Save to client</button>
-        <span id="up-msg" class="muted" style="margin-left:8px;font-size:12px">PDF or Word, up to 25 MB. Filed with this client and opened as an opportunity in Smart 1 Suite.</span></div>
-      <div id="up-suite"></div>
+    box.innerHTML=`<div class="c360-proposal-upload">
+      <h4>File a proposal</h4><p class="up-help">PDF or Word, up to 25 MB. It is saved to this client and opened as a Smart 1 Suite opportunity.</p>
+      ${c360Website?'':`<div class="up-url-note"><b>Website optional</b> — add the client’s URL now to connect a future site scan. You can file the proposal without it.</div>
+      <div class="up-grid"><div><label for="up-url">Client website <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-url" type="url" placeholder="https://example.com" autocomplete="url"></div></div>`}
+      <div class="up-grid"><div><label for="up-title">Proposal name <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-title" placeholder="e.g. 2026 Marketing Proposal"></div>
+        <div><label for="up-date">Date sent</label><input id="up-date" data-demo="date-sent" type="date" value="${todayISO()}"></div></div>
+      <div class="up-grid"><div><label for="up-value">Monthly value <span class="muted" style="text-transform:none;font-weight:400">(optional)</span></label><input id="up-value" placeholder="e.g. $4,500"></div>
+        <div><label for="up-term">Term</label><select id="up-term"><option value="monthly">Monthly</option><option value="one_time">One-time</option><option value="annual">Annual</option></select></div></div>
+      <div class="up-file"><label for="up-file">Proposal document</label><input id="up-file" data-demo="proposal-file" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></div>
+      <div class="up-footer"><button class="btn-primary" id="up-go" style="padding:8px 14px">Upload proposal</button><span id="up-msg" class="muted" style="font-size:12px">The client record is not changed until you upload.</span></div>
+      <div id="up-site"></div><div id="up-suite"></div>
     </div>`;
     // Say up front when Suite is not configured, rather than after the upload:
     // the value field only matters if an opportunity is going to carry it.
@@ -1182,9 +1348,21 @@ function render(g,q){
         '<div class="muted" style="font-size:11.5px;margin-top:8px">No Smart 1 Suite opportunity will be created — '
         +esc((st.problems||[]).join(' '))+'</div>';
     }).catch(()=>{});
-    $('up-go').onclick=()=>{
+    $('up-go').onclick=async()=>{
       const f=$('up-file').files[0];
       if(!f){$('up-msg').textContent='Choose a file first.';return}
+      let scanWebsite=c360Website;
+      if(!scanWebsite){
+        scanWebsite=($('up-url').value||'').trim();
+        if(scanWebsite){
+          $('up-go').disabled=true; $('up-msg').textContent='Saving website…';
+          try{
+            const attached=await fetch('/api/client-urls/accept',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({client:name,url:scanWebsite})}).then(r=>r.json());
+            if(!attached.ok){$('up-go').disabled=false;$('up-msg').textContent=attached.error||'Could not save the website.';return}
+            scanWebsite=attached.url||attached.domain||scanWebsite;
+          }catch(e){$('up-go').disabled=false;$('up-msg').textContent='Could not save the website.';return}
+        }
+      }
       const fd=new FormData();
       fd.append('client',name); fd.append('file',f);
       fd.append('date_sent',$('up-date').value); fd.append('title',$('up-title').value);
@@ -1198,6 +1376,10 @@ function render(g,q){
         // The file is filed either way. Suite is the part that can come back
         // with a question, and it is asked here rather than answered by
         // inventing a contact from the client's business name.
+        if(!c360Website && scanWebsite){
+          const site=$('up-site');
+          if(site) site.innerHTML='<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)"><b style="font-size:12.5px">Run a site scan now?</b><div class="muted" style="font-size:12px;margin:3px 0 8px">The website is attached. A scan gives this client record an audit baseline.</div><a class="gbtn" href="/tools/website-audit?client='+encodeURIComponent(name)+'&domain='+encodeURIComponent(scanWebsite)+'">Review &amp; run scan →</a></div>';
+        }
         showSuiteResult(d.proposal||{}, d.suite||{}, box);
       }).catch(e=>{$('up-go').disabled=false;$('up-msg').textContent='Upload failed: '+e});
     };
@@ -1208,7 +1390,10 @@ function render(g,q){
     if(suite.ok){
       host.innerHTML='<div class="muted" style="font-size:12px;margin-top:8px">Smart 1 Suite opportunity created for '
         +esc((suite.contact||{}).name||(suite.contact||{}).email||'the contact on file')+'.</div>';
-      setTimeout(()=>{if(box)box.style.display='none'},1400);
+      // Keep the intake open when it has just offered the missing-website
+      // scan. Closing it on the Suite success would make that next question
+      // disappear before the rep can answer it.
+      setTimeout(()=>{if(box&&(!$('up-site')||!$('up-site').innerHTML))box.style.display='none'},1400);
       return;
     }
     if(!suite.needs_contact){
@@ -1872,8 +2057,8 @@ function render(g,q){
 
   // Social Media — shared store with the SEO page
   const SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];
-  fetch('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
-    .then(r=>r.json()).then(d=>{
+  fetchJson('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
+    .then(d=>{
       const social=d.social||{};
       $('c-social').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">'
         +SOCIAL_KEYS.map(k=>{
@@ -1881,7 +2066,7 @@ function render(g,q){
           return `<div style="display:flex;gap:6px;align-items:center">
             <b style="width:74px;flex:none;font-size:12px;color:var(--muted);text-transform:capitalize">${k==='gbp'?'Google Biz':esc(k)}</b>
             <input data-sk="${k}" value="${esc(v)}" placeholder="https://…" style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">
-            ${v?`<a href="${esc(v)}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
+            ${safeExternalUrl(v)?`<a href="${esc(safeExternalUrl(v))}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
           </div>`;}).join('')+'</div>'
         /* Say where the extra ones came from. A URL that appears without
            explanation looks like something a person typed and forgot. */
@@ -1902,7 +2087,7 @@ function render(g,q){
             setTimeout(()=>{saveBtn.textContent='Save →';},1600);
           });
       };
-    }).catch(()=>{$('c-social').innerHTML='<div class="empty">Social links unavailable.</div>'});
+    }).catch(error=>{$('c-social').innerHTML='<div class="empty">Social links unavailable: '+esc(error.message||'Please retry.')+'</div>';});
 
   // Social content — requests, ideas, their link and what is waiting on them
   const scq=document.getElementById('c-scq');
@@ -2488,6 +2673,18 @@ function renderWork(d){
         ${esc(i.actor||'')}</td></tr>`).join('')+'</table>';
 }
 
+function loadClientLinks(name){
+  var box=document.getElementById('c-client-links'); if(!box||!name)return;
+  fetch('/api/client/client-links?name='+encodeURIComponent(name),{credentials:'same-origin'}).then(r=>r.json()).then(function(d){
+    if(!d||!d.ok){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';return;}
+    var open=document.getElementById('c-client-links-open'); if(open)open.href=d.url;
+    var items=(d.links||[]).map(x=>'<li><b>'+esc(x.kind||'Proof')+'</b> · <a href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(x.label)+' →</a></li>').join('')||'<li class="muted">No client links yet. Add a proof below or create an upload gallery.</li>';
+    box.innerHTML='<p class="muted" style="font-size:12px;margin-top:0">Navigation-free Smart 1 Marketing page to send the client.</p><div style="display:flex;gap:7px;flex-wrap:wrap"><input readonly value="'+esc(d.url)+'" id="c-client-links-url" style="flex:1;min-width:230px;padding:7px"><button class="mini" id="c-client-links-copy">Copy page link</button></div><ul>'+items+'</ul><details><summary>Add a client-safe proof link</summary><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><input id="c-proof-label" placeholder="Proof label"><input id="c-proof-url" placeholder="https://…" style="flex:1"><button class="mini" id="c-proof-add">Add</button></div></details>';
+    document.getElementById('c-client-links-copy').onclick=function(){copyToClipboard(d.url,this);};
+    document.getElementById('c-proof-add').onclick=function(){fetch('/api/client/client-links',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,label:document.getElementById('c-proof-label').value,url:document.getElementById('c-proof-url').value})}).then(r=>r.json()).then(x=>x.ok?loadClientLinks(name):alert(x.error||'Could not add that link.'));};
+  }).catch(function(){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';});
+}
+
 function renderAnalyticsIds(d){
   var host=document.getElementById('c-analytics-ids'); if(!host||!d) return;
   /* not_comparable is deliberately neutral rather than red or amber: it is
@@ -2551,8 +2748,13 @@ function renderForms(d){
   var el=document.getElementById('c-forms'); if(!el) return;
   if(d.error){ el.innerHTML='<div class="empty">'+esc(d.error)+'</div>'; return; }
   if(!d.forms || !d.forms.length){
+    /* "Nobody filled one in" and "we could not read them" are different
+       answers and only the first is good news, so the count of unreadable
+       forms is said out loud rather than being absorbed into a tidy nought. */
     el.innerHTML='<div class="empty">No form submissions in '+esc(d.label||'this period')+'.'+
-      (d.no_submissions?' '+d.no_submissions+' form(s) exist but had none.':'')+'</div>';
+      (d.no_submissions?' '+d.no_submissions+' form(s) exist but had none.':'')+
+      (d.unreadable?' '+d.unreadable+' form(s) could not be read, so this may not be the whole picture.':'')+
+      '</div>';
     return;
   }
   el.innerHTML =
@@ -2578,7 +2780,13 @@ function renderForms(d){
 function loadForms(name){
   var sel=document.getElementById('formsPeriod');
   var period = sel ? sel.value : 'this_month';
-  fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period,
+  /* __c360domain is already the client's own domain, set by render() from
+     their first website record. Reusing it rather than introducing a second
+     global for the same fact -- two descriptions of one thing is how they
+     come to disagree. */
+  var url = window.__c360domain || '';
+  fetch('/api/client/forms?name='+encodeURIComponent(name)+'&period='+period+
+        (url?'&url='+encodeURIComponent(url):''),
         {credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderForms).catch(function(){});
 }
@@ -3090,6 +3298,7 @@ function loadBrandAndWork(name){
   loadBrand(name);
   fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(r=>r.json()).then(renderWork).catch(()=>{});
+  loadClientLinks(name);
 }
 
 /* The insertion orders this Hub sent for a client.

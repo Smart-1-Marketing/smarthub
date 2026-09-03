@@ -816,7 +816,7 @@ REGISTRY: list[Help] = [
        "hours the ads run. The landing-page read is checked against what you "
        "tick, and a goal the page cannot do is reported — bidding for bookings "
        "against a page with no booking tool spends the budget and books nobody.",
-       step=3, selector="[data-tour='ads-goals']"),
+       step=4, selector="[data-tour='ads-goals']"),
     _h("ads_builder.generator.areas", "One campaign, several areas",
        "A dealer group with four rooftops is one campaign in four places. Typed "
        "into a single box the reach estimate sizes them as one, so each area is "
@@ -824,7 +824,7 @@ REGISTRY: list[Help] = [
        "Proposal Builder uses, so a campaign and its proposal cannot disagree "
        "about how big the audience is. The label and the reach under each row "
        "are redrawn without touching what you are typing.",
-       step=4, selector="[data-tour='ads-areas']"),
+       step=3, selector="[data-tour='ads-areas']"),
     _h("ads_builder.generator.donottarget", "This is an instruction, not a preference",
        "Whatever goes here is written into the negative keywords and kept out "
        "of the positive ones — a service they are dropping, a town they do not "
@@ -976,6 +976,40 @@ REGISTRY: list[Help] = [
        "rolls the whole batch back, so a half-built campaign cannot happen. "
        "What lands is paused, and stays paused until a person enables it here "
        "or in Google Ads.", step=2, selector="[data-tour='ads-paused']"),
+
+    _h("ads_builder.optimization.accounts", "Start with the account, not a campaign",
+       "This rail contains only active client accounts. Each score and Google "
+       "recommendation count loads independently for the ten accounts on the "
+       "current page, so one slow account cannot hold up the rest of the book. "
+       "Opening an account runs the detailed "
+       "search-term, keyword, schedule and diagnostics scan only for that "
+       "client, which keeps the first page useful even with a large manager "
+       "account.", step=1, selector="[data-tour='ads-opt-accounts']"),
+    _h("ads_builder.optimization.queue", "One ordered list of what needs doing",
+       "Google's optimization score and recommendations sit beside Smart 1's "
+       "measured checks for expensive clicks, search terms with spend and no "
+       "conversions, redundant keywords and weak day-and-hour blocks. The "
+       "filters change only what you see; they never dismiss or apply an item. "
+       "Schedule findings are deliberately review-only because one short date "
+       "range is not enough evidence to rewrite when a campaign serves.",
+       step=2, selector="[data-tour='ads-opt-queue']"),
+    _h("ads_builder.optimization.actions", "Every change is a separate approval",
+       "The menu opens one exact Google Ads operation with its account, campaign "
+       "and proposed values visible and editable. Additions and search-term "
+       "decisions run through AI before the approval button is enabled. There is "
+       "no second confirmation and no bulk apply. New positive keywords are "
+       "created paused for a final review; a negative is exact by default so a "
+       "single poor query does not block a broader class of useful traffic. AI "
+       "can draft keywords, sitelinks and an image direction, but a draft has "
+       "no path around this approval step.",
+       step=3, selector="[data-tour='ads-opt-actions']"),
+    _h("ads_builder.optimization.safety", "A scan is read-only",
+       "Opening this screen and pressing Scan only reads Google Ads. Even a "
+       "Google recommendation stays a proposal here until its own approval is "
+       "given. This distinction matters because recommendations can change as "
+       "the account changes; the screen refreshes after an approved operation "
+       "instead of assuming the old queue is still current.",
+       step=4, selector="[data-tour='ads-opt-safety']"),
 
     _h("ads_builder.activity.mirror", "This log, and the Hub\u2019s",
        "Every generation, status change, deployment and API error is written "
@@ -1743,6 +1777,38 @@ REGISTRY: list[Help] = [
        "allowlist. A service since retired still shows here and can "
        "still be marked, so a row nobody can close does not read as "
        "waiting for ever."),
+
+    # ---------------- SmartForecast ----------------
+    _h("smartforecast.dashboard.status", "What the live status means",
+       "The winning trigger is the highest-priority eligible rule after "
+       "lifecycle stability checks. Pausing immediately serves the approved "
+       "default content while preserving rules, drafts and history, so it is "
+       "the safe stop control when a campaign needs review."),
+    _h("smartforecast.setup.installation", "One site, one weather location",
+       "The primary postal code and timezone decide which forecast is read "
+       "and when each observation belongs. The embed token is a public "
+       "identifier rather than a staff credential; rotate it if the embed "
+       "has been shared somewhere it should no longer load."),
+    _h("smartforecast.triggers.lifecycle", "Rules move through a lifecycle",
+       "Pre-event, active-event and post-event are separate approved messages "
+       "for one weather rule. Ordinary forecasts must satisfy consecutive "
+       "checks before activating or clearing to prevent flicker; official "
+       "alerts can activate immediately."),
+    _h("smartforecast.content.approval", "Draft first, publish deliberately",
+       "Saving changes only the staff draft. The public embed keeps serving "
+       "the last approved version until Approve & publish is pressed, so copy, "
+       "CTA destinations, mobile crops and alt text can be reviewed without "
+       "changing the client's website."),
+    _h("smartforecast.preview.simulator", "A safe forecast rehearsal",
+       "Simulation evaluates the same priority and lifecycle rules as a live "
+       "weather check without changing the website. Enable the record option "
+       "only when you intentionally want the scenario written as an actual "
+       "observation and applied to the current state."),
+    _h("smartforecast.report.history", "Evidence, not causal attribution",
+       "Lifecycle history records which rule won, why and when. Engagement "
+       "counts are privacy-minimized interactions with the embed; they are "
+       "reported separately and do not claim that weather messaging caused a "
+       "lead or sale without a controlled comparison."),
 
 ]
 

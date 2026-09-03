@@ -42,18 +42,28 @@ from __future__ import annotations
 __all__ = ["install"]
 
 
-def install(bp, *, mount: str = "", public: tuple[str, ...] = ()) -> None:
+def install(bp, *, mount: str = "", public: tuple[str, ...] = (),
+            excluded: tuple[str, ...] = ()) -> None:
     """Put a staff-only gate in front of every route on this blueprint.
 
     `public` is relative to `mount` — the same shape a dispatcher-mounted
     module's `PUBLIC_PREFIXES` has, so a module that later becomes mounted
     needs no second spelling of what is public.
 
+    `excluded` is the staff route that hides under a public prefix, also
+    relative to `mount`, and it is checked first: `public` is a prefix
+    match, so a diagnostic at `/api/health` beside a genuinely public
+    `/api/<slug>/estimate` was open to anyone with the URL, and no finer
+    prefix can separate a fixed sibling from a variable one. Same shape as
+    `hub/suite_embed.PUBLIC_EXCLUDED`, which answers the framing half of
+    the same question.
+
     Never raises: a module that cannot import the Hub's auth is a module
     running standalone, and refusing to start it would be worse than the
     gate not applying where there is nothing to protect.
     """
     prefixes = tuple(p for p in public if p)
+    shut = tuple(p for p in excluded if p)
 
     @bp.before_request
     def _staff_only():                                   # noqa: ANN202
@@ -62,7 +72,7 @@ def install(bp, *, mount: str = "", public: tuple[str, ...] = ()) -> None:
         path = request.path or "/"
         if prefixes:
             rel = path[len(mount):] if mount and path.startswith(mount) else path
-            if rel.startswith(prefixes):
+            if rel.startswith(prefixes) and not (shut and rel.startswith(shut)):
                 return None
         try:
             from hub.auth import user_from_environ

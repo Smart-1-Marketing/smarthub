@@ -13,6 +13,7 @@ import json
 import os
 import re
 import threading
+from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 import requests
@@ -174,10 +175,32 @@ _SOCIAL_KEYS = ("facebook", "instagram", "linkedin", "twitter", "youtube",
                 "tiktok", "pinterest", "yelp", "gbp")
 
 
+def _social_url(value: object) -> str:
+    """Return a usable outbound social URL or reject unsafe schemes."""
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in ("https", "http") or not parts.hostname:
+        raise ValueError("Social links must be complete http:// or https:// URLs.")
+    return url
+
+
 def get_social(client: str, domain: str = "") -> dict:
     """Social URLs for a client — saved values, seeded from Brandfetch."""
     store = load_store(client)
-    social = dict(store.get("social") or {})
+    # Older records and imported provider data predate URL validation. Filter
+    # them on read as well, so a stale javascript: value can never become an
+    # outbound link merely because it was saved before this validation existed.
+    social = {}
+    for key, value in (store.get("social") or {}).items():
+        key = str(key).lower().strip()
+        if key not in _SOCIAL_KEYS:
+            continue
+        try:
+            social[key] = _social_url(value)
+        except ValueError:
+            continue
     if not social:
         b = brand_for(client, domain) or {}
         raw = b.get("social") or {}
@@ -187,7 +210,10 @@ def get_social(client: str, domain: str = "") -> dict:
         for k, v in raw.items():
             nk = keymap.get(k, k.lower())
             if v and nk in _SOCIAL_KEYS:
-                social[nk] = v
+                try:
+                    social[nk] = _social_url(v)
+                except ValueError:
+                    continue
     return social
 
 
@@ -202,10 +228,10 @@ def set_social(client: str, updates: dict) -> dict:
     for k, v in (updates or {}).items():
         k = str(k).lower().strip()
         v = str(v or "").strip()
-        if not k:
+        if k not in _SOCIAL_KEYS:
             continue
         if v:
-            social[k] = v
+            social[k] = _social_url(v)
         else:
             social.pop(k, None)
     save_store(client, store)
@@ -900,6 +926,85 @@ def _days_since(stamp: str) -> int | None:
         return None
 
 
+BLOG_CADENCE_SLACK = 1.5   # house guidance: a plan that has nothing planned
+                           # within one and a half intervals of today has run
+                           # out, whatever the setup says the cadence is.
+
+
+def blogs_health(store: dict, sells: bool | None = None) -> dict:
+    """The one rule for "behind on blogs", read by the SEO record's strip and
+    by Client 360's -- two readings of it is how the two screens come to
+    disagree about who is behind.
+
+    What is knowable here, and what is not, written down rather than
+    inferred:
+
+      * **Overdue** is a planned post whose date has passed and that nobody
+        has marked posted. That is the rule `_blogs_state` already applies
+        for the Blogs pill, so `state` is the same BLOGS_STATES key every
+        other screen reads.
+      * **The cadence is stored** -- `setup.blogs_frequency` or
+        `setup.blogs_per_month`, the same answers `_blog_schedule()` spaces
+        the plan by. `_freq_interval_days()` defaults to weekly when neither
+        is set; here that default is *not* taken as a fact, so
+        `cadence_days` is None and `cadence_source` says "not recorded"
+        rather than judging a client against a number nobody chose.
+      * **A plan can run out.** Once the last planned date is more than
+        `BLOG_CADENCE_SLACK` intervals behind today there is nothing left to
+        be overdue, and the client reads as up to date for ever -- so
+        `plan_exhausted` is its own flag, raised only where the cadence is
+        recorded and blogs are sold, and it carries the days.
+      * **No publish date is recorded.** A post carries its planned `date`
+        and a `posted` tick, and nothing writes when it actually went live.
+        So `last_posted` is the planned date of the latest post marked
+        posted, said in those words, and `published_dates_recorded` is
+        False so a screen cannot print it as "last published".
+    """
+    posts = (store.get("blogs") or {}).get("posts") or []
+    setup = store.get("setup") or {}
+    today = _dt_date_today_iso()
+    state = _blogs_state(store, sells)
+
+    overdue = [p for p in posts
+               if str(p.get("date", "")) <= today and not p.get("posted")]
+    oldest = min((str(p.get("date", "")) for p in overdue), default="")
+
+    stated = (str(setup.get("blogs_frequency") or "").strip()
+              or str(setup.get("blogs_per_month") or "").strip())
+    cadence_days = _freq_interval_days(setup) if stated else None
+
+    last_planned = max((str(p.get("date", "")) for p in posts), default="")
+    last_posted = max((str(p.get("date", "")) for p in posts if p.get("posted")),
+                      default="")
+    plan_exhausted = False
+    behind_by = None
+    if cadence_days and sells is not False and state != "not_sold":
+        since = _days_since(last_planned) if last_planned else None
+        if since is None:
+            # No planned date at all: a plan that was never made has run out
+            # by definition, and a date that will not parse is not judged.
+            plan_exhausted = not posts
+        elif since > cadence_days * BLOG_CADENCE_SLACK:
+            plan_exhausted = True
+            behind_by = since
+
+    return {
+        "state": state, "label": BLOGS_STATES[state],
+        "overdue": len(overdue),
+        "overdue_days": _days_since(oldest) if oldest else None,
+        "cadence_days": cadence_days,
+        "cadence_source": ("setup" if stated else "not recorded"),
+        "plan_exhausted": plan_exhausted,
+        "plan_ran_out_days": behind_by,
+        "last_planned": last_planned,
+        "last_posted": last_posted,
+        "published_dates_recorded": False,
+        "rule": ("overdue = planned date passed and not marked posted; "
+                 "plan exhausted = last planned date more than "
+                 f"{BLOG_CADENCE_SLACK:g} cadence intervals ago"),
+    }
+
+
 def record_health(client: str, store: dict | None = None, *,
                   sells: bool | None = None,
                   faq_pages: list[dict] | None = None) -> dict:
@@ -940,25 +1045,27 @@ def record_health(client: str, store: dict | None = None, *,
             "detail": f"{built} of {len(sitemap)} sitemap pages are built.",
         })
 
-    # ---- blogs: the plan's own dates, the same rule _blogs_state reads ----
-    posts = (store.get("blogs") or {}).get("posts") or []
-    today = _dt_date_today_iso()
-    overdue = [p for p in posts
-               if str(p.get("date", "")) <= today and not p.get("posted")]
-    oldest = min((str(p.get("date", "")) for p in overdue), default="")
-    blogs = {
-        "state": checks["blogs"], "label": checks["blogs_label"],
-        "overdue": len(overdue),
-        "overdue_days": _days_since(oldest) if oldest else None,
-    }
-    if overdue:
-        n = len(overdue)
-        age = blogs["overdue_days"]
+    # ---- blogs: the plan's own dates, the one rule blogs_health() holds ----
+    blogs = blogs_health(store, sells)
+    if blogs["overdue"]:
+        n = blogs["overdue"]
         queue.append({
             "level": "bad", "section": "blogs",
             "title": f"{n} blog post{'s are' if n != 1 else ' is'} past due",
             "detail": "Planned, and not marked posted on the site.",
-            "age_days": age,
+            "age_days": blogs["overdue_days"],
+        })
+    if blogs["plan_exhausted"]:
+        ran = blogs["plan_ran_out_days"]
+        queue.append({
+            "level": "warn", "section": "blogs",
+            "title": "The blog plan has run out",
+            "detail": (f"Nothing is planned within {blogs['cadence_days']:g} days "
+                       "of today, which is the cadence the setup records."
+                       if ran is None else
+                       f"The last planned post was {ran} days ago against a "
+                       f"{blogs['cadence_days']:g}-day cadence."),
+            "age_days": ran,
         })
 
     # ---- alt text: the stored scan, never a fresh crawl ----

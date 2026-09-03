@@ -55,9 +55,22 @@
          the page never guesses at a client. -->
     <a class="back client" id="backClient" style="display:none"></a>
     <a class="back" href="./">&larr; SEO Image Pipeline</a>
+    {%- if full_gallery %}
+    <!-- This page is one source's view — what the SEO pipeline saved. The
+         full gallery holds every folder for the client (their own uploads,
+         display ads, logos, stock, these SEO images), and the link is drawn
+         only when the server resolved exactly one: a link that guesses
+         between two clients' galleries is worse than none. -->
+    <a class="back" id="fullGallery" href="{{ full_gallery }}"
+       title="Every folder for this client — their uploads, display ads, logos, stock and these SEO images">Full client gallery &mdash; every folder &rarr;</a>
+    {%- endif %}
   </div>
   <h1 id="title">Client image gallery</h1>
-  <p class="sub" id="sub">Every image saved for this client, newest first.</p>
+  <!-- Not "every image saved for this client": this page is the SEO
+       pipeline's archive, one source among the folders the full gallery
+       groups, and a heading claiming the whole would read a scoped view as
+       everything the Hub holds. -->
+  <p class="sub" id="sub">What the SEO Image Pipeline has saved, newest first.</p>
 
   <div class="card">
     <div class="bar">
@@ -138,7 +151,8 @@ function render(rows){
     return;
   }
   $('sub').textContent = rows.length + ' image' + (rows.length>1?'s':'')
-    + (COMPANY ? '' : ' across all clients') + ', newest first.';
+    + (COMPANY ? ' from the SEO Image Pipeline' : ' across all clients')
+    + ', newest first.';
 
   // grouped by project, because that is how the work was actually done
   const groups = {};

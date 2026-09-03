@@ -114,6 +114,12 @@
     if (!st) return;
     var step = st.steps[st.i];
     var target = step.selector ? document.querySelector(step.selector) : null;
+    /* A guided form can keep later steps in the DOM but out of view. Let that
+       page reveal the panel synchronously before the ring is measured. */
+    if (target) {
+      try { target.dispatchEvent(new CustomEvent("s1-reveal-target", { bubbles: true })); }
+      catch (e) {}
+    }
 
     var ring = document.querySelector(".s1-tour-ring");
     if (target) {

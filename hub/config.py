@@ -139,6 +139,16 @@ ALIASES: dict[str, tuple[str, ...]] = {
                              "GHL_ACCOUNTING_LOCATION_ID"),
     "simvoly_key": ("SIMVOLY_API_KEY", "SIMVOLY_KEY"),
 }
+
+# The two contact custom fields a lead's report links are written into, by
+# id. One spelling each, so deliberately NOT in ALIASES -- that table is for
+# names that have drifted, and a speculative second spelling is the thing
+# it refuses. Never guessed: a custom field id is minted by Suite and read
+# off /api/leads/ghl/preflight, and a lead sent with an invented one drops
+# the value in silence. Unset, the links stay on the Hub's own row and the
+# leads panel says so. hub/ghl_contacts.py reads these same names.
+LEAD_REPORT_FIELD_ENV = "GHL_LEAD_REPORT_URL_FIELD_ID"
+LEAD_PDF_FIELD_ENV = "GHL_LEAD_PDF_URL_FIELD_ID"
 # Only names that are actually in use — in this repo, or set on the Render
 # account this Hub runs in. A speculative spelling costs nothing to resolve and
 # a great deal to police: every module reading the one real name is then a
@@ -262,6 +272,8 @@ class Settings:
     ghl_token: str = field(default_factory=lambda: _alias("ghl_token"))
     ghl_company_id: str = field(default_factory=lambda: _alias("ghl_company_id"))
     ghl_lead_location_id: str = field(default_factory=lambda: _alias("ghl_lead_location_id"))
+    ghl_lead_report_field_id: str = field(default_factory=lambda: _s(LEAD_REPORT_FIELD_ENV))
+    ghl_lead_pdf_field_id: str = field(default_factory=lambda: _s(LEAD_PDF_FIELD_ENV))
     simvoly_key: str = field(default_factory=lambda: _alias("simvoly_key"))
 
     # ---- the proposal's target-area map ----
@@ -576,6 +588,16 @@ class Settings:
                 "which must not be the agency company id. This is now the only "
                 "delivery route: the HUB_LEAD_WEBHOOK_URL webhook is retired, so "
                 "without this leads are stored and queued, not delivered."),
+            # Not required, and not folded into the row above: leads deliver
+            # without these, and what fails without them is the Suite
+            # workflow's email -- a blank link where the report should be.
+            row("Lead report links in Suite",
+                bool(self.ghl_lead_report_field_id and self.ghl_lead_pdf_field_id),
+                False,
+                f"{LEAD_REPORT_FIELD_ENV} / {LEAD_PDF_FIELD_ENV} — the contact custom "
+                "fields a lead's report and PDF links are written into. Unset, a "
+                "Suite workflow emailing the report has no link to put in it; the "
+                "ids are read off /api/leads/ghl/preflight, never guessed."),
             row("Simvoly", bool(self.simvoly_key), False, f"{self.spellings('simvoly_key')} — Sites admin."),
         ]
 

@@ -16,6 +16,8 @@
   .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 80px}
   a.back{color:var(--blue);text-decoration:none;font-size:13px}
   .card.off{opacity:.45;pointer-events:none}
+  /* One workflow screen at a time — this is a builder, not a long intake form. */
+  .view{display:none}.view.active{display:block}.view.off{opacity:1;pointer-events:auto}
   h2{color:var(--navy);font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:9px}
   h2 .n{background:var(--navy);color:#fff;width:22px;height:22px;border-radius:50%;
         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
@@ -69,6 +71,9 @@
           border-radius:8px;margin-top:2px;max-height:230px;overflow:auto;box-shadow:0 8px 20px rgba(15,23,42,.09)}
   .aclist div{padding:8px 11px;cursor:pointer;font-size:13px}
   .aclist div:hover{background:var(--soft)}
+  .flow{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin:20px 0}
+  .flow button{border:0;font:650 12px inherit;color:var(--muted);padding:6px 9px;border-radius:15px;background:#e2e8f0;cursor:pointer}
+  .flow button.active{background:var(--navy);color:#fff}.flow button:disabled{cursor:default;opacity:.65}.flow i{color:var(--muted);font-style:normal}
 </style>
 </head>
 <body data-module="radio_promo">
@@ -78,9 +83,12 @@
   <p class="sub">Streaming-radio commercials written to the clock, cast and recorded.
      Write one on <b>spec</b> to win the business, or attach it to a client and it files
      under their name, shows on their record, and can be pushed to the Suite.</p>
+  <div class="flow" aria-label="Radio commercial workflow">
+    <button class="active" onclick="goView('setup')">1. Start</button><i>›</i><button disabled onclick="goView('brief')">2. Brief</button><i>›</i><button disabled onclick="goView('copy')">3. Script</button><i>›</i><button disabled onclick="goView('cast')">4. Voice</button><i>›</i><button disabled onclick="goView('music')">5. Music</button><i>›</i><button disabled onclick="goView('booth')">6. Record</button><i>›</i><button disabled onclick="goView('pack')">7. Package</button>
+  </div>
 
   <!-- 1. SETUP -->
-  <div class="card" id="c-setup">
+  <div class="card view active" id="c-setup">
     <h2><span class="n">1</span> Who is this for? {{ help_dot('radio_promo.build.setup') if help_dot is defined else '' }}</h2>
     <div class="modes">
       <div class="mode on" id="m-spec" onclick="setMode('spec')">
@@ -125,6 +133,14 @@
         <label class="f">Landing page <span class="opt">optional</span></label>
         <input type="url" id="landing_url" placeholder="https://example.com/offer">
       </div>
+      <div>
+        <label class="f">Include a phone number in every script?</label>
+        <select id="include_phone" onchange="togglePhone()"><option value="no">No — use URL only</option><option value="yes">Yes</option></select>
+      </div>
+      <div id="phoneBox" style="display:none">
+        <label class="f">Phone number <span class="opt">— said in every script</span></label>
+        <input type="text" id="phone" placeholder="555-555-5555">
+      </div>
     </div>
     <div style="margin-top:13px">
       <label class="f">The promotion <span class="opt">— what should the spot actually sell?</span></label>
@@ -142,7 +158,7 @@
   </div>
 
   <!-- 2. BRIEF + TONE -->
-  <div class="card off" id="c-brief">
+  <div class="card view off" id="c-brief">
     <h2><span class="n">2</span> Brief &amp; tone</h2>
     <div id="briefBox"></div>
     <div class="tones" id="toneList"></div>
@@ -153,7 +169,7 @@
   </div>
 
   <!-- 3. COPY -->
-  <div class="card off" id="c-copy">
+  <div class="card view off" id="c-copy">
     <h2><span class="n">3</span> Copy</h2>
     <div id="copyBox"></div>
     <div style="margin-top:12px">
@@ -168,22 +184,43 @@
   </div>
 
   <!-- 4. CAST -->
-  <div class="card off" id="c-cast">
+  <div class="card view off" id="c-cast">
     <h2><span class="n">4</span> Cast {{ help_dot('radio_promo.build.cast') if help_dot is defined else '' }}</h2>
     <div id="castPicks"></div>
     <div class="rowbar">
       <button class="btn" onclick="matchVoices()">Find matching voices</button>
       <button class="btn sec" onclick="suggestVoice()">Ask AI to cast it</button>
+      <input type="text" id="voiceDescription" placeholder="Describe the voice you want…" style="max-width:280px">
+      <button class="btn sec sm" onclick="searchDescribedVoice()">Search description</button>
       <input type="text" id="voiceById" placeholder="…or paste an ElevenLabs voice ID" style="max-width:280px">
       <button class="btn sec sm" onclick="voiceById()">Add</button>
       <span class="msg" id="castMsg"></span>
     </div>
     <div id="voiceList" data-demo="rp-voice" style="margin-top:12px"></div>
+    <details class="slot" style="margin-top:16px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--navy)">Clone an authorized voice from recordings</summary>
+      <p class="hint"><b>Upload:</b> 1–5 clear recordings of one speaker only, ideally 1–5 minutes total. Use MP3, WAV, M4A, AAC, OGG, or WebM; no music, calls, room echo, or other speakers. Keep each file under 25 MB. The files are sent directly to ElevenLabs and are not saved by Smart 1 Hub.</p>
+      <div class="grid" style="margin-top:12px">
+        <div><label class="f">Clone name</label><input type="text" id="cloneName" placeholder="Jane Smith — authorized clone"></div>
+        <div><label class="f">Describe the voice <span class="opt">optional</span></label><input type="text" id="cloneDescription" placeholder="Warm, confident American female"></div>
+      </div>
+      <div style="margin-top:10px"><label class="f">Voice recordings</label><input type="file" id="cloneFiles" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.webm" multiple></div>
+      <label class="hint" style="display:block;margin-top:10px"><input type="checkbox" id="cloneAuthorized"> I own this voice or have the speaker’s written permission to create and use this clone.</label>
+      <div class="rowbar"><button class="btn sec" onclick="cloneVoice()">Create voice clone</button><span class="msg" id="cloneMsg"></span></div>
+    </details>
+  </div>
+
+  <!-- 5. MUSIC -->
+  <div class="card view off" id="c-music">
+    <h2><span class="n">5</span> Music bed</h2>
+    <p class="hint">Listen to a bed before using it. Describe a new bed to create a playable preview.</p>
+    <div id="musicList"></div>
+    <div class="rowbar"><input type="text" id="musicPrompt" placeholder="Warm acoustic guitar, light percussion, hopeful build…" style="flex:1;min-width:260px"><button class="btn" onclick="createMusicBed()">Create music bed</button><button class="btn sec" onclick="goView('booth')">Continue to recording</button><span class="msg" id="musicMsg"></span></div>
   </div>
 
   <!-- 5. BOOTH -->
-  <div class="card off" id="c-booth">
-    <h2><span class="n">5</span> Booth {{ help_dot('radio_promo.build.booth') if help_dot is defined else '' }}</h2>
+  <div class="card view off" id="c-booth">
+    <h2><span class="n">6</span> Booth {{ help_dot('radio_promo.build.booth') if help_dot is defined else '' }}</h2>
     <div id="boothBox"></div>
     <div class="rowbar">
       <button class="btn sec" onclick="makeBanner()">Generate companion banner</button>
@@ -193,8 +230,8 @@
   </div>
 
   <!-- 6. PACKAGE -->
-  <div class="card off" id="c-pack">
-    <h2><span class="n">6</span> Package</h2>
+  <div class="card view off" id="c-pack">
+    <h2><span class="n">7</span> Package</h2>
     <div id="packBox"></div>
     <div class="rowbar">
       <button class="btn" onclick="pushGhl()">Push to the Suite</button>
@@ -253,6 +290,34 @@ function setMode(m){
   $('m-client').classList.toggle('on', m==='client');
   $('clientBox').style.display = m==='client' ? '' : 'none';
 }
+function togglePhone(){ $('phoneBox').style.display = $('include_phone').value==='yes' ? '' : 'none'; }
+const VIEWS=['setup','brief','copy','cast','music','booth','pack'];
+function unlockedStep(){
+  if(!P) return 1;
+  if((P.spots||[]).length) return 7;
+  if((P.voice_matches||[]).length) return 6;
+  if((P.scripts||{}).fifteen) return 4;
+  if(P.analysis) return 2;
+  return 1;
+}
+function setFlow(step){
+  document.querySelectorAll('.flow button').forEach((el,i)=>{
+    el.classList.toggle('active', i===step-1);
+    el.disabled=i+1>unlockedStep();
+  });
+}
+function showView(name){
+  const step=VIEWS.indexOf(name)+1;
+  if(step<1 || step>unlockedStep()) return;
+  document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active',el.id==='c-'+name));
+  setFlow(step); window.scrollTo({top:0,behavior:'smooth'});
+}
+function goView(name){
+  if(name==='music') renderMusicBeds();
+  if(name==='cast') renderCast();
+  if(name==='pack') renderPack();
+  showView(name);
+}
 
 let acTimer = null;
 function searchClients(){
@@ -285,7 +350,8 @@ async function start(){
       company:$('company').value.trim(), project_name:$('project_name').value.trim(),
       team_member:$('team_member').value.trim(), home_url:$('home_url').value.trim(),
       landing_url:$('landing_url').value.trim(), promotion:$('promotion').value.trim(),
-      disclaimer:$('disclaimer').value.trim()
+      disclaimer:$('disclaimer').value.trim(), include_phone:$('include_phone').value==='yes',
+      phone:$('phone').value.trim()
     };
     const created = await api('/api/projects', {method:'POST', body:JSON.stringify(payload)});
     P = created.project;
@@ -300,7 +366,7 @@ async function start(){
 
 /* ---------- brief + tone ---------- */
 function renderBrief(){
-  open('c-brief', true);
+  showView('brief');
   const a = P.analysis || {};
   const recs = (a.recommendedTones||[]).map(r => r.toneId);
   $('briefBox').innerHTML = `
@@ -349,7 +415,7 @@ async function writeScripts(isRevision){
 function slotName(k){ return k==='fifteen' ? ':15' : ':30'; }
 
 function renderCopy(){
-  open('c-copy', true); open('c-cast', true);
+  showView('copy');
   const s = P.scripts || {};
   $('copyBox').innerHTML = (s.hook ? `<p class="hint" style="margin-top:0">Hook: <b>${esc(s.hook)}</b></p>` : '') +
     ['fifteen','thirty'].map(k => {
@@ -370,6 +436,7 @@ function renderCopy(){
     }).join('');
   renderSpoken();
   renderCast();
+  $('copyBox').insertAdjacentHTML('beforeend','<div class="rowbar"><button class="btn" onclick="goView(\'cast\')">Continue to voice casting</button></div>');
 }
 
 async function saveScript(k){
@@ -428,6 +495,15 @@ async function matchVoices(){
   }catch(e){ say('castMsg', e.message, 'err'); }
 }
 
+async function searchDescribedVoice(){
+  const description = $('voiceDescription').value.trim();
+  if(!description){ say('castMsg','Describe the voice first.','err'); return; }
+  // The account's labels and descriptions are what the matcher scores, so the
+  // free-form request becomes visible search terms instead of a vague prompt.
+  want.search_terms = description.split(/[,\s]+/).filter(Boolean).slice(0,8);
+  await matchVoices();
+}
+
 async function voiceById(){
   const id = $('voiceById').value.trim();
   if(!id) return;
@@ -438,6 +514,7 @@ async function voiceById(){
 }
 
 function drawVoices(list){
+  showView('cast');
   P.voice_matches = list;
   $('voiceList').innerHTML = list.map((v,i) => `
     <div class="voice" id="v-${i}">
@@ -449,7 +526,46 @@ function drawVoices(list){
         <button class="btn sm" onclick="assign('fifteen',${i})">Use for :15</button>
         <button class="btn sm" onclick="assign('thirty',${i})">Use for :30</button>
       </div>
-    </div>`).join('');
+    </div>`).join('') + '<div class="rowbar"><button class="btn" onclick="goView(\'music\')">Continue to music bed</button></div>';
+}
+
+async function cloneVoice(){
+  const files=[...$('cloneFiles').files];
+  if(!$('cloneName').value.trim()){ say('cloneMsg','Name the clone.','err'); return; }
+  if(!files.length){ say('cloneMsg','Add one or more recordings.','err'); return; }
+  if(!$('cloneAuthorized').checked){ say('cloneMsg','Written permission is required.','err'); return; }
+  const form=new FormData(); form.append('project_id',P.id); form.append('name',$('cloneName').value.trim());
+  form.append('description',$('cloneDescription').value.trim()); form.append('authorized','true');
+  files.forEach(f=>form.append('files',f)); say('cloneMsg','Creating the clone…','wait');
+  try{
+    const res=await fetch(MOUNT+'/api/voices/clone',{method:'POST',body:form}); const d=await res.json();
+    if(!res.ok||d.ok===false) throw new Error(d.error||'Could not create clone.');
+    say('cloneMsg','Clone ready. Listen to its sample below.','ok'); drawVoices([d.voice].concat(P.voice_matches||[]));
+  }catch(e){say('cloneMsg',e.message,'err');}
+}
+
+function bedTone(prompt){
+  const p=(prompt||'').toLowerCase();
+  if(/upbeat|energy|pop|bright/.test(p)) return 440;
+  if(/warm|acoustic|hopeful/.test(p)) return 294;
+  if(/cinematic|epic|dramatic/.test(p)) return 196;
+  return 330;
+}
+function playBed(prompt){
+  const C=window.AudioContext||window.webkitAudioContext; if(!C) return;
+  const ctx=new C(), gain=ctx.createGain(); gain.gain.value=.06; gain.connect(ctx.destination);
+  [1,1.25,1.5].forEach((ratio,i)=>{const o=ctx.createOscillator();o.type=i===0?'sine':'triangle';o.frequency.value=bedTone(prompt)*ratio;o.connect(gain);o.start();o.stop(ctx.currentTime+8);});
+  setTimeout(()=>ctx.close(),8500);
+}
+function renderMusicBeds(){
+  const defaults=['Warm acoustic guitar with light percussion','Upbeat modern pop, clean and positive','Cinematic piano and soft rising strings'];
+  const beds=[...(P.music_beds||[]).map(x=>x.prompt),...defaults];
+  $('musicList').innerHTML=beds.map((p,i)=>{ const call=JSON.stringify(p).replace(/"/g,'&quot;'); return `<div class="voice"><b>${i<(P.music_beds||[]).length?'Custom bed':'Starter bed'}</b><div class="hint">${esc(p)}</div><div class="rowbar"><button class="btn sec sm" onclick="playBed(${call})">▶ Listen</button></div></div>`; }).join('');
+}
+async function createMusicBed(){
+  const prompt=$('musicPrompt').value.trim(); if(!prompt) return;
+  say('musicMsg','Creating preview…','ai');
+  try{const d=await api('/api/projects/'+P.id+'/music-beds',{method:'POST',body:JSON.stringify({prompt})});P=d.project;$('musicPrompt').value='';renderMusicBeds();playBed(prompt);say('musicMsg','Music-bed preview ready.','ok');}catch(e){say('musicMsg',e.message,'err');}
 }
 
 function assign(slot, i){
@@ -459,7 +575,7 @@ function assign(slot, i){
 async function render(slot){
   const v = assigned[slot];
   if(!v) return;
-  open('c-booth', true);
+  showView('booth');
   say('boothMsg','Recording the '+slotName(slot)+'…');
   try{
     const d = await api('/api/projects/'+P.id+'/render', {method:'POST',
@@ -472,7 +588,7 @@ async function render(slot){
 
 /* ---------- booth ---------- */
 function renderBooth(){
-  open('c-booth', true); open('c-pack', true);
+  showView('booth');
   $('boothBox').innerHTML = (P.spots||[]).map(s => `
     <div class="slot">
       <h3><span>${slotName(s.slot)} — ${esc(s.voice_name||'')}</span>
@@ -488,7 +604,7 @@ function renderBooth(){
         <a class="btn sec sm" href="${esc(s.audio_url)}" download>Download</a>
       </div>
     </div>`).join('') || '<p class="hint">Assign a voice above and the spot records here.</p>';
-  renderPack();
+  renderPack(false);
 }
 
 async function approve(slot, val){
@@ -522,7 +638,8 @@ async function makeBanner(){
 }
 
 /* ---------- package ---------- */
-function renderPack(){
+function renderPack(navigate=true){
+  if(navigate) showView('pack');
   const approved = (P.spots||[]).filter(s=>s.approved).length;
   $('packBox').innerHTML = `
     <p>${P.spec?'<span class="tag spec">spec</span>':'<span class="tag client">'+esc(P.client)+'</span>'}
@@ -559,7 +676,8 @@ async function pushGhl(){
     const d = await api('/api/projects/'+m[1]);
     P = d.project;
     setMode(P.spec?'spec':'client');
-    ['company','project_name','team_member','home_url','landing_url','promotion','disclaimer'].forEach(k=>{ if($(k)) $(k).value = P[k]||''; });
+    ['company','project_name','team_member','home_url','landing_url','promotion','disclaimer','phone'].forEach(k=>{ if($(k)) $(k).value = P[k]||''; });
+    if($('include_phone')) { $('include_phone').value=P.include_phone?'yes':'no'; togglePhone(); }
     if($('client')) $('client').value = P.client||'';
     if(P.analysis) renderBrief();
     if(P.scripts && P.scripts.fifteen) renderCopy();

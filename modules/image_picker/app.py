@@ -382,6 +382,73 @@ def staff_gallery(client_id: int):
     )
 
 
+@bp.route("/gallery/for-client")
+@staff_only
+@db_guard
+def gallery_for_client():
+    """Open a client's FULL gallery from a name — every folder, every source.
+
+    Client 360's "See client image gallery" points here, because the record
+    knows the client's *name* and this module keys galleries on its own id.
+    The matching rules are provisioning.py's — exactly one gallery or none,
+    never a substring — and every outcome goes somewhere that shows the
+    client's images rather than an error about our own bookkeeping:
+
+    * exactly one gallery -> that gallery, which is every folder and every
+      source this Hub has filed for them;
+    * none yet -> the SEO Image Pipeline's archive scoped to the name, which
+      is everything the Hub holds for them outside a gallery (and that page
+      only offers a "full gallery" link when one exists, so the two cannot
+      bounce a reader between them);
+    * more than one -> refused with both named, because picking either sends
+      somebody into another client's gallery reading as this one's.
+
+    `c360` is carried through the redirect: it is what draws "Back to
+    <client>" on the destination, and a resolver that dropped it would strand
+    the reader one hop from the record they came from.
+    """
+    name = (request.args.get("name") or "").strip()
+    c360 = (request.args.get("c360") or "").strip()
+    filters = {key: str(request.args.get(key) or "").strip()[:80]
+               for key in ("io", "product", "tool")}
+
+    def carry(target: str) -> str:
+        if c360:
+            from urllib.parse import quote
+            target += ("&" if "?" in target else "?") + "c360=" + quote(c360)
+        if any(filters.values()):
+            from urllib.parse import quote
+            for key, value in filters.items():
+                if value:
+                    target += ("&" if "?" in target else "?") + key + "=" + quote(value)
+        return target
+
+    if not name:
+        return render_template(
+            "picker_error.html",
+            message="No client name was given, so there is no gallery to open."
+        ), 400
+
+    from . import provisioning
+    db = session()
+    found, _how = provisioning.find(db, name, request.args.get("url") or "")
+    if len(found) == 1:
+        return redirect(carry(
+            url_for("image_picker.staff_gallery", client_id=found[0].id)))
+    if len(found) > 1:
+        return render_template(
+            "picker_error.html",
+            message=("More than one upload gallery could be this client ("
+                     + ", ".join(c.name for c in found) + "). Open Client "
+                     "Image Uploads and pick the right one rather than risking "
+                     "one client's gallery reading as another's.")), 200
+    # No full gallery yet. The SEO pipeline's archive is everything the Hub
+    # holds for this client outside one, so land there scoped to the name
+    # rather than on a page about our own bookkeeping.
+    from urllib.parse import quote
+    return redirect(carry("/tools/seo-images/gallery?company=" + quote(name)))
+
+
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
@@ -719,12 +786,16 @@ def api_saved():
         limit = 60
     limit = max(1, min(200, limit))     # clamp BOTH ends -- ?limit=-1 was a 500 in Scans
 
-    rows = db.execute(
-        select(SavedImage)
-        .where(SavedImage.client_id == client.id)
-        .order_by(SavedImage.created_at.desc())
-        .limit(limit)
-    ).scalars().all()
+    q = select(SavedImage).where(SavedImage.client_id == client.id)
+    # These are exact context filters, so a Product #123 view cannot silently
+    # include a different product whose name happens to contain 123.
+    for field, column in (("io", SavedImage.io_number),
+                          ("product", SavedImage.product_number),
+                          ("tool", SavedImage.tool)):
+        value = str(request.args.get(field) or "").strip()
+        if value:
+            q = q.where(column == value[:80])
+    rows = db.execute(q.order_by(SavedImage.created_at.desc()).limit(limit)).scalars().all()
 
     # What a vision model saw in each one, where the sweep has reached it.
     # Carried beside the image rather than merged into it: a description is an
@@ -792,7 +863,7 @@ def api_delete(image_id: int):
     row = db.get(SavedImage, image_id)
     if not row or row.client_id != client.id:
         return jsonify({"ok": False, "error": "That image isn't in this gallery."}), 404
-    if row.cloudinary_public_id:
+    if row.cloudinary_public_id and not row.external:
         cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type)
     db.delete(row)
     db.commit()
@@ -1230,7 +1301,11 @@ def api_staff_file():
         width=body.get("width"), height=body.get("height"),
         size_bytes=body.get("bytes"), spec=body.get("spec"),
         provider=body.get("provider") or "",
-        saved_by=(g.get("hub_user") or "system"))
+        saved_by=(g.get("hub_user") or "system"),
+        tool=body.get("tool") or "", completed_on=body.get("completed_on") or "",
+        project_name=body.get("project_name") or "", io_number=body.get("io_number") or "",
+        product_number=body.get("product_number") or "",
+        external=bool(body.get("external")))
     if not out.get("ok"):
         return jsonify(out), 400
     if not out.get("duplicate"):
@@ -1238,6 +1313,25 @@ def api_staff_file():
                client=str(body.get("client")),
                filename=out["image"].get("filename") or "")
     return jsonify(out)
+
+
+@bp.route("/api/staff/import-link", methods=["POST"])
+@staff_only
+@db_guard
+def api_import_link():
+    """Add an existing Google Drive/shared Creative Information link.
+
+    This is an index operation, not a Drive copy.  It is therefore safe for
+    restricted client folders and preserves the file's existing permissions.
+    """
+    body = request.get_json(silent=True) or {}
+    out = filing.file_external_link(
+        client_name=body.get("client"), url=body.get("url"),
+        filename=body.get("filename") or "", tool=body.get("tool") or "creative-information",
+        project_name=body.get("project_name") or "", io_number=body.get("io_number") or "",
+        product_number=body.get("product_number") or "",
+        saved_by=(g.get("hub_user") or "system"))
+    return jsonify(out), (200 if out.get("ok") else 400)
 
 
 @bp.route("/api/clients", methods=["POST"])
