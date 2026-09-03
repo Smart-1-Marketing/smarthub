@@ -30,8 +30,6 @@ SESSION_TTL_SECONDS = 12 * 60 * 60  # 12 hours
 # process and each refused the other's cookie.
 from hub import signing as _signing
 
-_SECRET = _signing.value()
-
 _serializer = _signing.timed_serializer("s1hub-session")
 
 

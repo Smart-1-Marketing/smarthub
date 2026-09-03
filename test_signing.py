@@ -232,8 +232,12 @@ check("the middleware reader refuses a cookie signed with the old literal",
       _got == {}, f"accepted {_got}")
 
 section("Two readers of one salt agree")
-check("auth and identity resolve the same secret",
-      _auth._SECRET == _identity._secret())
+# Asserted through the shared reading and through the serializers, never
+# through a module global kept alive for the test: hub/auth.py had a `_SECRET`
+# whose only reader was this line, so the assertion was propping itself up.
+# A review bot named it as dead and was right about more than it could see.
+check("identity resolves the shared secret rather than one of its own",
+      _identity._secret() == signing.value())
 _tok = _auth._serializer.dumps({"hello": 1})
 try:
     _ok = _identity._serializer.loads(_tok, max_age=99999) == {"hello": 1}
