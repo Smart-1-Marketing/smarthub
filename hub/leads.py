@@ -932,8 +932,35 @@ def route_status(rows: list[dict] | None = None) -> dict:
             "through first, so the trigger is switched off after the "
             "replacement is proven rather than before.")
 
+    # The links a workflow would email. A lead delivered with its report link
+    # left on the Hub's own row is a lead whose email goes out blank, and
+    # nothing about "delivered" says so -- so the panel does.
+    links_warning, links_title = "", ""
+    try:
+        from hub import ghl_contacts
+        ids = ghl_contacts.report_field_ids()
+        if mode == "api" and not (ids["report_url"] and ids["pdf_url"]):
+            held = sum(1 for r in (rows if rows is not None else _read_all())
+                       if r.get("delivered") and ghl_contacts.report_links(r)["dropped"])
+            missing = [n for n, v in (("GHL_LEAD_REPORT_URL_FIELD_ID", ids["report_url"]),
+                                      ("GHL_LEAD_PDF_URL_FIELD_ID", ids["pdf_url"])) if not v]
+            links_title = "Report links are not reaching Suite"
+            links_warning = (
+                f"{' and '.join(missing)} {'is' if len(missing) == 1 else 'are'} not "
+                f"set, so the report and PDF links a lead carries stay on this "
+                f"panel and never reach the contact -- a Suite workflow emailing "
+                f"the report has no link to put in it. "
+                + (f"{held} delivered {'lead' if held == 1 else 'leads'} in the "
+                   f"store carried a link that was not sent. "
+                   if held else "")
+                + "Run preflight to list the sub-account's custom fields and set "
+                  "the two ids from it; nothing here guesses one.")
+    except Exception:                                   # noqa: BLE001
+        pass
+
     return {"route": mode, "note": note, "route_warning": warning,
             "route_warning_title": title,
+            "links_warning": links_warning, "links_warning_title": links_title,
             "api_contacts": api_contacts, "api_last": api_last,
             "route_label": {"api": "Smart 1 Suite API",
                             "none": "not configured"}[mode]}
