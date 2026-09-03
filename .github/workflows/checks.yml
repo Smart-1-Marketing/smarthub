@@ -396,6 +396,21 @@ jobs:
             echo "test_commercial_meter.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder generated audio tests
+        # Sound effects and music. That ElevenLabs' published limits are
+        # refused by name rather than clamped, that a retry cannot re-spend on
+        # either worker, that a length is derived or is not measured, that a
+        # generation is counted apart from a character of speech, and that an
+        # effect sits on its own track ducked by the bed's own numbers and
+        # capped to the shot it is on. Guarded like the steps around it so
+        # this workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_commercial_audio.py ]; then
+            python test_commercial_audio.py
+          else
+            echo "test_commercial_audio.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder dashboard rail
         # The dashboard is the one screen in the module that asks the Hub for
         # its icon rail and opts the generic accordion out, and its section
@@ -634,6 +649,14 @@ jobs:
             python test_proposal_spec.py
           else
             echo "test_proposal_spec.py not on this branch — nothing to run."
+          fi
+
+      - name: The consulting line the rate card does not name
+        run: |
+          if [ -f test_proposal_consulting.py ]; then
+            python test_proposal_consulting.py
+          else
+            echo "test_proposal_consulting.py not on this branch — nothing to run."
           fi
 
       - name: Rate card coverage — every product, on a proposal that renders

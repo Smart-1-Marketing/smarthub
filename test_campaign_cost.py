@@ -341,6 +341,16 @@ _harness = (
     _lift("function isMarkedUp") + _lift("function startingRate")
     + _lift("function sellRateOf") + _lift("function lineCampaign")
     + _lift("function lineForIO")
+    # lineForIO() asks whether a line is the rate card's catch-all before it
+    # carries the engagement description, so the seam lifts that reader too --
+    # a harness missing a function the code under test calls fails on the
+    # harness rather than on the arithmetic it exists to check.
+    + _lift("function isConsultingLine")
+    # CFG is the page's served config. Only `consulting` is read on this path,
+    # and it is given the real product string so the catch-all branch is
+    # reachable here rather than being permanently false in the seam.
+    + "const CFG={consulting:{product:%s}};\n" % json.dumps(
+        B.hub_intake.CONSULTING["product"])
     # The multiplier is served by /api/config rather than mirrored, so the
     # harness hands over the server's own value the way the page is handed it.
     + "function rateRules(){return {sellMultiplier:%s};}\n" % B.hub_rate_card.SELL_MULTIPLIER

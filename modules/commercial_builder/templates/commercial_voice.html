@@ -81,9 +81,16 @@
 
   <div class="cb-field">
     <label class="cb-label">Mood</label>
-    {# The waveforms are an illustration of the mood, not a preview of a track:
-       nothing has been chosen at this point, so a picture that looked like a
-       waveform reading would be claiming something. The note below says so. #}
+    {# The moods stay, and what changed is what they are FOR. This step used to
+       be a preset picker that generated nothing at all: a mood, a level, and
+       no track for the level to duck. Each tile is a one-click prompt starter
+       now — it fills the box below with the words that will actually be sent,
+       so what the tile promises is what the composer is asked for, and a rep
+       who does not want to write a prompt still gets music in one press.
+
+       The waveforms are an illustration of the mood, not a preview of a
+       track: nothing has been composed at this point, so a picture that
+       looked like a waveform reading would be claiming something. #}
     <div class="cb-mood-grid" id="music-mood-choices">
       {% for m in music_moods %}
         <button type="button" class="cb-mood {{ 'selected' if project.music and project.music.mood == m else '' }}" data-value="{{ m }}">
@@ -117,6 +124,34 @@
     <button type="button" class="cb-btn" id="save-music-btn">Save music selection</button>
     <span class="cb-hint" id="music-status"></span>
   </div>
+</div>
+
+<div class="cb-card" id="compose-root">
+  <h3>Compose the bed
+    {{ help_dot('commercial_builder.voice.compose') if help_dot is defined else '' }}
+  </h3>
+  {# Composed to the spot's own runway, which is why there is no length field:
+     the length comes from config.music_length_ms(project.length_seconds), the
+     same number QC measures the scenes against, so the track lands at the
+     right length rather than being trimmed to fit afterwards. A browser
+     cannot ask for a length this spot does not have. #}
+  <p style="margin-top:0;" id="compose-intro">Say what it should sound like, or press a mood
+    above to fill this in. Nothing is composed until you press the button — it is billed
+    per generation.</p>
+
+  <div class="cb-field">
+    <label class="cb-label">What the music should be</label>
+    <textarea id="music-prompt" rows="2"
+      placeholder="upbeat, driving commercial bed with a steady pulse, bright and forward, no vocals"></textarea>
+  </div>
+
+  <div class="cb-flex-between">
+    <button type="button" class="cb-btn cb-btn-primary" id="compose-btn">Compose 2 options</button>
+    <span class="cb-hint" id="compose-status"></span>
+  </div>
+
+  <div id="compose-options" style="margin-top:12px;"></div>
+  <p class="cb-hint" id="compose-current"></p>
 </div>
 
 {% endblock %}

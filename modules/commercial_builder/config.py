@@ -649,6 +649,141 @@ MUSIC_LEVELS = {
     "High": (-5, -16),
 }
 
+# The level a louder bed is measured against, read out of the table above
+# rather than typed as a number. `sfx_gain_conflict` asks whether a sound
+# effect sitting under narration ducks to something louder than the middle
+# setting — a threshold written as a literal is a house number nobody can
+# trace, and one derived from the table moves with it.
+MUSIC_LEVEL_REFERENCE = "Medium"
+
+
+def ducked_db(level):
+    """The two dB values a level renders at, whatever it is called.
+
+    One reading, because creatomate_service turns these into keyframes and
+    qc_service judges a sound effect against them: two lookups of one table,
+    each with its own fallback, is how the panel and the render come to
+    disagree about how loud something is. Returns the Medium pair for a level
+    this table does not know — and `known` says which happened, because
+    "somebody picked High" and "the level is a spelling we do not have" are
+    different things to tell a rep.
+    """
+    pair = MUSIC_LEVELS.get(level)
+    return {"bed": (pair or MUSIC_LEVELS[MUSIC_LEVEL_REFERENCE])[0],
+            "ducked": (pair or MUSIC_LEVELS[MUSIC_LEVEL_REFERENCE])[1],
+            "known": pair is not None}
+
+
+# ---------------------------------------------------------------------------
+# Generated audio — ElevenLabs sound effects and music.
+#
+# Every number here is ElevenLabs' own published limit, transcribed from the
+# official Agent Skills (github.com/elevenlabs/skills, `sound-effects` and
+# `music`) rather than guessed at. They are transcribed rather than fetched
+# for the reason `hub/creative_specs.py` gives about the spec kit: a limit
+# pulled live changes what a refusal says with no diff to point at.
+#
+# A value outside them is REFUSED BY NAME rather than clamped — the rule
+# `hub/quote_validity.py` arrived at for a quote window. Somebody who asked
+# for 40 seconds of rain and silently got 30 has been told something
+# different from what they asked for, on a file that then goes into a spot.
+# ---------------------------------------------------------------------------
+SOUND_EFFECTS_MODEL_ID = "eleven_text_to_sound_v2"
+SOUND_EFFECTS_MIN_DURATION_S = 0.5
+SOUND_EFFECTS_MAX_DURATION_S = 30.0
+SOUND_EFFECTS_DEFAULT_INFLUENCE = 0.3
+
+MUSIC_MODEL_ID = "music_v2"
+MUSIC_MIN_LENGTH_MS = 3_000
+MUSIC_MAX_LENGTH_MS = 600_000
+
+# Both endpoints are asked for a CONSTANT-bitrate MP3, and that is the whole
+# reason a returned track's length can be checked at all. Nothing here decodes
+# audio; at a known constant bitrate the duration is arithmetic on the byte
+# count, and at an unknown one it is *not measured* rather than guessed —
+# which is what `music_length_mismatch` reports when the format comes back as
+# something else.
+AUDIO_OUTPUT_FORMAT = "mp3_44100_128"
+AUDIO_OUTPUT_KBPS = 128
+
+# How far a returned track may sit from the length that was asked for before
+# the check says so. OURS, not ElevenLabs' — no published tolerance exists, so
+# this is house guidance and `qc_service` prints it as such, the rule
+# `services/abcd_service.HOUSE_LEGIBILITY` works to. One second is about a
+# beat: closer than that and a bed still lands under the end card, further and
+# it either runs out early or has to be trimmed.
+MUSIC_LENGTH_TOLERANCE_S = 1.0
+
+# A generated bed is composed to the spot's own runway, and it stops a shade
+# early on purpose: a track that ends on exactly the last frame gets clipped
+# by the encoder rather than resolving, so the composer is asked for a hair
+# less and the render holds the last of it under the end card.
+MUSIC_TAIL_TRIM_MS = 250
+
+# Whether the Compose button is offered at all. A deployment that would
+# rather not spend ElevenLabs credits on music sets this to 0 and the panel
+# says the presets are all that is on offer, rather than drawing a button
+# that fails on press.
+def music_generation_enabled():
+    """Read at call time, like every other switch in this module."""
+    import os
+    raw = (os.environ.get("MUSIC_GENERATION_ENABLED") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
+def music_length_ms(length_seconds):
+    """How long a bed for a spot of this length should be asked for.
+
+    The spot's own runway, less `MUSIC_TAIL_TRIM_MS`, floored at ElevenLabs'
+    published minimum — a :05 is above that floor, so the floor is a guard
+    against a caller rather than something the wizard can reach.
+    """
+    try:
+        total = int(round(float(length_seconds or 0) * 1000)) - MUSIC_TAIL_TRIM_MS
+    except (TypeError, ValueError):
+        return MUSIC_MIN_LENGTH_MS
+    return max(MUSIC_MIN_LENGTH_MS, min(MUSIC_MAX_LENGTH_MS, total))
+
+
+# The mood tiles stay, as one-click prompt starters rather than a second
+# mechanism: a rep who does not want to write a prompt still gets music in one
+# press, and nothing generates without that press. The text is what is
+# actually sent, so what a tile promises is what the composer is asked for.
+MUSIC_PROMPT_STARTERS = {
+    "Energetic": "upbeat, driving commercial bed with a steady pulse, bright and "
+                 "forward, no vocals",
+    "Corporate": "clean corporate underscore, warm piano and light strings, "
+                 "confident and unobtrusive, no vocals",
+    "Inspirational": "uplifting cinematic build, swelling strings over a simple "
+                     "piano figure, hopeful, no vocals",
+    "Fun": "playful, light-hearted bed with ukulele and hand claps, friendly and "
+           "bouncy, no vocals",
+    "Dramatic": "tense cinematic underscore, low strings and a slow build, "
+                "serious, no vocals",
+    "Luxury": "understated premium bed, sparse piano and soft pads, elegant and "
+              "unhurried, no vocals",
+    "Country": "warm country bed, acoustic guitar and light brushed drums, "
+               "honest and homespun, no vocals",
+    "Rock": "confident rock bed, electric guitar and live drums, gritty and "
+            "energetic, no vocals",
+    "Electronic": "modern electronic bed, analogue synth pulse and crisp "
+                  "percussion, clean and current, no vocals",
+    "Relaxed": "calm, easy underscore, soft keys and warm pads, unhurried, "
+               "no vocals",
+}
+
+
+def music_prompt_starter(mood):
+    """The words a mood tile fills the prompt box with, or "".
+
+    A mood the table does not carry contributes nothing rather than its own
+    name: "Whimsical" handed to a composer as the whole prompt is a worse
+    brief than an empty box, which at least asks somebody to write one.
+    """
+    return MUSIC_PROMPT_STARTERS.get(mood, "")
+
 VOICE_STYLES = [
     "Male", "Female", "Youthful", "Authoritative",
     "Conversational", "Energetic", "Luxury", "Announcer",
