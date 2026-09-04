@@ -471,7 +471,8 @@ def _label_reading_state(rows) -> dict:
 
 
 def orphans(q: str = "", platform: str = "", include_other: bool = False,
-            limit: int = 25, offset: int = 0, platforms=None) -> dict:
+            limit: int = 25, offset: int = 0, platforms=None,
+            only_skipped: bool = False) -> dict:
     """Every Google resource the index could not join to a client, one page.
 
     Paged on the server rather than in the browser. The suggestions are the
@@ -485,6 +486,16 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     Filtering and searching happen before the page is cut, so a search
     genuinely searches the book rather than whichever 25 rows are on screen.
     That is the reason this moved off the browser at all.
+
+    A resource somebody has marked "skip this one for now" is left out of
+    this list — `google_orphan_skip.py` is the overlay, applied on every
+    read here for the same reason `stale_creative._apply_evergreen()` applies
+    its own mark on read rather than baking it into the cached book: two
+    gunicorn workers, one daily cache, and a mark taken in one worker must not
+    go on being ignored by the other until the cache expires on its own.
+    `only_skipped=True` asks for the other side of that same overlay — the
+    full list of what was set aside, so it can be worked through later rather
+    than being invisible everywhere once it leaves the main list.
     """
     from hub import google_index
 
@@ -501,6 +512,12 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     book = _orphan_book()
     unmapped = book["rows"]
 
+    try:
+        from hub import google_orphan_skip
+        skip_marks = google_orphan_skip.by_id()
+    except Exception:                                   # noqa: BLE001
+        skip_marks = {}
+
     # `platforms` is the page's three tickboxes; `platform` is the older
     # single-value parameter, kept because /api/google/orphans?platform=ga4 is
     # a URL somebody may have bookmarked and a test asserts it.
@@ -512,13 +529,22 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     else:
         wanted = tuple(PLATFORM_LABELS) if include_other else ASKED_FOR
     by_key: dict[str, int] = {}
-    kept, skipped_other = [], 0
+    kept, skipped_other, skipped_total = [], 0, 0
     for r in unmapped:
         key = r["key"]
+        mark = skip_marks.get(str(r.get("resource_id") or "").strip().lower())
+        if mark:
+            skipped_total += 1
+            if not only_skipped:
+                continue
+        elif only_skipped:
+            continue
         by_key[key] = by_key.get(key, 0) + 1
         if key not in wanted:
             skipped_other += 1
             continue
+        if mark:
+            r = {**r, "skip": mark}
         kept.append(r)
 
     ctx = {"sources": book["sources"]}
@@ -546,6 +572,13 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
             "client is attached to. Attaching one writes the client record, "
             "the account index and the Knack website record — each reported "
             "separately.")
+    if only_skipped:
+        note = ("Resources somebody has skipped for now, off the main "
+                 "orphaned list so it stays a queue somebody can actually "
+                 "clear. Still searchable and attachable — nothing here is "
+                 "resolved, it is just set aside until somebody works "
+                 "through the harder ones. Unskip a row to put it back on "
+                 "the main list.")
     if status.get("never_built"):
         note = ("The Google account index has never been built, so this is not "
                 "a list of orphans — it is nothing at all. Build it with "
@@ -574,6 +607,9 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
     if skipped_other:
         note += (f" {skipped_other} unmatched resource(s) on other Google "
                  "platforms are not shown — tick to include them.")
+    if skipped_total and not only_skipped:
+        note += (f" {skipped_total} resource(s) have been skipped for now and "
+                 "are not on this list — see Skipped for later above.")
     unreadable = [s for s in ctx["sources"] if not s.get("ok")]
     if unreadable:
         note += (" " + ", ".join(s["label"] for s in unreadable) +
@@ -582,14 +618,20 @@ def orphans(q: str = "", platform: str = "", include_other: bool = False,
 
     return {
         "q": q, "platform": platform, "include_other": include_other,
-        "platforms": list(picked),
+        "platforms": list(picked), "only_skipped": bool(only_skipped),
         # `count` is the whole filtered list; `rows` is one page of it.
         "count": len(kept), "offset": start, "limit": limit,
         "shown": len(page), "has_more": start + len(page) < len(kept),
         "next_offset": start + len(page),
         "rows": page,
         "with_suggestion": sum(1 for r in kept if r["suggestions"]),
-        "orphans_total": len(unmapped),
+        # The whole book minus what has been skipped for now — the number a
+        # person clearing the main list is actually working against. What was
+        # skipped is its own count rather than folded back in here, the
+        # `stale_creative` rule about a resolved finding rendering as an open
+        # one.
+        "orphans_total": max(0, len(unmapped) - skipped_total),
+        "skipped_total": skipped_total,
         # What "Read the labels" would cost and what it has already read.
         # Counted over the WHOLE unmatched book, not this page: a button that
         # says 25 on a book of four hundred is a number that lies, which is
@@ -707,6 +749,15 @@ def attach(resource_id: str, client: str, *, actor: str = "",
 
     report["ok"] = bool(report["written"])
     wrote = len(report["written"])
+    if report["ok"]:
+        # A resource skipped for later and then attached by hand (through the
+        # search box, say) is resolved — leaving its skip mark behind would
+        # have it reappear on the skipped list for a client it already has.
+        try:
+            from hub import google_orphan_skip
+            google_orphan_skip.set_skip(rid, False)
+        except Exception:                               # noqa: BLE001
+            pass
     report["note"] = (
         f"{label} is now attached to {client} in {wrote} of {len(SYSTEMS)} "
         "systems." + (" The rest are listed with the reason: a system that "
@@ -803,3 +854,53 @@ def attach_many(links, *, actor: str = "", force: bool = False) -> dict:
             "failed": failed,
             "note": (f"{len(done)} resource(s) attached."
                      + (f" {len(failed)} could not be." if failed else ""))}
+
+
+# ---------------------------------------------------------------------------
+# "Skip this one for now"
+# ---------------------------------------------------------------------------
+def skip_resource(resource_id: str, on: bool, *, actor: str = "",
+                   note: str = "") -> dict:
+    """Set or clear a "skip this one for now" mark on one orphaned resource.
+
+    Never invented against a resource nothing here can see — the same rule
+    `attach()` follows — because a mark stored against an id the index no
+    longer carries is one that can never come back off the skipped list for
+    anybody to notice.
+    """
+    rid = str(resource_id or "").strip()
+    if not rid:
+        return {"ok": False, "error": "No Google resource was given."}
+
+    item = _find(rid)
+    if on and not item:
+        return {"ok": False,
+                "error": f"“{rid}” is not in the Google account index, so "
+                         "there is nothing here to skip."}
+
+    kind = platform_key(item) if item else "other"
+    label = str((item or {}).get("name") or rid)
+
+    from hub import google_orphan_skip
+    result = google_orphan_skip.set_skip(
+        rid, on, actor=actor, note=note, name=label,
+        platform=PLATFORM_LABELS.get(kind, kind))
+    # Applied on every read of the orphan book rather than baked into it, so
+    # nothing here needs to drop the day's cache — the same reason
+    # `stale_creative._apply_evergreen()` needs no invalidation of its own.
+    if result.get("ok"):
+        try:
+            from hub import audit
+            audit.log("google_index",
+                      "resource_skipped" if on else "resource_unskipped",
+                      actor=actor or None, detail=f"{kind}:{rid}",
+                      resource=label)
+        except Exception:                               # noqa: BLE001
+            pass
+        result.setdefault("name", label)
+        result.setdefault(
+            "note",
+            f"{label} skipped for now — it will not show on the orphaned "
+            "list until it is unskipped." if on else
+            f"{label} is back on the orphaned list.")
+    return result
