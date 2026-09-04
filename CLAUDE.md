@@ -1024,6 +1024,87 @@ when unset instead of returning a quiet 200. Check the two do not hold the
 same URL before switching a trigger off, or the thing that stops is insertion
 orders.
 
+**And five landing apps outside this repo were still on the webhook the Hub
+retired.** `smart1boat`, `smart1legal`, `smart1ski`, `smarthvac` and
+`smart1rv` are their own Render services, so every rule above was written
+about modules the Hub can see and none of it reached them: each POSTed its
+leads at a GoHighLevel inbound webhook, which confirms that GoHighLevel
+accepted a *request* and never that a contact exists — the weak confirmation
+`hub/ghl_contacts.py` exists to replace. smart1rv is the one that shows what
+that costs: `SMART1_SUITE_WEBHOOK_URL` was never set on it, so **every lead
+that app has ever taken was discarded**, behind an `ok: true` already on its
+way to the visitor.
+
+They post to `/api/leads/capture` now, and the Hub writes the contact. Routing
+them through here rather than giving each one the Contacts API is the same
+argument this file makes about `hub/storage.py`: the token and the sub-account
+id stay in one place rather than on five more services, the retry machinery
+already exists, and these leads are finally *in the panel* — they were
+invisible to it, which is where anybody actually looks for a lead.
+
+**A rate limit written for a browser is wrong for a server.** Three an hour
+per address is generous for a person; every lead one of those apps takes
+arrives from that app's single Render egress address, so a busy afternoon on
+one page spends the whole allowance and the fourth visitor is refused with a
+429 while they see their report and nothing on any screen says a lead was
+turned away — the rate limit doing its job and losing leads doing it. A caller
+presenting `LEADS_SOURCE_TOKEN` skips the per-IP check and **nothing else**:
+the lead is stored, tagged and delivered down the same single path, and the
+row records that it came from a trusted caller, because an exemption nobody
+can see afterwards is one nobody can audit. Unset means **nobody** is trusted,
+never everybody — a deployment that has not set it behaves exactly as it did,
+which is the safe direction to be wrong in. It is reported on the panel as a
+fact rather than a warning: a deployment with no standalone landing apps needs
+no token, and a permanently amber row is the check people learn to skip.
+
+**And `meta` was the one part of a lead row that was never cleaned.** `fields`
+has always been cleaned per value; `meta` was written to the store verbatim
+and unbounded, which mattered less while it was a Hub page's own dict and
+matters now that five apps fill it in over an unauthenticated endpoint. It is
+cleaned and capped like a field, with two exceptions that are exceptions on
+purpose: a boolean stays a boolean (`trusted_source` is a real flag), and
+`tags` stays a list, because `lead_tags.extra_tags()` reads it as one.
+
+**Those tags are how segmentation survived the webhook's retirement.** boat,
+ski and hvac drove GoHighLevel "Add Tag" workflow actions off `market_tag` and
+`package_tag` in the webhook body; over the API a tag is a field on the
+contact, so they are written directly and there is no workflow in the middle
+to go missing. They are **free**, like the page tag and unlike the source tag,
+because what a vocabulary protects — a workflow triggering on the string — is
+not what these are for. What they may not do is impersonate the controlled
+half: `meta` is the part of the payload a landing app fills in, so a row
+naming `smart1-hub` or naming a source would put a lead into a triggered
+audience it was never captured for, and that is a mistake to make impossible
+rather than one to ask people not to make. The cap drops segmentation before
+it drops the source tag, for the same reason.
+
+**Three answers from the Hub, and a fourth that is not an answer at all.**
+Each app records what came back, and they are separate states because they
+need opposite handling. **delivered** is a contact id — the only thing that
+means the lead is in Smart 1 Suite. **accepted** is the Hub having stored it
+and taken over the retry: done as far as that app is concerned, and still not
+a contact, so it is counted apart rather than merged; replaying one from the
+app writes a second lead row for one visitor. **undeliverable** is a lead with
+neither an email nor a phone — an abandoned form that never reached the
+contact step, which smart1legal's and smart1ski's partial-lead routes produce
+by design. It is deliberately not a failure: left as one it would sit in the
+owed count for ever and be re-posted on every replay run, which is the
+permanent red this file names elsewhere. And **failed** is owed, and replayed.
+A `delivered: true` carrying no contact id is read as *accepted* — the safe
+reading of a self-contradictory answer — and the contradiction is said out
+loud rather than quietly rounded down to a state that looks routine.
+
+**There is no fallback to the webhook, and that is the same rule one service
+out.** The tempting version is: if the Hub is unreachable, fire the old URL
+instead. The failure that matters most is a timeout, which is precisely the
+case where nothing can tell whether the write landed — falling back there is
+how one visitor becomes two contacts with nothing to reconcile them against.
+Each app still *reads* its old webhook variable, for one reason: to say on
+`/health` that a value is still sitting there. Nothing in any of the five
+posts to it, so what could still write a second contact is outside all six
+codebases — a Suite workflow triggered by that URL, or a page posting straight
+at it. Turn the trigger off in Suite, then clear the variable.
+
 **The marketing site's form and the Hub's form were two different forms.**
 Nine industry tools live here (`/land/boat`, `/land/ski`, `/land/stadium`, …),
 each of which writes every lead through `hub/leads.py` into Smart 1 Suite.
@@ -12478,6 +12559,14 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   override that needs a reason and a name,
                                    #   and a variation that carries the scripts
                                    #   without the audio
+python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
+                                   #   and the :60 that were unbuildable, the
+                                   #   cost note said at pick time rather than
+                                   #   after the read exists, the beats moved
+                                   #   out of the prompt's own prose, and a
+                                   #   named script panel run on the copy --
+                                   #   where certainty rather than severity
+                                   #   decides what may refuse a billed record
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,
@@ -12659,6 +12748,47 @@ Two gates disagreeing about what "green" means is worse than either alone.
 It runs against a real Postgres rather than SQLite because Sites Admin refuses
 to start without one and serves the 503 fallback instead: on SQLite a whole
 module drops out of every check that boots the app, and nothing says so.
+
+**A setting that is right about a thing that has never happened.** smart1-hub
+is configured `autoDeploy: yes`, `autoDeployTrigger: checksPass`, branch
+`main`, and the checks it is waiting on pass — and Render has never once
+deployed it by itself. Every deploy in its history, past the hundredth and
+back to the week the service was created, is trigger `manual` or `api`, and
+**no service in the workspace has a single `new_commit` in its history**. So
+what is missing is the webhook rather than the setting, which is why reading
+the service config says nothing is wrong: each screen is internally
+consistent, and the one number that shows it is a column nobody scrolls to.
+The stored repo path is the pre-transfer one (`smart1marketing/smarthub`,
+where the repo now lives under the `Smart-1-Marketing` org), and git follows
+that redirect happily — so a manual deploy builds the right code and only the
+event subscription is absent. Reconnecting the repository under the org, with
+Render's GitHub App installed there, is the fix at that end and is the only
+half of this that cannot be done from the repo.
+
+The half that can is the `deploy` job in `checks.yml`, which makes the same
+promise on the side that demonstrably works: the commit whose checks just went
+green is the commit that ships. It is the workflow's one exception to *no
+secrets*, and it is a separate job for exactly that reason — it never runs on
+a pull request, so a fork's run and a contributor's branch still have no
+credential and no path to production.
+
+Three rules on it. It deploys **`ref=<sha>` and never a bare hook**: main takes
+a merge every few minutes here, so "check main is green, then trigger a
+deploy" is not atomic, and a deploy triggered that way has already picked up a
+commit that landed in the intervening seconds — naming the sha ships what was
+tested. A **missing secret is a refusal**, not a skip, because a green tick
+over a deploy that did not happen is the confident wrong answer this file
+spends its length undoing. And **the hook URL is never echoed**: the whole URL
+is the credential, anyone holding it can deploy, and the `services/provider_check.py`
+rule about never carrying a key into something a person reads applies to a CI
+log as much as to a page.
+
+`test_ci_gate.py` asserts all of it. Its first draft could not fail on the
+refusal: the window it searched for an `exit 1` after the guard was wide enough
+to reach the *other* `exit 1` further down the step, so a branch changed to
+echo and carry on still passed — the assertion that cannot fail, in the file
+written about checks that cannot fail. It is scoped to the branch now, and all
+five were confirmed red against the defect each guards.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path — and every

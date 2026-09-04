@@ -50,15 +50,18 @@ from __future__ import annotations
 import base64
 import io
 import os
-import re
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
 from . import VERSION, VERSION_DATE
-from . import ai, speech, store, voices
-from .catalog import (DURATIONS, SLOT_KEYS, TONES, VOICE_CHARACTERISTICS,
-                      duration_by_key, slots_of, tone_by_id)
+from . import ai, qc, speech, store, voices
+from .catalog import (DEFAULT_SLOTS, DURATIONS, SLOT_KEYS, TONES,
+                      VOICE_CHARACTERISTICS, duration_by_key,
+                      length_warning, slot_budget_line, slots_of,
+                      structure_for, tone_by_id)
+
+from hub import script_contents
 
 try:
     from hub import radio_spec
@@ -192,9 +195,14 @@ def _version() -> str:
 
 @app.route("/")
 def index():
+    slots = [dict(slot, budget=slot_budget_line(slot["key"]),
+                  warning=length_warning(slot["key"]),
+                  beats=structure_for(slot["key"]))
+             for slot in DURATIONS]
     return render_template("index.html", version=_version(), tones=TONES,
                            characteristics=VOICE_CHARACTERISTICS,
-                           durations=DURATIONS, mount=MOUNT)
+                           durations=slots, default_slots=list(DEFAULT_SLOTS),
+                           mount=MOUNT)
 
 
 @app.route("/library")
@@ -328,27 +336,42 @@ def _decorate(slot_key: str, script: str, pronunciations: list) -> dict:
             "spoken": spoken["spoken"], "changes": spoken["changes"]}
 
 
+def _qc(row: dict) -> dict:
+    """Every named check for this project's chosen reads.
+
+    `catalog.slots_of()` rather than a second reading of which lengths this
+    project writes: two answers to that question is how the store and the
+    panel come to disagree about what is being graded.
+    """
+    return qc.run(row, list(slots_of(row)), required=qc.required_for(row))
+
+
 def _required_script_gaps(row: dict, script: str, slot: str) -> list[str]:
-    """Non-negotiables are checked in the app, not entrusted to a prompt."""
-    normalized = re.sub(r"\s+", " ", str(script or "").lower())
-    company = str(row.get("company") or row.get("client") or "").strip()
-    url = str(row.get("landing_url") or row.get("home_url") or "").strip()
-    gaps = []
-    if company and company.lower() not in normalized:
-        gaps.append("company name")
-    # Allow the spoken, protocol-free form as well as the literal URL.
-    url_words = re.sub(r"^https?://", "", url, flags=re.I).rstrip("/").lower()
-    if url_words and url_words not in normalized:
-        gaps.append("URL")
-    if row.get("include_phone") and str(row.get("phone") or "").strip() and str(row["phone"]).lower() not in normalized:
-        gaps.append("phone number")
-    # Every slot has a floor, and it is the one in the budget table rather
-    # than a literal for the single length that used to have one: a :60
-    # written to :30 length is the same defect the :30 floor exists to catch.
+    """Non-negotiables are checked in the app, not entrusted to a prompt.
+
+    The three content rules are `hub/script_contents.py`, because the
+    Commercial Builder has to answer the same question and was answering a
+    much easier one -- see that module. Radio has one channel, so nothing is
+    `shown`: if the read does not say it, nobody gets it. That shared rule is
+    also what stops three false positives this check used to make, each of
+    which sent a writer round the loop again: a legal suffix nobody reads
+    aloud, a phone number compared on its punctuation rather than its digits,
+    and a web address already written the way it is spoken.
+
+    The minimum-read rule stays here. It is about the clock rather than the
+    copy, and it is radio's own: a :30 slot is bought and billed by the
+    second, so a read that lands well under it is dead air somebody paid for.
+    The floor is `min_seconds` -- the one number the prompt also states -- and
+    a slot with none is a tag, which is naturally tight and would be refused
+    by a floor derived for it.
+    """
+    result = script_contents.check(qc.facts_for(row), spoken=script,
+                                   require=qc.required_for(row))
+    gaps = script_contents.gap_labels(result)
     spec = duration_by_key(slot) or {}
-    floor = int(round((spec.get("low") or 0) / speech.WORDS_PER_SECOND))
+    floor = spec.get("min_seconds")
     if floor and speech.estimate_seconds(script) < floor:
-        gaps.append(f'a minimum {floor}-second {spec.get("label", slot)} read')
+        gaps.append(f'a minimum {floor:g}-second {spec.get("label", slot)} read')
     return gaps
 
 
@@ -383,12 +406,12 @@ def api_scripts(pid):
         scripts[key] = _decorate(key, script, prons)
         scripts[key]["notes"] = part.get("notes", "")
     row = store.update(pid, {"scripts": scripts, "tone_id": tone_id,
-                             "status": "scripted"})
+                             "slots": slots, "status": "scripted"})
     store.add_version(pid, "revision" if data.get("revision_note") else "draft",
                       {"tone_id": tone_id, "scripts": scripts,
                        "note": data.get("revision_note", "")}, actor())
     log("project.scripts", project=pid, tone=tone_id)
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/script/edit", methods=["POST"])
@@ -415,7 +438,7 @@ def api_script_edit(pid):
     scripts[slot]["notes"] = notes
     row = store.update(pid, {"scripts": scripts})
     store.add_version(pid, "hand-edit", {"slot": slot, "scripts": scripts}, actor())
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/tighten", methods=["POST"])
@@ -455,7 +478,7 @@ def api_tighten(pid):
     row = store.update(pid, {"scripts": scripts})
     store.add_version(pid, "tighten", {"slot": slot, "trim_words": trim,
                                        "scripts": scripts}, actor())
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/pronunciations", methods=["POST"])
@@ -475,6 +498,25 @@ def api_pronunciations(pid):
             scripts[slot]["notes"] = notes
     row = store.update(pid, {"pronunciations": prons, "scripts": scripts})
     return jsonify({"ok": True, "project": row})
+
+
+@app.route("/api/projects/<pid>/script-qc")
+def api_script_qc(pid):
+    """The script panel, on demand. Cheap: it reads the copy and reaches no
+    provider, which is the whole point of running it on the Copy step.
+
+    Its own path, and deliberately not `/qc`. That one is the **mix** panel --
+    the bed's source, the loudness, the length measured off the stored WAV --
+    and it answers after a render. This one answers before anybody has paid
+    for a voice. They are neighbours rather than two readings of one question,
+    so they are asked separately; sharing a URL would have made whichever
+    registered second the only one anybody could reach.
+    """
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    return jsonify({"ok": True, "qc": _qc(row), "labels": qc.CHECK_LABELS})
 
 
 @app.route("/api/speech/preview", methods=["POST"])
@@ -606,6 +648,14 @@ def api_render(pid):
     voice_id = (data.get("voice_id") or "").strip()
     if not voice_id:
         return fail("Assign a voice to this spot first.")
+    # ElevenLabs bills the character, so a read with a fact wrong in it is
+    # money spent twice. Only the checks that cannot be wrong refuse — the
+    # timing verdict is an estimate and is reported rather than enforced.
+    panel = qc.run_slot(row, slot, required=qc.required_for(row))
+    stopped = qc.blocking(panel)
+    if stopped:
+        return fail("This read is not ready to record: " + " ".join(
+            panel["checks"][key]["message"] for key in stopped), 422)
 
     try:
         out = voices.render_audio(voice_id, script["spoken"],

@@ -121,7 +121,71 @@ def backed(source: str) -> bool:
     return bool(workflow_for(source))
 
 
+# --- Segmentation tags, which are not triggers ---------------------------
+#
+# The standalone landing apps used to drive GoHighLevel "Add Tag" workflow
+# actions off fields in the webhook body -- boat sent `market_tag`
+# ("Boat - Coastal") and `package_tag` ("Boat - Growth"), ski and hvac the
+# same shape. Over the Contacts API there is no workflow in the middle: a tag
+# is a field on the contact, so those arrive here and are written directly,
+# which is both simpler and the only reason segmentation survives the switch
+# off the webhook at all.
+#
+# They ride in the lead's `meta` and are deliberately **free**, like the page
+# tag and unlike the source tag. Nothing validates them against a vocabulary,
+# because the thing a vocabulary protects -- a workflow that triggers on the
+# string -- is not what these are for: they answer "which of these leads are
+# alike", asked by a person building an audience after the fact. A source tag
+# with no workflow behind it is a lead sitting untriggered; a segmentation tag
+# nobody has used yet is simply a tag.
+#
+# What they may not do is impersonate the controlled half. A row whose meta
+# named "smart1-hub", or named a source, would put a lead into a triggered
+# audience it was never captured for -- and `meta` is the part of the payload
+# a landing app fills in, so that is a mistake to make impossible rather than
+# one to ask people not to make.
+MAX_TAGS = 10
+MAX_TAG_LEN = 60
+
+
+def extra_tags(row: dict) -> list[str]:
+    """Free segmentation tags a lead carries in `meta["tags"]`. Never raises.
+
+    Cleaned, de-duplicated case-insensitively, and refused where the string
+    would collide with the controlled tags above.
+    """
+    meta = row.get("meta")
+    raw = (meta or {}).get("tags") if isinstance(meta, dict) else None
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+
+    reserved = {HUB_TAG.lower()} | {k.lower() for k in SOURCES}
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, (str, int, float)):
+            continue
+        tag = " ".join(str(item).split())[:MAX_TAG_LEN].strip()
+        key = tag.lower()
+        if not tag or key in reserved or key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+    return out
+
+
 def tags_for(row: dict) -> list[str]:
-    """The tag array for one stored lead row: hub, source, page."""
-    return [t for t in (HUB_TAG, str(row.get("source") or ""),
-                        str(row.get("page") or "")) if t][:10]
+    """The tag array for one stored lead row: hub, source, page, then any
+    free segmentation tags the row carries.
+
+    The controlled tags come first, so that where a row carries more than the
+    cap allows it is the segmentation that is dropped rather than the source
+    tag a workflow triggers on.
+    """
+    fixed = [t for t in (HUB_TAG, str(row.get("source") or ""),
+                         str(row.get("page") or "")) if t]
+    seen = {t.lower() for t in fixed}
+    free = [t for t in extra_tags(row) if t.lower() not in seen]
+    return (fixed + free)[:MAX_TAGS]

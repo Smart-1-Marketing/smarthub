@@ -17,7 +17,7 @@ import re
 import requests
 
 from .catalog import (DEFAULT_SLOTS, TONES, budget_line, duration_by_key,
-                      tone_by_id)
+                      structure_for, tone_by_id)
 
 OPENAI_BASE = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 TEXT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
@@ -168,6 +168,25 @@ def _slot_schema(lengths: list[dict]) -> str:
     return ",\n".join(rows)
 
 
+def _slot_beats(lengths: list[dict]) -> str:
+    """The beats each read is built on, so the plan reaches the writer.
+
+    The shape of a radio read lived only in this prompt's own prose, which
+    meant a rep could not see it and the two descriptions could not be held
+    against each other -- a script that had wandered from the plan read exactly
+    like one written to it. It is `catalog.STRUCTURE_TEMPLATES` now, the same
+    table the copy screen draws its rail from, so the screen and the prompt
+    cannot describe different shapes.
+    """
+    out = []
+    for d in lengths:
+        beats = " -> ".join(
+            f"{b['label']} ({b['start_pct']}-{b['end_pct']}%): {b['guidance']}"
+            for b in structure_for(d["key"]))
+        out.append(f'{d["label"]} {beats}')
+    return "\n".join(out)
+
+
 # The ceiling the :15/:30 pair has always been written under, and the words
 # that pair is allowed. Everything else is scaled against it rather than
 # against a token-per-word ratio nobody here can verify: what is known is that
@@ -256,6 +275,9 @@ Do not say: {' | '.join(analysis.get('avoid') or []) or 'nothing specific'}
 Client's own promotion notes: {customer.get('promotion') or 'none'}
 REQUIRED: {identity_rule}
 {disclaimer_block}{revision_block}
+
+SHAPE OF EACH READ
+{_slot_beats(lengths)}
 
 Return JSON:
 {{

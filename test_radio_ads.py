@@ -345,8 +345,14 @@ check("and so is a deliberate voice-only spot", bed_level(BED, vo_only=True), "p
 # =====================================================================
 section("The :60 is asked for, not assumed")
 # =====================================================================
-check("the catalog sells three lengths", list(rp_catalog.SLOT_KEYS),
-      ["fifteen", "thirty", "sixty"])
+# The property, not the count. This asserted "three lengths" and went red the
+# day a :10 was added -- a number in an assertion is a number that drifts, and
+# what actually matters is that everything outside the pair is opt-in.
+check("the catalog sells the pair and the units either side",
+      list(rp_catalog.SLOT_KEYS), ["ten", "fifteen", "thirty", "sixty"])
+check("and every length outside the pair has to be asked for",
+      sorted(set(rp_catalog.SLOT_KEYS) - set(rp_catalog.slots_of({}))),
+      ["sixty", "ten"])
 check("a project with no slot list on it is the pair it always was",
       list(rp_catalog.slots_of({})), ["fifteen", "thirty"])
 check("a row saved before the field existed reads the same way",

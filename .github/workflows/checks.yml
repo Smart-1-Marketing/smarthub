@@ -6,11 +6,22 @@
 # down lead capture on seven landing pages for two days. It exits non-zero
 # precisely so it can gate a release; until now nothing ran it.
 #
-# Deliberately no deploy step and no secrets. These checks run on pull requests
-# from a clean checkout, so they must pass without Knack, GoHighLevel,
-# Cloudinary or OpenAI credentials. Anything that needs a live third party
-# belongs in /status and /api/integrity on the deployment, not here — a gate
-# that fails because someone else's API is down teaches people to ignore it.
+# The `checks` job takes no secrets. It runs on pull requests from a clean
+# checkout, so it must pass without Knack, GoHighLevel, Cloudinary or OpenAI
+# credentials. Anything that needs a live third party belongs in /status and
+# /api/integrity on the deployment, not here — a gate that fails because
+# someone else's API is down teaches people to ignore it.
+#
+# The `deploy` job below is the one exception, and it is a separate job for
+# exactly that reason: it never runs on a pull request, so a fork's run and a
+# contributor's branch still have no secret and no way to reach production.
+# It exists because Render's own "deploy after CI checks pass" has never
+# fired on this account — every deploy smart1-hub has ever had, back past its
+# hundredth, is trigger `manual` or `api`, and no service in the workspace has
+# a single `new_commit` in its history. The service is configured correctly
+# (autoDeploy yes, autoDeployTrigger checksPass, branch main) and the checks
+# it is waiting on do pass, so what is missing is the webhook rather than the
+# setting. Deploying from here needs no webhook.
 name: checks
 
 on:
@@ -1650,6 +1661,21 @@ jobs:
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         run: python3 test_radio_ads.py
 
+      # Radio Promo's half of the same list. The length menu held the :15/:30
+      # pair, so the :10 sponsorship tag and the :60 -- the one radio length
+      # with room for a story rather than an offer -- were unbuildable, and the
+      # slot keys were hardcoded in six places. Only the :60 warns about what a
+      # re-record costs, because a note on every length is a note nobody reads
+      # and then the one that mattered goes past unread too. The beats moved
+      # out of the prompt's own prose, where a rep could not see them and a
+      # script that had wandered from the plan read exactly like one written to
+      # it. And the QC panel runs on the copy rather than after the render:
+      # the line between what may refuse a billed record and what may only
+      # report is certainty rather than severity, so a missing disclaimer
+      # blocks and a read length -- words divided by a pace -- does not.
+      - name: Radio Promo parity — the lengths, their costs, the beats, the panel
+        run: python3 test_radio_parity.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were
@@ -2035,3 +2061,68 @@ jobs:
       # visible without presenting a scraped asset as client-approved.
       - name: Brand elements found by the InSites scan
         run: python3 test_scan_brand.py
+
+  # Render's own auto-deploy has never fired for this service. It is set to
+  # deploy main after CI checks pass, the checks pass, and every deploy in its
+  # history is `manual` or `api` -- so the setting is right and the webhook is
+  # not arriving. This job is the same promise made on the side that demonstrably
+  # works: the commit whose checks just went green is the commit that ships.
+  #
+  # It is `ref=<sha>` and never a bare hook, which fixes a race the webhook
+  # never had: main takes a merge every few minutes here, so "check main is
+  # green, then trigger a deploy" is not atomic -- a deploy triggered that way
+  # picked up a commit that had landed in the intervening seconds. Naming the
+  # sha deploys what was tested.
+  deploy:
+    name: deploy main to smart1.agency
+    needs: checks
+    # Never on a pull request. A fork's run and a contributor's branch have no
+    # secret and no path to production; only a commit already on main does.
+    if: >-
+      github.repository == 'Smart-1-Marketing/smarthub'
+      && github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      # Deploys queue rather than cancel: canceling this job would not stop a
+      # deploy Render had already accepted, it would only lose the record of it.
+      group: deploy-smart1-hub
+      cancel-in-progress: false
+    steps:
+      - name: Ask Render to deploy this commit
+        env:
+          # The whole URL is the credential -- anyone holding it can deploy --
+          # so it is never echoed, and no failure path prints it either.
+          # Settings -> Deploy Hook on the smart1-hub service.
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOOK}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL is not set, so this commit was not deployed." >&2
+            echo "Set it under Settings -> Secrets and variables -> Actions, from" >&2
+            echo "the smart1-hub service's Settings -> Deploy Hook on Render." >&2
+            echo "Refusing rather than passing: a green tick over a deploy that" >&2
+            echo "did not happen is the confident wrong answer." >&2
+            exit 1
+          fi
+          # The hook already carries ?key=, but a URL pasted without a query
+          # string would silently lose the ref and deploy whatever main is by
+          # then -- which is the race this job exists to close.
+          case "${HOOK}" in
+            *\?*) url="${HOOK}&ref=${SHA}" ;;
+            *)    url="${HOOK}?ref=${SHA}" ;;
+          esac
+          body="$(mktemp)"
+          status="$(curl -sS -o "${body}" -w '%{http_code}' -X POST "${url}")"
+          echo "Render answered ${status} for ${SHA}."
+          # The body is Render's own, and carries no key. Printing it is what
+          # makes the deploy id findable from the commit that caused it.
+          cat "${body}"
+          echo
+          case "${status}" in
+            2*) ;;
+            *)  echo "Render refused the deploy. The commit is on main and is not live." >&2
+                exit 1 ;;
+          esac

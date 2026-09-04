@@ -104,10 +104,18 @@ for spot in fan["spots"]:
           (spot.get("grade") or {}).get("state"), "ok")
 
 # The slots this sample actually writes, not every slot the catalog sells. The
-# :60 is opt-in -- each length is a model call and a slot somebody then has to
-# record -- so a seeded pair carries no :60 script and asking for one here was
-# reading the catalog as a promise about every project.
-for slot in [duration_by_key(k) for k in slots_of(promo)]:
+# :10 and the :60 are opt-in -- each is a model call and a slot somebody then
+# has to record -- so a seeded pair carries neither script, and iterating the
+# catalog was reading it as a promise about every project. The set is asserted
+# before the loop rather than left to whatever happened to be in the dict: a
+# loop over an empty selection is a clean sweep that checked nothing.
+promo_slots = [duration_by_key(k) for k in slots_of(promo)]
+check("the sample says which lengths it writes",
+      [slot["key"] for slot in promo_slots], ["fifteen", "thirty"])
+check("  and it wrote a script for each of them",
+      sorted(k for k in promo["scripts"] if k != "hook"), ["fifteen", "thirty"])
+
+for slot in promo_slots:
     part = promo["scripts"][slot["key"]]
     inside = slot["low"] <= part["word_count"] <= slot["high"]
     check(f"promo :{slot['seconds']} is inside {slot['low']}-{slot['high']} "

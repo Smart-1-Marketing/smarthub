@@ -10,8 +10,8 @@ import os
 import subprocess
 
 VERSION = "1.66.0"
-BUILD_DATE = "2026-09-03"
-CODENAME = "Smart 1 Ads Gap Items"
+BUILD_DATE = "2026-09-04"
+CODENAME = "One Lead Path"
 
 _sha_cache: str | None = None
 

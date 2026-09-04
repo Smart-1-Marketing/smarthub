@@ -599,18 +599,21 @@ section("The word budgets the two tools quote are the same clock")
 # =====================================================================
 # A script written in one and moved to the other must not need re-timing.
 
-check("Radio Promo sells three slots", [d["key"] for d in DURATIONS],
-      ["fifteen", "thirty", "sixty"])
-# The :60 is Radio Promo's alone, and opt-in. Fan Radio sells football
-# dayparts, where a :60 is not a unit anybody buys -- so the two catalogues
-# are deliberately NOT the same set any more, and asserting that they are
-# would be asserting that neither tool may ever sell a length the other does
-# not. What still has to hold is the pair they share.
+# Radio Promo sells the pair and the two units either side of it -- the :10
+# sponsorship tag and the :60. That is a superset of what Fan Radio sells
+# rather than a disagreement, and the assertion is deliberately not that the
+# two menus match: Fan Radio sells football dayparts, where a :60 is not a
+# unit anybody buys, so requiring one catalogue to mirror the other would be
+# requiring that neither may ever sell a length the other does not. What has
+# to hold is that every length Fan Radio sells is one Radio Promo can also
+# write, so a spot moved between them lands on a slot that exists at both ends.
+check("Radio Promo sells the pair and the two units either side",
+      [d["key"] for d in DURATIONS], ["ten", "fifteen", "thirty", "sixty"])
 check("a project asks for the pair unless it says otherwise",
       list(slots_of({})), ["fifteen", "thirty"])
-check("and the :60 is asked for rather than assumed",
-      list(slots_of({"slots": ["fifteen", "thirty", "sixty"]})),
-      ["fifteen", "thirty", "sixty"])
+check("and the longer and shorter units are asked for rather than assumed",
+      list(slots_of({"slots": ["ten", "fifteen", "thirty", "sixty"]})),
+      ["ten", "fifteen", "thirty", "sixty"])
 check("Fan Radio sells the two lengths a daypart buys", fan_catalog.LENGTH_IDS,
       [15, 30])
 check("and every length Fan Radio sells, Radio Promo also sells",
@@ -620,7 +623,8 @@ check("and every length Fan Radio sells, Radio Promo also sells",
 # They are budgets, not limits, and the numbers are deliberately close
 # rather than identical — Radio Promo's are the studio's, measured at a
 # natural read pace. What must not happen is one calling a script long that
-# the other calls short.
+# the other calls short. Only the lengths both sell can be compared; the :10
+# and the :60 have no Fan Radio budget to contradict.
 for seconds, key in ((15, "fifteen"), (30, "thirty")):
     promo_slot = duration_by_key(key)
     fan_slot = fan_catalog.budget(seconds)
