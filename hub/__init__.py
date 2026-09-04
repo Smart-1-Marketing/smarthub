@@ -103,6 +103,10 @@ _MOUNT_ACTIVE_HUB = {
     # Tools instead -- nav pointing at the wrong entry is a small lie the
     # reader corrects by ignoring the highlight.
     "/tools/website-audit": "website_audit",
+    # One segment, and its own entry rather than falling under /qa: the
+    # reports and the assignments are two screens and a nav that highlights
+    # the wrong one is a small lie the reader corrects by ignoring it.
+    "/qa-tasks": "qatasks",
     "/my-clients": "myclients",
 }
 
@@ -419,7 +423,32 @@ def create_hub_app() -> Flask:
             # hub/webargs.py exists: ?limit=-1 was a 500 on Postgres and a
             # full dump on SQLite.
             limit=clamp_int(request.args.get("limit"), 25, 1, 200),
-            offset=clamp_int(request.args.get("offset"), 0, 0, 100000)))
+            offset=clamp_int(request.args.get("offset"), 0, 0, 100000),
+            # The other half of the skip overlay: the same list, with the
+            # filter inverted, so what was set aside is still somewhere a
+            # person can find it rather than gone from every screen.
+            only_skipped=str(request.args.get("only_skipped", "")).lower()
+            in ("1", "true", "yes")))
+
+    @app.route("/api/google/skip", methods=["POST"])
+    def api_google_skip():
+        """Skip (or unskip) one orphaned Google resource, for later.
+
+        Off the main orphaned list until unskipped — `hub/google_orphan_skip.py`
+        is the overlay, applied on every read of `google_links.orphans()`
+        rather than a second store that could drift from the account index.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        from .google_links import skip_resource
+        out = skip_resource(
+            str(body.get("resource_id") or ""),
+            bool(body.get("skip", True)),
+            actor=current_user() or "",
+            note=str(body.get("note") or ""))
+        return jsonify(out)
 
     @app.route("/api/google/attach", methods=["POST"])
     def api_google_attach():
@@ -446,12 +475,19 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/google/rebuild", methods=["POST"])
     def api_google_rebuild():
-        """Force a re-sweep now, rather than waiting for the three-hour job."""
+        """Force a re-sweep now, rather than waiting for the three-hour job.
+
+        Cooled down through google_index.manual_rebuild(): this is also what
+        Google Finder's own "not found? refresh the index" button calls, so
+        an impatient double-click on either screen must not stack a second
+        sweep on the first against Tag Manager's own rate limit.
+        """
         gate = _require_api()
         if gate:
             return gate
         from . import google_index
-        return jsonify(google_index.build(force=True))
+        result = google_index.manual_rebuild()
+        return jsonify(result), (429 if result.get("cooling_down") else 200)
 
     # ---- which Suite sub-account belongs to which client ----------------
     #
@@ -2104,7 +2140,7 @@ def create_hub_app() -> Flask:
 
         Both builders ask this: the IO while converting a proposal it just
         read, the Proposal Builder when a rep types a product that is not a
-        catalogue pick. One matcher, so the two cannot disagree about what a
+        catalog pick. One matcher, so the two cannot disagree about what a
         client was sold.
         """
         gate = _require_api()
@@ -3574,6 +3610,11 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
         return jsonify({"social": social, "from_scan": found_by_scan,
+                        # The catalog drives the record's "add a link" menu.
+                        # It ships from here rather than being restated in the
+                        # template so the two can never drift apart.
+                        "catalog": seo.social_catalog(),
+                        "labels": seo.get_social_labels(name) if name else {},
                         "note": (f"{len(found_by_scan)} profile(s) came from "
                                  f"the last site scan rather than Brandfetch."
                                  if found_by_scan else "")})
@@ -3589,11 +3630,13 @@ def create_hub_app() -> Flask:
         if not client:
             return jsonify({"error": "client is required."}), 400
         try:
-            social = seo.set_social(client, body.get("social") or {})
+            social = seo.set_social(client, body.get("social") or {},
+                                    body.get("labels") or {})
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
-        return jsonify({"ok": True, "social": social})
+        return jsonify({"ok": True, "social": social,
+                        "labels": seo.get_social_labels(client)})
 
     # ------------- the Smart 1 Suite app frame (a CLIENT, not a rep)
     #
@@ -6331,6 +6374,34 @@ def create_hub_app() -> Flask:
                   "/tools/commercial-builder/review/") + PUBLIC_EMBED_PREFIXES
 
     @app.after_request
+    def _compress_response(resp):
+        """Gzip a response body after every other handler has finished with it.
+
+        Registered before _embed_policy and _inject_sidebar_response so it
+        runs LAST: Flask calls after_request handlers in reverse registration
+        order (the same rule _inject_sidebar_response's own comment relies
+        on below), and compressing before either of those ran would have its
+        bytes rewritten out from under it by every splice that follows.
+        """
+        try:
+            if resp.status_code != 200 or resp.direct_passthrough:
+                return resp
+            if resp.headers.get("Content-Encoding"):
+                return resp
+            from . import compress as _compress
+            body = resp.get_data()
+            new_body, did = _compress.compress(
+                body, resp.mimetype or "",
+                request.headers.get("Accept-Encoding", ""))
+            if did:
+                resp.set_data(new_body)
+                resp.headers["Content-Encoding"] = "gzip"
+                resp.headers["Vary"] = _compress.add_vary(resp.headers.get("Vary", ""))
+            return resp
+        except Exception:  # noqa: BLE001 -- never cost a page over its size
+            return resp
+
+    @app.after_request
     def _embed_policy(resp):
         """Who may frame a hub page, and what they get when they do.
 
@@ -6656,6 +6727,12 @@ def create_hub_app() -> Flask:
 
         from .image_audit import register_image_audit
         register_image_audit(app)
+
+        # Ad Assets — Drive creative copied into the client library. Same
+        # defensive registration: a migration tool that fails to import must
+        # not take Client 360 with it.
+        from .ad_assets import register_ad_assets
+        register_ad_assets(app)
     except Exception as _sc_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _sc_exc)
@@ -6688,6 +6765,21 @@ def create_hub_app() -> Flask:
     except Exception as _wa_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _wa_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- QA Tasks ----------------
+    # A blueprint rather than a mounted module, for the reason Prospect 360 is
+    # one: everything it reads -- the account table, the nav, the tool tiles --
+    # is the hub's own. Registered before create_all() below, or `hub_qa_tasks`
+    # and `hub_qa_responses` are never created and every read of them fails
+    # into "the QA task list could not be read" for ever.
+    try:
+        from .qa_tasks_routes import register_qa_tasks
+        register_qa_tasks(app)
+    except Exception as _qt_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _qt_exc)
         except Exception:  # noqa: BLE001
             pass
 

@@ -7,11 +7,15 @@ almost no Flask, because the thing under test is not Python. (The one
 exception is the Hub-side rescue redirects for the renderer's root-absolute
 URLs, which ARE Python — hub/ad_builder_proxy.py — and are driven against a
 bare Flask app rather than asserted about as text.) The Display Ad Builder
-is the one module that is a Node service (see CLAUDE.md), it ships its own
-TypeScript tests under ``modules/ad_builder/tests``, and those tests need an
-``npm install`` that CI deliberately does not do. So the checks that run on
-every pull request today are the ones that can be made against the *files*:
-the template JSON, and the build screen's own source.
+is the one module that is a Node service (see CLAUDE.md) and it ships its own
+TypeScript tests under ``modules/ad_builder/tests``. Those tests DO run on
+every pull request now -- checks.yml installs, typechecks and runs them -- so
+this file is no longer the only gate on the renderer, and the note that used
+to say otherwise was read for a while as meaning the TS half was unwatched.
+What is still worth asserting here is what a unit test of either half cannot
+see: facts that live in a *file* and contracts that span two of them -- the
+template JSON, the build screen's own source, and whether the screen and the
+server still agree about a shape neither one validates.
 
 That sounds like a weak substitute and for most of this module it would be.
 For these four things it is not, because each of them is a fact stored in a
@@ -1978,6 +1982,82 @@ def test_a_root_absolute_url_that_left_the_app_is_rescued():
           "fail(res.d && res.d.error)" in proj)
     check("the silent shape is gone",
           ".then(function (r) { return r.json(); })\n      .then(function (data) { render(data.projects" not in proj)
+
+
+def test_carry():
+    """One size's adjustments carried to the rest, and the ones to look at."""
+    carry = (MODULE / "src" / "carry.ts").read_text()
+    render = strip_comments((MODULE / "src" / "render.ts").read_text())
+    build = strip_comments((MODULE / "public" / "build.html").read_text())
+
+    # ---- no render path may paste a pixel authored on another canvas -------
+    # This is the defect itself, and it is a fact about the call sites rather
+    # than about any one render: styleOverrides is per concept, so a path that
+    # hands it straight to applyBlockStyles applies a 300x250's pixels to a
+    # 1080x1920. Measured against T01 before the fix, one ordinary tuning pass
+    # put the leaderboard's logo at the 8px smudge floor and the billboard's
+    # headline at [18,18]. A sweep rather than an assertion about the four we
+    # fixed: the fifth render path added next month must not be able to.
+    raw = re.findall(r"applyBlockStyles\(\s*[A-Za-z0-9_.]+\s*,\s*([^)]+?)\)", render)
+    pasted = [a.strip() for a in raw if "styleForSize" not in a and "overrides" not in a]
+    check("every render path resolves the style for its own size first",
+          not pasted, "pastes raw: " + ", ".join(pasted))
+    check("and there is at least one, so the sweep is not reading an empty file",
+          len(raw) >= 3, f"{len(raw)} call sites")
+
+    # ---- the browser does not keep a second reading of the rule ------------
+    # Target areas and the creative classifier each carry a JS mirror and each
+    # needs a test proving the halves agree; that cost is paid twice already.
+    # The server resolves and the panel draws what comes back.
+    check("the build screen asks the server rather than resolving the carry itself",
+          "state.resolvedStyle" in build and "/api/carry" in build)
+    for spelling in ("departureRatio", "departureShift", "authoredFor]"):
+        check(f"the carry rule is not reimplemented in the browser ({spelling})",
+              spelling not in build)
+
+    # ---- an adjustment on a carried size does not go back to the master ----
+    # Without this the marking leads nowhere: the operator opens the size the
+    # carry could not place, nudges it, and the correction propagates straight
+    # out over the whole set again.
+    check("a correction is written against the size it was made on",
+          "o.bySize[state.size]" in build)
+    check("and the master is what the first tuned size becomes",
+          "o.authoredFor = state.size" in build)
+
+    # ---- and the heading says which of the two it is ----------------------
+    # The panel is headed "Text boxes -- every size", which is true on the size
+    # the adjustments were authored on and false on one that was carried into:
+    # there an edit is a correction to that size alone. A control that quietly
+    # changes what it applies to, under a heading still claiming the whole set,
+    # is the silent mode switch the copy scope toggle exists to avoid one field
+    # over -- and the function that answers it shipped unused for a commit,
+    # which is how a heading comes to describe the wrong half.
+    check("the panel heading is the mode rather than a fixed claim",
+          "carriedHere()" in build and "Text boxes \\u2014 ' + esc(state.size) + ' only" in build)
+    check("and the help on a carried size names where its design came from",
+          "carried across " in build and "carried nowhere else" in build)
+
+    # ---- what carries, and what is left to each canvas ---------------------
+    for fn in ("styleForSize", "carriedInto", "needsReview"):
+        check(f"carry.ts exports {fn}", f"export function {fn}" in carry)
+    check("a concept with no authoredFor is carried nowhere",
+          "authoredFor && authoredFor !== size" in carry)
+
+    # ---- the two tools share the idea and deliberately not the arithmetic --
+    # carry.ts says so in its own prose, and prose that stops being true is
+    # worse than none: magic_resize resizes one design into empty frames and
+    # scales by the smaller axis ratio, which is right there and was measured
+    # wrong here -- 300x250 to 728x90 is a factor of 0.36, which drove the
+    # headline to the type floor. If that rule ever moves, this note is stale.
+    engine = (ROOT / "modules" / "magic_resize" / "engine.py").read_text()
+    check("carry.ts names the tool it deliberately differs from",
+          "magic_resize/engine.py" in carry)
+    check("and magic_resize still scales by the smaller axis ratio it describes",
+          "scale = min(sx, sy)" in engine)
+    check("while the ad builder carries a departure from each size's own template",
+          "departureRatio" in carry and "min(sx, sy)" not in carry)
+    check("neither imports the other",
+          "magic_resize" not in strip_comments(carry) and "ad_builder" not in engine)
 
 
 def main():

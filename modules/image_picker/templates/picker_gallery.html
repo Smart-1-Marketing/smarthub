@@ -147,7 +147,16 @@
   function api(path, method){
     return fetch(BASE + path + (path.indexOf("?") === -1 ? "?" : "&") + "client_id=" + CLIENT_ID, {
       method: method || "GET", headers:{"Content-Type":"application/json"}, credentials:"same-origin"
-    }).then(function(r){ return r.json().catch(function(){ return {ok:false, error:"Unexpected response."}; }); });
+    }).then(function(r){ return r.json().catch(function(){
+      /* The server answered with something that is not JSON -- an error
+         page, or a sign-in redirect. Carry the status back: "Unexpected
+         response." on its own sent a 500 and an expired session to the
+         same dead end, and neither said which. */
+      return {ok:false, error: r.status === 401 || r.status === 403
+        ? "Your session has expired. Sign in again and reload this page."
+        : "The server did not answer with data (HTTP " + r.status + "). "
+          + "Try again in a moment; if it keeps happening this is a bug to report."};
+    }); });
   }
 
   var STATUS = {
@@ -317,6 +326,14 @@
             ? '<span style="display:flex;width:64px;height:48px;align-items:center;' +
               'justify-content:center;border:1px solid var(--line);border-radius:7px;' +
               'font-size:20px;background:var(--paper)">&#128196;</span>'
+            /* A video has no image thumbnail -- preview_url() only ever
+               rewrites an /image/upload/ URL, so im.thumb is the untouched
+               master here. An <img> pointed at a video file shows nothing;
+               a muted, posterless <video> at least shows the first frame. */
+            : im.resource_type === "video"
+            ? '<video muted playsinline preload="metadata" src="' + esc(im.url) +
+              '" style="width:64px;height:48px;object-fit:cover;border-radius:7px;' +
+              'display:block;background:#0f172a"></video>'
             : '<img src="' + esc(im.thumb || im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
           '</a></td>' +
         '<td><strong>' + esc(im.filename) + '</strong><br>' +

@@ -368,6 +368,18 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Client 360 social & links tests
+        # The card renders only links that exist and offers the rest from a
+        # catalogue that ships from the server, so the menu and the keys the
+        # server accepts cannot drift. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_client360_social.py ]; then
+            python test_client360_social.py
+          else
+            echo "test_client360_social.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder dashboard layout tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -901,6 +913,15 @@ jobs:
             echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
+      - name: Nightly-window helper tests
+        # hub/nightly.py — "run once after 2am Eastern," shared by every job
+        # that wants a once-a-day window rather than restating it. The thing
+        # worth proving is the DST awareness a fixed-UTC-hour scheme cannot
+        # have: the same wall-clock hour in January and in July has to land
+        # on different UTC hours, because the clocks changed. No I/O, no
+        # fixtures, so it needs nothing external and nothing to guard.
+        run: python3 test_nightly.py
+
       - name: Suite embed tests
         # Hub pages framed inside Smart 1 Suite: the SameSite=None companion
         # cookie that reaches a cross-site frame, the safe-method + allowlist
@@ -1091,6 +1112,20 @@ jobs:
             echo "test_client_uploads.py not on this branch — nothing to run."
           fi
 
+      - name: Ad Assets — Drive creative into the client library
+        # The folder shape, the dedupe key, and the two writes a copy must not
+        # make: nothing to Drive at all, and nothing to Knack until somebody
+        # applies a proposal they have read. Also that a Drive scope Google
+        # never granted is reported as refused rather than as an empty folder.
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file. Needs no network.
+        run: |
+          if [ -f test_ad_assets.py ]; then
+            python test_ad_assets.py
+          else
+            echo "test_ad_assets.py not on this branch — nothing to run."
+          fi
+
       - name: Image attribution audit, and the gallery that reads it
         # Every tool that creates, uploads or lets somebody choose an image
         # files it against a client or a lead; the audit reports the ones that
@@ -1127,6 +1162,16 @@ jobs:
             python test_video_library.py
           else
             echo "test_video_library.py not on this branch — nothing to run."
+          fi
+
+      - name: Video Search gallery tests
+        # Same shape as the step above: this file also sets its own throwaway
+        # DATABASE_URL and HUB_DATA_DIR, so it is safe to re-run.
+        run: |
+          if [ -f test_video_search_gallery.py ]; then
+            python test_video_search_gallery.py
+          else
+            echo "test_video_search_gallery.py not on this branch — nothing to run."
           fi
 
       - name: Video Tools tests
@@ -1735,6 +1780,17 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
+      # Asking somebody to check a page, and getting their answer back. Four
+      # states, and the two middle ones are the point: collapse "waiting on
+      # them" and "waiting on you" into one flag and the queue stops being
+      # able to say whose move it is, which is the only question anybody opens
+      # it with. Also holds the refusals -- a stranger answering somebody
+      # else's task, a reviewer closing their own review -- and the wiring:
+      # the blueprint's own login gate, the tile, and a dashboard card that
+      # never draws a zero over a table it could not read.
+      - name: A QA review asked for, answered and closed
+        run: python3 test_qa_tasks.py
+
       # One design into the whole size set. The failure it exists to catch is
       # a resize that produced a broken ad and reported success -- silent from
       # every direction, because the frame renders and the file uploads and it
@@ -1797,6 +1853,12 @@ jobs:
         # off as $0, and GHL refusing or the company id being unset is never
         # an all-clear. tools/probe_ghl_saas.py is the read-only live half.
         run: python3 test_ghl_billing.py
+
+      - name: Client 360 Tracked links card and copy controls
+        # Tracked links must render beside Social Media, and every copy button
+        # must be a class the stylesheets define (.mini is not one) going
+        # through copyToClipboard rather than reporting a copy it never made.
+        run: python3 test_client360_utm_card.py
 
       - name: The gate runs every check a person runs
         run: python3 test_ci_gate.py
@@ -1985,6 +2047,20 @@ jobs:
       # limit is the top N presented as the whole.
       - name: July versus June, and the comparison that answered with June
         run: python3 test_analytics_ask.py
+      # Two buttons -- "Month to date" and "Custom compare" -- and four empty
+      # date boxes behind the second one. Every period but the current month
+      # was four dates typed by hand, on every visit, and Client 360 had no
+      # picker at all: it reported the last full calendar month and nothing
+      # else could be asked of it. One shared control now serves both, both
+      # open on month to date so the same client reads the same on either
+      # page, and the month-to-date default still sends no dates so the
+      # server keeps comparing it to the SAME DAYS of last month rather than
+      # to the whole of it. Beside it: Ask Analytics could reply "which
+      # measure did you mean?" and put the question in the input's
+      # PLACEHOLDER, where the first keystroke erased it -- leaving someone
+      # answering a question they could no longer read.
+      - name: The period picker, and the question that asks a better one back
+        run: python3 test_analytics_ranges.py
       # hub/webargs.py is 51 lines reached from twenty files, named by no
       # test. Its docstring lists three faults it exists to end -- int()
       # outside a try, an upper bound with no lower one, and the same clamp

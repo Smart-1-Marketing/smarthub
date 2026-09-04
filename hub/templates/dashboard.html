@@ -233,9 +233,22 @@
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-h"><h3>Recent activity {{ help_dot('hub.dashboard.activity') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
-    <div class="card-b flush"><table id="mini-activity"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
+  {# The right column is a stack too, so a card added here sits above Recent
+     activity rather than starting a third grid track. QA tasks lead it: what
+     somebody has been asked to check today is work, and the activity log is a
+     record of work already done. #}
+  <div class="col-stack">
+    <div class="card">
+      <div class="card-h"><h3>QA tasks</h3><div class="right"><a class="open-link" href="/qa-tasks">Open QA tasks →</a></div></div>
+      <div class="card-b">
+        <div id="qatasks"><span class="muted">Reading your QA tasks… <span class="spin"></span></span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h3>Recent activity {{ help_dot('hub.dashboard.activity') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/activity">View all →</a></div></div>
+      <div class="card-b flush"><table id="mini-activity"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -636,6 +649,55 @@ fetch('/api/social/scoreboard').then(r=>r.json()).then(d=>{
 }).catch(()=>{
   const box=document.getElementById('scoreboard');
   if(box) box.innerHTML='<span class="muted">The request queue could not be read.</span>';
+});
+
+/* QA tasks. Same three rules as every other count on this page: a figure
+   that could not be measured says so rather than drawing a zero, a zero says
+   which kind of zero it is, and the two queues are kept apart because "you
+   have been asked to check this" and "somebody answered and is waiting on
+   your reply" are two different jobs. Reads the same run the QA Tasks page
+   draws -- two screens counting the same thing separately is how they come to
+   disagree in front of the same person. */
+fetch('/api/qa-tasks/summary').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('qatasks');
+  if(!box) return;
+  if(!d || d.measured===false){
+    box.innerHTML='<span class="muted">'+esc((d&&d.error)
+      ||'Not measured — this is not the same as having nothing to do.')
+      +'</span>';
+    return;
+  }
+  const c=d.counts||{}, url=d.url||'/qa-tasks';
+  const stat=(label,value,warn)=>{
+    const color=warn&&value?'#dc2626':'var(--navy,#1a2e58)';
+    return '<a href="'+esc(url)+'" style="text-decoration:none;display:block">'
+      +'<div style="font-size:24px;font-weight:700;line-height:1.15;color:'+color+'">'
+      +(value||0)+'</div><div class="muted" style="font-size:11.5px">'+esc(label)
+      +'</div></a>';
+  };
+  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+    + stat('Asked of you',c.to_do)
+    + stat('Past the need-by date',c.overdue,true)
+    + stat('Waiting on your reply',c.waiting_on_you,true)
+    + '</div>';
+  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
+  if((d.rows||[]).length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px">';
+    d.rows.forEach(r=>{
+      const who=r.mine_to_answer?('from '+esc(r.created_by_name))
+                                :(esc(r.assigned_to_name)+' answered');
+      h+='<tr><td style="padding:5px 8px 5px 0"><a href="/qa-tasks/'+r.id+'">'
+        +esc(r.target_label)+'</a></td>'
+        +'<td style="padding:5px 0;text-align:right" class="muted">'+who
+        +(r.overdue?' <b style="color:#dc2626">late</b>':'')+'</td></tr>';
+    });
+    h+='</table>';
+  }
+  box.innerHTML=h;
+}).catch(()=>{
+  const box=document.getElementById('qatasks');
+  if(box) box.innerHTML='<span class="muted">Your QA tasks could not be read. '
+    +'Nothing has been checked — this is not an empty list.</span>';
 });
 
 fetch('/api/status').then(r=>r.json()).then(d=>{

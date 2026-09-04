@@ -78,6 +78,7 @@
     "smartforecast": "SmartForecast Dynamic Website",
     "widgets": "Scan Widgets",
     "google-access": "Google Access", "utm": "UTM Builder",
+    "ad-assets": "Ad Assets",
     "ga-tools": "GA4 Tools", "gtm-tools": "GTM Tools",
     "webmaster-tools": "Webmaster Tools", "gmb-tools": "Business Profile",
     "history": "Google History & Logs", "leads": "Leads",
@@ -92,6 +93,8 @@
     // disagrees with the tile somebody clicked is a small lie the reader
     // corrects by ignoring the trail.
     "client-owners": "Assign Clients", "my-clients": "My Clients",
+    // Named rather than left to the slug: title-casing gives "Qa Tasks".
+    "qa-tasks": "QA Tasks",
     "users": "Users"
   };
 
@@ -122,6 +125,9 @@
     // the Dashboard offers no way to the list it came from, which is the
     // whole job of the crumb.
     "my-clients": ["/qa", "QA Reports"],
+    // /qa-tasks is in the nav *and* tiled on QA Reports, exactly as
+    // /my-clients is. Back goes to the index it is listed on.
+    "qa-tasks": ["/qa", "QA Reports"],
     // Tiled on Tools.
     "calculators": ["/tools", "Tools"], "google-access": ["/tools", "Tools"],
     "builder": ["/tools", "Tools"], "landing": ["/tools", "Tools"],

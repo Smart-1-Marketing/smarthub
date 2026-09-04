@@ -6,6 +6,7 @@
  * goes straight back to the OpenAI copywriter for that one size.
  */
 
+import type { CarryReport } from './carry';
 import type {
   BoxRole,
   Box,
@@ -39,6 +40,12 @@ export interface QaInput {
    *  a contrast result the render does not have. */
   backgroundOverlay?: number;
   backgroundOverlayColor?: string;
+  /**
+   * What the carry did to this size, when its adjustments were authored on
+   * another canvas. Absent on the size they were authored on, and absent
+   * entirely for a concept saved before the carry existed -- see src/carry.ts.
+   */
+  carry?: CarryReport;
 }
 
 const TEXT_ROLES = ['headline', 'support', 'offer', 'trust'] as const;
@@ -388,6 +395,35 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     fail('collision', `${collisions.join(', ')} — these are printed on top of each other`);
   } else {
     pass('collision', 'no two elements share space');
+  }
+
+  /* --------------------------------------------------------------- carry
+     This size's adjustments were made on another canvas. Saying so is the
+     point: the checks above are what decide whether the carry landed, and
+     without a line naming where the design came from, a reviewer reading a
+     collision on the 728x90 has no way to know it was inherited from the
+     300x250 rather than authored here.
+
+     It never fails. Carrying is the feature, and a carry that went cleanly is
+     not a defect -- a check that fires on every size in a set is one people
+     stop reading, which is the note QR_CODE_RULES already carries. Where the
+     departure would not fit, `applyBlockStyles` has clamped it and that IS
+     worth a warning, because the ad on screen is not the adjustment that was
+     asked for. */
+  if (input.carry?.carried) {
+    const from = input.carry.from ?? 'another size';
+    const held = [...input.carry.strained, ...input.carry.dropped];
+    if (input.carry.corrected) {
+      pass('carry', `carried from ${from}, with a correction authored here`);
+    } else if (held.length) {
+      warn('carry',
+        `carried from ${from}, but ${held.join(', ')} would not fit this canvas ` +
+        `and was pulled back to the edge — worth an eye before it ships`);
+    } else if (input.carry.moved.length) {
+      pass('carry', `carried from ${from}: ${input.carry.moved.join(', ')}`);
+    } else {
+      pass('carry', `carried from ${from}, with nothing this size had to move`);
+    }
   }
 
   /* ------------------------------------------------------------ branding */

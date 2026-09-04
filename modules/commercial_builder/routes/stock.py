@@ -1,16 +1,17 @@
 """Universal Stock Video Search (spec section 6) — fans out to the owned
-library, Pexels and Pixabay simultaneously, merges results, and labels
-OWNED / FREE / PREMIUM instead of naming the provider."""
+library, Pexels, Pixabay and Coverr simultaneously, merges results, and
+labels OWNED / FREE / PREMIUM instead of naming the provider."""
 
 import re
 from concurrent.futures import ThreadPoolExecutor
+from itertools import zip_longest
 
 from flask import Blueprint, jsonify, request
 
 from hub.webargs import clamp_int
 
 from ..config import ASSET_SOURCE_PRIORITY
-from ..services import openai_service, pexels_service, pixabay_service
+from ..services import coverr_service, openai_service, pexels_service, pixabay_service
 
 # Footage we already own, searched through the same shared service the
 # /tools/video-backgrounds page uses. Imported defensively because this module
@@ -49,7 +50,7 @@ def search():
 
     queries = openai_service.expand_stock_queries(query) if use_ai_queries else [query]
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         # The scene description is expanded because full shot prose is a poor
         # search query. The free providers already received those short terms;
         # the owned library must receive them too or a search can claim it
@@ -58,23 +59,25 @@ def search():
                                    per_provider, query)
         pexels_futures = [pool.submit(pexels_service.search, q, per_provider, orientation) for q in queries]
         pixabay_futures = [pool.submit(pixabay_service.search, q, per_provider, orientation) for q in queries]
+        coverr_futures = [pool.submit(coverr_service.search, q, per_provider, orientation) for q in queries]
         pexels_results = [r for f in pexels_futures for r in f.result()]
         pixabay_results = [r for f in pixabay_futures for r in f.result()]
+        coverr_results = [r for f in coverr_futures for r in f.result()]
         owned_results = owned_future.result()
 
-    # interleave so results don't read as "all Pexels then all Pixabay"
+    # Interleave so results don't read as "all Pexels then all Pixabay then
+    # all Coverr". zip_longest rather than the two-list zip() this used to be
+    # written as: with three providers a fixed pairwise interleave plus a
+    # "leftover from the longer list" tail is two things to get right for
+    # every provider added after the first two, and it is the shape that
+    # would need rewriting again the next time a provider joins. zip_longest
+    # already interleaves any number of lists of any lengths in one pass.
     merged, seen = [], set()
-    for a, b in zip(pexels_results, pixabay_results):
-        for item in (a, b):
-            if item["id"] not in seen:
+    for row in zip_longest(pexels_results, pixabay_results, coverr_results):
+        for item in row:
+            if item and item["id"] not in seen:
                 merged.append(item)
                 seen.add(item["id"])
-    # append any leftovers from the longer list
-    longer = pexels_results if len(pexels_results) > len(pixabay_results) else pixabay_results
-    for item in longer[len(merged) // 2:]:
-        if item["id"] not in seen:
-            merged.append(item)
-            seen.add(item["id"])
 
     # Owned footage goes in front of everything, not interleaved with it.
     # ASSET_SOURCE_PRIORITY already says client_asset before free_stock before
@@ -97,7 +100,8 @@ def search():
         "providers": {"owned": _owned_live(),
                       "video_search": _owned_live(),
                       "pexels": pexels_service.is_live(),
-                      "pixabay": pixabay_service.is_live()},
+                      "pixabay": pixabay_service.is_live(),
+                      "coverr": coverr_service.is_live()},
         "owned_note": _owned_note(),
         "video_search_note": _owned_note(),
     })

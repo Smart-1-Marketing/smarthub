@@ -25,7 +25,7 @@ import hashlib
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from . import ghl, taxonomy
 from .models import PickerClient, SavedImage, new_token, session, slugify, unique_slug
@@ -55,9 +55,19 @@ KIND_LABELS = {
     "cutout": "Cut-outs",
     "graphic": "Graphics",
     "page_image": "Website images",
-    "stock": "Stock photos",
+    "stock": "Stock photo picks",
     "commercial": "Commercial stills",
     "creative_information": "Creative Information",
+    # Creative that ran on a campaign, copied out of the Drive folder the
+    # media team was keeping it in and filed under the IO it belongs to.
+    # hub/ad_assets.py writes it; the folder shape is ad_asset_folder() below.
+    "ad_asset": "Ad Assets",
+    # Footage saved out of Video Search -- the owned Cloudinary library, or a
+    # clip pulled in from Pexels/Pixabay/Coverr. Its own heading rather than
+    # folded into `stock`: a client's own reel of saved footage is a different
+    # thing to browse than the stock photos chosen for their creative, and the
+    # two tools file at different times for different reasons.
+    "video_search": "Video Searches",
 }
 
 # A label declared here and written by nothing is the failure this codebase
@@ -89,6 +99,7 @@ SOURCE_LABELS = {
     "io_creative": "Creative for their insertion orders",
     "io_builder": "IO documents",
     "creative_information": "Creative information",
+    "ad_asset": "Ad assets for their campaigns",
     "animated_ad": "Animated display ads",
     "blog": "Blog images",
     "seo_image": "SEO images",
@@ -103,8 +114,8 @@ SOURCE_LABELS = {
     "graphic": "Graphics",
     "page_image_optimizer": "Website images",
     "page_image": "Website images",
-    "stock": "Stock photos",
-    "stock_photos": "Stock photos",
+    "stock": "Stock photo picks",
+    "stock_photos": "Stock photo picks",
     "commercial_builder": "Commercial stills",
     "commercial": "Commercial stills",
     "gpt_ads": "GPT ads",
@@ -123,6 +134,17 @@ SOURCE_LABELS = {
     # unlisted, in the tier that claims nothing -- a photograph the client
     # themselves sent us, sorted in with stock.
     "social_request": "Sent with a social request",
+    # Video Search's own kind heading, so `kind in labels` -- which
+    # test_image_audit.py requires of every entry in KIND_LABELS -- holds for
+    # this one too. What actually lands in `provider` for a saved clip is
+    # `video_library`, `pexels`, `pixabay` or `coverr` below, never this key.
+    "video_search": "Video Searches",
+    # Owned footage out of hub/video_library.py's indexed Cloudinary folders --
+    # the video equivalent of `library` above, and left out of THEIRS/WE_MADE
+    # for the same reason: it is stock we already hold, not made for this
+    # client specifically, so it sorts last and claims nothing.
+    "video_library": "Our video library",
+    "coverr": "Coverr",
 }
 
 # Which of the three questions a group answers. The first thing anybody asks
@@ -142,6 +164,41 @@ def source_tiers() -> dict:
     """The label table and the two tiers, for whatever renders a gallery."""
     return {"labels": dict(SOURCE_LABELS),
             "theirs": list(THEIRS), "we_made": list(WE_MADE)}
+
+
+def folders_for(client_name: str, kind: str) -> list[dict]:
+    """Named sub-groups already used under one kind, for this client.
+
+    There is no folder table -- a folder here is nothing but a
+    `collection_key`/`collection_label` pair somebody has already filed an
+    asset under, so this is a distinct scan of what is already on disk rather
+    than a lookup of anything separately stored. That is deliberate: a client
+    picking "Homepage refresh" a second time should land on the same rows the
+    first save produced, not on a second folder of the same name a typo would
+    otherwise create.
+
+    Returns `[]` for a client with no gallery yet -- a picker offering no
+    existing folders is exactly right for a client nothing has been saved for.
+    """
+    kind = (kind or "").strip().lower()[:20]
+    if not kind:
+        return []
+    db = session()
+    client = gallery_for_name(db, client_name)
+    if client is None:
+        return []
+    rows = db.execute(
+        select(SavedImage.collection_key, SavedImage.collection_label,
+              func.count(SavedImage.id), func.max(SavedImage.created_at))
+        .where(SavedImage.client_id == client.id,
+              SavedImage.collection_kind == kind,
+              SavedImage.collection_key.isnot(None),
+              SavedImage.collection_key != "")
+        .group_by(SavedImage.collection_key, SavedImage.collection_label)
+        .order_by(func.max(SavedImage.created_at).desc())
+    ).all()
+    return [{"key": key, "label": label or key, "count": n}
+            for key, label, n, _ in rows]
 
 
 def gallery_for_name(db, name: str, *, create: bool = False) -> PickerClient | None:
@@ -197,6 +254,42 @@ def asset_folder(*, client_name: str, tool: str, completed_on: str = "",
     ])
 
 
+def ad_asset_folder(*, client_name: str, io_number: str = "",
+                    product_number: str = "", subpath: str = "") -> str:
+    """Where creative for a campaign lives: Ad Assets, then IO, then product.
+
+    A second shape beside `asset_folder()` rather than an argument to it,
+    because the two answer different questions and folding them together is
+    how one of them quietly changes. `asset_folder()` files *the work a tool
+    finished*, and the date is load-bearing there -- it is how somebody finds
+    the images the SEO pipeline saved last Tuesday. This files *the creative
+    that ran on a line of an insertion order*, where the date is noise: the
+    banner delivered in March and its April revision belong in one place,
+    which is the product, and a date level between them puts them in two.
+
+    So: `client-assets/<client>/ad-assets/io-<io>/product-<n>`, with the
+    product level present only when Knack carried a product number -- an
+    `unassigned` folder that exists on most rows is a folder that means
+    nothing. `subpath` preserves the shape of the Drive folder underneath,
+    because "Final" and "Revised" beside each other is the distinction the
+    media team was keeping and flattening it loses which is which.
+    """
+    def clean(value: str, fallback: str = "") -> str:
+        value = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+        return value[:100] or fallback
+
+    parts = ["client-assets", clean(client_name, "client"), "ad-assets",
+             f"io-{clean(io_number, 'unassigned')}"]
+    product = clean(product_number)
+    if product:
+        parts.append(f"product-{product}")
+    for piece in str(subpath or "").split("/"):
+        piece = clean(piece)
+        if piece:
+            parts.append(piece)
+    return "/".join(parts)
+
+
 def file_asset(*, client_name: str, public_id: str, url: str,
                kind: str = "upload", label: str = "", key: str = "",
                filename: str = "", alt: str = "", resource_type: str = "image",
@@ -206,7 +299,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
                push_to_suite: bool = True, tool: str = "",
                completed_on: str = "", project_name: str = "",
                io_number: str = "", product_number: str = "",
-               external: bool = False) -> dict:
+               external: bool = False, folder: str = "") -> dict:
     """Record one asset in a client's gallery.
 
     Returns a dict with `ok`, and on success the `image` row and `gallery_url`.
@@ -227,10 +320,14 @@ def file_asset(*, client_name: str, public_id: str, url: str,
     project_name = str(project_name or "")[:200]
     io_number = str(io_number or "")[:80]
     product_number = str(product_number or "")[:80]
-    folder = asset_folder(client_name=client_name, tool=tool,
-                          completed_on=completed_on, io_number=io_number,
-                          product_number=product_number,
-                          project_name=project_name)
+    # A caller that has already decided where this belongs says so. The Ad
+    # Assets tree is the one shape the date-keyed default is wrong for --
+    # ad_asset_folder() above says why -- and passing the folder in beats a
+    # second convention branching inside the default.
+    folder = str(folder or "")[:600] or asset_folder(
+        client_name=client_name, tool=tool, completed_on=completed_on,
+        io_number=io_number, product_number=product_number,
+        project_name=project_name)
 
     try:
         db = session()

@@ -26,7 +26,7 @@
  */
 
 import { fontIsAvailable } from './fonts';
-import type { HAlign, SizeLayout, TextBox, VAlign, Weight } from './types';
+import type { HAlign, SizeKey, SizeLayout, TextBox, VAlign, Weight } from './types';
 
 /** The blocks a person can restyle. Geometry-only blocks are deliberately out. */
 export const STYLEABLE = ['headline', 'support', 'offer', 'cta', 'trust'] as const;
@@ -164,9 +164,40 @@ export interface PanelStyle {
   opacity?: number;
 }
 
-export type StyleOverrides = Partial<Record<StyleableBlock, BlockStyle>> & {
+/**
+ * The style half of a concept, before any size is chosen.
+ *
+ * Everything here except `authoredFor` and `bySize` is a value a person set on
+ * a real canvas while looking at it. Which canvas that was is the fact this
+ * type went without: the pixels were applied to every size in the set, so
+ * tuning the 300x250 rewrote the other ten. See src/carry.ts.
+ */
+export type SizeStyle = Partial<Record<StyleableBlock, BlockStyle>> & {
   logo?: LogoStyle;
   panel?: PanelStyle;
+};
+
+export type StyleOverrides = SizeStyle & {
+  /**
+   * The canvas these pixels were authored against, so the rest of the set can
+   * be carried in proportion rather than pasted.
+   *
+   * Absent means a concept saved before the carry existed. Those resolve
+   * exactly as they always did -- guessing a canvas for them would rewrite ads
+   * that have already been approved and delivered.
+   */
+  authoredFor?: SizeKey;
+  /**
+   * Corrections authored against one size, merged last and never carried
+   * anywhere else.
+   *
+   * The same shape `concept.copy` uses, because it is the same question one
+   * field over. Without it, opening a size the carry flagged and nudging it
+   * would propagate straight back out over the whole set -- so the marking
+   * would lead nowhere and the size that had just been got right would be the
+   * next one broken.
+   */
+  bySize?: Partial<Record<SizeKey, SizeStyle>>;
 };
 
 /** A logo smaller than this is not a logo, it is a smudge. */

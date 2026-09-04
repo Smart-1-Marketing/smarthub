@@ -82,6 +82,18 @@ def static_ask_analytics_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/date-range.js")
+def static_date_range_js():
+    """The shared analytics date-range control (Smart1Range).
+
+    Root-level for the same reason as the scripts around it: the SEO client
+    page is a hub template and Client 360 is a hub template, but the Google
+    tools page is a mounted module, and the next page that wants a period
+    picker should load this one rather than grow a fourth set of date boxes."""
+    return send_from_directory(_STATIC, "date-range.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/knack-form.js")
 def static_knack_form_js():
     """The controls a form built from a live Knack object draws, shared by
@@ -134,6 +146,18 @@ def static_cheers_js():
     signing in, and that is a hub page. Serving it from the root means a
     mounted module can opt in later without a second copy."""
     return send_from_directory(_STATIC, "hub-cheers.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
+@bp.route("/hub-qa-nudge.js")
+def static_qa_nudge_js():
+    """The QA task reminder, shown once a day on the first Hub page opened.
+
+    Root-level for the same reason as the scripts around it, though today only
+    base.html loads it: the reminder belongs on the page somebody lands on
+    after signing in, and that is a hub page. Serving it from the root means a
+    mounted module can opt in later without a second copy."""
+    return send_from_directory(_STATIC, "hub-qa-nudge.js",
                                mimetype="application/javascript", max_age=3600)
 
 

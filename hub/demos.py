@@ -221,12 +221,12 @@ SCENARIOS: list[Scenario] = [
                  "client's record. The next person builds the autumn version "
                  "from this instead of starting over.",
                  action="click", selector="[data-demo='save-project']"),
-            Step("Export",
+            Step("Download it",
                  "Download → PNG at 1×.",
                  "1× for the web, 2× for print or a retina screen. Transparent "
                  "background only works on PNG and WebP, and only when nothing "
                  "covers the full canvas.",
-                 action="click", selector="[data-demo='export']"),
+                 action="click", selector="#btnDownload"),
         ]),
 
     # ------------------------------------------------------------------
@@ -307,10 +307,10 @@ SCENARIOS: list[Scenario] = [
                  "The page pulls results from Insites every 45 seconds for up to "
                  "fifteen minutes. You don't need to sit on it. We'll jump to a "
                  "finished sample audit.",
-                 action="click", selector="[data-demo='start-scan']", simulated=True),
-            Step("Read the scores first",
-                 "Performance, SEO, mobile, security.",
-                 "Scores tell you where to look. They're not the pitch — nobody "
+                 action="click", selector="#runBtn", simulated=True),
+            Step("Read the score first",
+                 "The overall score and its tier, with speed scored on its own.",
+                 "A score tells you where to look. It is not the pitch — nobody "
                  "buys because a number was 47.",
                  action="look", selector="[data-demo='scan-scores']"),
             Step("Find the findings you can say out loud",
@@ -320,17 +320,17 @@ SCENARIOS: list[Scenario] = [
                  "phone. Those are conversations. 'Missing meta descriptions' is "
                  "not — it's a task.",
                  action="look", selector="[data-demo='scan-findings']"),
-            Step("Notice what feeds other tools",
-                 "The image findings hand straight to the SEO Image Pipeline. "
-                 "The missing schema hands to Schema Builder.",
-                 "That's the point of having them in one Hub — the audit isn't a "
-                 "report, it's a work list.",
-                 action="look", selector="[data-demo='scan-actions']"),
+            Step("Notice how many documents this one audit becomes",
+                 "Each report on the Reports card reads the same audit and "
+                 "writes it up for the client, on screen or as a branded PDF.",
+                 "That's the point of paying for the audit once — it is not a "
+                 "report, it is the source several of them are written from.",
+                 action="look", selector="[data-demo='scan-reports']"),
             Step("If a scan errors, retry it",
                  "'Try again' re-pulls without spending a second credit.",
                  "An errored scan is usually recoverable. Don't start a fresh "
                  "one — that's a credit you don't get back.",
-                 action="look", selector="[data-demo='scan-retry']"),
+                 action="look", selector="#checkNow"),
         ]),
 
     # ------------------------------------------------------------------
@@ -758,7 +758,7 @@ SCENARIOS: list[Scenario] = [
                  "The snapshot is the hardest thing to change afterwards — "
                  "pipelines, workflows and calendars all come from it. Choose it "
                  "like it's permanent, because in practice it is.",
-                 action="choose", selector="[data-demo='snapshot']", value="Smart 1 Standard"),
+                 action="choose", selector="#snapshotId", value="Smart 1 Standard"),
             Step("Fill in the business details",
                  "Name, address, city, country, timezone.",
                  "The timezone drives every automation the client will ever "
@@ -774,7 +774,7 @@ SCENARIOS: list[Scenario] = [
                  "This becomes their login and the first contact in the CRM. "
                  "Use the person who'll be in the system daily, not the owner "
                  "who'll never log in.",
-                 action="fill", selector="[data-demo='prospect-first']", value="Dana"),
+                 action="fill", selector="#prospectFirstName", value="Dana"),
             Step("Brand it from their domain",
                  "Enter their domain and preview the branding.",
                  "Pulls their logo and colors automatically. Do it now — an "
@@ -810,7 +810,9 @@ SCENARIOS: list[Scenario] = [
                  "you may be billing for and not delivering.",
                  action="click", selector="[data-demo='discover']"),
             Step("Look at the unmatched rows first",
-                 "Sites with no internal client name attached.",
+                 "Sites with no internal client name attached. There is no "
+                 "filter for them — they are the rows whose domain cell offers "
+                 "a client to pair with.",
                  "These are the ones costing you money anonymously. A site "
                  "nobody owns is either a forgotten test build or a client "
                  "whose record was never linked.",
@@ -861,25 +863,25 @@ SCENARIOS: list[Scenario] = [
                  "The counts at the top are the fastest health check you have. "
                  "A client with GA4 but no Search Console is a client whose "
                  "organic performance you cannot actually report on.",
-                 action="click", selector="[data-demo='refresh']"),
+                 action="click", selector="#refresh"),
             Step("Look at what's missing, not what's there",
                  "Compare the GA / GSC / GMB counts.",
                  "The gaps are the work. A missing Search Console connection is "
                  "usually five minutes of access, and it unlocks half the SEO "
                  "reporting.",
                  action="look", selector="#cnt-all"),
-            Step("Run the SEO snapshot",
-                 "Current organic position for the client.",
+            Step("Run the period comparison",
+                 "GA4 Tools → Run GA4 Comparison & AI Analysis.",
                  "This is what you'd open a monthly review with. Read the trend, "
-                 "not the absolute number — position 14 climbing beats position "
-                 "9 falling.",
-                 action="click", selector="[data-demo='seo-snapshot']"),
-            Step("Check for anomalies",
-                 "Unusual movement in the analytics.",
-                 "Anomalies are worth checking *before* the client calls about "
-                 "one. A traffic drop you noticed first is a conversation; one "
-                 "they noticed first is a problem.",
-                 action="click", selector="[data-demo='anomalies']"),
+                 "not the absolute number — traffic down 8% on a month that was "
+                 "up 40% is still a good quarter.",
+                 action="click", selector="#run-ga4-comp"),
+            Step("Read it for movement worth explaining",
+                 "The comparison and its written summary.",
+                 "Unusual movement is worth finding *before* the client calls "
+                 "about it. A traffic drop you noticed first is a conversation; "
+                 "one they noticed first is a problem.",
+                 action="look", selector="#ai-comp-results"),
             Step("Ask a question in plain English",
                  "Use the ask box rather than building a report.",
                  "Simulated here. Ask what you'd ask a person — 'which pages "

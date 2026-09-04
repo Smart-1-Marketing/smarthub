@@ -3791,13 +3791,43 @@ element may still be drawn at runtime, the way a target accepted on a prefix
 already is.
 
 **Fifty-five of the 165 steps that name an element named one that is in no
-template**, across eighteen of the twenty-eight scenarios. That is a
-**backlog, not a regression**, and it is deliberately not an integrity
+template**, across eighteen of the twenty-eight scenarios. That was a
+**backlog, not a regression**, and it was deliberately not an integrity
 finding: a check switched on red is a check somebody turns off, and it would
-take the bubble check down with it. `help_audit.demo_targets()` gathers it and
-the **help layer** panel on `/diagnostics` lists it, so the scenarios written
-against a screen that has since been rebuilt are a list somebody works down
-rather than something a learner meets one step at a time.
+have taken the bubble check down with it. `help_audit.demo_targets()` gathers
+it and the **help layer** panel on `/diagnostics` lists it, so the scenarios
+written against a screen that has since been rebuilt were a list somebody
+works down rather than something a learner meets one step at a time.
+
+**It is at zero, and the count is asserted now rather than the list.** All
+twenty-eight scenarios drive every step they name. Asserting the number was
+the wrong check while a backlog existed — it would have started red, which is
+the failure this section is about — and it is the right one now, for the
+opposite reason: it starts green and it bites the first time a control a
+walkthrough drives is renamed, which is how fifty-five accumulated. A step
+whose selector the audit cannot test clears nothing, so *untestable* cannot
+satisfy it either.
+
+**Seven of the fifty-five were never dead.** `_needs()` reads a
+`[data-tour='…']` selector into a requirement and `_spellings()`, which says
+how one would be written in markup, was never told that attribute exists — so
+it returned an empty tuple and `_found()` could only answer False. Every
+tour-anchored step in the two Smart 1 Ads walkthroughs was counted as driving
+nothing while its hook sat in the templates. That is the false positive
+`_spellings()`'s own docstring warns about, inside the function written to
+stop the opposite mistake, and it is held by an invariant rather than by
+naming the attribute: every kind the parser emits must have a spelling the
+finder looks for.
+
+**And six scenarios named a page this Hub does not serve** — four guessed a
+`/tools/` prefix for a module mounted at the root. `catalogue()` prints that
+string into the index a rep reads and asks no route to resolve it, and
+`hub-demo.js` never navigates, so neither end could notice. Three of the six
+were among the scenarios whose steps read as anchored to nothing, which looks
+like a forgotten hook when the cause is the line above them.
+`test_help_layer.py` asks the composed app, the assertion
+`test_oauth_redirects.py` already makes about the OAuth callbacks; a redirect
+counts as served, because these are staff pages behind `AuthGuard`.
 
 **And the list is being worked down, which is what a backlog is for.** Three
 scenarios are repaired: `seo_images.first_batch` (eight of eleven steps dead),
@@ -3948,7 +3978,18 @@ already has, never folded into the anchored count. At least three characters,
 because a bare `data-demo="{{ x }}"` names no prefix and one that matched
 everything would switch the check off.
 
-Placing the rest is separate work and needs whoever knows each tool.
+The rest is placed. What it took was not one job: most steps named a control
+that exists under another selector and were simply anchored — `#runBtn`,
+`#checkNow`, `#refresh`, `#snapshotId`, `#prospectFirstName`, `#btnDownload` —
+and the rest named a control the tool does not have and were rewritten against
+the tool that does, the Web Tickets *"Sort by age"* rule. Site Scans promised
+that the image findings hand to the SEO Image Pipeline and the schema to
+Schema Builder, and that page links to neither; what it does have is the
+Reports card, which is the honest version of the same point. Google Finder
+offered an *SEO snapshot* it has never had and an *anomaly check* whose route
+(`/api/ga4/anomalies`) is live with **no caller anywhere in the repo** — that
+one is worth knowing on its own, since `ga_tools.html`'s own copy tells a rep
+the page has it.
 
 It asks whether the element exists **anywhere**, not on the scenario's own
 page — a walkthrough drives a screen whose markup half a dozen scripts write,
@@ -11300,6 +11341,96 @@ against this repo's own hero photo, a three-slide 300x250 is 19 KB and a
 970x250 is 27 KB, against a 150 KB ceiling. `test_display_ads.py` asserts all
 of it, including that Amazon and Meta are offered none at any size.
 
+**And every adjustment made on one size was pasted onto the other ten as raw
+pixels.** `styleOverrides` is per **concept** — that is deliberate and right,
+because a font, a weight and a brand colour mean the same thing on every
+canvas — and it also carries geometry: the CTA's x and y, a block's width, the
+type size, the logo's box. Those are pixels, and a pixel authored against a
+300x250 means nothing on a 1080x1920. `applyBlockStyles` clamped them to the
+target canvas, which stopped anything rendering off-frame and is exactly what
+made it invisible: a clamp produces a plausible ad rather than a broken one.
+Measured against T01 on this repo's own templates, one ordinary tuning pass —
+nudge the button, size the headline, scale the logo — did this:
+
+    728x90     the logo went from 46px tall to 8px, which is `MIN_LOGO`, the
+               floor block-style.ts's own constant calls a smudge
+    970x250    headline type from [32,44] to [18,18], on a billboard
+    1080x1920  the button from y=1118 to y=200 — out of the end card and into
+               the middle of the hero photograph
+
+Nothing errored, every size passed its platform's minimum type size, and each
+one was internally consistent, which is why it survived: you have to open the
+other ten to see it. The operator perfects the first ad and ships ten they
+never looked at.
+
+**A departure carries; a pixel does not.** `modules/ad_builder/src/carry.ts`.
+Every size already has a hand-authored layout, so an override is not a position
+on a canvas — it is a **departure from that canvas's own template**, and what
+travels is the departure, in the target's own terms. A dimension carries as a
+**ratio** to the template's own, so *"the headline is a tenth bigger than
+default"* survives onto a billboard whose default is already twice the size. A
+position carries as a **fraction of the frame**, added to the target's own
+template position, so nudging the button a quarter of the way across a 300-wide
+ad moves it a quarter of the way on every other — rather than abandoning the
+composition its own layout put it in. `styleForSize()` is the one reading, and
+every render path asks it, so the preview and the delivered file cannot
+disagree about what was approved on screen — `copyForSize` one field over.
+
+**The first draft of this scaled everything by the smaller axis ratio, which is
+`modules/magic_resize/engine.py`'s rule, and it was a second wrong answer
+replacing the first.** That is right *there*: Magic Resize takes one design
+into empty frames with no target layout to depart from. Here 300x250 → 728x90
+is a factor of 0.36, so it drove the headline to the 8px floor and put the logo
+straight back at the smudge — measured, then changed. The two tools share the
+idea and deliberately not the arithmetic. Written down rather than left to be
+re-derived, because the tempting next edit is to "unify the engine":
+`test_display_ads.py` asserts the difference in both directions, so a change to
+either rule reports that this note has gone stale rather than letting somebody
+assume a shared engine that is not there.
+
+**Trying is half of it; the other half is saying which ones to look at.** The
+QA pass already knows how to find a bad layout — collision is a fail, safe-area
+and overflow and hierarchy are warnings — so the carry does not re-detect any
+of that. What it adds is the fact those checks cannot know: *where this size's
+design came from*. `carriedInto()` reports it, a `carry` finding names the
+source size, and a size whose departure **would not fit** is marked, because
+`applyBlockStyles`' clamp is right and is silent — where it bites, the ad on
+screen is not the adjustment that was asked for. It never fails: carrying is
+the feature, and a check that fires on every size in a set is one people stop
+reading, which is the note `QR_CODE_RULES` already carries.
+
+**The mark leads somewhere, which is the part that makes it worth having.**
+`bySize` is a correction authored against the size it names, merged last and
+carried nowhere — so the operator opens the one the carry could not place,
+nudges it, and the rest of the set is untouched. Without it the flag is a
+signpost: the correction would propagate straight back out and the size that
+had just been got right would be the next one broken. Same shape as
+`concept.copy`, because it is the same question one field over.
+
+**Two rules keep it from being worse than the bug.** A concept with **no
+`authoredFor`** is carried nowhere and resolves exactly as it always did —
+every ad saved before this exists carries pixels with no record of the canvas
+they were drawn against, and guessing one would rewrite creative that has been
+approved and delivered; the `backgroundPosition` precedent, superseded and kept
+and read only when the newer field is absent. And **geometry with no frame to
+come from is dropped, never pasted** — a family switched after tuning leaves
+nothing to re-anchor against, so the target's own composition stands and the
+report says so, since keeping the pixels silently would be the defect wearing a
+fix.
+
+**The browser resolves none of it.** The server returns the resolved style and
+the carry report with the preview, and `POST /api/carry` answers for the whole
+set at once — it renders nothing and reaches no provider, so the review count
+is right the moment something is tuned rather than filling in one size at a
+time as previews come back, which is a count nobody can trust. A second reading
+of the rule in JavaScript is the mirror this file counts the cost of twice.
+`test_display_ads.py` sweeps the **call sites** rather than naming the four
+that were wrong, so the fifth render path added next month cannot paste a pixel
+again, and `tests/carry.test.ts` drives the rule itself — both halves confirmed
+red against the real defect first, and one assertion in the first draft could
+not fail at all, because it checked that type stayed above `MIN_TYPE` and
+`applyBlockStyles` guarantees exactly that.
+
 ## Everyone has their own login, and there are two levels of it
 
 Fourteen people, uploaded from the company census. `hub/user_directory.py`
@@ -12286,6 +12417,110 @@ Removing it is checkable rather than remembered: the allowlist entry went with
 the file, and `test_unwired.py` fails on an entry naming a function that is
 gone — so the removal cannot be half-done.
 
+## A review nobody wrote down is a review nobody can point at
+
+`hub/qa_tasks.py`, `hub/qa_tasks_routes.py` and `/qa-tasks`. There are
+twenty-odd tools here and nobody can test all of them, so the way a check
+actually happens is that somebody is asked to do it — *open the Proposal
+Builder, run a quote end to end, tell me what breaks.* That ask lived in a
+chat message, and the answer came back the same way: no list of what had been
+asked, no record of what came back, and no way to tell an open question from
+one somebody answered three weeks ago. The QA Reports page says what is
+**wrong**; this is the other half of the same question, which is how somebody
+is asked to go and look.
+
+**Anyone can assign, and the assigner owns the answer.** Not admins only — the
+person who notices a page is wrong is very often not an admin, and a review
+queue only an admin can fill is one nobody fills. What that costs is a rule: a
+response goes back to *whoever raised the task*, keyed on `created_by_email`,
+never to a shared inbox. It is in the nav for a General account for the same
+reason: a queue behind a door the people answering it cannot open is not a
+queue.
+
+**Four states, and the two middle ones are the point.** `open` (nobody has
+answered), `answered` (the assignee replied and it is now the assigner's
+move), `needs_more` (the assigner read it and asked for something else) and
+`complete`. A single `done` flag collapses the two *somebody is waiting*
+states into one, which is precisely the thing anybody looking at this list
+needs to tell apart — the distinction `hub/social_content.py` draws about a
+round still out with the client.
+
+**Which kind of post it is comes from who is posting**, never from a flag the
+route passes: the assignee answering and the assigner asking for more are the
+same action from the table's point of view, and letting a route decide would
+be a second place the state machine lives. The reviewer **cannot close their
+own review** — a review the reviewer signs off is a review nobody read — and
+nothing is ever deleted, only completed: *what did we ask people to check
+before the last release* has to be answerable a year from now.
+
+**A need-by date is optional, and that is Todd's own rule.** Required, it gets
+filled in with a guess. `overdue` is derived from it on read rather than
+stored, so it cannot go stale the way a written flag would — `hub/creative_evergreen.py`'s
+rule, and it matters more here because there are two gunicorn workers.
+
+**The dropdown is read from the Hub, not restated.** `targets()` reads the nav
+in `hub/sidebar.py`, the tiles on `/tools` and `/creative`, and the reports in
+`hub/qa.py` — the same tiles `test_menu_layout.py` and `hub/help_coverage.py`
+read, for the same reason those two do: a hand-typed list of tools is a list
+that goes stale the week a tool is added. It comes to 111 entries today and it
+still ends with **"Something else"** and a free-text box, because a dropdown
+that cannot hold the answer is worse than a text box — a note this repo has
+already had to write down once, about the ad copy request form.
+
+**An attachment lives in the database.** Not the disk, which Render recreates
+and `hub/jsonstore.py` exists because of; not Cloudinary, which is configured
+per environment, and a review that cannot be filed because a key is missing is
+a review that does not happen. It is a `LargeBinary` column inside the database
+backup with `MAX_ATTACHMENT_BYTES` in front of it — enforced here rather than
+left to the app-wide `MAX_CONTENT_LENGTH`, which is 512 MB because one module
+renders video. It is served `Content-Disposition: attachment` with
+`X-Content-Type-Options: nosniff`: rendering an arbitrary upload inline on the
+staff origin is how a stored file becomes a script running on it.
+
+**"Notify me of any new updates" is answered without a mailer, because there
+is no mailer in this Hub.** That sentence appears in half a dozen modules here
+and the answer every one of them arrives at is the same: put the number where
+people already look. So there are two surfaces and they are deliberately
+different. The **dashboard card** sits above Recent activity, reads the same
+`for_person()` run the page draws — two screens counting the same thing
+separately is how they come to disagree in front of one person — and keeps the
+two queues apart, because *you have been asked to check this* and *somebody
+answered and is waiting on your reply* are two different jobs. And
+`hub/static/hub-qa-nudge.js` is the reminder for somebody who signs in and goes
+straight to a tool, which is most people most mornings: once per person per
+day, marked when it is **shown** rather than when it is dismissed, silent
+inside an iframe (a staff to-do list in a client-facing panel is an internal
+note in front of a client), silent when nothing is waiting, and a corner card
+rather than a modal — the change `hub-help.js` was made for. It is loaded from
+`base.html` alone and not from the chrome `HubBar` injects, the rule
+`hub-cheers.js` gives: one place that can raise an interruption is how you
+stay sure it is raised once.
+
+**What is new to you is what has moved since you last looked.**
+`assignee_seen_at` / `owner_seen_at` are one comparison against
+`last_activity_at`, rather than a per-message read flag that would have to be
+written for both people on every post — and they are stamped by **opening one
+task**, never by loading the list. A badge that clears itself because somebody
+glanced at a dashboard is a badge that stops meaning anything.
+
+**A shared-password session is told so rather than shown somebody's book.**
+`PANEL_PASSWORD` grants a session with no account behind it, so there is no
+email to key on — the `hub/ad_copy.py` refusal, where "Shared login" is a true
+statement about the session and a useless one where the whole value is whose
+it is.
+
+**Every reader answers with `measured` and a sentence, never an exception.**
+A SQLAlchemy `OperationalError` carries the database host and the SQL, and
+both screens interpolate this straight into a page; the cause goes to the log.
+An empty QA list is read as permission to stop looking, so *we could not read
+the table* must never render as *you have nothing to do* — which is why the
+dashboard card and the reminder each branch on it.
+
+The blueprint carries `hub/blueprint_guard.install()`. Nothing on it is
+public: every route names a member of staff, what they were asked to check and
+what they said about it. `test_qa_tasks.py` asserts all of it.
+
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -12381,6 +12616,14 @@ python3 test_magic_resize.py       # one design into the whole size set: sizes r
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_qa_tasks.py           # asking somebody to check a page: four states
+                                   #   rather than a done flag, a reviewer who
+                                   #   cannot close their own review, an
+                                   #   attachment in the database rather than on
+                                   #   a disk nothing backs up, a dropdown read
+                                   #   from the nav and the tiles, and a card
+                                   #   that never draws a zero over a table it
+                                   #   could not read
 python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
                                    #   one reading, and counts that land on rows
 python3 test_knack_map.py          # what is mapped in Knack and what is

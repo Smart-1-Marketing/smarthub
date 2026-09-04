@@ -50,7 +50,7 @@ os.environ["PANEL_PASSWORD"] = "cbmock-test-password"
 # The whole point: every provider off.
 for _k in ("OPENAI_API_KEY", "ELEVENLABS_API", "ELEVENLABS_API_KEY", "HEYGEN_API",
            "RUNWAY_API_KEY", "CREATOMATE_API_KEY", "CLOUDINARY_URL",
-           "PEXELS_API", "PIXABAY_API"):
+           "PEXELS_API", "PIXABAY_API", "COVERR_API"):
     os.environ.pop(_k, None)
 
 _passed, _failed = 0, 0

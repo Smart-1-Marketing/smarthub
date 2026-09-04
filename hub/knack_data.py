@@ -718,6 +718,39 @@ def _creative_items(prod_records: list[dict]) -> list[dict]:
     return items
 
 
+def _attach_library(client: str, items: list[dict]) -> None:
+    """Say, per creative row, whether we hold a copy of it ourselves.
+
+    The row's URL is a Drive address, and a Drive address is an address in
+    somebody else's filing cabinet: it moves, it gets un-shared, and the row
+    goes on looking exactly as healthy as the day it worked. `hub/ad_assets`
+    copies that creative into the client's library, and this is what lets the
+    card open the copy — with the Drive original still beside it, because the
+    media team is still working out of that folder and hiding it would be
+    telling them the wrong thing.
+
+    Never raises and never blocks the card: a library that cannot be read
+    costs this annotation, not Client 360.
+    """
+    if not items:
+        return
+    try:
+        from hub import ad_assets
+        index = ad_assets.library_index(client)
+    except Exception:                                   # noqa: BLE001
+        return
+    if not index:
+        return
+    for item in items:
+        entry = index.get(str(item.get("url") or ""))
+        if not entry:
+            continue
+        item["library_count"] = entry["count"]
+        item["library_gallery"] = entry["gallery"]
+        first = (entry["files"] or [{}])[0]
+        item["library_url"] = first.get("url", "")
+
+
 def _parse_gtm(value) -> dict | None:
     """websites.json holds strings like 'AdOps: GTM-TG6FPR8M'."""
     s = str(value or "").strip()
@@ -1146,6 +1179,7 @@ def search_client(q: str, limit: int = 8) -> list[dict]:
         # ---- creative files + GTM containers ----
         gkey = str(g["client"]).strip().lower()
         g["creative"] = _creative_items(raw_by_group.get(gkey, []))[:24]
+        _attach_library(g["client"], g["creative"])
         gtms, seen_gtm = [], set()
         for w in g["websites"]:
             parsed = _parse_gtm(w.get("gtm"))

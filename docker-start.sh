@@ -136,6 +136,23 @@ else
   echo "[adbuilder] dist/src/server.js is missing — the build did not run. The rest of the Hub will start normally."
 fi
 
+# --threads only takes effect under the gthread worker class -- gunicorn's
+# default is "sync", which silently ignores it. Without this line the Hub was
+# never running at "2 workers x 8 threads": it was running at 2, full stop,
+# because a sync worker handles exactly one request at a time on its own
+# thread. Every request behind those two -- another tab, another rep, a
+# background fetch from a page already open -- queued for the free worker,
+# and with this Hub's own scheduler and modules making plenty of genuinely
+# slow, synchronous outbound calls (Insites, Knack, Google, OpenAI,
+# Cloudinary, ghostscript/qpdf subprocesses), one such request tied up a
+# whole half of the Hub's total capacity for as long as it ran. A third
+# concurrent request had nowhere to go but the socket backlog, where it sat
+# until either the caller gave up, Render's own proxy gave up (502), or
+# gunicorn's --timeout gave up and killed the worker mid-request (also a 502,
+# and it takes whatever else that worker was doing down with it). Threads
+# share memory rather than duplicating a whole Python process's worth of
+# imports the way another worker would, so this is the cheap fix: real
+# concurrency for I/O-bound waits without doubling RSS.
 exec gunicorn wsgi:application \
   --bind "0.0.0.0:${PORT:-8000}" \
-  --workers 2 --threads 8 --timeout 180
+  --workers 2 --worker-class gthread --threads 8 --timeout 180

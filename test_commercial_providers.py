@@ -62,6 +62,7 @@ _SPELLINGS = {
     "creatomate": ("CREATOMATE_API", "CREATOMATE_API_KEY", "CREATOMATE_KEY"),
     "pexels": ("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY"),
     "pixabay": ("PIXABAY_API", "PIXABAY_API_KEY", "PIXABAY_KEY"),
+    "coverr": ("COVERR_API", "COVERR_API_KEY", "COVERR_KEY"),
     "openai": ("OPENAI_API_KEY",),
 }
 for _names in _SPELLINGS.values():
@@ -91,6 +92,7 @@ def section(title):
 from hub.config import Settings                                          # noqa: E402
 from modules.commercial_builder import config as cb_config                # noqa: E402
 from modules.commercial_builder.services import cloudinary_service       # noqa: E402
+from modules.commercial_builder.services import coverr_service           # noqa: E402
 from modules.commercial_builder.services import creatomate_service       # noqa: E402
 from modules.commercial_builder.services import elevenlabs_service       # noqa: E402
 from modules.commercial_builder.services import heygen_service           # noqa: E402
@@ -159,8 +161,8 @@ status = provider_check.status()
 check("Runway is in the status the dashboard renders",
       "runway" in status, True)
 check("and so is every other provider that has a service behind it",
-      sorted(status), sorted(["cloudinary", "creatomate", "elevenlabs", "heygen",
-                              "openai", "pexels", "pixabay", "runway"]))
+      sorted(status), sorted(["cloudinary", "coverr", "creatomate", "elevenlabs",
+                              "heygen", "openai", "pexels", "pixabay", "runway"]))
 
 # Two lists that must agree: the spec's roster by release, and the display
 # order the panel is built from. A provider added to one and forgotten in the
@@ -400,6 +402,7 @@ section("Nothing above turned a missing key into a plausible answer")
 check("no OpenAI key means the script writer is not live", openai_service.is_live(), False)
 check("no Pexels key means stock search is not live", pexels_service.is_live(), False)
 check("no Pixabay key means stock search is not live", pixabay_service.is_live(), False)
+check("no Coverr key means stock search is not live", coverr_service.is_live(), False)
 
 mock = creatomate_service.submit_render({"elements": []})
 check("a mocked render is flagged as mock", mock.get("_mock"), True)

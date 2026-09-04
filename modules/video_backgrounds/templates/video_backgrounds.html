@@ -15,10 +15,34 @@
 
 {# The status card is not decoration. An empty result list has three completely
    different causes here -- Cloudinary unset, indexing not started, or genuinely
-   no match -- and they must not look alike. #}
+   no match -- and they must not look alike. It stays minimized until somebody
+   asks for it, though: on every ordinary visit the tool is either working or
+   it is not, and the detail that explains *why* is only worth the screen space
+   once something looks wrong. The one-line summary beside the toggle carries
+   enough to tell those two states apart without opening it. #}
 <div class="card" id="vb-status" style="margin-bottom:18px">
-  <div class="card-h"><h3>Library status</h3></div>
-  <div class="card-b">
+  <div class="card-h" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Library status
+      <span class="vb-note" id="vb-status-summary" style="margin:0">
+        {%- if not status.cloudinary -%}
+          <span class="vb-bad" style="margin:0">Cloudinary is not configured</span>
+        {%- elif status.missing_folders -%}
+          <span class="vb-bad" style="margin:0">a searched folder is missing</span>
+        {%- elif not status.indexing_started -%}
+          <span class="vb-unknown">indexing has not started</span>
+        {%- else -%}
+          {% if status.indexed_count is none %}counts unavailable
+          {%- else %}{{ status.indexed_count }} indexed
+            {%- if status.waiting_count %}, {{ status.waiting_count }} waiting{% endif -%}
+          {% endif -%}
+        {%- endif -%}
+      </span>
+    </h3>
+    <button type="button" class="btn-ghost" id="vb-status-toggle"
+            aria-expanded="false" aria-controls="vb-status-body"
+            style="padding:6px 12px;font-size:12.5px">Show details</button>
+  </div>
+  <div class="card-b" id="vb-status-body" hidden>
     {% if not status.cloudinary %}
       <p class="vb-bad"><strong>Cloudinary is not configured.</strong>
          <code>CLOUDINARY_URL</code> is unset or still a placeholder, so the
@@ -95,12 +119,17 @@
          that returns three clips looks the same whether the library is small
          or whether half the internet's free stock is missing from it. #}
       <p class="vb-note">
-        This searches <strong>our own Cloudinary footage only</strong>. Free
-        stock libraries are not indexed here — Pexels and Pixabay are searched
-        live in the <a href="/tools/commercial-builder/">Commercial Builder</a>,
-        and a clip from there only appears in this library if someone uploads
-        it to Cloudinary after the cutoff above.
-        Library health is also on <a href="/status">System Status</a>.
+        The results above are <strong>our own Cloudinary footage only</strong>,
+        vision-described and indexed ahead of time. Coverr, Pexels and Pixabay
+        are searched live below, each in its own shelf — nothing from any of
+        the three is indexed, transformed, or stored here, so a clip from one
+        of them can never be mistaken for footage we hold. Unsplash has no
+        video library, so it is not searched on this page at all — it stays
+        photo-only in <a href="/tools/stock-photos/">Stock Photo Search</a>.
+        A clip from any of the three joins the owned library above only if
+        someone uploads it to Cloudinary after the cutoff; otherwise, saving
+        one to a client's gallery keeps a copy in that client's own record
+        instead. Library health is also on <a href="/status">System Status</a>.
       </p>
       {% if status.missing_folders %}
         <p class="vb-bad"><strong>Named here, absent in Cloudinary:</strong>
@@ -170,6 +199,63 @@
 <div id="vb-msg" class="vb-note" style="margin:0 2px 12px"></div>
 <div id="vb-results" class="vb-grid"></div>
 
+{# Its own heading rather than folded into the grid above: these clips are
+   not indexed, not vision-described and not ours, and a shared heading would
+   let one read as the other. Hidden until a search actually asks Coverr
+   something -- see _coverr_note() in app.py for why a chip-only search never
+   reaches it. #}
+<div class="vb-shelf-head" id="vb-coverr-head" hidden>
+  <h3>Coverr <span class="pill info">free stock, searched live</span></h3>
+  <p class="vb-note" id="vb-coverr-note" style="margin:2px 0 10px"></p>
+</div>
+<div id="vb-coverr-results" class="vb-grid"></div>
+
+<div class="vb-shelf-head" id="vb-pexels-head" hidden>
+  <h3>Pexels <span class="pill info">free stock, searched live</span></h3>
+  <p class="vb-note" id="vb-pexels-note" style="margin:2px 0 10px"></p>
+</div>
+<div id="vb-pexels-results" class="vb-grid"></div>
+
+<div class="vb-shelf-head" id="vb-pixabay-head" hidden>
+  <h3>Pixabay <span class="pill info">free stock, searched live</span></h3>
+  <p class="vb-note" id="vb-pixabay-note" style="margin:2px 0 10px"></p>
+</div>
+<div id="vb-pixabay-results" class="vb-grid"></div>
+
+{# A single panel shared by every card's "Save to gallery" button rather than
+   one form per card -- a search can return dozens of clips, and a form on
+   each would be a lot of markup for a control almost nobody opens at once.
+   The panel stays hidden until a button asks for it, and the client and
+   folder inputs each carry a datalist rather than a bare text box: a typo'd
+   client name files the clip against a client nothing joins to and still
+   reads as a success, and a folder name mistyped from an existing one splits
+   a client's saved clips across two folders that were meant to be one. #}
+<div class="vb-save-overlay" id="vb-save-overlay" hidden>
+  <div class="vb-save-box" role="dialog" aria-modal="true" aria-labelledby="vb-save-title">
+    <h4 id="vb-save-title">Save to client gallery</h4>
+    <p class="vb-note" id="vb-save-clip" style="margin:0 0 12px"></p>
+    <label class="vb-save-field">Client
+      <input type="text" id="vb-save-client" class="vb-input" style="min-width:0"
+             list="vb-save-clients" placeholder="Start typing a client name"
+             autocomplete="off">
+      <datalist id="vb-save-clients"></datalist>
+    </label>
+    <label class="vb-save-field">Folder, under "Video Searches"
+      <input type="text" id="vb-save-folder" class="vb-input" style="min-width:0"
+             list="vb-save-folders"
+             placeholder="Name a new folder, or pick one already used for this client"
+             autocomplete="off">
+      <datalist id="vb-save-folders"></datalist>
+    </label>
+    <p class="vb-note" id="vb-save-status" style="margin-top:10px"></p>
+    <div class="vb-save-actions">
+      <button type="button" class="btn-ghost" id="vb-save-cancel">Cancel</button>
+      <button type="button" class="btn-primary" id="vb-save-confirm"
+              style="padding:8px 16px;font-size:13px">Save</button>
+    </div>
+  </div>
+</div>
+
 <style>
 /* The Hub is a light theme -- hub.css sets --bg #f4f6fa, --panel #fff and ink
    #1e293b, and .card is white. This page was first written against a dark
@@ -205,6 +291,9 @@
 .vb-chip[aria-pressed="true"]{background:var(--brand,#2563eb);
   border-color:var(--brand,#2563eb);color:#fff}
 .vb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.vb-shelf-head{margin:22px 0 10px;padding-top:14px;border-top:1px solid var(--line,#e2e8f0)}
+.vb-shelf-head h3{margin:0 0 2px;font-size:14px;color:var(--navy,#1a2e58);
+  display:flex;align-items:center;gap:8px}
 .vb-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:10px;
   overflow:hidden}
 /* Deliberately dark: a clip with light edges needs a plate behind it, and this
@@ -225,6 +314,17 @@
   cursor:pointer}
 .vb-acts button:hover{border-color:var(--brand,#2563eb);color:var(--brand,#2563eb);
   background:var(--bg,#f4f6fa)}
+.vb-acts button.vb-save-btn{border-color:var(--brand,#2563eb);color:var(--brand,#2563eb)}
+.vb-save-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);
+  display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+.vb-save-box{background:#fff;border-radius:12px;padding:20px 22px;width:100%;
+  max-width:400px;box-shadow:0 20px 50px rgba(15,23,42,.35)}
+.vb-save-box h4{margin:0 0 4px;font-size:15px;color:var(--navy,#1a2e58)}
+.vb-save-field{display:block;font-size:12px;font-weight:600;color:var(--muted,#64748b);
+  margin-top:12px}
+.vb-save-field input{display:block;width:100%;box-sizing:border-box;margin-top:4px;
+  font-weight:400}
+.vb-save-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 </style>
 {% endblock %}
 
@@ -242,7 +342,31 @@
 
   var results = document.getElementById("vb-results");
   var msg = document.getElementById("vb-msg");
+  var coverrHead = document.getElementById("vb-coverr-head");
+  var coverrNote = document.getElementById("vb-coverr-note");
+  var coverrResults = document.getElementById("vb-coverr-results");
+  var pexelsHead = document.getElementById("vb-pexels-head");
+  var pexelsNote = document.getElementById("vb-pexels-note");
+  var pexelsResults = document.getElementById("vb-pexels-results");
+  var pixabayHead = document.getElementById("vb-pixabay-head");
+  var pixabayNote = document.getElementById("vb-pixabay-note");
+  var pixabayResults = document.getElementById("vb-pixabay-results");
   var selected = [];
+
+  // Minimized until asked for -- see the note above the card in the template.
+  // The summary line beside the toggle is rendered server-side from the same
+  // `status` the detail below reads, so the two can never disagree about
+  // whether the library looks healthy.
+  var statusToggle = document.getElementById("vb-status-toggle");
+  var statusBody = document.getElementById("vb-status-body");
+  if (statusToggle && statusBody) {
+    statusToggle.addEventListener("click", function () {
+      var opening = statusBody.hidden;
+      statusBody.hidden = !opening;
+      statusToggle.textContent = opening ? "Hide details" : "Show details";
+      statusToggle.setAttribute("aria-expanded", opening ? "true" : "false");
+    });
+  }
 
   function note(text, bad) {
     msg.textContent = text || "";
@@ -269,6 +393,17 @@
     }
   }
 
+  function saveButton() {
+    return '<button type="button" class="vb-save-btn" data-save="1">Save to gallery</button>';
+  }
+
+  function wireSave(el, provider, item, label) {
+    var button = el.querySelector('[data-save]');
+    if (button) {
+      button.addEventListener("click", function () { openSavePanel(provider, item, label); });
+    }
+  }
+
   function card(item) {
     var el = document.createElement("div");
     el.className = "vb-card";
@@ -289,6 +424,7 @@
         '<div class="vb-acts">' +
           '<button type="button" data-copy="background">Copy background URL</button>' +
           '<button type="button" data-copy="poster">Copy poster URL</button>' +
+          saveButton() +
         "</div>" +
       "</div>";
 
@@ -301,18 +437,95 @@
         copy(which === "poster" ? item.poster_url : item.background_url, button);
       });
     });
+    wireSave(el, "cloudinary", item, item.public_id);
     return el;
   }
+
+  // Coverr's shape has no public_id, folder, tags or description -- it is
+  // never indexed, so card() above (built for the owned-library shape) does
+  // not fit it. Pexels and Pixabay carry the same shape Coverr does (this is
+  // the Commercial Builder's own "universal asset shape" -- see
+  // hub/coverr.py), so all three share one card built around it rather than
+  // three near-identical copies. Its own copy targets: preview_url/full_url
+  // rather than the transformed background_url/poster_url only Cloudinary
+  // delivery produces.
+  function stockCard(item, fallbackName) {
+    var el = document.createElement("div");
+    el.className = "vb-card";
+    var secs = item.duration ? (Math.round(item.duration * 10) / 10) + "s" : "length unknown";
+    var dims = (item.width && item.height) ? item.width + "×" + item.height : "size unknown";
+    el.innerHTML =
+      '<video muted loop playsinline preload="none" poster="' + esc(item.thumbnail) + '"' +
+      ' src="' + esc(item.preview_url || item.full_url) + '"></video>' +
+      '<div class="vb-card-b">' +
+        "<h4>" + esc(item.author || fallbackName) + "</h4>" +
+        '<p class="vb-meta">' + esc(dims) + " · " + esc(secs) + "</p>" +
+        '<div class="vb-acts">' +
+          '<button type="button" data-copy="video">Copy video URL</button>' +
+          (item.source_url ? '<button type="button" data-copy="source">View source</button>' : "") +
+          saveButton() +
+        "</div>" +
+      "</div>";
+
+    var video = el.querySelector("video");
+    el.addEventListener("mouseenter", function () { video.play().catch(function () {}); });
+    el.addEventListener("mouseleave", function () { video.pause(); });
+    el.querySelectorAll("[data-copy]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var which = button.getAttribute("data-copy");
+        if (which === "source") { window.open(item.source_url, "_blank", "noopener"); return; }
+        copy(item.full_url || item.preview_url, button);
+      });
+    });
+    wireSave(el, item.provider || fallbackName.toLowerCase(), item,
+             item.author ? (fallbackName + " — " + item.author) : fallbackName);
+    return el;
+  }
+
+  function coverrCard(item) { return stockCard(item, "Coverr"); }
+  function pexelsCard(item) { return stockCard(item, "Pexels"); }
+  function pixabayCard(item) { return stockCard(item, "Pixabay"); }
 
   function render(payload) {
     results.textContent = "";
     var items = payload.results || [];
     if (!items.length) {
       note(payload.note || "Nothing matched.", !payload.ok);
-      return;
+    } else {
+      note(items.length + " of " + payload.total + " matching clips.");
+      items.forEach(function (item) { results.appendChild(card(item)); });
     }
-    note(items.length + " of " + payload.total + " matching clips.");
-    items.forEach(function (item) { results.appendChild(card(item)); });
+    renderCoverr(payload.coverr);
+    renderShelf(payload.pexels, pexelsHead, pexelsNote, pexelsResults, pexelsCard);
+    renderShelf(payload.pixabay, pixabayHead, pixabayNote, pixabayResults, pixabayCard);
+  }
+
+  // Its own function rather than folded into render() above: the owned grid
+  // returns early on an empty result, and the Coverr shelf must still show
+  // (or still explain why it is hidden) on that exact search.
+  function renderCoverr(coverrData) {
+    coverrResults.textContent = "";
+    var data = coverrData || {};
+    var items = data.results || [];
+    // The server already tells the whole story in one sentence -- no query,
+    // no key, or a real search that found nothing -- so it is read rather
+    // than re-derived here from data.live: two copies of "why is this empty"
+    // is how they come to disagree the day one of them is edited.
+    coverrHead.hidden = !(items.length || data.note);
+    coverrNote.textContent = data.note || "";
+    items.forEach(function (item) { coverrResults.appendChild(coverrCard(item)); });
+  }
+
+  // Pexels and Pixabay follow the identical shape renderCoverr() draws --
+  // this is that function generalised over the three (Coverr keeps its own
+  // above, unchanged, rather than being rewritten to call this).
+  function renderShelf(shelfData, head, noteEl, grid, cardFn) {
+    grid.textContent = "";
+    var data = shelfData || {};
+    var items = data.results || [];
+    head.hidden = !(items.length || data.note);
+    noteEl.textContent = data.note || "";
+    items.forEach(function (item) { grid.appendChild(cardFn(item)); });
   }
 
   function search() {
@@ -387,6 +600,132 @@
             : "Indexing has not started. Nothing is waiting yet.";
         })
         .catch(function (err) { out.textContent = "That check failed: " + err; });
+    });
+  }
+
+  // --------------------------------------------------------------------- //
+  // Save to gallery -- one panel shared by every card, whatever shelf it
+  // came from. See the note on #vb-save-overlay in the template for why a
+  // typed client or folder name is offered against real ones rather than
+  // taken on faith.
+  // --------------------------------------------------------------------- //
+  var saveOverlay = document.getElementById("vb-save-overlay");
+  var saveClip = document.getElementById("vb-save-clip");
+  var saveClientInput = document.getElementById("vb-save-client");
+  var saveClientList = document.getElementById("vb-save-clients");
+  var saveFolderInput = document.getElementById("vb-save-folder");
+  var saveFolderList = document.getElementById("vb-save-folders");
+  var saveStatus = document.getElementById("vb-save-status");
+  var saveConfirm = document.getElementById("vb-save-confirm");
+  var saveCancel = document.getElementById("vb-save-cancel");
+  var pendingSave = null;      // { provider, item }
+  var clientTimer = null;
+  var lastFolderClient = "";
+
+  function openSavePanel(provider, item, label) {
+    pendingSave = { provider: provider, item: item };
+    saveClip.textContent = "Saving: " + (label || "this clip");
+    saveStatus.textContent = "";
+    saveStatus.style.color = "";
+    saveFolderInput.value = "";
+    saveFolderList.innerHTML = "";
+    lastFolderClient = "";
+    if (saveOverlay) { saveOverlay.hidden = false; }
+    saveClientInput.focus();
+  }
+
+  function closeSavePanel() {
+    if (saveOverlay) { saveOverlay.hidden = true; }
+    pendingSave = null;
+  }
+
+  if (saveCancel) { saveCancel.addEventListener("click", closeSavePanel); }
+  if (saveOverlay) {
+    saveOverlay.addEventListener("click", function (e) {
+      if (e.target === saveOverlay) { closeSavePanel(); }
+    });
+  }
+
+  function loadClientOptions(q) {
+    fetch("/tools/video-backgrounds/api/clients?q=" + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        saveClientList.innerHTML = (data.clients || []).map(function (c) {
+          return '<option value="' + esc(c.name) + '"></option>';
+        }).join("");
+      })
+      .catch(function () { /* the datalist just stays as it was */ });
+  }
+
+  function loadFolderOptions(client) {
+    if (!client || client === lastFolderClient) { return; }
+    lastFolderClient = client;
+    fetch("/tools/video-backgrounds/api/gallery/folders?client=" + encodeURIComponent(client))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        saveFolderList.innerHTML = (data.folders || []).map(function (f) {
+          return '<option value="' + esc(f) + '"></option>';
+        }).join("");
+      })
+      .catch(function () { /* the datalist just stays as it was */ });
+  }
+
+  if (saveClientInput) {
+    saveClientInput.addEventListener("input", function () {
+      var q = saveClientInput.value.trim();
+      clearTimeout(clientTimer);
+      clientTimer = setTimeout(function () { loadClientOptions(q); }, 200);
+    });
+    saveClientInput.addEventListener("change", function () {
+      loadFolderOptions(saveClientInput.value.trim());
+    });
+    saveClientInput.addEventListener("blur", function () {
+      loadFolderOptions(saveClientInput.value.trim());
+    });
+  }
+
+  if (saveConfirm) {
+    saveConfirm.addEventListener("click", function () {
+      if (!pendingSave) { return; }
+      var client = saveClientInput.value.trim();
+      var folder = saveFolderInput.value.trim();
+      if (!client) {
+        saveStatus.style.color = "#dc2626";
+        saveStatus.textContent = "Choose which client this clip is for.";
+        return;
+      }
+      saveConfirm.disabled = true;
+      saveStatus.style.color = "";
+      saveStatus.textContent = "Saving…";
+      fetch("/tools/video-backgrounds/api/gallery/save", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          provider: pendingSave.provider,
+          item: pendingSave.item,
+          client: client,
+          folder: folder
+        })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          saveConfirm.disabled = false;
+          if (!data.ok) {
+            saveStatus.style.color = "#dc2626";
+            saveStatus.textContent = data.error || "That could not be saved.";
+            return;
+          }
+          saveStatus.style.color = "";
+          saveStatus.textContent = data.duplicate
+            ? "Already in this client's gallery."
+            : "Saved to " + client + "'s gallery, under Video Searches.";
+          setTimeout(closeSavePanel, 1100);
+        })
+        .catch(function (err) {
+          saveConfirm.disabled = false;
+          saveStatus.style.color = "#dc2626";
+          saveStatus.textContent = "The save request failed: " + err;
+        });
     });
   }
 
