@@ -1783,6 +1783,31 @@ with Image Creator on the bare query `image` and took the top slot off it —
 decision. It is **Unattached Images**, beside "No Dashboards" and "Stale
 Creative". `test_image_audit.py` asserts all of it.
 
+**A day carried through four functions and dropped in the fifth.**
+`record_health.client360()` takes a day so a caller can ask what a client's
+record looked like as of a date, and #338 carried it down through
+`_seo()`, `seo.record_health()`, `blogs_health()` and `_days_since()` after
+`test_client360_health.py` went red at midnight UTC on three assertions —
+counts drifting by exactly one day while the product code and the test were
+each right and only the wiring between them was not. `_blogs_state()` was the
+one reader left on the wall clock, and it is the one that decides `state`: with
+a day injected it answered **"current" beside an `overdue` of 1**, which is the
+disagreement `blogs_health`'s own docstring says it exists to prevent.
+
+**Half a threaded clock is the worse half**, because the three values that did
+move made the one that did not look like a rule being wrong rather than a
+parameter being missed — and it is invisible on every day the two clocks agree,
+which is most of them. `blogs_health()` hands `_blogs_state()` the same day it
+counts `overdue` from, so the two halves of one rule cannot answer to two days.
+
+Two assertions hold it, and the second is the one worth keeping: **state and
+overdue answer to the same injected day**, checked at a date far from the real
+one because that is the only place they can differ; and **passing no day is the
+same answer as passing the real one**, because a day threaded for a test that
+quietly moves what production computes is the fix being worse than the bug.
+That second one is itself guarded on the day not turning between its two
+readings — unguarded it is the bug it was written to catch.
+
 **A pill with four answers was a bool, and the page contradicted itself.**
 The SEO client list draws four status pills per client. Three are a tick
 somebody makes and are genuinely yes/no; `blogs` is *derived*, and `False`
@@ -12266,6 +12291,10 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   a gallery you can search, and nothing
                                    #   filed under a provider nobody declared
+python3 test_client360_health.py   # the derived health strip: every pill from
+                                   #   the stores, a source that refuses drawn
+                                   #   as its own state, and both halves of the
+                                   #   blogs rule answering to one day
 python3 test_client360_layout.py   # the record's cards land in their rail
                                    #   sections by name, driven in node — a
                                    #   match list that stops matching piles

@@ -125,7 +125,8 @@ BLOGS_STATES = {
 }
 
 
-def _blogs_state(store: dict, sells: bool | None = None) -> str:
+def _blogs_state(store: dict, sells: bool | None = None, *,
+                 today: str = "") -> str:
     """Which of BLOGS_STATES this client's blogs are in.
 
     `sells` is whether a live SEO product with "blog" in its name is on their
@@ -141,7 +142,14 @@ def _blogs_state(store: dict, sells: bool | None = None) -> str:
     posts = (store.get("blogs") or {}).get("posts") or []
     if not posts:
         return "not_sold" if sells is False else "none"
-    today = _dt_date_today_iso()
+    # The caller's day where it was given one, the real one otherwise --
+    # `blogs_health()` hands down the same day it counts `overdue` from. Left
+    # on the wall clock this was the last half of the split #338 closed: with a
+    # day injected, `state` said "current" while `overdue` beside it said one
+    # was late, which is the disagreement this function exists to prevent and
+    # the one thing a reader of the strip cannot tell is our bug rather than
+    # the client's.
+    today = today or _dt_date_today_iso()
     due = [p for p in posts if str(p.get("date", "")) <= today]
     if not due:
         return "current"                  # a plan exists and nothing is due yet
@@ -976,7 +984,7 @@ def blogs_health(store: dict, sells: bool | None = None, *,
     # rendering a client's record as of a date) and a rule that reads the wall
     # clock disagree by one every midnight, and the pill beside it does not.
     today = today or _dt_date_today_iso()
-    state = _blogs_state(store, sells)
+    state = _blogs_state(store, sells, today=today)
 
     overdue = [p for p in posts
                if str(p.get("date", "")) <= today and not p.get("posted")]

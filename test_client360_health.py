@@ -246,6 +246,36 @@ check("...and that the date shown is a planned one",
 b = seo.blogs_health(store_with([], setup={"blogs_frequency": "weekly"}), False)
 check("a client who does not buy blogs is not_sold and never exhausted",
       (b["state"], b["plan_exhausted"]), ("not_sold", False))
+# The two halves of one rule have to answer to the same day. #338 threaded the
+# day through blogs_health, _days_since, record_health and _seo; `_blogs_state`
+# was the one reader left on the wall clock, so with a day injected `state`
+# said "current" while `overdue` beside it said one was late -- the exact
+# disagreement blogs_health's own docstring says it exists to prevent, and
+# invisible on any day the two clocks happen to agree. Asserted at a day far
+# from the real one, because that is the only place they can differ.
+_far = (dt.date.today() + dt.timedelta(days=400)).isoformat()
+_late = store_with([{"date": (dt.date.fromisoformat(_far) - dt.timedelta(days=9)).isoformat(),
+                     "posted": False}], setup={"blogs_frequency": "weekly"})
+_b = seo.blogs_health(_late, True, today=_far)
+check("state and overdue answer to the same injected day",
+      (_b["state"], _b["overdue"], _b["overdue_days"]), ("behind", 1, 9))
+
+# And production is unchanged by the parameter existing: no caller passes one,
+# so every path still reads the real clock. A day threaded for a test that
+# quietly moves what production computes is the fix being worse than the bug.
+_real = dt.date.today()
+_same = store_with([{"date": (_real - dt.timedelta(days=9)).isoformat(),
+                     "posted": False}], setup={"blogs_frequency": "weekly"})
+_default, _explicit = (seo.blogs_health(_same, True),
+                       seo.blogs_health(_same, True, today=_real.isoformat()))
+# Guarded on the day not turning between those two calls: unguarded, this
+# assertion is the bug it was written to catch.
+if dt.date.today() == _real:
+    check("passing no day is the same answer as passing the real one",
+          _default, _explicit)
+check("...and it is a real reading, not two empties compared",
+      (_explicit["state"], _explicit["overdue_days"]), ("behind", 9))
+
 check("record_health reads the same rule",
       seo.record_health("Acme Boats", store_with(
           [{"date": day(-9), "posted": False}], setup={"blogs_frequency": "weekly"}),
