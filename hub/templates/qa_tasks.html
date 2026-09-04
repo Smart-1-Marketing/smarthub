@@ -1,0 +1,501 @@
+{% extends "base.html" %}
+{% block title %}QA Tasks — Smart 1 Hub{% endblock %}
+{% block content %}
+{#
+  One screen, three questions in the order somebody opens it with: what have
+  I been asked to do, what is waiting on my reply, and what have I asked of
+  everybody else. The detail is the same page with a task opened rather than
+  a second template — a reply box written twice is a reply box that comes to
+  behave two ways.
+#}
+<div class="page-head">
+  <h2>QA Tasks</h2>
+  <p>Ask somebody to check a page or a tool, and get their answer back here</p>
+</div>
+
+<div class="qat-line" id="qat-line"><span class="muted">Reading your tasks&hellip; <span class="spin"></span></span></div>
+
+<div class="qat-actions">
+  <button type="button" class="qat-btn qat-primary" id="qat-new">&#9997; Assign a review</button>
+  <button type="button" class="qat-btn" id="qat-tab-mine" data-tab="mine">Mine</button>
+  <button type="button" class="qat-btn" id="qat-tab-board" data-tab="board">Everyone</button>
+  <button type="button" class="qat-btn" id="qat-tab-done" data-tab="done">Completed</button>
+</div>
+
+<div id="qat-form" class="card qat-form" hidden>
+  <div class="card-h"><h3>Assign a review</h3>
+    <div class="right"><button type="button" class="qat-x" id="qat-cancel" aria-label="Close">&times;</button></div></div>
+  <div class="card-b">
+    <div class="qat-field">
+      <label for="qat-target">Which page or tool?</label>
+      <select id="qat-target"><option value="">Loading&hellip;</option></select>
+    </div>
+    <div class="qat-field" id="qat-other-wrap" hidden>
+      <label for="qat-other">Name it</label>
+      <input id="qat-other" type="text" maxlength="200"
+             placeholder="e.g. the print stylesheet on the client PDF">
+    </div>
+    <div class="qat-field">
+      <label for="qat-who">Who is it for?</label>
+      <select id="qat-who"><option value="">Loading&hellip;</option></select>
+    </div>
+    <div class="qat-field">
+      <label for="qat-instructions">What would you like them to do?</label>
+      <textarea id="qat-instructions" rows="5"
+        placeholder="Open it, run a real client through it end to end, and tell me anything that looks wrong, reads badly or does not work."></textarea>
+    </div>
+    <div class="qat-field qat-narrow">
+      <label for="qat-due">Need it by <span class="muted">(optional)</span></label>
+      <input id="qat-due" type="date">
+    </div>
+    <div class="qat-foot">
+      <button type="button" class="qat-btn qat-primary" id="qat-save">Assign it</button>
+      <span class="qat-msg" id="qat-msg"></span>
+    </div>
+  </div>
+</div>
+
+<div id="qat-body"></div>
+
+<style>
+.qat-line{margin:0 2px 14px;font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#0f172a}
+.qat-line b{font-weight:800}
+.qat-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+.qat-btn{border:1px solid #dbe3ec;background:#fff;color:#334155;border-radius:9px;
+  padding:8px 14px;font:600 13px system-ui,-apple-system,Segoe UI,sans-serif;cursor:pointer}
+.qat-btn:hover{background:#f4f7fb;color:#0f172a}
+.qat-btn.on{background:#1a2e58;border-color:#1a2e58;color:#fff}
+.qat-primary{background:#1769AA;border-color:#1769AA;color:#fff}
+.qat-primary:hover{background:#12558a;color:#fff}
+.qat-x{border:0;background:none;font-size:22px;line-height:1;color:#64748b;cursor:pointer}
+.qat-form{margin:0 0 20px}
+.qat-field{margin:0 0 14px;max-width:720px}
+.qat-field.qat-narrow{max-width:240px}
+.qat-field label{display:block;font:700 12px system-ui,-apple-system,Segoe UI,sans-serif;
+  color:#475569;margin:0 0 5px}
+.qat-field select,.qat-field input,.qat-field textarea{width:100%;box-sizing:border-box;
+  border:1px solid #cbd5e1;border-radius:9px;padding:9px 11px;
+  font:14px system-ui,-apple-system,Segoe UI,sans-serif;color:#0f172a;background:#fff}
+.qat-field textarea{resize:vertical}
+.qat-foot{display:flex;align-items:center;gap:12px}
+.qat-msg{font-size:13px}
+.qat-msg.bad{color:#dc2626}
+.qat-msg.good{color:#166534}
+.qat-group{margin:0 0 8px;font:700 11px system-ui,-apple-system,Segoe UI,sans-serif;
+  letter-spacing:1px;text-transform:uppercase;color:#64748b}
+.qat-group:not(:first-child){margin-top:24px}
+.qat-empty{color:#64748b;font-size:13.5px;padding:4px 2px 6px}
+.qat-row{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #e6ebf2;
+  border-radius:12px;padding:13px 15px;margin:0 0 9px;cursor:pointer}
+.qat-row:hover{border-color:#c7d5e6;box-shadow:0 4px 14px rgba(15,23,42,.07)}
+.qat-row.unread{border-left:3px solid #1769AA}
+.qat-row.overdue{border-left:3px solid #dc2626}
+.qat-main{flex:1;min-width:0}
+.qat-title{font:700 14.5px system-ui,-apple-system,Segoe UI,sans-serif;color:#0f172a}
+.qat-sub{color:#64748b;font-size:12.5px;margin-top:3px;line-height:1.5}
+.qat-snip{color:#475569;font-size:13px;margin-top:6px;line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.qat-side{flex:none;text-align:right;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+.qat-pill{display:inline-block;border-radius:20px;padding:3px 10px;
+  font:700 11px system-ui,-apple-system,Segoe UI,sans-serif;white-space:nowrap}
+.qat-pill.open{background:#eef5fb;color:#1a4971}
+.qat-pill.answered{background:#fff7e0;color:#7a4d05}
+.qat-pill.needs_more{background:#fdecec;color:#9b1c1c}
+.qat-pill.complete{background:#e8f6ee;color:#166534}
+.qat-new{background:#1769AA;color:#fff}
+.qat-late{background:#fdecec;color:#9b1c1c}
+.qat-detail{background:#fff;border:1px solid #e6ebf2;border-radius:14px;padding:0;margin:0 0 18px}
+.qat-dhead{padding:16px 18px;border-bottom:1px solid #eef2f6}
+.qat-dhead h3{margin:0 0 4px;font-size:17px;color:#1a2e58}
+.qat-dbody{padding:16px 18px}
+.qat-brief{white-space:pre-wrap;font-size:14px;line-height:1.6;color:#0f172a;
+  background:#f8fafc;border:1px solid #eef2f6;border-radius:10px;padding:12px 14px}
+.qat-post{border-top:1px solid #eef2f6;padding:14px 0 4px}
+.qat-post-h{font:700 13px system-ui,-apple-system,Segoe UI,sans-serif;color:#0f172a}
+.qat-post-b{white-space:pre-wrap;font-size:13.5px;line-height:1.6;color:#334155;margin-top:5px}
+.qat-file{display:inline-block;margin-top:8px;font-size:13px}
+.qat-reply{margin-top:16px;border-top:1px solid #eef2f6;padding-top:14px}
+.qat-back{display:inline-block;margin:0 0 12px;font-size:13px;cursor:pointer;color:#1769AA}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* QA Tasks. Vanilla, like every other hub page: no framework is loaded here
+   and adding one for four lists would be a dependency the whole Hub pays for.
+
+   Three rules it shares with the dashboard cards, and they are the reason
+   most of the length below:
+     * a figure that could not be measured says so rather than drawing a zero;
+     * a zero says which kind of zero it is — "nothing is waiting on you" and
+       "we could not read the table" are different answers;
+     * the reply box is never redrawn under somebody who is typing into it,
+       which is why a post re-renders the thread and not the form. */
+(function () {
+  'use strict';
+
+  var openTask = {{ (open_task or 0)|tojson }};
+  var tab = 'mine';
+  var cache = { mine: null, board: null };
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/[&<>"]/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+      });
+  }
+
+  function kb(n) {
+    n = Number(n || 0);
+    if (n < 1024) { return n + ' B'; }
+    if (n < 1024 * 1024) { return Math.round(n / 1024) + ' KB'; }
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  /* ------------------------------------------------------------ the form */
+  function loadForm() {
+    fetch('/api/qa-tasks/new', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var sel = $('qat-target');
+        var out = '<option value="">Choose one&hellip;</option>';
+        (d.targets || []).forEach(function (g) {
+          out += '<optgroup label="' + esc(g.group) + '">';
+          (g.items || []).forEach(function (i) {
+            out += '<option value="' + esc(i.key) + '">' + esc(i.label) + '</option>';
+          });
+          out += '</optgroup>';
+        });
+        sel.innerHTML = out;
+
+        var who = $('qat-who');
+        if (d.people_error) {
+          who.innerHTML = '<option value="">Could not read the account list</option>';
+        } else if (!(d.people || []).length) {
+          who.innerHTML = '<option value="">No active accounts to assign to</option>';
+        } else {
+          who.innerHTML = '<option value="">Choose one&hellip;</option>'
+            + d.people.map(function (p) {
+              return '<option value="' + esc(p.email) + '">' + esc(p.name)
+                + ' &middot; ' + esc(p.email) + '</option>';
+            }).join('');
+        }
+      })
+      .catch(function () {
+        $('qat-msg').className = 'qat-msg bad';
+        $('qat-msg').textContent = 'The form could not load. Reload the page.';
+      });
+  }
+
+  $('qat-target').addEventListener('change', function () {
+    $('qat-other-wrap').hidden = this.value !== 'other';
+  });
+
+  $('qat-new').onclick = function () {
+    var form = $('qat-form');
+    form.hidden = !form.hidden;
+    if (!form.hidden && $('qat-target').options.length < 2) { loadForm(); }
+    if (!form.hidden) { $('qat-target').focus(); }
+  };
+  $('qat-cancel').onclick = function () { $('qat-form').hidden = true; };
+
+  $('qat-save').onclick = function () {
+    var msg = $('qat-msg');
+    var btn = this;
+    msg.className = 'qat-msg';
+    msg.textContent = 'Saving…';
+    btn.disabled = true;
+    fetch('/api/qa-tasks', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target: $('qat-target').value,
+        target_other: $('qat-other').value,
+        assigned_to: $('qat-who').value,
+        instructions: $('qat-instructions').value,
+        due_on: $('qat-due').value
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (!d.ok) {
+          msg.className = 'qat-msg bad';
+          msg.textContent = d.error || 'That could not be saved.';
+          return;
+        }
+        msg.className = 'qat-msg good';
+        msg.textContent = d.where || 'Assigned.';
+        $('qat-instructions').value = '';
+        $('qat-due').value = '';
+        $('qat-other').value = '';
+        $('qat-target').value = '';
+        $('qat-other-wrap').hidden = true;
+        cache.mine = cache.board = null;
+        load();
+      })
+      .catch(function () {
+        btn.disabled = false;
+        msg.className = 'qat-msg bad';
+        msg.textContent = 'That could not be saved. Nothing has been assigned.';
+      });
+  };
+
+  /* ------------------------------------------------------------ the rows */
+  function row(t, showWho) {
+    var cls = 'qat-row' + (t.unread ? ' unread' : '') + (t.overdue ? ' overdue' : '');
+    var who = showWho === 'assignee'
+      ? ('for ' + esc(t.assigned_to_name))
+      : ('from ' + esc(t.created_by_name));
+    var sub = who + ' &middot; raised ' + esc(t.created_on_pretty)
+      + (t.due_on_pretty ? ' &middot; need by ' + esc(t.due_on_pretty) : '');
+    return '<div class="' + cls + '" data-open="' + t.id + '">'
+      + '<div class="qat-main">'
+      + '<div class="qat-title">' + esc(t.target_label) + '</div>'
+      + '<div class="qat-sub">' + sub + '</div>'
+      + '<div class="qat-snip">' + esc(t.instructions) + '</div>'
+      + '</div><div class="qat-side">'
+      + '<span class="qat-pill ' + esc(t.status) + '">' + esc(t.status_label) + '</span>'
+      + (t.overdue ? '<span class="qat-pill qat-late">Past the need-by date</span>' : '')
+      + (t.unread ? '<span class="qat-pill qat-new">New</span>' : '')
+      + '</div></div>';
+  }
+
+  function group(title, list, showWho, empty) {
+    return '<div class="qat-group">' + esc(title) + '</div>'
+      + (list.length ? list.map(function (t) { return row(t, showWho); }).join('')
+                     : '<div class="qat-empty">' + esc(empty) + '</div>');
+  }
+
+  function draw(d) {
+    var host = $('qat-body');
+    if (!d || d.measured === false) {
+      host.innerHTML = '<div class="qat-empty">' + esc((d && d.error)
+        || 'Not measured — this is not the same as having nothing to do.')
+        + '</div>';
+      return;
+    }
+    if (tab === 'done') {
+      host.innerHTML = group('Completed', d.done || [], 'assignee',
+        'Nothing has been completed yet.');
+    } else {
+      host.innerHTML =
+        group('Asked of you', d.to_do || [], 'owner',
+          'Nobody has asked you to check anything.')
+        + group('Answered — waiting on your reply', d.waiting_on_you || [], 'assignee',
+          'No answers are waiting on you.')
+        + group('You asked, still open', d.raised_by_you || [], 'assignee',
+          'You have not asked anybody to check anything yet.');
+    }
+    wire(host);
+  }
+
+  function drawBoard(d) {
+    var host = $('qat-body');
+    if (!d || d.measured === false) {
+      host.innerHTML = '<div class="qat-empty">' + esc((d && d.error)
+        || 'Not measured.') + '</div>';
+      return;
+    }
+    host.innerHTML = group('Every open review', d.tasks || [], 'assignee',
+      'Nothing is outstanding anywhere.');
+    wire(host);
+  }
+
+  function wire(host) {
+    Array.prototype.forEach.call(host.querySelectorAll('[data-open]'), function (el) {
+      el.onclick = function () { openOne(el.getAttribute('data-open')); };
+    });
+  }
+
+  /* ----------------------------------------------------------- one task */
+  function post(t) {
+    var mine = t.kind === 'request';
+    return '<div class="qat-post"><div class="qat-post-h">'
+      + esc(t.author_name) + (mine ? ' asked for more information' : ' answered')
+      + ' <span class="muted" style="font-weight:400">' + esc(t.created_on_pretty)
+      + '</span></div>'
+      + (t.body ? '<div class="qat-post-b">' + esc(t.body) + '</div>' : '')
+      + (t.file_name ? '<a class="qat-file" href="' + esc(t.file_url) + '">&#128206; '
+          + esc(t.file_name) + ' <span class="muted">(' + kb(t.file_size)
+          + ')</span></a>' : '')
+      + '</div>';
+  }
+
+  function openOne(id) {
+    var host = $('qat-body');
+    host.innerHTML = '<div class="qat-empty">Opening… <span class="spin"></span></div>';
+    fetch('/api/qa-tasks/' + encodeURIComponent(id), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) {
+          host.innerHTML = '<div class="qat-empty">' + esc(d.error
+            || 'That task could not be opened.') + '</div>';
+          return;
+        }
+        var t = d.task;
+        var link = t.target_href
+          ? ' &middot; <a href="' + esc(t.target_href) + '">open it</a>' : '';
+        var canAnswer = t.mine_to_answer || t.mine_to_close
+          || t.status !== 'complete';
+        host.innerHTML =
+          '<span class="qat-back" id="qat-back">&larr; Back to the list</span>'
+          + '<div class="qat-detail">'
+          + '<div class="qat-dhead"><h3>' + esc(t.target_label) + '</h3>'
+          + '<div class="qat-sub">from ' + esc(t.created_by_name) + ' for '
+          + esc(t.assigned_to_name) + ' &middot; raised ' + esc(t.created_on_pretty)
+          + (t.due_on_pretty ? ' &middot; need by ' + esc(t.due_on_pretty) : '')
+          + link + '</div>'
+          + '<div style="margin-top:8px"><span class="qat-pill ' + esc(t.status) + '">'
+          + esc(t.status_label) + '</span></div></div>'
+          + '<div class="qat-dbody">'
+          + '<div class="qat-brief">' + esc(t.instructions) + '</div>'
+          + (t.responses || []).map(post).join('')
+          + (canAnswer ? replyBox(t) : '')
+          + '</div></div>';
+        $('qat-back').onclick = function () { openTask = 0; load(); };
+        if (canAnswer) { wireReply(t); }
+      })
+      .catch(function () {
+        host.innerHTML = '<div class="qat-empty">That task could not be '
+          + 'opened. Nothing has changed.</div>';
+      });
+  }
+
+  function replyBox(t) {
+    var isOwner = t.mine_to_close || false;
+    return '<div class="qat-reply">'
+      + '<div class="qat-field"><label for="qat-reply-b">'
+      + (isOwner ? 'Ask for more information, or add a note'
+                 : 'Your review, results, findings or questions')
+      + '</label>'
+      + '<textarea id="qat-reply-b" rows="5" placeholder="Type it here, attach a '
+      + 'document below, or both."></textarea></div>'
+      + '<div class="qat-field qat-narrow"><label for="qat-reply-f">Attach a file '
+      + '<span class="muted">(optional)</span></label>'
+      + '<input id="qat-reply-f" type="file"></div>'
+      + '<div class="qat-foot">'
+      + '<button type="button" class="qat-btn qat-primary" id="qat-send">'
+      + (isOwner ? 'Send it back' : 'Send my review') + '</button>'
+      + (t.mine_to_close
+          ? '<button type="button" class="qat-btn" id="qat-done">Mark complete</button>'
+          : '')
+      + (t.status === 'complete' && t.created_by_email
+          ? '<button type="button" class="qat-btn" id="qat-reopen">Reopen</button>' : '')
+      + '<span class="qat-msg" id="qat-rmsg"></span></div></div>';
+  }
+
+  function wireReply(t) {
+    var send = $('qat-send');
+    if (send) {
+      send.onclick = function () {
+        var msg = $('qat-rmsg');
+        msg.className = 'qat-msg';
+        msg.textContent = 'Sending…';
+        send.disabled = true;
+        var fd = new FormData();
+        fd.append('body', $('qat-reply-b').value);
+        var f = $('qat-reply-f');
+        if (f && f.files && f.files[0]) { fd.append('file', f.files[0]); }
+        fetch('/api/qa-tasks/' + t.id + '/respond',
+              { method: 'POST', credentials: 'same-origin', body: fd })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            send.disabled = false;
+            if (!d.ok) {
+              msg.className = 'qat-msg bad';
+              msg.textContent = d.error || 'That could not be sent.';
+              return;
+            }
+            cache.mine = cache.board = null;
+            openOne(t.id);
+          })
+          .catch(function () {
+            send.disabled = false;
+            msg.className = 'qat-msg bad';
+            msg.textContent = 'That could not be sent. Nothing has changed.';
+          });
+      };
+    }
+    ['qat-done', 'qat-reopen'].forEach(function (id) {
+      var el = $(id);
+      if (!el) { return; }
+      el.onclick = function () {
+        var where = id === 'qat-done' ? 'complete' : 'reopen';
+        fetch('/api/qa-tasks/' + t.id + '/' + where,
+              { method: 'POST', credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d.ok) {
+              $('qat-rmsg').className = 'qat-msg bad';
+              $('qat-rmsg').textContent = d.error || 'That could not be changed.';
+              return;
+            }
+            cache.mine = cache.board = null;
+            openOne(t.id);
+          })
+          .catch(function () {
+            $('qat-rmsg').className = 'qat-msg bad';
+            $('qat-rmsg').textContent = 'That could not be changed.';
+          });
+      };
+    });
+  }
+
+  /* -------------------------------------------------------------- loading */
+  function line(d) {
+    var host = $('qat-line');
+    if (!d || d.measured === false) {
+      host.innerHTML = '<span class="muted">' + esc((d && d.error)
+        || 'Not measured.') + '</span>';
+      return;
+    }
+    host.innerHTML = '<b>' + esc(d.line || '') + '</b>';
+  }
+
+  function load() {
+    if (tab === 'board') {
+      $('qat-body').innerHTML = '<div class="qat-empty">Reading the board… '
+        + '<span class="spin"></span></div>';
+      fetch('/api/qa-tasks/board', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(drawBoard)
+        .catch(function () { drawBoard(null); });
+      return;
+    }
+    $('qat-body').innerHTML = '<div class="qat-empty">Reading your tasks… '
+      + '<span class="spin"></span></div>';
+    fetch('/api/qa-tasks', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { line(d); draw(d); })
+      .catch(function () { draw(null); });
+  }
+
+  ['mine', 'board', 'done'].forEach(function (name) {
+    var el = $('qat-tab-' + name);
+    el.onclick = function () {
+      tab = name;
+      ['mine', 'board', 'done'].forEach(function (other) {
+        $('qat-tab-' + other).classList.toggle('on', other === name);
+      });
+      openTask = 0;
+      load();
+    };
+  });
+  $('qat-tab-mine').classList.add('on');
+
+  if (openTask) { openOne(openTask); load2(); } else { load(); }
+
+  /* A deep link opens the task AND still fills the headline, which the list
+     load would otherwise have done. Two fetches only on that one path. */
+  function load2() {
+    fetch('/api/qa-tasks', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(line)
+      .catch(function () { line(null); });
+  }
+})();
+</script>
+{% endblock %}

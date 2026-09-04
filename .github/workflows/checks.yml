@@ -1770,6 +1770,17 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
+      # Asking somebody to check a page, and getting their answer back. Four
+      # states, and the two middle ones are the point: collapse "waiting on
+      # them" and "waiting on you" into one flag and the queue stops being
+      # able to say whose move it is, which is the only question anybody opens
+      # it with. Also holds the refusals -- a stranger answering somebody
+      # else's task, a reviewer closing their own review -- and the wiring:
+      # the blueprint's own login gate, the tile, and a dashboard card that
+      # never draws a zero over a table it could not read.
+      - name: A QA review asked for, answered and closed
+        run: python3 test_qa_tasks.py
+
       # One design into the whole size set. The failure it exists to catch is
       # a resize that produced a broken ad and reported success -- silent from
       # every direction, because the frame renders and the file uploads and it

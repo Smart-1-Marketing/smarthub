@@ -103,6 +103,10 @@ _MOUNT_ACTIVE_HUB = {
     # Tools instead -- nav pointing at the wrong entry is a small lie the
     # reader corrects by ignoring the highlight.
     "/tools/website-audit": "website_audit",
+    # One segment, and its own entry rather than falling under /qa: the
+    # reports and the assignments are two screens and a nav that highlights
+    # the wrong one is a small lie the reader corrects by ignoring it.
+    "/qa-tasks": "qatasks",
     "/my-clients": "myclients",
 }
 
@@ -6733,6 +6737,21 @@ def create_hub_app() -> Flask:
     except Exception as _wa_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _wa_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- QA Tasks ----------------
+    # A blueprint rather than a mounted module, for the reason Prospect 360 is
+    # one: everything it reads -- the account table, the nav, the tool tiles --
+    # is the hub's own. Registered before create_all() below, or `hub_qa_tasks`
+    # and `hub_qa_responses` are never created and every read of them fails
+    # into "the QA task list could not be read" for ever.
+    try:
+        from .qa_tasks_routes import register_qa_tasks
+        register_qa_tasks(app)
+    except Exception as _qt_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _qt_exc)
         except Exception:  # noqa: BLE001
             pass
 

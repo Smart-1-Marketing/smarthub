@@ -2617,6 +2617,18 @@ def knack_field_map() -> dict:
 # and "Match Sites to Clients" answered nothing typed into it -- which is the
 # same invisibility the tile rule exists to stop, one screen further on.
 EXTRAS = [
+        # First, and in its own group: every other tile on this page is a
+        # report that says what is wrong, and this is how somebody is asked
+        # to go and look. A tool with no tile is invisible -- six were, for
+        # weeks -- and the Tools page is for doing work rather than for
+        # checking it.
+        ("QA Assignments", "qa-tasks", {
+            "title": "QA Tasks",
+            "desc": "Ask somebody to check a page or a tool on the Hub, with "
+                    "the instructions and an optional need-by date. Their "
+                    "review, findings or questions come back here, and you "
+                    "either tick it off or say what else you need.",
+            "ico": "&#128221;", "href": "/qa-tasks"}),
         # Clients, first: these two are about the book rather than about a
         # system, and the question "which of my clients needs an hour today"
         # is the one somebody opens this page with more often than any audit

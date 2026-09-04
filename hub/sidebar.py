@@ -116,6 +116,12 @@ _ITEMS = [
     # account, and it is opened directly rather than looked up.
     ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
     ("qa", "/qa", "&#9989;", "QA Reports"),
+    # Directly under QA Reports, because it is the other half of the same
+    # question: those pages say what is wrong, and this one is how somebody
+    # is asked to go and look. Everyone gets it -- Todd's rule for it is that
+    # anyone can assign a review, so a nav entry only admins see would put
+    # the queue behind the same door the people answering it cannot open.
+    ("qatasks", "/qa-tasks", "&#128221;", "QA Tasks"),
     ("_secseo", "", "", "SEO"),
     ("seo", "/seo", "&#128269;", "SEO Clients"),
     ("scans", "/scans/", "&#128200;", "Site Scans"),
