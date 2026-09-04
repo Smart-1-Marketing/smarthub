@@ -1574,6 +1574,22 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      # The Commercial Builder half of the builder-parity list. One reader for
+      # "the copy has to actually say it": Radio Promo checked its scripts
+      # literally and the Commercial Builder asked whether a field was set on
+      # a client record, which is a much easier question -- the renderer draws
+      # the end card from project.cta and only where a CTA scene exists, so a
+      # spot whose end card had been deleted passed with the phone number
+      # sitting in a database column. The three false positives that shared
+      # rule closes are held against the findings it must keep making, because
+      # a rule loosened until it stops crying wolf and then loosened once more
+      # passes on everything. And the finished commercial reaches Smart 1
+      # Suite through the Hub's one contact write path, revising the
+      # opportunity it already opened rather than adding a second to the same
+      # client's pipeline.
+      - name: Commercial Builder parity — the copy it carries, and the Suite
+        run: python3 test_commercial_parity.py
+
       # The Radio Ad Creator's second half: the music bed, the mix, the checks
       # and variations. What was live before it is the shape this repo keeps
       # undoing -- the Music step saved a text prompt and played three

@@ -12314,6 +12314,12 @@ python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,
                                    #   and a long read flagged rather than trimmed
+python3 test_commercial_parity.py  # the copy a spot carries: a shared rule for
+                                   #   whether the words actually say the brand,
+                                   #   the address and the phone, an end card
+                                   #   deleted out from under the check that read
+                                   #   the client record instead, and the finished
+                                   #   cut reaching the Suite once rather than twice
 python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   composed to the spot's own length rather
                                    #   than a prompt saved and a tone played, the

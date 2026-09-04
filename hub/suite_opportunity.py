@@ -346,8 +346,18 @@ def push_proposal(*, client: str, title: str = "", value: float = 0.0,
                   contact: dict | None = None, website: str = "",
                   city: str = "", state: str = "", postal: str = "",
                   pdf_url: str = "", opportunity_id: str = "",
+                  note_lines: list | None = None,
                   source: str = "Smart 1 Proposal Builder") -> dict:
-    """File one proposal as a Smart 1 Suite opportunity.
+    """File one piece of work as a Smart 1 Suite opportunity.
+
+    `note_lines` replaces the composed note for a caller whose work is not a
+    proposal — the Commercial Builder files a delivered commercial through
+    here, and a note headed "Proposal:" against a finished spot is the wrong
+    noun on the one record a salesperson reads. Everything else about the push
+    is identical, deliberately: the contact search, the three-answer shape and
+    the refusal to invent a contact are what this function is for, and a
+    second copy of them for the second caller is how the two come to disagree
+    about what "no contact" means.
 
     Returns one of three shapes, and never raises for a configuration problem:
 
@@ -395,11 +405,14 @@ def push_proposal(*, client: str, title: str = "", value: float = 0.0,
                                     "email": supplied["email"],
                                     "phone": supplied["phone"]}}
 
-        note = f"Proposal: {title or client}"
-        if value:
-            note += f"\nValue: ${float(value):,.2f}"
-        if pdf_url:
-            note += f"\nPDF: {pdf_url}"
+        if note_lines:
+            note = "\n".join(str(line) for line in note_lines if str(line or "").strip())
+        else:
+            note = f"Proposal: {title or client}"
+            if value:
+                note += f"\nValue: ${float(value):,.2f}"
+            if pdf_url:
+                note += f"\nPDF: {pdf_url}"
         result = upsert_opportunity(
             contact_id=found["id"],
             name=title or f"{client} — Marketing Proposal",
