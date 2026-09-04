@@ -52,6 +52,14 @@ services:
         sync: false
       - key: LEADS_RATE_WINDOW_SECONDS
         sync: false
+      # Shared secret the standalone landing apps present on that endpoint.
+      # Their leads all arrive from one Render egress address, so the per-IP
+      # limit above would turn away the fourth visitor of the hour; a caller
+      # holding this skips the limit and nothing else. Unset means nobody is
+      # trusted, never everybody. Set the same value on smart1boat,
+      # smart1legal, smart1ski, smarthvac and smart1rv.
+      - key: LEADS_SOURCE_TOKEN
+        sync: false
       - key: BRANDFETCH_API_KEY
         sync: false
       # ---- Sites (Simvoly) ----

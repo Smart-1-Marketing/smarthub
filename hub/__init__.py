@@ -2258,7 +2258,12 @@ def create_hub_app() -> Flask:
         src = str(body.get("source") or "").strip()
 
         ip = leads.client_ip(request)
-        allowed, retry_after = leads.rate_check(ip)
+        # A configured lead source posts from a server, so its every lead
+        # arrives from one address and the per-IP limit would turn away the
+        # fourth visitor of the hour. Skipping the limit is all being trusted
+        # buys: the lead is stored, tagged and delivered down the same path.
+        trusted = leads.trusted_source(request)
+        allowed, retry_after = (True, 0) if trusted else leads.rate_check(ip)
         if not allowed:
             # Recorded, because the number that stops a script is also the
             # number that could turn away a busy office sharing one address.
@@ -2270,6 +2275,13 @@ def create_hub_app() -> Flask:
                 "ok": False,
                 "error": "Too many submissions from this connection. "
                          "Please try again shortly.",
+                # A landing *server* posting on a visitor's behalf meets this
+                # limit within minutes, and the fix is not "wait" -- it is to
+                # give that server the token. Named here because the caller
+                # reading this response is the only one who can act on it.
+                "hint": ("If this is one of our own landing apps, it should be "
+                         f"sending the {leads.SOURCE_TOKEN_HEADER} header with "
+                         f"the value of {leads.SOURCE_TOKEN_ENV}."),
             }), 429, {"Retry-After": str(retry_after)}
 
         if not src:
@@ -2280,10 +2292,14 @@ def create_hub_app() -> Flask:
         if not (fields.get("email") or fields.get("phone")):
             return jsonify({"ok": False,
                             "error": "An email or phone is required."}), 400
+        meta = body.get("meta") if isinstance(body.get("meta"), dict) else None
+        if trusted:
+            # An exemption nobody can see afterwards is one nobody can audit.
+            meta = dict(meta or {}) | {"trusted_source": True}
         return jsonify(leads.capture_and_deliver(
             src, str(body.get("page") or ""), fields,
             str(body.get("pdf_url") or ""), str(body.get("client") or ""),
-            body.get("meta") if isinstance(body.get("meta"), dict) else None))
+            meta))
 
     @app.route("/api/leads/convert", methods=["POST"])
     def api_leads_convert():
