@@ -197,7 +197,7 @@ section("2. The blogs rule: overdue, a plan that ran out, and no publish date")
 
 b = seo.blogs_health(store_with(
     [{"date": day(-30), "posted": True}, {"date": day(-9), "posted": False}],
-    setup={"blogs_frequency": "weekly"}), True)
+    setup={"blogs_frequency": "weekly"}), True, today=TODAY.isoformat())
 check("overdue = planned date passed and not marked posted", (b["state"], b["overdue"], b["overdue_days"]),
       ("behind", 1, 9))
 check("the cadence comes from the setup", (b["cadence_days"], b["cadence_source"]), (7, "setup"))
@@ -206,7 +206,7 @@ check("and says no publish date is recorded", b["published_dates_recorded"], Fal
 
 b = seo.blogs_health(store_with(
     [{"date": day(-40), "posted": True}, {"date": day(-33), "posted": True}],
-    setup={"blogs_per_month": 4}), True)
+    setup={"blogs_per_month": 4}), True, today=TODAY.isoformat())
 check("every planned post posted reads current to the old rule", b["state"], "current")
 check("but the plan has run out against the recorded cadence",
       (b["plan_exhausted"], b["plan_ran_out_days"]), (True, 33))

@@ -490,6 +490,21 @@ check_in("a space in the public_id is encoded", "video%20files/hd0021", bg)
 check_not_in("the folder separator survives encoding", "video%20files%2Fhd0021", bg)
 check_true("the master extension is not served", bg.endswith(".mp4"))
 
+# g_auto goes in a component of its own, ON VIDEO ONLY.
+#
+# Every URL this function produced until 2026-09 wrote it inline, and
+# Cloudinary answers that with "g_auto must be in a transformation component
+# by itself" and delivers nothing. The same string is fine on an image, which
+# is how it survived: `poster_url()` has no gravity, so the thumbnails in the
+# Video Search results rendered while every video URL beside them 400'd, and a
+# gallery of working stills over dead links looks like a working tool. Both
+# forms were submitted to a live account to settle it.
+check_in("automatic gravity is its own component", "/g_auto/", bg)
+check_not_in("...and is never inline, which Cloudinary refuses on video",
+             "c_fill,g_auto", bg)
+check("a URL with no size asks for no gravity either",
+      "g_auto" in vl.background_url("hd0021", width=0, height=0), False)
+
 check("a whole-clip URL omits the trim",
       "so_" in vl.background_url("hd0021", duration=None), False)
 check("a fractional duration is not rendered as 8.0",

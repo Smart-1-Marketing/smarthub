@@ -1,0 +1,125 @@
+{% extends "_base.html" %}
+{% block title %}Magic Resize{% endblock %}
+{% block heading %}Magic Resize{% endblock %}
+{% block body %}
+
+<div class="s1d-card">
+  <h2 class="s1d-h">
+    Start a size set
+    {{ help_dot('magic_resize.start') if help_dot is defined else '' }}
+  </h2>
+  <p>One design becomes the whole set. Sizes whose shape is close to the
+     design are scaled and re-anchored; sizes whose shape is not are laid out
+     from a fixed house template. Anything the engine is unsure about comes
+     back marked for review rather than as a finished frame.</p>
+
+  <form id="mr-new" class="s1d-form">
+    <label>Name<input name="name" required maxlength="120"
+           placeholder="Cool Air spring banners"></label>
+    <label>Client<input name="client" maxlength="160"
+           placeholder="Leave blank for a one-off"></label>
+    <label>Image Creator project id
+      {{ help_dot('magic_resize.source') if help_dot is defined else '' }}
+      <input name="from_image_creator"
+             placeholder="Paste the id of the design to resize"></label>
+    <label>Size bundle
+      {{ help_dot('magic_resize.bundle') if help_dot is defined else '' }}
+      <select name="bundle">
+        {% for key, b in bundles.items() %}
+          {% if b.sizes %}<option value="{{ key }}">{{ b.label }} — {{ b.sizes|length }} sizes</option>{% endif %}
+        {% endfor %}
+      </select></label>
+    <button class="s1d-btn" type="submit">Build the set</button>
+  </form>
+  <p id="mr-new-msg" class="mr-src"></p>
+</div>
+
+<div class="s1d-card">
+  <h2 class="s1d-h">
+    The sizes, and where each number comes from
+    {{ help_dot('magic_resize.sizes') if help_dot is defined else '' }}
+  </h2>
+  {% if not alignment.measured %}
+    <p class="mr-src">{{ alignment.note }}</p>
+  {% elif alignment.unresolved %}
+    <p class="lv-fail"><strong>{{ alignment.unresolved|length }} size(s) could
+      not be read from the spec kit and are left out of every bundle:</strong>
+      {% for row in alignment.unresolved %}{{ row.id }} ({{ row.reason }}){% if not loop.last %}; {% endif %}{% endfor %}</p>
+  {% endif %}
+  <div class="mr-frame-shell">
+  <table class="s1d-table">
+    <thead><tr><th>Size</th><th>Pixels</th><th>Weight ceiling</th><th>Whose number</th></tr></thead>
+    <tbody>
+    {% for id, s in sizes.items() %}
+      <tr>
+        <td>{{ s.label }}</td>
+        <td>{{ s.w }}&times;{{ s.h }}</td>
+        <td>{% if s.max_bytes %}{{ (s.max_bytes / 1024)|round|int }} KB{% else %}not measured{% endif %}</td>
+        <td>{% if s.source == 'kit' %}Spec kit{% else %}House — {{ s.reason }}{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="mr-src">Every kit size is read from
+     <code>hub/creative_specs.py</code> at load, so this table cannot drift
+     from the kit the client is sent. A size the kit weighs nothing for is
+     reported as not measured rather than judged against one it resembles.</p>
+</div>
+
+<div class="s1d-card">
+  <h2 class="s1d-h">Recent size sets</h2>
+  {% if projects %}
+  <div class="mr-frame-shell">
+  <table class="s1d-table">
+    <thead><tr><th>Name</th><th>Client</th><th>Frames</th><th>Needs review</th><th>Updated</th></tr></thead>
+    <tbody>
+      {% for p in projects %}
+      <tr>
+        <td><a href="{{ request.script_root }}/p/{{ p.id }}">{{ p.name }}</a></td>
+        <td>{{ p.client or '—' }}</td>
+        <td>{{ p.frames }}</td>
+        <td>{% if p.needs_review %}<span class="lv-fail">{{ p.needs_review }}</span>{% else %}—{% endif %}</td>
+        <td>{{ p.updated[:10] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>Nothing yet. A size set built here will be listed on this page.</p>
+  {% endif %}
+</div>
+
+<script>
+(function(){
+  var form = document.getElementById('mr-new');
+  var msg  = document.getElementById('mr-new-msg');
+  if(!form) return;
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var wait = (window.S1Think && window.S1Think.attach)
+      ? window.S1Think.attach(msg, {kind:'wait'}) : null;
+    msg.textContent = 'Building the set…';
+    var fd = new FormData(form);
+    fetch('api/projects', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: fd.get('name'), client: fd.get('client'),
+        bundle: fd.get('bundle'),
+        from_image_creator: (fd.get('from_image_creator')||'').trim()
+      })
+    }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+      .then(function(res){
+        if(wait) wait.done();
+        if(!res.ok){ msg.textContent = res.d.error || 'That could not be built.'; return; }
+        window.location.href = 'p/' + res.d.project.id;
+      })
+      .catch(function(err){
+        if(wait) wait.done();
+        msg.textContent = 'That could not be built: ' + err;
+      });
+  });
+})();
+</script>
+{% endblock %}

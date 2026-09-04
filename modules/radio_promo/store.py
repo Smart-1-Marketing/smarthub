@@ -90,12 +90,30 @@ def create(fields: dict) -> dict:
         "disclaimer": (fields.get("disclaimer") or "").strip(),
         "pronunciations": fields.get("pronunciations") or [],
         "brand": fields.get("brand") or {},
-        "analysis": None,
-        "tone_id": "",
-        "scripts": {},
-        "voice_want": {},
+        # These four are empty on a new project and carried on a variation,
+        # which is why they read from `fields` rather than being hardcoded: a
+        # clone that arrived with no brief and no scripts would be a new
+        # project wearing a lineage.
+        "analysis": fields.get("analysis"),
+        "tone_id": (fields.get("tone_id") or "").strip(),
+        "scripts": fields.get("scripts") or {},
+        "voice_want": fields.get("voice_want") or {},
         "voice_matches": [],
         "music_beds": [],
+        # Which lengths this job writes. Normalised by the caller through
+        # `catalog.slots_of()`; a row saved before this field existed carries
+        # none, and that function reads the absence as the :15/:30 pair.
+        "slots": list(fields.get("slots") or ()),
+        # A bed and a mix per slot, because a :15 and a :60 need beds of their
+        # own length. Keyed on the slot rather than a list, so replacing one
+        # cannot leave two claiming the same slot.
+        "beds": {},
+        "mixes": {},
+        "vo_only": bool(fields.get("vo_only")),
+        # Lineage, both ways. A variation names its parent and the parent lists
+        # its variations, so neither row is the only account of the pair.
+        "variation_of": (fields.get("variation_of") or "") or None,
+        "variations": [],
         "spots": [],
         "banner": None,
         "versions": [],

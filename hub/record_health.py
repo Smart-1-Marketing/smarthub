@@ -269,9 +269,16 @@ def _work(name: str) -> tuple[dict, list]:
     return _pill("work", "Outstanding", "ok", "Nothing outstanding", measured=True), []
 
 
-def _seo(name: str) -> tuple[list, list, list]:
+def _seo(name: str, today: str = "") -> tuple[list, list, list]:
     """The SEO pills, read through hub/seo -- the same functions the SEO
-    record itself draws. Returns (pills, queue, unread)."""
+    record itself draws. Returns (pills, queue, unread).
+
+    `today` is client360's own day, carried down rather than left to the wall
+    clock. Without it the product pills answer to the injected date and the
+    blogs pill answers to whatever the clock says, so one strip holds two
+    ideas of what day it is -- which is invisible except on the day they
+    differ, and reads as the blogs rule being wrong rather than unfixed.
+    """
     from hub import seo
     from urllib.parse import quote
     href = "/seo/client?name=" + quote(name)
@@ -297,7 +304,7 @@ def _seo(name: str) -> tuple[list, list, list]:
                       href=href + "#record"),
                 _pill("blogs", "Blogs", "idle", "No blogs product", measured=True,
                       href=href + "#blogs")], [], []
-    h = seo.record_health(name, store, sells=sells_blogs)
+    h = seo.record_health(name, store, sells=sells_blogs, today=today)
     sch, b = h.get("schema") or {}, h.get("blogs") or {}
     if sch.get("total") is not None:
         seo_pill = _pill("seo", "SEO", "warn" if sch.get("remaining") else "ok",
@@ -381,7 +388,7 @@ def client360(name: str, *, group: dict | None = None,
         unread.append("outstanding work: " + work["detail"])
 
     try:
-        seo_pills, q, seo_unread = _seo(name)
+        seo_pills, q, seo_unread = _seo(name, today.isoformat())
     except Exception as exc:                     # noqa: BLE001
         seo_pills, q, seo_unread = [_unread("seo", "SEO", type(exc).__name__),
                                     _unread("blogs", "Blogs", type(exc).__name__)], [], [type(exc).__name__]

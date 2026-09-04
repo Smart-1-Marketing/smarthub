@@ -35,11 +35,12 @@ from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE
                        LOGO_PERSISTENCE_RULES, SOCIAL_RULES, get_structure,
                        qr_eligible, qr_required, qr_default_on, is_social,
                        length_warning, CTV_PUBLISHERS, SHOT_SIZES, SHOT_ANGLES,
-                       SHOT_MOVES)
+                       SHOT_MOVES, VOX_LENGTHS)
 from ..services import abcd_service
 from ..models import Client, CommercialProject
 from ..services import provider_check
-from .. import library_spec
+from .. import library_spec, vox_spec
+from hub import hyperframes
 
 bp = Blueprint("cb_pages", __name__)
 
@@ -57,6 +58,27 @@ STEPS = [
     {"key": "preview", "label": "Preview & render", "endpoint": "preview"},
 ]
 
+# A Vox explainer's own sequence. It is not a storyboard of scenes -- the
+# piece is rendered whole from a beat list -- so Concepts, Blueprint, Voice
+# and CTA are not steps it has, and drawing them greyed out would be four
+# screens somebody clicks into to find nothing. Its own list rather than a
+# filter over STEPS, because what changes is not only which steps but what the
+# middle one IS.
+VOX_STEPS = [
+    {"key": "start", "label": "Start", "endpoint": ""},
+    {"key": "brief", "label": "Brief", "endpoint": "brief"},
+    {"key": "vox", "label": "Beats", "endpoint": "vox"},
+    {"key": "preview", "label": "Preview & render", "endpoint": "preview"},
+]
+
+
+def steps_for(project):
+    """Which wizard this project is in. One reading, asked by both callers."""
+    if project is not None and (project.commercial_type or "") == vox_spec.COMMERCIAL_TYPE:
+        return VOX_STEPS
+    return STEPS
+
+
 # Which step a project's status drops you back into. Read by the dashboard's
 # Open button; kept here beside STEPS so the two cannot drift.
 STATUS_STEP = {
@@ -65,6 +87,25 @@ STATUS_STEP = {
     "voice": "voice", "cta": "cta",
     "qc": "preview", "rendering": "preview", "complete": "preview",
 }
+
+# The same question for a Vox explainer, whose statuses land on steps it does
+# not have: "scripted" is the Blueprint for every other type and is the beat
+# list here, and "voice"/"cta" are steps that do not exist -- left to
+# STATUS_STEP they would send somebody to a 404 for a spot that is fine.
+VOX_STATUS_STEP = {
+    "draft": "brief", "brief": "brief", "concepts": "vox",
+    "scripted": "vox", "storyboard": "vox", "voice": "vox", "cta": "vox",
+    "qc": "preview", "rendering": "preview", "complete": "preview",
+}
+
+
+def status_step(project):
+    """Where the dashboard's Open button lands for this project."""
+    table = (VOX_STATUS_STEP
+             if project is not None
+             and (project.commercial_type or "") == vox_spec.COMMERCIAL_TYPE
+             else STATUS_STEP)
+    return table.get(project.status if project is not None else "", "brief")
 
 
 def _provider_status():
@@ -89,7 +130,7 @@ def _wizard(project, current):
     """
     steps = []
     seen_current = False
-    for step in STEPS:
+    for step in steps_for(project):
         state = "done"
         if step["key"] == current:
             state = "active"
@@ -113,7 +154,12 @@ def dashboard():
         "commercial_dashboard.html", clients=clients, projects=projects,
         provider_status=_provider_status(), providers=provider_check.PROVIDERS,
         provider_labels=provider_check.LABELS, v2_providers=V2_PROVIDERS,
-        status_step=STATUS_STEP,
+        # Keyed on the project rather than on its status, because the answer
+        # is no longer a property of the status alone: a Vox explainer has no
+        # Blueprint, Voice or CTA step, so "scripted" lands somewhere else for
+        # it. Resolved here rather than by the template picking between two
+        # maps -- that is the second reading that drifts.
+        status_step={p.id: status_step(p) for p in projects},
     )
 
 
@@ -137,6 +183,20 @@ def new_commercial():
         "commercial_new.html", clients=clients, lengths=COMMERCIAL_LENGTHS,
         formats=OUTPUT_FORMATS, types=COMMERCIAL_TYPES, platforms=PLATFORMS,
         length_notes=LENGTH_NOTES, publishers=CTV_PUBLISHERS,
+        vox_lengths=VOX_LENGTHS,
+        # The constraints as data, so the page cannot come to offer a
+        # combination the create route refuses. The route is still the rule --
+        # a form that merely hides an option is a form, not a gate.
+        vox_rules={
+            "type": vox_spec.COMMERCIAL_TYPE,
+            "platforms": list(vox_spec.PLATFORMS),
+            "lengths": VOX_LENGTHS,
+            "formats": list(vox_spec.FORMATS),
+            "note": vox_spec.platform_note("ctv"),
+            "one_at_a_time": ("A Vox explainer is built one at a time — the "
+                              "lengths are not cut down from each other the "
+                              "way a :30 and a :15 are."),
+        },
         wizard=[{"label": s["label"], "state": "active" if s["key"] == "start" else "",
                  "url": ""} for s in STEPS],
     )
@@ -201,6 +261,13 @@ def blueprint(project_id):
         shot_sizes=SHOT_SIZES, shot_angles=SHOT_ANGLES, shot_moves=SHOT_MOVES,
         shot_targets=abcd_service.shot_targets(project.length_seconds),
         lift=abcd_service.MEASURED_LIFT,
+        # Whether the paint-animation source is offered at all. Asked here
+        # rather than in the template so the page never draws a button that
+        # consents and then fails for a reason nothing to do with the rep --
+        # `is_configured()` costs nothing, unlike `check()`, which is a
+        # request and belongs in QC rather than on every page load.
+        hf_ready=hyperframes.is_configured(),
+        paint_styles=hyperframes.PAINT_STYLES,
         wizard=_wizard(project, "blueprint"),
     )
 
@@ -214,6 +281,32 @@ def storyboard(project_id):
     `/sites/projects/<id>` looked like for however long its BuildError stood.
     """
     return redirect(url_for("commercial_builder.cb_pages.blueprint", project_id=project_id))
+
+
+@bp.get("/project/<int:project_id>/vox")
+def vox(project_id):
+    """The beat list — a Vox explainer's one middle step.
+
+    Redirects a project that is not one rather than 404ing: the URL is
+    reachable from the stepper of a spot somebody switched the type of, and a
+    wizard step that 404s reads as the whole tool being broken, which is why
+    `/storyboard` is still a redirect.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    if (project.commercial_type or "") != vox_spec.COMMERCIAL_TYPE:
+        return redirect(url_for("commercial_builder.cb_pages.blueprint",
+                                project_id=project.id))
+    return render_template(
+        "commercial_vox.html", project=project, client=project.client,
+        source_kinds=vox_spec.SOURCE_KINDS, treatments=vox_spec.TREATMENTS,
+        min_beats=vox_spec.MIN_BEATS, max_beats=vox_spec.MAX_BEATS,
+        vox_min=hyperframes.VOX_MIN_SECONDS, vox_max=hyperframes.VOX_MAX_SECONDS,
+        # Asked here rather than in the template: `is_configured()` costs
+        # nothing and `check()` is a request, which belongs on a press.
+        hf_ready=hyperframes.is_configured(),
+        hf_note=hyperframes.why_unavailable(),
+        wizard=_wizard(project, "vox"),
+    )
 
 
 @bp.get("/project/<int:project_id>/voice")

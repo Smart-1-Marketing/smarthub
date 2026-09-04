@@ -6507,6 +6507,21 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Paint Animation & Vox Explainer ----------------
+    # The two HyperFrames skills as standalone tools. Blueprints for the same
+    # reason as the two above: /tools/paint-animation and /tools/vox-explainer
+    # are not prefixes wsgi.py mounts, so they belong to the hub app -- and a
+    # blueprint here is not behind AuthGuard, which is why both carry
+    # hub/blueprint_guard.install().
+    try:
+        from modules.hyperframes_tools import register as register_hyperframes_tools
+        register_hyperframes_tools(app)
+    except Exception as _hf_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _hf_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- Video Backgrounds ----------------
     # Also a blueprint, and for the same reason: /tools/video-backgrounds is
     # not one of the prefixes wsgi.py mounts, so it belongs to the hub app.
@@ -6516,6 +6531,20 @@ def create_hub_app() -> Flask:
     except Exception as _vb_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _vb_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Video Tools ----------------
+    # Two blueprints from one module (Dead Air Cutter, Vertical Reframe), and
+    # blueprints for the third time for the third reason: neither
+    # /tools/dead-air nor /tools/vertical-reframe is a prefix wsgi.py mounts,
+    # so both belong to the hub app.
+    try:
+        from modules.video_tools import register_video_tools
+        register_video_tools(app)
+    except Exception as _vt_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _vt_exc)
         except Exception:  # noqa: BLE001
             pass
 

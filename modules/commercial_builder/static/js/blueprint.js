@@ -8,6 +8,16 @@
   const clientSlug = wrap.dataset.clientSlug;
   const lengthSeconds = parseInt(wrap.dataset.length, 10) || 0;
   const tpl = document.getElementById("scene-card-tpl");
+
+  /* The paint-animation modes, handed over by the page as JSON rather than
+     restated here. Absent on a deployment with no render service, and the
+     button is absent with it, so an empty list is the ordinary state rather
+     than a fault. */
+  const paintStyles = (() => {
+    const node = document.getElementById("paint-styles-data");
+    if (!node) return [];
+    try { return JSON.parse(node.textContent) || []; } catch (e) { return []; }
+  })();
   let dragSourceId = null;
 
   /* The voice is cast on the NEXT step, so this page has no picker of its own
@@ -31,6 +41,7 @@
   const ASSET_TYPE_LABEL = {
     stock: "Stock", ai_generated: "AI generated", spokesperson: "Spokesperson",
     upload: "Uploaded", client_asset: "Client asset", cta: "CTA card",
+    paint_animation: "Paint animation",
   };
 
   // A HeyGen clip takes minutes, so a scene can sit "generating" across a page
@@ -76,6 +87,47 @@
         CB.toast("Mock mode — no video was produced (no Runway key set).", true);
       } else if (data.attached) {
         CB.toast("AI video attached.");
+      }
+      loadScenes();
+    })();
+  }
+
+  /* Paint animation. Same asynchronous shape as the two above, because a
+     HyperFrames render is headless Chrome capturing frames and takes
+     minutes. Its states are the render service's own vocabulary -- queued,
+     rendering, done, failed -- and anything this file does not recognize is
+     read as still running, because treating an unknown state as finished
+     attaches nothing while reporting success. */
+  function paintPending(scene) {
+    const meta = scene.asset_meta || {};
+    const job = meta.paint_job;
+    if (!job || meta.paint_url) return false;
+    return job.status !== "failed";
+  }
+
+  async function pollPaintStatus(sceneId) {
+    const res = await fetch(
+      `${CB.API_ROOT}/api/projects/${projectId}/scenes/${sceneId}/generate-paint/status`);
+    try { return await res.json(); } catch (e) { return { status: "rendering" }; }
+  }
+
+  function watchPaint(sceneId) {
+    const key = "p" + sceneId;
+    if (polling.has(key)) return;
+    polling.add(key);
+    (async function tick() {
+      const data = await pollPaintStatus(sceneId);
+      if (data.status !== "done" && data.status !== "failed") {
+        setTimeout(tick, POLL_MS);
+        return;
+      }
+      polling.delete(key);
+      if (data.status === "failed") {
+        CB.toast(data.error || "The paint animation failed to render.", true);
+      } else if (data.mock) {
+        CB.toast("The render service is not configured, so no file was produced.", true);
+      } else if (data.attached) {
+        CB.toast("Paint animation attached.");
       }
       loadScenes();
     })();
@@ -246,6 +298,22 @@
       note.classList.add("cb-word-count", "warn");
     }
 
+    const pjob = (scene.asset_meta || {}).paint_job;
+    if (paintPending(scene)) {
+      badge.textContent = "Painting\u2026";
+      note.innerHTML = '<span class="cb-spinner" data-s1-think="wait"></span> Rendering the '
+        + 'paint animation. A few minutes \u2014 you can leave this page and come back.';
+      watchPaint(scene.id);
+    } else if (pjob && pjob.status === "failed" && !(scene.asset_meta || {}).paint_url) {
+      badge.textContent = "Paint failed";
+      note.textContent = `Paint animation failed: ${pjob.error || "no reason given."}`;
+      note.classList.add("cb-word-count", "warn");
+    } else if ((scene.asset_meta || {}).paint_mirrored === false) {
+      note.textContent = "The paint animation is linked from the render service, not copied "
+        + "into the client library \u2014 it will stop working when that file is swept.";
+      note.classList.add("cb-word-count", "warn");
+    }
+
     // Which beat this shot belongs to. A Scene row is a shot now, and without
     // the badge a board of fifteen rows loses the argument the beats carry.
     const meta = scene.asset_meta || {};
@@ -309,6 +377,10 @@
     node.querySelector(".client-asset-btn").addEventListener("click", () => openClientAssetPicker(node, scene));
     node.querySelector(".sfx-btn").addEventListener("click", () => openSfxPicker(node, scene));
     paintSfxNote(node, scene);
+    /* Drawn only where the render service is configured, so this is absent
+       rather than disabled on a deployment without one. */
+    const paintBtn = node.querySelector(".paint-btn");
+    if (paintBtn) paintBtn.addEventListener("click", () => openPaintPicker(node, scene));
 
     node.querySelector(".regen-btn").addEventListener("click", async (e) => {
       e.target.disabled = true;
@@ -780,6 +852,72 @@
     });
   }
 
+  // ------------------------------------------------------------ Paint animation
+  /* The three modes come from the server (`hyperframes.PAINT_STYLES`) rather
+     than being typed here, so a mode added to the template cannot leave this
+     picker offering a set the renderer no longer draws -- and a mode this
+     page invented would reach a template with no branch for it and render the
+     default while the screen reported otherwise. */
+  function openPaintPicker(card, scene) {
+    closeExistingPickers();
+    const picker = card.querySelector(".asset-picker");
+    const styles = paintStyles;
+    const meta = scene.asset_meta || {};
+    /* What this would paint, decided the same way the server decides it, so
+       the sentence on screen matches what actually gets sent. */
+    const hasImage = !!scene.asset_url && meta.media !== "video";
+    const subject = hasImage
+      ? "the picture this scene already has"
+      : (scene.narration || scene.visual_description
+          ? "this scene's own copy"
+          : "");
+    const seconds = (scene.end - scene.start) || 5;
+    const box = CB.el(`<div class="cb-card" style="margin-top:10px;padding:12px;">
+      <strong>Paint animation</strong>
+      <p class="cb-hint" style="margin:4px 0 8px;">A treatment, not footage \u2014 good for a
+        logo reveal, a hand-drawn line under an offer, or a brand-story open.
+        It renders at this scene's own length (${seconds.toFixed(1)}s).</p>
+      <div class="paint-styles"></div>
+      <p class="cb-hint paint-subject" style="margin:8px 0 0;"></p>
+    </div>`);
+    const list = box.querySelector(".paint-styles");
+    if (!subject) {
+      box.querySelector(".paint-subject").textContent =
+        "This scene has nothing to paint yet \u2014 add a picture, or write the narration first.";
+    } else {
+      box.querySelector(".paint-subject").textContent = "It will paint " + subject + ".";
+    }
+    styles.forEach((st) => {
+      const btn = CB.el(`<button class="cb-btn cb-btn-sm" style="margin:0 6px 6px 0;"
+        title="${st.hint}">${st.label}</button>`);
+      btn.disabled = !subject;
+      btn.addEventListener("click", async () => {
+        picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;">'
+          + CB.working("video", "Sending this scene to the render service\u2026",
+                       "A paint animation is rendered frame by frame, so it takes a few "
+                       + "minutes. You can leave this page and come back.")
+          + "</div>";
+        try {
+          await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/generate-paint`,
+                       { method: "POST", body: { style: st.id } });
+        } catch (e) {
+          picker.innerHTML = "";       // CB.api has already surfaced the reason
+          return;
+        }
+        picker.innerHTML = "";
+        CB.toast("Paint animation rendering \u2014 this takes a few minutes.");
+        await loadScenes();            // re-render starts the poll
+      });
+      list.appendChild(btn);
+    });
+    if (!styles.length) {
+      list.appendChild(CB.el('<p class="cb-hint">No paint styles were offered by the '
+        + 'server, so there is nothing to pick.</p>'));
+    }
+    picker.innerHTML = "";
+    picker.appendChild(box);
+  }
+
   // ------------------------------------------------------------ Client Asset
   async function openClientAssetPicker(card, scene) {
     closeExistingPickers();
@@ -919,6 +1057,7 @@
     publisher_rules: "Publisher rules", compliance: "Advertising rules",
     archetype_ready: "What this spot needs",
     sfx_gain_conflict: "Sound effect level", music_length_mismatch: "Music length",
+    render_service: "Render service", vox_duration: "Explainer length",
   };
 
   // Severity comes off the server now. It used to be an ADVISORY set kept by

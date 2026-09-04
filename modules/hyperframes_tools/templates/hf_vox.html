@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Vox Explainer — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Vox Explainer {{ help_dot('vox_explainer.what') if help_dot is defined else '' }}</h2>
+  <p>A {{ vox_min }}–{{ vox_max }} second editorial collage that makes one
+     argument, out of a topic, a document or a link.</p>
+</div>
+
+{% if not ready %}
+<div class="card"><div class="card-h"><h3>Not available yet</h3></div>
+  <div class="card-b"><p class="muted">{{ note }}</p></div></div>
+{% else %}
+
+<div class="card">
+  <div class="card-h"><h3>1 · What is it explaining?</h3></div>
+  <div class="card-b">
+    <div class="field">
+      <label for="vox-title">Title</label>
+      <input type="text" id="vox-title" maxlength="160" placeholder="Why roofs fail in winter">
+    </div>
+    <div class="field">
+      <label for="vox-kind">Source {{ help_dot('vox_explainer.source') if help_dot is defined else '' }}</label>
+      <select id="vox-kind">
+        {% for k in source_kinds %}<option value="{{ k.id }}">{{ k.label }}</option>{% endfor %}
+      </select>
+      <p class="muted" id="vox-kind-hint" style="margin:6px 0 0;font-size:12.5px;"></p>
+    </div>
+    <div class="field" id="vox-text-field">
+      <label for="vox-text">The material</label>
+      <textarea id="vox-text" rows="6" style="width:100%;padding:10px 12px;
+                border:1px solid var(--line);border-radius:8px;font-size:14px;"
+                placeholder="A topic in one line, or paste the document."></textarea>
+    </div>
+    <div class="field" id="vox-link-field" style="display:none;">
+      <label for="vox-link">The page</label>
+      <input type="url" id="vox-link" placeholder="https://…">
+      <p class="muted" style="margin:6px 0 0;font-size:12.5px;">The page is
+         fetched and read, not guessed at.</p>
+    </div>
+    <button class="btn-primary" id="vox-draft">Write the beats</button>
+    <div id="vox-draft-note" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-h"><h3>2 · The beats
+      {{ help_dot('vox_explainer.beats') if help_dot is defined else '' }}</h3>
+    <div class="right"><span class="muted" id="vox-duration"></span></div>
+  </div>
+  <div class="card-b">
+    <p class="muted" style="margin-top:0;font-size:12.5px;">Read them before you
+       render — a render takes a few minutes, and this is the only thing you can
+       correct before it. {{ min_beats }}–{{ max_beats }} beats; the seconds are
+       rebalanced to fit the {{ vox_min }}–{{ vox_max }}s window.</p>
+    <div id="vox-beats"><p class="muted">No beats yet.</p></div>
+    <button class="btn-ghost" id="vox-add">+ Add a beat</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-h"><h3>3 · Render</h3></div>
+  <div class="card-b">
+    <div class="field">
+      <label for="vox-format">Shape</label>
+      <select id="vox-format">
+        {% for f in formats %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="vox-client">Client — optional
+        {{ help_dot('vox_explainer.client') if help_dot is defined else '' }}</label>
+      <input type="text" id="vox-client" list="hf-client-list"
+             placeholder="Leave blank for a one-off">
+      <datalist id="hf-client-list"></datalist>
+    </div>
+    <button class="btn-primary" id="vox-go">Render it</button>
+    <div id="vox-wait" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-h"><h3>Your renders</h3></div>
+  <div class="card-b" id="vox-list"><p class="muted">Nothing yet.</p></div>
+</div>
+
+<script id="hf-treatments-data" type="application/json">{{ treatments|tojson }}</script>
+<script id="hf-kinds-data" type="application/json">{{ source_kinds|tojson }}</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('vox_explainer.static', filename='js/hf-tools.js') }}"></script>
+<script src="{{ url_for('vox_explainer.static', filename='js/vox_tool.js') }}"></script>
+{% endblock %}
