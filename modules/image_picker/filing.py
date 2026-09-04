@@ -58,6 +58,12 @@ KIND_LABELS = {
     "stock": "Stock photos",
     "commercial": "Commercial stills",
     "creative_information": "Creative Information",
+    # Footage saved out of Video Search -- the owned Cloudinary library, or a
+    # clip pulled in from Pexels/Pixabay/Coverr. Its own heading rather than
+    # folded into `stock`: a client's own reel of saved footage is a different
+    # thing to browse than the stock photos chosen for their creative, and the
+    # two tools file at different times for different reasons.
+    "video_search": "Video Searches",
 }
 
 # A label declared here and written by nothing is the failure this codebase
@@ -123,6 +129,17 @@ SOURCE_LABELS = {
     # unlisted, in the tier that claims nothing -- a photograph the client
     # themselves sent us, sorted in with stock.
     "social_request": "Sent with a social request",
+    # Video Search's own kind heading, so `kind in labels` -- which
+    # test_image_audit.py requires of every entry in KIND_LABELS -- holds for
+    # this one too. What actually lands in `provider` for a saved clip is
+    # `video_library`, `pexels`, `pixabay` or `coverr` below, never this key.
+    "video_search": "Video Searches",
+    # Owned footage out of hub/video_library.py's indexed Cloudinary folders --
+    # the video equivalent of `library` above, and left out of THEIRS/WE_MADE
+    # for the same reason: it is stock we already hold, not made for this
+    # client specifically, so it sorts last and claims nothing.
+    "video_library": "Our video library",
+    "coverr": "Coverr",
 }
 
 # Which of the three questions a group answers. The first thing anybody asks
