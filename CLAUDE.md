@@ -12652,3 +12652,36 @@ as zips uploaded through GitHub's browser UI. **That uploader adds and
 overwrites but never deletes**, which is why the repo root accumulated 65
 stray files. If you can push directly, do — it removes the whole class of
 problem.
+
+**A deploy setting that says it deploys, and does not.** `smart1-hub` is set to
+`autoDeployTrigger: checksPass`, which reads on the Render dashboard as
+*deploys when CI passes* — and it has never once fired. Every deploy on that
+service since it was created carries `trigger: manual` or `api`, including the
+ones taken minutes after a green run on `main`. Nothing errors and nothing
+anywhere says so: the setting is on, the checks are green, and the release
+simply does not happen, so a merge reads as shipped to everybody who did not go
+and look. Why Render ignores the check suite is not determinable from this
+repo, and guessing at it is the confident wrong answer this file keeps having
+to undo.
+
+What **is** determinable is when we consider a commit deployable, so that is
+what decides now. `.github/workflows/checks.yml` has a `deploy` job — `needs:
+checks`, a push to `main` only, never a pull request — and it pins `ref` to the
+commit that passed rather than letting Render pick up whatever the tip happens
+to be by the time it processes the hook: two merges a minute apart would
+otherwise deploy the second twice and the first never, which is a tree nothing
+verified. **Set that service's Auto-Deploy to No**, or the day Render's own
+trigger starts working is the day every commit deploys twice.
+
+Three rules on it, each a way this becomes the thing it replaced. **A missing
+secret does not fail the run** — a check that starts life red is one somebody
+switches off, and switching this off costs every check above it — but it is
+never silent either: the run summary says **NOT DEPLOYED** and names the secret
+to add, because *not deployed* and *deployed* are different answers and only
+one of them is the absence of news. **A hook URL carries its own key**, so it
+is never echoed and the response body is never printed. And **the step never
+claims what it does not know**: curl's `000` is reported as *could not reach
+Render* rather than as a status Render sent, and a successful hook says only
+that the request was accepted — whether the build succeeds and passes `/health`
+is Render's answer, on Render's dashboard. `test_ci_gate.py` holds all of it,
+and each rule was confirmed to fail with its own line removed.

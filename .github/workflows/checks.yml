@@ -6,11 +6,24 @@
 # down lead capture on seven landing pages for two days. It exits non-zero
 # precisely so it can gate a release; until now nothing ran it.
 #
-# Deliberately no deploy step and no secrets. These checks run on pull requests
-# from a clean checkout, so they must pass without Knack, GoHighLevel,
-# Cloudinary or OpenAI credentials. Anything that needs a live third party
-# belongs in /status and /api/integrity on the deployment, not here — a gate
-# that fails because someone else's API is down teaches people to ignore it.
+# The checks themselves take no secrets. They run on pull requests from a clean
+# checkout, so they must pass without Knack, GoHighLevel, Cloudinary or OpenAI
+# credentials. Anything that needs a live third party belongs in /status and
+# /api/integrity on the deployment, not here — a gate that fails because
+# someone else's API is down teaches people to ignore it. The deploy job at the
+# bottom is the one exception and it is scoped to a push to main, so nothing
+# about a pull request run changes.
+#
+# That job exists because the Render setting meant to do this does not.
+# smart1-hub is set to autoDeployTrigger: checksPass, which reads on the
+# dashboard as "deploys when CI passes" and has never once fired: every deploy
+# on that service since it was created carries trigger `manual` or `api`,
+# including the ones taken minutes after a green run on main. Why Render
+# ignores the check suite is not determinable from here, and guessing at it
+# would be the confident wrong answer this repo keeps having to undo. What is
+# determinable is when *we* consider a commit deployable, so that is what
+# decides, in the same file as the checks it depends on and visible in the run
+# somebody is already looking at.
 name: checks
 
 on:
@@ -2035,3 +2048,70 @@ jobs:
       # visible without presenting a scraped asset as client-approved.
       - name: Brand elements found by the InSites scan
         run: python3 test_scan_brand.py
+
+  # The deploy, which is the half Render's own setting was supposed to be.
+  #
+  # `needs: checks` is the whole gate: this runs only after the job above has
+  # gone green, only on a push to main, and never on a pull request. It pins
+  # `ref` to the commit that passed rather than letting Render pick up whatever
+  # main's tip happens to be by the time it processes the hook -- two merges a
+  # minute apart would otherwise deploy the second one twice and the first one
+  # never, which is a tree nothing verified.
+  #
+  # A missing secret does not fail the run. A check that starts life red is one
+  # somebody switches off, and switching this off costs the checks above it.
+  # What it must never do is read as deployed, so it says so on the run summary
+  # rather than exiting quietly: "not deployed" and "deployed" are different
+  # answers and only one of them is the absence of news.
+  deploy:
+    name: deploy to Render
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Deploy the commit that just passed
+        env:
+          # A deploy hook URL carries its own key, so it is a secret and is
+          # never echoed -- not the URL, and not a response body that might
+          # quote it back.
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          set -euo pipefail
+          note() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+
+          if [ -z "${RENDER_DEPLOY_HOOK_URL:-}" ]; then
+            note "**NOT DEPLOYED** — \`RENDER_DEPLOY_HOOK_URL\` is not set."
+            note ""
+            note "The checks passed and nothing was released. To wire it up:"
+            note "Render → smart1-hub → Settings → Deploy Hook, copy the URL,"
+            note "then add it as an Actions secret named RENDER_DEPLOY_HOOK_URL."
+            note "Set that service's Auto-Deploy to No in the same visit, or a"
+            note "day when Render's own trigger starts working is a day every"
+            note "commit deploys twice."
+            exit 0
+          fi
+
+          sep='?'
+          case "$RENDER_DEPLOY_HOOK_URL" in *'?'*) sep='&' ;; esac
+
+          code=$(curl -sS --max-time 60 -X POST \
+                   -o response.json -w '%{http_code}' \
+                   "${RENDER_DEPLOY_HOOK_URL}${sep}ref=${GITHUB_SHA}") || code=000
+
+          # 000 is curl's own "no reply", not a status Render sent. Printing
+          # it as one would have this step claiming an answer nobody gave.
+          if [ "$code" = "000" ]; then
+            note "**NOT DEPLOYED** — could not reach Render."
+            exit 1
+          fi
+          if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+            note "**NOT DEPLOYED** — Render refused the hook: HTTP $code."
+            exit 1
+          fi
+
+          id=$(python3 -c 'import json;print(json.load(open("response.json")).get("deploy",{}).get("id",""))' 2>/dev/null || true)
+          note "Deploy requested for \`${GITHUB_SHA}\` — ${id:-no deploy id in the response}."
+          note ""
+          note "This says Render accepted the request. Whether the build succeeds"
+          note "and passes /health is Render's answer, on its own dashboard."

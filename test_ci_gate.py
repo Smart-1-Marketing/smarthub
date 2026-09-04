@@ -32,6 +32,15 @@ Two directions, because either alone goes stale:
 `EXEMPT` is the way out, and it carries the reason -- the discipline
 `check_stale_json_exemptions()` works to. It is empty, which is the only way
 this was worth adding.
+
+The gate also releases, and that half is asserted here for the same reason the
+first half is. smart1-hub was set to autoDeployTrigger: checksPass -- which the
+dashboard renders as "deploys when CI passes" and which has never fired once,
+every deploy on that service carrying trigger `manual` or `api`. A setting that
+says something it does not do is worse than no setting, because people plan
+around it; so the decision moved into this workflow, where it is visible in the
+run somebody is already looking at, and the properties that make it safe are
+held here rather than remembered.
 """
 import pathlib
 import re
@@ -100,6 +109,76 @@ check("a test file the workflow never names is reported",
 check("...and one it does name is not",
       "test_unwired.py" in named,
       "test_unwired.py is what this file was written about")
+
+
+# ---------------------------------------------------------------- the deploy
+
+print("\nand the gate is also what releases")
+print("-" * 46)
+
+
+def deploy_slice(text):
+    """The deploy job's own lines: its key to the end of the file."""
+    marker = "\n  deploy:\n"
+    return text.split(marker, 1)[1] if marker in text else ""
+
+
+def deploy_faults(job):
+    """What is wrong with a deploy job, in sentences. Empty means sound."""
+    faults = []
+    if "needs: checks" not in job:
+        faults.append("does not wait for the checks job")
+    if "github.event_name == 'push'" not in job or "refs/heads/main" not in job:
+        faults.append("is not scoped to a push to main")
+    if "ref=${GITHUB_SHA}" not in job:
+        faults.append("does not pin the release to the commit that passed")
+    if not re.search(r"-z \"\$\{RENDER_DEPLOY_HOOK_URL:-\}\"[\s\S]{0,800}?exit 0", job):
+        faults.append("fails the run when the secret is absent instead of saying so")
+    if "NOT DEPLOYED" not in job:
+        faults.append("does not say when it did not deploy")
+    if "cat response.json" in job:
+        faults.append("prints the hook response, which can quote the key back")
+    # The *name* is printed on purpose -- it is what somebody has to go and set.
+    # Only the expansion is a secret.
+    for line in job.splitlines():
+        bare = line.strip()
+        if not (bare.startswith("echo") or bare.startswith("note ")):
+            continue
+        if "$RENDER_DEPLOY_HOOK_URL" in bare or "${RENDER_DEPLOY_HOOK_URL" in bare:
+            faults.append("echoes the hook URL, which carries its own key")
+    return faults
+
+
+job = deploy_slice(src)
+check("the workflow has a deploy job", job != "")
+for fault in deploy_faults(job):
+    check("the deploy job " + fault, False)
+if not deploy_faults(job):
+    check("...and every property that makes it safe holds", True)
+
+# ...and each of those rules can actually fail. Removing the line a rule is
+# about must produce that rule's own finding -- a predicate nothing can make
+# say no is furniture, which is what the Render setting turned out to be.
+print("\n...and each deploy rule bites")
+print("-" * 46)
+for needle, expect in [
+    ("needs: checks", "does not wait for the checks job"),
+    ("github.event_name == 'push'", "is not scoped to a push to main"),
+    ("ref=${GITHUB_SHA}", "does not pin the release to the commit that passed"),
+    ("NOT DEPLOYED", "does not say when it did not deploy"),
+    ("exit 0", "fails the run when the secret is absent instead of saying so"),
+]:
+    check(f"removing {needle!r} is reported",
+          expect in deploy_faults(job.replace(needle, "")),
+          deploy_faults(job.replace(needle, "")))
+check("an echoed hook URL is reported",
+      any("carries its own key" in f
+          for f in deploy_faults(job + '\n          echo "$RENDER_DEPLOY_HOOK_URL"\n')))
+check("a printed hook response is reported",
+      any("quote the key back" in f
+          for f in deploy_faults(job + "\n          cat response.json\n")))
+check("...and the job as it stands trips none of them", deploy_faults(job) == [],
+      deploy_faults(job))
 
 print(f"\n{'-' * 46}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
