@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import os
 import re
-import threading
 import time
 from datetime import date, datetime, timezone
 
@@ -67,8 +66,6 @@ REQUESTS_FILE = "requests.json"
 # rows are kept newest-first.
 MAX_REQUESTS = 4000
 MAX_LOCATIONS = 600
-
-_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------ storage
@@ -87,8 +84,29 @@ def _read(name: str, key: str) -> list[dict]:
     return []
 
 
-def _write(name: str, key: str, rows: list[dict], cap: int) -> bool:
-    return jsonstore.write_json(_path(name), {key: rows[:cap]}, indent=1)
+def _rows_mutate(name: str, key: str, cap: int, apply):
+    """Read, change and write one of these files as a single step.
+
+    The `threading.Lock` this replaces already covered the read as well as the
+    write, which is the half `modules/radio_promo` was missing -- so inside one
+    worker this was right. It is per-process, and this deployment runs two
+    gunicorn workers, so it never saw the other one: two location managers
+    submitting from their phones at the same moment land on different workers,
+    each writes the whole list back, and the second one to finish drops the
+    first request. Both are told it arrived, and losing it is losing exactly
+    the photograph this form exists to collect.
+
+    `apply` is handed the rows and returns the rows to write, or None to write
+    nothing -- "already there" and "no such row" both mean there is nothing to
+    save, and a write queued for them would be one on each worker.
+    """
+    def _blob(blob):
+        rows = ([r for r in blob.get(key) or [] if isinstance(r, dict)]
+                if isinstance(blob, dict) else [])
+        out = apply(rows)
+        return None if out is None else {key: out[:cap]}
+
+    jsonstore.update_json(_path(name), _blob, default=None, indent=1)
 
 
 def _now() -> str:
@@ -144,12 +162,14 @@ def add_location(client: str, url: str = "", *, name: str = "",
         raise ValueError("A location needs a name.")
     if not _text(client, 200):
         raise ValueError("A location belongs to a client.")
-    with _lock:
-        rows = _read(LOCATIONS_FILE, "locations")
+    made: list[dict] = []
+
+    def _apply(rows):
         for row in rows:
             if _mine(row, client, url) and \
                     str(row.get("name") or "").strip().lower() == name.lower():
-                return row                      # already there; adding twice is not an error
+                made.append(row)
+                return None             # already there; adding twice is not an error
         row = {
             "id": _new_id("loc-"),
             "client": _text(client, 200),
@@ -164,8 +184,11 @@ def add_location(client: str, url: str = "", *, name: str = "",
             "created_by": _text(actor, 120),
         }
         rows.insert(0, row)
-        _write(LOCATIONS_FILE, "locations", rows, MAX_LOCATIONS)
-    return row
+        made.append(row)
+        return rows
+
+    _rows_mutate(LOCATIONS_FILE, "locations", MAX_LOCATIONS, _apply)
+    return made[0]
 
 
 def update_location(loc_id: str, **fields) -> dict | None:
@@ -174,8 +197,9 @@ def update_location(loc_id: str, **fields) -> dict | None:
     and those name the person who submitted them."""
     allowed = ("name", "contact_name", "contact_email", "contact_phone",
                "address")
-    with _lock:
-        rows = _read(LOCATIONS_FILE, "locations")
+    found: list[dict] = []
+
+    def _apply(rows):
         for row in rows:
             if row.get("id") != loc_id:
                 continue
@@ -185,9 +209,12 @@ def update_location(loc_id: str, **fields) -> dict | None:
             if "active" in fields:
                 row["active"] = bool(fields["active"])
             row["updated_at"] = _now()
-            _write(LOCATIONS_FILE, "locations", rows, MAX_LOCATIONS)
-            return row
-    return None
+            found.append(row)
+            return rows
+        return None
+
+    _rows_mutate(LOCATIONS_FILE, "locations", MAX_LOCATIONS, _apply)
+    return found[0] if found else None
 
 
 # =====================================================================
@@ -265,10 +292,11 @@ def submit(client: str, url: str = "", *, payload: dict | None = None,
         "triaged_at": "",
         "created_at": _now(),
     }
-    with _lock:
-        rows = _read(REQUESTS_FILE, "requests")
+    def _apply(rows):
         rows.insert(0, row)
-        _write(REQUESTS_FILE, "requests", rows, MAX_REQUESTS)
+        return rows
+
+    _rows_mutate(REQUESTS_FILE, "requests", MAX_REQUESTS, _apply)
     return row
 
 
@@ -331,19 +359,20 @@ def when_label(row: dict) -> str:
 
 
 # ------------------------------------------------------------------ triage
-def _save_rows(rows: list[dict]) -> None:
-    _write(REQUESTS_FILE, "requests", rows, MAX_REQUESTS)
-
-
 def _mutate(req_id: str, fn) -> dict | None:
-    with _lock:
-        rows = _read(REQUESTS_FILE, "requests")
+    found: list[dict] = []
+
+    def _apply(rows):
         for row in rows:
-            if row.get("id") == req_id:
-                fn(row)
-                _save_rows(rows)
-                return row
-    return None
+            if row.get("id") != req_id:
+                continue
+            fn(row)
+            found.append(row)
+            return rows
+        return None
+
+    _rows_mutate(REQUESTS_FILE, "requests", MAX_REQUESTS, _apply)
+    return found[0] if found else None
 
 
 def mark_triaged(req_id: str, actor: str = "") -> dict | None:

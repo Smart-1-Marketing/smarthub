@@ -42,7 +42,9 @@ success, and the answer is wrong:
     work out which ones were done.
 """
 import os
+import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import date, datetime, timedelta, timezone
@@ -801,6 +803,58 @@ check("nothing in this feature writes JSON outside hub/jsonstore.py",
 check("requests are stored under the social data directory",
       os.path.isfile(os.path.join(jsonstore.data_dir("social"), "requests.json")))
 
+
+
+# ---------------------------------------------------------------------------
+# A request from a phone, and the worker that never saw it
+# ---------------------------------------------------------------------------
+# Every location and every request for every client lives in one file, so
+# taking one is written back as the whole list. The lock around that already
+# covered the read as well as the write, which is the half modules/radio_promo
+# was missing -- so inside one worker this was right. It is per-process, and
+# this deployment runs two gunicorn workers, so it never saw the other one.
+#
+# Two location managers submitting from their phones at the same moment land
+# on different workers, both write the whole list, and the second to finish
+# drops the first request. Both are told it arrived. Threads cannot show it,
+# because the old lock really did hold within a process -- so this spends two
+# real processes, which is the only way the guarantee is measured rather than
+# asserted. Measured before the fix: one request of two.
+print("\nA request from a phone, and the worker that never saw it")
+
+_child = f"""
+import os, sys, time
+sys.path.insert(0, {str(pathlib.Path('.').resolve())!r})
+os.environ["HUB_DATA_DIR"] = {_TMP!r}
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join({_TMP!r}, "t.db")
+from modules.social_planner import intake
+from hub import jsonstore
+real = jsonstore.read_json
+def slow(path, default=None, **kw):
+    got = real(path, default=default, **kw)
+    time.sleep(0.4)
+    return got
+jsonstore.read_json = slow
+intake.submit("Concurrent Co", payload={{"notes": sys.argv[1],
+                                         "location_label": "Westside"}})
+"""
+_kids = [subprocess.Popen([sys.executable, "-c", _child, name],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+         for name in ("from one worker", "from the other")]
+for _kid in _kids:
+    _kid.wait(timeout=90)
+_kept = sorted(r.get("notes") or "" for r in intake.for_client("Concurrent Co"))
+check("two workers taking a request at once keep both",
+      _kept == ["from one worker", "from the other"], f"kept {_kept}")
+
+# It must not go back to deciding for itself: a threading.Lock here reads as
+# correct and is half a lock.
+_intake_src = (pathlib.Path(__file__).parent
+               / "modules/social_planner/intake.py").read_text()
+check("intake keeps no per-process lock of its own",
+      "threading.Lock()" not in _intake_src)
+check("and reads the shared read-change-write",
+      "jsonstore.update_json(" in _intake_src)
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 60)

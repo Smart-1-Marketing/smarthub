@@ -72,11 +72,20 @@ guess.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
 import time
 from datetime import datetime, timezone
+
+# The cross-worker half of update_json's lock. Absent off POSIX, where the
+# in-process lock still holds -- serialising less is not a reason to refuse
+# to save.
+try:                                                        # noqa: SIM105
+    import fcntl
+except ImportError:                                         # pragma: no cover
+    fcntl = None                                            # type: ignore[assignment]
 
 # Mirroring is best-effort by design, so SQLAlchemy missing must not stop the
 # disk half of this module from working — that half is what modules depend on.
@@ -105,6 +114,10 @@ BREAKER_AFTER = 3
 _fail_count = 0
 _breaker_until = 0.0
 _last_error = ""
+# Set when the cross-worker flock could not be taken. Reported by status()
+# rather than swallowed: a deployment serialising less than it thinks it is
+# looks exactly like one that is.
+_lock_error = ""
 
 _engine = None
 _table = None
@@ -413,6 +426,99 @@ def write_json(path: str, data, *, durable: bool = True, indent=None) -> bool:
     return True
 
 
+# Per-path locks, so two threads in one worker cannot interleave a
+# read-modify-write. Handed out under the module lock and never held across
+# it, so there is no ordering cycle with write_json's own use of _lock.
+_FILE_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _file_lock(path: str) -> threading.Lock:
+    key = os.path.abspath(path)
+    with _lock:
+        got = _FILE_LOCKS.get(key)
+        if got is None:
+            got = _FILE_LOCKS[key] = threading.Lock()
+        return got
+
+
+@contextlib.contextmanager
+def _exclusive(path: str):
+    """Hold one file against every other thread AND every other worker.
+
+    Two locks because there are two ways to lose a write. A ``threading.Lock``
+    serialises the threads inside one gunicorn worker; an ``flock`` on a
+    sidecar file serialises the workers, of which this deployment runs two.
+    Either one alone leaves half the problem.
+
+    **Failing to take the flock never costs the write.** A filesystem that
+    does not support it, or a directory we cannot create a lock file in, is a
+    reason to serialise less rather than a reason to refuse to save -- so the
+    in-process lock still holds and the write goes ahead. That is the rule
+    every entry point in this module already works to.
+    """
+    global _lock_error
+    thread_lock = _file_lock(path)
+    thread_lock.acquire()
+    try:
+        # Closing the descriptor releases the flock, so the `with` is the
+        # unlock: an explicit LOCK_UN in a finally would be a second silent
+        # except doing what the close already does.
+        with contextlib.ExitStack() as stack:
+            try:
+                parent = os.path.dirname(os.path.abspath(path))
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                handle = stack.enter_context(open(path + ".lock", "a+"))
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            except OSError as exc:
+                # Named rather than swallowed. Serialising across workers is
+                # the half that needs a filesystem to cooperate, and a
+                # deployment where it silently is not happening would look
+                # exactly like one where it is -- so status() says so, and
+                # the write still goes ahead behind the thread lock.
+                _lock_error = f"{path}: {type(exc).__name__}: {exc}"
+            yield
+    finally:
+        thread_lock.release()
+
+
+def update_json(path: str, mutate, *, default=None, durable: bool = True,
+                indent=None):
+    """Read, change and write one JSON file as a single indivisible step.
+
+    This is the missing half of ``read_json`` and ``write_json``. A store that
+    keeps many records in **one** file changes a record by reading the whole
+    collection, editing one entry and writing the whole collection back -- and
+    with the read outside any lock, two writers each start from the same
+    snapshot and the second one to finish silently drops the first one's
+    change. Both callers are told they succeeded.
+
+    It is not a race that needs contention over a single record to appear: two
+    people editing two *different* projects lose one of the two edits, because
+    what is written back is the whole list either way. Reproduced against
+    ``modules/radio_promo`` before this existed, with two threads and two
+    unrelated projects.
+
+    ``mutate`` is handed the data as read and returns what to write.
+    **Returning ``None`` writes nothing** and is the way to say "nothing
+    changed" -- the rule ``google_index.apply_domain_matches`` already works
+    to, so a sweep that finds nothing to do does not queue a write on both
+    workers. The value returned is what is now on disk.
+
+    A ``mutate`` that raises is the caller's own bug and is left to surface;
+    the locks are released either way. What must never raise is the locking,
+    and it does not.
+    """
+    with _exclusive(path):
+        data = read_json(path, default=default)
+        changed = mutate(data)
+        if changed is None:
+            return data
+        write_json(path, changed, durable=durable, indent=indent)
+        return changed
+
+
 def delete_json(path: str) -> bool:
     """Remove a file and its mirrored copy.
 
@@ -653,6 +759,7 @@ def status() -> dict:
     out = {
         "ready": ready,
         "error": _init_error or _last_error,
+        "lock_error": _lock_error,
         "breaker_open": _breaker_open(),
         "root": data_root(),
         "declared_caches": sorted(_declared_caches),

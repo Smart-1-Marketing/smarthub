@@ -3999,6 +3999,63 @@ cannot resolve a path is worse than one in the wrong place. Nothing moves on
 Render. `test_jsonstore.py` asserts a named root moves all seven, that the
 overrides still beat it, and that no file goes back to deciding for itself.
 
+**One file holding every record, changed one record at a time.** A store that
+keeps its whole collection in a single JSON file changes one row by reading
+the list, editing an entry and writing the **whole list** back. So two writers
+each start from the same snapshot and the second one to finish drops the
+first, and it needs no contention over a single row for that to happen: two
+people editing two *unrelated* projects lose one of the two edits, because
+what is written is the whole list either way. Both are told it saved. Nothing
+errors, nothing is logged, and the row that vanished looks exactly like one
+nobody made.
+
+**`modules/radio_promo` lost writes inside a single worker**, because its
+`threading.Lock` covered the write and not the read. Measured: two threads,
+two unrelated projects, one edit gone. Worse, `add_version()` read the
+versions list through `get()` and wrote it whole through `update()`, so
+**eight concurrent appends kept one** — in the module whose own docstring
+opens by promising that every draft, rewrite, tighten and hand edit is
+*appended* rather than overwriting, "so nothing a client approved can be
+silently lost". The append was the thing being lost.
+
+**`modules/social_planner/intake.py` had the other half.** Its lock covered
+the read as well, so within one worker it was right — and it is per-process,
+and this deployment runs two gunicorn workers, so it never saw the other one.
+Threads cannot show that failure, which is why it stood: it takes two real
+processes, and with them **one request of two survived**. That is a location
+manager submitting from a phone, on the form whose own comment says turning
+one away "has cost us the photograph".
+
+`hub/jsonstore.update_json(path, mutate)` is the missing half of `read_json`
+and `write_json`, and it takes **two locks, because there are two ways to lose
+a write**: a per-path `threading.Lock` for the threads inside one worker, and
+an `flock` on a sidecar file for the workers. Either one alone leaves half the
+problem, and each was separately confirmed — reverting the lock's *scope* back
+outside the read fails the thread checks and the process checks together;
+removing only the flock fails only the process ones.
+
+Three rules on it. **Failing to take the flock never costs the write** — a
+filesystem that will not take one is a reason to serialise less, not a reason
+to refuse to save, the rule every other entry point in that module works to.
+**Returning `None` from `mutate` writes nothing**, which is how "no such
+project", "nothing to delete" and "already there" are said: `google_index`'s
+rule, so a lookup that misses does not queue a pointless write on each of the
+two workers. And **a `mutate` that raises is the caller's own bug and is left
+to surface** — the locks release either way, because a lock held after an
+exception is a store that hangs rather than one that lost a row.
+
+**What is deliberately not done is the rest of the class, and the reason is
+that they are not all the same failure.** About fifty functions here read a
+store and write it back. A store keeping **one file per record** — `fan_radio`
+is the shape — collides only when two people edit the *same* record, which is
+the far narrower case and is why `hub/drafts.py` states one-file-per-draft as
+a rule. The ones that carry this failure in full are the single-file
+many-record stores, and the two migrated are the two where it was measured
+rather than reasoned about. The remainder is a list to work down with whoever
+knows each tool, not a sweep to land red: `test_jsonstore.py` holds the two
+that moved so neither can quietly go back to a lock of its own, which is what
+a per-process lock reads as when you find one.
+
 **Deleting a mirrored file needs `jsonstore.delete_json`, not `os.remove`.**
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one

@@ -40,6 +40,8 @@ import pathlib
 import struct
 import subprocess
 import sys
+import threading
+import time
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -79,6 +81,7 @@ from modules.radio_promo import app as rp_app                   # noqa: E402
 from modules.radio_promo import ai as rp_ai                     # noqa: E402
 from modules.radio_promo import catalog as rp_catalog           # noqa: E402
 from modules.radio_promo import store as rp_store               # noqa: E402
+from hub import jsonstore as _jstore                            # noqa: E402
 
 client = rp_app.app.test_client()
 TEMPLATE = (ROOT / "modules" / "radio_promo" / "templates" / "index.html").read_text()
@@ -690,6 +693,80 @@ _writes = [r for r in rp_app.app.url_map.iter_rules()
            if {"POST"} & r.methods and any(
                k in str(r) for k in ("/bed/", "/mix", "/voice/upload", "/variations"))]
 check("and every new write route is inside that mount", len(_writes), 6)
+
+
+
+# =====================================================================
+# Two people, two projects, and only one edit survived
+# =====================================================================
+# Every project in this module lives in ONE file, so changing one is written
+# back as the whole list. The lock covered the write and not the read, so two
+# threads that had already read the same snapshot overwrote each other -- and
+# it needs no contention over a single project to happen: two people editing
+# two UNRELATED projects lose one of the two edits. Both are told it saved.
+#
+# The module docstring also promises every draft and rewrite is *appended*
+# rather than overwriting, "so nothing a client approved can be silently
+# lost". Measured before the fix, eight concurrent appends kept one.
+section("One file for every project, changed one project at a time")
+
+_a = rp_store.create({"project_name": "Alpha"})
+_b = rp_store.create({"project_name": "Bravo"})
+
+_real_read = _jstore.read_json
+
+
+def _slow_read(path, default=None, **kw):
+    got = _real_read(path, default=default, **kw)
+    time.sleep(0.02)                  # the window a read-change-write has
+    return got
+
+
+_answers = {}
+
+
+def _rename(pid, name):
+    _answers[name] = rp_store.update(pid, {"project_name": name})
+
+
+_jstore.read_json = _slow_read
+_pair = [threading.Thread(target=_rename, args=(_a["id"], "Alpha EDITED")),
+         threading.Thread(target=_rename, args=(_b["id"], "Bravo EDITED"))]
+for _th in _pair:
+    _th.start()
+for _th in _pair:
+    _th.join()
+_jstore.read_json = _real_read
+
+check("both saves report success", all(bool(v) for v in _answers.values()), True)
+_titles = {r["id"]: r.get("project_name") for r in rp_store.all_projects()}
+check("and the edit to one project does not drop the other",
+      sorted([_titles.get(_a["id"]) or "", _titles.get(_b["id"]) or ""]),
+      ["Alpha EDITED", "Bravo EDITED"])
+
+
+def _append(i):
+    rp_store.add_version(_a["id"], f"kind{i}", {"n": i})
+
+
+_jstore.read_json = _slow_read
+_appends = [threading.Thread(target=_append, args=(i,)) for i in range(8)]
+for _th in _appends:
+    _th.start()
+for _th in _appends:
+    _th.join()
+_jstore.read_json = _real_read
+check("eight concurrent appends all land, as the docstring promises",
+      len((rp_store.get(_a["id"]) or {}).get("versions") or []), 8)
+
+# And it must not go back to deciding for itself. A threading.Lock here reads
+# as correct and is half a lock: it cannot see the second gunicorn worker.
+_store_src = (pathlib.Path(__file__).parent
+              / "modules/radio_promo/store.py").read_text()
+check("the store keeps no per-process lock of its own",
+      "threading.Lock()" in _store_src, False)
+check("and reads the shared read-change-write",
+      "jsonstore.update_json(" in _store_src, True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")
