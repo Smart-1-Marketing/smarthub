@@ -127,6 +127,67 @@ class VideoJob(db.Model):
         }
 
 
+# Columns added to `vt_jobs` after the table first shipped.
+#
+# `create_all()` creates missing TABLES and never adds a column to an existing
+# one -- the warning modules/commercial_builder/models.py carries against
+# `cb_render_jobs`, and this table walked into it. `vt_jobs` shipped in #335
+# without `seen_at`; on any deployment that has already booted that version the
+# table exists, so the column declared on the model above would be created on
+# every fresh SQLite run in development and be silently absent on the live
+# Postgres -- with every test green and every read of it None. Which, here,
+# does not fail loudly: `ready_for()` filters on `seen_at IS NULL`, so the
+# query 500s and the popup and the dashboard card simply never appear.
+#
+# Same shape as modules/image_picker/models.py: ask the inspector which are
+# actually missing rather than firing the ALTER and swallowing the failure.
+# `ADD COLUMN IF NOT EXISTS` would be shorter and SQLite does not have it, and
+# this module shares the Hub engine, which is SQLite in development.
+_LATE_COLUMNS = [
+    ("vt_jobs", "seen_at", "TIMESTAMP"),
+]
+
+
+def add_missing_columns() -> None:
+    """Bring an existing `vt_jobs` up to the model. Never raises.
+
+    A missing column is worth one log line rather than silence: if the ALTER
+    genuinely did not happen, every notification query names a column that is
+    not there, and the tools go on working while the notices never arrive --
+    which is the exact failure this whole feature was built to remove.
+    """
+    import logging
+
+    from sqlalchemy import inspect as _inspect, text as _text
+
+    log = logging.getLogger("video_tools")
+    try:
+        engine = db.engine
+        insp = _inspect(engine)
+    except Exception:                                   # noqa: BLE001 — no engine
+        return
+    for table, column, coltype in _LATE_COLUMNS:
+        try:
+            present = {c["name"] for c in insp.get_columns(table)}
+        except Exception:                               # noqa: BLE001
+            continue                                    # no table: create_all's job
+        if not present or column in present:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+        except Exception as exc:                        # noqa: BLE001
+            try:
+                fresh = {c["name"] for c in _inspect(engine).get_columns(table)}
+            except Exception:                           # noqa: BLE001
+                fresh = set()
+            if column not in fresh:
+                # Normally the other worker won the race and it is there now.
+                log.error("video_tools: could not add %s.%s (%s): %s",
+                          table, column, coltype, exc)
+
+
 def _loads(raw):
     if not raw:
         return {}

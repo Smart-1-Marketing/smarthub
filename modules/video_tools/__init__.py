@@ -25,6 +25,7 @@ from flask import Blueprint, jsonify, render_template, request
 
 from . import alerts, api, config
 from .db import db, STANDALONE
+from .models import add_missing_columns
 
 TOOLS = {
     "dead_air": {
@@ -127,6 +128,17 @@ def register_video_tools(app):
     for tool in TOOLS:
         app.register_blueprint(create_blueprint(tool))
     app.register_blueprint(create_alerts_blueprint())
+    # `vt_jobs` shipped in #335 without `seen_at`, and create_all() does not
+    # add a column to a table that already exists. See models._LATE_COLUMNS:
+    # without this the notifications work perfectly in development and never
+    # appear on the deployment. Runs before the Hub's own create_all(), which
+    # is right in both directions -- an existing table is altered here, and a
+    # database that has neither gets the column from the model a moment later.
+    try:
+        with app.app_context():
+            add_missing_columns()
+    except Exception:                                 # noqa: BLE001 — never a boot failure
+        pass
     if STANDALONE:
         with app.app_context():
             try:

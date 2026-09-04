@@ -453,6 +453,41 @@ with app.app_context():
     edits.poll, alerts.sources.ready = real_poll, real_ready
 
 # ---------------------------------------------------------------------------
+section("A table that already exists gets the new column")
+
+# `vt_jobs` shipped in #335 without `seen_at`, and create_all() creates missing
+# TABLES and never adds a column to an existing one. So on a fresh database
+# everything below works from the model and on the live one the column is
+# absent -- every test green, every read None, and here worse than that:
+# `ready_for()` filters on `seen_at IS NULL`, so the query 500s and the popup
+# and the dashboard card simply never appear. The deployment would look like a
+# feature that quietly did not work.
+#
+# Simulated rather than trusted: the column is dropped from a real table and
+# the migration is asked to put it back.
+from sqlalchemy import inspect as _inspect, text as _text  # noqa: E402
+
+from modules.video_tools.models import add_missing_columns  # noqa: E402
+
+with app.app_context():
+    cols = lambda: {c["name"] for c in _inspect(db.engine).get_columns("vt_jobs")}
+    check("the column is there to begin with", "seen_at" in cols(), True)
+    with db.engine.begin() as conn:
+        conn.execute(_text("ALTER TABLE vt_jobs DROP COLUMN seen_at"))
+    check("  ...and gone once a pre-#335 table is simulated",
+          "seen_at" in cols(), False)
+    add_missing_columns()
+    check("  ...and the migration puts it back", "seen_at" in cols(), True)
+    # Must be safe to run on every boot, on both workers. The version this
+    # replaces in image_picker fired its ALTERs unconditionally and swallowed
+    # the failures, which meant ten fake Postgres errors per deploy.
+    add_missing_columns()
+    check("  ...and running again changes nothing", "seen_at" in cols(), True)
+    # The whole point: the query the popup makes has to work afterwards.
+    check("  ...so the notice query still answers",
+          isinstance(alerts.ready_for("nobody-at-all"), list), True)
+
+# ---------------------------------------------------------------------------
 section("Where the notice actually shows up")
 
 check("the scheduler polls for finished edits", "video_tools" in scheduler.JOBS, True)
