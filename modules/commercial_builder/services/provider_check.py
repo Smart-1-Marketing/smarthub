@@ -146,11 +146,16 @@ def _check_pixabay():
 def _check_coverr():
     # A search rather than an account/ping endpoint: Coverr's public docs
     # publish no cheaper authenticated call, and this is the exact request
-    # coverr_service.search() makes, so a key valid for a different Coverr
-    # product would be caught here rather than at the first real search.
+    # coverr_service.search() makes -- app_id included on the same
+    # best-effort terms coverr_service._app_id() documents -- so a key (or a
+    # key+app_id pairing) that is refused is caught here rather than at the
+    # first real search.
+    params = {"query": "office", "page_size": 1}
+    if coverr_service._app_id():
+        params["app_id"] = coverr_service._app_id()
     return _probe("Coverr", "GET", coverr_service.BASE_URL,
                   headers={"Authorization": f"Bearer {coverr_service._key()}"},
-                  params={"query": "office", "page_size": 1})
+                  params=params)
 
 
 def _check_heygen():

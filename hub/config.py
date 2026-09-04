@@ -260,6 +260,13 @@ class Settings:
     pexels_key: str = field(default_factory=lambda: _alias("pexels_key"))
     pixabay_key: str = field(default_factory=lambda: _alias("pixabay_key"))
     coverr_key: str = field(default_factory=lambda: _alias("coverr_key"))
+    # One spelling only, per the ALIASES note above: Coverr's own docs describe
+    # a single API key and say nothing about a second "app" identifier being
+    # sent on a request, so there is nothing here for an alias to fix. It is
+    # captured anyway because this deployment's Coverr account issues one
+    # alongside the key — see coverr_service.py for where (and how tentatively)
+    # it is used.
+    coverr_app_id: str = field(default_factory=lambda: _s("COVERR_APP_ID"))
     unsplash_key: str = field(default_factory=lambda: _alias("unsplash_key"))
     remove_bg_key: str = field(default_factory=lambda: _alias("remove_bg_key"))
     brandfetch_key: str = field(default_factory=lambda: _alias("brandfetch_key"))

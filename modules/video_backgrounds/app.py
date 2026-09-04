@@ -1,4 +1,4 @@
-"""Video Backgrounds — search the owned footage library.
+"""Video Backgrounds — search the owned footage library, and Coverr live.
 
 A blueprint on the hub app rather than a dispatcher-mounted app, for the
 reason in CLAUDE.md: a hub route under a mounted prefix is unreachable. The
@@ -7,15 +7,31 @@ mounted prefixes under /tools are the specific ones listed in wsgi.py
 is not one of them, so it belongs to the hub app, exactly as
 /tools/commercial-builder does.
 
-All the real work is in hub/video_library.py, which the Commercial Builder's
-stock search also calls. This file is the page and the JSON endpoints behind
-it, and nothing else — a second copy of the tag vocabulary or the URL builder
-here is precisely how the Pexels key came to be fixed twice.
+The owned-footage half is entirely hub/video_library.py, which the Commercial
+Builder's stock search also calls. This file is the page and the JSON
+endpoints behind it, and nothing else — a second copy of the tag vocabulary
+or the URL builder here is precisely how the Pexels key came to be fixed
+twice.
+
+Coverr is the one exception to "owned footage only," and it is not folded
+into that module. hub/video_library.py's whole design is the two-folder
+Cloudinary allowlist — indexed, described, re-hosted through a transformed
+delivery URL — and Coverr's clips are none of that: nothing here vision-tags
+them, transforms them, or persists a description, because they are searched
+live on the request rather than indexed ahead of it, the same way the
+Commercial Builder already searches Coverr. Merging that into
+hub/video_library.py would blur the one thing that module's docstring is
+emphatic about — "the library is two folder trees, not the account" — into
+"the library is two folder trees, the account, and also somebody else's
+account." Kept as a second shelf on this page instead, clearly labelled, the
+way the Commercial Builder's picker keeps "Suggested from Video Search"
+apart from "More stock options."
 """
 from __future__ import annotations
 
 from flask import Blueprint, jsonify, render_template, request
 
+from hub import coverr
 from hub import video_library as vl
 from hub.webargs import clamp_int
 
@@ -59,19 +75,65 @@ def page():
     )
 
 
+def _coverr_note(query: str, live: bool, has_results: bool) -> str:
+    """Why the Coverr shelf looks the way it does.
+
+    Not-live is checked before has_results, and deliberately so even though
+    the route below never calls coverr.search() while unconfigured (so
+    has_results is already False whenever live is): the Commercial Builder's
+    coverr_service degrades to labeled mock results rather than an empty list
+    when there is no key, precisely so a producer can keep building a spot
+    without one, and that is exactly the wrong thing to show on a tool whose
+    entire job is "copy a URL to real footage" — a placehold.co card with no
+    working preview_url would look like a broken clip rather than a missing
+    key. So this page never asks Coverr at all while it is unconfigured
+    (see api_search() below), and the ordering here is what keeps that true
+    even if that changes later.
+    """
+    if not query:
+        return ("Type a search above — Coverr has no tag chips to search by, "
+                "only free text.")
+    if not live:
+        return "COVERR_API is not set, so this shelf shows placeholders."
+    if not has_results:
+        return "No Coverr matches for this search."
+    return ""
+
+
 @bp.get("/api/search")
 def api_search():
     limit = clamp_int(request.args.get("limit"), vl.DEFAULT_RESULTS,
                       1, vl.MAX_RESULTS)
     max_duration = request.args.get("max_duration") or None
     tags = [t for t in (request.args.get("tags") or "").split(",") if t.strip()]
+    query = request.args.get("q") or ""
     result = vl.search(
-        request.args.get("q") or "",
+        query,
         tags=tags,
         orientation=request.args.get("orientation") or "",
         max_duration=max_duration,
         limit=limit,
     )
+    # A second, unindexed shelf: Coverr is searched live rather than folded
+    # into the owned-library result set above, so a Coverr clip can never be
+    # mistaken for something we hold in Cloudinary. Only spent on a real
+    # free-text query -- Coverr has no tag vocabulary of its own to search a
+    # chip-only request against, and the owned library's chip search must not
+    # cost a Coverr request that can only come back empty. And never spent at
+    # all with no key set: coverr.search() degrades to labeled mock
+    # placeholders, which is right on the Commercial Builder (a producer can
+    # keep building without a key) and wrong here, where the entire point of
+    # a result is a working URL to copy -- a placehold.co card is not that,
+    # and _coverr_note() already says the key is missing without one.
+    q = query.strip()
+    live = coverr.is_live()
+    coverr_results = coverr.search(q, per_page=limit,
+                                   orientation=request.args.get("orientation") or None) if (q and live) else []
+    result["coverr"] = {
+        "results": coverr_results,
+        "live": live,
+        "note": _coverr_note(q, live, bool(coverr_results)),
+    }
     return jsonify(result)
 
 
