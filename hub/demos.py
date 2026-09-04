@@ -672,7 +672,7 @@ SCENARIOS: list[Scenario] = [
         title="Build a client quote and send it as a PDF",
         goal="A numbered quote in the Q-10200 series with line items, a branded "
              "PDF, and a Word copy — saved so you can duplicate it next time.",
-        minutes=8, path="/tools/sales",
+        minutes=8, path="/sales/builder/",
         spends=["openai.text"],
         steps=[
             Step("Start a new quote",
@@ -744,7 +744,7 @@ SCENARIOS: list[Scenario] = [
         title="Create a Smart 1 Suite sub-account for a new client",
         goal="A branded GoHighLevel sub-account built from the right snapshot, "
              "with the client's details and prospect contact in place.",
-        minutes=6, path="/tools/suite",
+        minutes=6, path="/suite/",
         spends=["ghl.write"],
         steps=[
             Step("Check they don't already exist",
@@ -801,7 +801,7 @@ SCENARIOS: list[Scenario] = [
         title="Reconcile the Sites inventory and check the margin",
         goal="Every live Simvoly site discovered, matched to a client and a "
              "price, with the cost-versus-revenue margin visible.",
-        minutes=6, path="/tools/sites",
+        minutes=6, path="/sites/",
         steps=[
             Step("Start with discovery",
                  "Pull the current list of sites straight from Simvoly.",
@@ -853,7 +853,7 @@ SCENARIOS: list[Scenario] = [
         goal="A read on whether a client's GA4, Search Console and Business "
              "Profile are connected and healthy, plus one question answered "
              "from their analytics.",
-        minutes=6, path="/tools/google",
+        minutes=6, path="/google/",
         spends=["openai.text"],
         steps=[
             Step("Refresh the connected properties",
@@ -956,7 +956,7 @@ SCENARIOS: list[Scenario] = [
         title="Resize, crop and hit a target file size",
         goal="One image cropped to the ratio you need, at the exact dimensions "
              "and under a specific KB budget.",
-        minutes=4, path="/tools/image-optimizer",
+        minutes=4, path="/tools/image/",
         steps=[
             Step("Know which tool you want",
                  "This one is for a single image you need at exact dimensions.",
@@ -1013,7 +1013,7 @@ SCENARIOS: list[Scenario] = [
         title="Shrink a PDF that's too big to email",
         goal="A compressed, faster-loading PDF that's never larger than the "
              "one you started with.",
-        minutes=2, path="/tools/pdf-optimizer",
+        minutes=2, path="/tools/pdf/",
         steps=[
             Step("Use it on the ones that are actually a problem",
                  "Proposals and reports with photos in them.",

@@ -561,6 +561,33 @@ for _path in ("/api/help", "/api/demos"):
     check(f"{_path} stays public, because the chrome fetches it everywhere",
           _anon.get(_path).status_code, 200)
 
+# A scenario's `path` is where a rep is told to go before the walkthrough can
+# run at all, and six of them named a page the composed app answers 404 to:
+# /tools/google against a module mounted at /google, /tools/sites against
+# /sites, /tools/suite against /suite, and three more. Nothing reported it --
+# `catalogue()` prints the string, `hub-demo.js` never navigates, and the
+# steps then read as anchored-to-nothing for a reason that is one line above
+# them. This is the assertion test_oauth_redirects.py already makes about the
+# six callback paths, wearing a walkthrough: a route the app serves, or the
+# scenario is describing somewhere nobody can open.
+#
+# A redirect counts as served -- these are staff pages behind AuthGuard, and
+# `302 -> /login` is the route existing and refusing an anonymous caller. Only
+# a 404 means there is no such page.
+print()
+from hub import demos as _demos                                    # noqa: E402
+print("And every walkthrough names a page this Hub actually serves")
+print("-" * 62)
+_lost = []
+for _s in _demos.SCENARIOS:
+    if _anon.get(_s.path, follow_redirects=False).status_code == 404:
+        _lost.append(f"{_s.key} -> {_s.path}")
+ok("every scenario path is a route the composed app serves", not _lost,
+   "; ".join(_lost))
+# ...and it can go red: a path nothing is mounted at must be reported.
+ok("...and a path nothing serves is reported",
+   _anon.get("/tools/a-page-no-module-is-mounted-at").status_code == 404)
+
 _staff = Client(wsgi.application)
 _staff.post("/login", data={"password": "test"})
 _r = _staff.get("/api/help/coverage")
