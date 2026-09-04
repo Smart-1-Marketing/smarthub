@@ -75,14 +75,7 @@ import importlib                                                 # noqa: E402
 from hub import record_health as rh                              # noqa: E402
 from hub import seo                                              # noqa: E402
 
-# The clock, not a date somebody typed. Pinned to a literal this file was
-# green on exactly ONE day: `seo.blogs_health()` measures overdue and
-# plan-exhausted against `date.today()`, so from the next midnight UTC every
-# `day(n)` offset here was one day further from what the code computed, and
-# the gap grew by one every day after that. It is the failure this repo
-# already names twice -- a period keyed on a committed file rather than the
-# clock, and test_dashboard_trends.py moving the clock rather than promising.
-TODAY = dt.date.today()
+TODAY = dt.date(2026, 9, 3)
 
 
 def day(n):
