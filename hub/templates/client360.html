@@ -117,6 +117,7 @@
 
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
+<script src="/date-range.js"></script>
 <script src="/knack-form.js"></script>
 <script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
@@ -526,7 +527,7 @@ function render(g,q){
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social content requests</h3><a class="open-link" id="c-scq" href="/tools/social/requests">Open the queue →</a></div><div class="card-b" id="c-social-content"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-range" style="margin-bottom:14px"></div><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
@@ -2319,15 +2320,47 @@ function c360AskReady(){
   };
 }
 
+/* The period this card reads.
+
+   It used to have none: the card reported last full month, always, and there
+   was no way to ask it anything else. It now carries the same Smart1Range
+   picker as the SEO client page — the same list of periods, the same
+   comparison options, the same custom boxes underneath — and opens on month
+   to date, which is what that page opens on too. Flipping between the two
+   pages for one client should not change the numbers. */
+var c360Range=null;
+function c360RangeReady(){
+  if(!window.Smart1Range) return;
+  var host=$('c-traffic-range'); if(!host) return;
+  /* Searching a second client rebuilds the card, which leaves the old picker
+     attached to an element no longer on the page — still holding the period
+     and still firing onChange into nothing. Re-mount when the host it drew
+     into is not the host that is on screen now. */
+  if(c360Range && c360Range.el && c360Range.el.parentNode===host) return;
+  if(host.firstChild) host.innerHTML='';
+  c360Range=window.Smart1Range.mount(host,{
+    preset:'mtd', compare:'previous',
+    onChange:function(){
+      var ga=window.__c360GA||{};
+      if(ga.property) c360Traffic(ga.property,ga.login);
+    }
+  });
+}
+
 function c360Traffic(propertyId,googleLogin){
   /* Ask AI needs the same property this card just resolved. Holding it here
      means the button works whether the property came from an attachment, a
      name match, or a manual attach a moment ago. */
   window.__c360GA={property:propertyId,login:googleLogin};
   c360AskReady();
-  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin" data-s1-think="scan"></span></div>';
+  c360RangeReady();
+  var body={property_id:propertyId,google_login:googleLogin};
+  var params=(c360Range&&c360Range.params&&c360Range.params())||{};
+  Object.keys(params).forEach(function(k){body[k]=params[k];});
+  var periodName=(c360Range&&c360Range.value()&&c360Range.value().label)||'month to date';
+  $('c-traffic').innerHTML='<div class="empty">Pulling '+esc(periodName)+' vs the comparison period… <span class="spin" data-s1-think="scan"></span></div>';
   fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
+    body:JSON.stringify(body)})
     .then(r=>r.json()).then(d=>{
       if(d.needs_reauth){
         // A revoked Google token is fixable in one click — say so, rather than
@@ -2345,7 +2378,7 @@ function c360Traffic(propertyId,googleLogin){
         ['Total key events',cur.key_events,prev.key_events,del.key_events,v=>Number(v||0).toLocaleString()],
       ];
       let h=`<div style="background:#eef6ff;border:1px solid #cfe3ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13.5px;line-height:1.55">
-        <b>Executive summary — ${esc((d.period||{}).current||'last month')}:</b> ${esc(d.summary||'')}</div>`;
+        <b>Executive summary — ${esc((d.period||{}).current||periodName)}:</b> ${esc(d.summary||'')}</div>`;
       h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">';
       rows.forEach(([label,c,p,dl,fmt])=>{
         h+=`<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 14px">

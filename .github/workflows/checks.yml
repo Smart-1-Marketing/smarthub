@@ -2008,6 +2008,20 @@ jobs:
       # limit is the top N presented as the whole.
       - name: July versus June, and the comparison that answered with June
         run: python3 test_analytics_ask.py
+      # Two buttons -- "Month to date" and "Custom compare" -- and four empty
+      # date boxes behind the second one. Every period but the current month
+      # was four dates typed by hand, on every visit, and Client 360 had no
+      # picker at all: it reported the last full calendar month and nothing
+      # else could be asked of it. One shared control now serves both, both
+      # open on month to date so the same client reads the same on either
+      # page, and the month-to-date default still sends no dates so the
+      # server keeps comparing it to the SAME DAYS of last month rather than
+      # to the whole of it. Beside it: Ask Analytics could reply "which
+      # measure did you mean?" and put the question in the input's
+      # PLACEHOLDER, where the first keystroke erased it -- leaving someone
+      # answering a question they could no longer read.
+      - name: The period picker, and the question that asks a better one back
+        run: python3 test_analytics_ranges.py
       # hub/webargs.py is 51 lines reached from twenty files, named by no
       # test. Its docstring lists three faults it exists to end -- int()
       # outside a try, an upper bound with no lower one, and the same clamp

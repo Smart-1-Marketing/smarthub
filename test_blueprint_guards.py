@@ -135,6 +135,7 @@ PUBLIC: dict[str, str] = {
     "/web-ticket.js": "the web ticket drawer",
     "/campaign-request.js": "the campaign change drawer",
     "/ask-analytics.js": "the analytics question box",
+    "/date-range.js": "the shared analytics date-range picker",
 
     # --- the help and demo registries ---
     "/api/help*": "the help bubble text, which is our own explanation of our "

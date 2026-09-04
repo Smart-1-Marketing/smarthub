@@ -66,6 +66,16 @@
     ".s1ask-answer{line-height:1.5;margin:6px 0 10px}",
     ".s1ask-clarify{border-left:3px solid #0A6E8C;background:#F1F8FB;padding:10px 12px;",
     "  border-radius:8px;margin-top:4px}",
+    ".s1ask-sugg{margin-top:10px}",
+    ".s1ask-sugg .s1ask-lbl{color:#68798c;font-size:11.5px;font-weight:700;",
+    "  text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}",
+    ".s1ask-sugg .s1ask-opts{display:flex;flex-direction:column;gap:6px}",
+    ".s1ask-sugg button{text-align:left;border:1px solid #cfe0e8;background:#fff;",
+    "  border-radius:9px;padding:8px 12px;font:13px system-ui;color:#0E1B2B;cursor:pointer}",
+    ".s1ask-sugg button:hover{border-color:#0A6E8C;background:#F1F8FB}",
+    ".s1ask-reply{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}",
+    ".s1ask-reply input{flex:1 1 240px;padding:9px 12px;border:1px solid #dce3ea;",
+    "  border-radius:9px;font:inherit}",
     ".s1ask table{width:100%;border-collapse:collapse;font-size:12.5px}",
     ".s1ask th{text-align:left;color:#68798c;font-size:11px;text-transform:uppercase;",
     "  letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid #eef2f6}",
@@ -159,6 +169,47 @@
 
     function say(html) { out.innerHTML = html; }
 
+    /* The question back, its suggested readings, and a box to answer in.
+
+       Suggestions run straight away when clicked — a suggestion the reader
+       then has to press Ask on is two decisions for one intent — and the
+       clicked text is put in the main box first so the history of what was
+       asked stays visible and editable. */
+    function renderClarify(clarifyText, suggestions) {
+      var opts = (suggestions || []).slice(0, 4);
+      var html = '<div class="s1ask-card">'
+        + '<div class="s1ask-clarify"><b>One thing first:</b> ' + esc(clarifyText) + "</div>";
+      if (opts.length) {
+        html += '<div class="s1ask-sugg"><div class="s1ask-lbl">Were you looking for one of these?</div>'
+          + '<div class="s1ask-opts">'
+          + opts.map(function (t, i) {
+              return '<button type="button" data-sugg="' + i + '">' + esc(t) + "</button>";
+            }).join("")
+          + "</div></div>";
+      }
+      html += '<div class="s1ask-reply">'
+        + '<input type="text" data-role="clarify-input" placeholder="'
+        + esc(opts.length ? "Or answer in your own words…" : "Answer here…") + '">'
+        + '<button type="button" class="s1ask-btn" data-role="clarify-send">Send</button>'
+        + "</div></div>";
+      say(html);
+
+      out.querySelectorAll("[data-sugg]").forEach(function (b, i) {
+        b.onclick = function () { input.value = opts[i]; ask(); };
+      });
+      var reply = out.querySelector('[data-role="clarify-input"]');
+      var send = out.querySelector('[data-role="clarify-send"]');
+      function go() {
+        var t = (reply.value || "").trim();
+        if (!t) { reply.focus(); return; }
+        input.value = t;
+        ask();
+      }
+      send.onclick = go;
+      reply.addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
+      reply.focus();
+    }
+
     function ask() {
       var question = (input.value || "").trim();
       var propertyId = String(val(opts.propertyId) || "").trim();
@@ -210,15 +261,19 @@
 
         /* A question with no defensible answer comes back as a question. The
            original travels in history so the reply is resolved against it
-           rather than starting a new thread. */
+           rather than starting a new thread.
+
+           What this used to do was print the question, blank the box and move
+           the question into the placeholder — where it vanished the moment
+           anyone typed, leaving them answering a question they could no
+           longer read, in the same box they had just been told was wrong.
+           Now the question stays on screen, the readings the planner thought
+           were plausible are one click each, and the reply has its own box
+           under them for the answer that is none of the above. */
         if (d.clarify) {
           history.push({ role: "user", text: question });
           history.push({ role: "assistant", text: d.clarify });
-          say('<div class="s1ask-card"><div class="s1ask-clarify"><b>One thing first:</b> '
-            + esc(d.clarify) + "</div></div>");
-          input.value = "";
-          input.placeholder = d.clarify;
-          input.focus();
+          renderClarify(d.clarify, d.suggestions || []);
           return;
         }
 
