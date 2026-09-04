@@ -22,7 +22,7 @@ import time
 from datetime import datetime, timezone
 
 import requests
-from itsdangerous import BadSignature, URLSafeTimedSerializer
+from itsdangerous import BadSignature
 
 AUTH_BASE = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
@@ -144,8 +144,11 @@ def connected() -> bool:
 
 
 def _state_serializer():
-    secret = _env("SECRET_KEY") or _env("SESSION_SECRET") or "s1hub"
-    return URLSafeTimedSerializer(secret, salt="s1hub-qb-oauth")
+    # Through hub/signing.py: knowing two of the three spellings is how a
+    # deployment setting FLASK_SECRET_KEY dropped to the literal "s1hub",
+    # which is a CSRF token on this OAuth flow that anybody can sign.
+    from hub import signing as _signing
+    return _signing.timed_serializer("s1hub-qb-oauth")
 
 
 def redirect_uri(request) -> str:

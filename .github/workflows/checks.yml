@@ -1975,6 +1975,18 @@ jobs:
       # a 500 out of the helper whose first promise is that it never raises.
       - name: A number a stranger controls
         run: python3 test_webargs.py
+      # Eight things here are signed with itsdangerous and six resolved the
+      # secret their own way. Four fell back to a literal in their own source:
+      # hub/users_routes.py signs the per-account session cookie carrying the
+      # role and the password gate, and with no SECRET_KEY a cookie signed
+      # "dev-only" claiming admin was accepted as a session belonging to no
+      # account. The two that fell back to a random secret were right and did
+      # not share it -- auth.py and identity.py sign one salt and each
+      # generated its own, so they refused each other's cookies inside one
+      # process. The check is a sweep over the AST, so a ninth signing site
+      # cannot quietly add a literal.
+      - name: What this Hub signs with
+        run: python3 test_signing.py
       # hub/landing_images.py picks the pictures on a page a prospect reads,
       # and its docstring ends "a page may be short, it may not lie".
       # from_site() regexed every image URL out of a 400 KB scan payload and

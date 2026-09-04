@@ -10,11 +10,10 @@ timing-safe password compare + per-IP login throttling.
 import hashlib
 import hmac
 import os
-import secrets
 import threading
 import time
 
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired
 
 COOKIE_NAME = "s1hub_auth"
 SESSION_TTL_SECONDS = 12 * 60 * 60  # 12 hours
@@ -25,17 +24,13 @@ SESSION_TTL_SECONDS = 12 * 60 * 60  # 12 hours
 # cookies with the ephemeral secret below while the status page reported the
 # secret configured — every session dying at every restart, for a reason no
 # screen named.
-try:
-    from hub.config import settings as _cfg
-    _SECRET = _cfg.secret_key
-except Exception:                                   # noqa: BLE001
-    _SECRET = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
-               or os.environ.get("SESSION_SECRET") or "")
-if not _SECRET:
-    # Ephemeral secret: everyone re-logs-in after a restart. Set SECRET_KEY!
-    _SECRET = secrets.token_hex(32)
+# Through hub/signing.py, which keeps the ephemeral fallback this file
+# already had and shares it: identity.py signs this same salt and generated
+# its own random secret, so with nothing set the two disagreed inside one
+# process and each refused the other's cookie.
+from hub import signing as _signing
 
-_serializer = URLSafeTimedSerializer(_SECRET, salt="s1hub-session")
+_serializer = _signing.timed_serializer("s1hub-session")
 
 
 def panel_password() -> str:
