@@ -65,7 +65,8 @@ from tools import seed_radio_samples as seed                        # noqa: E402
 from modules.fan_radio import store as fan_store                    # noqa: E402
 from modules.fan_radio import catalog as fan_catalog                # noqa: E402
 from modules.radio_promo import store as promo_store                # noqa: E402
-from modules.radio_promo.catalog import DURATIONS                   # noqa: E402
+from modules.radio_promo.catalog import (duration_by_key,           # noqa: E402
+                                         slots_of)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +103,11 @@ for spot in fan["spots"]:
     check(f"  and its stored grade agrees",
           (spot.get("grade") or {}).get("state"), "ok")
 
-for slot in DURATIONS:
+# The slots this sample actually writes, not every slot the catalog sells. The
+# :60 is opt-in -- each length is a model call and a slot somebody then has to
+# record -- so a seeded pair carries no :60 script and asking for one here was
+# reading the catalog as a promise about every project.
+for slot in [duration_by_key(k) for k in slots_of(promo)]:
     part = promo["scripts"][slot["key"]]
     inside = slot["low"] <= part["word_count"] <= slot["high"]
     check(f"promo :{slot['seconds']} is inside {slot['low']}-{slot['high']} "

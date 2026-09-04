@@ -18,8 +18,8 @@ route under one blueprint.
 from flask import Blueprint
 
 from .db import db, STANDALONE
-from .routes import (audio, clients, projects, scripts, stock, voices, heygen, render, assets,
-                     providers, pages, review)
+from .routes import (audio, clients, projects, scripts, stock, voices, heygen, render,
+                     assets, providers, pages, review, vox)
 
 # Login. This module is blueprint-registered on the hub app, NOT dispatcher-
 # mounted, so wsgi.py's AuthGuard never sees it — that wrapper only covers
@@ -107,6 +107,7 @@ def create_blueprint():
     bp.register_blueprint(audio.bp)
     bp.register_blueprint(providers.bp)
     bp.register_blueprint(review.bp)
+    bp.register_blueprint(vox.bp)
     return bp
 
 

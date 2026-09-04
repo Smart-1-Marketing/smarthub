@@ -84,7 +84,7 @@
      Write one on <b>spec</b> to win the business, or attach it to a client and it files
      under their name, shows on their record, and can be pushed to the Suite.</p>
   <div class="flow" aria-label="Radio commercial workflow">
-    <button class="active" onclick="goView('setup')">1. Start</button><i>›</i><button disabled onclick="goView('brief')">2. Brief</button><i>›</i><button disabled onclick="goView('copy')">3. Script</button><i>›</i><button disabled onclick="goView('cast')">4. Voice</button><i>›</i><button disabled onclick="goView('music')">5. Music</button><i>›</i><button disabled onclick="goView('booth')">6. Record</button><i>›</i><button disabled onclick="goView('pack')">7. Package</button>
+    <button class="active" onclick="goView('setup')">1. Start</button><i>›</i><button disabled onclick="goView('brief')">2. Brief</button><i>›</i><button disabled onclick="goView('copy')">3. Script</button><i>›</i><button disabled onclick="goView('cast')">4. Voice</button><i>›</i><button disabled onclick="goView('music')">5. Music</button><i>›</i><button disabled onclick="goView('booth')">6. Record</button><i>›</i><button disabled onclick="goView('mix')">7. Mix</button><i>›</i><button disabled onclick="goView('pack')">8. Package</button>
   </div>
 
   <!-- 1. SETUP -->
@@ -150,6 +150,13 @@
       <label class="f">Required disclaimer <span class="opt">optional — read verbatim, counts against the word budget</span></label>
       <textarea id="disclaimer" style="min-height:52px"></textarea>
     </div>
+    <div style="margin-top:13px">
+      <label class="f">Which lengths <span class="opt">— every one you tick is written, cast and mixed</span></label>
+      <div class="rowbar" id="slotPicks"></div>
+      <p class="hint" style="margin:4px 0 0">The :15 and :30 are the matched pair this tool has always
+        written. A :60 is its own read at its own budget — tick it only if the buy has one, because
+        each length is a model call and a slot somebody then has to record.</p>
+    </div>
     <div class="rowbar">
       <button class="btn" id="startBtn" onclick="start()">Read the site &amp; brief it</button>
       <a class="btn sec" href="library">Library</a>
@@ -212,10 +219,14 @@
 
   <!-- 5. MUSIC -->
   <div class="card view off" id="c-music">
-    <h2><span class="n">5</span> Music bed</h2>
-    <p class="hint">Listen to a bed before using it. Describe a new bed to create a playable preview.</p>
-    <div id="musicList"></div>
-    <div class="rowbar"><input type="text" id="musicPrompt" placeholder="Warm acoustic guitar, light percussion, hopeful build…" style="flex:1;min-width:260px"><button class="btn" onclick="createMusicBed()">Create music bed</button><button class="btn sec" onclick="goView('booth')">Continue to recording</button><span class="msg" id="musicMsg"></span></div>
+    <h2><span class="n">5</span> Music bed {{ help_dot('radio_promo.build.music') if help_dot is defined else '' }}</h2>
+    <p class="hint">A bed is composed to the length of the spot it sits under, so nothing has to be
+      trimmed to fit. Each tile shows the words it will actually send. Bring your own track instead,
+      or run the spot as a straight read with no bed at all — all three are real answers.</p>
+    <div id="musicState" class="hint"></div>
+    <div id="musicBox"></div>
+    <div class="rowbar"><button class="btn sec" onclick="goView('booth')">Continue to recording</button>
+      <span class="msg" id="musicMsg"></span></div>
   </div>
 
   <!-- 5. BOOTH -->
@@ -229,9 +240,20 @@
     <div id="bannerBox" style="margin-top:12px"></div>
   </div>
 
-  <!-- 6. PACKAGE -->
+  <!-- 7. MIX -->
+  <div class="card view off" id="c-mix">
+    <h2><span class="n">7</span> Mix &amp; check {{ help_dot('radio_promo.build.mix') if help_dot is defined else '' }}</h2>
+    <p class="hint">The voice over the bed, ducked so the read is always on top. The mix is rendered
+      here in your browser and its length is measured from the file itself when it is filed —
+      there is no audio decoder on the server, so a number the page reported is not a measurement.</p>
+    <div id="mixBox"></div>
+    <div class="rowbar"><button class="btn sec" onclick="goView('pack')">Continue to package</button>
+      <span class="msg" id="mixMsg"></span></div>
+  </div>
+
+  <!-- 8. PACKAGE -->
   <div class="card view off" id="c-pack">
-    <h2><span class="n">7</span> Package</h2>
+    <h2><span class="n">8</span> Package</h2>
     <div id="packBox"></div>
     <div class="rowbar">
       <button class="btn" onclick="pushGhl()">Push to the Suite</button>
@@ -245,12 +267,13 @@
 
 <script>
 const TONES = {{ tones|tojson }};
+window.__DURATIONS = {{ durations|tojson }};
 const CHARS = {{ characteristics|tojson }};
 const MOUNT = {{ mount|tojson }};
 let P = null;              // current project
 let mode = 'spec';
 let want = {gender:'any', age:'any', accent:'american', energy:'conversational', delivery:'spokesperson'};
-let assigned = {fifteen:null, thirty:null};
+let assigned = {};            // slot -> the cast voice, for whatever slots this job has
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
@@ -291,12 +314,16 @@ function setMode(m){
   $('clientBox').style.display = m==='client' ? '' : 'none';
 }
 function togglePhone(){ $('phoneBox').style.display = $('include_phone').value==='yes' ? '' : 'none'; }
-const VIEWS=['setup','brief','copy','cast','music','booth','pack'];
+const VIEWS=['setup','brief','copy','cast','music','booth','mix','pack'];
 function unlockedStep(){
   if(!P) return 1;
-  if((P.spots||[]).length) return 7;
+  // Keyed on "is there a script at all" rather than on the :15 specifically:
+  // a job writing only a :60 had every step past the brief locked, because
+  // `scripts.fifteen` is the one slot it does not have.
+  const written = slotsOf().some(k => ((P.scripts||{})[k]||{}).script);
+  if((P.spots||[]).length) return 8;
   if((P.voice_matches||[]).length) return 6;
-  if((P.scripts||{}).fifteen) return 4;
+  if(written) return 4;
   if(P.analysis) return 2;
   return 1;
 }
@@ -313,7 +340,8 @@ function showView(name){
   setFlow(step); window.scrollTo({top:0,behavior:'smooth'});
 }
 function goView(name){
-  if(name==='music') renderMusicBeds();
+  if(name==='music') renderMusic();
+  if(name==='mix') renderMixView();
   if(name==='cast') renderCast();
   if(name==='pack') renderPack();
   showView(name);
@@ -351,7 +379,7 @@ async function start(){
       team_member:$('team_member').value.trim(), home_url:$('home_url').value.trim(),
       landing_url:$('landing_url').value.trim(), promotion:$('promotion').value.trim(),
       disclaimer:$('disclaimer').value.trim(), include_phone:$('include_phone').value==='yes',
-      phone:$('phone').value.trim()
+      phone:$('phone').value.trim(), slots: pickedSlots()
     };
     const created = await api('/api/projects', {method:'POST', body:JSON.stringify(payload)});
     P = created.project;
@@ -412,16 +440,14 @@ async function writeScripts(isRevision){
   }catch(e){ say('briefMsg', e.message, 'err'); }
 }
 
-function slotName(k){ return k==='fifteen' ? ':15' : ':30'; }
-
 function renderCopy(){
   showView('copy');
   const s = P.scripts || {};
   $('copyBox').innerHTML = (s.hook ? `<p class="hint" style="margin-top:0">Hook: <b>${esc(s.hook)}</b></p>` : '') +
-    ['fifteen','thirty'].map(k => {
+    slotsOf().map(k => {
       const v = s[k]; if(!v) return '';
-      const over = v.word_count > (k==='fifteen'?42:85);
-      const under = v.word_count < (k==='fifteen'?35:70);
+      const over = v.word_count > slotHigh(k);
+      const under = v.word_count < slotLow(k);
       const cls = over ? 'long' : (under ? 'short' : 'good');
       return `<div class="slot">
         <h3><span>${slotName(k)} — ${esc(v.notes||'')}</span>
@@ -456,7 +482,7 @@ async function tighten(k){
 
 function renderSpoken(){
   const rows = [];
-  ['fifteen','thirty'].forEach(k => ((P.scripts||{})[k]||{}).changes?.forEach(c =>
+  slotsOf().forEach(k => ((P.scripts||{})[k]||{}).changes?.forEach(c =>
     rows.push(`<tr><td>${esc(c.from)}</td><td>${esc(c.to)}</td><td>${esc(c.why)}</td></tr>`)));
   $('spokenBox').innerHTML = rows.length
     ? `<b>How it will be read</b><table style="margin-top:6px"><tr><th>Written</th><th>Spoken</th><th>Why</th></tr>${rows.join('')}</table>`
@@ -544,29 +570,391 @@ async function cloneVoice(){
   }catch(e){say('cloneMsg',e.message,'err');}
 }
 
-function bedTone(prompt){
-  const p=(prompt||'').toLowerCase();
-  if(/upbeat|energy|pop|bright/.test(p)) return 440;
-  if(/warm|acoustic|hopeful/.test(p)) return 294;
-  if(/cinematic|epic|dramatic/.test(p)) return 196;
-  return 330;
+/* ---------- lengths, as data ----------
+   The slot table is the server's. Before this the template carried its own
+   copy of the word budgets — 42 and 85 written into renderCopy as literals —
+   which is two descriptions of one budget and the reason a :60 could not be
+   added without editing both. */
+const DUR = {}; (window.__DURATIONS||[]).forEach(d => DUR[d.key] = d);
+function slotsOf(){
+  const asked = (P && P.slots && P.slots.length) ? P.slots : ['fifteen','thirty'];
+  return Object.keys(DUR).filter(k => asked.indexOf(k) >= 0);
 }
-function playBed(prompt){
-  const C=window.AudioContext||window.webkitAudioContext; if(!C) return;
-  const ctx=new C(), gain=ctx.createGain(); gain.gain.value=.06; gain.connect(ctx.destination);
-  [1,1.25,1.5].forEach((ratio,i)=>{const o=ctx.createOscillator();o.type=i===0?'sine':'triangle';o.frequency.value=bedTone(prompt)*ratio;o.connect(gain);o.start();o.stop(ctx.currentTime+8);});
-  setTimeout(()=>ctx.close(),8500);
+function slotName(k){ return (DUR[k]||{}).label || k; }
+function slotSeconds(k){ return (DUR[k]||{}).seconds || 30; }
+
+function renderSlotPicks(){
+  const box = $('slotPicks'); if(!box) return;
+  box.innerHTML = Object.keys(DUR).map(k => {
+    const d = DUR[k], on = (k==='fifteen'||k==='thirty') ? 'checked' : '';
+    return `<label class="f" style="margin:0 14px 0 0;font-weight:600">
+      <input type="checkbox" class="slotPick" value="${k}" ${on}> ${esc(d.label)}
+      <span class="opt" style="font-weight:400">${esc(d.word_target)}</span></label>`;
+  }).join('');
 }
-function renderMusicBeds(){
-  const defaults=['Warm acoustic guitar with light percussion','Upbeat modern pop, clean and positive','Cinematic piano and soft rising strings'];
-  const beds=[...(P.music_beds||[]).map(x=>x.prompt),...defaults];
-  $('musicList').innerHTML=beds.map((p,i)=>{ const call=JSON.stringify(p).replace(/"/g,'&quot;'); return `<div class="voice"><b>${i<(P.music_beds||[]).length?'Custom bed':'Starter bed'}</b><div class="hint">${esc(p)}</div><div class="rowbar"><button class="btn sec sm" onclick="playBed(${call})">▶ Listen</button></div></div>`; }).join('');
+function pickedSlots(){
+  return Array.from(document.querySelectorAll('.slotPick'))
+    .filter(el => el.checked).map(el => el.value);
 }
-async function createMusicBed(){
-  const prompt=$('musicPrompt').value.trim(); if(!prompt) return;
-  say('musicMsg','Creating preview…','ai');
-  try{const d=await api('/api/projects/'+P.id+'/music-beds',{method:'POST',body:JSON.stringify({prompt})});P=d.project;$('musicPrompt').value='';renderMusicBeds();playBed(prompt);say('musicMsg','Music-bed preview ready.','ok');}catch(e){say('musicMsg',e.message,'err');}
+
+/* ---------- the music bed ----------
+   What was here before saved a text prompt and played three oscillators, so a
+   bed could be picked, "heard", and filed with silence under the voice. The
+   tiles now carry the words that are actually sent and the button composes a
+   real track at this slot's own length. */
+let MIXCFG = null;
+
+async function loadMixConfig(){
+  try { MIXCFG = await api('/api/mix/config'); }
+  catch(e){ MIXCFG = {available:false, error:e.message, moods:[], levels:[], mix:{}}; }
 }
+
+function bedOf(slot){ return (P.beds||{})[slot] || null; }
+function mixOf(slot){ return (P.mixes||{})[slot] || null; }
+
+function renderMusic(){
+  const st = $('musicState'), box = $('musicBox');
+  if(!MIXCFG || !MIXCFG.available){
+    st.innerHTML = `<b class="err">Beds are not available.</b> ${esc((MIXCFG||{}).error||'')}`;
+    box.innerHTML = ''; return;
+  }
+  st.innerHTML = MIXCFG.can_compose ? '' :
+    `<b>Composing is off.</b> ${esc(MIXCFG.compose_note||'')}`;
+  box.innerHTML = slotsOf().map(k => {
+    const bed = bedOf(k);
+    let state;
+    if(!bed){
+      state = `<div class="hint">No bed on the ${slotName(k)} yet — it will run as a straight read.</div>`;
+    } else {
+      const len = bed.measured && bed.seconds!=null
+        ? `${bed.seconds}s` : 'length not measured';
+      state = `<div class="hint">On the ${slotName(k)}: <b>${esc(bed.kind==='upload'?'your own track':'composed')}</b>
+          · ${esc(len)}${bed.prompt?' · “'+esc(bed.prompt)+'”':''}</div>
+        <audio controls preload="none" style="width:100%;margin-top:6px"
+          src="${MOUNT}/api/projects/${P.id}/audio?ref=bed:${k}"></audio>`;
+    }
+    const tiles = (MIXCFG.moods||[]).map(m => `
+      <button class="btn sec sm" title="${esc(m.prompt)}"
+        onclick="composeBed('${k}','${esc(m.id)}')" ${MIXCFG.can_compose?'':'disabled'}>${esc(m.label)}</button>`).join(' ');
+    return `<div class="slot">
+      <h3><span>${slotName(k)} bed</span></h3>
+      ${state}
+      <p class="hint" style="margin:10px 0 4px"><b>Compose one.</b> Each tile sends the words on its
+        tooltip, at ${slotSeconds(k)} seconds:</p>
+      <div class="rowbar">${tiles}</div>
+      <div class="rowbar">
+        <input type="text" id="bedPrompt-${k}" style="flex:1;min-width:240px"
+          placeholder="Or describe it: warm acoustic guitar, light percussion, hopeful build…">
+        <button class="btn sm" onclick="composeBed('${k}')" ${MIXCFG.can_compose?'':'disabled'}>Compose</button>
+      </div>
+      ${legacyBeds(k)}
+      <div class="rowbar">
+        <label class="btn sec sm" style="cursor:pointer">Upload a track
+          <input type="file" accept="audio/*" style="display:none"
+            onchange="uploadBed('${k}', this)"></label>
+        ${bed?`<button class="btn sec sm" onclick="clearBed('${k}')">No bed — straight read</button>`:''}
+        <span class="msg" id="bedMsg-${k}"></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function legacyBeds(slot){
+  const old = (P.music_beds || []);
+  if(!old.length) return '';
+  return `<p class="hint" style="margin:10px 0 4px">Described on this project before
+      beds were composed. Nothing was ever generated for these — one press writes the
+      words into the box:</p><div class="rowbar">` + old.map((b, i) =>
+    `<button class="btn sec sm" onclick="useBedPrompt('${slot}', ${i})"
+       title="${esc(b.prompt||'')}">${esc((b.prompt||'').slice(0, 42))}${
+         (b.prompt||'').length > 42 ? '…' : ''}</button>`).join(' ') + '</div>';
+}
+
+function useBedPrompt(slot, i){
+  const box = $('bedPrompt-'+slot), bed = (P.music_beds||[])[i];
+  if(box && bed){ box.value = bed.prompt || ''; box.focus(); }
+}
+
+async function composeBed(slot, mood){
+  const box = $('bedPrompt-'+slot);
+  const prompt = box ? box.value.trim() : '';
+  if(!prompt && !mood){ say('bedMsg-'+slot, 'Describe the bed, or pick a mood.', 'err'); return; }
+  say('bedMsg-'+slot, 'Composing the bed…', 'ai');
+  try{
+    const d = await api('/api/projects/'+P.id+'/bed/compose', {method:'POST',
+      body: JSON.stringify({slot, prompt, mood: mood||''})});
+    P = d.project; renderMusic();
+    say('bedMsg-'+slot, 'Bed composed.', 'ok');
+  }catch(e){ say('bedMsg-'+slot, e.message, 'err'); }
+}
+
+async function uploadBed(slot, input){
+  const file = input.files && input.files[0]; if(!file) return;
+  const fd = new FormData(); fd.append('slot', slot); fd.append('file', file);
+  say('bedMsg-'+slot, 'Uploading…', 'wait');
+  try{
+    const d = await post('/api/projects/'+P.id+'/bed/upload', fd);
+    P = d.project; renderMusic(); say('bedMsg-'+slot, 'Track uploaded.', 'ok');
+  }catch(e){ say('bedMsg-'+slot, e.message, 'err'); }
+  input.value = '';
+}
+
+async function clearBed(slot){
+  try{
+    const d = await api('/api/projects/'+P.id+'/bed/clear', {method:'POST',
+      body: JSON.stringify({slot})});
+    P = d.project; renderMusic();
+  }catch(e){ say('bedMsg-'+slot, e.message, 'err'); }
+}
+
+/* A multipart POST. `api()` sets a JSON content type, which a FormData body
+   must not carry — the browser writes its own boundary. */
+async function post(path, formData){
+  const res = await fetch(MOUNT + path, {method:'POST', body: formData});
+  let data = {};
+  try { data = await res.json(); } catch(e){}
+  if(!res.ok || data.ok === false){
+    const err = new Error(data.error || ('Request failed ('+res.status+')'));
+    err.payload = data; throw err;
+  }
+  return data;
+}
+
+/* ---------- the mix ----------
+   Rendered here rather than on the server, and that is a constraint rather
+   than a preference: there is no ffmpeg, ffprobe, pydub or numpy in the Hub's
+   runtime, which is why this module shipped without beds at all. The browser
+   already has a complete audio pipeline, so it decodes both tracks, ducks the
+   bed under the voice and hands back a WAV.
+
+   Nothing about the sound is decided here. The dB pair, the fades, the duck
+   timings and the sample rate all come from /api/mix/config, which reads
+   Commercial Builder's one music table — so the level shown on the panel is
+   the level that renders, and a video spot and a radio spot duck their beds by
+   the same amount. */
+const RENDERED = {};        // slot -> {blob, url, seconds, peak, note}
+
+function dbGain(db){ return Math.pow(10, (Number(db)||0) / 20); }
+
+async function decodeRef(ref, ctx){
+  const res = await fetch(MOUNT+'/api/projects/'+P.id+'/audio?ref='+encodeURIComponent(ref));
+  if(!res.ok) throw new Error('Could not read the '+ref.split(':')[0]+' back to mix it.');
+  return await ctx.decodeAudioData(await res.arrayBuffer());
+}
+
+async function buildMix(slot){
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if(!OAC) throw new Error('This browser cannot render audio offline, so the mix '
+    + 'cannot be made here. Chrome, Edge, Firefox and Safari all can.');
+  const M = MIXCFG.mix || {};
+  const rate = M.sample_rate || 44100, chans = M.channels || 2;
+  const probe = new OAC(1, 1024, rate);
+  const vo = await decodeRef('vo:'+slot, probe);
+  const bed = bedOf(slot) ? await decodeRef('bed:'+slot, probe) : null;
+
+  // The bed gets a moment at the top before the read starts, which is what
+  // makes it read as a bed rather than as noise that began mid-word.
+  const lead = bed ? (M.lead_in_ms||0)/1000 : 0;
+  // NEVER shorter than the voice. Rendering to exactly the slot length would
+  // cut the end off a long read — and it is the phone number that lives
+  // there. A read that overruns comes back measured and over, which is what
+  // the length check is for.
+  const total = Math.max(slotSeconds(slot), lead + vo.duration);
+  const ctx = new OAC(chans, Math.max(1, Math.round(total*rate)), rate);
+
+  const voSrc = ctx.createBufferSource(); voSrc.buffer = vo;
+  voSrc.connect(ctx.destination); voSrc.start(lead);
+
+  let note = '';
+  if(bed){
+    const bedG = dbGain(M.bed_db), duckG = dbGain(M.ducked_db);
+    const atk = (M.duck_attack_ms||0)/1000, rel = (M.duck_release_ms||0)/1000;
+    const voEnd = Math.min(total, lead + vo.duration);
+    const duck = ctx.createGain(), fade = ctx.createGain();
+    const src = ctx.createBufferSource(); src.buffer = bed;
+    src.connect(duck); duck.connect(fade); fade.connect(ctx.destination);
+
+    duck.gain.setValueAtTime(bedG, 0);
+    duck.gain.setValueAtTime(bedG, Math.max(0, lead - atk));
+    duck.gain.linearRampToValueAtTime(duckG, Math.max(0.001, lead));
+    duck.gain.setValueAtTime(duckG, voEnd);
+    duck.gain.linearRampToValueAtTime(bedG, Math.min(total, voEnd + rel));
+
+    const fi = Math.min((M.fade_in_ms||0)/1000, total), fo = (M.fade_out_ms||0)/1000;
+    fade.gain.setValueAtTime(0, 0);
+    fade.gain.linearRampToValueAtTime(1, Math.max(0.001, fi));
+    fade.gain.setValueAtTime(1, Math.max(fi, total - fo));
+    fade.gain.linearRampToValueAtTime(0, total);
+    src.start(0);
+
+    // A bed shorter than the spot is REPORTED, never looped. Looping puts an
+    // audible seam in the middle of a client's commercial; saying the last few
+    // seconds have no music under them is something somebody can act on.
+    const shortBy = total - bed.duration;
+    if(shortBy > 0.25){
+      note = `The bed is ${bed.duration.toFixed(1)}s and the spot runs `
+           + `${total.toFixed(1)}s, so the last ${shortBy.toFixed(1)}s has no music `
+           + `under it. Compose it again at this length, or accept the tail.`;
+    }
+  }
+  const out = await ctx.startRendering();
+  return {buffer: out, note};
+}
+
+/* Peak, measured off the very buffer that is about to be encoded. Reported as
+   a browser reading and deliberately not sent as a fact: the server records
+   what it measured from the bytes it stored, and `vo_clarity` stays
+   not-measured there because loudness needs a decoder it does not have. */
+function peakDbfs(buf){
+  let peak = 0;
+  for(let c=0;c<buf.numberOfChannels;c++){
+    const d = buf.getChannelData(c);
+    for(let i=0;i<d.length;i++){ const v = Math.abs(d[i]); if(v>peak) peak = v; }
+  }
+  return peak > 0 ? 20*Math.log10(peak) : -Infinity;
+}
+
+function toWav(buf){
+  const ch = buf.numberOfChannels, len = buf.length, rate = buf.sampleRate;
+  const bytes = len*ch*2, ab = new ArrayBuffer(44+bytes), v = new DataView(ab);
+  const w = (o,str)=>{ for(let i=0;i<str.length;i++) v.setUint8(o+i, str.charCodeAt(i)); };
+  w(0,'RIFF'); v.setUint32(4, 36+bytes, true); w(8,'WAVE');
+  w(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,ch,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*ch*2,true);
+  v.setUint16(32,ch*2,true); v.setUint16(34,16,true);
+  w(36,'data'); v.setUint32(40,bytes,true);
+  const data = []; for(let c=0;c<ch;c++) data.push(buf.getChannelData(c));
+  let o = 44;
+  for(let i=0;i<len;i++) for(let c=0;c<ch;c++){
+    const x = Math.max(-1, Math.min(1, data[c][i]));
+    v.setInt16(o, x < 0 ? x*0x8000 : x*0x7FFF, true); o += 2;
+  }
+  return new Blob([ab], {type:'audio/wav'});
+}
+
+async function makeMix(slot){
+  say('mixMsg', 'Rendering the '+slotName(slot)+' mix…', 'wait');
+  try{
+    const {buffer, note} = await buildMix(slot);
+    const blob = toWav(buffer);
+    if(RENDERED[slot] && RENDERED[slot].url) URL.revokeObjectURL(RENDERED[slot].url);
+    RENDERED[slot] = {blob, url: URL.createObjectURL(blob),
+                      seconds: buffer.duration, peak: peakDbfs(buffer), note};
+    renderMixPanel();
+    say('mixMsg', 'Rendered. Listen to it, then file it.', 'ok');
+  }catch(e){ say('mixMsg', e.message, 'err'); }
+}
+
+async function fileMix(slot, override){
+  const made = RENDERED[slot];
+  if(!made){ say('mixMsg', 'Render the mix first.', 'err'); return; }
+  const level = ($('mixLevel') && $('mixLevel').value) || '';
+  const fd = new FormData();
+  fd.append('slot', slot); fd.append('level', level);
+  fd.append('file', made.blob, 'mix-'+slot+'.wav');
+  if(override){
+    const why = prompt('This mix has findings that stop it being filed. '
+      + 'Why is it going out anyway? This is recorded against your name.');
+    if(!why) return;
+    fd.append('override', '1'); fd.append('override_reason', why);
+  }
+  say('mixMsg', 'Filing the mix…', 'wait');
+  try{
+    const d = await post('/api/projects/'+P.id+'/mix', fd);
+    P = d.project; renderMixPanel();
+    say('mixMsg', 'Filed. Measured at '+d.mix.seconds+'s.', 'ok');
+  }catch(e){
+    const payload = e.payload || {};
+    if(payload.blocked){ QCC[slot] = payload.qc; renderMixPanel();
+      say('mixMsg', payload.error, 'err'); return; }
+    say('mixMsg', e.message, 'err');
+  }
+}
+
+/* ---------- QC ---------- */
+const QCC = {};             // slot -> report
+
+async function loadQc(){
+  try{ const d = await api('/api/projects/'+P.id+'/qc');
+       Object.keys(d.reports||{}).forEach(k => QCC[k] = d.reports[k]); }
+  catch(e){ /* the panel says so; a failed check must not take the step down */ }
+}
+
+const QC_PILL = {pass:'good', warn:'short', block:'long', not_measured:''};
+
+function qcRows(slot){
+  const r = QCC[slot];
+  if(!r) return '<div class="hint">Checks have not been run yet.</div>';
+  if(r.available === false) return `<div class="hint err">${esc(r.error||'Checks are not available.')}</div>`;
+  return '<table style="margin-top:6px"><tr><th>Check</th><th>Verdict</th><th>What it found</th></tr>'
+    + (r.checks||[]).map(c => {
+        const word = {pass:'Pass', warn:'Worth a look', block:'Stops filing',
+                      not_measured:'Not measured'}[c.level] || c.level;
+        return `<tr><td>${esc(c.label)}</td>`
+             + `<td><span class="meter ${QC_PILL[c.level]||''}">${word}</span></td>`
+             + `<td>${esc(c.detail)}</td></tr>`;
+      }).join('') + '</table>';
+}
+
+function renderMixPanel(){
+  const levels = (MIXCFG && MIXCFG.levels) || [];
+  const ref = (MIXCFG && MIXCFG.level_reference) || '';
+  const picker = levels.length ? `<div class="rowbar">
+      <label class="f" style="margin:0">Bed level</label>
+      <select id="mixLevel">${levels.map(l =>
+        `<option value="${esc(l.label)}" ${l.label===ref?'selected':''}>${esc(l.label)} — ${l.bed_db} dB under the read at ${l.ducked_db} dB</option>`).join('')}</select>
+    </div>` : '';
+  $('mixBox').innerHTML = picker + slotsOf().map(k => {
+    const spot = (P.spots||[]).find(s => s.slot===k);
+    const filed = mixOf(k), made = RENDERED[k], bed = bedOf(k), r = QCC[k];
+    if(!spot) return `<div class="slot"><h3><span>${slotName(k)}</span></h3>
+      <div class="hint">No voice recorded for this length yet — record or upload it first.</div></div>`;
+    const bedLine = bed ? `bed: ${esc(bed.kind==='upload'?'your own track':'composed')}`
+                        : 'no bed — straight read';
+    let madeBlock = '';
+    if(made){
+      const clip = made.peak > -0.1;
+      madeBlock = `<div class="hint" style="margin-top:6px">Rendered here: ${made.seconds.toFixed(2)}s ·
+          peak ${made.peak===-Infinity?'silent':made.peak.toFixed(1)+' dBFS'}
+          ${clip?'<b class="err">— clipping. Re-record the read quieter.</b>':''}
+          <span class="opt">measured in your browser, not on the server</span></div>
+        ${made.note?`<div class="hint err">${esc(made.note)}</div>`:''}
+        <audio controls src="${made.url}" style="width:100%;margin-top:6px"></audio>`;
+    }
+    let filedBlock = '';
+    if(filed){
+      filedBlock = `<div class="hint" style="margin-top:6px"><b>Filed</b> at
+          ${filed.seconds}s, measured from the file · ${esc(filed.level||'')} level
+          (${filed.bed_db} / ${filed.ducked_db} dB)
+          ${filed.override?`<b class="err">· filed over findings by ${esc(filed.override_by)}: “${esc(filed.override_reason)}”</b>`:''}</div>
+        <audio controls preload="none" style="width:100%;margin-top:6px"
+          src="${MOUNT}/api/projects/${P.id}/audio?ref=mix:${k}"></audio>`;
+    }
+    const blocked = r && (r.blocking||[]).length;
+    return `<div class="slot">
+      <h3><span>${slotName(k)} — ${esc(bedLine)}</span>
+        ${r?`<span class="meter ${QC_PILL[r.status==='blocked'?'block':r.status]||''}">${
+          r.status==='blocked'?'Findings stop filing':(r.status==='warn'?'Worth a look':'Checks pass')}</span>`:''}</h3>
+      ${filedBlock}${madeBlock}
+      <div class="rowbar">
+        <button class="btn sm" onclick="makeMix('${k}')">${made?'Render again':'Render the mix'}</button>
+        ${made?`<button class="btn ${blocked?'sec':''} sm" onclick="fileMix('${k}', ${blocked?'true':'false'})">${
+          blocked?'File it anyway, with a reason':'File this mix'}</button>`:''}
+        ${made?`<a class="btn sec sm" href="${made.url}" download="mix-${k}.wav">Download</a>`:''}
+      </div>
+      ${qcRows(k)}
+    </div>`;
+  }).join('');
+}
+
+async function renderMixView(){
+  if(!MIXCFG) await loadMixConfig();
+  await loadQc();
+  renderMixPanel();
+}
+
+function slotLow(k){ return (DUR[k]||{}).low || 0; }
+function slotHigh(k){ return (DUR[k]||{}).high || 999; }
 
 function assign(slot, i){
   assigned[slot] = (P.voice_matches||[])[i];
@@ -669,6 +1057,9 @@ async function pushGhl(){
 }
 
 /* ---------- session recovery: the project id lives in the URL ---------- */
+renderSlotPicks();
+loadMixConfig();
+
 (async function resume(){
   const m = /p=([\w-]+)/.exec(location.hash||'');
   if(!m) return;
@@ -680,7 +1071,10 @@ async function pushGhl(){
     if($('include_phone')) { $('include_phone').value=P.include_phone?'yes':'no'; togglePhone(); }
     if($('client')) $('client').value = P.client||'';
     if(P.analysis) renderBrief();
-    if(P.scripts && P.scripts.fifteen) renderCopy();
+    renderSlotPicks();
+    Array.from(document.querySelectorAll('.slotPick')).forEach(el =>
+      el.checked = (P.slots||['fifteen','thirty']).indexOf(el.value) >= 0);
+    if(slotsOf().some(k => ((P.scripts||{})[k]||{}).script)) renderCopy();
     if((P.spots||[]).length) renderBooth();
   }catch(e){ location.hash=''; }
 })();

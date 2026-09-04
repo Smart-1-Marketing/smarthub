@@ -16,7 +16,8 @@ import re
 
 import requests
 
-from .catalog import TONES, tone_by_id
+from .catalog import (DEFAULT_SLOTS, TONES, budget_line, duration_by_key,
+                      tone_by_id)
 
 OPENAI_BASE = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 TEXT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
@@ -156,23 +157,68 @@ Give exactly 3 recommendedTones, best first.""",
 
 
 # ------------------------------------------------------------------- scripts
+def _slot_schema(lengths: list[dict]) -> str:
+    """The JSON the model is asked for, one line per length in play."""
+    rows = []
+    for d in lengths:
+        rows.append(
+            f'  "{d["key"]}": {{"script":"the {d["label"]} read, plain spoken text '
+            f'only","wordCount":0,"estimatedSeconds":{d["seconds"]},"notes":"one line '
+            f'of direction for the voice talent"}}')
+    return ",\n".join(rows)
+
+
+# The ceiling the :15/:30 pair has always been written under, and the words
+# that pair is allowed. Everything else is scaled against it rather than
+# against a token-per-word ratio nobody here can verify: what is known is that
+# 1400 has always been enough for 127 words of script plus the envelope.
+_PAIR_TOKENS = 1400
+_PAIR_WORDS = 127
+
+
+def _script_tokens(lengths: list[dict]) -> int:
+    """Room for every script asked for, in proportion to the words asked for.
+
+    A ceiling sized for the pair truncates a set that also carries a :60, and a
+    truncated response arrives with an empty text body -- which every caller
+    here reads as its own kind of nothing rather than as the ceiling it is.
+    Never below the pair's own ceiling, so no existing job gets less room.
+    """
+    words = sum(d["high"] for d in lengths) or _PAIR_WORDS
+    return max(_PAIR_TOKENS, int(_PAIR_TOKENS * words / _PAIR_WORDS))
+
+
 def write_scripts(analysis: dict, brand: dict, customer: dict, tone_id: str,
-                  revision_note: str = "", previous: dict | None = None) -> dict:
-    """Write a matched :15 and :30 in one call so they share a hook."""
+                  revision_note: str = "", previous: dict | None = None,
+                  slots: tuple[str, ...] | list[str] | None = None) -> dict:
+    """Write every length this project asked for in one call, sharing one hook.
+
+    The lengths are the caller's rather than this function's: a project writing
+    a :15/:30 pair and one writing all three both come through here, and the
+    JSON shape asked for is built from the slots so the model is never asked
+    for a length nobody wants or left to guess at one.
+    """
     tone = tone_by_id(tone_id)
     if not tone:
         raise AIError("Unknown tone.")
     disclaimer = str(customer.get("disclaimer") or "").strip()
 
+    keys = tuple(slots or DEFAULT_SLOTS)
+    lengths = [duration_by_key(k) for k in keys]
+    lengths = [d for d in lengths if d]
+    if not lengths:
+        raise AIError("No slot lengths to write.")
+
     revision_block = ""
     if revision_note:
         prev = previous or {}
+        drafts = "".join(
+            f"{d['label']}: {(prev.get(d['key']) or {}).get('script', '')}\n"
+            for d in lengths)
         revision_block = (
             f"\nThe client reviewed the previous draft and asked for this change:\n"
-            f"\"{revision_note}\"\n\nPREVIOUS DRAFT\n"
-            f"15s: {(prev.get('fifteen') or {}).get('script', '')}\n"
-            f"30s: {(prev.get('thirty') or {}).get('script', '')}\n\n"
-            "Rewrite both lengths honoring the request. Keep everything the "
+            f"\"{revision_note}\"\n\nPREVIOUS DRAFT\n{drafts}\n"
+            "Rewrite every length honoring the request. Keep everything the "
             "client did not object to.")
 
     disclaimer_block = ""
@@ -194,8 +240,8 @@ def write_scripts(analysis: dict, brand: dict, customer: dict, tone_id: str,
         "name is said at least twice in a :30 and at least once in a :15; the call "
         "to action is the last thing heard; you never invent an offer, price, "
         "discount, guarantee or statistic that was not supplied; you never write "
-        "sound effects the client did not ask for; a :15 runs 35-42 words and a "
-        ":30 runs 65-85 words and at least 25 seconds at a natural read pace. Reply as JSON only.",
+        "sound effects the client did not ask for; at a natural read pace "
+        f"{budget_line()}. Reply as JSON only.",
         f"""TONE: {tone['label']} — {tone['direction']}
 
 BRIEF
@@ -214,11 +260,10 @@ REQUIRED: {identity_rule}
 Return JSON:
 {{
   "hook": "the shared opening idea in a few words",
-  "fifteen": {{"script":"the :15 read, plain spoken text only","wordCount":0,"estimatedSeconds":15,"notes":"one line of direction for the voice talent"}},
-  "thirty": {{"script":"the :30 read, plain spoken text only","wordCount":0,"estimatedSeconds":30,"notes":"one line of direction for the voice talent"}}
+{_slot_schema(lengths)}
 }}
 The script fields contain only words to be spoken. No labels, no "VO:", no timestamps, no stage directions.""",
-        max_tokens=1400)
+        max_tokens=_script_tokens(lengths))
 
 
 def tighten_script(script: str, seconds: int, trim_words: int, tone_id: str,

@@ -300,6 +300,21 @@ class Settings:
         "Smart1Hub/1.0 (+https://smart1.agency; proposal target maps)"))
     map_enabled: bool = field(default_factory=lambda: _b("PROPOSAL_MAP", True))
 
+    # ---- the HyperFrames render service ----
+    # Not a provider key. HyperFrames is open-source and self-hosted, so there
+    # is nothing to authenticate to a vendor -- what this names is the origin
+    # of `hf-render-service`, the Node/FFmpeg/headless-Chrome sidecar that
+    # holds the two composition templates. Deliberately NOT in ALIASES: that
+    # table is for names that have already drifted, and a speculative second
+    # spelling for a variable nobody has set yet is the thing its own note
+    # warns against.
+    #
+    # Unset is the ordinary state and is not a fault. Paint animation and Vox
+    # explainers hide themselves rather than erroring -- `hub/hyperframes.py`
+    # answers "not measured" and every screen that offers them asks first.
+    hf_render_service_url: str = field(default_factory=lambda: _s("HF_RENDER_SERVICE_URL"))
+    hf_render_enabled: bool = field(default_factory=lambda: _b("HF_RENDER_ENABLED", True))
+
     # ---- behaviour ----
     ai_usage_log: bool = field(default_factory=lambda: _b("HUB_AI_USAGE_LOG", True))
 
@@ -593,6 +608,10 @@ class Settings:
                 f"{self.spellings('elevenlabs_key')} — commercial voiceover runs in mock mode without it."),
             row("Creatomate", bool(self.creatomate_key), False,
                 f"{self.spellings('creatomate_key')} — commercials cannot be rendered without it."),
+            row("HyperFrames render service", bool(self.hf_render_service_url), False,
+                "HF_RENDER_SERVICE_URL — paint animations and Vox explainers "
+                "hide themselves without it. Self-hosted, so there is no key to "
+                "set; HF_RENDER_ENABLED=0 switches both off with one answered."),
             row("Knack", bool(self.knack_app_id and self.knack_api_key), False,
                 "KNACK_APP_ID / KNACK_API_KEY — client registry."),
             row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False,

@@ -53,6 +53,7 @@
     "suite": "Suite", "google": "Google Finder", "clients": "Clients",
     // Creative
     "display-ads": "Display Ad Builder", "image-creator": "Image Creator",
+    "magic-resize": "Magic Resize",
     "image": "Image Optimizer & Resizer", "bg-remover": "Background Remover",
     "page-images": "Page Image Optimizer", "image-picker": "Client Image Uploads",
     "seo-images": "SEO Image Pipeline", "landing-ads": "Landing Page Ads",
@@ -60,11 +61,12 @@
     // "Video Search", not "Video Backgrounds": the mount kept its name so
     // every existing link still resolves, and the tool did not.
     "video-backgrounds": "Video Search",
+    "paint-animation": "Paint Animation", "vox-explainer": "Vox Explainer",
     // Two tools from modules/video_tools. Spelled out rather than left to
     // pretty(), which would title-case the segment into "Dead Air" and drop
     // the noun that says what the tool does.
     "dead-air": "Dead Air Cutter", "vertical-reframe": "Vertical Reframe",
-    "radio-promo": "Radio Promo", "fan-radio": "Fan Radio",
+    "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
     // Tools
     "website-audit": "Website Audit", "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
@@ -133,11 +135,12 @@
   // URLs stayed under /tools/, so the trail kept sending people back to a page
   // their tool is no longer listed on. Display Ad Builder and Stock Photo
   // Search joined them later and were missed for the same reason.
-  var CREATIVE = ["seo-images", "image-creator", "bg-remover", "image",
+  var CREATIVE = ["seo-images", "image-creator", "magic-resize", "bg-remover", "image",
                   "image-picker", "radio-promo", "fan-radio", "landing-ads",
                   "page-images", "commercial-builder", "display-ads",
                   "stock-photos", "video-backgrounds", "dead-air",
-                  "vertical-reframe"];
+                  "vertical-reframe", "paint-animation",
+                  "vox-explainer"];
   CREATIVE.forEach(function (k) { PARENT[k] = ["/creative", "Creative"]; });
 
   function pretty(seg) {

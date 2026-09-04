@@ -104,7 +104,7 @@ from modules.radio_promo import app as promo_app              # noqa: E402
 from modules.radio_promo import speech as promo_speech        # noqa: E402
 from modules.radio_promo import store as promo_store          # noqa: E402
 from modules.radio_promo.catalog import (DURATIONS, TONES,     # noqa: E402
-                                         duration_by_key, tone_by_id)
+                                         duration_by_key, slots_of, tone_by_id)
 
 fan = fan_app.app.test_client()
 promo = promo_app.app.test_client()
@@ -599,11 +599,23 @@ section("The word budgets the two tools quote are the same clock")
 # =====================================================================
 # A script written in one and moved to the other must not need re-timing.
 
-check("Radio Promo sells two slots", [d["key"] for d in DURATIONS],
-      ["fifteen", "thirty"])
-check("Fan Radio sells the same two lengths", fan_catalog.LENGTH_IDS, [15, 30])
-check("and they agree that a :15 and a :30 are what a radio spot is",
-      sorted(d["seconds"] for d in DURATIONS), fan_catalog.LENGTH_IDS)
+check("Radio Promo sells three slots", [d["key"] for d in DURATIONS],
+      ["fifteen", "thirty", "sixty"])
+# The :60 is Radio Promo's alone, and opt-in. Fan Radio sells football
+# dayparts, where a :60 is not a unit anybody buys -- so the two catalogues
+# are deliberately NOT the same set any more, and asserting that they are
+# would be asserting that neither tool may ever sell a length the other does
+# not. What still has to hold is the pair they share.
+check("a project asks for the pair unless it says otherwise",
+      list(slots_of({})), ["fifteen", "thirty"])
+check("and the :60 is asked for rather than assumed",
+      list(slots_of({"slots": ["fifteen", "thirty", "sixty"]})),
+      ["fifteen", "thirty", "sixty"])
+check("Fan Radio sells the two lengths a daypart buys", fan_catalog.LENGTH_IDS,
+      [15, 30])
+check("and every length Fan Radio sells, Radio Promo also sells",
+      [s for s in fan_catalog.LENGTH_IDS
+       if s in [d["seconds"] for d in DURATIONS]], fan_catalog.LENGTH_IDS)
 
 # They are budgets, not limits, and the numbers are deliberately close
 # rather than identical — Radio Promo's are the studio's, measured at a
@@ -719,7 +731,15 @@ section("Both tools are findable")
 
 creative = (ROOT / "hub" / "templates" / "creative.html").read_text()
 check("Radio Promo has a tile", 'href="/tools/radio-promo/"' in creative, True)
-check("and it is named", "<h3>Radio Promo</h3>" in creative, True)
+# The tile reads "Radio Ad Creator" -- the general radio tool, named for what
+# it makes rather than for a promotion. The mount, the help keys, the log name
+# and the Cloudinary folder are all still `radio_promo`, deliberately: renaming
+# the mount breaks every link in a rep's history, renaming a help key orphans
+# the bubble, and renaming the log name orphans every row already on disk.
+check("and it is named for what it makes",
+      "<h3>Radio Ad Creator</h3>" in creative, True)
+check("while the mount it is reached at has not moved",
+      'href="/tools/radio-promo/"' in creative, True)
 check("Fan Radio has a tile", 'href="/tools/fan-radio/"' in creative, True)
 check("and it is named", "<h3>Fan Radio</h3>" in creative, True)
 

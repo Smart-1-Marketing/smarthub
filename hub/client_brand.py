@@ -30,6 +30,7 @@ from hub import audit, seo
 WORK_KINDS = {
     "seo_images":           ("Images optimized", "SEO Image Pipeline"),
     "image_creator":        ("Graphic created", "Image Creator"),
+    "magic_resize":         ("Ad set resized", "Magic Resize"),
     "image_picker":         ("Images added to library", "Image Picker"),
     "page_image_optimizer": ("Page images fixed", "Page Image Optimizer"),
     "bg_remover":           ("Cut-out produced", "Background Remover"),
@@ -50,6 +51,12 @@ WORK_KINDS = {
     "display_ads":          ("Display ads", "Display Ad Builder"),
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
+    # The two HyperFrames tools. Their own names rather than folded into
+    # commercial_builder: both are also reachable inside that wizard, but a
+    # standalone paint animation is not a commercial and reading as one on a
+    # client's record would say we made them a spot we did not.
+    "paint_animation":      ("Paint animation", "Paint Animation"),
+    "vox_explainer":        ("Explainer video", "Vox Explainer"),
     # Both Video Tools log under one name, because they file one kind of thing
     # against a client: a cut of their video, saved into their library. The
     # tool that made it is on the row; splitting the table by it would put two

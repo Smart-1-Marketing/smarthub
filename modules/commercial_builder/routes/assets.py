@@ -9,6 +9,7 @@ from ..config import ASSET_SOURCE_PRIORITY
 from ..db import db
 from ..models import Client, CommercialProject, Scene
 from ..services import openai_service, cloudinary_service, runway_service
+from hub import hyperframes
 
 bp = Blueprint("cb_assets", __name__, url_prefix="/api")
 
@@ -246,4 +247,136 @@ def ai_video_status(project_id, scene_id):
     return jsonify({"ok": status.get("status") != "failed", "status": status.get("status"),
                     "attached": bool(meta.get("runway_url")),
                     "error": status.get("error"), "mock": status.get("_mock", False),
+                    "scene": scene.to_dict()})
+
+
+# ---------------------------------------------------------------------------
+# Paint animation — the sixth way a scene gets its visual (HyperFrames).
+#
+# Deliberately a *source* beside stock, AI, the spokesperson, an upload and a
+# client asset, and never a replacement for any of them: this is a treatment,
+# so it is a choice for a logo reveal, a hand-drawn underline under an offer,
+# or a brand-story open — not something to put on every scene. The two
+# buttons above it are one ordered pair because Runway cannot run before a
+# frame exists; this one has no such dependency, which is why it sits with
+# the other sources rather than being bolted onto that pair.
+#
+# Same asynchronous shape as HeyGen and Runway, and for the same reason: a
+# render here is headless Chrome capturing frames and takes minutes. The
+# status route is what attaches the clip, so closing the tab does not lose it.
+# ---------------------------------------------------------------------------
+@bp.post("/projects/<int:project_id>/scenes/<int:scene_id>/generate-paint")
+def generate_paint_animation(project_id, scene_id):
+    scene = Scene.query.filter_by(id=scene_id, project_id=project_id).first_or_404()
+    project = CommercialProject.query.get_or_404(project_id)
+    client = Client.query.get_or_404(project.client_id)
+    data = request.get_json(force=True) or {}
+
+    if not hyperframes.is_configured():
+        # Not an error. The feature is switched off for this deployment and
+        # says so, rather than reading as a button that broke.
+        return jsonify({"ok": False, "error": hyperframes.why_unavailable(),
+                        "configured": False}), 503
+
+    # The scene's own length drives the clip, which is the `data-duration`
+    # contract `@hyperframes/core` documents — so the animation covers the
+    # scene rather than being trimmed to fit it, which is what leaves a
+    # segment running out and going black.
+    seconds = float((scene.end or 0) - (scene.start or 0)) or 5.0
+    # What gets painted: an explicit choice, else the picture this scene
+    # already has, else its narration. A paint-on treatment of an image the
+    # rep has already approved is the common case.
+    image_url = data.get("image_url")
+    if image_url is None:
+        image_url = scene.asset_url if (scene.asset_meta or {}).get("media") != "video" else ""
+    text = data.get("text")
+    if text is None:
+        text = "" if image_url else (scene.narration or scene.visual_description or "")
+
+    refusal = hyperframes.paint_refusal(text=text, image_url=image_url, seconds=seconds)
+    if refusal:
+        return jsonify({"ok": False, "error": refusal, "configured": True}), 400
+
+    client_dict = client.to_dict()
+    params = hyperframes.paint_params(
+        text=text, image_url=image_url, style=data.get("style"), seconds=seconds,
+        format_id=_primary_format(project),
+        brand_colors=[c for c in (client_dict.get("brand_colors") or []) if c])
+    job = hyperframes.submit("paint-animation", params)
+
+    meta = dict(scene.asset_meta or {})
+    meta["paint_job"] = job
+    scene.asset_meta = meta
+    db.session.commit()
+
+    if job.get("status") != "failed":
+        _cb_log("paint_animation_generated", client=client.name,
+                detail=f"Scene {scene.order_index + 1} · {params['style']} "
+                       f"· {params['durationSeconds']}s", project=project.id)
+
+    code = 502 if job.get("status") == "failed" else 200
+    return jsonify({"ok": job.get("status") != "failed", "job": job,
+                    "error": job.get("error"), "scene": scene.to_dict(),
+                    "configured": True}), code
+
+
+@bp.get("/projects/<int:project_id>/scenes/<int:scene_id>/generate-paint/status")
+def paint_animation_status(project_id, scene_id):
+    """Polls the scene's paint render and attaches the clip when it lands.
+
+    The write-through is the point, exactly as it is for a spokesperson clip
+    and an AI video: any request for the status attaches a finished render, so
+    closing the tab does not lose minutes of rendering nobody will start again.
+    """
+    scene = Scene.query.filter_by(id=scene_id, project_id=project_id).first_or_404()
+    job = (scene.asset_meta or {}).get("paint_job") or {}
+    if not job:
+        return jsonify({"ok": False, "error": "No paint animation has been "
+                                              "generated for this scene."}), 404
+
+    meta = dict(scene.asset_meta or {})
+    if meta.get("paint_url"):
+        return jsonify({"ok": True, "status": "done", "attached": True,
+                        "scene": scene.to_dict()})
+    if job.get("status") == "failed":
+        return jsonify({"ok": False, "status": "failed", "attached": False,
+                        "error": job.get("error"), "scene": scene.to_dict()})
+
+    state = hyperframes.status(job.get("job_id"))
+    meta["paint_job"] = {**job, **state}
+
+    # `is_deliverable` rather than a truthy url: a mock render reports success
+    # and produces no file, and attaching one is a scene that looks finished
+    # and renders nothing — the refusal `approve_render` already makes.
+    if hyperframes.is_deliverable(state):
+        project = CommercialProject.query.get(project_id)
+        client = Client.query.get(project.client_id) if project else None
+        stored = cloudinary_service.upload_asset(
+            state["url"], client.slug if client else "unassigned", "video",
+            public_id=f"paint-p{project_id}-s{scene_id}")
+        # The render service's own file is on its disk behind a retention
+        # sweep. Fall back to it if the mirror failed, and record that so the
+        # storyboard can say the link will not last.
+        url = stored.get("secure_url") or state["url"]
+        meta["paint_url"] = url
+        meta["paint_mirrored"] = bool(stored.get("secure_url")) and not stored.get("_mock")
+        if stored.get("error"):
+            meta["paint_mirror_error"] = stored["error"]
+        meta["clip_seconds"] = state.get("duration_seconds") \
+            or (job.get("params") or {}).get("durationSeconds")
+        meta["media"] = "video"
+        scene.asset_type = "paint_animation"
+        scene.asset_source = "hyperframes"
+        scene.asset_url = url
+        if client:
+            _cb_log("paint_animation_ready", client=client.name,
+                    detail=f"Scene {scene.order_index + 1}", project=project_id)
+
+    scene.asset_meta = meta
+    db.session.commit()
+    return jsonify({"ok": state.get("status") != "failed",
+                    "status": state.get("status"),
+                    "attached": bool(meta.get("paint_url")),
+                    "error": state.get("error"),
+                    "mock": bool(state.get("_mock")),
                     "scene": scene.to_dict()})

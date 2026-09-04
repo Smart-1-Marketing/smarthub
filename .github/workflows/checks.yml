@@ -291,6 +291,23 @@ jobs:
             echo "test_commercial_providers.py not on this branch — nothing to run."
           fi
 
+      - name: HyperFrames render service tests
+        # The two HyperFrames skills -- paint animation and the Vox explainer --
+        # and the sidecar renderer both ride on. Unlike every other provider
+        # here that is a self-hosted service rather than a hosted API, so the
+        # failures are its own: a mock that reports success and produces no
+        # file, a beat list a model wrote that the template cannot read, and a
+        # storyboard QC gate refusing a spot that has no storyboard.
+        #
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_hyperframes.py ]; then
+            python test_hyperframes.py
+          else
+            echo "test_hyperframes.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder wizard tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -1557,6 +1574,27 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      # The Radio Ad Creator's second half: the music bed, the mix, the checks
+      # and variations. What was live before it is the shape this repo keeps
+      # undoing -- the Music step saved a text prompt and played three
+      # oscillators at a pitch chosen by a regex over that prompt, so a bed
+      # could be picked, "heard", and filed with silence under the voice, with
+      # every screen reporting success. A bed is composed by ElevenLabs to the
+      # spot's own length now, through hub/radio_spec.py, which reads
+      # Commercial Builder's one music table rather than keeping a second copy
+      # of the dB pairs. The mix is rendered in the browser -- there is still no
+      # ffmpeg, ffprobe, pydub or numpy in this runtime, which is exactly why
+      # this module shipped without beds -- so the encoder is lifted out of the
+      # template and driven in node against the server's own WAV probe: if
+      # those two ever disagree, every mix is refused and the step is dead.
+      # This also holds that not_measured is never folded into pass, that a
+      # described-only or mock bed stops a mix being filed, that an override
+      # needs a reason and a name, that the audio the browser reads back is
+      # only what the project's own row recorded, and that a variation carries
+      # the scripts without the audio.
+      - name: Radio Ad Creator — beds composed, the mix measured off the file
+        run: python3 test_radio_ads.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were
@@ -1615,6 +1653,15 @@ jobs:
       # is not. Lifts the resolution block out of the page and runs it in node.
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
+
+      # One design into the whole size set. The failure it exists to catch is
+      # a resize that produced a broken ad and reported success -- silent from
+      # every direction, because the frame renders and the file uploads and it
+      # is the client who sees a headline printed through a button. Also holds
+      # the two halves of the propagation rule, which fail in opposite
+      # directions: copy must reach a hand-tuned frame and layout must not.
+      - name: One design, the whole size set
+        run: python3 test_magic_resize.py
 
       # The primitives four screens of one product share. It also walks the
       # rendered HTML to assert the page wrapper still contains the page: one
