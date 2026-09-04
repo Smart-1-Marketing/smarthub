@@ -2024,6 +2024,19 @@ def test_carry():
     check("and the master is what the first tuned size becomes",
           "o.authoredFor = state.size" in build)
 
+    # ---- and the heading says which of the two it is ----------------------
+    # The panel is headed "Text boxes -- every size", which is true on the size
+    # the adjustments were authored on and false on one that was carried into:
+    # there an edit is a correction to that size alone. A control that quietly
+    # changes what it applies to, under a heading still claiming the whole set,
+    # is the silent mode switch the copy scope toggle exists to avoid one field
+    # over -- and the function that answers it shipped unused for a commit,
+    # which is how a heading comes to describe the wrong half.
+    check("the panel heading is the mode rather than a fixed claim",
+          "carriedHere()" in build and "Text boxes \\u2014 ' + esc(state.size) + ' only" in build)
+    check("and the help on a carried size names where its design came from",
+          "carried across " in build and "carried nowhere else" in build)
+
     # ---- what carries, and what is left to each canvas ---------------------
     for fn in ("styleForSize", "carriedInto", "needsReview"):
         check(f"carry.ts exports {fn}", f"export function {fn}" in carry)

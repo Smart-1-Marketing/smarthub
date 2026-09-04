@@ -1088,11 +1088,25 @@
       // from them. Saying which size they belonged to made a person set a
       // type size to suit the leaderboard and shrink the skyscraper with it,
       // with the panel insisting it had only touched one.
-      '<div class="group"><h3>Text boxes \u2014 every size' +
-        help('Unlike the copy above, these apply to the whole set. "Layout" ' +
-             'means use the layout\u2019s own setting. Sizes are a ceiling \u2014 long ' +
-             'copy still shrinks to fit. Width is where the line wraps, and is ' +
-             'capped at the edge of the ad.') + '</h3>' +
+      // The heading is the mode. On the size these adjustments were authored
+      // on, an edit reaches the whole set; on a size that was CARRIED into, it
+      // is a correction to that size alone -- and a control that quietly
+      // changes what it applies to, under a heading still saying "every size",
+      // is the silent mode switch the copy scope toggle exists to avoid one
+      // field over.
+      '<div class="group"><h3>' + (carriedHere()
+        ? 'Text boxes \u2014 ' + esc(state.size) + ' only'
+        : 'Text boxes \u2014 every size') +
+        help(carriedHere()
+          ? 'This size takes its adjustments from ' +
+            esc((concept().styleOverrides || {}).authoredFor) + ', carried across ' +
+            'in proportion. Changing anything here corrects THIS size and is ' +
+            'carried nowhere else, so the rest of the set is left as it is. ' +
+            '"Put it back" drops the correction and the carried value returns.'
+          : 'Unlike the copy above, these apply to the whole set. "Layout" ' +
+            'means use the layout\u2019s own setting. Sizes are a ceiling \u2014 long ' +
+            'copy still shrinks to fit. Width is where the line wraps, and is ' +
+            'capped at the edge of the ad.') + '</h3>' +
         blockStyleControls() + panelControls() + logoStyleControls() +
         '</div>';
 
