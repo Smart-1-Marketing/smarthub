@@ -132,6 +132,11 @@ PRODUCERS = [
      "module": "modules/commercial_builder/services/cloudinary_service.py",
      "makes": "create",
      "why": "Stills and spokesperson frames in a commercial."},
+    {"key": "video_backgrounds", "label": "Video Search",
+     "provider": ["video_library", "pexels", "pixabay", "coverr"],
+     "module": "modules/video_backgrounds/app.py", "makes": "choose",
+     "why": "Footage found in the owned library or free stock, saved to a "
+            "client's gallery under Video Searches."},
 ]
 
 

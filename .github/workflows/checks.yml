@@ -1164,6 +1164,16 @@ jobs:
             echo "test_video_library.py not on this branch — nothing to run."
           fi
 
+      - name: Video Search gallery tests
+        # Same shape as the step above: this file also sets its own throwaway
+        # DATABASE_URL and HUB_DATA_DIR, so it is safe to re-run.
+        run: |
+          if [ -f test_video_search_gallery.py ]; then
+            python test_video_search_gallery.py
+          else
+            echo "test_video_search_gallery.py not on this branch — nothing to run."
+          fi
+
       - name: Video Tools tests
         # Dead Air Cutter and Vertical Reframe. No network: every decision the
         # module makes lives in pure functions handed synthetic waveforms and

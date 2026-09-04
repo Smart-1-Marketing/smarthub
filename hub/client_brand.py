@@ -132,6 +132,10 @@ WORK_KINDS = {
     # the website client, so keep them visible on the same Client 360 record
     # as the ads and landing pages they support.
     "smartforecast":        ("Weather campaign updated", "SmartForecast"),
+    # Footage a rep found and saved into the client's gallery -- owned library
+    # or a Coverr/Pexels/Pixabay clip. Creative picked for a client is work,
+    # the same reasoning `stock_photos` above is already here for.
+    "video_backgrounds":    ("Video saved", "Video Search"),
 }
 
 # The other side of the same question, written down rather than left as an

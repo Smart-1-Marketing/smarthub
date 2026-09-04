@@ -326,6 +326,14 @@
             ? '<span style="display:flex;width:64px;height:48px;align-items:center;' +
               'justify-content:center;border:1px solid var(--line);border-radius:7px;' +
               'font-size:20px;background:var(--paper)">&#128196;</span>'
+            /* A video has no image thumbnail -- preview_url() only ever
+               rewrites an /image/upload/ URL, so im.thumb is the untouched
+               master here. An <img> pointed at a video file shows nothing;
+               a muted, posterless <video> at least shows the first frame. */
+            : im.resource_type === "video"
+            ? '<video muted playsinline preload="metadata" src="' + esc(im.url) +
+              '" style="width:64px;height:48px;object-fit:cover;border-radius:7px;' +
+              'display:block;background:#0f172a"></video>'
             : '<img src="' + esc(im.thumb || im.url) + '" alt="" style="width:64px;height:48px;object-fit:cover;border-radius:7px;display:block">') +
           '</a></td>' +
         '<td><strong>' + esc(im.filename) + '</strong><br>' +
