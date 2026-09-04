@@ -106,7 +106,7 @@ async function loadAccess(){
     return true;
   }
   const fix = a.reason === "refused" || a.reason === "reauth"
-    ? ' <a href="/google/access">Reconnect that login on Google Access &rarr;</a>' : "";
+    ? ' <a href="/google/login">Reconnect that login on Google Finder &rarr;</a>' : "";
   box.innerHTML = `<div class="note bad"><b>Drive cannot be read.</b> `
     + esc(a.detail || a.error || "") + fix + `</div>`;
   return false;

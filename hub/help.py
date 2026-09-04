@@ -431,7 +431,7 @@ REGISTRY: list[Help] = [
        "grant is whatever the person agreed to on the day they connected. So "
        "an account that has not been reconnected since cannot read Drive at "
        "all, and this page says so rather than reporting an empty folder. "
-       "Reconnecting the login on Google Access re-consents it, which is one "
+       "Reconnecting the login on Google Finder re-consents it, which is one "
        "click."),
     _h("hub.ad_assets.dryrun", "Look before it copies",
        "The dry run authenticates, walks every folder and lists exactly what "

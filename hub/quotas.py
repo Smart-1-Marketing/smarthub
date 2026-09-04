@@ -1038,6 +1038,11 @@ GOOGLE_APIS: dict[str, tuple[str, int, str, str]] = {
               "Token refreshes and userinfo. Free and effectively unmetered, "
               "but a sudden climb here means tokens are being refreshed far "
               "more often than they expire."),
+    "drive": ("Drive API", 0, "GOOGLE_DRIVE_DAILY_QUOTA",
+              "Read-only, for hub/ad_assets.py copying campaign creative out "
+              "of Drive. Google publishes a per-user rate limit rather than a "
+              "flat daily one, so this is counted and not capped unless "
+              "GOOGLE_DRIVE_DAILY_QUOTA is set."),
     "other": ("Other Google APIs", 0, "", "Anything not matched above."),
 }
 
@@ -1067,6 +1072,8 @@ def google_api_of(url: str) -> str:
         return "gsc"
     if "/webfonts" in u:
         return "fonts"
+    if "/drive/" in u:
+        return "drive"
     if "/oauth2/" in u or "userinfo" in u or "tokeninfo" in u:
         return "oauth"
     # Deliberately a bucket rather than a guess. An unrecognised Google host

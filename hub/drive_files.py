@@ -169,7 +169,7 @@ def access(email: str = "") -> dict:
         last = {"ok": False, "reason": "refused", "email": acc["email"],
                 "token": "", "detail":
                 f"{acc['email']} was connected before Drive access was asked "
-                f"for. Reconnect that login on Google Access and it will be "
+                f"for. Reconnect that login on Google Finder and it will be "
                 f"granted -- Google never widens a token that already exists."}
     return last
 
@@ -181,13 +181,15 @@ def _has_drive(token: str) -> bool:
     was minted from a *grant*, and the grant is whatever the person consented
     to on the day they connected.
     """
+    url = "https://www.googleapis.com/oauth2/v3/tokeninfo"
     try:
-        r = requests.get("https://www.googleapis.com/oauth2/v3/tokeninfo",
-                         params={"access_token": token}, timeout=10)
+        r = requests.get(url, params={"access_token": token}, timeout=10)
+        _note_google(url, ok=r.ok)
         if not r.ok:
             return False
         return DRIVE_SCOPE in str((r.json() or {}).get("scope") or "")
     except Exception:                                   # noqa: BLE001
+        _note_google(url, ok=False)
         return False
 
 
@@ -195,9 +197,27 @@ def _has_drive(token: str) -> bool:
 # Reading
 # ---------------------------------------------------------------------------
 
+def _note_google(url: str, ok: bool = True) -> None:
+    """Count one Google API call against the daily quota shown on /diagnostics.
+
+    The same shape as google_finder's own `_note_google` — filed by URL, so
+    `quotas.google_api_of()` buckets it under "drive" rather than the total
+    disappearing into "other". Called whatever the response was: a 403 or a
+    429 still spent a request against the quota, and those are in fact the
+    calls most worth counting, since they are what a spent quota looks like.
+    """
+    try:
+        from hub import quotas
+        quotas.record_google(url, module="ad_assets", ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def _get(token: str, path: str, **params):
-    r = requests.get(f"{API}{path}", params=params,
+    url = f"{API}{path}"
+    r = requests.get(url, params=params,
                      headers={"Authorization": f"Bearer {token}"}, timeout=45)
+    _note_google(url, ok=r.ok)
     if r.status_code in (401, 403):
         raise DriveRefused("refused", f"Drive refused this file (HTTP "
                                       f"{r.status_code}). It may not be shared "
