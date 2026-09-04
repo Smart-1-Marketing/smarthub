@@ -513,9 +513,16 @@ function render(g,q){
   } else html+='<div class="empty">No GTM container on record for this client.</div>';
   html+='</div></div>';
 
-  // ---------- Social Media + Client Notes (one row, two columns) ----------
+  // ---------- Social Media + Tracked links (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  /* Tracked links sits beside Social Media because the two answer the same
+     question — where this client's traffic is being sent from — and a rep
+     reading the profile URLs is the one who wants the tagged link. It used to
+     live eight cards further down, next to nothing. */
+  html+=`<div class="card"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0f2fe;color:#075985">UTM</span><h3>Tracked links</h3>
+    <div class="right"><a class="gbtn" href="/tools/utm/" target="_blank">Build links &rarr;</a></div></div>
+    <div class="card-b" id="c-utm"><div class="empty">Loading…</div></div></div>`;
 
   // ---------- Social content: what this client has asked us for ----------
   // The Social Media card above is their profile URLs. This is the work:
@@ -555,10 +562,7 @@ function render(g,q){
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
     <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
 
-  html+=`<div class="card"><div class="card-h">
-    <span class="src-tag src-web" style="background:#e0f2fe;color:#075985">UTM</span><h3>Tracked links</h3>
-    <div class="right"><a class="mini" href="/tools/utm/" target="_blank">Build links &rarr;</a></div></div>
-    <div class="card-b" id="c-utm"><div class="empty">Loading…</div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
     <span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">SUITE</span><h3>Form submissions</h3>
@@ -1469,8 +1473,7 @@ function render(g,q){
         inv.map(i=>`<tr><td><b>${esc(i.doc_number||i.id)}</b></td><td>${esc(i.date||'')}</td><td class="muted">${esc(i.due_date||'')}</td><td>${money(i.total)}</td><td>${Number(i.balance)>0?money(i.balance):'—'}</td><td><span class="pill ${i.status==='Paid'?'ok':(i.status==='Overdue'?'err':'warn')}">${esc(i.status)}</span></td><td>${i.public_link
         ? '<a class="gbtn" href="'+esc(i.link)+'" target="_blank" rel="noopener" '+
           'title="Opens without a QuickBooks login — safe to send to the client">Customer link &#8599;</a>'+
-          ' <button class="btn-ghost" style="padding:2px 7px;font-size:11px" '+
-          'onclick="navigator.clipboard.writeText(\''+esc(i.link)+'\');this.textContent=\'copied\'">copy</button>'
+          ' <button class="gbtn" data-copy-url="'+esc(i.link)+'">Copy</button>'
         : '<a class="gbtn" href="'+esc(i.link)+'" target="_blank" rel="noopener" '+
           'title="QuickBooks app — needs a login. No public link cached for this invoice yet.">Open in QB &#8599;</a>'}</td></tr>`).join('')+'</tbody></table>';
       return h;
@@ -2454,13 +2457,23 @@ function clientUploadLink(name, web0){
   }
 }
 
+/* One delegated handler for every "Copy" button that carries its own url, so a
+   card can render one without also wiring a listener for it. */
+document.addEventListener('click', function(ev){
+  var b = ev.target && ev.target.closest ? ev.target.closest('button[data-copy-url]') : null;
+  if(!b) return;
+  ev.preventDefault();
+  copyToClipboard(b.getAttribute('data-copy-url'), b);
+});
+
 /* navigator.clipboard is not available on http and is allowed to refuse, and
    a button that reports a copy it never made is worse than one that asks. */
-function copyToClipboard(text, btn){
+function copyToClipboard(text, btn, fieldId){
+  function field(){ return document.getElementById(fieldId || 'c-uplink-url'); }
   function done(){ var was = btn.textContent; btn.textContent = 'Copied \u2713';
                    setTimeout(function(){ btn.textContent = was; }, 1400); }
   function manual(){
-    var f = document.getElementById('c-uplink-url');
+    var f = field();
     if(f){ f.focus(); f.select(); }
     btn.textContent = 'Press Ctrl-C';
   }
@@ -2473,7 +2486,7 @@ function copyToClipboard(text, btn){
   fallback();
   function fallback(){
     try{
-      var f = document.getElementById('c-uplink-url');
+      var f = field();
       if(f){ f.focus(); f.select(); if(document.execCommand('copy')){ done(); return; } }
     }catch(e){}
     manual();
@@ -2687,8 +2700,8 @@ function loadClientLinks(name){
     if(!d||!d.ok){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';return;}
     var open=document.getElementById('c-client-links-open'); if(open)open.href=d.url;
     var items=(d.links||[]).map(x=>'<li><b>'+esc(x.kind||'Proof')+'</b> · <a href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(x.label)+' →</a></li>').join('')||'<li class="muted">No client links yet. Add a proof below or create an upload gallery.</li>';
-    box.innerHTML='<p class="muted" style="font-size:12px;margin-top:0">Navigation-free Smart 1 Marketing page to send the client.</p><div style="display:flex;gap:7px;flex-wrap:wrap"><input readonly value="'+esc(d.url)+'" id="c-client-links-url" style="flex:1;min-width:230px;padding:7px"><button class="mini" id="c-client-links-copy">Copy page link</button></div><ul>'+items+'</ul><details><summary>Add a client-safe proof link</summary><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><input id="c-proof-label" placeholder="Proof label"><input id="c-proof-url" placeholder="https://…" style="flex:1"><button class="mini" id="c-proof-add">Add</button></div></details>';
-    document.getElementById('c-client-links-copy').onclick=function(){copyToClipboard(d.url,this);};
+    box.innerHTML='<p class="muted" style="font-size:12px;margin-top:0">Navigation-free Smart 1 Marketing page to send the client.</p><div style="display:flex;gap:7px;flex-wrap:wrap"><input readonly value="'+esc(d.url)+'" id="c-client-links-url" style="flex:1;min-width:230px;padding:7px"><button class="gbtn" id="c-client-links-copy">Copy page link</button></div><ul>'+items+'</ul><details><summary>Add a client-safe proof link</summary><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><input id="c-proof-label" placeholder="Proof label"><input id="c-proof-url" placeholder="https://…" style="flex:1"><button class="gbtn" id="c-proof-add">Add</button></div></details>';
+    document.getElementById('c-client-links-copy').onclick=function(){copyToClipboard(d.url,this,'c-client-links-url');};
     document.getElementById('c-proof-add').onclick=function(){fetch('/api/client/client-links',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,label:document.getElementById('c-proof-label').value,url:document.getElementById('c-proof-url').value})}).then(r=>r.json()).then(x=>x.ok?loadClientLinks(name):alert(x.error||'Could not add that link.'));};
   }).catch(function(){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';});
 }
@@ -2739,11 +2752,13 @@ function renderUtm(d){
         '<div class="muted" style="font-size:11.5px">'+esc(l.source||'')+
         (l.medium?' / '+esc(l.medium):'')+'</div></td>'+
         '<td style="padding:5px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
-        '<button class="mini" onclick="navigator.clipboard.writeText('+
-        JSON.stringify(l.url||'')+');this.textContent=\'copied\'">copy</button></td></tr>';
+        '<button class="gbtn" data-utm-url="'+esc(l.url||'')+'">Copy</button></td></tr>';
     }).join('')+'</table>'+
     (d.count>12?'<div class="muted" style="font-size:11.5px;margin-top:6px">'+
       (d.count-12)+' more in the UTM Builder.</div>':'');
+  el.querySelectorAll('button[data-utm-url]').forEach(function(b){
+    b.onclick=function(){ copyToClipboard(b.getAttribute('data-utm-url'), b); };
+  });
 }
 
 

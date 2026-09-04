@@ -1821,6 +1821,12 @@ jobs:
         # an all-clear. tools/probe_ghl_saas.py is the read-only live half.
         run: python3 test_ghl_billing.py
 
+      - name: Client 360 Tracked links card and copy controls
+        # Tracked links must render beside Social Media, and every copy button
+        # must be a class the stylesheets define (.mini is not one) going
+        # through copyToClipboard rather than reporting a copy it never made.
+        run: python3 test_client360_utm_card.py
+
       - name: The gate runs every check a person runs
         run: python3 test_ci_gate.py
 
