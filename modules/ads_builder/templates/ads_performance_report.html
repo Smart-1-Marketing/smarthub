@@ -1,0 +1,132 @@
+{# The client's own monthly Google Ads report. Served to somebody with no Hub
+   login, so it carries none of the Hub's chrome, no staff note and no control
+   -- /r/ is in PUBLIC_PREFIXES, which wsgi.py hands to both the AuthGuard and
+   HubBar for exactly that reason. Read-only: there is nothing here for a
+   client to answer, so this page has no write route behind it at all. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Google Ads performance — {{ r.client_name or r.account_name or 'your campaign' }}</title>
+<style>
+  :root { --navy:#0a2240; --blue:#009ed2; --ink:#25364b; --muted:#68798c;
+          --line:#dbe5ed; --good:#2dbb72; --bad:#dc2626 }
+  body { margin:0; background:#eef2f7; color:var(--ink);
+         font:15px/1.6 'Segoe UI', system-ui, -apple-system, sans-serif }
+  .wrap { max-width:44rem; margin:0 auto; padding:24px 18px 48px }
+  .band { background:var(--navy); color:#fff; border-radius:12px 12px 0 0; padding:26px 28px }
+  .band .eyebrow { color:var(--blue); font-size:11px; letter-spacing:.09em;
+                   font-weight:700; text-transform:uppercase }
+  .band h1 { font-size:23px; margin:6px 0 4px }
+  .band p { margin:0; color:#c7d8e8; font-size:13.5px }
+  .card { background:#fff; padding:24px 28px; }
+  .card:last-of-type { border-radius:0 0 12px 12px }
+  h2 { font-size:16px; color:var(--navy); margin:0 0 12px }
+  .row { display:flex; align-items:baseline; gap:12px; padding:9px 0;
+         border-top:1px solid var(--line) }
+  .row:first-of-type { border-top:0 }
+  .row .l { color:var(--muted); flex:1 }
+  .row .v { font-size:19px; font-weight:700 }
+  .row .d { width:6.5rem; text-align:right; font-size:13px; color:var(--muted) }
+  .d.up { color:var(--good) } .d.down { color:var(--bad) }
+  table { width:100%; border-collapse:collapse; font-size:13.5px }
+  th { text-align:right; color:var(--muted); font-size:11.5px; font-weight:700;
+       text-transform:uppercase; letter-spacing:.05em; padding:6px 4px;
+       border-bottom:1px solid var(--line) }
+  th:first-child, td:first-child { text-align:left }
+  td { text-align:right; padding:7px 4px; border-bottom:1px solid var(--line) }
+  .note { color:var(--muted); font-size:12.5px; margin-top:12px }
+  .warn { background:#fff8e6; border-left:3px solid #f0b429; padding:10px 14px;
+          border-radius:0 6px 6px 0; margin-top:12px; font-size:13px }
+  .pdf { display:inline-block; margin-top:14px; background:var(--blue); color:#fff;
+         text-decoration:none; padding:9px 16px; border-radius:7px; font-size:13.5px;
+         font-weight:600 }
+  .foot { color:var(--muted); font-size:12px; margin-top:18px; text-align:center }
+  @media print { body { background:#fff } .pdf { display:none } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="band">
+    <div class="eyebrow">Smart 1 Marketing</div>
+    <h1>{{ r.client_name or r.account_name or 'Google Ads performance' }}</h1>
+    <p>Google Ads performance, {{ r.period_label }}</p>
+  </div>
+
+  {% for section in r.sections or [] %}
+    {% if section.key == 'headline' %}
+      <div class="card">
+        <h2>{{ section.title }}</h2>
+        {% for row in section.rows %}
+          <div class="row">
+            <span class="l">{{ row.label }}</span>
+            <span class="v">
+              {%- if row.value is none -%}not measured
+              {%- elif row.prefix == '$' -%}${{ '%.2f'|format(row.value) }}
+              {%- else -%}{{ '{:,}'.format(row.value) if row.value == row.value|int else '%.1f'|format(row.value) }}
+              {%- endif -%}
+            </span>
+            {# A dash rather than a zero where nothing was compared: a baseline
+               nobody could read printed as 0 makes every figure beside it read
+               "up 100%" over a month that was never counted. #}
+            <span class="d {{ 'up' if row.change_percent is not none and row.change_percent >= 0 else 'down' if row.change_percent is not none }}">
+              {%- if row.change_percent is none -%}—
+              {%- else -%}{{ '%+.1f'|format(row.change_percent) }}%{%- endif -%}
+            </span>
+          </div>
+        {% endfor %}
+        {% if r.compared %}
+          <p class="note">Compared with {{ r.previous_label }}.</p>
+        {% else %}
+          <div class="warn">The previous period could not be read, so nothing on
+            this page is compared with it.</div>
+        {% endif %}
+      </div>
+    {% elif section.key == 'campaigns' %}
+      <div class="card">
+        <h2>{{ section.title }}</h2>
+        {% if section.rows %}
+          <table>
+            <thead><tr><th>Campaign</th><th>Spend</th><th>Clicks</th>
+              <th>Conversions</th><th>Cost / conversion</th></tr></thead>
+            <tbody>
+            {% for row in section.rows %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td>${{ '%.2f'|format(row.cost) }}</td>
+                <td>{{ '{:,}'.format(row.clicks) }}</td>
+                <td>{{ '%.0f'|format(row.conversions) }}</td>
+                <td>{% if row.cost_per_conversion is none %}—{% else %}${{ '%.2f'|format(row.cost_per_conversion) }}{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% if section.note %}<p class="note">{{ section.note }}</p>{% endif %}
+        {% else %}
+          <p class="note">No campaign returned performance in this window.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if r.errors %}
+    {# Named rather than left as a shorter report: a page that quietly loses a
+       section cannot be told from a month with less in it. #}
+    <div class="card">
+      <h2>Not measured</h2>
+      {% for key, message in r.errors.items() %}
+        <p class="note">{{ key }}: {{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <p class="note">{{ r.caveat }}</p>
+    <a class="pdf" href="{{ mount }}/r/{{ token }}.pdf">Download as a PDF</a>
+  </div>
+  <p class="foot">Prepared by Smart 1 Marketing · smart1marketing.com</p>
+</div>
+</body>
+</html>

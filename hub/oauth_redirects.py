@@ -171,6 +171,25 @@ FLOWS = (
         "requires": ("GOOGLE_ADS_DEVELOPER_TOKEN",),
     },
     {
+        "key": "ads_grader",
+        "label": "Ads Grader — a prospect grants read-only Google Ads access",
+        "path": "/tools/ads-grader/oauth/callback",
+        # PUBLIC_BASE_URL, not the browser's host: this one is met by a
+        # stranger who is not our customer yet, and a redirect_uri_mismatch in
+        # front of them fails for a reason that is nothing to do with them.
+        # google_access is the entry this follows; google_finder, which is
+        # host-derived, is the one it must not.
+        "source": "PUBLIC_BASE_URL",
+        "console": GOOGLE_CONSOLE,
+        "client": ("GOOGLE_ADS_CLIENT_ID", "GOOGLE_CLIENT_ID"),
+        "where": "modules/ads_grader/grading.py",
+        "client_facing": True,
+        # Same developer token as Smart 1 Ads: it is per app rather than per
+        # account, so it covers reading a stranger's account the moment they
+        # grant the scope -- and it is the credential with lead time on it.
+        "requires": ("GOOGLE_ADS_DEVELOPER_TOKEN",),
+    },
+    {
         "key": "suite",
         "label": "Smart 1 Suite — HighLevel Marketplace app",
         "path": "/suite/oauth/callback",

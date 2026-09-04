@@ -519,6 +519,15 @@ except Exception as _adsb_exc:  # noqa: BLE001
     traceback.print_exc()
     adsb, adsb_fb = None, _fallback_app("Smart 1 Ads", str(_adsb_exc))
 
+try:
+    import importlib as _il_adsg
+    adsg = _il_adsg.import_module("modules.ads_grader.app")
+    adsg_fb = None
+except Exception as _adsg_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    adsg, adsg_fb = None, _fallback_app("Google Ads Grader", str(_adsg_exc))
+
 
 def _install_error_reporter(flask_app, label):
     """Make every module's 500 name its own cause.
@@ -690,6 +699,11 @@ _SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
 _ADS_PUBLIC = tuple(getattr(adsb, "PUBLIC_PREFIXES", ("/estimate/",))) \
     if adsb else ("/estimate/",)
 
+# The grader is a lead magnet: every page of it is served to a stranger, and
+# there is no staff screen in it at all. Read from the module rather than
+# restated here, so the mount and the module cannot disagree.
+_ADS_GRADER_PUBLIC = tuple(getattr(adsg, "PUBLIC_PREFIXES", ("/",))) if adsg else ("/",)
+
 # And for the Proposal Builder: /sales/builder/p/<token> is the proposal a
 # CLIENT opens and accepts, and a client has no Hub login. Read from the module
 # so the mount and the module cannot drift, and handed to both AuthGuard
@@ -766,6 +780,13 @@ application = DispatcherMiddleware(hub_app, {
     # rather than as a broken tool.
     "/tools/ads": _mount(adsb.app, "/tools/ads",
                          public_prefixes=_ADS_PUBLIC) if adsb else adsb_fb,
+    # A prospect connects their OWN Google Ads account read-only and gets a
+    # score. Entirely public: the whole module is a lead magnet, and the only
+    # credential it ever sees is an online-only access token that lives for
+    # one request and is written nowhere.
+    "/tools/ads-grader": _mount(adsg.app, "/tools/ads-grader",
+                                public_prefixes=_ADS_GRADER_PUBLIC)
+                         if adsg else adsg_fb,
     "/tools/image": _mount(img.app, "/tools/image") if img else img_fb,
     "/tools/pdf": _mount(pdf.app, "/tools/pdf") if pdf else pdf_fb,
     "/tools/io": _mount(iob.app, "/tools/io") if iob else iob_fb,
