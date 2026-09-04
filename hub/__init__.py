@@ -6374,6 +6374,34 @@ def create_hub_app() -> Flask:
                   "/tools/commercial-builder/review/") + PUBLIC_EMBED_PREFIXES
 
     @app.after_request
+    def _compress_response(resp):
+        """Gzip a response body after every other handler has finished with it.
+
+        Registered before _embed_policy and _inject_sidebar_response so it
+        runs LAST: Flask calls after_request handlers in reverse registration
+        order (the same rule _inject_sidebar_response's own comment relies
+        on below), and compressing before either of those ran would have its
+        bytes rewritten out from under it by every splice that follows.
+        """
+        try:
+            if resp.status_code != 200 or resp.direct_passthrough:
+                return resp
+            if resp.headers.get("Content-Encoding"):
+                return resp
+            from . import compress as _compress
+            body = resp.get_data()
+            new_body, did = _compress.compress(
+                body, resp.mimetype or "",
+                request.headers.get("Accept-Encoding", ""))
+            if did:
+                resp.set_data(new_body)
+                resp.headers["Content-Encoding"] = "gzip"
+                resp.headers["Vary"] = _compress.add_vary(resp.headers.get("Vary", ""))
+            return resp
+        except Exception:  # noqa: BLE001 -- never cost a page over its size
+            return resp
+
+    @app.after_request
     def _embed_policy(resp):
         """Who may frame a hub page, and what they get when they do.
 
