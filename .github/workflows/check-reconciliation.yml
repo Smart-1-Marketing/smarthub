@@ -1,0 +1,39 @@
+name: check-reconciliation
+
+on:
+  pull_request:
+    paths:
+      - 'modules/check_reconciliation/**'
+      - 'wsgi.py'
+      - 'wsgi_core.py'
+      - 'wsgi_check_reconciliation.py'
+      - 'tests/test_check_reconciliation.py'
+      - 'docs/check-reconciliation.md'
+      - '.github/workflows/check-reconciliation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'modules/check_reconciliation/**'
+      - 'wsgi.py'
+      - 'wsgi_core.py'
+      - 'wsgi_check_reconciliation.py'
+      - 'tests/test_check_reconciliation.py'
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: matching, allocation and QBO payment payload
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install module dependencies
+        run: pip install Flask==3.1.1 requests==2.32.4 cryptography==45.0.5 openai==1.59.6 pytest
+      - name: Run focused tests
+        run: pytest -q tests/test_check_reconciliation.py
