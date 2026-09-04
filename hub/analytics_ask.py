@@ -27,6 +27,15 @@ A question like "how are we doing?" has no defensible default. Rather than
 pick one, the planner may return `clarify` with a single question, and the
 page asks it. The previous answer travels back as history so the follow-up is
 resolved against the original question rather than starting over.
+
+A question back, on its own, hands the work of guessing what this thing can
+answer to the person who already showed they did not know — "which measure?"
+is a fair question and a dead end for anyone who does not know the list. So
+the planner also returns `suggestions`: two to four complete questions it
+*could* run, phrased the way the person put theirs. The page shows them as
+one-click choices beside the question and a box for anyone whose answer is
+none of them. Suggestions are a convenience, never a substitute: a clarify
+with none still renders, and a suggestion is only ever asked when clicked.
 """
 from __future__ import annotations
 
@@ -67,7 +76,17 @@ _PLAN_SCHEMA_NOTE = """Return JSON only, in one of these two shapes.
 
 To ask for clarification (use only when the question genuinely cannot be
 answered as asked — never to confirm something obvious):
-  {"clarify": "one short question"}
+  {"clarify": "one short question",
+   "suggestions": ["Sessions by channel over the last 30 days",
+                   "Key events this month vs last month"]}
+
+  `suggestions` is two to four complete questions you could answer, each a
+  plausible reading of what was actually asked. Write them as the person
+  would type them, not as report specifications, and make each one different
+  from the others in a way that matters — a different measure, a different
+  breakdown or a different period. Every suggestion must be answerable with
+  the metrics and dimensions listed below. Omit the field only when you truly
+  cannot guess at what was meant.
 
 To run a report:
   {"title": "short title for the answer",
@@ -164,6 +183,41 @@ def validate(plan: dict) -> tuple[dict | None, str]:
     return req, ""
 
 
+# What to offer when the model gave nothing to offer. Deliberately the four
+# questions this module is certain to be able to plan, so a suggestion never
+# leads to a second refusal.
+FALLBACK_SUGGESTIONS = (
+    "Sessions by channel over the last 30 days",
+    "Top landing pages last month",
+    "Key events this month vs last month",
+    "Mobile vs desktop sessions over the last 90 days",
+)
+
+
+def _suggestions(raw: Any) -> list:
+    """The model's suggested questions, cleaned up.
+
+    Strings only, four at most, de-duplicated case-insensitively and short
+    enough to sit on a button. Anything else in the field is dropped rather
+    than rendered — a suggestion is a thing somebody is going to click."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        text = " ".join(item.split())[:120].strip()
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+        if len(out) == 4:
+            break
+    return out
+
+
 def plan(question: str, *, history: list | None = None,
          property_label: str = "") -> dict:
     """Ask the model for a plan. Returns {"clarify": ...} or {"request": ...}."""
@@ -190,12 +244,18 @@ def plan(question: str, *, history: list | None = None,
                        temperature=0.1, max_tokens=700)
 
     if got.get("clarify"):
-        return {"clarify": str(got["clarify"])[:300]}
+        return {"clarify": str(got["clarify"])[:300],
+                "suggestions": _suggestions(got.get("suggestions"))}
 
     req, err = validate(got)
     if not req:
+        # A plan that failed validation is still a question the model
+        # understood; the fallbacks below are the four things this module can
+        # always answer, so the reader has somewhere to click rather than only
+        # a sentence telling them to try again.
         return {"clarify": err + " Try naming the measure you want — sessions, "
-                                 "users, conversions, revenue — and a period."}
+                                 "users, conversions, revenue — and a period.",
+                "suggestions": _suggestions(got.get("suggestions")) or list(FALLBACK_SUGGESTIONS)}
     return {"request": req,
             "title": str(got.get("title") or question)[:120],
             "explain": str(got.get("explain") or "")[:300]}

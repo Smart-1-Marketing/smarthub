@@ -2051,10 +2051,44 @@ def api_ga4_webmaster_row():
     return jsonify(payload)
 
 
+def _range_label(start, end):
+    """A period named the way somebody would say it out loud.
+
+    A whole calendar month is "August 2026", a whole year is "2026", and
+    anything else is its two dates. The Client 360 summary used to hard-code
+    "%B %Y" because the period was always a whole month; now that any period
+    can be asked for, a nine-day window labelled "September 2026" would be a
+    sentence about a month that has not happened."""
+    import datetime as _dt
+    s = _dt.date.fromisoformat(start)
+    e = _dt.date.fromisoformat(end)
+    if s.day == 1 and e == (_dt.date(e.year + (e.month == 12), (e.month % 12) + 1, 1)
+                            - _dt.timedelta(days=1)):
+        if s.month == 1 and e.month == 12 and s.year == e.year:
+            return str(s.year)
+        if s.year == e.year and s.month == e.month:
+            return s.strftime("%B %Y")
+    if s == e:
+        return s.strftime("%b %-d, %Y")
+    return f"{s.strftime('%b %-d, %Y')} – {e.strftime('%b %-d, %Y')}"
+
+
 @app.route("/api/ga4/monthly-summary", methods=["POST"])
 def api_ga4_monthly_summary():
-    """Last full month vs the month before: totals + top source/mediums.
-    Powers the Client 360 traffic summary card."""
+    """One period vs a comparison: totals + top source/mediums.
+    Powers the Client 360 traffic summary card.
+
+    It answered for last full month against the month before, full stop —
+    Client 360 had no way to ask for anything else, so a question as ordinary
+    as "how are they doing this month?" could not be put to the card at all.
+    It now takes the same start/end/compare_start/compare_end as
+    /api/ga4/seo-snapshot, through the same `_snapshot_ranges`, so the two
+    cards cannot drift into meaning different things by the same words.
+
+    The default moved with it: month to date against the same days of last
+    month, matching the SEO client page. Last month is one entry away in the
+    period list, and the two pages now open on the same period, so numbers
+    seen on one and then the other are the same numbers."""
     data = request.json or {}
     property_id = str(data.get("property_id", "")).strip()
     google_login = str(data.get("google_login", "")).strip().lower()
@@ -2064,12 +2098,7 @@ def api_ga4_monthly_summary():
     if not account:
         return jsonify({"error": f"Account {google_login} is not connected."}), 404
 
-    from datetime import date, timedelta
-    first_this = date.today().replace(day=1)
-    last_end = first_this - timedelta(days=1)          # end of last month
-    last_start = last_end.replace(day=1)
-    prev_end = last_start - timedelta(days=1)
-    prev_start = prev_end.replace(day=1)
+    ranges, mode = _snapshot_ranges(data)
 
     METRICS = ["sessions", "engagedSessions", "activeUsers",
                "userEngagementDuration", "eventCount", "keyEvents"]
@@ -2102,8 +2131,6 @@ def api_ga4_monthly_summary():
     try:
         access_token = refresh_access_token(google_login, account["refresh_token"])
         url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
-        ranges = [{"startDate": last_start.isoformat(), "endDate": last_end.isoformat()},
-                  {"startDate": prev_start.isoformat(), "endDate": prev_end.isoformat()}]
         mreq = [{"name": n} for n in METRICS]
 
         # ---- totals (two date ranges -> implicit dateRange dimension) ----
@@ -2147,8 +2174,8 @@ def api_ga4_monthly_summary():
         breakdown = breakdown[:10]
 
         # ---- positive executive summary ----
-        label_cur = last_start.strftime("%B %Y")
-        label_prev = prev_start.strftime("%B %Y")
+        label_cur = _range_label(ranges[0]["startDate"], ranges[0]["endDate"])
+        label_prev = _range_label(ranges[1]["startDate"], ranges[1]["endDate"])
         names = {"sessions": "sessions", "engaged_sessions": "engaged sessions",
                  "avg_engagement_seconds": "average engagement time",
                  "events": "total events", "key_events": "key events"}
@@ -2173,7 +2200,12 @@ def api_ga4_monthly_summary():
             parts.append(f"Continued optimization is focused on {soft} to build on this momentum.")
         summary = " ".join(parts)
 
-        return jsonify({"period": {"current": label_cur, "previous": label_prev},
+        return jsonify({"mode": mode,
+                        "period": {"current": label_cur, "previous": label_prev,
+                                   "start": ranges[0]["startDate"],
+                                   "end": ranges[0]["endDate"]},
+                        "compare": {"start": ranges[1]["startDate"],
+                                    "end": ranges[1]["endDate"]},
                         "summary": summary, "current": cur, "previous": prev,
                         "deltas": deltas, "breakdown": breakdown})
     except ReauthRequired as exc:
@@ -2230,7 +2262,13 @@ def api_ga4_ask():
     # A question with no defensible default gets asked back rather than
     # guessed at.
     if planned.get("clarify"):
-        return jsonify({"clarify": planned["clarify"], "question": question})
+        # The suggestions travel with the question so the page can offer
+        # them as choices. A question back with nothing to pick from asks
+        # the reader to guess what this can answer, which is the thing
+        # they already could not do.
+        return jsonify({"clarify": planned["clarify"],
+                        "suggestions": planned.get("suggestions") or [],
+                        "question": question})
 
     req = planned["request"]
     try:

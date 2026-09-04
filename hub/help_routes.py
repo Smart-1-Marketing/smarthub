@@ -82,6 +82,18 @@ def static_ask_analytics_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/date-range.js")
+def static_date_range_js():
+    """The shared analytics date-range control (Smart1Range).
+
+    Root-level for the same reason as the scripts around it: the SEO client
+    page is a hub template and Client 360 is a hub template, but the Google
+    tools page is a mounted module, and the next page that wants a period
+    picker should load this one rather than grow a fourth set of date boxes."""
+    return send_from_directory(_STATIC, "date-range.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/knack-form.js")
 def static_knack_form_js():
     """The controls a form built from a live Knack object draws, shared by
