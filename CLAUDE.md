@@ -12421,6 +12421,14 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   override that needs a reason and a name,
                                    #   and a variation that carries the scripts
                                    #   without the audio
+python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
+                                   #   and the :60 that were unbuildable, the
+                                   #   cost note said at pick time rather than
+                                   #   after the read exists, the beats moved
+                                   #   out of the prompt's own prose, and a
+                                   #   named script panel run on the copy --
+                                   #   where certainty rather than severity
+                                   #   decides what may refuse a billed record
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,

@@ -1661,6 +1661,21 @@ jobs:
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         run: python3 test_radio_ads.py
 
+      # Radio Promo's half of the same list. The length menu held the :15/:30
+      # pair, so the :10 sponsorship tag and the :60 -- the one radio length
+      # with room for a story rather than an offer -- were unbuildable, and the
+      # slot keys were hardcoded in six places. Only the :60 warns about what a
+      # re-record costs, because a note on every length is a note nobody reads
+      # and then the one that mattered goes past unread too. The beats moved
+      # out of the prompt's own prose, where a rep could not see them and a
+      # script that had wandered from the plan read exactly like one written to
+      # it. And the QC panel runs on the copy rather than after the render:
+      # the line between what may refuse a billed record and what may only
+      # report is certainty rather than severity, so a missing disclaimer
+      # blocks and a read length -- words divided by a pace -- does not.
+      - name: Radio Promo parity — the lengths, their costs, the beats, the panel
+        run: python3 test_radio_parity.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were
