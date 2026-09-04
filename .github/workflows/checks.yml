@@ -368,6 +368,18 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Client 360 social & links tests
+        # The card renders only links that exist and offers the rest from a
+        # catalogue that ships from the server, so the menu and the keys the
+        # server accepts cannot drift. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_client360_social.py ]; then
+            python test_client360_social.py
+          else
+            echo "test_client360_social.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder dashboard layout tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.

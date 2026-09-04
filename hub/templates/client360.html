@@ -2066,35 +2066,175 @@ function render(g,q){
     }
   };
 
-  // Social Media — shared store with the SEO page
-  const SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];
+  // Social Media, and every other listing a client has a URL for.
+  //
+  // Two rules, both learned from the old grid: a row with nothing in it is
+  // noise, and the nine hard-coded platforms were never the whole list. So
+  // only saved links render, and everything else is one click away in the
+  // add menu. The catalog comes from /api/client/social so the server and
+  // this page can't drift; the page hard-codes no platform list at all.
+  var SOCIAL_CATALOG=[], SOCIAL_LABELS={}, socialLoaded=[];
+
+  function socialLabelFor(k){
+    if(SOCIAL_LABELS[k]) return SOCIAL_LABELS[k];
+    var hit=SOCIAL_CATALOG.filter(function(c){return c.key===k;})[0];
+    return hit ? hit.label : k.replace(/^c_/,'').replace(/-/g,' ');
+  }
+  function socialCustomKey(label){
+    var slug=String(label||'').toLowerCase().replace(/[^a-z0-9]+/g,'-')
+      .replace(/^-+|-+$/g,'').slice(0,38);
+    if(!slug) return '';
+    var k='c_'+slug;
+    return SOCIAL_CATALOG.some(function(c){return c.key===k;}) ? '' : k;
+  }
+  function socialRow(k,v,custom){
+    var head=custom
+      ? '<input class="s-label" value="'+esc(socialLabelFor(k))+'" placeholder="Name"'
+        +' style="width:86px;flex:none;padding:5px 6px;border:1px solid var(--line);'
+        +'border-radius:7px;font:12px inherit;color:var(--muted)">'
+      : '<b style="width:104px;flex:none;font-size:12px;color:var(--muted)">'
+        +esc(socialLabelFor(k))+'</b>';
+    return '<div class="s-row" data-sk="'+esc(k)+'" data-custom="'+(custom?'1':'0')
+      +'" style="display:flex;gap:6px;align-items:center">'+head
+      +'<input class="s-url" value="'+esc(v||'')+'" placeholder="https://…"'
+      +' style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);'
+      +'border-radius:8px;font:12.5px inherit">'
+      +(safeExternalUrl(v)?'<a href="'+esc(safeExternalUrl(v))+'" target="_blank"'
+        +' rel="noopener" style="flex:none" title="Open">↗</a>':'')
+      +'<button type="button" class="s-del" title="Remove this link"'
+      +' style="flex:none;border:0;background:none;cursor:pointer;color:#94a3b8;'
+      +'font-size:16px;line-height:1;padding:0 2px">&times;</button></div>';
+  }
+  function socialUsedKeys(){
+    var used={};
+    document.querySelectorAll('#c-social .s-row').forEach(function(r){
+      if(r.dataset.sk) used[r.dataset.sk]=1;});
+    return used;
+  }
+  function socialAddMenu(used){
+    // Only what isn't already on the record. A menu that offers a platform
+    // the client already has just makes a duplicate row. The caller passes
+    // what is used rather than the menu reading the page, so the rows it was
+    // built beside and the menu can't disagree.
+    used=used||{};
+    var groups=[], byGroup={};
+    SOCIAL_CATALOG.forEach(function(c){
+      if(used[c.key]) return;
+      if(!byGroup[c.group]){byGroup[c.group]=[];groups.push(c.group);}
+      byGroup[c.group].push(c);
+    });
+    var opts=groups.map(function(g){
+      return '<optgroup label="'+esc(g)+'">'+byGroup[g].map(function(c){
+        return '<option value="'+esc(c.key)+'">'+esc(c.label)+'</option>';
+      }).join('')+'</optgroup>';
+    }).join('');
+    return '<div style="display:flex;gap:6px;align-items:center;margin-top:10px">'
+      +'<select id="c-social-add" style="flex:1;max-width:280px;padding:6px 9px;'
+      +'border:1px solid var(--line);border-radius:8px;font:12.5px inherit">'
+      +'<option value="">+ Add a link…</option>'+opts
+      +'<optgroup label="Anything else"><option value="__custom">Custom link…</option>'
+      +'</optgroup></select>'
+      +'<span class="muted" style="font-size:11.5px">Pick a platform, paste the URL, then Save.</span>'
+      +'</div>';
+  }
+  function renderSocial(social,fromScan){
+    var order=SOCIAL_CATALOG.map(function(c){return c.key;});
+    var keys=Object.keys(social||{}).filter(function(k){
+      return String(social[k]||'').trim();});
+    keys.sort(function(a,b){
+      var ia=order.indexOf(a), ib=order.indexOf(b);
+      if(ia<0) ia=999; if(ib<0) ib=999;
+      return ia-ib || a.localeCompare(b);
+    });
+    var rows=keys.map(function(k){
+      return socialRow(k,social[k],order.indexOf(k)<0);}).join('');
+    $('c-social').innerHTML=
+      (rows
+        ? '<div id="c-social-rows" style="display:grid;'
+          +'grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">'+rows+'</div>'
+        : '<div id="c-social-rows"></div><div class="empty" style="padding:6px 0">'
+          +'No links saved for this client yet.</div>')
+      + ((fromScan&&fromScan.length)
+          ? '<div class="muted" style="font-size:11.5px;margin-top:8px">'
+            + fromScan.length + ' found on their own website ('
+            + fromScan.map(socialLabelFor).join(', ') + ') — the brand lookup didn\'t have '
+            + (fromScan.length>1?'them':'it') + '. Save to keep.</div>'
+          : '')
+      + socialAddMenu(keys.reduce(function(a,k){a[k]=1;return a;},{}));
+    wireSocial();
+  }
+  function wireSocial(){
+    var add=document.getElementById('c-social-add');
+    if(add) add.onchange=function(){
+      var k=add.value; add.value='';
+      if(!k) return;
+      var host=document.getElementById('c-social-rows');
+      if(!host) return;
+      if(!host.style.display){
+        host.style.display='grid';
+        host.style.gridTemplateColumns='repeat(auto-fill,minmax(280px,1fr))';
+        host.style.gap='8px';
+      }
+      var empty=$('c-social').querySelector('.empty'); if(empty) empty.remove();
+      host.insertAdjacentHTML('beforeend',
+        k==='__custom' ? socialRow('','',true) : socialRow(k,'',false));
+      var row=host.lastElementChild;
+      wireSocialRows();
+      var f=row.querySelector(k==='__custom'?'.s-label':'.s-url'); if(f) f.focus();
+      // The menu must not keep offering what was just added.
+      var menu=document.getElementById('c-social-add');
+      if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
+      wireSocial();
+    };
+    wireSocialRows();
+  }
+  function wireSocialRows(){
+    document.querySelectorAll('#c-social .s-del').forEach(function(b){
+      b.onclick=function(){
+        var row=b.closest('.s-row'); if(!row) return;
+        // Blank it rather than only dropping it from the page: the save
+        // below posts every key it started with, and an empty value is what
+        // tells the server to delete the link.
+        var u=row.querySelector('.s-url'); if(u) u.value='';
+        row.remove();
+        var menu=document.getElementById('c-social-add');
+        if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
+        wireSocial();
+      };
+    });
+  }
+
   fetchJson('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
     .then(d=>{
       const social=d.social||{};
-      $('c-social').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">'
-        +SOCIAL_KEYS.map(k=>{
-          const v=social[k]||'';
-          return `<div style="display:flex;gap:6px;align-items:center">
-            <b style="width:74px;flex:none;font-size:12px;color:var(--muted);text-transform:capitalize">${k==='gbp'?'Google Biz':esc(k)}</b>
-            <input data-sk="${k}" value="${esc(v)}" placeholder="https://…" style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">
-            ${safeExternalUrl(v)?`<a href="${esc(safeExternalUrl(v))}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
-          </div>`;}).join('')+'</div>'
-        /* Say where the extra ones came from. A URL that appears without
-           explanation looks like something a person typed and forgot. */
-        + (d.from_scan && d.from_scan.length
-            ? '<div class="muted" style="font-size:11.5px;margin-top:8px">'
-              + d.from_scan.length + ' found on their own website ('
-              + d.from_scan.join(', ') + ') — the brand lookup didn\'t have '
-              + (d.from_scan.length>1?'them':'it') + '. Save to keep.</div>'
-            : '');
+      SOCIAL_CATALOG=d.catalog||[]; SOCIAL_LABELS=d.labels||{};
+      socialLoaded=Object.keys(social);
+      renderSocial(social,d.from_scan);
       const saveBtn=document.getElementById('c-social-save');
       if(saveBtn) saveBtn.onclick=()=>{
-        const soc={};
-        document.querySelectorAll('#c-social input').forEach(i=>{soc[i.dataset.sk]=i.value.trim();});
+        const soc={},labels={};
+        document.querySelectorAll('#c-social .s-row').forEach(row=>{
+          let k=row.dataset.sk||'';
+          if(row.dataset.custom==='1'){
+            const li=row.querySelector('.s-label');
+            k=socialCustomKey(li?li.value:'');
+            if(k) labels[k]=(li.value||'').trim();
+          }
+          if(!k) return;
+          soc[k]=(row.querySelector('.s-url')||{value:''}).value.trim();
+        });
+        // Everything that was on the record when the page loaded and is no
+        // longer on it goes back as empty — that is the delete.
+        socialLoaded.forEach(k=>{ if(!(k in soc)) soc[k]=''; });
         fetch('/api/client/social',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,social:soc})})
+          body:JSON.stringify({client:name,social:soc,labels:labels})})
           .then(r=>r.json()).then(res=>{
             saveBtn.textContent=res.error?('Error: '+res.error):'Saved ✓';
+            if(!res.error){
+              SOCIAL_LABELS=res.labels||{};
+              socialLoaded=Object.keys(res.social||{});
+              renderSocial(res.social||{},null);
+            }
             setTimeout(()=>{saveBtn.textContent='Save →';},1600);
           });
       };

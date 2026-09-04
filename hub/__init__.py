@@ -2136,7 +2136,7 @@ def create_hub_app() -> Flask:
 
         Both builders ask this: the IO while converting a proposal it just
         read, the Proposal Builder when a rep types a product that is not a
-        catalogue pick. One matcher, so the two cannot disagree about what a
+        catalog pick. One matcher, so the two cannot disagree about what a
         client was sold.
         """
         gate = _require_api()
@@ -3606,6 +3606,11 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
         return jsonify({"social": social, "from_scan": found_by_scan,
+                        # The catalog drives the record's "add a link" menu.
+                        # It ships from here rather than being restated in the
+                        # template so the two can never drift apart.
+                        "catalog": seo.social_catalog(),
+                        "labels": seo.get_social_labels(name) if name else {},
                         "note": (f"{len(found_by_scan)} profile(s) came from "
                                  f"the last site scan rather than Brandfetch."
                                  if found_by_scan else "")})
@@ -3621,11 +3626,13 @@ def create_hub_app() -> Flask:
         if not client:
             return jsonify({"error": "client is required."}), 400
         try:
-            social = seo.set_social(client, body.get("social") or {})
+            social = seo.set_social(client, body.get("social") or {},
+                                    body.get("labels") or {})
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
-        return jsonify({"ok": True, "social": social})
+        return jsonify({"ok": True, "social": social,
+                        "labels": seo.get_social_labels(client)})
 
     # ------------- the Smart 1 Suite app frame (a CLIENT, not a rep)
     #
