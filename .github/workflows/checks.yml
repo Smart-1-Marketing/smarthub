@@ -1100,6 +1100,20 @@ jobs:
             echo "test_client_uploads.py not on this branch — nothing to run."
           fi
 
+      - name: Ad Assets — Drive creative into the client library
+        # The folder shape, the dedupe key, and the two writes a copy must not
+        # make: nothing to Drive at all, and nothing to Knack until somebody
+        # applies a proposal they have read. Also that a Drive scope Google
+        # never granted is reported as refused rather than as an empty folder.
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file. Needs no network.
+        run: |
+          if [ -f test_ad_assets.py ]; then
+            python test_ad_assets.py
+          else
+            echo "test_ad_assets.py not on this branch — nothing to run."
+          fi
+
       - name: Image attribution audit, and the gallery that reads it
         # Every tool that creates, uploads or lets somebody choose an image
         # files it against a client or a lead; the audit reports the ones that

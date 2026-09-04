@@ -131,6 +131,14 @@ SCOPES = [
     "https://www.googleapis.com/auth/tagmanager.edit.containers",
     "https://www.googleapis.com/auth/business.manage",
     "https://www.googleapis.com/auth/webmasters",
+    # Read-only Drive, for hub/ad_assets.py: campaign creative lives in Drive
+    # folders and the Hub copies it into the client library. Read-only is the
+    # whole grant — nothing in the Hub writes to, moves or trashes a Drive
+    # file. An account connected before this scope was added keeps its
+    # narrower grant, because Google never widens an existing refresh token;
+    # drive_files.access() reports that as `refused` with the reconnect as the
+    # fix, rather than as an empty folder.
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 CACHE = {}
