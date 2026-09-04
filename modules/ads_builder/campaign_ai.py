@@ -23,7 +23,7 @@ import requests
 
 from hub import target_areas
 
-from . import spec
+from . import ad_intel, pmax_spec, spec
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 TIMEOUT = 180
@@ -252,6 +252,171 @@ def _chat(system: str, user: str, *, purpose: str, model: str = None,
         raise GenerationError("The model returned malformed JSON. Try again.")
 
 
+PMAX_SYSTEM = """You build Google Performance Max asset groups. This is NOT a search campaign.
+
+WHAT IS DIFFERENT, and it is most of the job
+1. There are NO KEYWORDS. Performance Max has no keyword list, no match types and no
+   negative keyword vault at the asset-group level. If you write keywords you have
+   built the wrong product. What steers it is SEARCH THEMES — short phrases describing
+   the intent to lean into — and they are a signal, not a targeting list.
+2. Google assembles the ad. You supply a pool of headlines, long headlines, descriptions,
+   images and a logo, and Google combines them across Search, YouTube, Display, Discover,
+   Gmail and Maps. So EVERY line must read correctly beside every other line: no
+   sentence that only works as a second line, no headline that depends on the one above it.
+3. One asset group is one THEME — a product line, a service, an audience — not one
+   keyword cluster. Two asset groups whose images and copy would be interchangeable
+   should be one asset group.
+
+HARD LIMITS. Google refuses the whole campaign over one breach, so stay inside them.
+- Headlines: 3 minimum, 15 maximum, 30 characters each. Write at least 11.
+- Long headlines: 1 minimum, 5 maximum, 90 characters each. Write at least 2.
+- Descriptions: 2 minimum, 5 maximum, 90 characters each. Write at least 4.
+- AT LEAST ONE description must be 60 characters or fewer. This one is missed most often
+  because every description is individually valid and the asset group is still refused.
+- Business name: 25 characters maximum.
+
+IMAGE DIRECTIONS
+Describe the picture each asset group needs, one direction per required ratio. You are
+writing a brief for whoever or whatever produces the image, not a caption:
+say what is in frame, who is in it, where it is and what it must not contain. Keep the
+subject in the middle 80% — Google crops up to 20% off the edges.
+Required roles: "marketing" (1.91:1 landscape), "square" (1:1). Optional: "portrait" (4:5).
+Never write a direction for a "logo" role — a logo is the client's own file and is
+never generated.
+
+RULES
+1. Never invent a claim, a price, a guarantee or an award. If the business has not said it,
+   do not write it.
+2. Write for the channel mix: a line that only makes sense on a search results page is
+   wrong here, because the same line runs under a YouTube video.
+3. Say what each asset group is FOR in its theme, in one sentence a rep can read to a client.
+
+Respond with pure JSON only:
+{
+  "businessName": "string, 25 chars max",
+  "strategySummary": "two or three sentences on how these asset groups split the business",
+  "assetGroups": [
+    {"name": "string", "theme": "what this group covers and who it is for",
+     "headlines": ["30 chars max"], "longHeadlines": ["90 chars max"],
+     "descriptions": ["90 chars max, at least one 60 or fewer"],
+     "searchThemes": ["short intent phrases"],
+     "images": [{"role": "marketing | square | portrait", "prompt": "the picture to make"}]}
+  ],
+  "audienceSignal": "who to seed the campaign with, in one or two sentences",
+  "costEstimation": {"estimatedMonthlyCost": 0, "estimatedConversions": 0,
+                     "estimatedCPA": 0},
+  "landingPageAnalysis": {"ctaReadiness": "string", "messageMatch": "string",
+                          "recommendations": ["string"]}
+}"""
+
+
+def generate_pmax_campaign(payload: dict, model: str = None, *,
+                           observed_page: dict = None) -> dict:
+    """A Performance Max campaign: asset groups, no keywords.
+
+    Its own function and its own prompt rather than a branch inside the search
+    generator. One prompt asked for both shapes produces a hybrid that is
+    neither -- asset groups carrying keywords, or ad groups carrying image
+    directions -- and the two products genuinely differ in what a rep has to
+    supply, not only in how the answer is packed.
+    """
+    viability = analyse_budget(payload.get("budget"), payload.get("sector") or "general")
+    intake = spec.normalise_intake(payload)
+    areas = target_areas.normalize(payload.get("targetAreas") or [])
+
+    budget = _num(payload.get("budget"))
+    budget_line = (f"Monthly budget: ${budget:,.0f}" if budget > 0 else
+                   "Monthly budget: NOT SET — the client has not named one.")
+    geography = target_areas.for_prompt(areas) or payload.get("geography") or "not specified"
+
+    user_prompt = f"""Build a Google Performance Max campaign for:
+
+Business name: {payload.get('businessName', '')}
+Website / landing page: {payload.get('websiteUrl', '')}
+Sector: {viability['sector']}
+Primary objective: {payload.get('objective', '')}
+{budget_line}
+Target audience: {payload.get('targetAudience') or 'not specified'}
+Target areas: {geography}
+{('Additional context: ' + payload['notes']) if payload.get('notes') else ''}
+
+WHAT THE REP ASKED THE CLIENT — build around these, do not restate them back:
+{spec.for_prompt({"intake": intake}) or '- Nothing further was captured.'}
+{_client_block(payload.get('businessName', ''), payload.get('websiteUrl', ''))}{_page_block(observed_page)}
+Independent budget check already run (use it, do not contradict it):
+{viability['status']} — {viability['advice']}
+
+Remember: no keywords, and at least one description of 60 characters or fewer."""
+
+    data = _chat(PMAX_SYSTEM, user_prompt, purpose="campaign_pmax", model=model,
+                 max_tokens=8000)
+    campaign = normalise_pmax(data, payload, viability)
+    campaign["intake"] = intake
+    campaign["targetAreas"] = areas
+    return campaign
+
+
+def normalise_pmax(data: dict, payload: dict, viability: dict) -> dict:
+    """The model is good but never trusted with Google's hard limits.
+
+    The same rule normalise() applies to a responsive search ad, one campaign
+    type over -- and here it also DROPS what the model should not have written
+    at all: a Performance Max asset group has no keywords, and one that arrives
+    carrying them would deploy as a search campaign's data inside a product
+    that has no field for it.
+    """
+    business = _trunc(data.get("businessName") or payload.get("businessName"), 25)
+    groups = []
+    for index, raw in enumerate((data.get("assetGroups") or [])[:10]):
+        if not isinstance(raw, dict):
+            continue
+        raw = dict(raw)
+        raw.setdefault("name", f"Asset group {index + 1}")
+        groups.append(pmax_spec.normalise_asset_group(raw, business_name=business))
+
+    est = data.get("costEstimation") or {}
+    return {
+        "campaignType": "PERFORMANCE_MAX",
+        "businessName": data.get("businessName") or payload.get("businessName"),
+        "websiteUrl": data.get("websiteUrl") or payload.get("websiteUrl"),
+        "monthlyBudget": _num(data.get("monthlyBudget")) or _num(payload.get("budget")),
+        "objective": payload.get("objective"),
+        "targetAudience": payload.get("targetAudience"),
+        "geography": payload.get("geography"),
+        "sector": viability["sector"],
+        "sectorKey": viability["sector_key"],
+        "strategySummary": _trunc(data.get("strategySummary"), 1200),
+        "audienceSignal": _trunc(data.get("audienceSignal"), 800),
+        "assetGroups": groups,
+        # Deliberately empty rather than absent: every reader of a proposal in
+        # this module -- the review page, the estimate, the IO conversion --
+        # asks for adGroups, and a missing key would be an AttributeError on a
+        # screen rather than an empty section.
+        "adGroups": [],
+        "costEstimation": {
+            "estimatedMonthlyCost": _num(est.get("estimatedMonthlyCost")) or _num(payload.get("budget")),
+            "avgCPC": 0.0,
+            "estimatedMonthlyClicks": _num(est.get("estimatedMonthlyClicks")),
+            "estimatedConversionRate": _num(est.get("estimatedConversionRate")),
+            "estimatedConversions": _num(est.get("estimatedConversions")),
+            "estimatedCPA": _num(est.get("estimatedCPA")),
+            "budgetViability": {"status": viability["status"], "advice": viability["advice"]},
+        },
+        "landingPageAnalysis": {
+            "ctaReadiness": (data.get("landingPageAnalysis") or {}).get("ctaReadiness") or "Unknown",
+            "messageMatch": (data.get("landingPageAnalysis") or {}).get("messageMatch") or "",
+            "recommendations": ((data.get("landingPageAnalysis") or {}).get("recommendations") or [])[:10],
+        },
+        "adAssets": {"sitelinks": [], "callouts": [],
+                     "structuredSnippets": {"header": "", "values": []}},
+        # Performance Max has no keyword list, so it has no ad-group negative
+        # vault either. Account-level negatives are a different thing and are
+        # not this proposal's to write.
+        "negativeKeywordVault": {},
+        "assetValidation": pmax_spec.validate_campaign({"assetGroups": groups}),
+    }
+
+
 def generate_campaign(payload: dict, model: str = None, *,
                       observed_page: dict = None) -> dict:
 
@@ -465,7 +630,17 @@ Competitors the CLIENT named: {intake.get('competitors') or 'none given'}"""
 
     data = _chat(COMPETITOR_SYSTEM, user, purpose="competitors", model=model,
                  max_tokens=2000, temperature=0.5)
-    return {
+
+    # A third bucket, never a blend into the two above. "Somebody's crawler saw
+    # this competitor's ad running" and "a model thought of this name" are
+    # claims of different strength about the same question, and a reader has to
+    # be able to tell them apart -- the rule hub/scan_facts.py applies to a logo
+    # photographed off a page. Unconfigured this is None and the key is absent
+    # entirely, so nothing on any screen promises a picture the Hub cannot
+    # produce.
+    verified = ad_intel.verified_competitor_data(campaign.get("websiteUrl") or "")
+
+    result = {
         "named": [{"name": _trunc(x.get("name"), 120), "note": _trunc(x.get("note"), 300)}
                   for x in (data.get("named") or [])[:20] if isinstance(x, dict) and x.get("name")],
         "researched": [{"name": _trunc(x.get("name"), 120), "why": _trunc(x.get("why"), 300),
@@ -479,6 +654,9 @@ Competitors the CLIENT named: {intake.get('competitors') or 'none given'}"""
         "note": "Names under “our research” are the model's suggestion and have not been "
                 "verified. Check them before repeating them to the client.",
     }
+    if verified:
+        result["verified"] = verified
+    return result
 
 
 TIER_SYSTEM = """You size Google Ads search budgets into three tiers a client can choose between.
@@ -747,6 +925,11 @@ def normalise(data: dict, payload: dict, viability: dict) -> dict:
     est = data.get("costEstimation") or {}
 
     return {
+        # Written on every campaign this generator produces, so a proposal made
+        # from today on says which product it is. A stored one from before this
+        # existed carries nothing, and spec.campaign_type_of() reads that as
+        # SEARCH -- which it is -- rather than needing a migration.
+        "campaignType": "SEARCH",
         "businessName": data.get("businessName") or payload.get("businessName"),
         "websiteUrl": data.get("websiteUrl") or payload.get("websiteUrl"),
         "monthlyBudget": _num(data.get("monthlyBudget")) or _num(payload.get("budget")),

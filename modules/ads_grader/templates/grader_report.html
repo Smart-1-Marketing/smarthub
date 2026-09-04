@@ -1,0 +1,94 @@
+{% extends "_grader_base.html" %}
+{% block title %}{{ row.company or row.account_name or 'Google Ads' }} — Google Ads Grader{% endblock %}
+{% block heading %}{{ row.company or row.account_name or 'Your Google Ads' }}{% endblock %}
+{% block subheading %}Google Ads, the last 30 days{% endblock %}
+{% block body %}
+<div class="card" style="text-align:center">
+  {% if r.score is not none %}
+    <div style="font-size:56px;font-weight:800;color:#0a2240;line-height:1">{{ r.score }}</div>
+    <div style="font-size:13px;color:#68798c;letter-spacing:.08em;text-transform:uppercase">
+      Grade {{ r.grade }}</div>
+  {% else %}
+    <div class="warn">This account could not be scored.</div>
+  {% endif %}
+  {% if not r.measured %}
+    {# Never a clean grade over half an account: a score computed with a
+       section missing is a confident wrong answer. #}
+    <div class="warn" style="text-align:left">
+      <b>Part of this account could not be read</b>
+      Google refused: {{ r.not_measured|join(', ') }}. The score below is over
+      what we could read, not over the whole account.
+    </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>What it spent</h2>
+  <p>${{ '%.2f'|format(r.spend or 0) }} across {{ '{:,}'.format(r.clicks or 0) }}
+     clicks, with {{ '%.0f'|format(r.conversions or 0) }} conversion{{ '' if (r.conversions or 0) == 1 else 's' }}
+     recorded, in the last 30 days.</p>
+  {% if (r.conversions or 0) == 0 and (r.clicks or 0) > 0 %}
+    <div class="warn">No conversion was recorded at all. That is either a
+      tracking problem or a campaign problem, and they are fixed in different
+      places — it is the first thing worth checking.</div>
+  {% endif %}
+</div>
+
+{% if r.top_issues %}
+<div class="card">
+  <h2>What we would raise first</h2>
+  {% for issue in r.top_issues %}
+    <p style="margin:0 0 4px"><b>{{ issue.title }}</b></p>
+    <p class="note" style="margin:0 0 12px">{{ issue.why }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>How the score was worked out</h2>
+  {% if r.deductions %}
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+      <tbody>
+        <tr><td style="padding:6px 0">Starting score</td>
+            <td style="text-align:right;padding:6px 0">100</td></tr>
+        {% for d in r.deductions %}
+          <tr><td style="padding:6px 0;border-top:1px solid #dbe5ed">{{ d.label }}</td>
+              <td style="text-align:right;padding:6px 0;border-top:1px solid #dbe5ed">
+                −{{ d.points }}</td></tr>
+        {% endfor %}
+        <tr><td style="padding:6px 0;border-top:2px solid #0a2240"><b>Score</b></td>
+            <td style="text-align:right;padding:6px 0;border-top:2px solid #0a2240">
+              <b>{{ r.score }}</b></td></tr>
+      </tbody>
+    </table>
+  {% else %}
+    <p class="note">Nothing was deducted — we found no finding worth raising.</p>
+  {% endif %}
+  {# The weights are ours and the page says so. Google publishes its own
+     optimization score and it measures something different; presenting a
+     number of our own under Google's name would be borrowing an authority we
+     do not have. #}
+  <p class="note">{{ r.weight_note }}</p>
+</div>
+
+{% if r.empty_accounts or r.skipped_accounts %}
+<div class="card">
+  <h2>Other accounts on that login</h2>
+  {% for a in r.empty_accounts or [] %}
+    <p class="note">{{ a.account_name or a.customer_id }} — no campaign with
+      activity in the last 30 days.</p>
+  {% endfor %}
+  {% if r.skipped_accounts %}
+    <p class="note">{{ r.skipped_accounts }} more account{{ '' if r.skipped_accounts == 1 else 's' }}
+      on that login {{ 'was' if r.skipped_accounts == 1 else 'were' }} not read.
+      We grade a few at a time; ask us and we will look at the rest.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <p class="note">Read once, read-only. We hold no login and no password for
+    your Google Ads account, and the access we were given ended with this
+    report.</p>
+</div>
+{% endblock %}

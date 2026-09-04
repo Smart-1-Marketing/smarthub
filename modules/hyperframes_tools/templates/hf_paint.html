@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Paint Animation — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h2>Paint Animation {{ help_dot('paint_animation.what') if help_dot is defined else '' }}</h2>
+  <p>A line of copy that writes itself on, or a picture that paints itself in.
+     Good for a logo reveal, a hand-drawn line under an offer, or a short
+     social clip.</p>
+</div>
+
+{% if not ready %}
+<div class="card"><div class="card-h"><h3>Not available yet</h3></div>
+  <div class="card-b"><p class="muted">{{ note }}</p></div></div>
+{% else %}
+
+<div class="card">
+  <div class="card-h"><h3>Make one</h3></div>
+  <div class="card-b">
+    <div class="field">
+      <label for="paint-style">Style {{ help_dot('paint_animation.style') if help_dot is defined else '' }}</label>
+      <select id="paint-style">
+        {% for s in styles %}<option value="{{ s.id }}">{{ s.label }}</option>{% endfor %}
+      </select>
+      <p class="muted" id="paint-style-hint" style="margin:6px 0 0;font-size:12.5px;"></p>
+    </div>
+
+    <div class="field">
+      <label for="paint-text">The words</label>
+      <input type="text" id="paint-text" maxlength="240" placeholder="Half price through Friday">
+    </div>
+
+    <div class="field">
+      <label for="paint-image">…or a picture to paint in</label>
+      <input type="url" id="paint-image" placeholder="https://… a logo, a product shot">
+      <p class="muted" style="margin:6px 0 0;font-size:12.5px;">One or the other,
+         or both — the words sit over the picture.</p>
+    </div>
+
+    <div class="field">
+      <label for="paint-seconds">Seconds</label>
+      <input type="number" id="paint-seconds" value="5" min="1" max="{{ max_seconds|int }}" step="0.5">
+      <p class="muted" style="margin:6px 0 0;font-size:12.5px;">Up to
+         {{ max_seconds|int }}s. This is a treatment rather than a whole spot —
+         for the whole piece, use the Vox Explainer or the Commercial Builder.</p>
+    </div>
+
+    <div class="field">
+      <label for="paint-format">Shape</label>
+      <select id="paint-format">
+        {% for f in formats %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="paint-client">Client — optional
+        {{ help_dot('paint_animation.client') if help_dot is defined else '' }}</label>
+      <input type="text" id="paint-client" list="hf-client-list"
+             placeholder="Leave blank for a one-off">
+      <datalist id="hf-client-list"></datalist>
+      <p class="muted" style="margin:6px 0 0;font-size:12.5px;">Pick one and the
+         finished clip goes into their library and onto their record. Leave it
+         blank and it is yours to download.</p>
+    </div>
+
+    <button class="btn-primary" id="paint-go">Make it</button>
+    <div id="paint-wait" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-h"><h3>Your renders</h3></div>
+  <div class="card-b" id="paint-list"><p class="muted">Nothing yet.</p></div>
+</div>
+
+{# The vocabulary as data rather than Jinja inside a real script block, so
+   tools/jscheck.py can hand it to node --check. #}
+<script id="hf-styles-data" type="application/json">{{ styles|tojson }}</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('paint_animation.static', filename='js/hf-tools.js') }}"></script>
+<script src="{{ url_for('paint_animation.static', filename='js/paint.js') }}"></script>
+{% endblock %}

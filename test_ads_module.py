@@ -648,7 +648,12 @@ def run():
     check("GET /healthz is ok", r.status_code == 200 and r.json()["ok"])
 
     r = g(f"{BASE}/api/version", timeout=10)
-    check("GET /api/version reports 6.1ads", r.json().get("version") == "6.1ads", r.text[:120])
+    # Read from the module rather than typed here: a literal is a second copy
+    # of the version and it fails on the next bump for no reason anybody can
+    # act on, which is how an assertion gets deleted rather than fixed.
+    from modules.ads_builder import VERSION as _ads_version
+    check(f"GET /api/version reports {_ads_version}",
+          r.json().get("version") == _ads_version, r.text[:120])
 
     r = g(f"{BASE}/api/status", timeout=10)
     check("GET /api/status describes Google", r.json()["google"]["connected"] is False)

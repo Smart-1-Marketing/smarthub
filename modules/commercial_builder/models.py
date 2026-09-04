@@ -163,8 +163,8 @@ class Scene(db.Model):
     narration = db.Column(db.Text)
     visual_description = db.Column(db.Text)
 
-    asset_type = db.Column(db.String(30))     # stock | ai_generated | spokesperson | upload | client_asset | cta
-    asset_source = db.Column(db.String(30))   # pexels | pixabay | runway | heygen | upload | cloudinary
+    asset_type = db.Column(db.String(30))     # stock | ai_generated | spokesperson | upload | client_asset | cta | paint_animation
+    asset_source = db.Column(db.String(30))   # pexels | pixabay | runway | heygen | upload | cloudinary | hyperframes
     asset_url = db.Column(db.String(600))
     asset_thumb_url = db.Column(db.String(600))
     asset_meta_json = db.Column(db.Text)      # provider id, author, license, generation prompt, options offered

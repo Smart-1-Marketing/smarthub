@@ -1,0 +1,60 @@
+{# The shell every grader page uses. Served to a stranger with no Hub account,
+   so it carries none of the Hub's chrome — /tools/ads-grader is entirely in
+   PUBLIC_PREFIXES, which wsgi.py hands to HubBar for exactly that reason. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Google Ads Grader{% endblock %} · Smart 1 Marketing</title>
+<style>
+  :root { --navy:#0a2240; --blue:#009ed2; --ink:#25364b; --muted:#68798c;
+          --line:#dbe5ed; --good:#2dbb72; --warn:#f0b429; --bad:#dc2626 }
+  * { box-sizing:border-box }
+  body { margin:0; background:#eef2f7; color:var(--ink);
+         font:15px/1.6 'Segoe UI', system-ui, -apple-system, sans-serif }
+  .wrap { max-width:44rem; margin:0 auto; padding:24px 18px 48px }
+  .band { background:var(--navy); color:#fff; border-radius:12px 12px 0 0; padding:26px 28px }
+  .band .eyebrow { color:var(--blue); font-size:11px; letter-spacing:.09em;
+                   font-weight:700; text-transform:uppercase }
+  .band h1 { font-size:23px; margin:6px 0 4px }
+  .band p { margin:0; color:#c7d8e8; font-size:13.5px }
+  .card { background:#fff; padding:24px 28px }
+  .card:last-of-type { border-radius:0 0 12px 12px }
+  h2 { font-size:16px; color:var(--navy); margin:0 0 10px }
+  label { display:block; font-size:12.5px; color:var(--muted); font-weight:600;
+          margin:12px 0 4px }
+  input { width:100%; padding:9px 11px; border:1px solid var(--line);
+          border-radius:7px; font:inherit; color:var(--ink) }
+  input:focus { outline:2px solid rgba(0,158,210,.35); border-color:var(--blue) }
+  button { background:var(--blue); color:#fff; border:0; border-radius:8px;
+           padding:11px 20px; font:inherit; font-weight:600; cursor:pointer }
+  button:disabled { opacity:.55; cursor:default }
+  .note { color:var(--muted); font-size:12.5px; margin-top:12px }
+  .warn { background:#fff8e6; border-left:3px solid var(--warn); padding:10px 14px;
+          border-radius:0 6px 6px 0; margin-top:12px; font-size:13.5px }
+  .bad { background:#fdecec; border-left:3px solid var(--bad); padding:10px 14px;
+         border-radius:0 6px 6px 0; margin-top:12px; font-size:13.5px }
+  .foot { color:var(--muted); font-size:12px; margin-top:18px; text-align:center }
+</style>
+{# The Hub's own wait mark, rather than a fifth hand-rolled spinner. This page
+   is served to a stranger and carries none of the Hub's chrome -- which is
+   exactly how the seven client-facing pages hub/thinking.py was written for
+   lost theirs, since hub-thinking.js rides in with the chrome. Guarded like
+   every helper call here, so a Jinja environment that never got
+   install_template_helpers() loses the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
+</head>
+<body>
+<div class="wrap">
+  <div class="band">
+    <div class="eyebrow">Smart 1 Marketing</div>
+    <h1>{% block heading %}Google Ads Grader{% endblock %}</h1>
+    <p>{% block subheading %}A read-only score of your own Google Ads account.{% endblock %}</p>
+  </div>
+  {% block body %}{% endblock %}
+  <p class="foot">Smart 1 Marketing · smart1marketing.com</p>
+</div>
+</body>
+</html>

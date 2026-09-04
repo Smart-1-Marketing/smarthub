@@ -1,0 +1,17 @@
+{% extends "_grader_base.html" %}
+{% block title %}Google Ads Grader{% endblock %}
+{% block heading %}We could not grade the account{% endblock %}
+{% block subheading %}Your details are with us either way.{% endblock %}
+{% block body %}
+<div class="card">
+  <div class="warn">{{ message }}</div>
+  {% if empty %}
+    <h2 style="margin-top:16px">Accounts we reached</h2>
+    {% for a in empty %}
+      <p class="note">{{ a.account_name or a.customer_id }} — no campaign with
+        activity in the last 30 days.</p>
+    {% endfor %}
+  {% endif %}
+  <p style="margin-top:16px"><a href="{{ mount }}/">Start again</a></p>
+</div>
+{% endblock %}

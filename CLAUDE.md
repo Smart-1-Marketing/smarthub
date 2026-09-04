@@ -1080,6 +1080,62 @@ enough to fix this goes wrong in the other direction just as quietly.
 names both as known absences rather than leaving them implicit, so building one
 makes the assertion the reminder to point the page at it.
 
+## A fallback secret in the source is a forgeable token
+
+`hub/signing.py`. Eight things here are signed with `itsdangerous` and six
+resolved the secret their own way, which is the drift `hub/storage.py` exists
+to stop wearing a signature. The difference between the six is what happens
+when **no secret is set**, and two of them had it right.
+
+**`hub/auth.py` and `hub/identity.py` fell back to a random ephemeral
+secret**, and auth.py's comment says why: everybody re-logs-in after a
+restart, which is noticed and cannot be forged. It fails **closed**.
+
+**Four fell back to a literal in their own source** — `"dev-only"`,
+`"smart1-client-links-development"`, `"s1hub"`, `"s1hub-social-dev"` — which
+fails **open**: it is the same string on every deployment, so anybody who can
+read the file can mint a token. The worst is `hub/users_routes.py`, which
+signs the **per-account session cookie** carrying the user id, the role and
+the must-change-password flag, read by the middleware in `wsgi.py` in front
+of every mounted module. With `SECRET_KEY` unset, a cookie signed `"dev-only"`
+claiming `{"r": "admin", "c": false}` was accepted as an **Admin session
+belonging to no account**. That was minted and accepted before the fix.
+
+**And the safe half was not safe either.** `auth.py` and `identity.py` sign
+the *same salt* (`s1hub-session`) and each generated its **own**
+`secrets.token_hex(32)` at import — so with nothing set they disagreed inside
+a single process and each refused the other's cookie, silently, which reads
+as a sign-in that does not stick. identity.py's own docstring claimed the
+opposite: *"both read hub.config so neither can know a spelling the other
+does not"* — true of the spellings, false of the fallback. The ephemeral
+secret is resolved **once per process** now, so two readers of one salt agree
+by construction rather than by both being configured.
+
+Three rules. **Never a literal** — there is a real secret or an ephemeral
+one and no third branch. **A placeholder is not a secret**: `hub/config.py`
+has detected the env.example values all along and no signing site asked it,
+and the four literals are on that list too, because from the day they were
+written down they were known secrets; nothing speculative is added beside
+them, the `ALIASES` rule. And **say what it costs, because it is not the same
+cost for everybody** — an ephemeral secret is a re-login for a session cookie
+and a **dead link on somebody else's website** for a client's social or
+approvals page, so `report()` names the state and `/status` prints it.
+
+**The status row was describing two of the eight.** `hub/config.py` has said
+*"sessions are not signed without it, so everyone is logged out by every
+restart"* the whole time — a true account of the two that failed closed and a
+wrong one about the four where nobody was logged out and anybody could forge
+a cookie. It reads `signing.report()` now, so the row and the thing it
+describes cannot disagree; and `bool(secret_key)` was not the question
+either, since a placeholder is set, is not a secret, and used to read **ok**.
+
+`test_signing.py`'s core is a **sweep**: a test naming the four call sites we
+fixed proves nothing about the ninth, so it reads the **AST** of every file
+constructing a serializer and requires the secret to come from
+`hub/signing.py`. Prose is not a call site, for the seventh time in this file
+— `hub/signing.py` quotes all four literals to explain them. Both defects were
+reverted and confirmed red before they were confirmed green.
+
 **Placeholder values are worse than blanks.** `CLOUDINARY_URL` sat at
 `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` and every "is it configured?"
 check said yes. `hub/config.py` detects the known placeholders. Render also
@@ -1782,6 +1838,31 @@ with Image Creator on the bare query `image` and took the top slot off it —
 `search_index` breaks an equal score alphabetically, so a name is a ranking
 decision. It is **Unattached Images**, beside "No Dashboards" and "Stale
 Creative". `test_image_audit.py` asserts all of it.
+
+**A day carried through four functions and dropped in the fifth.**
+`record_health.client360()` takes a day so a caller can ask what a client's
+record looked like as of a date, and #338 carried it down through
+`_seo()`, `seo.record_health()`, `blogs_health()` and `_days_since()` after
+`test_client360_health.py` went red at midnight UTC on three assertions —
+counts drifting by exactly one day while the product code and the test were
+each right and only the wiring between them was not. `_blogs_state()` was the
+one reader left on the wall clock, and it is the one that decides `state`: with
+a day injected it answered **"current" beside an `overdue` of 1**, which is the
+disagreement `blogs_health`'s own docstring says it exists to prevent.
+
+**Half a threaded clock is the worse half**, because the three values that did
+move made the one that did not look like a rule being wrong rather than a
+parameter being missed — and it is invisible on every day the two clocks agree,
+which is most of them. `blogs_health()` hands `_blogs_state()` the same day it
+counts `overdue` from, so the two halves of one rule cannot answer to two days.
+
+Two assertions hold it, and the second is the one worth keeping: **state and
+overdue answer to the same injected day**, checked at a date far from the real
+one because that is the only place they can differ; and **passing no day is the
+same answer as passing the real one**, because a day threaded for a test that
+quietly moves what production computes is the fix being worse than the bug.
+That second one is itself guarded on the day not turning between its two
+readings — unguarded it is the bug it was written to catch.
 
 **A pill with four answers was a bool, and the page contradicted itself.**
 The SEO client list draws four status pills per client. Three are a tick
@@ -2624,6 +2705,205 @@ and an email out loud, and Fan Radio does neither, so a spot whose whole
 call to action is the website is handed to the voice raw. Named rather than
 quietly merged — one shared reader is what closes it, and it changes what a
 client hears.
+
+**A music bed that generated nothing, on the tool whose whole output is
+sound.** `modules/radio_promo` is the general radio builder — fifteen tones,
+the brief read off the client's own site, a matched :15/:30 written to the
+clock, ElevenLabs casting, measured runtime, a one-button tighten. Its Music
+step saved a **text prompt** and the builder then played three oscillators at a
+pitch chosen by a regex over that prompt. So a rep described a bed, pressed
+Listen, heard a tone, and filed a spot with **silence under the voice** — the
+placeholder failure `qrcode_service` paid for on a CTV end card, one medium
+over, and invisible from both ends because every screen reported success and
+the thing that was missing is a thing you have to play the file to notice.
+
+The module's own docstring said why it was like that, and it was true: *"What
+did not [carry over]: ffmpeg music beds and loudness mastering (no ffmpeg in
+the Hub runtime)."* There is still no ffmpeg, ffprobe, pydub or numpy here.
+**Neither half of the job needs one.** A bed is *composed* by ElevenLabs at the
+spot's own length — `services/elevenlabs_audio_service.py` was built for
+exactly this and its own note already said the audio-only path reaches it as
+it stands — so nothing is ever trimmed to fit. And the voice is mixed over it
+**in the browser**, through the Web Audio API, which decodes both tracks, ducks
+the bed under the read and hands back a WAV.
+
+**Which is what makes the length honest.** A WAV states its sample rate,
+channel count and data length in its own header, so `radio_spec.wav_seconds()`
+is arithmetic on the bytes we stored — measured by us, not reported by the page
+that made them, which is the `_dimensions()` rule in `modules/bg_remover`
+wearing a stopwatch. An uploaded **MP3** is the opposite case and says so: it
+is at a bitrate nobody here chose, so its length is *not measured*, never a
+number and never zero. The mix route refuses anything that is not a readable
+WAV rather than filing a deliverable of unknown length, and it ignores a
+`seconds` field the page supplies — `test_radio_ads.py` posts a 29.9s file
+claiming 30.0 and requires 29.9 to be what is filed.
+
+**The encoder and the probe are two implementations of one format, and if they
+drift nothing can be filed at all.** So `toWav` is lifted out of the template
+and driven in **node** against `radio_spec.wav_seconds()` across mono, stereo
+and two sample rates — the arrangement `test_menu_layout.py` uses over
+`hub-crumbs.js`, for the same reason: a copy restated in the test is a third
+thing to keep in step.
+
+**The dB pair is Commercial Builder's, read and not restated.**
+`config.ducked_db()`'s own note says two lookups of one table is how the panel
+and the render come to disagree about how loud something is — so a radio spot
+and a video spot duck their beds by the same amount, from the same table, and
+`hub/radio_spec.py` keeps **no fallback copy of it**. The consequence is stated
+rather than discovered: where that import fails, `available()` says so and the
+step refuses, because a bed mixed at numbers nobody published is worse than a
+step that says it cannot run. The test matches those numbers as **numbers**,
+not as substrings — the first draft's `"-9" in source` was true of the
+character class `[A-Za-z0-9-]` in the phone-number pattern and reported a file
+with no dB literal in it at all, which is the false positive that gets a check
+switched off.
+
+**"Licensed bed" was the wrong check, and provenance is the right one.** The
+build spec asked for a blocking check against a catalog of cleared tracks.
+There is no such catalog — a bed is composed on demand or uploaded by whoever
+is making the spot — so what actually protects a client is `bed_source`: real
+audio, with a source recorded against it. A **described-only** bed blocks and a
+**mock-mode** bed blocks, because both ship as silence; a mock bed is refused
+at the door rather than saved and blocked later. And **no bed at all passes**,
+because a sponsor mention and a news-style read are ordinary radio spots that
+ship without music, and a check that refuses the correct thing is one somebody
+switches off — which here would cost the call-to-action check with it.
+
+**And the route that made those beds is gone rather than kept.** Once the
+builder composed instead of describing, nothing posted to
+`/api/projects/<pid>/music-beds` any more — and the only state it could still
+produce is a bed with no audio behind it, which is precisely what `bed_source`
+now blocks. Keeping a write path whose only product is a state the checks
+refuse is keeping a way to make the mistake, and its docstring had already
+started claiming a role in a flow that no longer called it. The **rows** are
+not orphaned: a project on disk carries `music_beds`, and the Music step offers
+each of those descriptions as a one-press prompt to compose from, so words
+somebody wrote before any of this existed are reachable and now worth
+something.
+
+**`not_measured` is never folded into `pass`**, and `measured` excludes the one
+row that is deliberately reserved. Loudness and clipping need a decoder this
+runtime does not have, so `vo_clarity` is a row that says so rather than a row
+that is absent — an absent row is a report shape that changes the day somebody
+adds the check. Counted into `measured`, it would make that flag False on every
+spot ever built and therefore say nothing, which is the assertion that cannot
+fail wearing a QC report.
+
+**Nothing here refuses a render; filing is what needs a reason.** `QR_CODE_RULES`
+is the precedent. A blocking finding answers **409 with the report** rather
+than filing quietly, and an override is available — recorded against a name,
+with the reason required, because an override nobody can explain later is not a
+record.
+
+**The call-to-action check exists because both platforms this was specced
+against report the same finding**: the commonest reason a self-serve radio spot
+underperforms is that it never says what to do next. A phone number, a web
+address or a code, with the **matched words quoted** so a reader can find them
+in the script — and the spoken form counted too, since `speech.py` spells a web
+address out loud and a script through that pass carries no dot at all. It
+refuses to fire on ordinary copy: a zip code, an area code, a year, a founding
+date. A check that fires on every spot is one nobody reads.
+
+**The browser has to fetch both tracks to mix them, and a CORS refusal is a
+button that does nothing.** So both are read back through one same-origin route
+whose allowlist is **the project's own row** — a `ref` names a slot and a role
+and the URL comes from what this service already recorded. Nothing takes a URL
+from the caller, which is the rule `assets.generatedImagePath()` in the ad
+builder had to be given after a path in a POST body could lift any readable
+file into a web-served folder.
+
+**A variation carries the choices and never the audio.** The intake, the brief,
+the tone, the pronunciations and the scripts come across; a rendered read and a
+finished mix do not, because audio of the previous wording filed under a new
+name is the wrong file and it plays perfectly well. The lineage is on both
+rows. What is *not* there is the denylist that was written beside the
+allowlist: it named spots, mixes, beds, versions, banner, share, feedback and
+pushed, and **`store.create()` already refused every one of them** — a second
+guard that cannot fire reads as the mechanism and is not one, which is the
+shape this file counts six of, so it is gone and the test asserts the store
+instead.
+
+**The :60 is opt-in, and its budget is not the one the spec asked for.** Each
+length is a model call and a slot somebody then has to record, so a project
+still writes the :15/:30 pair unless it says otherwise, and a row saved before
+that field existed reads as the pair rather than being migrated. The spec asked
+for **150–180 words**; at the house pace of 2.6 words/second that `speech.py`
+holds, 180 words is a **69-second read** — a :60 written to the top of that
+range cannot be recorded inside its own slot, so it comes back over, gets
+tightened, and the budget that sent it there was ours. It is **140–170**, the
+same deliberate overshoot the :15 and :30 already carry.
+
+**And the numbers stopped being written down twice.** `renderCopy` carried 42
+and 85 as literals and the AI system prompt stated the budgets in prose, which
+is why a :60 could not be added without editing three places. The prompt line
+is derived from the table, the template reads the table the server sends, and
+the JSON shape the writer is asked for is built from the slots in play — so the
+model is never asked for a length nobody wants. Its token ceiling scales with
+the words asked for, anchored on the 1400 the pair has always used, because a
+ceiling sized for two scripts truncates three and a truncated response arrives
+as an **empty text body** rather than as the ceiling it is.
+
+**One setting the browser read was served by nothing.** `lead_in_ms` — the
+moment of bed before the read starts — was read as `(M.lead_in_ms||0)` and sent
+by no route, so the bed began on the same sample as the first syllable on every
+mix, and the `||0` is what hid it. Fixed, and then swept: `test_radio_ads.py`
+reads every `M.<setting>` the template touches and requires each to be a key
+`mix_defaults()` actually returns, because a one-off fix does not catch the
+next one.
+
+**A read that overruns is never trimmed to fit.** The mix is rendered at the
+longer of the slot and the voice, so a long read comes back **measured and
+over** and the length check names it — trimming clips the end off the phone
+number, which is the rule `grade_duration()` already states about a render and
+`save_links()` states about an archive. A bed shorter than the spot is
+**reported rather than looped**: a loop puts an audible seam in the middle of a
+client's commercial, and saying the last few seconds carry no music is
+something somebody can act on.
+
+**Two things from the build spec are deliberately not here, and both are the
+same decision.** The spec's step 6 is a **client review link** and its step 7 a
+**Suite notification** on mix-ready, and each is written in the spec itself as
+"reuse the shared thing once it exists" — `hub/review_share.py`, and the
+Commercial Builder's render-completion workflow. Neither exists. What does exist
+is `modules/fan_radio`, which has a complete client approval surface for a radio
+spot already: one share link per project, a random token, no login, `noindex`,
+approve or comment per spot, feedback landing back against the spot it belongs
+to. Building a second one here would be two client-facing approval pages for
+one medium, differing in whatever each remembered — which is the two-proposal
+-builders failure this file opens with, and the reason this work went into
+`radio_promo` rather than into a third radio module in the first place.
+
+So the honest next step is **not** a share page in `radio_promo`: it is lifting
+Fan Radio's out into the shared layer beside `hub/radio_spec.py` and having
+both tools read it, at which point the notification has one place to hang off
+too. That is its own piece of work with its own test, and it is named here
+rather than half-started, because a second half-built approval flow is worse
+than one tool having the only one.
+
+**A public_id that names a slot has to replace what is already there.**
+`upload_asset` passed `overwrite=False` on every call, and the public_ids it
+builds are deterministic — `mix-thirty`, `bed-thirty`, `<slot>-<voice>` — so
+re-mixing or re-recording one slot lands on the asset the last attempt wrote.
+With overwrite off, Cloudinary keeps the **old bytes** while the store records
+the **new measured length**, so the file a client is sent and the duration filed
+against it disagree; and where Cloudinary refuses outright, `upload_asset`'s own
+`except` drops the asset onto the persistent disk instead, which is wiped on
+every redeploy, reporting a clean success either way. The disk branch has
+always overwritten, which is the other half of the same inconsistency. This
+was **already true of the re-render path** before any of this work, so that one
+is fixed with the four new ones rather than left as the older defect it is.
+`test_radio_ads.py` sweeps every `upload_asset` call whose public_id carries a
+slot — matched on **balanced parens**, because the regex the first draft used
+stopped early on the multi-line calls and passed "every one of them" against
+three of five, which is the sweep that quietly stops sweeping.
+
+**The tile is the Radio Ad Creator; everything underneath it is still
+`radio_promo`.** The mount, the help keys, the log name and the Cloudinary
+folder do not move — renaming the mount breaks every link in a rep's history,
+renaming a help key orphans the bubble, and renaming the log name orphans every
+row already on disk. It is the `billboard` and Video Search rule, and
+`test_menu_layout.py` is what holds the tile's name against the trail that
+names it.
 
 **Three answers, and the fourth state is not an answer.** Approve/reject
 forces "yes, but fix the phone number" into whichever end is nearest, the rule
@@ -5454,6 +5734,158 @@ helped and the screen shows nothing.
 `test_client_owners.py` asserts all of it, including that every one of the
 twelve routes refuses a stranger — they name every client, what is wrong with
 each and who owns them.
+
+## A renderer we host, and the two things that makes different
+
+`hub/hyperframes.py`, `modules/commercial_builder/vox_spec.py` and
+`modules/hyperframes_tools`. Every other provider this Hub reaches is a hosted
+REST API: we post a request and somebody else's servers do the work. HyperFrames
+is an **open-source rendering framework** (Apache-2.0) whose normal shape is a
+local CLI driving headless Chrome frame by frame and encoding with FFmpeg —
+Node 22, Puppeteer and FFmpeg, none of which is in this Flask image and none of
+which belongs in it. So the renderer runs as its **own Render service**,
+`hf-render-service`, and `hub/hyperframes.py` is the whole of the Hub's side of
+that wire. **That service is a separate deliverable and is not in this repo**;
+until it exists, `HF_RENDER_SERVICE_URL` is unset, which is the state every
+screen below is written for.
+
+Two skills ride on it and they are deliberately different sizes. **Paint
+animation is a treatment** — p5.js handwriting, paint-on and living-painting —
+so it is a *sixth scene source* in the Commercial Builder beside stock, AI, the
+spokesperson, an upload and a client asset, never a replacement for them. **A
+Vox explainer is a complete output**, a 60–90 second editorial collage, so it is
+a *ninth commercial type* rather than a scene option: a scene source that
+produced a finished video would be a scene that is the whole spot.
+
+**No API key, and therefore no `hub/quotas.py` marker.** It is self-hosted;
+what it costs is Render compute rather than a per-render bill, and counting
+renders here would be counting something nobody is invoiced for. What *is*
+billed is the OpenAI call that writes a beat list, and that is recorded where
+it happens.
+
+**Configured, reachable and working are three questions.** `is_configured()`
+reads settings and costs nothing, so it is what a page gates on — the paint
+button and both standalone forms are simply **absent** without a service,
+rather than present and failing at the moment somebody is waiting. `check()` is
+one request and is what QC and Diagnostics read. Neither is evidence of the
+third, which is why a job reports its own outcome and nothing infers success
+from the submit. Not configured is **not measured**, never a cross:
+`services/provider_check.py`'s rule, one provider further out.
+
+**A mock is marked and never filed.** With no service a submit answers a job
+carrying `_mock` and no file — so the tool reads as switched off, which it is,
+rather than as broken. `is_deliverable()` is the **single** reading every filing
+call site asks, the refusal `approve_render` already makes about a mock
+Creatomate render. A truthy `url` alone is not the test: a job still rendering
+has one too.
+
+**An unrecognised render state reads as still running.** Treating one as
+finished attaches nothing while reporting success, which this module has
+already learned with HeyGen and again with Runway. The status route is also
+what **attaches** a finished file, never the browser, so a closed tab does not
+lose minutes of rendering nobody will start again.
+
+**The templates are pre-authored and parameterized, never authored per
+request.** Having a model write fresh HyperFrames HTML each time is slow,
+impossible to QC, and throws away the one thing this framework offers that
+Runway does not — the same input always renders the same film. `TEMPLATES` is
+the contract and a name absent from it is refused **here**, because a service
+404 and a typo'd template name arrive identically and only one is fixed by
+restarting anything.
+
+**The beat list is the join, and it is the whole risk.** A model writes JSON, a
+template consumes JSON, and nothing between them otherwise checks that the two
+agree — the shape `submit_render` already paid for, where an audit line read
+`project.name` and `project.length` and every render this tool had ever been
+asked for returned a 500 that reached the browser as "Bad response from
+server". `vox_spec.validate()` runs over what the model wrote **and** over
+anything typed by hand, because a rule the form keeps while the write breaks it
+is not a rule. A beat it cannot read is **dropped and counted with its reason**,
+never repaired: inventing the missing half of somebody's explainer is this
+module writing copy nobody asked for, and a silently shorter list is a video
+missing exactly the point somebody wanted made.
+
+**The window is arithmetic, and the per-beat cap has to hold inside it.**
+`rebalance()` scales the beats to the 60–90s window rather than the prompt
+being asked nicely for a total — a model told "75 seconds" writes beats summing
+to 52 and puts 75 in a field beside them. The first version put the whole
+remainder on the **longest** beat and produced a 52-second card in a collage
+explainer, past a per-beat ceiling that exists because nobody watches one card
+for the better part of a minute. A cap honoured everywhere except in the
+correction is not a cap; the remainder is spread across the beats with room,
+and a list too short to fill the window is **left short** rather than forced —
+that list is already failing the beat count, and the honest total is what the
+duration check should read.
+
+**A Vox explainer is refused where nobody sells the slot, by the route.**
+`vox_spec.PLATFORMS` is `youtube` and `social` and deliberately **not `both`**,
+which `config.PLATFORMS` spells *"CTV and YouTube"* — allowed there, a 60–90s
+editorial piece is a CTV placement the buy refuses, with the platform field
+reading as though it had been checked. `VOX_LENGTHS` is its own list because
+`COMMERCIAL_LENGTHS` stops at 60, which is this format's *minimum*. And it is
+one length at a time: the multi-length build exists because a :15 is cut down
+from a :30, and each Vox length is a different beat list rather than a trim of
+another. The Start page hides what it cannot offer and the **create route
+refuses it by name**, because the form is not the gate.
+
+**A spot with no storyboard cannot answer a storyboard's checks, and that
+nearly shipped as a gate nobody could pass.** `run_qc` runs twenty-odd checks
+and six of them read Scene rows — timing, footage, narration length, the CTA,
+the YouTube hook and the spelling pass. A Vox explainer has none, so all six
+reported real failures about a spot that is fine, and `submit_render` refuses
+on `not _all_passed`: **every Vox render there could ever be was refused**,
+with the panel naming six things nobody could fix. `NOT_FOR_VOX` marks them
+not-applicable with the reason each cannot be answered — the same answer
+`_check_render_service` gives a Creatomate spot, from the other direction, so a
+reader can still tell *we looked and it is fine* from *this question is not
+about this spot*. Declared rather than a `continue`, so a check added later is
+a decision about that list rather than an accident.
+
+**The two new checks advise and never block.** The render service being down is
+an outage rather than a defect in the spot, and refusing to let somebody finish
+a beat list over it is the gate `QR_CODE_RULES` explains getting switched off.
+The duration is measured off the **plan** rather than a rendered file, for the
+reason `abcd_service` scores the plan: a length problem found on an MP4 is a
+re-render and one found on the beat list is free. Both are in **both** JS label
+maps — a key absent from one is skipped silently by that panel's loop, which is
+the failure `scene_assets` already had.
+
+**The finished file goes to the client's Cloudinary tree and not the image
+gallery.** Both skills produce video, and `filing.file_asset` models an image or
+a raw file — the Commercial Builder leaves its commercials, spokesperson clips
+and voice tracks out of the gallery for exactly that reason, because a row whose
+thumbnail can never render is worse than an absent one. So a kept render is
+stored through `hub/storage.put_remote()` (Cloudinary fetches it; this process
+does not download a video to post it back up) and written to the **activity
+log**, which is what puts it on the 360 record — and the two are **reported
+apart**, because "stored" and "stored and on their record" are different
+outcomes and one tick over both is how somebody learns not to trust the tick.
+
+**A client is optional and is never guessed at.** With none picked the render is
+still made and still downloadable, the way the Background Remover and the UTM
+Builder work. What is refused is a *typed* name: `client_key.resolve()` answers
+for everything, so the test is `known` rather than truthiness — it hands back
+the input verbatim under `client` when nothing matched, and reading that as a
+match is the typed-name failure the whole check exists to refuse.
+
+**Both tools log under their own names**, declared in
+`client_brand.WORK_KINDS`, because a standalone paint animation is not a
+commercial and reading as one on a client's record would say we made them a
+spot we did not. The name is **data and the call is direct**: an earlier
+version passed each tool's bound logger down as a parameter, and a logger
+reached through a parameter is one no static walk can follow —
+`/api/integrity`'s silent-module check duly reported the module as never
+logging at all, which was a true statement about what it could see. The fix is
+a call it can read rather than an exemption asking to be trusted.
+
+**One module for two tools, and the templates are prefixed.** Submitting,
+polling, storing and filing are identical for both; two directories would be two
+copies of that and the next fix to the poll would land in one of them. They are
+hub-app blueprints, so they share the hub's Jinja environment and a bare
+`index.html` here would resolve against the hub's own templates first —
+`hf_paint.html` and `hf_vox.html`, the trap `/api/integrity` has a
+high-severity check for. Both carry `hub/blueprint_guard.install()`, because a
+blueprint is not behind `AuthGuard`.
 
 ## Opportunistic migration — read this before editing any module
 
@@ -9977,6 +10409,149 @@ member switching the industry selector to a real trade is asking for that
 trade's curated chips, not for a client's description to quietly replace them.
 `test_image_picker.py` asserts all of it.
 
+## One design, the whole size set — and the fourth copy it refused to be
+
+`modules/magic_resize` (`/tools/magic-resize`) takes a finished design and
+produces every size in a bundle from it. It is a **new module rather than a
+feature on Image Creator**, because the two have structurally different
+project shapes: Image Creator is one canvas, one size, one Fabric JSON, which
+is right for what it does, and this is one design and many frames derived from
+it. What it does **not** do is fork that tool's services — the photo search,
+the asset lookups and the AI proxies are provider-agnostic and are called, not
+copied.
+
+**It is not `/tools/display-ads`, and that is the first trap in this file
+rather than a preference.** That prefix is the Display Ad Builder's — the
+TypeScript renderer proxied by `hub/ad_builder_proxy.py` — and
+DispatcherMiddleware routes purely by URL prefix, so a second module under it
+never receives a request and does not even 404: it is swallowed by whichever
+mount owns the prefix. The two tools are also different jobs and the names say
+so. The Display Ad Builder *generates* a size set from copy and a brand
+against hand-authored per-size layouts; this *resizes* a design somebody drew.
+
+**Every dimension the spec kit publishes is read from the kit, and none is
+restated here.** This repo already held **three** descriptions of display ad
+sizes: `hub/creative_specs.py`, which is the transcription `kit_drift()` holds
+against the published page; `modules/ad_builder/src/config/platforms/*.json`,
+the renderer's own; and `modules/image_creator.CANVAS_PRESETS`, a canvas
+picker. They agree by luck rather than by construction, which is the drift the
+two rate cards cost a year. A fourth would have been the one that went stale,
+because it is the one no check reads — and the build plan's own table already
+disagreed with the kit transcription about the HTML5 package (600 KB against
+the kit's 200 KB) before a line of it was written. `sizes.py` names a
+`creative_specs` unit id and nothing else: the width, the height and the
+weight ceiling are read at import, and a delivered file is judged by
+`creative_specs.check()`.
+
+**A unit the kit stops publishing is dropped and named, never guessed at.** It
+lands in `UNRESOLVED` and `check_kit_alignment()` reports it, and the bundle
+comes back short — a size we cannot verify is one we must not silently deliver
+against, and a fallback dimension carried here to keep the bundle whole is the
+second copy the module exists to refuse. Six sizes **are** ours, each with
+`source: "house"` and its reason: the 336x280 and 320x100 IAB units the kit
+does not weigh, Google's two Responsive Display asset sizes (an asset pool
+Google lays out itself rather than a banner it serves whole, judged on
+Google's published 5 MB with that provenance printed), and the two social
+resolutions the kit publishes as a ratio rather than a size. A house size with
+no published ceiling is reported **not measured** rather than judged against
+the unit it resembles.
+
+**Two tiers, because two different things are being asked.** Between
+neighbouring shapes the answer is arithmetic and objects **re-anchor** — each
+is measured against the edge it was nearest and put back the same distance
+from that edge in the new frame's terms, because scaling raw x/y drifts
+everything toward the origin as a frame shrinks and a right-hand button walks
+into the middle. Between distant shapes the answer is a layout decision, and
+`templates_layout.py` holds four **house-authored, fixed** arrangements —
+leaderboard, skyscraper, square/rectangle and story — the choice
+`SOCIAL_STRUCTURE_TEMPLATES` makes in the Commercial Builder and for the same
+reason: a layout a model picks differs between two renders of one campaign,
+and the whole promise of a size set is that it is the same ad. Which tier a
+frame took, and why, is printed on the frame.
+
+**A slot contains and never covers, and that is mechanical rather than
+taste.** Covering means overflowing; a background may overflow because the
+canvas clips it, and a slot clips nothing unless the object carries a clip
+path. This module emits plain Fabric objects, so a covered slot is a
+photograph hanging off the ad — which the guard then reports as clipped, on
+every frame, for ever. The first version did exactly that, and the test is
+what found it.
+
+**A frame the engine is unsure about is `needs_review`, never `auto`.** The
+guard runs after placement and names the objects: an overlap, or anything past
+the frame edge. A background is exempt from both because covering the frame is
+its job, and a decorative object is exempt from the overlap check alone — a
+rule behind a headline is the design — but not from the bounds check, since a
+flourish hanging off the edge is still clipped. The tolerance is there for the
+same reason `QR_CODE_RULES` is advisory: a guard that fires on a hairline
+touch is one somebody switches off, and switching this one off costs the real
+findings.
+
+**Nothing is dropped in silence, and copy is the line that decides.** Every
+object a template had no place for is named in `unplaced` and stays on the
+design. One carrying **words** marks the frame, and one carrying none is a
+note beside it — a photograph left off a 728x90 is obvious to anybody looking
+at the frame, and a line of rate copy that did not fit is not, and it is the
+client's own words going missing. Nothing is invented for an empty slot
+either: a headline slot with no headline is left empty and said so, because
+filling it with the next nearest thing is how a disclaimer ends up where the
+headline goes.
+
+**The propagation rule is two halves that fail in opposite directions.** A
+**copy** edit on the design reaches every frame, a hand-tuned one included —
+making a rep retype a headline eight times is how one of the eight goes out
+with last week's offer on it — and an edited frame that receives one is
+*flagged*, because new words may not fit a box somebody set by hand and
+nothing here can see that. A **layout** edit reaches `auto` and `ai` frames
+and never an `edited` one: somebody moved that button on purpose, and
+regenerating it destroys a decision with nothing on any screen saying so. The
+skip is reported rather than silent, since a frame that regenerated into
+exactly what it already was and one that was never touched read alike.
+
+**AI recompose is the fallback on one frame, never a pass over the set.**
+There is no route that recomposes a set: a model asked for eight layouts
+produces eight a person then has to check, which is the work the templates
+already did. It is handed roles and boxes and **not** the client, the brand or
+the copy; it returns *positions* for objects that already exist; an id it
+invented is dropped and counted; an object it did not mention keeps its place;
+and its answer goes back through the same guard a template's output does,
+because a proposal that arrives with a collision must not read as the fix for
+the collision it was asked about. Keeping one is a press, and it is `ai` and
+not `auto` — which frames a template produced and which a model adjusted is
+what somebody scanning a set wants to know.
+
+**The dimensions are the unit, and are never traded for weight.** Export
+judges the browser's rendered bytes against the ceiling and, over it, runs a
+quality ladder with `max_edge` pinned above the frame's own longest side so
+the shared optimiser cannot resize on the way past: a 300x250 shrunk to
+280x233 to save weight is not a Medium Rectangle any more. A frame that cannot
+get under its ceiling above the quality floor is **left out of the pack and
+named in it** — the rule `deliverProject` already applies to a QA-failing
+size, because seven files where there should be eight is a difference ad
+operations assumes they caused.
+
+**The type floor is ours and warns rather than blocking.** No platform
+publishes a minimum type size for display, so a hard failure would be house
+guidance wearing a platform's name — the reason `HOUSE_LEGIBILITY` is kept out
+of `THRESHOLDS` in `services/abcd_service.py`. It matches the per-size
+`minFontPx` the display-ad renderer already carries, so the two halves of this
+Hub at least agree, and the build plan asks for a figure signed off rather
+than assumed.
+
+**What is deliberately not built yet**, so its absence is a decision rather
+than something to rediscover: the Fabric editing surface is **not** shared
+between this module and Image Creator. That refactor is real — `editor.js` is
+1,845 lines of module-scope globals with no export structure — and it is the
+highest-risk, lowest-immediate-value piece of the plan, which is the note this
+file already makes about a big-bang rewrite of working modules. Until it
+lands, a frame is produced, judged and reviewed here and hand-tuning one goes
+through `POST .../frames/<size>` with objects the editor supplies; `Adjust
+Variant` and the browser-side render behind the export button are the half
+that needs it. `brand_profile_ref` on a project is a **placeholder read by
+nothing**, pending the separate BrandTemplate decision — carried as a
+reference precisely so it cannot quietly become a working integration nobody
+signed off, which is the declared-but-unwired failure this file counts six of.
+
 ## The one module that is not Python
 
 The **Display Ad Builder** (`modules/ad_builder`) is a Node service, not a
@@ -11658,6 +12233,13 @@ python3 test_prospect_explainer.py # the two screens explain themselves: every k
                                    #   page draws, and none of it reaches a prospect
 python3 test_detail_ui.py          # one description of the record-page look, and the
                                    #   three module screens that read from it
+python3 test_magic_resize.py       # one design into the whole size set: sizes read
+                                   #   from the kit rather than restated a fourth
+                                   #   time, a frame the engine is unsure about
+                                   #   marked rather than shipped, copy that
+                                   #   reaches a hand-tuned frame and layout that
+                                   #   never does, and a model that proposes
+                                   #   positions rather than a picture
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
@@ -11720,6 +12302,12 @@ python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS pan
 python3 test_webargs.py            # a caller's number: never a 500, never a
                                    #   negative slice, and the three call
                                    #   sites the shared helper never reached
+python3 test_signing.py            # what this Hub signs with: a literal
+                                   #   fallback is a forgeable admin session,
+                                   #   a placeholder is set and is not a
+                                   #   secret, and two readers of one salt
+                                   #   that each generated their own random
+                                   #   secret refused each other's cookies
 python3 test_analytics_ask.py      # a GA4 comparison keyed on the tag Google
                                    #   actually sends, a time series left in
                                    #   the order it was asked for, and a total
@@ -11765,6 +12353,10 @@ python3 test_image_download.py     # image downloads, the shared zip builder, an
 python3 test_image_audit.py        # every image attached to a client or a lead,
                                    #   a gallery you can search, and nothing
                                    #   filed under a provider nobody declared
+python3 test_client360_health.py   # the derived health strip: every pill from
+                                   #   the stores, a source that refuses drawn
+                                   #   as its own state, and both halves of the
+                                   #   blogs rule answering to one day
 python3 test_client360_layout.py   # the record's cards land in their rail
                                    #   sections by name, driven in node — a
                                    #   match list that stops matching piles
@@ -11813,12 +12405,30 @@ python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,
                                    #   and a long read flagged rather than trimmed
-python3 test_builder_parity.py     # the two builders answering one question
-                                   #   the same way: the copy has to actually
-                                   #   say it, a named QC panel run on the copy
-                                   #   rather than after the render, the :10 and
-                                   #   the :60 that were unbuildable, and the
-                                   #   finished spot reaching the Suite
+python3 test_commercial_parity.py  # the copy a spot carries: a shared rule for
+                                   #   whether the words actually say the brand,
+                                   #   the address and the phone, an end card
+                                   #   deleted out from under the check that read
+                                   #   the client record instead, and the finished
+                                   #   cut reaching the Suite once rather than twice
+python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
+                                   #   composed to the spot's own length rather
+                                   #   than a prompt saved and a tone played, the
+                                   #   dB pair read from the one shared music
+                                   #   table, the browser's WAV encoder held
+                                   #   against the server's own probe in node,
+                                   #   not-measured never folded into pass, an
+                                   #   override that needs a reason and a name,
+                                   #   and a variation that carries the scripts
+                                   #   without the audio
+python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
+                                   #   and the :60 that were unbuildable, the
+                                   #   cost note said at pick time rather than
+                                   #   after the read exists, the beats moved
+                                   #   out of the prompt's own prose, and a
+                                   #   named script panel run on the copy --
+                                   #   where certainty rather than severity
+                                   #   decides what may refuse a billed record
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,
@@ -11841,6 +12451,13 @@ python3 test_commercial_review.py  # the client's review link: public and chrome
                                    #   three answers, the strictest one wins, a
                                    #   refusal that stops a delivery, and the
                                    #   answers reaching the dashboard
+python3 test_hyperframes.py        # the sidecar renderer and its two skills:
+                                   #   configured is not reachable is not
+                                   #   working, a mock that is never filed, a
+                                   #   beat list validated rather than trusted,
+                                   #   a per-beat cap that holds inside the
+                                   #   window, and a Vox explainer refused
+                                   #   where nobody sells the slot
 python3 test_commercial_wizard.py  # the seven steps, the batch an approval opens,
                                    #   the client join, the spec check,
                                    #   the QR destination and who owns the scan; the :06,
@@ -11993,6 +12610,47 @@ Two gates disagreeing about what "green" means is worse than either alone.
 It runs against a real Postgres rather than SQLite because Sites Admin refuses
 to start without one and serves the 503 fallback instead: on SQLite a whole
 module drops out of every check that boots the app, and nothing says so.
+
+**A setting that is right about a thing that has never happened.** smart1-hub
+is configured `autoDeploy: yes`, `autoDeployTrigger: checksPass`, branch
+`main`, and the checks it is waiting on pass — and Render has never once
+deployed it by itself. Every deploy in its history, past the hundredth and
+back to the week the service was created, is trigger `manual` or `api`, and
+**no service in the workspace has a single `new_commit` in its history**. So
+what is missing is the webhook rather than the setting, which is why reading
+the service config says nothing is wrong: each screen is internally
+consistent, and the one number that shows it is a column nobody scrolls to.
+The stored repo path is the pre-transfer one (`smart1marketing/smarthub`,
+where the repo now lives under the `Smart-1-Marketing` org), and git follows
+that redirect happily — so a manual deploy builds the right code and only the
+event subscription is absent. Reconnecting the repository under the org, with
+Render's GitHub App installed there, is the fix at that end and is the only
+half of this that cannot be done from the repo.
+
+The half that can is the `deploy` job in `checks.yml`, which makes the same
+promise on the side that demonstrably works: the commit whose checks just went
+green is the commit that ships. It is the workflow's one exception to *no
+secrets*, and it is a separate job for exactly that reason — it never runs on
+a pull request, so a fork's run and a contributor's branch still have no
+credential and no path to production.
+
+Three rules on it. It deploys **`ref=<sha>` and never a bare hook**: main takes
+a merge every few minutes here, so "check main is green, then trigger a
+deploy" is not atomic, and a deploy triggered that way has already picked up a
+commit that landed in the intervening seconds — naming the sha ships what was
+tested. A **missing secret is a refusal**, not a skip, because a green tick
+over a deploy that did not happen is the confident wrong answer this file
+spends its length undoing. And **the hook URL is never echoed**: the whole URL
+is the credential, anyone holding it can deploy, and the `services/provider_check.py`
+rule about never carrying a key into something a person reads applies to a CI
+log as much as to a page.
+
+`test_ci_gate.py` asserts all of it. Its first draft could not fail on the
+refusal: the window it searched for an `exit 1` after the guard was wide enough
+to reach the *other* `exit 1` further down the step, so a branch changed to
+echo and carry on still passed — the assertion that cannot fail, in the file
+written about checks that cannot fail. It is scoped to the branch now, and all
+five were confirmed red against the defect each guards.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path — and every

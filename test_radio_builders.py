@@ -104,7 +104,7 @@ from modules.radio_promo import app as promo_app              # noqa: E402
 from modules.radio_promo import speech as promo_speech        # noqa: E402
 from modules.radio_promo import store as promo_store          # noqa: E402
 from modules.radio_promo.catalog import (DURATIONS, TONES,     # noqa: E402
-                                         duration_by_key, tone_by_id)
+                                         duration_by_key, slots_of, tone_by_id)
 
 fan = fan_app.app.test_client()
 promo = promo_app.app.test_client()
@@ -599,18 +599,26 @@ section("The word budgets the two tools quote are the same clock")
 # =====================================================================
 # A script written in one and moved to the other must not need re-timing.
 
-# Radio Promo sells the two units Fan Radio does and two more either side of
-# them — the :10 sponsorship tag and the :60. That is a superset rather than a
-# disagreement: the assertion is not that the two menus match, which would
-# make adding a unit to one a failure, but that every length Fan Radio sells
-# is one Radio Promo can also write, so a spot moved between them lands on a
-# slot that exists at both ends.
+# Radio Promo sells the pair and the two units either side of it -- the :10
+# sponsorship tag and the :60. That is a superset of what Fan Radio sells
+# rather than a disagreement, and the assertion is deliberately not that the
+# two menus match: Fan Radio sells football dayparts, where a :60 is not a
+# unit anybody buys, so requiring one catalogue to mirror the other would be
+# requiring that neither may ever sell a length the other does not. What has
+# to hold is that every length Fan Radio sells is one Radio Promo can also
+# write, so a spot moved between them lands on a slot that exists at both ends.
 check("Radio Promo sells the pair and the two units either side",
       [d["key"] for d in DURATIONS], ["ten", "fifteen", "thirty", "sixty"])
-check("Fan Radio sells the pair", fan_catalog.LENGTH_IDS, [15, 30])
-check("and every length Fan Radio sells, Radio Promo can write",
+check("a project asks for the pair unless it says otherwise",
+      list(slots_of({})), ["fifteen", "thirty"])
+check("and the longer and shorter units are asked for rather than assumed",
+      list(slots_of({"slots": ["ten", "fifteen", "thirty", "sixty"]})),
+      ["ten", "fifteen", "thirty", "sixty"])
+check("Fan Radio sells the two lengths a daypart buys", fan_catalog.LENGTH_IDS,
+      [15, 30])
+check("and every length Fan Radio sells, Radio Promo also sells",
       [s for s in fan_catalog.LENGTH_IDS
-       if s not in [d["seconds"] for d in DURATIONS]], [])
+       if s in [d["seconds"] for d in DURATIONS]], fan_catalog.LENGTH_IDS)
 
 # They are budgets, not limits, and the numbers are deliberately close
 # rather than identical — Radio Promo's are the studio's, measured at a
@@ -727,7 +735,15 @@ section("Both tools are findable")
 
 creative = (ROOT / "hub" / "templates" / "creative.html").read_text()
 check("Radio Promo has a tile", 'href="/tools/radio-promo/"' in creative, True)
-check("and it is named", "<h3>Radio Promo</h3>" in creative, True)
+# The tile reads "Radio Ad Creator" -- the general radio tool, named for what
+# it makes rather than for a promotion. The mount, the help keys, the log name
+# and the Cloudinary folder are all still `radio_promo`, deliberately: renaming
+# the mount breaks every link in a rep's history, renaming a help key orphans
+# the bubble, and renaming the log name orphans every row already on disk.
+check("and it is named for what it makes",
+      "<h3>Radio Ad Creator</h3>" in creative, True)
+check("while the mount it is reached at has not moved",
+      'href="/tools/radio-promo/"' in creative, True)
 check("Fan Radio has a tile", 'href="/tools/fan-radio/"' in creative, True)
 check("and it is named", "<h3>Fan Radio</h3>" in creative, True)
 

@@ -25,6 +25,13 @@ from threading import Lock
 from . import google_ads
 from .google_ads import GoogleAdsError
 
+# Pausing is not approving. The vocabulary is google_ads.STATUS_CONFIRMATIONS'
+# -- "PAUSE" is what a rep already types to pause a campaign -- rather than the
+# blanket "APPROVE" the additive actions share, because this one stops
+# something that is currently running and the word somebody types should say
+# which of those two they are doing.
+PAUSE_CONFIRMATION = google_ads.STATUS_CONFIRMATIONS["PAUSED"]
+
 
 SUMMARY_QUERY = """
     SELECT customer.id, customer.descriptive_name, customer.currency_code,
@@ -400,6 +407,31 @@ def analyse_rows(customer_id: str, date_range: str, datasets: dict, errors=None)
                 "action": "remove_keyword", "confirmation": "REMOVE", "data": keyword,
             })
 
+    # A KEYWORD that spends and never converts, which is a different finding
+    # from the search-term one above: that adds a term as a negative and never
+    # touches an existing criterion, so a keyword we are bidding on ourselves
+    # went on spending with nothing here able to say so. Floored against the
+    # account's own CPC rather than a hard-coded price, the way the click-cost
+    # and negative-keyword detectors already are -- a fixed dollar figure means
+    # something different on a $2 CPC than on a $40 one.
+    pause_floor = max(20, account_cpc * 6)
+    pausable = [k for k in keywords
+                if not k["negative"] and k["status"] == "ENABLED"
+                and k["clicks"] >= 5 and k["conversions"] == 0
+                and k["cost"] >= pause_floor]
+    for keyword in sorted(pausable, key=lambda x: x["cost"], reverse=True)[:20]:
+        items.append({
+            "id": f"pause-{keyword['ad_group_id']}-{keyword['criterion_id']}",
+            "source": "smart1", "category": "keyword_pauses", "severity": "high",
+            "title": f'Pause “{keyword["text"]}”',
+            "why": (f"{keyword['clicks']} clicks and ${keyword['cost']:.2f} spend produced "
+                    f"no conversions in this period."),
+            "next_step": ("Pausing keeps the keyword and its history; it can be enabled "
+                          "again from Google Ads at any time."),
+            "action": "pause_keyword", "confirmation": PAUSE_CONFIRMATION,
+            "data": keyword,
+        })
+
     weak_slots = [s for s in schedules if s["clicks"] >= 5 and s["conversions"] == 0
                   and s["cost"] >= max(15, account_cpc * 5)]
     for slot in sorted(weak_slots, key=lambda x: x["cost"], reverse=True)[:8]:
@@ -523,6 +555,7 @@ def scan_account(customer_id, date_range="LAST_30_DAYS", store=None) -> dict:
 ACTION_CONFIRMATIONS = {
     "apply_recommendation": "APPROVE", "add_negative_keyword": "APPROVE",
     "add_keyword": "APPROVE", "remove_keyword": "REMOVE",
+    "pause_keyword": PAUSE_CONFIRMATION,
     "add_sitelink": "APPROVE", "add_image": "APPROVE", "set_target_cpa": "APPROVE",
 }
 
@@ -570,6 +603,26 @@ def _remove_keyword(cid, payload, store=None):
                                 {"operations": [{"remove": resource}]}, store=store,
                                 customer_id=cid)
     return result, {"ad_group_id": ad_group_id, "criterion_id": criterion_id}
+
+
+def _pause_keyword(cid, payload, store=None):
+    """Pause one ad-group criterion, mirroring set_campaign_status' shape.
+
+    An update with an explicit updateMask rather than a remove: pausing keeps
+    the keyword, its quality score and its history, so a keyword paused in
+    error is one press in Google Ads to undo. `remove_keyword` beside this one
+    is the destructive answer and says so.
+    """
+    ad_group_id = _required_id(payload.get("ad_group_id"), "ad_group_id")
+    criterion_id = _required_id(payload.get("criterion_id"), "criterion_id")
+    resource = f"customers/{cid}/adGroupCriteria/{ad_group_id}~{criterion_id}"
+    operation = {"update": {"resourceName": resource, "status": "PAUSED"},
+                 "updateMask": "status"}
+    result = google_ads.request("post", f"/customers/{cid}/adGroupCriteria:mutate",
+                                {"operations": [operation]}, store=store,
+                                customer_id=cid)
+    return result, {"ad_group_id": ad_group_id, "criterion_id": criterion_id,
+                    "text": str(payload.get("text") or "")[:80], "status": "PAUSED"}
 
 
 def _apply_recommendation(cid, payload, store=None):
@@ -673,6 +726,8 @@ def apply_action(customer_id, action, payload, store=None) -> dict:
         result, detail = _keyword_action(cid, payload, store, negative=False)
     elif action == "remove_keyword":
         result, detail = _remove_keyword(cid, payload, store)
+    elif action == "pause_keyword":
+        result, detail = _pause_keyword(cid, payload, store)
     elif action == "add_sitelink":
         result, detail = _add_sitelink(cid, payload, store)
     elif action == "add_image":

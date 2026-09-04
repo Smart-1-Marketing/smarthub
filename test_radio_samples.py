@@ -65,7 +65,8 @@ from tools import seed_radio_samples as seed                        # noqa: E402
 from modules.fan_radio import store as fan_store                    # noqa: E402
 from modules.fan_radio import catalog as fan_catalog                # noqa: E402
 from modules.radio_promo import store as promo_store                # noqa: E402
-from modules.radio_promo.catalog import DURATIONS                   # noqa: E402
+from modules.radio_promo.catalog import (duration_by_key,           # noqa: E402
+                                         slots_of)
 
 
 # ---------------------------------------------------------------------------
@@ -102,12 +103,13 @@ for spot in fan["spots"]:
     check(f"  and its stored grade agrees",
           (spot.get("grade") or {}).get("state"), "ok")
 
-# The sample writes the pair, not the whole menu. Radio Promo sells four
-# lengths now, and iterating the catalog asked this sample for a :10 script it
-# was never meant to carry -- so the slots are read off the project, and the
-# set is asserted rather than left to whatever happened to be in the dict: a
+# The slots this sample actually writes, not every slot the catalog sells. The
+# :10 and the :60 are opt-in -- each is a model call and a slot somebody then
+# has to record -- so a seeded pair carries neither script, and iterating the
+# catalog was reading it as a promise about every project. The set is asserted
+# before the loop rather than left to whatever happened to be in the dict: a
 # loop over an empty selection is a clean sweep that checked nothing.
-promo_slots = [slot for slot in DURATIONS if slot["key"] in promo["slots"]]
+promo_slots = [duration_by_key(k) for k in slots_of(promo)]
 check("the sample says which lengths it writes",
       [slot["key"] for slot in promo_slots], ["fifteen", "thirty"])
 check("  and it wrote a script for each of them",

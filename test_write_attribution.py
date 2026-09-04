@@ -159,6 +159,29 @@ TRIAGED = {
         "guards": (),
         "guard_exempt": set(),
     },
+    "hyperframes_tools": {
+        # Small, new, and fully attributed on the day it was written, which is
+        # the only moment a module is cheap to hold to this. Added here so its
+        # HOUSEKEEPING_ROUTES declaration is held rather than being a table
+        # nothing reads -- a declaration checked by nothing is the
+        # declared-and-never-wired shape this repo counts six of.
+        "path": "modules/hyperframes_tools/app.py",
+        # Keeping a render is the moment a file reaches the client's own
+        # Cloudinary tree and their 360 record. Starting one has produced
+        # nothing for anybody yet, which is what the declarations say.
+        "must_log": ["keep_paint", "keep_vox"],
+        # Two names, not one, and that is the point rather than a shortcut.
+        # `client_brand.WORK_KINDS` reads the log name to label the row on a
+        # client's record, and "a paint animation" and "an explainer" are two
+        # different deliverables to see listed there -- folding them into one
+        # directory-shaped name would put "Paint animation" on a record for a
+        # 90-second explainer. The `display_ads` shape, which is why
+        # `audit.LOG_NAMES` exists; declared here so both are held.
+        "log_names": ["paint_animation", "vox_explainer"],
+        "after_provider": {},
+        "guards": (),
+        "guard_exempt": set(),
+    },
 }
 
 
@@ -372,6 +395,38 @@ check("a module's own log() wrapper counts",
       "rename_project" in audit.write_route_attribution(_WRAPPED)["logs"])
 
 
+def _logs_under(module, logged):
+    """Is `logged` a string the module's code carries, beside a real log call?
+
+    Two halves, and both are needed. A name in a table proves the module
+    *knows* it; an `audit.log(...)`/`for_module(...)` call proves it reaches
+    the log at all. Either alone is the failure this repo keeps finding --
+    a binding with no call, or a comment quoting the name.
+    """
+    for _path, src in FILES[module]:
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef,
+                                 ast.AsyncFunctionDef, ast.ClassDef)):
+                first = (node.body or [None])[0]
+                if (isinstance(first, ast.Expr)
+                        and isinstance(first.value, ast.Constant)
+                        and isinstance(first.value.value, str)):
+                    docstrings.add(id(first.value))
+        named = any(isinstance(n, ast.Constant) and n.value == logged
+                    and id(n) not in docstrings for n in ast.walk(tree))
+        calls = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr in ("log", "for_module")
+                    for n in ast.walk(tree))
+        if named and calls:
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 section("Both modules still log under a name the client record can place")
 # ---------------------------------------------------------------------------
@@ -385,16 +440,30 @@ for name in TRIAGED:
     # that does not are both ordinary — what must be true is that the module
     # reaches the shared log under its own name from somewhere.
     joined = "\n".join(fsrc for _p, fsrc in FILES[name])
-    check(f"{name} reaches the shared log under its own name",
-          f'for_module("{name}")' in joined or f'log("{name}"' in joined)
-    # A module that is already a name the client record can place must stay
-    # one. Whether a module *should* file client work is not this file's
-    # question -- check_work_kinds() asks that, from the call sites.
-    if name in client_brand.WORK_KINDS or name in getattr(client_brand, "NOT_WORK", {}):
-        check(f"  and {name} is still a name the client record can place", True)
-    else:
-        check(f"  {name} files no client work, so it needs no entry",
-              name not in client_brand.WORK_KINDS)
+    # A module logs under its directory name unless it declares otherwise.
+    # More than one is legitimate where a module produces genuinely different
+    # deliverables -- the record labels the row from this name, so collapsing
+    # them would mislabel one of them.
+    log_names = TRIAGED[name].get("log_names") or [name]
+    for logged in log_names:
+        check(f"{name} reaches the shared log under {logged}",
+              f'for_module("{logged}")' in joined or f'log("{logged}"' in joined
+              # The name may be DATA rather than a literal at the call site --
+              # a table keyed by tool, which is what lets the call itself be
+              # one direct `audit.log(...)` a static walk can read. Read from
+              # the AST and with docstrings excluded, because a comment or a
+              # paragraph naming the log name is not a call site: that is the
+              # rule hub/config.py's drift check gives, and the loose text
+              # version of this assertion would have passed on prose.
+              or _logs_under(name, logged))
+        # A module that is already a name the client record can place must stay
+        # one. Whether a module *should* file client work is not this file's
+        # question -- check_work_kinds() asks that, from the call sites.
+        if logged in client_brand.WORK_KINDS or logged in getattr(client_brand, "NOT_WORK", {}):
+            check(f"  and {logged} is still a name the client record can place", True)
+        else:
+            check(f"  {logged} files no client work, so it needs no entry",
+                  logged not in client_brand.WORK_KINDS)
 
 print(f"\n{'-' * 62}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

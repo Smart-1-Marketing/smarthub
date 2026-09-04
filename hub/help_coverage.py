@@ -112,9 +112,12 @@ PREFIXES: dict[str, str] = {
     # Creative
     "/tools/display-ads/_hub/start": "display_ads",
     "/tools/image-creator/": "image_creator",
+    "/tools/magic-resize/": "magic_resize",
     "/tools/image/": "image_optimizer",
     "/tools/bg-remover/": "bg_remover",
     "/tools/page-images/": "page_images",
+    "/tools/paint-animation/": "paint_animation",
+    "/tools/vox-explainer/": "vox_explainer",
     "/tools/image-picker/": "image_picker",
     "/tools/seo-images/": "seo_images",
     "/tools/landing-ads/": "landing_ads",
@@ -173,6 +176,11 @@ CLIENT_FACING: dict[str, str] = {
     "/land/stadium/": "a landing page a prospect fills in",
     "/land/tourism/": "a landing page a prospect fills in",
     "/msa/": "the agreement a client reads and signs",
+    # Tiled for staff, served to a stranger. A help bubble here is an
+    # internal note in front of somebody we are selling to -- the rule
+    # test_ads_explainer.py already holds the public estimate to.
+    "/tools/ads-grader/": "a lead magnet a prospect connects their own "
+                          "Google Ads account to",
 }
 
 

@@ -16,8 +16,8 @@ import re
 
 import requests
 
-from .catalog import (TONES, budget_line, duration_by_key,
-                      normalize_slots, structure_for, tone_by_id)
+from .catalog import (DEFAULT_SLOTS, TONES, budget_line, duration_by_key,
+                      structure_for, tone_by_id)
 
 OPENAI_BASE = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 TEXT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
@@ -157,63 +157,86 @@ Give exactly 3 recommendedTones, best first.""",
 
 
 # ------------------------------------------------------------------- scripts
-def _slot_rules(slots: list) -> str:
-    """The word budget and minimum read for each slot, in the model's words.
-
-    Built from catalog.DURATIONS rather than typed into the prompt, because a
-    budget stated in two places is the one that drifts — and the prompt is the
-    half nothing checks. `_required_script_gaps` refuses the write against the
-    same table, so a rule loosened here and not there simply produces scripts
-    the app then rejects.
-    """
-    return "; ".join(
-        f"a :{(duration_by_key(key) or {}).get('seconds')} runs {budget_line(key)}"
-        for key in slots)
+def _slot_schema(lengths: list[dict]) -> str:
+    """The JSON the model is asked for, one line per length in play."""
+    rows = []
+    for d in lengths:
+        rows.append(
+            f'  "{d["key"]}": {{"script":"the {d["label"]} read, plain spoken text '
+            f'only","wordCount":0,"estimatedSeconds":{d["seconds"]},"notes":"one line '
+            f'of direction for the voice talent"}}')
+    return ",\n".join(rows)
 
 
-def _slot_beats(slots: list) -> str:
+def _slot_beats(lengths: list[dict]) -> str:
     """The beats each read is built on, so the plan reaches the writer.
 
     The shape of a radio read lived only in this prompt's own prose, which
-    meant the rep could not see it and the two descriptions could not be held
-    against each other. It is catalog.STRUCTURE_TEMPLATES now — the same table
-    the Blueprint rail draws.
+    meant a rep could not see it and the two descriptions could not be held
+    against each other -- a script that had wandered from the plan read exactly
+    like one written to it. It is `catalog.STRUCTURE_TEMPLATES` now, the same
+    table the copy screen draws its rail from, so the screen and the prompt
+    cannot describe different shapes.
     """
     out = []
-    for key in slots:
-        slot = duration_by_key(key) or {}
+    for d in lengths:
         beats = " -> ".join(
             f"{b['label']} ({b['start_pct']}-{b['end_pct']}%): {b['guidance']}"
-            for b in structure_for(key))
-        out.append(f":{slot.get('seconds')} — {beats}")
+            for b in structure_for(d["key"]))
+        out.append(f'{d["label"]} {beats}')
     return "\n".join(out)
+
+
+# The ceiling the :15/:30 pair has always been written under, and the words
+# that pair is allowed. Everything else is scaled against it rather than
+# against a token-per-word ratio nobody here can verify: what is known is that
+# 1400 has always been enough for 127 words of script plus the envelope.
+_PAIR_TOKENS = 1400
+_PAIR_WORDS = 127
+
+
+def _script_tokens(lengths: list[dict]) -> int:
+    """Room for every script asked for, in proportion to the words asked for.
+
+    A ceiling sized for the pair truncates a set that also carries a :60, and a
+    truncated response arrives with an empty text body -- which every caller
+    here reads as its own kind of nothing rather than as the ceiling it is.
+    Never below the pair's own ceiling, so no existing job gets less room.
+    """
+    words = sum(d["high"] for d in lengths) or _PAIR_WORDS
+    return max(_PAIR_TOKENS, int(_PAIR_TOKENS * words / _PAIR_WORDS))
 
 
 def write_scripts(analysis: dict, brand: dict, customer: dict, tone_id: str,
                   revision_note: str = "", previous: dict | None = None,
-                  slots: list | None = None) -> dict:
-    """Write every chosen length in one call so they share a hook.
+                  slots: tuple[str, ...] | list[str] | None = None) -> dict:
+    """Write every length this project asked for in one call, sharing one hook.
 
-    `slots` defaults to the pair the studio shipped, so a project saved before
-    the menu widened writes exactly what it wrote before.
+    The lengths are the caller's rather than this function's: a project writing
+    a :15/:30 pair and one writing all three both come through here, and the
+    JSON shape asked for is built from the slots so the model is never asked
+    for a length nobody wants or left to guess at one.
     """
     tone = tone_by_id(tone_id)
     if not tone:
         raise AIError("Unknown tone.")
-    slots = normalize_slots(slots)
     disclaimer = str(customer.get("disclaimer") or "").strip()
-    lengths_phrase = ", ".join(f":{(duration_by_key(k) or {}).get('seconds')}"
-                               for k in slots)
+
+    keys = tuple(slots or DEFAULT_SLOTS)
+    lengths = [duration_by_key(k) for k in keys]
+    lengths = [d for d in lengths if d]
+    if not lengths:
+        raise AIError("No slot lengths to write.")
 
     revision_block = ""
     if revision_note:
         prev = previous or {}
-        previous_reads = "\n".join(
-            f"{(duration_by_key(k) or {}).get('seconds')}s: "
-            f"{(prev.get(k) or {}).get('script', '')}" for k in slots)
+        drafts = "".join(
+            f"{d['label']}: {(prev.get(d['key']) or {}).get('script', '')}\n"
+            for d in lengths)
         revision_block = (
             f"\nThe client reviewed the previous draft and asked for this change:\n"
-            f"\"{revision_note}\"\n\nPREVIOUS DRAFT\n{previous_reads}\n\n"
+            f"\"{revision_note}\"\n\nPREVIOUS DRAFT\n{drafts}\n"
             "Rewrite every length honoring the request. Keep everything the "
             "client did not object to.")
 
@@ -221,7 +244,7 @@ def write_scripts(analysis: dict, brand: dict, customer: dict, tone_id: str,
     if disclaimer:
         disclaimer_block = (
             "\nREQUIRED DISCLAIMER — reproduce word for word as the last thing "
-            "before the call to action, in EVERY length. It counts toward the "
+            "before the call to action, in BOTH lengths. It counts toward the "
             f"word budget, so write the rest shorter to make room:\n\"{disclaimer}\"\n")
 
     company = brand.get("name") or customer.get("company") or customer.get("client_name") or ""
@@ -230,22 +253,14 @@ def write_scripts(analysis: dict, brand: dict, customer: dict, tone_id: str,
     identity_rule = (f'Company name required in every script: "{company}". '
                      f'URL required in every script: "{url}". '
                      + (f'Phone required in every script: "{phone}".' if phone else ""))
-    slot_json = ",\n".join(
-        '  "%s": {"script":"the :%s read, plain spoken text only",'
-        '"wordCount":0,"estimatedSeconds":%s,'
-        '"notes":"one line of direction for the voice talent"}'
-        % (key, (duration_by_key(key) or {}).get("seconds"),
-           (duration_by_key(key) or {}).get("seconds"))
-        for key in slots)
     return chat_json(
         "You write streaming-radio commercials for Smart 1 Marketing. Radio is "
         "heard, not read: write for the ear. Rules you never break — the brand "
-        "name is said at least twice in any read of :30 or longer and at least "
-        "once in a shorter one; the call "
+        "name is said at least twice in a :30 and at least once in a :15; the call "
         "to action is the last thing heard; you never invent an offer, price, "
         "discount, guarantee or statistic that was not supplied; you never write "
-        "sound effects the client did not ask for; " + _slot_rules(slots) +
-        ". Reply as JSON only.",
+        "sound effects the client did not ask for; at a natural read pace "
+        f"{budget_line()}. Reply as JSON only.",
         f"""TONE: {tone['label']} — {tone['direction']}
 
 BRIEF
@@ -261,18 +276,16 @@ Client's own promotion notes: {customer.get('promotion') or 'none'}
 REQUIRED: {identity_rule}
 {disclaimer_block}{revision_block}
 
-BEATS — build each read on these, in this order:
-{_slot_beats(slots)}
+SHAPE OF EACH READ
+{_slot_beats(lengths)}
 
-LENGTHS to write: {lengths_phrase}
-
-Return JSON with these keys and no others:
+Return JSON:
 {{
   "hook": "the shared opening idea in a few words",
-{slot_json}
+{_slot_schema(lengths)}
 }}
 The script fields contain only words to be spoken. No labels, no "VO:", no timestamps, no stage directions.""",
-        max_tokens=max(1400, 700 * len(slots)))
+        max_tokens=_script_tokens(lengths))
 
 
 def tighten_script(script: str, seconds: int, trim_words: int, tone_id: str,

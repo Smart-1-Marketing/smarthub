@@ -735,9 +735,18 @@ def _state_serializer():
     fail about half the time. A signature over the shared SECRET_KEY is
     checkable by whichever worker answers.
     """
-    from itsdangerous import URLSafeTimedSerializer
-    key = (_session_secret() or _env("PANEL_PASSWORD") or "s1hub-suite-oauth")
-    return URLSafeTimedSerializer(key, salt="ghl-oauth-state")
+    # Through hub/signing.py. PANEL_PASSWORD is a shared login rather than a
+    # signing key, and the literal behind it is in this file -- either one
+    # lets somebody forge the state parameter that is the whole CSRF defence
+    # on an install flow that creates client sub-accounts.
+    try:
+        from hub import signing as _signing
+        return _signing.timed_serializer("ghl-oauth-state")
+    except Exception:                       # noqa: BLE001  standalone module
+        from itsdangerous import URLSafeTimedSerializer
+        import secrets as _secrets
+        return URLSafeTimedSerializer(_session_secret() or _secrets.token_hex(32),
+                                      salt="ghl-oauth-state")
 
 
 def _sign_state() -> str:

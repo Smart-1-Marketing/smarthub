@@ -150,6 +150,12 @@
         <input id="websiteUrl" placeholder="https://northsideroofing.com/roof-repair" required></div>
       <div class="field"><label>Primary objective</label>
         <select id="objective">{% for o in objectives %}<option>{{ o }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Campaign type</label>
+        <select id="campaignType" onchange="onCampaignType()">
+          {% for t in campaign_types %}<option value="{{ t.key }}">{{ t.label }}</option>{% endfor %}
+        </select>
+        <div class="hint" id="campaignTypeNote">Search: keywords, ad groups and
+          responsive search ads.</div></div>
       <div class="field"><label>Sector {{ help_dot('ads_builder.generator.sector') if help_dot is defined else '' }}</label>
         <select id="sector" onchange="checkBudget()">
           {% for s in sectors %}
@@ -517,6 +523,16 @@ function clearClient() {
   document.getElementById('clientNew').style.display = 'none';
 }
 
+function onCampaignType() {
+  // Said before the press rather than discovered after it: a rep who picks
+  // Performance Max and then finds a keyword step is reading the wrong tool.
+  const pmax = document.getElementById('campaignType').value === 'PERFORMANCE_MAX';
+  document.getElementById('campaignTypeNote').textContent = pmax
+    ? 'Performance Max: asset groups, no keywords. It needs images and the '
+      + "client's logo before it can deploy."
+    : 'Search: keywords, ad groups and responsive search ads.';
+}
+
 function checkBudget() {
   const budget = document.getElementById('budget').value;
   document.getElementById('budgetLabel').textContent = money(budget);
@@ -684,6 +700,7 @@ async function generate() {
   }
   const noBudget = document.getElementById('noBudget').checked;
   const body = {
+    campaignType: document.getElementById('campaignType').value,
     businessName: document.getElementById('businessName').value.trim(),
     websiteUrl: document.getElementById('websiteUrl').value.trim(),
     objective: document.getElementById('objective').value,

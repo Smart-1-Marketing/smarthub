@@ -68,10 +68,12 @@
                   <td>:{{ '%02d'|format(p.length_seconds) }}</td>
                   <td><span class="cb-status-pill">{{ p.status }}</span></td>
                   <td>
-                    {# The status-to-step map is routes/pages.STATUS_STEP, not a copy
-                       of it written here: a wizard that gained two steps would have
-                       gone on dropping people into the old one. #}
-                    <a class="cb-btn cb-btn-sm cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.' + status_step.get(p.status, 'brief'), project_id=p.id) }}">Open</a>
+                    {# Where Open lands is routes/pages.status_step(), not a copy of
+                       it written here: a wizard that gained two steps would have gone
+                       on dropping people into the old one. Keyed on the project and
+                       not on its status, because a Vox explainer has no Blueprint,
+                       Voice or CTA step and "scripted" means its beat list. #}
+                    <a class="cb-btn cb-btn-sm cb-btn-primary" href="{{ url_for('commercial_builder.cb_pages.' + status_step.get(p.id, 'brief'), project_id=p.id) }}">Open</a>
                   </td>
                 </tr>
               {% endfor %}

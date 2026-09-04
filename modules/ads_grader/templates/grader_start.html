@@ -1,0 +1,85 @@
+{% extends "_grader_base.html" %}
+{% block title %}Google Ads Grader{% endblock %}
+{% block body %}
+<div class="card">
+  <h2>What this does</h2>
+  <p>We read your Google Ads account for the last 30 days and score it against
+     what we would raise on a call: money spent on searches that never convert,
+     clicks costing more than the rest of the account, keywords running with
+     nothing to show, and whether conversions are being recorded at all.</p>
+  <p class="note"><b>Read-only, and once.</b> You sign in with your own Google
+     account and grant read access. We use it for this one report and keep no
+     password, no login and nothing that would let us come back — the access
+     ends with the page.</p>
+
+  {% if not configured %}
+    <div class="warn"><b>Not available just yet</b>
+      This grader is waiting on {{ missing|join(', ') }}. Leave your details
+      below and we will run it by hand and send it over.</div>
+  {% endif %}
+
+  <form id="startForm" onsubmit="return false">
+    <label for="company">Business name</label>
+    <input id="company" required placeholder="Northside Roofing Co">
+    <label for="website">Website</label>
+    <input id="website" placeholder="https://northsideroofing.com">
+    <label for="name">Your name</label>
+    <input id="name" placeholder="Sam Carter">
+    <label for="email">Email</label>
+    <input id="email" type="email" placeholder="sam@northsideroofing.com">
+    <label for="phone">Phone</label>
+    <input id="phone" placeholder="(317) 555-0142">
+    <p class="note">An email address or a phone number, so we can send the
+       report. Both is better.</p>
+    <div id="msg"></div>
+    <p style="margin-top:14px">
+      <button id="go" type="button" onclick="start()">Connect Google Ads and grade it</button>
+    </p>
+  </form>
+</div>
+<script>
+const MOUNT = {{ mount|tojson }};
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML}
+
+async function start() {
+  const button = document.getElementById('go');
+  const box = document.getElementById('msg');
+  const body = {
+    company: document.getElementById('company').value.trim(),
+    website: document.getElementById('website').value.trim(),
+    name: document.getElementById('name').value.trim(),
+    email: document.getElementById('email').value.trim(),
+    phone: document.getElementById('phone').value.trim(),
+  };
+  // The Hub's shared mark: the next thing that happens is a redirect to
+  // Google, and a button that grays out saying nothing reads as a page that
+  // broke. busy() keeps the button's own label to put back, and a page that
+  // failed to run the block costs the mark rather than the press.
+  const wait = window.S1Wait
+    ? S1Wait.busy(button, {kind: 'wait', label: 'One moment\u2026'})
+    : {done: function () { button.disabled = false; }};
+  if (!window.S1Wait) { button.disabled = true; }
+  box.innerHTML = '';
+  try {
+    const resp = await fetch(MOUNT + '/api/start', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    const data = await resp.json();
+    if (!resp.ok) {
+      // The lead is already filed when the grader itself is unavailable, and
+      // saying so is the difference between "we lost you" and "we have you".
+      wait.done();
+      box.innerHTML = '<div class="' + (data.lead_saved ? 'warn' : 'bad') + '">'
+        + esc(data.error || 'That did not work.')
+        + (data.lead_saved ? ' Your details are with us either way.' : '')
+        + '</div>';
+      return;
+    }
+    window.location.href = data.connect_url;
+  } catch (err) {
+    wait.done();
+    box.innerHTML = '<div class="bad">' + esc(err.message) + '</div>';
+  }
+}
+</script>
+{% endblock %}

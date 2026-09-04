@@ -24,18 +24,17 @@ SESSION_DAYS = 14
 
 
 def _serializer():
-    import os
-    from itsdangerous import URLSafeTimedSerializer
-    # Through hub.config: this signs the same kind of token hub/auth.py does,
-    # and a route that knows two of the three spellings signs with a different
-    # secret than the guard that has to verify it.
-    try:
-        from hub.config import settings as _cfg
-        secret = _cfg.secret_key
-    except Exception:                               # noqa: BLE001
-        secret = (os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
-                  or os.environ.get("SESSION_SECRET") or "")
-    return URLSafeTimedSerializer(secret or "dev-only", salt="s1hub-user")
+    # Through hub/signing.py: this signs the same kind of token hub/auth.py
+    # does, and a route that knows two of the three spellings signs with a
+    # different secret than the guard that has to verify it.
+    #
+    # The fallback here was the literal "dev-only", and this is the cookie the
+    # middleware reads for the role and the password gate -- so with no
+    # SECRET_KEY set, a cookie signed with a string out of this file claiming
+    # {"r": "admin", "c": false} was accepted as an Admin session belonging to
+    # no account. An ephemeral secret costs a re-login and cannot be forged.
+    from hub import signing as _signing
+    return _signing.timed_serializer("s1hub-user")
 
 
 def issue_cookie(user: User) -> str:

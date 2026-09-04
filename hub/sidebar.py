@@ -41,6 +41,7 @@ CREATIVE_PREFIXES = (
     # Images
     "/tools/display-ads",
     "/tools/image-creator",
+    "/tools/magic-resize",
     "/tools/image",              # Image Optimizer & Resizer
     "/tools/bg-remover",
     "/tools/page-images",
@@ -51,6 +52,8 @@ CREATIVE_PREFIXES = (
     # Videos
     "/tools/commercial-builder",
     "/tools/video-backgrounds",
+    "/tools/paint-animation",
+    "/tools/vox-explainer",
     "/tools/dead-air",
     "/tools/vertical-reframe",
     # Audio

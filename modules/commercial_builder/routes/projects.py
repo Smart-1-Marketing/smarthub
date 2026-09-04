@@ -3,14 +3,15 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link, compliance_spec, cost_spec, library_spec, teardown
+from .. import client_link, compliance_spec, cost_spec, library_spec, teardown, vox_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
                       logo_persistence_eligible,
                       length_warning, in_build_order, DEFAULT_SHOT_GRAMMAR,
                       SHOT_NUMBER_STEP, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
-                      CTV_PUBLISHERS, publisher_qr_note, shot_label)
+                      CTV_PUBLISHERS, publisher_qr_note, shot_label,
+                      VOX_LENGTHS)
 from ..db import db
 from ..models import (Client, CommercialProject, Scene, Campaign, Variation,
                       ComplianceAck, RenderApproval, RenderJob)
@@ -112,21 +113,39 @@ def start_commercial():
     if not client_id or not Client.query.get(client_id):
         return jsonify({"ok": False, "error": "A valid client_id is required."}), 400
 
+    # The type is read before the lengths because it decides which lengths are
+    # even offerable: a Vox explainer runs 60-90s and the broadcast list stops
+    # at 60, so validating against one list for both would refuse the only
+    # durations that format has.
+    commercial_type = data.get("commercial_type")
+    if commercial_type not in {t["id"] for t in COMMERCIAL_TYPES}:
+        return jsonify({"ok": False, "error": "Invalid commercial_type."}), 400
+    is_vox = commercial_type == vox_spec.COMMERCIAL_TYPE
+    allowed_lengths = VOX_LENGTHS if is_vox else COMMERCIAL_LENGTHS
+
     requested = data.get("lengths")
     if requested is None:
-        requested = [data.get("length_seconds", 30)]
+        requested = [data.get("length_seconds", allowed_lengths[0] if is_vox else 30)]
     lengths, seen = [], set()
     for raw in requested:
         try:
             value = int(raw)
         except (TypeError, ValueError):
             continue
-        if value in COMMERCIAL_LENGTHS and value not in seen:
+        if value in allowed_lengths and value not in seen:
             seen.add(value)
             lengths.append(value)
     if not lengths:
         return jsonify({"ok": False,
-                        "error": f"Choose at least one length from {COMMERCIAL_LENGTHS}."}), 400
+                        "error": f"Choose at least one length from {allowed_lengths}."}), 400
+    if is_vox and len(lengths) > 1:
+        # The multi-length build exists because a :15 and a :60 are cut down
+        # from one :30. A Vox explainer is not cut down from anything -- each
+        # length is a different beat list -- so three at once would be three
+        # unrelated pieces sharing a concept they do not share.
+        return jsonify({"ok": False, "error": (
+            "A Vox explainer is built one at a time — the lengths are not cut "
+            "down from each other the way a :30 and a :15 are.")}), 400
     if len(lengths) > MAX_LENGTHS_PER_BUILD:
         return jsonify({"ok": False,
                         "error": f"At most {MAX_LENGTHS_PER_BUILD} lengths in one build."}), 400
@@ -139,13 +158,17 @@ def start_commercial():
     valid_ids = {f["id"] for f in OUTPUT_FORMATS}
     formats = [f for f in formats if f in valid_ids] or ["16:9"]
 
-    commercial_type = data.get("commercial_type")
-    if commercial_type not in {t["id"] for t in COMMERCIAL_TYPES}:
-        return jsonify({"ok": False, "error": "Invalid commercial_type."}), 400
-
     platform = data.get("platform", DEFAULT_PLATFORM)
     if platform not in {p["id"] for p in PLATFORMS}:
         platform = DEFAULT_PLATFORM
+    if is_vox and platform not in vox_spec.PLATFORMS:
+        # Refused by name rather than silently corrected. `both` is "CTV and
+        # YouTube", so quietly narrowing it to YouTube would build a piece for
+        # half the buy somebody asked for and say nothing -- and defaulting it
+        # is worse, because the platform field would read as though it had
+        # been chosen.
+        return jsonify({"ok": False,
+                        "error": vox_spec.platform_note(platform)}), 400
 
     client = Client.query.get(client_id)
     title = (data.get("title") or "").strip()

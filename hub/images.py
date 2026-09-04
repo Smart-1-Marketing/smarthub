@@ -99,6 +99,58 @@ def optimise(data: bytes, *, max_edge: int | None = None, fmt: str = "WEBP",
     return Processed(out, fmt.upper(), im.width, im.height, len(data))
 
 
+def crop_to_ratio(data: bytes, ratio: float, *, min_width: int = 0,
+                  min_height: int = 0, fmt: str = "JPEG",
+                  quality: int = 88) -> Processed:
+    """Centre-crop to an exact aspect ratio, then meet a minimum size.
+
+    Written for Google Performance Max, which refuses an asset group whose
+    image is not one of its published ratios — but it is here rather than in
+    that module because "make this picture 1.91:1" is not a Google Ads
+    question, and the next tool that needs a fixed ratio should not discover
+    it again. The shared-implementation rule CLAUDE.md gives at length.
+
+    **Centre**, because Google's own guidance is that the subject belongs in
+    the middle 80% of the frame: a crop that favoured an edge would remove the
+    part every generator was told to put in the middle.
+
+    **Crop before scale**, the same order `optimise()` insists on for cap-then-
+    convert: scaling first bakes the wrong ratio's pixels into the result.
+
+    Upscaled only where a floor demands it, and never silently — the returned
+    ``Processed`` carries the real dimensions, so a caller can say the picture
+    it was handed was too small to meet the minimum rather than presenting a
+    stretched one as if it were fine.
+    """
+    if ratio <= 0:
+        raise ValueError("ratio must be positive")
+    im = _open(data)
+    if im.mode not in ("RGB", "L"):
+        im = im.convert("RGB")
+
+    width, height = im.size
+    target_w, target_h = width, int(round(width / ratio))
+    if target_h > height:
+        target_h = height
+        target_w = int(round(height * ratio))
+    left = (width - target_w) // 2
+    top = (height - target_h) // 2
+    im = im.crop((left, top, left + target_w, top + target_h))
+
+    scale = max((min_width / im.width) if min_width else 0,
+                (min_height / im.height) if min_height else 0, 1.0)
+    if scale > 1.0:
+        im = im.resize((max(1, int(round(im.width * scale))),
+                        max(1, int(round(im.height * scale)))), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    save: dict = {"quality": quality, "optimize": True}
+    if fmt.upper() == "JPEG":
+        save["progressive"] = True
+    im.save(buf, format=fmt.upper(), **save)
+    return Processed(buf.getvalue(), fmt.upper(), im.width, im.height, len(data))
+
+
 def preview(data: bytes, edge: int | None = None) -> Processed:
     """Small WebP thumbnail for galleries and project cards."""
     return optimise(data, max_edge=edge or settings.preview_edge,

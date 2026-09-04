@@ -180,6 +180,11 @@ PUBLIC: dict[str, str] = {
     "/msa/*": "the client's MSA signing page, its embed and its health "
               "probe -- a document sent to somebody for signature, so a "
               "login in front of it is a form they cannot fill in",
+    "/tools/ads-grader/*": "the whole Google Ads Grader — a prospect types "
+                           "their details, connects their own Ads account "
+                           "read-only and reads a score. There is no staff "
+                           "screen in the module at all, which is why this "
+                           "is a prefix rather than a route list",
     "/scans/embed.js": "the resizer a client's website loads beside an "
                        "embedded scan widget",
 }
@@ -213,6 +218,13 @@ PUBLIC_WRITES: dict[str, str] = {
                "prospect cannot fill in, so there would be no lead at all",
     "/msa/*": "the client signing their MSA. The whole document exists to "
               "be signed by somebody with no Hub account",
+    "/tools/ads-grader/api/start": "the grader's own lead capture, through "
+                                   "hub/leads.py like every other. A login in "
+                                   "front of it is a form a prospect cannot "
+                                   "fill in, so there would be no lead at all "
+                                   "-- and it is rate-limited per address, "
+                                   "because public and free to hammer are not "
+                                   "the same thing",
     "/api/leads/capture": "the same capture, reached by the hub app's own "
                           "landing routes",
     "/signup": "a person asking for an account necessarily has none yet",
@@ -259,6 +271,10 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/image-picker/static/<path:filename>": "the stylesheet the page a "
                                                   "client uploads through "
                                                   "loads beside itself",
+    "/tools/ads-grader/r/<token>": "the grader's own score, at an unguessable "
+                                   "token, read by the prospect it is about",
+    "/tools/ads-grader/static/<path:filename>": "whatever that public page "
+                                                "loads beside itself",
 
     # --- the help and demo registries, per the /api/demos* entry above ---
     "/api/demos/<path:key>": "one walkthrough scenario, which is our own "
@@ -303,6 +319,9 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/scans/r/<token>.pdf": "the same report as a document",
     "/tools/ads/estimate/<token>": "the paid-search estimate a client reads "
                                    "and answers",
+    "/tools/ads/r/<token>": "the monthly Google Ads performance report a "
+                            "client is sent",
+    "/tools/ads/r/<token>.pdf": "the same report as a document",
     "/tools/calculators/c/<slug>": "the standalone media calculator an ad can "
                                    "point at",
     "/tools/calculators/embed/<slug>": "the framed copy on "

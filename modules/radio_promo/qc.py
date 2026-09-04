@@ -85,6 +85,24 @@ _STAGE_DIRECTION = re.compile(
 # wolf that gets a panel switched off. It is reported loudly and the render
 # still goes; `speech.grade_duration` then measures the real file and offers
 # the tighten, exactly as it did before.
+# What each check is called on screen. Served with the panel rather than
+# restated in the template, because a check absent from a label map is skipped
+# silently by the loop that draws it -- the failure `scene_assets` had in the
+# Commercial Builder, where the one check written to catch an unfinished scene
+# never appeared on the panel it was written for. `test_radio_parity.py`
+# asserts this map covers everything `run_slot()` returns.
+CHECK_LABELS = {
+    "script_contents": "Says the brand, the address and the number",
+    "read_length": "Fills its slot without running over",
+    "word_budget": "Inside the word budget",
+    "disclaimer": "Required disclaimer, word for word",
+    "invented_claims": "No price, offer or deadline nobody supplied",
+    "invented_claims_soft": "No superlative nobody can stand behind",
+    "brand_mentions": "The brand said often enough for the length",
+    "stage_directions": "Words to be spoken, and nothing else",
+    "beat_coverage": "Built on the beats this length is planned around",
+}
+
 BLOCKS_RENDER = ("script_contents", "disclaimer", "invented_claims")
 
 

@@ -54,6 +54,42 @@ ADVISORY_CHECKS = {
     # perfectly shippable spot either way — the same reasoning `qr_code`
     # carries, one track down.
     "sfx_gain_conflict", "music_length_mismatch",
+    # Both HyperFrames checks advise. The render service being down is an
+    # outage rather than a defect in the spot, and refusing to let somebody
+    # finish the beat list over it would be a gate that fires on a piece
+    # nothing is wrong with -- the QR_CODE_RULES lesson. And the duration is
+    # measured off a render that has not happened yet, so before one exists it
+    # is not measured at all.
+    "render_service", "vox_duration",
+}
+
+# The type whose checks these are. Read from vox_spec below where it is
+# available; named here so the constant exists even standalone.
+_VOX_TYPE = "vox_explainer"
+
+# The storyboard checks, and why a Vox explainer cannot answer them. It is
+# rendered whole from a beat list -- there are no Scene rows, no per-scene
+# footage, no CTA card and no narration script -- so each of these read an
+# empty storyboard and reported a real failure about a spot that is fine.
+# Declared with the reason rather than left as a `continue`, so a check added
+# to this module later is a decision about this list rather than an accident.
+NOT_FOR_VOX = {
+    "timing": "a Vox explainer has no scenes to time — its beats are timed on "
+              "the Beats step.",
+    "scene_assets": "there are no scenes to hold footage; the collage is drawn "
+                    "by the template.",
+    "voice_fits": "there is no narration script — the beats carry the words.",
+    "cta": "a Vox explainer has no CTA card step.",
+    "youtube_hook": "the hook is the first beat, which the Beats step shows.",
+    "spelling": "the copy is the beat list rather than a script, and it is read "
+                "on the Beats step.",
+    # Added with the audio checks from #331. A Vox explainer has no Scene rows
+    # for a sound effect to sit on and no separate music bed -- the template
+    # composes the piece -- so both read an empty storyboard exactly as the six
+    # above did.
+    "sfx_gain_conflict": "there are no scenes for a sound effect to sit on.",
+    "music_length_mismatch": "the template composes the piece; there is no "
+                             "separate bed to run short.",
 }
 
 # The published creative specification. Imported defensively because this
@@ -64,6 +100,19 @@ try:
     from hub import creative_specs
 except Exception:                                # noqa: BLE001
     creative_specs = None
+
+# The HyperFrames render service, and the beat list it renders. Guarded the
+# same way and set to None on BOTH sides of the try: a name left undefined in
+# the except branch is a NameError inside the check rather than the missing
+# Hub costing one row, which is the whole point of guarding it. `vox_spec`
+# is in here too because it imports the window constants from `hub`, so
+# standalone it goes with them.
+try:
+    from hub import hyperframes
+    from .. import vox_spec
+except Exception:                                # noqa: BLE001
+    hyperframes = None
+    vox_spec = None
 
 _FORMAT_SIZES = {f["id"]: (f["width"], f["height"]) for f in OUTPUT_FORMATS}
 
@@ -96,6 +145,20 @@ def run_qc(project_dict, client_dict, scenes):
     checks["archetype_ready"] = _check_archetype(project_dict)
     checks["sfx_gain_conflict"] = _check_sfx_gain(project_dict, scenes)
     checks["music_length_mismatch"] = _check_music_length(project_dict)
+    checks["render_service"] = _check_render_service(project_dict)
+    checks["vox_duration"] = _check_vox_duration(project_dict)
+
+    # A Vox explainer has no storyboard, so the checks that read one cannot
+    # be answered about it -- and every one of them was FAILING, which meant
+    # `submit_render`'s gate refused every Vox render there could ever be.
+    # Marked not-applicable rather than deleted or silently passed: the same
+    # answer `_check_render_service` gives a Creatomate spot, from the other
+    # direction, so a reader can tell "we looked and it is fine" from "this
+    # question is not about this spot".
+    if (project_dict.get("commercial_type") or "") == _VOX_TYPE:
+        for key, why in NOT_FOR_VOX.items():
+            checks[key] = {"passed": True, "not_applicable": True,
+                           "message": f"Not applicable — {why}"}
 
     for key, result in checks.items():
         if key.startswith("_"):
@@ -936,3 +999,62 @@ def _check_publisher_rules(project_dict):
                             "does not carry one.")}
     return {"passed": True,
             "message": "Nothing the named publishers refuse is on this cut."}
+
+
+def _check_render_service(project_dict):
+    """Is the renderer this spot needs actually going to answer?
+
+    A pre-flight, so somebody finds out before they press Render rather than
+    at the moment they are waiting on it. Only asked of the spots that use it:
+    every other commercial type is assembled by Creatomate and has no business
+    being told about a service it never reaches — a check that fires on a spot
+    nothing is wrong with is a check people learn to scroll past.
+
+    Three answers, never two. Not configured is **not measured** and never a
+    cross: a deployment that has not stood the service up has not failed, and
+    a red row here would send somebody to debug something they have not built.
+    """
+    if hyperframes is None or vox_spec is None:
+        return {"passed": True, "measured": False,
+                "message": "Not measured — the Hub's render-service client is "
+                           "not available to this process."}
+    if (project_dict.get("commercial_type") or "") != vox_spec.COMMERCIAL_TYPE:
+        return {"passed": True,
+                "message": "Not applicable — this spot is assembled by Creatomate."}
+    state = hyperframes.check()
+    if state["state"] == "ok":
+        return {"passed": True, "message": "The render service answered."}
+    if state["state"] == "not_measured":
+        # Not a pass and not a fail: `measured` is what a reader needs, and a
+        # tick over a service nobody has configured is the confident wrong
+        # answer this whole panel exists to avoid.
+        return {"passed": False, "measured": False, "message": state["message"]}
+    return {"passed": False, "measured": True, "message": state["message"]}
+
+
+def _check_vox_duration(project_dict):
+    """Does the beat list add up to a length this format is sold at?
+
+    Measured off the beats rather than off a rendered file, for the reason
+    `abcd_service` scores the plan: a duration problem found on an MP4 is a
+    re-render and one found on the beat list is free.
+
+    Advisory, because the window is the format's own scope rather than a
+    platform's published refusal — nothing rejects a 95-second explainer, it
+    is simply not the thing this format is.
+    """
+    if hyperframes is None or vox_spec is None:
+        return {"passed": True, "measured": False,
+                "message": "Not measured — the Hub's render-service client is "
+                           "not available to this process."}
+    if (project_dict.get("commercial_type") or "") != vox_spec.COMMERCIAL_TYPE:
+        return {"passed": True,
+                "message": "Not applicable — only a Vox explainer has a beat list."}
+    beats = (project_dict.get("script") or {}).get("beats") or []
+    if not beats:
+        return {"passed": False, "measured": False,
+                "message": "No beats have been written yet, so there is no length "
+                           "to measure."}
+    verdict = hyperframes.vox_duration_verdict(vox_spec.beats_seconds(beats))
+    return {"passed": verdict["passed"], "measured": verdict["measured"],
+            "message": verdict["message"]}

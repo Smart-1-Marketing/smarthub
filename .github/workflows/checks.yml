@@ -6,11 +6,22 @@
 # down lead capture on seven landing pages for two days. It exits non-zero
 # precisely so it can gate a release; until now nothing ran it.
 #
-# Deliberately no deploy step and no secrets. These checks run on pull requests
-# from a clean checkout, so they must pass without Knack, GoHighLevel,
-# Cloudinary or OpenAI credentials. Anything that needs a live third party
-# belongs in /status and /api/integrity on the deployment, not here — a gate
-# that fails because someone else's API is down teaches people to ignore it.
+# The `checks` job takes no secrets. It runs on pull requests from a clean
+# checkout, so it must pass without Knack, GoHighLevel, Cloudinary or OpenAI
+# credentials. Anything that needs a live third party belongs in /status and
+# /api/integrity on the deployment, not here — a gate that fails because
+# someone else's API is down teaches people to ignore it.
+#
+# The `deploy` job below is the one exception, and it is a separate job for
+# exactly that reason: it never runs on a pull request, so a fork's run and a
+# contributor's branch still have no secret and no way to reach production.
+# It exists because Render's own "deploy after CI checks pass" has never
+# fired on this account — every deploy smart1-hub has ever had, back past its
+# hundredth, is trigger `manual` or `api`, and no service in the workspace has
+# a single `new_commit` in its history. The service is configured correctly
+# (autoDeploy yes, autoDeployTrigger checksPass, branch main) and the checks
+# it is waiting on do pass, so what is missing is the webhook rather than the
+# setting. Deploying from here needs no webhook.
 name: checks
 
 on:
@@ -129,6 +140,45 @@ jobs:
           else
             echo "test_ads_optimization.py not on this branch — nothing to run."
           fi
+
+      - name: Scheduled Google Ads optimization sweep
+        # The half that makes account monitoring unattended: every live account
+        # gets a row, one account's Google failure does not cost the rest their
+        # scan, and the run paces itself against the day's operation budget
+        # instead of spending the last of it.
+        run: python test_ads_optimization_scheduler.py
+
+      - name: Auto-applied Google Ads changes
+        # Nobody presses anything at the moment one of these happens, so what
+        # this asserts is mostly the refusals: off by default, high severity
+        # only, inside a per-run cap and the day's operation budget, and one
+        # activity row per change naming the client and the mutate.
+        run: python test_ads_optimization_autoapply.py
+
+      - name: Competitor ad intelligence scaffolding
+        # The state this ships in is the one that matters: no vendor chosen, so
+        # the feature is invisible and research_competitors returns exactly
+        # what it returned before.
+        run: python test_ad_intel.py
+
+      - name: Performance Max campaign type
+        # The half asserted hardest is the one that must not have moved: a
+        # Search proposal generates and deploys byte-for-byte as it did, and a
+        # proposal written before campaignType existed still reads as Search.
+        run: python test_ads_pmax.py
+
+      - name: Recurring client Google Ads reports
+        # Off until somebody turns it on, a month that could not be measured is
+        # never sent, and delivery stops at hub/leads.py -- this Hub claims to
+        # have emailed nobody.
+        run: python test_ads_performance_reports.py
+
+      - name: Public Google Ads Grader
+        # Two properties above all: the lead is captured before OAuth starts,
+        # so an abandoned consent screen costs the grade and not the prospect;
+        # and no credential is ever stored, asserted from the model columns
+        # rather than from the docstring.
+        run: python test_ads_grader.py
 
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
@@ -289,6 +339,23 @@ jobs:
             python test_commercial_providers.py
           else
             echo "test_commercial_providers.py not on this branch — nothing to run."
+          fi
+
+      - name: HyperFrames render service tests
+        # The two HyperFrames skills -- paint animation and the Vox explainer --
+        # and the sidecar renderer both ride on. Unlike every other provider
+        # here that is a self-hosted service rather than a hosted API, so the
+        # failures are its own: a mock that reports success and produces no
+        # file, a beat list a model wrote that the template cannot read, and a
+        # storyboard QC gate refusing a spot that has no storyboard.
+        #
+        # Same skip-rather-than-fail shape as the tests below: a branch cut
+        # before this file exists should not fail on its absence.
+        run: |
+          if [ -f test_hyperframes.py ]; then
+            python test_hyperframes.py
+          else
+            echo "test_hyperframes.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder wizard tests
@@ -1557,25 +1624,57 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
-      # Commercial Builder <-> Radio Promo parity. One reader for "the copy
-      # has to actually say it": Radio Promo checked its scripts literally and
-      # the Commercial Builder asked whether a field was set on a client
-      # record, which is a much easier question -- a spot whose end card had
-      # been deleted passed with the phone number sitting in a database
-      # column. The three false positives that shared rule closes are held
-      # against the findings it must keep making, because a rule loosened
-      # until it stops crying wolf and then loosened once more passes on
-      # everything. Radio Promo's QC panel runs on the copy rather than after
-      # the render, and the line between what may refuse a billed record and
-      # what may only report is certainty rather than severity: a timing
-      # verdict is words divided by a read pace, so refusing a render on it
-      # would refuse a correct read. The :10 and the :60 were unbuildable and
-      # the slot keys were hardcoded in six places. And the finished
-      # commercial reaches Smart 1 Suite through the Hub's one contact write
-      # path, revising the opportunity it already opened rather than adding a
-      # second to the same client's pipeline.
-      - name: Builder parity — the copy, the panel, the lengths, the Suite
-        run: python3 test_builder_parity.py
+      # The Commercial Builder half of the builder-parity list. One reader for
+      # "the copy has to actually say it": Radio Promo checked its scripts
+      # literally and the Commercial Builder asked whether a field was set on
+      # a client record, which is a much easier question -- the renderer draws
+      # the end card from project.cta and only where a CTA scene exists, so a
+      # spot whose end card had been deleted passed with the phone number
+      # sitting in a database column. The three false positives that shared
+      # rule closes are held against the findings it must keep making, because
+      # a rule loosened until it stops crying wolf and then loosened once more
+      # passes on everything. And the finished commercial reaches Smart 1
+      # Suite through the Hub's one contact write path, revising the
+      # opportunity it already opened rather than adding a second to the same
+      # client's pipeline.
+      - name: Commercial Builder parity — the copy it carries, and the Suite
+        run: python3 test_commercial_parity.py
+
+      # The Radio Ad Creator's second half: the music bed, the mix, the checks
+      # and variations. What was live before it is the shape this repo keeps
+      # undoing -- the Music step saved a text prompt and played three
+      # oscillators at a pitch chosen by a regex over that prompt, so a bed
+      # could be picked, "heard", and filed with silence under the voice, with
+      # every screen reporting success. A bed is composed by ElevenLabs to the
+      # spot's own length now, through hub/radio_spec.py, which reads
+      # Commercial Builder's one music table rather than keeping a second copy
+      # of the dB pairs. The mix is rendered in the browser -- there is still no
+      # ffmpeg, ffprobe, pydub or numpy in this runtime, which is exactly why
+      # this module shipped without beds -- so the encoder is lifted out of the
+      # template and driven in node against the server's own WAV probe: if
+      # those two ever disagree, every mix is refused and the step is dead.
+      # This also holds that not_measured is never folded into pass, that a
+      # described-only or mock bed stops a mix being filed, that an override
+      # needs a reason and a name, that the audio the browser reads back is
+      # only what the project's own row recorded, and that a variation carries
+      # the scripts without the audio.
+      - name: Radio Ad Creator — beds composed, the mix measured off the file
+        run: python3 test_radio_ads.py
+
+      # Radio Promo's half of the same list. The length menu held the :15/:30
+      # pair, so the :10 sponsorship tag and the :60 -- the one radio length
+      # with room for a story rather than an offer -- were unbuildable, and the
+      # slot keys were hardcoded in six places. Only the :60 warns about what a
+      # re-record costs, because a note on every length is a note nobody reads
+      # and then the one that mattered goes past unread too. The beats moved
+      # out of the prompt's own prose, where a rep could not see them and a
+      # script that had wandered from the plan read exactly like one written to
+      # it. And the QC panel runs on the copy rather than after the render:
+      # the line between what may refuse a billed record and what may only
+      # report is certainty rather than severity, so a missing disclaimer
+      # blocks and a read length -- words divided by a pace -- does not.
+      - name: Radio Promo parity — the lengths, their costs, the beats, the panel
+        run: python3 test_radio_parity.py
 
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
@@ -1635,6 +1734,15 @@ jobs:
       # is not. Lifts the resolution block out of the page and runs it in node.
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
+
+      # One design into the whole size set. The failure it exists to catch is
+      # a resize that produced a broken ad and reported success -- silent from
+      # every direction, because the frame renders and the file uploads and it
+      # is the client who sees a headline printed through a button. Also holds
+      # the two halves of the propagation rule, which fail in opposite
+      # directions: copy must reach a hand-tuned frame and layout must not.
+      - name: One design, the whole size set
+        run: python3 test_magic_resize.py
 
       # The primitives four screens of one product share. It also walks the
       # rendered HTML to assert the page wrapper still contains the page: one
@@ -1893,6 +2001,18 @@ jobs:
       # a 500 out of the helper whose first promise is that it never raises.
       - name: A number a stranger controls
         run: python3 test_webargs.py
+      # Eight things here are signed with itsdangerous and six resolved the
+      # secret their own way. Four fell back to a literal in their own source:
+      # hub/users_routes.py signs the per-account session cookie carrying the
+      # role and the password gate, and with no SECRET_KEY a cookie signed
+      # "dev-only" claiming admin was accepted as a session belonging to no
+      # account. The two that fell back to a random secret were right and did
+      # not share it -- auth.py and identity.py sign one salt and each
+      # generated its own, so they refused each other's cookies inside one
+      # process. The check is a sweep over the AST, so a ninth signing site
+      # cannot quietly add a literal.
+      - name: What this Hub signs with
+        run: python3 test_signing.py
       # hub/landing_images.py picks the pictures on a page a prospect reads,
       # and its docstring ends "a page may be short, it may not lie".
       # from_site() regexed every image URL out of a 400 KB scan payload and
@@ -1941,3 +2061,68 @@ jobs:
       # visible without presenting a scraped asset as client-approved.
       - name: Brand elements found by the InSites scan
         run: python3 test_scan_brand.py
+
+  # Render's own auto-deploy has never fired for this service. It is set to
+  # deploy main after CI checks pass, the checks pass, and every deploy in its
+  # history is `manual` or `api` -- so the setting is right and the webhook is
+  # not arriving. This job is the same promise made on the side that demonstrably
+  # works: the commit whose checks just went green is the commit that ships.
+  #
+  # It is `ref=<sha>` and never a bare hook, which fixes a race the webhook
+  # never had: main takes a merge every few minutes here, so "check main is
+  # green, then trigger a deploy" is not atomic -- a deploy triggered that way
+  # picked up a commit that had landed in the intervening seconds. Naming the
+  # sha deploys what was tested.
+  deploy:
+    name: deploy main to smart1.agency
+    needs: checks
+    # Never on a pull request. A fork's run and a contributor's branch have no
+    # secret and no path to production; only a commit already on main does.
+    if: >-
+      github.repository == 'Smart-1-Marketing/smarthub'
+      && github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      # Deploys queue rather than cancel: canceling this job would not stop a
+      # deploy Render had already accepted, it would only lose the record of it.
+      group: deploy-smart1-hub
+      cancel-in-progress: false
+    steps:
+      - name: Ask Render to deploy this commit
+        env:
+          # The whole URL is the credential -- anyone holding it can deploy --
+          # so it is never echoed, and no failure path prints it either.
+          # Settings -> Deploy Hook on the smart1-hub service.
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOOK}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL is not set, so this commit was not deployed." >&2
+            echo "Set it under Settings -> Secrets and variables -> Actions, from" >&2
+            echo "the smart1-hub service's Settings -> Deploy Hook on Render." >&2
+            echo "Refusing rather than passing: a green tick over a deploy that" >&2
+            echo "did not happen is the confident wrong answer." >&2
+            exit 1
+          fi
+          # The hook already carries ?key=, but a URL pasted without a query
+          # string would silently lose the ref and deploy whatever main is by
+          # then -- which is the race this job exists to close.
+          case "${HOOK}" in
+            *\?*) url="${HOOK}&ref=${SHA}" ;;
+            *)    url="${HOOK}?ref=${SHA}" ;;
+          esac
+          body="$(mktemp)"
+          status="$(curl -sS -o "${body}" -w '%{http_code}' -X POST "${url}")"
+          echo "Render answered ${status} for ${SHA}."
+          # The body is Render's own, and carries no key. Printing it is what
+          # makes the deploy id findable from the commit that caused it.
+          cat "${body}"
+          echo
+          case "${status}" in
+            2*) ;;
+            *)  echo "Render refused the deploy. The commit is on main and is not live." >&2
+                exit 1 ;;
+          esac

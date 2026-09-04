@@ -128,6 +128,16 @@ HUB_PAGES = [
     # page rather than one row, exactly like url_for('website_check_limits')
     # in Sites Admin.
     "/tools/video-backgrounds/",
+    # The two HyperFrames tools. Both are hub blueprints extending base.html,
+    # and both render the whole form from a server-supplied vocabulary --
+    # `hyperframes.PAINT_STYLES` and `vox_spec.TREATMENTS` -- so a page-context
+    # key the template reads and the route stops passing raises while
+    # *rendering*, which is the whole page rather than one field. They also
+    # render *conditionally*: with no render service configured they draw the
+    # unavailable note instead of the form, which is the branch a checker run
+    # on an unconfigured deployment actually exercises.
+    "/tools/paint-animation/",
+    "/tools/vox-explainer/",
     # The internal calculator: a hub blueprint again, and a standalone HTML
     # document rather than one extending base.html, so the sidebar arrives only
     # if the hub app's after_request injector puts it there. It also renders the
@@ -149,10 +159,11 @@ HUB_PAGES = [
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:
-# a landing page is looked at by a prospect on a client's website, and the MSA
-# signing page by a client. Injecting staff navigation there is a bug of its
-# own, which is why they are asserted to have NONE.
-NO_CHROME_PREFIXES = ("/land/", "/msa")
+# a landing page is looked at by a prospect on a client's website, the MSA
+# signing page by a client, and the Google Ads Grader by a stranger who is not
+# a customer yet. Injecting staff navigation there is a bug of its own, which
+# is why they are asserted to have NONE.
+NO_CHROME_PREFIXES = ("/land/", "/msa", "/tools/ads-grader")
 
 # Mount roots that redirect or need an argument rather than serving a page.
 SKIP_MOUNTS = ()

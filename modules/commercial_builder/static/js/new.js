@@ -203,10 +203,71 @@
     refreshCost();
   });
 
+  /* A Vox explainer is not a broadcast slot, so picking it changes what the
+     rest of this form may offer: its own three lengths, one at a time, and
+     only the two platforms it is a placement for. The server refuses the rest
+     BY NAME -- this is what stops the form inviting the refusal, not what
+     enforces it. */
+  const VOX = (() => {
+    const node = document.getElementById("vox-rules-data");
+    if (!node) return null;
+    try { return JSON.parse(node.textContent); } catch (e) { return null; }
+  })();
+
+  function isVox() { return !!VOX && selectedType === VOX.type; }
+
+  function syncTypeConstraints() {
+    const vox = isVox();
+    const note = document.getElementById("type-note");
+
+    // Lengths: swap which set is on offer, and drop a selection the other set
+    // cannot express rather than leaving it selected but invisible.
+    document.querySelectorAll("#length-choices .cb-choice").forEach((c) => {
+      const mine = vox ? c.dataset.slot === "vox" : c.dataset.slot !== "vox";
+      c.style.display = mine ? "" : "none";
+      if (!mine && selectedLengths.has(c.dataset.value)) {
+        selectedLengths.delete(c.dataset.value);
+        c.classList.remove("selected");
+      }
+    });
+    // One at a time: the lengths are not cut down from each other here.
+    if (vox && selectedLengths.size > 1) {
+      const keep = [...selectedLengths][0];
+      selectedLengths.clear();
+      selectedLengths.add(keep);
+      document.querySelectorAll("#length-choices .cb-choice").forEach((c) =>
+        c.classList.toggle("selected", c.dataset.value === keep));
+    }
+
+    // Platforms. Hidden rather than disabled, and a hidden one that was
+    // selected is cleared -- a selection nobody can see is the state the
+    // server would refuse with the field reading as though it were chosen.
+    document.querySelectorAll("#platform-choices .cb-choice").forEach((c) => {
+      const ok = !vox || VOX.platforms.indexOf(c.dataset.value) !== -1;
+      c.style.display = ok ? "" : "none";
+      if (!ok) c.classList.remove("selected");
+    });
+    if (vox && VOX.platforms.indexOf(selectedPlatform) === -1) {
+      selectedPlatform = VOX.platforms[0];
+      document.querySelectorAll("#platform-choices .cb-choice").forEach((c) =>
+        c.classList.toggle("selected", c.dataset.value === selectedPlatform));
+      syncPublisherField();
+    }
+
+    note.innerHTML = "";
+    if (vox) {
+      note.appendChild(CB.el('<div class="cb-note"><strong>How this one is built</strong><p>'
+        + CB.escapeHtml(VOX.note) + " " + CB.escapeHtml(VOX.one_at_a_time)
+        + "</p></div>"));
+    }
+    refreshLengthNotes();
+  }
+
   wireChoices("type-choices", (choice, container) => {
     [...container.children].forEach((c) => c.classList.remove("selected"));
     choice.classList.add("selected");
     selectedType = choice.dataset.value;
+    syncTypeConstraints();
     refreshCost();
   });
 
@@ -351,6 +412,13 @@
   // client already has a brand profile, so open on the profile list with it
   // chosen rather than making somebody search for it again.
   syncPublisherField();
+
+  /* Run once at the end rather than beside its own definition:
+     `refreshLengthNotes` and `refreshCost` are `const` arrow functions
+     declared further down, so calling this any earlier is a temporal-dead-zone
+     ReferenceError that takes the whole Start page with it -- every choice
+     grid dead, and nothing in the page saying why. */
+  syncTypeConstraints();
 
   const params = new URLSearchParams(location.search);
   if (params.get("client_id")) {
