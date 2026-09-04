@@ -434,7 +434,7 @@
           <strong>Our video library + stock</strong>
           <a href="/tools/video-backgrounds/" target="_blank" rel="noopener">Open full library</a>
         </div>
-        <p class="cb-hint" style="margin:0 0 8px;">We search our owned footage first, then Pexels and Pixabay.</p>
+        <p class="cb-hint" style="margin:0 0 8px;">We search our owned footage first, then Pexels, Pixabay and Coverr.</p>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
           <input type="search" placeholder="Search our video library and stock…" class="stock-q" style="flex:1;">
           <button class="cb-btn cb-btn-sm stock-go">Search</button>

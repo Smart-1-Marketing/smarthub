@@ -35,9 +35,9 @@ import concurrent.futures
 
 import requests
 
-from . import (cloudinary_service, creatomate_service, elevenlabs_service,
-               heygen_service, openai_service, pexels_service, pixabay_service,
-               runway_service)
+from . import (cloudinary_service, coverr_service, creatomate_service,
+               elevenlabs_service, heygen_service, openai_service,
+               pexels_service, pixabay_service, runway_service)
 
 TIMEOUT = 10
 
@@ -46,13 +46,14 @@ TIMEOUT = 10
 # The MEMBERSHIP is config.py's V1_PROVIDERS + V1_5_PROVIDERS, and
 # test_commercial_providers.py asserts that, because a provider added there
 # and forgotten here would simply never be checked and nothing would say so.
-PROVIDERS = ["openai", "pexels", "pixabay", "heygen", "runway",
+PROVIDERS = ["openai", "pexels", "pixabay", "coverr", "heygen", "runway",
              "elevenlabs", "creatomate", "cloudinary"]
 
 LABELS = {
     "openai": "OpenAI", "pexels": "Pexels", "pixabay": "Pixabay",
-    "heygen": "HeyGen", "runway": "Runway", "elevenlabs": "ElevenLabs",
-    "creatomate": "Creatomate", "cloudinary": "Cloudinary",
+    "coverr": "Coverr", "heygen": "HeyGen", "runway": "Runway",
+    "elevenlabs": "ElevenLabs", "creatomate": "Creatomate",
+    "cloudinary": "Cloudinary",
 }
 
 # What stops working when the key does. Shown beside a failure, because
@@ -62,6 +63,7 @@ COSTS = {
     "openai": "Concepts, scripts and AI stills fall back to templates.",
     "pexels": "Free stock search returns placeholders.",
     "pixabay": "Free stock search returns placeholders.",
+    "coverr": "Free stock search returns placeholders.",
     "heygen": "Spokesperson scenes produce no clip.",
     "runway": "AI video scenes produce no clip.",
     "elevenlabs": "Commercials render with no voice track.",
@@ -76,6 +78,7 @@ ENV_NAMES = {
     "openai": "OPENAI_API_KEY",
     "pexels": "PEXELS_API / PEXELS_API_KEY",
     "pixabay": "PIXABAY_API / PIXABAY_API_KEY",
+    "coverr": "COVERR_API / COVERR_API_KEY",
     "heygen": "HEYGEN_API / HEYGEN_API_KEY",
     "runway": "RUNWAY_API / RUNWAY_API_KEY",
     "elevenlabs": "ELEVENLABS_API / ELEVENLABS_API_KEY",
@@ -140,6 +143,16 @@ def _check_pixabay():
                   params={"key": pixabay_service._key(), "q": "office", "per_page": 3})
 
 
+def _check_coverr():
+    # A search rather than an account/ping endpoint: Coverr's public docs
+    # publish no cheaper authenticated call, and this is the exact request
+    # coverr_service.search() makes, so a key valid for a different Coverr
+    # product would be caught here rather than at the first real search.
+    return _probe("Coverr", "GET", coverr_service.BASE_URL,
+                  headers={"Authorization": f"Bearer {coverr_service._key()}"},
+                  params={"query": "office", "page_size": 1})
+
+
 def _check_heygen():
     return _probe("HeyGen", "GET", f"{heygen_service.BASE_URL}/v2/avatars",
                   headers=heygen_service._headers())
@@ -195,6 +208,7 @@ def _check_cloudinary():
 
 _CHECKS = {
     "openai": _check_openai, "pexels": _check_pexels, "pixabay": _check_pixabay,
+    "coverr": _check_coverr,
     "heygen": _check_heygen, "runway": _check_runway,
     "elevenlabs": _check_elevenlabs, "creatomate": _check_creatomate,
     "cloudinary": _check_cloudinary,
@@ -202,6 +216,7 @@ _CHECKS = {
 
 _LIVE = {
     "openai": openai_service, "pexels": pexels_service, "pixabay": pixabay_service,
+    "coverr": coverr_service,
     "heygen": heygen_service, "runway": runway_service,
     "elevenlabs": elevenlabs_service, "creatomate": creatomate_service,
     "cloudinary": cloudinary_service,
