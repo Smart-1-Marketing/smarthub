@@ -901,6 +901,15 @@ jobs:
             echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
+      - name: Nightly-window helper tests
+        # hub/nightly.py — "run once after 2am Eastern," shared by every job
+        # that wants a once-a-day window rather than restating it. The thing
+        # worth proving is the DST awareness a fixed-UTC-hour scheme cannot
+        # have: the same wall-clock hour in January and in July has to land
+        # on different UTC hours, because the clocks changed. No I/O, no
+        # fixtures, so it needs nothing external and nothing to guard.
+        run: python3 test_nightly.py
+
       - name: Suite embed tests
         # Hub pages framed inside Smart 1 Suite: the SameSite=None companion
         # cookie that reaches a cross-site frame, the safe-method + allowlist
@@ -1089,6 +1098,20 @@ jobs:
             python test_client_uploads.py
           else
             echo "test_client_uploads.py not on this branch — nothing to run."
+          fi
+
+      - name: Ad Assets — Drive creative into the client library
+        # The folder shape, the dedupe key, and the two writes a copy must not
+        # make: nothing to Drive at all, and nothing to Knack until somebody
+        # applies a proposal they have read. Also that a Drive scope Google
+        # never granted is reported as refused rather than as an empty folder.
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file. Needs no network.
+        run: |
+          if [ -f test_ad_assets.py ]; then
+            python test_ad_assets.py
+          else
+            echo "test_ad_assets.py not on this branch — nothing to run."
           fi
 
       - name: Image attribution audit, and the gallery that reads it

@@ -58,6 +58,10 @@ KIND_LABELS = {
     "stock": "Stock photos",
     "commercial": "Commercial stills",
     "creative_information": "Creative Information",
+    # Creative that ran on a campaign, copied out of the Drive folder the
+    # media team was keeping it in and filed under the IO it belongs to.
+    # hub/ad_assets.py writes it; the folder shape is ad_asset_folder() below.
+    "ad_asset": "Ad Assets",
     # Footage saved out of Video Search -- the owned Cloudinary library, or a
     # clip pulled in from Pexels/Pixabay/Coverr. Its own heading rather than
     # folded into `stock`: a client's own reel of saved footage is a different
@@ -95,6 +99,7 @@ SOURCE_LABELS = {
     "io_creative": "Creative for their insertion orders",
     "io_builder": "IO documents",
     "creative_information": "Creative information",
+    "ad_asset": "Ad assets for their campaigns",
     "animated_ad": "Animated display ads",
     "blog": "Blog images",
     "seo_image": "SEO images",
@@ -214,6 +219,42 @@ def asset_folder(*, client_name: str, tool: str, completed_on: str = "",
     ])
 
 
+def ad_asset_folder(*, client_name: str, io_number: str = "",
+                    product_number: str = "", subpath: str = "") -> str:
+    """Where creative for a campaign lives: Ad Assets, then IO, then product.
+
+    A second shape beside `asset_folder()` rather than an argument to it,
+    because the two answer different questions and folding them together is
+    how one of them quietly changes. `asset_folder()` files *the work a tool
+    finished*, and the date is load-bearing there -- it is how somebody finds
+    the images the SEO pipeline saved last Tuesday. This files *the creative
+    that ran on a line of an insertion order*, where the date is noise: the
+    banner delivered in March and its April revision belong in one place,
+    which is the product, and a date level between them puts them in two.
+
+    So: `client-assets/<client>/ad-assets/io-<io>/product-<n>`, with the
+    product level present only when Knack carried a product number -- an
+    `unassigned` folder that exists on most rows is a folder that means
+    nothing. `subpath` preserves the shape of the Drive folder underneath,
+    because "Final" and "Revised" beside each other is the distinction the
+    media team was keeping and flattening it loses which is which.
+    """
+    def clean(value: str, fallback: str = "") -> str:
+        value = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+        return value[:100] or fallback
+
+    parts = ["client-assets", clean(client_name, "client"), "ad-assets",
+             f"io-{clean(io_number, 'unassigned')}"]
+    product = clean(product_number)
+    if product:
+        parts.append(f"product-{product}")
+    for piece in str(subpath or "").split("/"):
+        piece = clean(piece)
+        if piece:
+            parts.append(piece)
+    return "/".join(parts)
+
+
 def file_asset(*, client_name: str, public_id: str, url: str,
                kind: str = "upload", label: str = "", key: str = "",
                filename: str = "", alt: str = "", resource_type: str = "image",
@@ -223,7 +264,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
                push_to_suite: bool = True, tool: str = "",
                completed_on: str = "", project_name: str = "",
                io_number: str = "", product_number: str = "",
-               external: bool = False) -> dict:
+               external: bool = False, folder: str = "") -> dict:
     """Record one asset in a client's gallery.
 
     Returns a dict with `ok`, and on success the `image` row and `gallery_url`.
@@ -244,10 +285,14 @@ def file_asset(*, client_name: str, public_id: str, url: str,
     project_name = str(project_name or "")[:200]
     io_number = str(io_number or "")[:80]
     product_number = str(product_number or "")[:80]
-    folder = asset_folder(client_name=client_name, tool=tool,
-                          completed_on=completed_on, io_number=io_number,
-                          product_number=product_number,
-                          project_name=project_name)
+    # A caller that has already decided where this belongs says so. The Ad
+    # Assets tree is the one shape the date-keyed default is wrong for --
+    # ad_asset_folder() above says why -- and passing the folder in beats a
+    # second convention branching inside the default.
+    folder = str(folder or "")[:600] or asset_folder(
+        client_name=client_name, tool=tool, completed_on=completed_on,
+        io_number=io_number, product_number=product_number,
+        project_name=project_name)
 
     try:
         db = session()

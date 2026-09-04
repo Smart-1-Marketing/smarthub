@@ -1148,6 +1148,69 @@ F_DASHBOARD_URL = os.environ.get("KNACK_DASHBOARD_FIELD", "field_2820")
 F_CLIENT_NAME = os.environ.get("KNACK_PRODUCT_CLIENT_FIELD", "field_2308")
 
 
+def set_creative_url(record_id: str, old_url: str, new_url: str) -> dict:
+    """Repoint one External Creative Link on one product record.
+
+    Written narrowly on purpose. `set_dashboard_url()` above writes one value
+    to every matching product, which is right for a dashboard — the question
+    it answers is about the client. Creative is the opposite: a product line
+    has up to four creative links and they are four different files, so the
+    only safe write is "the field currently holding exactly this URL, on this
+    record, becomes that one".
+
+    So the record is read first and the field located by its **current value**
+    rather than by position. A migration that wrote to `field_3422` because
+    that is the first of the four would overwrite whichever file happened to
+    be in slot one, on every row where the link being replaced was in slot
+    three — silently, and with the original URL then existing nowhere.
+
+    Refuses rather than guesses when the current value is not found: that
+    means Knack changed under the proposal, and the proposal is stale.
+    """
+    from hub import knack_products as _kp
+    if not configured():
+        return {"ok": False, "error": "Knack API credentials aren't set."}
+    record_id = str(record_id or "").strip()
+    old_url = str(old_url or "").strip()
+    new_url = str(new_url or "").strip()
+    if not record_id or not old_url or not new_url:
+        return {"ok": False, "error": "A record, the link to replace and the "
+                                      "link to put there are all required."}
+
+    try:
+        r = requests.get(
+            f"{BASE}/objects/{PRODUCTS_OBJECT}/records/{record_id}",
+            headers=_headers(), timeout=25)
+        r.raise_for_status()
+        rec = r.json() or {}
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False,
+                "error": f"Couldn't read that product ({type(exc).__name__})."}
+
+    target = ""
+    for field in _kp.F_CREATIVE_URLS:
+        current = _kp._href(rec.get(field)) or _kp._text(rec.get(field))
+        if str(current or "").strip() == old_url:
+            target = field
+            break
+    if not target:
+        return {"ok": False,
+                "error": "That link is no longer on this product record in "
+                         "Knack — somebody has changed it since the proposal "
+                         "was made. Nothing was written."}
+
+    try:
+        resp = requests.put(
+            f"{BASE}/objects/{PRODUCTS_OBJECT}/records/{record_id}",
+            headers=_headers(), json={target: new_url}, timeout=25)
+        if not resp.ok:
+            return {"ok": False, "error": f"Knack refused the write "
+                                          f"(HTTP {resp.status_code})."}
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
+    return {"ok": True, "field": target, "record_id": record_id}
+
+
 def set_dashboard_url(client: str, url: str, live_only: bool = True) -> dict:
     """Write a dashboard URL onto a client's product records.
 
