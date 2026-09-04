@@ -1709,6 +1709,14 @@ REGISTRY: list[Help] = [
        "through the Hub so a use is recorded — Unsplash's terms "
        "require a ping when a photo is actually used rather than "
        "browsed."),
+    _h("stock_photos.search.client", "Save to their gallery",
+       "Pick a client and every copy, download or explicit save files the "
+       "photo into their gallery under Stock photo picks — no client, "
+       "nothing filed, and the page says so rather than guessing who it "
+       "was for. The folder is optional: leave it blank to save straight "
+       "into that group, or name one to start a folder inside it, and "
+       "typing the start of a name already used offers it back so a "
+       "second one is not created by mistake."),
 
     # ---------------- Radio Promo ----------------
     _h("radio_promo.build.setup", "Spec now, theirs later",

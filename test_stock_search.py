@@ -469,6 +469,105 @@ check("the page routes a download through /api/use rather than linking out",
 
 
 # --------------------------------------------------------------------------- #
+section("Saving a photo files it under Stock photo picks, in a folder or none")
+
+check("a folder label slugifies to a stable key",
+      tool._slug_folder("Homepage Refresh!"), "homepage-refresh")
+check("...and collapses runs of punctuation",
+      tool._slug_folder("  Q1 / Social  Ads "), "q1-social-ads")
+
+from modules.image_picker import filing as picker_filing        # noqa: E402
+
+calls = []
+real_file_asset = picker_filing.file_asset
+
+
+def fake_file_asset(**kw):
+    calls.append(kw)
+    return {"ok": True, "image": {}, "gallery_url": "/g/1"}
+
+
+picker_filing.file_asset = fake_file_asset
+try:
+    with tool.app.test_request_context():
+        out = tool._file_for_client("Acme Roofing", "library", "lib:own1",
+                                    "https://res.cloudinary.com/x/own1.jpg",
+                                    "Homepage Refresh")
+finally:
+    picker_filing.file_asset = real_file_asset
+
+check("it filed rather than refusing", out.get("ok"), True)
+check("the kind is stock, which names the Stock photo picks group",
+      calls[0]["kind"], "stock")
+check("the folder label is carried through as the collection label",
+      calls[0]["label"], "Homepage Refresh")
+check("...and a slug as the collection key",
+      calls[0]["key"], "homepage-refresh")
+
+calls.clear()
+picker_filing.file_asset = fake_file_asset
+try:
+    with tool.app.test_request_context():
+        tool._file_for_client("Acme Roofing", "library", "lib:own2",
+                              "https://res.cloudinary.com/x/own2.jpg", "")
+finally:
+    picker_filing.file_asset = real_file_asset
+
+check("with no folder chosen, no key is invented", calls[0]["key"], "")
+check("...and no label either, so file_asset's own default group name applies",
+      calls[0]["label"], "")
+
+check('the gallery group is named "Stock photo picks"',
+      picker_filing.KIND_LABELS["stock"], "Stock photo picks")
+check("...and the same name reaches the gallery's own source chips",
+      picker_filing.SOURCE_LABELS["stock_photos"], "Stock photo picks")
+
+
+# --------------------------------------------------------------------------- #
+section("An existing folder is offered back, not retyped from memory")
+
+from modules.image_picker.filing import folders_for              # noqa: E402
+
+real_file_asset(client_name="Folder Test Co", public_id="stock/testpic1",
+                url="https://res.cloudinary.com/x/testpic1.jpg", kind="stock",
+                key="homepage-refresh", label="Homepage Refresh",
+                provider="pexels", saved_by="tester", push_to_suite=False)
+
+folders = folders_for("Folder Test Co", "stock")
+check("the folder we just saved into comes back", len(folders), 1)
+check("under the label as typed", folders[0]["label"], "Homepage Refresh")
+check("under the derived key", folders[0]["key"], "homepage-refresh")
+check("with a count of one", folders[0]["count"], 1)
+
+check("a client with no gallery yet offers no folders",
+      folders_for("Nobody Yet LLC", "stock"), [])
+check("an empty kind is refused rather than scanning everything",
+      folders_for("Folder Test Co", ""), [])
+
+route_client = tool.app.test_client()
+r = route_client.get("/api/client-folders?client=" + "Folder+Test+Co")
+check("the client-folder route answers", r.status_code, 200)
+check("and reports the folder saved above",
+      [f["label"] for f in (r.get_json() or {}).get("folders", [])],
+      ["Homepage Refresh"])
+
+r = route_client.get("/api/client-folders")
+check("with no client at all it answers emptily rather than erroring",
+      (r.get_json() or {}).get("folders"), [])
+
+r = route_client.get("/api/clients?q=Folder")
+check("the client search route answers", r.status_code, 200)
+
+tpl_stock = (ROOT / "modules" / "stock_photos" / "templates" /
+            "stock_photos.html").read_text()
+check("the page offers a client field", 'id="client"' in tpl_stock, True)
+check("...and a folder field", 'id="folder"' in tpl_stock, True)
+check("...and an explicit save action", 'data-act="save"' in tpl_stock, True)
+check("the save carries the client and folder to the server",
+      "client: client, folder: folder" in tpl_stock, True)
+
+
+# --------------------------------------------------------------------------- #
 section("The client picker did not quietly gain our internal folders")
 
 from modules.image_picker import providers as picker            # noqa: E402

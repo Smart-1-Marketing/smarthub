@@ -25,7 +25,7 @@ import hashlib
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from . import ghl, taxonomy
 from .models import PickerClient, SavedImage, new_token, session, slugify, unique_slug
@@ -55,7 +55,7 @@ KIND_LABELS = {
     "cutout": "Cut-outs",
     "graphic": "Graphics",
     "page_image": "Website images",
-    "stock": "Stock photos",
+    "stock": "Stock photo picks",
     "commercial": "Commercial stills",
     "creative_information": "Creative Information",
 }
@@ -103,8 +103,8 @@ SOURCE_LABELS = {
     "graphic": "Graphics",
     "page_image_optimizer": "Website images",
     "page_image": "Website images",
-    "stock": "Stock photos",
-    "stock_photos": "Stock photos",
+    "stock": "Stock photo picks",
+    "stock_photos": "Stock photo picks",
     "commercial_builder": "Commercial stills",
     "commercial": "Commercial stills",
     "gpt_ads": "GPT ads",
@@ -142,6 +142,41 @@ def source_tiers() -> dict:
     """The label table and the two tiers, for whatever renders a gallery."""
     return {"labels": dict(SOURCE_LABELS),
             "theirs": list(THEIRS), "we_made": list(WE_MADE)}
+
+
+def folders_for(client_name: str, kind: str) -> list[dict]:
+    """Named sub-groups already used under one kind, for this client.
+
+    There is no folder table -- a folder here is nothing but a
+    `collection_key`/`collection_label` pair somebody has already filed an
+    asset under, so this is a distinct scan of what is already on disk rather
+    than a lookup of anything separately stored. That is deliberate: a client
+    picking "Homepage refresh" a second time should land on the same rows the
+    first save produced, not on a second folder of the same name a typo would
+    otherwise create.
+
+    Returns `[]` for a client with no gallery yet -- a picker offering no
+    existing folders is exactly right for a client nothing has been saved for.
+    """
+    kind = (kind or "").strip().lower()[:20]
+    if not kind:
+        return []
+    db = session()
+    client = gallery_for_name(db, client_name)
+    if client is None:
+        return []
+    rows = db.execute(
+        select(SavedImage.collection_key, SavedImage.collection_label,
+              func.count(SavedImage.id), func.max(SavedImage.created_at))
+        .where(SavedImage.client_id == client.id,
+              SavedImage.collection_kind == kind,
+              SavedImage.collection_key.isnot(None),
+              SavedImage.collection_key != "")
+        .group_by(SavedImage.collection_key, SavedImage.collection_label)
+        .order_by(func.max(SavedImage.created_at).desc())
+    ).all()
+    return [{"key": key, "label": label or key, "count": n}
+            for key, label, n, _ in rows]
 
 
 def gallery_for_name(db, name: str, *, create: bool = False) -> PickerClient | None:
