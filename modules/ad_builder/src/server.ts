@@ -21,7 +21,8 @@ import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
 import { renderPreview, renderAnimatedPreview } from './render';
 import { buildCampaign, type Submission } from './intake';
-import { loadPlatforms, loadTemplates, acceptPlatforms } from './registry';
+import { loadPlatforms, loadTemplates, acceptPlatforms, renderableSizes } from './registry';
+import { carriedInto, needsReview, styleForSize } from './carry';
 import { logoInkLuminance } from './qa';
 import { reverseLogoOnPanel } from './svg';
 import { paletteVariants } from './palette';
@@ -2558,10 +2559,59 @@ const server = http.createServer(async (req, res) => {
           status: out.status,
           wordCount: out.wordCount,
           qa: out.qa.filter((f) => f.status !== 'pass'),
+          // What this size actually renders with, and where it came from. The
+          // panel draws these rather than resolving the carry itself: a second
+          // reading of that rule in the browser is the mirror CLAUDE.md counts
+          // the cost of twice, and it would drift the day either half moved.
+          carry: carriedInto(concept.styleOverrides, getTemplate(concept.layoutFamily),
+                             (body.size ?? '300x250') as any),
+          style: styleForSize(concept.styleOverrides, getTemplate(concept.layoutFamily),
+                              (body.size ?? '300x250') as any) ?? {},
         });
       } catch (e: any) {
         return json(res, 422, { error: e?.message ?? 'Preview failed' });
       }
+    }
+
+    /* --------------------------------------------------------------- carry
+       Which sizes carry adjustments made somewhere else, and which of those
+       did not survive the move.
+
+       Deliberately its own route and deliberately cheap: `carriedInto` reads
+       two layouts out of a template and does arithmetic, so the build screen
+       can mark the whole set the moment something is tuned rather than only
+       the sizes somebody has already rendered. A review strip that fills in
+       one size at a time as previews come back is one nobody trusts as a
+       count. */
+
+    if (route === 'POST /api/carry') {
+      const body = JSON.parse(await readBody(req, 500_000)) as {
+        campaign?: any; conceptId?: string; platform?: string;
+      };
+      const campaign = body.campaign;
+      const concept = campaign?.concepts?.find((c: any) => c.conceptId === body.conceptId)
+        ?? campaign?.concepts?.[0];
+      if (!concept) return json(res, 400, { error: 'Provide a campaign and a concept' });
+      let template;
+      try { template = getTemplate(concept.layoutFamily); }
+      catch { return json(res, 422, { error: `No layout family ${concept.layoutFamily}` }); }
+
+      const platform = body.platform ?? 'google';
+      let sizes: string[];
+      try { sizes = renderableSizes(concept.layoutFamily, platform) as string[]; }
+      catch { return json(res, 422, { error: `No platform ${platform}` }); }
+
+      const report: Record<string, unknown> = {};
+      const review: string[] = [];
+      for (const size of sizes) {
+        const c = carriedInto(concept.styleOverrides, template, size as any);
+        report[size] = c;
+        if (needsReview(c)) review.push(size);
+      }
+      return json(res, 200, {
+        authoredFor: concept.styleOverrides?.authoredFor ?? null,
+        sizes, carry: report, review,
+      });
     }
 
     /* ------------------------------------------------------------- presets
