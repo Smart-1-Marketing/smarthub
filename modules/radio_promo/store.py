@@ -91,11 +91,14 @@ def create(fields: dict) -> dict:
         "promotion": (fields.get("promotion") or "").strip(),
         "disclaimer": (fields.get("disclaimer") or "").strip(),
         "pronunciations": fields.get("pronunciations") or [],
-        # Which lengths this project writes. Normalised on the way in, so a
-        # row can never carry a slot the catalog cannot describe; a row
-        # written before the menu widened has no key at all and every reader
+        # Which lengths this job writes, normalised HERE rather than left to
+        # the caller. The merge that brought the two builders' slot work
+        # together left this key written twice, and the second -- which only
+        # listed what it was handed -- silently won: a slot the catalog cannot
+        # describe reached the store, in whatever order it had been ticked.
+        # A row saved before this field existed carries none, and every reader
         # falls back to the pair the studio shipped.
-        "slots": normalize_slots(fields.get("slots")),
+        "slots": list(normalize_slots(fields.get("slots"))),
         "brand": fields.get("brand") or {},
         # These four are empty on a new project and carried on a variation,
         # which is why they read from `fields` rather than being hardcoded: a
@@ -107,10 +110,6 @@ def create(fields: dict) -> dict:
         "voice_want": fields.get("voice_want") or {},
         "voice_matches": [],
         "music_beds": [],
-        # Which lengths this job writes. Normalised by the caller through
-        # `catalog.slots_of()`; a row saved before this field existed carries
-        # none, and that function reads the absence as the :15/:30 pair.
-        "slots": list(fields.get("slots") or ()),
         # A bed and a mix per slot, because a :15 and a :60 need beds of their
         # own length. Keyed on the slot rather than a list, so replacing one
         # cannot leave two claiming the same slot.

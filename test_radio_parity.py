@@ -307,6 +307,22 @@ check("and the beats reach the browser",
 
 made = rc_mount.post("/api/projects", json={
     "company": "Acme", "home_url": "https://acme.com", "slots": ["sixty"]}).get_json()
+# The store normalises on the way in rather than trusting its caller. The
+# merge that brought the two builders' slot work together left this key
+# written twice and the second one -- which only listed what it was handed --
+# silently won, so a slot the catalog cannot describe reached the store in
+# whatever order it had been ticked. A dict cannot hold one key twice, and
+# nothing errored: the normalising half was simply never the value.
+# Asserted against the STORE, not the route. The route sanitises too, so a
+# request cannot show this -- which is exactly why the dead normalisation sat
+# there passing every test until a duplicate-key check read the literal.
+_dirty = radio_store.create({"company": "Acme", "home_url": "https://acme.com",
+                             "slots": ["ninety", "sixty", "ten"]})
+check("a slot the catalog cannot describe never reaches the store",
+      _dirty["slots"], ["ten", "sixty"])
+check("and a project that asked for none is the pair",
+      radio_store.create({"company": "Acme"})["slots"], ["fifteen", "thirty"])
+
 check("a project can be created as a :60 alone", made["project"]["slots"], ["sixty"])
 sixty_id = made["project"]["id"]
 # A slot the catalog cannot describe is refused; one the project simply did
