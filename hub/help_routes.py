@@ -149,6 +149,18 @@ def static_cheers_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/hub-qa-nudge.js")
+def static_qa_nudge_js():
+    """The QA task reminder, shown once a day on the first Hub page opened.
+
+    Root-level for the same reason as the scripts around it, though today only
+    base.html loads it: the reminder belongs on the page somebody lands on
+    after signing in, and that is a hub page. Serving it from the root means a
+    mounted module can opt in later without a second copy."""
+    return send_from_directory(_STATIC, "hub-qa-nudge.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-thinking.js")
 def static_thinking_js():
     """The one mark that says something is running.

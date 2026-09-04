@@ -103,6 +103,10 @@ _MOUNT_ACTIVE_HUB = {
     # Tools instead -- nav pointing at the wrong entry is a small lie the
     # reader corrects by ignoring the highlight.
     "/tools/website-audit": "website_audit",
+    # One segment, and its own entry rather than falling under /qa: the
+    # reports and the assignments are two screens and a nav that highlights
+    # the wrong one is a small lie the reader corrects by ignoring it.
+    "/qa-tasks": "qatasks",
     "/my-clients": "myclients",
 }
 
@@ -2136,7 +2140,7 @@ def create_hub_app() -> Flask:
 
         Both builders ask this: the IO while converting a proposal it just
         read, the Proposal Builder when a rep types a product that is not a
-        catalogue pick. One matcher, so the two cannot disagree about what a
+        catalog pick. One matcher, so the two cannot disagree about what a
         client was sold.
         """
         gate = _require_api()
@@ -3606,6 +3610,11 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
         return jsonify({"social": social, "from_scan": found_by_scan,
+                        # The catalog drives the record's "add a link" menu.
+                        # It ships from here rather than being restated in the
+                        # template so the two can never drift apart.
+                        "catalog": seo.social_catalog(),
+                        "labels": seo.get_social_labels(name) if name else {},
                         "note": (f"{len(found_by_scan)} profile(s) came from "
                                  f"the last site scan rather than Brandfetch."
                                  if found_by_scan else "")})
@@ -3621,11 +3630,13 @@ def create_hub_app() -> Flask:
         if not client:
             return jsonify({"error": "client is required."}), 400
         try:
-            social = seo.set_social(client, body.get("social") or {})
+            social = seo.set_social(client, body.get("social") or {},
+                                    body.get("labels") or {})
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         audit.log("hub", "client_social_saved", actor=current_user(), detail=client)
-        return jsonify({"ok": True, "social": social})
+        return jsonify({"ok": True, "social": social,
+                        "labels": seo.get_social_labels(client)})
 
     # ------------- the Smart 1 Suite app frame (a CLIENT, not a rep)
     #
@@ -6726,6 +6737,21 @@ def create_hub_app() -> Flask:
     except Exception as _wa_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _wa_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- QA Tasks ----------------
+    # A blueprint rather than a mounted module, for the reason Prospect 360 is
+    # one: everything it reads -- the account table, the nav, the tool tiles --
+    # is the hub's own. Registered before create_all() below, or `hub_qa_tasks`
+    # and `hub_qa_responses` are never created and every read of them fails
+    # into "the QA task list could not be read" for ever.
+    try:
+        from .qa_tasks_routes import register_qa_tasks
+        register_qa_tasks(app)
+    except Exception as _qt_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _qt_exc)
         except Exception:  # noqa: BLE001
             pass
 

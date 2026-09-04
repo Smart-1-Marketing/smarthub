@@ -368,6 +368,18 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Client 360 social & links tests
+        # The card renders only links that exist and offers the rest from a
+        # catalogue that ships from the server, so the menu and the keys the
+        # server accepts cannot drift. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_client360_social.py ]; then
+            python test_client360_social.py
+          else
+            echo "test_client360_social.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder dashboard layout tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -1758,6 +1770,17 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
+      # Asking somebody to check a page, and getting their answer back. Four
+      # states, and the two middle ones are the point: collapse "waiting on
+      # them" and "waiting on you" into one flag and the queue stops being
+      # able to say whose move it is, which is the only question anybody opens
+      # it with. Also holds the refusals -- a stranger answering somebody
+      # else's task, a reviewer closing their own review -- and the wiring:
+      # the blueprint's own login gate, the tile, and a dashboard card that
+      # never draws a zero over a table it could not read.
+      - name: A QA review asked for, answered and closed
+        run: python3 test_qa_tasks.py
+
       # One design into the whole size set. The failure it exists to catch is
       # a resize that produced a broken ad and reported success -- silent from
       # every direction, because the frame renders and the file uploads and it
@@ -1820,6 +1843,12 @@ jobs:
         # off as $0, and GHL refusing or the company id being unset is never
         # an all-clear. tools/probe_ghl_saas.py is the read-only live half.
         run: python3 test_ghl_billing.py
+
+      - name: Client 360 Tracked links card and copy controls
+        # Tracked links must render beside Social Media, and every copy button
+        # must be a class the stylesheets define (.mini is not one) going
+        # through copyToClipboard rather than reporting a copy it never made.
+        run: python3 test_client360_utm_card.py
 
       - name: The gate runs every check a person runs
         run: python3 test_ci_gate.py
