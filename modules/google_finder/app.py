@@ -1240,6 +1240,23 @@ def logout():
 
 @app.route("/api/search")
 def api_search():
+    """Search the shared, cross-worker Google index — never a live sweep.
+
+    This used to call get_index() directly, which is a live sweep across
+    every connected login on every keystroke: on a cold worker — every
+    gunicorn worker after a deploy — that meant a full ~180-account Tag
+    Manager crawl, rate-paced, before the first search anyone typed could
+    answer. hub.google_index is the durable version of the same data: built
+    on a schedule, mirrored into Postgres, and already what Client 360 and
+    every QA report read for exactly this reason (see hub/google_index.py).
+    This route now reads that one shared list, so a search here is a
+    dictionary scan rather than an outbound call to Google.
+
+    If nothing has ever been swept into it — a brand-new deployment before
+    the scheduler's first pass, or HUB_SCHEDULER disabled — that is said
+    outright rather than silently falling back to a live sweep here, which is
+    the exact stampede this route existed to cause.
+    """
     if not connected_accounts():
         return jsonify({"error": "No Google accounts connected."}), 401
 
@@ -1248,18 +1265,28 @@ def api_search():
     if not q:
         return jsonify({"results": [], "errors": []})
 
-    indexed, errors = get_index()
+    from hub import google_index
+
+    data = google_index.load()
+    if data.get("never_built"):
+        return jsonify({
+            "results": [], "errors": [], "never_built": True,
+            "error": "The Google index has not been built yet. Press "
+                     "Refresh to sweep every connected account now.",
+        })
+
     results = []
     seen = set()
 
-    for item in indexed:
-        if platform == "analytics" and item["platform"] not in ["Google Analytics", "Google Tag Manager"]:
+    for item in data.get("items") or []:
+        item_platform = item.get("platform") or ""
+        if platform == "analytics" and item_platform not in ("Google Analytics", "Google Tag Manager"):
             continue
-        if platform == "gtm" and item["platform"] != "Google Tag Manager":
+        if platform == "gtm" and item_platform != "Google Tag Manager":
             continue
-        if platform == "gmb" and item["platform"] != "Google Business Profile":
+        if platform == "gmb" and item_platform != "Google Business Profile":
             continue
-        if platform == "gsc" and item["platform"] != "Search Console":
+        if platform == "gsc" and item_platform != "Search Console":
             continue
 
         haystack = " ".join([
@@ -1267,13 +1294,18 @@ def api_search():
             item.get("resource_id", ""), item.get("search_extra", ""), item.get("google_login", "")
         ]).lower()
         if q.lower() in haystack:
-            key = (item.get("platform"), item.get("account_id"), item.get("resource_id"), item.get("google_login"))
+            key = (item_platform, item.get("account_id"), item.get("resource_id"), item.get("google_login"))
             if key not in seen:
                 seen.add(key)
                 results.append(item)
 
     results.sort(key=lambda x: (x.get("name", "").lower(), x.get("google_login", "")))
-    return jsonify({"results": results[:200], "errors": errors})
+    age = google_index.age_seconds()
+    return jsonify({
+        "results": results[:200], "errors": data.get("errors") or [],
+        "index_age_hours": round(age / 3600, 1) if age is not None else None,
+        "index_stale": google_index.is_stale(),
+    })
 
 
 @app.route("/api/gtm/inspect", methods=["POST"])
@@ -2564,10 +2596,36 @@ def search_gtm_logs():
 
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
+    """Force a fresh sweep now, through the shared cross-worker index.
+
+    This used to call get_index(force=True) directly and run unconditionally
+    on every page load (index.html's DOMContentLoaded handler) — which is
+    the actual cause of "a ton of GTM calls" after a deploy: two cold
+    workers, no shared cache yet, and every visit to this page re-swept every
+    connected account from scratch before anyone typed a character. Worse,
+    the result only ever populated *this worker's* private in-memory CACHE
+    (see get_account_index), so the other gunicorn worker — and every page
+    reading hub.google_index, Client 360 included — never saw it: the full
+    GTM cost was paid and nothing durable came of it.
+
+    It is only ever called now by a person pressing "Refresh" after a search
+    came up empty, cooled down the same way /api/google/rebuild is
+    (google_index.manual_rebuild()), and it writes through the shared,
+    Postgres-mirrored index so the cost is paid once for every worker and
+    every page rather than once per visit to this one.
+    """
     if not connected_accounts():
         return jsonify({"error": "No Google accounts connected."}), 401
-    items, errors = get_index(force=True)
-    return jsonify({"ok": not errors, "count": len(items), "errors": errors})
+    from hub import google_index
+
+    result = google_index.manual_rebuild()
+    return jsonify({
+        "ok": bool(result.get("ok")),
+        "count": result.get("resources", 0),
+        "errors": result.get("errors") or [],
+        "error": result.get("error", ""),
+        "retry_after_seconds": result.get("retry_after_seconds"),
+    }), (429 if result.get("cooling_down") else 200)
 
 
 @app.route("/health")

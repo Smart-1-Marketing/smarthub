@@ -28,17 +28,84 @@ function showToast(message, type='success') {
   }, 3000);
 }
 
-// Auto-Refresh on Load (No Pre-Population)
+// ---------------------------------------------------------------------------
+// The shared Google index — a table this Hub keeps in Postgres, rebuilt on a
+// schedule (hub/google_index.py) rather than swept live on every visit. This
+// page used to force a full live sweep of every connected account on every
+// load (a POST to /google/api/refresh from here, unconditionally) — which on
+// a cold worker after a deploy meant the first person to open this tool paid
+// for a ~180-account Tag Manager crawl before they could type a single
+// character. It now reads the *status* of the shared index on load — no
+// Google calls at all — and only sweeps again when a person presses Refresh.
+// ---------------------------------------------------------------------------
+function formatIndexAge(data) {
+  if (data.never_built) return 'has not been built yet';
+  if (data.age_hours == null) return 'age unknown';
+  if (data.age_hours < 1) return 'refreshed less than an hour ago';
+  if (data.age_hours < 48) return `refreshed ${Math.round(data.age_hours)}h ago`;
+  return `refreshed ${Math.round(data.age_hours / 24)}d ago`;
+}
+
+function refreshButtonHtml(label, id) {
+  return `<button id="${id || 'refresh-index-btn'}" class="btn" type="button" ` +
+    `style="font-size:11px;padding:3px 10px;margin-left:6px;">${esc(label || 'Refresh now')}</button>`;
+}
+
+function wireRefreshButton(id, onDone) {
+  const btn = document.getElementById(id || 'refresh-index-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => refreshIndex(btn, onDone));
+}
+
+// The sweep this triggers is paced against Google's own rate limits on
+// purpose (see gtm_pace_state() server-side), so it can take a few minutes —
+// the button says so rather than looking hung, the way /tools/google-match's
+// "Rebuild the index" button already does.
+async function refreshIndex(btn, onDone) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Sweeping Google…';
+  if (statusEl) {
+    statusEl.innerHTML = `${svgSpinner} <span>Sweeping every connected Google ` +
+      `account. Tag Manager is rate-limited, so this can take a few minutes.</span>`;
+  }
+  try {
+    const r = await fetch('/google/api/refresh', { method: 'POST', credentials: 'same-origin' });
+    const data = await r.json();
+    if (!r.ok || data.ok === false) {
+      showToast(data.error || 'The sweep did not complete.', 'error');
+    } else {
+      showToast(`Google index refreshed (${data.count || 0} resources indexed).`, 'success');
+    }
+  } catch (err) {
+    showToast('The sweep did not complete.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+    if (onDone) onDone();
+  }
+}
+
+async function loadIndexStatus() {
+  if (!statusEl) return;
+  statusEl.innerHTML = `${svgSpinner} <span>Checking the Google index…</span>`;
+  try {
+    const r = await fetch('/api/google/index', { credentials: 'same-origin' });
+    const data = await r.json();
+    const label = data.never_built ? 'Build the index now' : 'Refresh now';
+    statusEl.innerHTML = `Google index ${esc(formatIndexAge(data))} ` +
+      `(${data.resources || 0} resources). Start typing above to search. ` +
+      refreshButtonHtml(label);
+  } catch (err) {
+    statusEl.innerHTML = 'Start typing above to search all connected accounts. ' +
+      refreshButtonHtml('Refresh now');
+  }
+  wireRefreshButton('refresh-index-btn', loadIndexStatus);
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
   if (statusEl) {
-    statusEl.innerHTML = `${svgSpinner} <span>Auto-refreshing Google accounts in background...</span>`;
-    try {
-      const r = await fetch('/google/api/refresh', { method: 'POST' });
-      const data = await r.json();
-      statusEl.textContent = `Google accounts refreshed (${data.count || 0} assets indexed). Start typing above to search...`;
-    } catch (err) {
-      statusEl.textContent = 'Start typing above to search all connected accounts.';
-    }
+    loadIndexStatus();
   }
 
   // Load history on History page
@@ -93,7 +160,16 @@ function draw(items) {
     if (boxAnalytics) boxAnalytics.style.display = 'none';
     if (boxGmb) boxGmb.style.display = 'none';
     if (boxGsc) boxGsc.style.display = 'none';
-    if (statusEl) statusEl.textContent = 'No matches found.';
+    if (statusEl) {
+      // Not found here means "not in the last sweep of the shared index",
+      // which for a container or property added since is a real answer, not
+      // a dead end — offer to look again rather than leaving it at that.
+      statusEl.innerHTML = 'No matches found in the Google index. If this ' +
+        'was connected or created recently, the shared index may not have ' +
+        'swept it yet — ' + refreshButtonHtml('Refresh the index') +
+        ' and search again.';
+      wireRefreshButton('refresh-index-btn', () => search());
+    }
     return;
   }
 
@@ -218,7 +294,7 @@ async function search() {
     return;
   }
 
-  statusEl.innerHTML = `${svgSpinner} <span>Searching all connected Google accounts…</span>`;
+  statusEl.innerHTML = `${svgSpinner} <span>Searching the Google index…</span>`;
 
   const r = await fetch(`/google/api/search?q=${encodeURIComponent(value)}&platform=${encodeURIComponent(platform)}`);
   const data = await r.json();
@@ -226,9 +302,21 @@ async function search() {
     statusEl.textContent = data.error || 'Search failed.';
     return;
   }
+  if (data.never_built) {
+    // Hide any stale result boxes without letting draw([]) overwrite this
+    // message with its own "no matches" text.
+    if (document.getElementById('box-analytics')) document.getElementById('box-analytics').style.display = 'none';
+    if (document.getElementById('box-gmb')) document.getElementById('box-gmb').style.display = 'none';
+    if (document.getElementById('box-gsc')) document.getElementById('box-gsc').style.display = 'none';
+    statusEl.innerHTML = esc(data.error || 'The Google index has not been built yet.') +
+      ' ' + refreshButtonHtml('Build the index now');
+    wireRefreshButton('refresh-index-btn', () => search());
+    return;
+  }
   const items = data.results || [];
   const problemCount = (data.errors || []).length;
-  statusEl.textContent = `${items.length} match${items.length === 1 ? '' : 'es'}${problemCount ? ` · ${problemCount} account refresh error${problemCount === 1 ? '' : 's'}` : ''}`;
+  const staleNote = data.index_stale ? ' · index may be a little stale' : '';
+  statusEl.textContent = `${items.length} match${items.length === 1 ? '' : 'es'}${problemCount ? ` · ${problemCount} account refresh error${problemCount === 1 ? '' : 's'}` : ''}${staleNote}`;
   draw(items);
 }
 
@@ -285,9 +373,12 @@ if (gtmLookupBtn && gtmLookupInput) {
         'This searches Tag Manager accounts that have been connected to the Hub. ' +
         'A container ID taken from a client\'s website record won\'t show up here ' +
         'unless someone has connected the Google account that owns it — the ID being ' +
-        'on the site is not the same as us having access.<br>' +
+        'on the site is not the same as us having access. If the account was ' +
+        'connected recently, the shared index may not have swept it yet: ' +
+        refreshButtonHtml('Refresh the index', 'gtm-lookup-refresh-btn') + '<br>' +
         '<a href="/tools/google-access/" style="color:#1769AA;font-weight:600">' +
         'Request access from the client &rarr;</a></div>';
+      wireRefreshButton('gtm-lookup-refresh-btn', () => gtmLookupBtn.click());
     }
   });
 }
@@ -327,7 +418,10 @@ if (gscLookupBtn && gscLookupInput) {
         });
       });
     } else {
-      gscLookupResults.innerHTML = '<span style="font-size:12px; color:#c5221f;">No Search Console properties found.</span>';
+      gscLookupResults.innerHTML = '<span style="font-size:12px; color:#c5221f;">' +
+        'No Search Console properties found.</span> ' +
+        refreshButtonHtml('Refresh the index', 'gsc-lookup-refresh-btn');
+      wireRefreshButton('gsc-lookup-refresh-btn', () => gscLookupBtn.click());
     }
   });
 }
