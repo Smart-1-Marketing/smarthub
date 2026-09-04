@@ -506,6 +506,21 @@ def sweep(limit_clients: int = 25, actor: str = "scheduler") -> dict:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+#
+# A blueprint registered on the hub app is not behind AuthGuard -- that
+# middleware only wraps dispatcher-mounted apps in wsgi.py, and the hub app
+# has no blanket gate of its own. Without this, every route below (client
+# names, IO numbers and product identifiers included, plus the two writes
+# that copy files and rewrite Knack) answers 200 to anyone with the URL, the
+# way the Commercial Builder once did. Nothing here is client-facing, so
+# there is no `public` prefix to carve out.
+
+try:                                                    # pragma: no cover
+    from hub import blueprint_guard
+    blueprint_guard.install(bp)
+except Exception:                                       # noqa: BLE001
+    pass
+
 
 def _actor() -> str:
     try:
