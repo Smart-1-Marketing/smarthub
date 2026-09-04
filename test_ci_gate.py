@@ -91,6 +91,54 @@ check("every exemption says why", all(str(v).strip() for v in EXEMPT.values()),
 stale = sorted(f for f in EXEMPT if f not in here)
 check("and no exemption outlives the file it exempted", stale == [], stale)
 
+# The gate also deploys, and that job is the one thing here that holds a
+# secret. Render's own "deploy after CI checks pass" has never fired on this
+# account -- every deploy smart1-hub has had is trigger `manual` or `api` --
+# so the promise is made here instead. Four properties, each of which is a way
+# a deploy job goes quietly wrong.
+print("\nand the deploy job keeps its promises")
+print("-" * 46)
+
+_deploy = src.split("\n  deploy:", 1)[-1] if "\n  deploy:" in src else ""
+
+check("there is a deploy job", bool(_deploy.strip()),
+      "no `deploy:` job in checks.yml")
+
+# A pull request from a fork must not be able to reach production, and neither
+# must a branch. Only a commit already on main deploys.
+check("it runs on main and never on a pull request",
+      "github.ref == 'refs/heads/main'" in _deploy
+      and "github.event_name == 'push'" in _deploy
+      and "pull_request" not in _deploy,
+      "the `if:` guard does not pin main and the push event")
+
+# main takes a merge every few minutes here, so a bare hook deploys whatever
+# main is by the time Render picks it up rather than the commit that was
+# tested -- a race that has already put an unintended commit into production.
+check("it deploys the commit whose checks passed, not whatever main is by then",
+      "ref=${SHA}" in _deploy and "github.sha" in _deploy,
+      "the deploy hook is not pinned to github.sha")
+
+# A green tick over a deploy that did not happen is the confident wrong answer
+# this repo keeps having to undo.
+# Scoped to that branch and not to the step: there is an `exit 1` further
+# down for a refusal from Render, and a window wide enough to reach it made
+# this assertion pass against a branch that had been changed to echo and carry
+# on -- the check that cannot fail, in the file written about checks that
+# cannot fail.
+_guard = re.search(r'if \[ -z "\$\{HOOK\}" \][\s\S]*?\n\s*fi\n', _deploy)
+check("a missing secret is a refusal rather than a pass",
+      _guard is not None and "exit 1" in _guard.group(0),
+      "an unset RENDER_DEPLOY_HOOK_URL does not fail the job")
+
+# The whole hook URL is the credential: anyone holding it can deploy. GitHub
+# masks a secret it knows, and a job that prints it anyway is one line away
+# from a log that does not.
+_echoes_hook = re.search(r'(echo|printf)[^\n]*\$\{?HOOK', _deploy)
+check("and the hook URL is never echoed", _echoes_hook is None,
+      _echoes_hook.group(0) if _echoes_hook else "")
+
+
 # The check has to be able to go red, or it is furniture.
 print("\n...and the check bites")
 print("-" * 46)
