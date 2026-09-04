@@ -12603,6 +12603,47 @@ It runs against a real Postgres rather than SQLite because Sites Admin refuses
 to start without one and serves the 503 fallback instead: on SQLite a whole
 module drops out of every check that boots the app, and nothing says so.
 
+**A setting that is right about a thing that has never happened.** smart1-hub
+is configured `autoDeploy: yes`, `autoDeployTrigger: checksPass`, branch
+`main`, and the checks it is waiting on pass — and Render has never once
+deployed it by itself. Every deploy in its history, past the hundredth and
+back to the week the service was created, is trigger `manual` or `api`, and
+**no service in the workspace has a single `new_commit` in its history**. So
+what is missing is the webhook rather than the setting, which is why reading
+the service config says nothing is wrong: each screen is internally
+consistent, and the one number that shows it is a column nobody scrolls to.
+The stored repo path is the pre-transfer one (`smart1marketing/smarthub`,
+where the repo now lives under the `Smart-1-Marketing` org), and git follows
+that redirect happily — so a manual deploy builds the right code and only the
+event subscription is absent. Reconnecting the repository under the org, with
+Render's GitHub App installed there, is the fix at that end and is the only
+half of this that cannot be done from the repo.
+
+The half that can is the `deploy` job in `checks.yml`, which makes the same
+promise on the side that demonstrably works: the commit whose checks just went
+green is the commit that ships. It is the workflow's one exception to *no
+secrets*, and it is a separate job for exactly that reason — it never runs on
+a pull request, so a fork's run and a contributor's branch still have no
+credential and no path to production.
+
+Three rules on it. It deploys **`ref=<sha>` and never a bare hook**: main takes
+a merge every few minutes here, so "check main is green, then trigger a
+deploy" is not atomic, and a deploy triggered that way has already picked up a
+commit that landed in the intervening seconds — naming the sha ships what was
+tested. A **missing secret is a refusal**, not a skip, because a green tick
+over a deploy that did not happen is the confident wrong answer this file
+spends its length undoing. And **the hook URL is never echoed**: the whole URL
+is the credential, anyone holding it can deploy, and the `services/provider_check.py`
+rule about never carrying a key into something a person reads applies to a CI
+log as much as to a page.
+
+`test_ci_gate.py` asserts all of it. Its first draft could not fail on the
+refusal: the window it searched for an `exit 1` after the guard was wide enough
+to reach the *other* `exit 1` further down the step, so a branch changed to
+echo and carry on still passed — the assertion that cannot fail, in the file
+written about checks that cannot fail. It is scoped to the branch now, and all
+five were confirmed red against the defect each guards.
+
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path — and every
 `url_for('name')` against the endpoints of whichever app renders that template, so it catches
