@@ -105,7 +105,15 @@ def _spellings(kind: str, name: str) -> tuple:
     two whole walkthroughs read as working while every driving step in them
     resolved to no element at all. The attribute has to be there, not the word.
     """
-    attr = {"data-demo": "data-demo", "id": "id", "name": "name"}.get(kind)
+    # data-tour belongs here for the same reason data-demo does: `_needs()`
+    # reads a `[data-tour='…']` selector and `_SEL_TOUR` was added for it, and
+    # this map was not -- so every step anchored that way asked for no spelling
+    # at all and `_found()` answered False on an empty tuple. Seven steps
+    # across the two Smart 1 Ads walkthroughs read as driving nothing while
+    # their hooks sat in the templates, which is the false positive that gets a
+    # check switched off, and it takes the real findings with it.
+    attr = {"data-demo": "data-demo", "data-tour": "data-tour",
+            "id": "id", "name": "name"}.get(kind)
     if not attr:
         return ()
     return (f'{attr}="{name}"', f"{attr}='{name}'")
