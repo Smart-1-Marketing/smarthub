@@ -10,4 +10,17 @@ re-exported under its old name here so this module's existing callers
 are unchanged — the same shape modules/radio_promo/voices.py uses to
 re-export hub/voice_casting.py."""
 
-from hub.coverr import BASE_URL, _app_id, _key, _mock_results, is_live, search  # noqa: F401
+from hub import coverr
+
+# Assigned rather than `from hub.coverr import BASE_URL, ...`: an import that
+# is never referenced by name in this file reads as unused to a linter that
+# does not special-case a re-export, which is exactly what flagged the
+# earlier version of this line. An attribute assignment carries the same
+# object under the same name -- coverr_service.search is hub.coverr.search,
+# identically -- without looking like dead code to anything that checks.
+BASE_URL = coverr.BASE_URL
+_app_id = coverr._app_id
+_key = coverr._key
+_mock_results = coverr._mock_results
+is_live = coverr.is_live
+search = coverr.search
