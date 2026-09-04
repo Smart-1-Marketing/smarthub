@@ -901,6 +901,15 @@ jobs:
             echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
+      - name: Nightly-window helper tests
+        # hub/nightly.py — "run once after 2am Eastern," shared by every job
+        # that wants a once-a-day window rather than restating it. The thing
+        # worth proving is the DST awareness a fixed-UTC-hour scheme cannot
+        # have: the same wall-clock hour in January and in July has to land
+        # on different UTC hours, because the clocks changed. No I/O, no
+        # fixtures, so it needs nothing external and nothing to guard.
+        run: python3 test_nightly.py
+
       - name: Suite embed tests
         # Hub pages framed inside Smart 1 Suite: the SameSite=None companion
         # cookie that reaches a cross-site frame, the safe-method + allowlist

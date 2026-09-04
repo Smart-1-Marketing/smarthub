@@ -748,6 +748,7 @@ try:
           composed.post("/api/google/attach",
                         json={"resource_id": "G-MADEUP", "client": "X"}
                         ).get_json()["ok"] is False)
+
     check("skip refuses an unknown resource through the route too",
           composed.post("/api/google/skip",
                         json={"resource_id": "G-MADEUP", "skip": True}
@@ -767,6 +768,19 @@ try:
           [r["resource_id"] for r in skipped_now["rows"]])
     composed.post("/api/google/skip",
                   json={"resource_id": "G-NOURL1", "skip": False})
+
+    # A cooldown, shared with Google Finder's own "not found? refresh"
+    # button (POST /google/api/refresh), so an impatient double-click on
+    # either screen cannot stack a second live sweep on the first.
+    google_index._last_manual_rebuild = 0.0                     # noqa: SLF001
+    r1 = composed.post("/api/google/rebuild")
+    check("a first manual rebuild goes through", r1.status_code == 200)
+    r2 = composed.post("/api/google/rebuild")
+    check("an immediate second one is cooled down, not a second sweep",
+          r2.status_code == 429)
+    check("...and says when to try again",
+          (r2.get_json() or {}).get("retry_after_seconds", 0) > 0)
+    google_index._last_manual_rebuild = 0.0                     # noqa: SLF001
 except Exception as exc:                                        # noqa: BLE001
     check("the composed app boots with these routes", False, exc)
 

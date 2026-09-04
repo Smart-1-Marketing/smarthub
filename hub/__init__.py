@@ -471,12 +471,19 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/google/rebuild", methods=["POST"])
     def api_google_rebuild():
-        """Force a re-sweep now, rather than waiting for the three-hour job."""
+        """Force a re-sweep now, rather than waiting for the three-hour job.
+
+        Cooled down through google_index.manual_rebuild(): this is also what
+        Google Finder's own "not found? refresh the index" button calls, so
+        an impatient double-click on either screen must not stack a second
+        sweep on the first against Tag Manager's own rate limit.
+        """
         gate = _require_api()
         if gate:
             return gate
         from . import google_index
-        return jsonify(google_index.build(force=True))
+        result = google_index.manual_rebuild()
+        return jsonify(result), (429 if result.get("cooling_down") else 200)
 
     # ---- which Suite sub-account belongs to which client ----------------
     #
