@@ -575,6 +575,35 @@ for _path in ("/api/help", "/api/demos"):
 # `302 -> /login` is the route existing and refusing an anonymous caller. Only
 # a 404 means there is no such page.
 print()
+# `_needs()` reads a step's selector into (kind, name); `_spellings()` says
+# how that kind would be written in markup. They have to cover the same kinds
+# or a step asks for no spelling at all, `_found()` answers False on an empty
+# tuple, and a hook sitting in the template reads as driving nothing. That was
+# live for `data-tour`: the parser had been taught to read it and this map had
+# not, so seven steps across the two Smart 1 Ads walkthroughs were counted dead
+# while every one of their hooks was in the templates. A false positive is what
+# gets a check switched off, and switching this one off costs the real findings.
+print()
+print("Both halves of the audit know the same anchors")
+print("-" * 62)
+_probe = {
+    "id": "#anId",
+    "name": "[name='aField']",
+    "data-demo": "[data-demo='a-hook']",
+    "data-tour": "[data-tour='a-hook']",
+}
+for _kind, _selector in _probe.items():
+    _kinds = {k for k, _ in help_audit._needs(_selector)}
+    ok(f"a {_kind} selector is read as a requirement", _kind in _kinds, _kinds)
+    ok(f"...and {_kind} has a spelling to look for",
+       bool(help_audit._spellings(_kind, "a-hook")),
+       "_spellings returned nothing, so _found() can only answer False")
+# ...and the pair is the whole rule: every kind the parser emits must spell.
+_unspelled = sorted(
+    k for sel in _probe.values() for k, _ in help_audit._needs(sel)
+    if not help_audit._spellings(k, "x"))
+ok("no anchor kind is read but never looked for", not _unspelled, _unspelled)
+
 from hub import demos as _demos                                    # noqa: E402
 print("And every walkthrough names a page this Hub actually serves")
 print("-" * 62)
