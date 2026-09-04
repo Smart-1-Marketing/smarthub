@@ -13,6 +13,7 @@ spending money until a person enables it.
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
 import time
@@ -823,6 +824,206 @@ def deploy_proposal(customer_id, proposal: dict, *, store=None, campaign_name=No
         "ad_group_count": len(ad_groups),
         "keyword_count": keyword_count,
         "negative_count": len(negatives),
+        "manage_url": (f"https://ads.google.com/aw/campaigns?campaignId={new_id}&__e={cid}"
+                       if new_id else f"https://ads.google.com/aw/campaigns?__e={cid}"),
+    }
+
+
+# ------------------------------------------------- Performance Max deploy
+# A Performance Max asset image is uploaded as BYTES: the API has no ingest by
+# URL, so a stored asset has to be fetched back at deploy time. Bounded, and a
+# fetch that fails is named rather than dropping the asset -- a missing image
+# is what Google refuses the whole mutate over.
+_ASSET_FETCH_TIMEOUT = 20
+
+
+def _asset_image_bytes(url: str) -> bytes:
+    resp = requests.get(url, timeout=_ASSET_FETCH_TIMEOUT)
+    if not resp.ok:
+        raise GoogleAdsError(
+            f"An asset image could not be read back for upload (HTTP {resp.status_code}).",
+            status=400)
+    data = resp.content
+    if not data:
+        raise GoogleAdsError("An asset image came back empty.", status=400)
+    from .pmax_spec import IMAGE_MAX_BYTES
+    if len(data) > IMAGE_MAX_BYTES:
+        raise GoogleAdsError(
+            f"An asset image is {len(data) // (1024 * 1024)} MB, over Google's "
+            f"{IMAGE_MAX_BYTES // (1024 * 1024)} MB limit.", status=400)
+    return data
+
+
+def deploy_proposal_pmax(customer_id, proposal: dict, *, store=None,
+                         campaign_name=None, validate_only=False):
+    """Push an approved Performance Max proposal in as one atomic mutate.
+
+    A sibling of deploy_proposal() rather than a branch inside it: what the two
+    build shares a budget and a campaign row and nothing else -- no ad groups,
+    no keywords, no responsive search ad, no negative vault -- and folding them
+    together would put a `if pmax` in front of every operation in the longest
+    function in this module. A SEARCH proposal deploys byte-for-byte as it did.
+
+    Created PAUSED, one atomic mutate, Google rolls the whole batch back on any
+    single failure -- the rules deploy_proposal() already works to.
+
+    **The asset group and every AssetGroupAsset must be in the SAME request.**
+    Google's own documentation says so for a non-retail asset group: the
+    minimum-asset check runs against the request, so creating the group first
+    and adding assets afterwards is refused however complete the eventual
+    result would be. This function has no path that splits them.
+    """
+    from . import pmax_spec
+
+    cid = digits(customer_id)
+    if not cid:
+        raise GoogleAdsError("Pick a Google Ads account first.", status=400)
+
+    final_url = normalise_url(proposal.get("websiteUrl"))
+    if not final_url:
+        raise GoogleAdsError("The proposal needs a valid website URL before it can deploy.",
+                             status=400)
+
+    monthly = float(proposal.get("monthlyBudget") or 0)
+    if monthly <= 0:
+        raise GoogleAdsError("The proposal needs a monthly budget above zero.", status=400)
+    daily = monthly / 30.4
+
+    groups = proposal.get("assetGroups") or []
+    if not groups:
+        raise GoogleAdsError("The proposal has no asset groups.", status=400)
+
+    # Refused here, by field, rather than at Google. Google rolls back the whole
+    # mutate and answers with a resource name; this says which asset group is
+    # short of which asset, which is the thing somebody can act on.
+    check = pmax_spec.validate_campaign(proposal)
+    if not check["ok"]:
+        raise GoogleAdsError(
+            "This campaign does not meet Google's asset requirements yet: "
+            + " ".join(check["errors"][:6]), status=400)
+
+    name = _clamp(campaign_name or
+                  f"{proposal.get('businessName', 'Campaign')} | Performance Max | "
+                  f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}", 255)
+
+    counter = {"n": 0}
+
+    def temp():
+        counter["n"] -= 1
+        return counter["n"]
+
+    ops = []
+    budget_rn = f"customers/{cid}/campaignBudgets/{temp()}"
+    ops.append({"campaignBudgetOperation": {"create": {
+        "resourceName": budget_rn,
+        "name": _clamp(f"{name} Budget", 255),
+        "amountMicros": _to_micros(round(daily, 2)),
+        "deliveryMethod": "STANDARD",
+        # Performance Max requires a budget of its own; a shared one is refused.
+        "explicitlyShared": False,
+    }}})
+
+    campaign_rn = f"customers/{cid}/campaigns/{temp()}"
+    ops.append({"campaignOperation": {"create": {
+        "resourceName": campaign_rn,
+        "name": name,
+        "status": "PAUSED",
+        "advertisingChannelType": "PERFORMANCE_MAX",
+        "campaignBudget": budget_rn,
+        # Performance Max takes a conversion-based strategy and nothing else.
+        "maximizeConversions": {},
+        "startDateTime": _stamp(1),
+        # Off, deliberately. URL expansion lets Google send traffic to pages
+        # nobody on this proposal chose, which on a client's first campaign is
+        # spend against a landing page no rep has read.
+        "urlExpansionOptOut": True,
+    }}})
+
+    asset_counts = {"text": 0, "image": 0, "signal": 0}
+    for index, raw in enumerate(groups):
+        group = pmax_spec.normalise_asset_group(
+            raw, business_name=proposal.get("businessName") or "")
+        group_rn = f"customers/{cid}/assetGroups/{temp()}"
+        ops.append({"assetGroupOperation": {"create": {
+            "resourceName": group_rn,
+            "campaign": campaign_rn,
+            "name": _clamp(group.get("name") or f"Asset group {index + 1}", 128),
+            "finalUrls": [final_url],
+            "status": "PAUSED",
+        }}})
+
+        def add_text(text, field_type):
+            asset_rn = f"customers/{cid}/assets/{temp()}"
+            ops.append({"assetOperation": {"create": {
+                "resourceName": asset_rn, "textAsset": {"text": text}}}})
+            ops.append({"assetGroupAssetOperation": {"create": {
+                "assetGroup": group_rn, "asset": asset_rn, "fieldType": field_type}}})
+            asset_counts["text"] += 1
+
+        for key, entry in pmax_spec.TEXT_ASSETS.items():
+            values = group.get(key)
+            values = [values] if isinstance(values, str) else (values or [])
+            for value in values[:entry["maximum"]]:
+                text = _clamp(value, entry["max_chars"])
+                if text:
+                    add_text(text, entry["field_type"])
+
+        for image in group.get("images") or []:
+            entry = (pmax_spec.IMAGE_ASSETS.get(image.get("role"))
+                     or pmax_spec.LOGO_ASSETS.get(image.get("role")))
+            url = str(image.get("url") or "").strip()
+            if not entry or not url:
+                continue
+            data = _asset_image_bytes(url)
+            asset_rn = f"customers/{cid}/assets/{temp()}"
+            ops.append({"assetOperation": {"create": {
+                "resourceName": asset_rn,
+                "name": _clamp(image.get("name") or f"{name} {entry['label']}", 128),
+                "imageAsset": {"data": base64.b64encode(data).decode("ascii")},
+            }}})
+            ops.append({"assetGroupAssetOperation": {"create": {
+                "assetGroup": group_rn, "asset": asset_rn,
+                "fieldType": entry["field_type"]}}})
+            asset_counts["image"] += 1
+
+        # Search themes are the audience signal, and they are the only thing a
+        # rep can steer a Performance Max campaign with. Not keywords: they do
+        # not target, they seed.
+        for theme in (group.get("searchThemes") or [])[:25]:
+            text = _clamp(theme, 80)
+            if not text:
+                continue
+            ops.append({"assetGroupSignalOperation": {"create": {
+                "assetGroup": group_rn, "searchTheme": {"text": text}}}})
+            asset_counts["signal"] += 1
+
+    summary = {
+        "campaign_name": name, "customer_id": cid,
+        "operation_count": len(ops), "asset_group_count": len(groups),
+        "text_asset_count": asset_counts["text"],
+        "image_asset_count": asset_counts["image"],
+        "search_theme_count": asset_counts["signal"],
+        "campaign_type": "PERFORMANCE_MAX",
+    }
+
+    if validate_only:
+        request("post", f"/customers/{cid}/googleAds:mutate",
+                {"mutateOperations": ops, "validateOnly": True, "partialFailure": False},
+                store=store, customer_id=cid)
+        return {"validated": True, **summary}
+
+    result = request("post", f"/customers/{cid}/googleAds:mutate",
+                     {"mutateOperations": ops, "partialFailure": False,
+                      "responseContentType": "RESOURCE_NAME_ONLY"},
+                     store=store, customer_id=cid)
+    campaign_resource = next(
+        (r["campaignResult"]["resourceName"]
+         for r in result.get("mutateOperationResponses", [])
+         if r.get("campaignResult", {}).get("resourceName")), None)
+    new_id = campaign_resource.split("/")[-1] if campaign_resource else None
+    return {
+        "validated": False, **summary,
+        "campaign_id": new_id, "campaign_resource_name": campaign_resource,
         "manage_url": (f"https://ads.google.com/aw/campaigns?campaignId={new_id}&__e={cid}"
                        if new_id else f"https://ads.google.com/aw/campaigns?__e={cid}"),
     }

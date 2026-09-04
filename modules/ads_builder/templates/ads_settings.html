@@ -21,6 +21,22 @@
         <td>{{ 'The Hub OPENAI_API_KEY. No Google access of any kind.' if openai_configured else 'OPENAI_API_KEY on this service.' }}</td>
       </tr>
       <tr>
+        {# Off is the ordinary state, not a fault: no competitor ad-intelligence
+           provider has been chosen or paid for, so this is drawn neutral
+           rather than amber -- an absence somebody has decided on reads
+           differently from something that is broken. #}
+        <td>Verified competitor ads</td>
+        {# Guarded, like every helper call in this Hub: a template that raises
+           because a route forgot a variable costs the whole PAGE, not the row
+           -- the trap that made Sites Admin's project page 500 on every
+           visit over one missing endpoint name. Absent reads as NOT
+           MEASURED rather than as "off", because those are different answers
+           and only one of them is a decision somebody made. #}
+        {% set ai = ad_intel if ad_intel is defined else none %}
+        <td><span class="tag {{ 't-good' if ai and ai.configured else '' }}">{{ 'Ready' if ai and ai.configured else ('Not switched on' if ai else 'Not measured') }}</span></td>
+        <td>{{ ai.note if ai else 'This page was rendered without the competitor-ads state, so it is not reported here.' }}</td>
+      </tr>
+      <tr>
         <td>Review, comment, approve</td>
         <td><span class="tag t-good">Ready</span></td>
         <td>Nothing — it is the Hub's own store.</td>

@@ -130,6 +130,45 @@ jobs:
             echo "test_ads_optimization.py not on this branch — nothing to run."
           fi
 
+      - name: Scheduled Google Ads optimization sweep
+        # The half that makes account monitoring unattended: every live account
+        # gets a row, one account's Google failure does not cost the rest their
+        # scan, and the run paces itself against the day's operation budget
+        # instead of spending the last of it.
+        run: python test_ads_optimization_scheduler.py
+
+      - name: Auto-applied Google Ads changes
+        # Nobody presses anything at the moment one of these happens, so what
+        # this asserts is mostly the refusals: off by default, high severity
+        # only, inside a per-run cap and the day's operation budget, and one
+        # activity row per change naming the client and the mutate.
+        run: python test_ads_optimization_autoapply.py
+
+      - name: Competitor ad intelligence scaffolding
+        # The state this ships in is the one that matters: no vendor chosen, so
+        # the feature is invisible and research_competitors returns exactly
+        # what it returned before.
+        run: python test_ad_intel.py
+
+      - name: Performance Max campaign type
+        # The half asserted hardest is the one that must not have moved: a
+        # Search proposal generates and deploys byte-for-byte as it did, and a
+        # proposal written before campaignType existed still reads as Search.
+        run: python test_ads_pmax.py
+
+      - name: Recurring client Google Ads reports
+        # Off until somebody turns it on, a month that could not be measured is
+        # never sent, and delivery stops at hub/leads.py -- this Hub claims to
+        # have emailed nobody.
+        run: python test_ads_performance_reports.py
+
+      - name: Public Google Ads Grader
+        # Two properties above all: the lead is captured before OAuth starts,
+        # so an abandoned consent screen costs the grade and not the prospect;
+        # and no credential is ever stored, asserted from the model columns
+        # rather than from the docstring.
+        run: python test_ads_grader.py
+
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an
@@ -1573,6 +1612,22 @@ jobs:
       # their own copy of it.
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
+
+      # The Commercial Builder half of the builder-parity list. One reader for
+      # "the copy has to actually say it": Radio Promo checked its scripts
+      # literally and the Commercial Builder asked whether a field was set on
+      # a client record, which is a much easier question -- the renderer draws
+      # the end card from project.cta and only where a CTA scene exists, so a
+      # spot whose end card had been deleted passed with the phone number
+      # sitting in a database column. The three false positives that shared
+      # rule closes are held against the findings it must keep making, because
+      # a rule loosened until it stops crying wolf and then loosened once more
+      # passes on everything. And the finished commercial reaches Smart 1
+      # Suite through the Hub's one contact write path, revising the
+      # opportunity it already opened rather than adding a second to the same
+      # client's pipeline.
+      - name: Commercial Builder parity — the copy it carries, and the Suite
+        run: python3 test_commercial_parity.py
 
       # The Radio Ad Creator's second half: the music bed, the mix, the checks
       # and variations. What was live before it is the shape this repo keeps

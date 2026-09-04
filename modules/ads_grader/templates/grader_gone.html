@@ -1,0 +1,12 @@
+{# Revoked, deleted and never existed — deliberately one page for all three. A
+   public URL that says "that one expired" tells somebody guessing which tokens
+   are real. #}
+{% extends "_grader_base.html" %}
+{% block title %}Report unavailable{% endblock %}
+{% block heading %}That report is not available{% endblock %}
+{% block subheading %}The link may be old, or it may never have been ours.{% endblock %}
+{% block body %}
+<div class="card">
+  <p>If somebody sent you this link, ask them for a fresh one.</p>
+</div>
+{% endblock %}

@@ -105,6 +105,14 @@
   Smart 1 Ads scans and drafts. Every change has its own approval prompt, and AI suggestions remain drafts until you approve that exact item.
 </div>
 
+<div class="card" id="monitorCard" data-tour="ads-opt-monitor" style="margin-bottom:14px">
+  <div class="row"><div>
+    <h3 style="margin:0">Automatic scans</h3>
+    <div class="hint" id="monitorNote">Reading the last automatic sweep…</div>
+  </div></div>
+  <div id="monitorBody" style="margin-top:10px"><span class="spin"></span> Loading…</div>
+</div>
+
 <div class="opt-workspace">
   <aside class="card opt-rail" data-tour="ads-opt-accounts">
     <h3 style="margin-bottom:0">Accounts needing work</h3>
@@ -292,7 +300,138 @@ function renderOverview(loading=false) {
   document.getElementById('liveLink').href = `${MOUNT}/campaigns?customer_id=${encodeURIComponent(selectedId)}`;
 }
 
+let monitor = null;
+
+function monitorAgeLabel(iso) {
+  if (!iso) return '';
+  const then = Date.parse(iso);
+  if (!then) return '';
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 60) return mins + ' min ago';
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+  return Math.round(hours / 24) + ' days ago';
+}
+
+function renderMonitor() {
+  const note = document.getElementById('monitorNote');
+  const body = document.getElementById('monitorBody');
+  if (!monitor) {
+    // "We could not read the stored scans" is not "no account needs work".
+    note.textContent = 'The stored scans could not be read, so nothing here is measured.';
+    body.innerHTML = '<div class="note n-warn"><b>Not measured</b>Press Scan on an account to read it live.</div>';
+    return;
+  }
+  const rows = monitor.accounts || [];
+  if (!rows.length) {
+    note.textContent = 'No deployed proposal carries a Google account yet.';
+    body.innerHTML = '<div class="empty"><h4>Nothing is being swept</h4>An account is swept once a proposal for it is deployed.</div>';
+    return;
+  }
+  const scanned = rows.filter(r => r.last_run && !r.last_run.error);
+  const needing = scanned.filter(r => r.last_run.high_severity_count > 0);
+  const never = rows.filter(r => !r.last_run);
+  const failed = rows.filter(r => r.last_run && r.last_run.error);
+  note.textContent = monitor.note || '';
+  body.innerHTML =
+    '<div class="s1d-tiles">' +
+      statTile('Accounts swept', scanned.length + ' of ' + rows.length, 'On the Hub scheduler') +
+      statTile('Need attention', needing.length, needing.length ? 'At least one high-severity finding' : 'No high-severity finding in the last sweep') +
+      statTile('Never swept', never.length, never.length ? 'Not scanned yet — not the same as clean' : 'Every account has a reading') +
+      statTile('Could not be read', failed.length, failed.length ? 'Google refused the last scan' : 'No scan failed') +
+    '</div>' +
+    '<div class="opt-monitor-rows" style="margin-top:10px">' + rows.map(monitorRow).join('') + '</div>';
+}
+
+function monitorRow(r) {
+  const run = r.last_run;
+  const name = esc(r.client_name || r.customer_id);
+  const cats = (monitor.auto_apply_categories || []);
+  const on = r.auto_apply && r.auto_apply.enabled;
+  const chosen = new Set((r.auto_apply && r.auto_apply.categories) || []);
+  const cadence = (r.report && r.report.cadence) || '';
+  let state;
+  if (!run) state = '<b>never swept</b> — not the same as nothing to act on';
+  else if (run.error) state = `<b>last scan could not be read</b> (${esc(run.error)})`;
+  else state = `${run.item_count} item${run.item_count === 1 ? '' : 's'}` +
+               ` (${run.high_severity_count} high severity), ${esc(monitorAgeLabel(run.scanned_at))}`;
+  // The categories are drawn from what the server allows, never a list typed
+  // here: a control offering a category the write refuses reports a clean save
+  // and changes nothing.
+  const boxes = cats.map(c => `<label style="display:inline-flex;gap:5px;align-items:center;margin-right:10px;font-weight:400">
+      <input type="checkbox" data-auto-cat="${esc(r.customer_id)}" value="${esc(c)}" ${chosen.has(c) ? 'checked' : ''} ${on ? '' : 'disabled'} onchange="saveAutoApply('${esc(r.customer_id)}')">
+      ${esc(c.replace(/_/g, ' '))}</label>`).join('');
+  return `<div class="opt-monitor-row" style="padding:8px 0;border-top:1px solid rgba(15,23,42,.08)">
+    <div><b>${name}</b> <span class="hint" style="display:inline">— ${state}</span></div>
+    <div class="hint" style="margin-top:5px">
+      <label style="display:inline-flex;gap:5px;align-items:center;margin-right:12px;font-weight:400">
+        <input type="checkbox" data-auto-on="${esc(r.customer_id)}" ${on ? 'checked' : ''} onchange="saveAutoApply('${esc(r.customer_id)}')">
+        Apply high-severity findings automatically
+      </label>${boxes}
+      ${on ? `<span>Up to ${monitor.auto_apply_cap} changes per sweep, each one logged on the client record.</span>`
+           : '<span>Off. Nothing is changed in this account unless somebody presses a button.</span>'}
+    </div>
+    <div class="hint" style="margin-top:5px">
+      <label style="display:inline-flex;gap:5px;align-items:center;margin-right:10px;font-weight:400">
+        Recurring client report
+        <select data-report-cadence="${esc(r.customer_id)}" onchange="saveReport('${esc(r.customer_id)}')">
+          <option value="">Off</option>
+          ${(monitor.report_cadences || []).map(c =>
+            `<option value="${esc(c)}" ${cadence === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+      </label>
+      <input type="email" data-report-email="${esc(r.customer_id)}" placeholder="client email"
+             value="${esc((r.report && r.report.recipient) || '')}"
+             onchange="saveReport('${esc(r.customer_id)}')" style="width:15rem">
+      ${cadence
+        ? `<span>Sent ${esc(cadence)} to the address above. Smart 1 Suite matches a contact
+             on the address, so a wrong one creates a duplicate rather than updating theirs.</span>`
+        : '<span>Off. No report goes to this client on a schedule.</span>'}
+    </div>
+  </div>`;
+}
+
+async function saveReport(customerId) {
+  const cadence = document.querySelector(`[data-report-cadence="${customerId}"]`).value;
+  const recipient = document.querySelector(`[data-report-email="${customerId}"]`).value.trim();
+  try {
+    await api('POST', MOUNT + '/api/reports/schedule',
+              {customer_id: customerId, cadence, recipient});
+  } catch (err) {
+    alert('That could not be saved: ' + err.message);
+  }
+  await loadMonitor();
+}
+
+async function saveAutoApply(customerId) {
+  const on = document.querySelector(`[data-auto-on="${customerId}"]`);
+  const boxes = Array.from(document.querySelectorAll(`[data-auto-cat="${customerId}"]`));
+  const categories = boxes.filter(b => b.checked).map(b => b.value);
+  try {
+    await api('POST', MOUNT + '/api/optimization/auto-apply',
+              {customer_id: customerId, enabled: Boolean(on && on.checked), categories});
+  } catch (err) {
+    alert('That could not be saved: ' + err.message);
+  }
+  // Re-read rather than assume: the server drops a category it does not allow,
+  // and a screen that kept its own idea of what was saved would show one.
+  await loadMonitor();
+}
+
+async function loadMonitor() {
+  try {
+    monitor = await api('GET', MOUNT + '/api/optimization/monitor');
+  } catch (err) {
+    monitor = null;
+  }
+  renderMonitor();
+}
+
 async function boot() {
+  // Outside the try below, and not awaited: the stored sweep is our own
+  // database and answers whether or not Google will list accounts today. A
+  // Google outage must not take the one panel that still has something to say.
+  loadMonitor();
   try {
     const data = await api('GET', MOUNT + '/api/accounts');
     accounts = data.accounts || [];

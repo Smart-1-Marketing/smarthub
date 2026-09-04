@@ -149,6 +149,181 @@ class Share(Base):
         }
 
 
+class OptimizationRun(Base):
+    """One account's optimization scan, kept so the answer outlives the click.
+
+    A separate table rather than columns on ``ads_proposals``: a scan result is
+    not a proposal, several proposals can name one Google account, and
+    ``create_all()`` creates a missing TABLE but never adds a column to an
+    existing one — so a column added there would be silently absent on the live
+    Postgres while every local test passed.
+
+    ``items_json`` carries the whole ``analyse_rows()`` output for the same
+    reason ``Proposal.campaign_json`` carries the whole campaign: the shape
+    grows a field every time a detector is added, and a column-per-finding
+    schema would have to be migrated for each of them.
+
+    A scan that failed entirely still gets a row, with ``error`` set. Silence
+    and "we looked and the account is clean" are different answers and only one
+    of them means there is nothing to do.
+    """
+    __tablename__ = "ads_optimization_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    customer_id = Column(String(20), default="", index=True)
+    client_name = Column(String(300), default="")
+    scanned_at = Column(DateTime(timezone=True), default=now, index=True)
+    date_range = Column(String(40), default="LAST_30_DAYS")
+    item_count = Column(Integer, default=0)
+    high_severity_count = Column(Integer, default=0)
+    triggered = Column(String(20), default="scheduled")
+    items_json = Column(Text, default="{}")
+    error = Column(Text, default="")
+
+    @property
+    def result(self) -> dict:
+        return json.loads(self.items_json or "{}")
+
+    def as_dict(self, *, with_result: bool = False) -> dict:
+        row = {
+            "id": self.id,
+            "customer_id": self.customer_id or "",
+            "client_name": self.client_name or "",
+            "scanned_at": self.scanned_at.isoformat() if self.scanned_at else None,
+            "date_range": self.date_range or "",
+            "item_count": self.item_count or 0,
+            "high_severity_count": self.high_severity_count or 0,
+            "triggered": self.triggered or "",
+            "error": self.error or "",
+            "measured": not self.error,
+        }
+        if with_result:
+            row["result"] = self.result
+        return row
+
+
+class AutoApply(Base):
+    """Whether unattended work may change one Google Ads account, and what of.
+
+    **Off until somebody turns it on, account by account.** Applying a change
+    to a client's live account with nobody having pressed anything is a
+    business decision rather than an engineering one, so the absence of a row
+    here means no — a new account cannot inherit it and a fresh install cannot
+    start with it.
+
+    Keyed on the **Google account** rather than on a proposal, which is a
+    deliberate departure from the shape of every other setting in this module.
+    The sweep is per account: two proposals naming one customer id and
+    disagreeing about whether it auto-applies is a question nothing here could
+    answer, and picking the more recent one would be the guess
+    hub/client_key.py exists to refuse.
+
+    A table rather than columns on ``ads_proposals`` for the reason ``Share``
+    already gives: ``create_all()`` creates a missing TABLE and never adds a
+    column to an existing one, so a column added there would be silently
+    absent on the live Postgres while every local test passed.
+    """
+    __tablename__ = "ads_auto_apply"
+
+    customer_id = Column(String(20), primary_key=True)
+    enabled = Column(Integer, default=0)
+    categories_json = Column(Text, default="[]")
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+    updated_by = Column(String(200), default="")
+
+    def as_dict(self) -> dict:
+        return {
+            "customer_id": self.customer_id or "",
+            "enabled": bool(self.enabled),
+            "categories": json.loads(self.categories_json or "[]"),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "updated_by": self.updated_by or "",
+        }
+
+
+class PerformanceReport(Base):
+    """One monthly report we built for a client, and the link they read it at.
+
+    A row per send rather than a column on the proposal: a client gets one of
+    these every month for as long as the campaign runs, and the question
+    somebody asks later is "what did we send them in July", which a single
+    latest-report column cannot answer.
+
+    The token is the whole security model, the way `Share.token` is: an
+    unguessable string, and revoked / deleted / never-existed all answer the
+    same 404, because a client-facing URL that says "that one expired" tells
+    somebody probing which tokens are real.
+    """
+    __tablename__ = "ads_performance_reports"
+
+    token = Column(String(64), primary_key=True)
+    customer_id = Column(String(20), default="", index=True)
+    client_name = Column(String(300), default="")
+    proposal_id = Column(String(40), default="", index=True)
+    created_at = Column(DateTime(timezone=True), default=now, index=True)
+    period_label = Column(String(80), default="")
+    cadence = Column(String(20), default="")
+    recipient = Column(String(200), default="")
+    delivered = Column(Integer, default=0)
+    delivery_note = Column(Text, default="")
+    report_json = Column(Text, default="{}")
+    revoked = Column(Integer, default=0)
+
+    @property
+    def report(self) -> dict:
+        return json.loads(self.report_json or "{}")
+
+    def as_dict(self, *, with_report: bool = False) -> dict:
+        row = {
+            "token": self.token,
+            "customer_id": self.customer_id or "",
+            "client_name": self.client_name or "",
+            "proposal_id": self.proposal_id or "",
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "period_label": self.period_label or "",
+            "cadence": self.cadence or "",
+            "recipient": self.recipient or "",
+            "delivered": bool(self.delivered),
+            "delivery_note": self.delivery_note or "",
+            "revoked": bool(self.revoked),
+        }
+        if with_report:
+            row["report"] = self.report
+        return row
+
+
+class ReportSchedule(Base):
+    """Whether one Google Ads account gets a recurring report, and how often.
+
+    **Off until somebody turns it on**, per account, exactly like AutoApply and
+    for the same reason: a report going to a client's inbox on a schedule is a
+    commitment somebody has to make on purpose, and a deployed campaign
+    inheriting one is a promise nobody gave.
+
+    A table rather than a column on ``ads_proposals``: ``create_all()`` creates
+    a missing table and never adds a column to an existing one.
+    """
+    __tablename__ = "ads_report_schedules"
+
+    customer_id = Column(String(20), primary_key=True)
+    cadence = Column(String(20), default="")
+    recipient = Column(String(200), default="")
+    last_sent_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
+    updated_by = Column(String(200), default="")
+
+    def as_dict(self) -> dict:
+        return {
+            "customer_id": self.customer_id or "",
+            "cadence": self.cadence or "",
+            "recipient": self.recipient or "",
+            "last_sent_at": self.last_sent_at.isoformat() if self.last_sent_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "updated_by": self.updated_by or "",
+            "enabled": bool(self.cadence),
+        }
+
+
 class Setting(Base):
     __tablename__ = "ads_settings"
     key = Column(String(80), primary_key=True)
@@ -223,12 +398,18 @@ def create_proposal(client_name, campaign, created_by="", google_customer_id="")
         return row.as_dict()
 
 
-def list_proposals(limit=200) -> list:
+def list_proposals(limit=200, status=None) -> list:
+    """Proposals, newest first, optionally narrowed to one status.
+
+    Filtered in the query rather than by the caller: the scheduled sweep wants
+    only DEPLOYED rows and reading the whole book to throw most of it away is a
+    full campaign-blob deserialisation per proposal, twice a day, for nothing.
+    """
     with SessionLocal() as s:
-        rows = s.scalars(
-            select(Proposal).order_by(Proposal.updated_at.desc()).limit(limit)
-        ).all()
-        return [r.as_dict() for r in rows]
+        query = select(Proposal).order_by(Proposal.updated_at.desc())
+        if status:
+            query = query.where(Proposal.status == str(status))
+        return [r.as_dict() for r in s.scalars(query.limit(limit)).all()]
 
 
 def get_proposal(public_id) -> dict | None:
@@ -325,6 +506,262 @@ def update_campaign(public_id, campaign: dict) -> dict | None:
         row.updated_at = now()
         s.commit()
         return row.as_dict()
+
+
+# ------------------------------------------------- live account monitoring
+def deployed_accounts(limit=500) -> list:
+    """Every live Google Ads account this Hub deployed, once each.
+
+    "Live" is a DEPLOYED proposal carrying a customer id, which is the only
+    thing here that says we actually put a campaign into somebody's account.
+    Deduped on the account rather than the proposal, because two proposals for
+    one client are one account to scan and scanning it twice spends the daily
+    operation budget to learn the same thing.
+
+    The client name is whichever proposal touched the account most recently —
+    ``list_proposals`` orders on ``updated_at``, so a client renamed on a later
+    proposal wins, which is the answer somebody reading a scan wants.
+    """
+    seen: dict[str, dict] = {}
+    for row in list_proposals(limit=limit, status="DEPLOYED"):
+        cid = "".join(ch for ch in str(row.get("google_customer_id") or "") if ch.isdigit())
+        if not cid or cid in seen:
+            continue
+        seen[cid] = {"customer_id": cid,
+                     "client_name": row.get("client_name") or "",
+                     "proposal_id": row.get("id") or ""}
+    return list(seen.values())
+
+
+def record_optimization_run(customer_id, *, client_name="", date_range="",
+                            result=None, error="", triggered="scheduled") -> dict:
+    """Keep one account's scan. A failed scan is a row, not a silence."""
+    result = result or {}
+    items = result.get("items") or []
+    with SessionLocal() as s:
+        row = OptimizationRun(
+            customer_id=str(customer_id or "")[:20],
+            client_name=str(client_name or "")[:300],
+            date_range=str(date_range or "")[:40],
+            item_count=int(result.get("item_count") or len(items)),
+            high_severity_count=sum(1 for i in items if i.get("severity") == "high"),
+            triggered=str(triggered or "scheduled")[:20],
+            items_json=json.dumps(result, default=str),
+            error=str(error or "")[:2000],
+        )
+        s.add(row)
+        s.commit()
+        return row.as_dict()
+
+
+def latest_optimization_run(customer_id, *, with_result=False) -> dict | None:
+    cid = str(customer_id or "")
+    with SessionLocal() as s:
+        row = s.scalar(
+            select(OptimizationRun)
+            .where(OptimizationRun.customer_id == cid)
+            .order_by(OptimizationRun.scanned_at.desc(), OptimizationRun.id.desc())
+        )
+        return row.as_dict(with_result=with_result) if row else None
+
+
+def latest_optimization_runs(limit=100) -> list:
+    """The newest run per account, for the panel that opens before anyone scans."""
+    out: dict[str, dict] = {}
+    with SessionLocal() as s:
+        rows = s.scalars(
+            select(OptimizationRun)
+            .order_by(OptimizationRun.scanned_at.desc(), OptimizationRun.id.desc())
+            .limit(max(1, int(limit)) * 10)
+        ).all()
+    for row in rows:
+        cid = row.customer_id or ""
+        if cid and cid not in out:
+            out[cid] = row.as_dict()
+        if len(out) >= limit:
+            break
+    return list(out.values())
+
+
+# ---------------------------------------------------------- auto-apply
+# The whole universe of findings unattended work may act on, and it is
+# deliberately the two lowest-blast-radius ones. Adding a negative keyword
+# stops spend on a term we are not bidding on deliberately; pausing a keyword
+# keeps the criterion and its history and is one press in Google Ads to undo.
+# Everything else in ACTION_CONFIRMATIONS -- applying one of Google's own
+# recommendations, removing a criterion outright, creating sitelinks or images,
+# changing a Target CPA -- either cannot be undone or changes how the account
+# bids, and none of those belongs to a job nobody is watching.
+AUTO_APPLY_CATEGORIES = ("keyword_pauses", "search_terms")
+
+# One account, one run. A cap rather than a rate: what this is protecting
+# against is one badly-measured account firing hundreds of mutates unattended,
+# and whatever is left is offered again on the next sweep with a rep able to
+# read it first.
+AUTO_APPLY_MAX_PER_RUN = 10
+
+# The category says which finding; this says which mutate. Both, because a
+# category is a heading a detector chose and an action is what actually reaches
+# Google -- a detector added under an allowed category tomorrow must not become
+# an unattended write by inheriting the heading.
+AUTO_APPLY_ACTIONS = ("add_negative_keyword", "pause_keyword")
+
+
+def auto_apply_settings(customer_id) -> dict:
+    """What unattended work may do to one account. Absent means no."""
+    cid = str(customer_id or "")
+    with SessionLocal() as s:
+        row = s.get(AutoApply, cid)
+        if row:
+            return row.as_dict()
+    return {"customer_id": cid, "enabled": False, "categories": [],
+            "updated_at": None, "updated_by": ""}
+
+
+def set_auto_apply(customer_id, *, enabled, categories=None, actor="") -> dict:
+    """Turn it on or off for one account, and say which findings.
+
+    A category outside AUTO_APPLY_CATEGORIES is dropped rather than stored: the
+    allowlist is the safety rule, and a value that survived here would be one
+    the sweep then had to re-check.
+    """
+    cid = str(customer_id or "").strip()
+    if not cid:
+        raise ValueError("customer_id is required.")
+    kept = [c for c in (categories or []) if c in AUTO_APPLY_CATEGORIES]
+    with SessionLocal() as s:
+        row = s.get(AutoApply, cid)
+        if not row:
+            row = AutoApply(customer_id=cid)
+            s.add(row)
+        row.enabled = 1 if enabled else 0
+        row.categories_json = json.dumps(kept)
+        row.updated_by = str(actor or "")[:200]
+        row.updated_at = now()
+        s.commit()
+        return row.as_dict()
+
+
+# ------------------------------------------------ recurring client reports
+# What a rep may pick, and the interval each one means. Off is not in the list
+# because off is the absence of a row -- a cadence nobody set is nothing to
+# read, which is what makes the default safe rather than remembered.
+REPORT_CADENCES = {"weekly": 7, "monthly": 30}
+
+
+def report_schedule(customer_id) -> dict:
+    """Whether this account gets a recurring report. Absent means no."""
+    cid = str(customer_id or "")
+    with SessionLocal() as s:
+        row = s.get(ReportSchedule, cid)
+        if row:
+            return row.as_dict()
+    return {"customer_id": cid, "cadence": "", "recipient": "", "last_sent_at": None,
+            "updated_at": None, "updated_by": "", "enabled": False}
+
+
+def set_report_schedule(customer_id, *, cadence, recipient="", actor="") -> dict:
+    """Turn a recurring report on or off for one account.
+
+    A cadence outside REPORT_CADENCES is refused by name rather than stored:
+    an unrecognised interval would read as enabled on every screen and be due
+    never, which is the quietest way a promise to a client goes unkept.
+    """
+    cid = str(customer_id or "").strip()
+    if not cid:
+        raise ValueError("customer_id is required.")
+    cadence = str(cadence or "").strip().lower()
+    if cadence and cadence not in REPORT_CADENCES:
+        raise ValueError(f'"{cadence}" is not a cadence. '
+                         f'Use {" or ".join(sorted(REPORT_CADENCES))}, or none to switch it off.')
+    with SessionLocal() as s:
+        row = s.get(ReportSchedule, cid)
+        if not row:
+            row = ReportSchedule(customer_id=cid)
+            s.add(row)
+        row.cadence = cadence
+        row.recipient = str(recipient or "").strip()[:200]
+        row.updated_by = str(actor or "")[:200]
+        row.updated_at = now()
+        s.commit()
+        return row.as_dict()
+
+
+def mark_report_sent(customer_id) -> None:
+    with SessionLocal() as s:
+        row = s.get(ReportSchedule, str(customer_id or ""))
+        if row:
+            row.last_sent_at = now()
+            s.commit()
+
+
+def due_report_accounts() -> list[dict]:
+    """Accounts whose recurring report is due, oldest first.
+
+    Due is decided from each account's OWN last send rather than from the
+    job's schedule -- the shape purchased_domains and social_ideas already
+    use -- so a redeploy cannot send two reports in a day and a leader that
+    restarted through the window picks the send up rather than skipping it.
+    """
+    from datetime import timedelta
+    right_now = now()
+    out = []
+    with SessionLocal() as s:
+        for row in s.scalars(select(ReportSchedule)).all():
+            if not row.cadence or row.cadence not in REPORT_CADENCES:
+                continue
+            days = REPORT_CADENCES[row.cadence]
+            last = row.last_sent_at
+            if last and last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if last and right_now - last < timedelta(days=days):
+                continue
+            out.append({**row.as_dict(), "due_since": (last or right_now).isoformat()})
+    out.sort(key=lambda r: r["last_sent_at"] or "")
+    return out
+
+
+def create_performance_report(customer_id, *, client_name="", proposal_id="",
+                              report=None, cadence="", recipient="",
+                              period_label="") -> dict:
+    token = secrets.token_urlsafe(24)
+    with SessionLocal() as s:
+        s.add(PerformanceReport(
+            token=token, customer_id=str(customer_id or "")[:20],
+            client_name=str(client_name or "")[:300],
+            proposal_id=str(proposal_id or "")[:40],
+            cadence=str(cadence or "")[:20],
+            recipient=str(recipient or "")[:200],
+            period_label=str(period_label or "")[:80],
+            report_json=json.dumps(report or {}, default=str)))
+        s.commit()
+    return get_performance_report(token, with_report=True)
+
+
+def get_performance_report(token, *, with_report=False) -> dict | None:
+    with SessionLocal() as s:
+        row = s.scalar(select(PerformanceReport)
+                       .where(PerformanceReport.token == str(token or "")))
+        return row.as_dict(with_report=with_report) if row else None
+
+
+def note_report_delivered(token, *, delivered: bool, note: str = "") -> None:
+    with SessionLocal() as s:
+        row = s.scalar(select(PerformanceReport)
+                       .where(PerformanceReport.token == str(token or "")))
+        if row:
+            row.delivered = 1 if delivered else 0
+            row.delivery_note = str(note or "")[:2000]
+            s.commit()
+
+
+def performance_reports_for(customer_id, limit=24) -> list:
+    with SessionLocal() as s:
+        rows = s.scalars(
+            select(PerformanceReport)
+            .where(PerformanceReport.customer_id == str(customer_id or ""))
+            .order_by(PerformanceReport.created_at.desc()).limit(limit)).all()
+        return [r.as_dict() for r in rows]
 
 
 # --------------------------------------------------- client estimate links

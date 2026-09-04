@@ -176,6 +176,11 @@ CLIENT_FACING: dict[str, str] = {
     "/land/stadium/": "a landing page a prospect fills in",
     "/land/tourism/": "a landing page a prospect fills in",
     "/msa/": "the agreement a client reads and signs",
+    # Tiled for staff, served to a stranger. A help bubble here is an
+    # internal note in front of somebody we are selling to -- the rule
+    # test_ads_explainer.py already holds the public estimate to.
+    "/tools/ads-grader/": "a lead magnet a prospect connects their own "
+                          "Google Ads account to",
 }
 
 

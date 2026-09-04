@@ -53,9 +53,10 @@ from flask import (Flask, jsonify, make_response, redirect, render_template,
 from . import VERSION, VERSION_DATE
 from hub import target_areas
 
-from . import (api_readiness, campaign_ai, client_link, copy_ideas, export,
+from . import (ad_intel, api_readiness, campaign_ai, client_link, copy_ideas, export,
                google_ads, keyword_plan, landing_page, logo as logo_lookup,
-               optimization, spec, store)
+               monitoring, optimization, performance_pdf, performance_report,
+               pmax_images, pmax_spec, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 from hub.webargs import clamp_int
@@ -132,6 +133,11 @@ def page_generator():
         conversion_actions=spec.CONVERSION_ACTIONS,
         area_types=list(target_areas.TYPES),
         openai_configured=bool(campaign_ai.openai_key()),
+        # Picked before generation, because the two products need different
+        # answers and a different prompt -- switching afterwards would mean
+        # re-generating, which is a second billed call.
+        campaign_types=[{"key": k, "label": spec.CAMPAIGN_TYPE_LABELS[k]}
+                        for k in spec.CAMPAIGN_TYPES],
     )
 
 
@@ -170,6 +176,14 @@ def page_proposal(public_id):
         p=proposal,
         status=google_ads.connection_status(store),
         spec=spec,
+        # Read from the campaign rather than a column, so a proposal written
+        # before Performance Max existed reads as the Search campaign it is.
+        campaign_type=spec.campaign_type_of(campaign),
+        campaign_type_label=spec.CAMPAIGN_TYPE_LABELS.get(
+            spec.campaign_type_of(campaign), "Search"),
+        pmax=pmax_spec.validate_campaign(campaign)
+             if spec.campaign_type_of(campaign) == "PERFORMANCE_MAX" else None,
+        pmax_spec=pmax_spec,
         sections=spec.sections(campaign),
         areas=target_areas.normalize(campaign.get("targetAreas") or []),
         area_label=target_areas.label,
@@ -275,7 +289,11 @@ def api_export_summary(public_id):
 # It is read-only except for two writes, both scoped to one token: a change
 # request and a response. Neither can reach another proposal, and neither can
 # edit the campaign — a client asks for a change, a rep makes it.
-PUBLIC_PREFIXES = ("/estimate/",)
+#
+# /r/ joins it for the recurring performance report: same shape, same reasons,
+# and read-only -- there is nothing on that page for a client to answer, so it
+# has no write route at all.
+PUBLIC_PREFIXES = ("/estimate/", "/r/")
 
 
 def _share_or_none(token):
@@ -312,6 +330,97 @@ def page_client_estimate(token):
         outcomes=spec.OUTCOMES,
         today=f"{today:%B} {today.day}, {today.year}",
     )
+
+
+@app.get("/r/<token>")
+def page_performance_report(token):
+    """One month of a client's Google Ads performance, at an unguessable link.
+
+    Revoked, deleted and never-existed all answer the same 404, because a
+    client-facing URL that says "that one expired" tells somebody probing
+    which tokens are real -- the rule the estimate link already works to.
+    """
+    row = store.get_performance_report(token, with_report=True)
+    if not row or row["revoked"]:
+        return render_template("ads_estimate_gone.html"), 404
+    return render_template("ads_performance_report.html",
+                           row=row, r=row["report"], mount=MOUNT, token=token)
+
+
+@app.get("/r/<token>.pdf")
+def page_performance_report_pdf(token):
+    row = store.get_performance_report(token, with_report=True)
+    if not row or row["revoked"]:
+        return render_template("ads_estimate_gone.html"), 404
+    pdf = performance_pdf.build(row["report"])
+    response = make_response(pdf)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = (
+        f'inline; filename="{performance_report.filename(row["report"])}"')
+    return response
+
+
+@app.post("/api/reports/schedule")
+def api_report_schedule():
+    """Turn a recurring client report on or off for one account.
+
+    Opt-in, per account, and off for everything until somebody presses this: a
+    report arriving in a client's inbox on a schedule is a commitment, and a
+    deployed campaign inheriting one is a promise nobody gave.
+    """
+    body = request.get_json(silent=True) or {}
+    customer_id = google_ads.digits(body.get("customer_id"))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    cadence = str(body.get("cadence") or "").strip().lower()
+    recipient = str(body.get("recipient") or "").strip()
+    if cadence and not recipient:
+        # Refused rather than saved half-set: a schedule with no address is a
+        # report nobody receives, reporting a clean save.
+        return jsonify({"error": "A recurring report needs an email address to "
+                                 "send to. Check it is the client's own — "
+                                 "Smart 1 Suite matches a contact on the "
+                                 "address, so a wrong one creates a duplicate "
+                                 "rather than updating theirs."}), 400
+    try:
+        schedule = store.set_report_schedule(
+            customer_id, cadence=cadence, recipient=recipient, actor=current_user())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    store.log_event("REPORT_SCHEDULE_SET", current_user(),
+                    customer_id=customer_id, cadence=cadence or "off",
+                    recipient=bool(recipient))
+    return jsonify({"ok": True, "schedule": schedule,
+                    "cadences": sorted(store.REPORT_CADENCES)})
+
+
+@app.post("/api/reports/send")
+def api_report_send():
+    """Build and file one client's report now, outside the schedule."""
+    body = request.get_json(silent=True) or {}
+    customer_id = google_ads.digits(body.get("customer_id"))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    schedule = store.report_schedule(customer_id)
+    account = next((a for a in store.deployed_accounts(limit=500)
+                    if a["customer_id"] == customer_id),
+                   {"customer_id": customer_id, "client_name": "", "proposal_id": ""})
+    outcome = monitoring.send_report(
+        account, cadence=schedule["cadence"], recipient=schedule["recipient"],
+        actor=current_user())
+    if not outcome.get("ok"):
+        return jsonify(outcome), 502
+    return jsonify(outcome)
+
+
+@app.get("/api/reports")
+def api_reports_list():
+    customer_id = google_ads.digits(request.args.get("customer_id", ""))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    return jsonify({"schedule": store.report_schedule(customer_id),
+                    "cadences": sorted(store.REPORT_CADENCES),
+                    "reports": store.performance_reports_for(customer_id)})
 
 
 @app.post("/estimate/<token>/change")
@@ -391,6 +500,10 @@ def page_settings():
         tiers=[{"key": k, "label": l, "note": n} for k, l, n in keyword_plan.ACCESS_TIERS],
         openai_configured=bool(campaign_ai.openai_key()),
         openai_model=campaign_ai.openai_model(),
+        # Named on the one screen somebody can act on it from -- the variable
+        # is here rather than in front of a rep who cannot set it, which is
+        # the rule modules/ads_builder/logo.py already works to.
+        ad_intel=ad_intel.status(),
         expected_redirect=(os.environ.get("PUBLIC_BASE_URL", "").rstrip("/") + MOUNT
                            + "/oauth/callback"),
     )
@@ -558,6 +671,42 @@ def api_campaign_status(campaign_id):
     return jsonify({"ok": True, "campaign_id": campaign_id, "status": str(status).upper()})
 
 
+@app.get("/api/optimization/monitor")
+def api_optimization_monitor():
+    """What the scheduled sweep already found, before anybody presses Scan.
+
+    Reads the stored runs rather than reaching Google: this loads with the
+    page, and a panel that costs six operations per account on every visit is
+    the per-visit pull the daily quota cannot afford.
+    """
+    return jsonify(monitoring.account_panel())
+
+
+@app.post("/api/optimization/auto-apply")
+def api_optimization_auto_apply():
+    """Turn unattended changes on or off for one Google Ads account.
+
+    A real control rather than a database field nobody can see: auto-apply
+    changes a client's live account with nobody pressing anything at the
+    moment it happens, so the one thing that must be visible is whether it is
+    on. It defaults to off and the write refuses a category outside the
+    allowlist rather than storing one the sweep would then have to re-check.
+    """
+    body = request.get_json(silent=True) or {}
+    customer_id = google_ads.digits(body.get("customer_id"))
+    if not customer_id:
+        return jsonify({"error": "customer_id is required."}), 400
+    settings = store.set_auto_apply(
+        customer_id, enabled=bool(body.get("enabled")),
+        categories=body.get("categories") or [], actor=current_user(),
+    )
+    store.log_event("OPTIMIZATION_AUTO_APPLY_SET", current_user(),
+                    customer_id=customer_id, enabled=settings["enabled"],
+                    categories=",".join(settings["categories"]))
+    return jsonify({"ok": True, "settings": settings,
+                    "categories": list(store.AUTO_APPLY_CATEGORIES)})
+
+
 @app.get("/api/optimization/summary")
 def api_optimization_summary():
     customer_id = request.args.get("customer_id", "")
@@ -637,7 +786,16 @@ def api_generate():
     observed = landing_page.observe(body.get("websiteUrl"))
 
     # No key from the browser: the Hub's OPENAI_API_KEY is the only one used.
-    campaign = campaign_ai.generate_campaign(body, observed_page=observed)
+    #
+    # The campaign type is picked before generation rather than switched
+    # afterwards, because the two products differ in what a rep has to supply:
+    # a Performance Max asset group has no keywords at all and needs images and
+    # a logo, which is a different intake and a different prompt.
+    campaign_type = spec.campaign_type_of(body.get("campaignType"))
+    if campaign_type == "PERFORMANCE_MAX":
+        campaign = campaign_ai.generate_pmax_campaign(body, observed_page=observed)
+    else:
+        campaign = campaign_ai.generate_campaign(body, observed_page=observed)
     campaign["landingPageObserved"] = observed
 
     # Tiers are asked for either way: with no budget they are the only way to
@@ -1416,6 +1574,119 @@ def api_proposal_delete(public_id):
     return jsonify({"ok": True})
 
 
+@app.get("/api/pmax/requirements")
+def api_pmax_requirements():
+    """What Google refuses an asset group without, served rather than restated.
+
+    The page draws from this instead of carrying its own copy of the numbers:
+    two descriptions of one spec is how a screen comes to promise a limit the
+    deploy then refuses -- and the transcription note travels with them, so
+    nobody reads these as fetched.
+    """
+    return jsonify({
+        "requirements": pmax_spec.requirements(),
+        "max_images": pmax_spec.MAX_IMAGES_TOTAL,
+        "max_logos": pmax_spec.MAX_LOGOS_TOTAL,
+        "video_note": pmax_spec.VIDEO_NOTE,
+        "note": pmax_spec.kit_note(),
+    })
+
+
+def _pmax_proposal(public_id):
+    """One Performance Max proposal, or the reason this route will not act."""
+    proposal = store.get_proposal(public_id)
+    if not proposal:
+        return None, (jsonify({"error": "Proposal not found."}), 404)
+    if spec.campaign_type_of(proposal["campaign"]) != "PERFORMANCE_MAX":
+        # Refused by name rather than acting on a search campaign that has no
+        # asset groups to write into.
+        return None, (jsonify({"error": "That proposal is a Search campaign, "
+                                        "which has no asset groups."}), 400)
+    return proposal, None
+
+
+@app.post("/api/pmax/image")
+def api_pmax_image():
+    """Generate one asset-group image at the exact ratio Google requires.
+
+    Behind a press, never on generation: an image is billed each time and a
+    campaign built with three asset groups would otherwise spend six of them
+    before anybody had read a headline.
+    """
+    body = request.get_json(silent=True) or {}
+    proposal, refusal = _pmax_proposal(body.get("proposal_id"))
+    if refusal:
+        return refusal
+    try:
+        index = int(body.get("group_index") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "group_index must be a number."}), 400
+    campaign = proposal["campaign"]
+    groups = campaign.get("assetGroups") or []
+    if not 0 <= index < len(groups):
+        return jsonify({"error": "That asset group is not on this proposal."}), 400
+    role = str(body.get("role") or "").strip()
+    prompt = str(body.get("prompt") or "").strip()
+    if not prompt:
+        # The model's own direction, where the page did not send one.
+        prompt = next((i.get("prompt") for i in (groups[index].get("images") or [])
+                       if i.get("role") == role and i.get("prompt")), "")
+    try:
+        made = pmax_images.generate_asset_image(
+            role, prompt, client=proposal["client_name"],
+            business=campaign.get("businessName") or proposal["client_name"])
+    except pmax_images.ImageError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    images = [i for i in (groups[index].get("images") or []) if i.get("role") != role]
+    images.append(made)
+    groups[index]["images"] = images
+    campaign["assetGroups"] = groups
+    campaign["assetValidation"] = pmax_spec.validate_campaign(campaign)
+    store.update_campaign(proposal["id"], campaign)
+    store.log_event("PMAX_IMAGE_GENERATED", current_user(),
+                    client=proposal["client_name"], proposal=proposal["id"],
+                    role=role, asset_group=groups[index].get("name", ""))
+    return jsonify({"ok": True, "image": made,
+                    "validation": campaign["assetValidation"]})
+
+
+@app.post("/api/pmax/logo")
+def api_pmax_logo():
+    """Attach the client's own logo to every asset group.
+
+    Looked up, never generated: a wrong logo on a client's own campaign is
+    worse than none, because nobody proof-reads the thing they recognise. The
+    live lookup is billed, so it is only reached when the caller asks for it.
+    """
+    body = request.get_json(silent=True) or {}
+    proposal, refusal = _pmax_proposal(body.get("proposal_id"))
+    if refusal:
+        return refusal
+    campaign = proposal["campaign"]
+    found = pmax_images.client_logo(
+        proposal["client_name"], campaign.get("websiteUrl") or "",
+        allow_live=bool(body.get("allow_live")))
+    if not found["found"]:
+        # A named absence rather than a quiet nothing: "we have no logo for
+        # them" and "we did not look" send somebody to two different places.
+        return jsonify({"ok": False, "logo": found, "error": found["note"]}), 404
+    groups = campaign.get("assetGroups") or []
+    for group in groups:
+        images = [i for i in (group.get("images") or []) if i.get("role") != "logo"]
+        images.append({"role": "logo", "url": found["url"],
+                       "name": f"{proposal['client_name']} logo"})
+        group["images"] = images
+    campaign["assetGroups"] = groups
+    campaign["assetValidation"] = pmax_spec.validate_campaign(campaign)
+    store.update_campaign(proposal["id"], campaign)
+    store.log_event("PMAX_LOGO_ATTACHED", current_user(),
+                    client=proposal["client_name"], proposal=proposal["id"],
+                    logo_source=found["source"], asset_groups=len(groups))
+    return jsonify({"ok": True, "logo": found,
+                    "validation": campaign["assetValidation"]})
+
+
 @app.post("/api/deploy")
 def api_deploy():
     body = request.get_json(silent=True) or {}
@@ -1451,12 +1722,23 @@ def api_deploy():
                 "preflight": checks,
             }), 400
 
-    result = google_ads.deploy_proposal(
-        customer_id, proposal["campaign"], store=store,
-        campaign_name=body.get("campaign_name"),
-        search_partners=bool(body.get("search_partners")),
-        validate_only=validate_only,
-    )
+    # Two builders, not one with a flag: a Performance Max campaign shares a
+    # budget row and a campaign row with a search one and nothing else. A
+    # SEARCH proposal reaches deploy_proposal() exactly as it did.
+    campaign = proposal["campaign"]
+    if spec.campaign_type_of(campaign) == "PERFORMANCE_MAX":
+        result = google_ads.deploy_proposal_pmax(
+            customer_id, campaign, store=store,
+            campaign_name=body.get("campaign_name"),
+            validate_only=validate_only,
+        )
+    else:
+        result = google_ads.deploy_proposal(
+            customer_id, campaign, store=store,
+            campaign_name=body.get("campaign_name"),
+            search_partners=bool(body.get("search_partners")),
+            validate_only=validate_only,
+        )
 
     if validate_only:
         store.log_event("DEPLOY_DRY_RUN", current_user(),
@@ -1470,7 +1752,16 @@ def api_deploy():
                         proposal=public_id, customer_id=result["customer_id"],
                         campaign_id=result.get("campaign_id"),
                         campaign=result["campaign_name"],
-                        ad_groups=result["ad_group_count"], keywords=result["keyword_count"])
+                        client=proposal["client_name"],
+                        campaign_type=result.get("campaign_type", "SEARCH"),
+                        # .get, because a Performance Max result carries asset
+                        # groups where a search one carries ad groups and
+                        # keywords. Read as subscripts this line raises AFTER
+                        # the campaign is live, which is the shape that cost
+                        # the Commercial Builder every render it ever had.
+                        ad_groups=result.get("ad_group_count"),
+                        keywords=result.get("keyword_count"),
+                        asset_groups=result.get("asset_group_count"))
 
     return jsonify({"result": result})
 

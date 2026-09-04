@@ -159,10 +159,11 @@ HUB_PAGES = [
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:
-# a landing page is looked at by a prospect on a client's website, and the MSA
-# signing page by a client. Injecting staff navigation there is a bug of its
-# own, which is why they are asserted to have NONE.
-NO_CHROME_PREFIXES = ("/land/", "/msa")
+# a landing page is looked at by a prospect on a client's website, the MSA
+# signing page by a client, and the Google Ads Grader by a stranger who is not
+# a customer yet. Injecting staff navigation there is a bug of its own, which
+# is why they are asserted to have NONE.
+NO_CHROME_PREFIXES = ("/land/", "/msa", "/tools/ads-grader")
 
 # Mount roots that redirect or need an argument rather than serving a page.
 SKIP_MOUNTS = ()

@@ -256,6 +256,11 @@ print("\nThe panel prints the URI the code actually sends")
 BUILDERS = {
     "suite": ("hub.ghl_oauth", "redirect_uri"),
     "google_access": ("modules.google_access.config", "redirect_uri"),
+    # The Ads Grader's callback, met by a prospect who is not a customer yet.
+    # Same rule and the same reason as google_access above: a mismatch here is
+    # a consent screen failing in front of somebody for reasons that have
+    # nothing to do with them.
+    "ads_grader": ("modules.ads_grader.grading", "redirect_uri"),
 }
 
 

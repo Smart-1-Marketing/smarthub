@@ -61,6 +61,24 @@ SOURCES: dict[str, dict] = {
         "what": "a new business asking for Google access (modules/google_access)",
         "workflow": None,
     },
+    "ads_grader": {
+        "what": "a prospect who connected their own Google Ads account to the "
+                "public grader (modules/ads_grader)",
+        # To build: email the scored report link on this tag. Until it exists
+        # the report URL is on the contact under the two custom fields and a
+        # rep opens it -- backed() is what stops any page promising a message
+        # nothing sends.
+        "workflow": None,
+    },
+    "ads_reports": {
+        "what": "the recurring monthly Google Ads performance report for a "
+                "client we manage (modules/ads_builder/monitoring.py)",
+        # To build: email the report link on this tag. This is the one source
+        # here that is a CLIENT rather than a prospect -- it upserts onto their
+        # existing Suite contact by email, which is why the schedule cannot be
+        # switched on without one.
+        "workflow": None,
+    },
     # The nine industry landing tools. Each is its own source because each
     # page's follow-up is its own sequence; the page tag names the plan.
     "boat": {"what": "Boat Dealer Weather Marketing (modules/boat)", "workflow": None},
