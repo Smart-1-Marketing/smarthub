@@ -33,6 +33,7 @@ Three things it is careful about:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
@@ -128,6 +129,53 @@ def api_folders():
     return jsonify({"ok": True, "folders": _folders()})
 
 
+def _slug_folder(label: str) -> str:
+    """A gallery folder key, derived from what somebody typed.
+
+    Deliberately not a fresh id: two people naming a folder "Homepage
+    refresh" the same afternoon should land in the same folder rather than
+    each getting their own, which is what a randomly generated key would do.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", str(label or "").strip().lower()).strip("-")
+    return slug[:80]
+
+
+@app.route("/api/clients")
+def api_clients():
+    """Client type-ahead, the pattern every other tool that files a gallery
+    uses -- its own thin route over the shared registry rather than a widget,
+    because none exists yet in this Hub (CLAUDE.md notes the gap)."""
+    try:
+        from hub import clients_registry
+    except Exception as exc:                              # noqa: BLE001
+        return jsonify({"clients": [], "error": str(exc)})
+    rows = clients_registry.search_clients(request.args.get("q", ""), limit=10)
+    return jsonify({"clients": [{"name": r["name"], "slug": r["slug"],
+                                 "domain": r.get("domain", ""),
+                                 "is_house": r.get("is_house", False)} for r in rows]})
+
+
+@app.route("/api/client-folders")
+def api_client_folders():
+    """Which "Stock photo picks" folders this client already has.
+
+    So the page can offer "add to an existing one" rather than only "make a
+    new one" -- without this a rep who cannot remember the exact spelling of
+    a folder they made yesterday creates a second one next to it.
+    """
+    client = (request.args.get("client") or "").strip()
+    if not client:
+        return jsonify({"ok": True, "folders": []})
+    try:
+        from modules.image_picker.filing import folders_for
+    except Exception as exc:                              # noqa: BLE001
+        return jsonify({"ok": False, "folders": [], "error": str(exc)})
+    try:
+        return jsonify({"ok": True, "folders": folders_for(client, "stock")})
+    except Exception as exc:                              # noqa: BLE001
+        return jsonify({"ok": False, "folders": [], "error": str(exc)})
+
+
 @app.route("/api/search")
 def api_search():
     query = (request.args.get("q") or "").strip()
@@ -187,6 +235,7 @@ def api_use():
     image_id = str(body.get("id") or "")[:120]
     url = str(body.get("url") or "")[:600]
     client = str(body.get("client") or "").strip()[:120]
+    folder_label = str(body.get("folder") or "").strip()[:200]
 
     pinged = False
     if provider == "unsplash":
@@ -213,7 +262,7 @@ def api_use():
         except Exception:                               # noqa: BLE001
             pass
 
-    filed = _file_for_client(client, provider, image_id, url)
+    filed = _file_for_client(client, provider, image_id, url, folder_label)
 
     return jsonify({"ok": True, "download": download, "unsplash_pinged": pinged,
                     "filed": bool(filed.get("ok")),
@@ -221,7 +270,8 @@ def api_use():
                     "note": filed.get("note", "")})
 
 
-def _file_for_client(client: str, provider: str, image_id: str, url: str) -> dict:
+def _file_for_client(client: str, provider: str, image_id: str, url: str,
+                     folder_label: str = "") -> dict:
     """A photo chosen for a client belongs in that client's gallery.
 
     The activity log already recorded the pick, which puts a line on the
@@ -234,6 +284,14 @@ def _file_for_client(client: str, provider: str, image_id: str, url: str) -> dic
       put a row in the gallery pointing at an address we do not control and
       cannot keep — a provider that reorganises its CDN empties the client's
       gallery with nothing saying why. So it is stored first, then filed.
+
+    Every stock photo files under `kind="stock"`, the "Stock photo picks"
+    group `filing.KIND_LABELS` already names. `folder_label`, when given, is a
+    named sub-collection under that group -- typed fresh or picked from
+    `/api/client-folders` -- carried as `collection_key`/`collection_label`
+    rather than a new table, the same two fields the client upload picker
+    already uses for its own topic/service folders. With none given the photo
+    still files under "Stock photo picks", with no sub-folder.
 
     With no client named, nothing is filed and the answer says so: a photo
     filed to a guessed client is the one mistake here that cannot be undone by
@@ -264,13 +322,23 @@ def _file_for_client(client: str, provider: str, image_id: str, url: str) -> dic
         except Exception as exc:                        # noqa: BLE001
             return {"ok": False, "note": f"The photo could not be stored: {exc}"}
 
+    folder_label = folder_label.strip()[:200]
+    folder_key = _slug_folder(folder_label)
+
     try:
         out = file_asset(client_name=client, public_id=public_id,
                          url=stored_url, kind="stock",
+                         key=folder_key, label=folder_label,
                          filename=f"{provider}-{public_id.split('/')[-1]}",
                          alt=f"Stock photo chosen for {client}",
                          provider=provider or "stock", saved_by=_actor() or "system")
-        return out if isinstance(out, dict) else {"ok": False}
+        if not isinstance(out, dict):
+            return {"ok": False}
+        if out.get("ok") and out.get("duplicate"):
+            out["note"] = "Already saved to " + (
+                f"Stock photo picks → {folder_label}." if folder_label
+                else "their Stock photo picks.")
+        return out
     except Exception as exc:                            # noqa: BLE001
         return {"ok": False, "note": f"It could not be filed: {exc}"}
 
