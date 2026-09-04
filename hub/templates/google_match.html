@@ -29,6 +29,11 @@
         is not how you find out what it does. -#}
     <button class="gm-btn" id="gmReadLabels" onclick="readLabels()"
             style="display:none"></button>
+    {#- A skipped resource has left the main list, so somewhere else has to
+        offer it back or "skip" would be indistinguishable from "delete".
+        Hidden until the first load answers, like the button above. -#}
+    <button class="gm-btn" id="gmSkipToggle" onclick="toggleSkipped()"
+            style="display:none"></button>
   </div>
   <div class="gm-note" id="gmReadNote" style="display:none"></div>
   <div class="gm-bar" id="gmFilters" hidden>
@@ -140,7 +145,8 @@ table.gm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
    from the server — never of what happens to be loaded.
 --------------------------------------------------------------------------- */
 var PAGE = 25;
-var S = {rows: [], meta: null, offset: 0, loading: false, sel: {}, report: {}};
+var S = {rows: [], meta: null, offset: 0, loading: false, sel: {}, report: {},
+         onlySkipped: false};
 var TIMER = null, BULKTIMER = null, BULKHITS = [];
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
@@ -158,7 +164,30 @@ function query(offset){
   return '/api/google/orphans?limit='+PAGE+'&offset='+offset+
     '&include_other='+(other?'1':'0')+
     '&platforms='+encodeURIComponent(plats().join(','))+
+    '&only_skipped='+(S.onlySkipped?'1':'0')+
     '&q='+encodeURIComponent(q);
+}
+
+/* Two views of one overlay: the orphans somebody still has to work, and the
+   ones somebody set aside for later. Switching is a new list, same as a new
+   search — it starts at the top rather than appending one list onto the
+   other. */
+function toggleSkipped(){
+  S.onlySkipped=!S.onlySkipped;
+  reload();
+}
+
+/* What the toggle says, drawn from the reply. A count of zero still gets a
+   working button rather than a hidden one: "no resources skipped" is an
+   answer worth being able to confirm, not a reason to take the door away. */
+function drawSkipToggle(){
+  var b=document.getElementById('gmSkipToggle');
+  if(!b||!S.meta) return;
+  var n=S.meta.skipped_total||0;
+  b.style.display='inline-block';
+  b.textContent=S.onlySkipped
+    ? 'Back to the orphaned list'
+    : (n?'View skipped for later ('+n+')':'Nothing skipped for later');
 }
 
 /* A new filter or a new search is a different list, so it starts at the top.
@@ -256,6 +285,7 @@ function fetchPage(first){
       document.getElementById('gmFilters').hidden=false;
       if(first) renderAll(); else appendRows(d.rows||[]);
       drawReadLabels();
+      drawSkipToggle();
       paintMore();
     })
     .catch(function(){
@@ -285,7 +315,8 @@ function metrics(d){
      ['Resources indexed',d.resources||0],
      ['Attached to a client',d.mapped||0],
      ['Orphaned',d.orphans_total||0],
-     ['We can suggest an owner',d.with_suggestion||0]]
+     ['We can suggest an owner',d.with_suggestion||0],
+     ['Skipped for later',d.skipped_total||0]]
     .map(function(x){return '<div class="gm-metric"><b>'+x[1]+'</b><span>'+esc(x[0])+'</span></div>';}).join('');
 }
 
@@ -336,7 +367,21 @@ function rowHtml(r){
       '<span class="pill '+esc(s.confidence)+'">'+esc(s.confidence)+'</span>'+
       '<span class="gm-sm">'+esc(s.why)+'</span></div>';}).join('');
   var rid=esc(r.resource_id);
+  var ridJs=rid.replace(/'/g,'&#39;');
   var rep=S.report[r.resource_id]?report(S.report[r.resource_id]):'';
+  /* `r.skip` is only ever present in the skipped-for-later view — the server
+     drops it into `kept` under that exact condition — so its presence alone
+     decides which button and which note this row draws. */
+  var skip=r.skip;
+  var skipBtn=skip
+    ? '<button class="gm-btn good" style="padding:5px 10px;font-size:12px" '+
+      'onclick="skipRow(\''+ridJs+'\',false)">Put back on the orphaned list</button>'
+    : '<button class="gm-btn" style="padding:5px 10px;font-size:12px" '+
+      'onclick="skipRow(\''+ridJs+'\',true)">Skip for now</button>';
+  var skipNote=skip
+    ? '<div class="gm-sm">Skipped by '+esc(skip.by||'someone')+
+      (skip.at?' on '+esc(String(skip.at).slice(0,10)):'')+
+      (skip.note?' — '+esc(skip.note):'')+'</div>' : '';
   return '<tr data-rid="'+rid+'">'+
     '<td><input type="checkbox" class="gmChk" data-rid="'+rid+'"'+
       (S.sel[r.resource_id]?' checked':'')+' onchange="toggle(this)"></td>'+
@@ -353,7 +398,9 @@ function rowHtml(r){
     '<td><div class="gm-pick"><input placeholder="Search clients…" data-rid="'+rid+'" '+
       'class="gmSearch" onkeydown="key(event,this)"><button class="gm-btn" '+
       'style="padding:5px 10px;font-size:12px" onclick="find(this)">Search</button></div>'+
-      '<div class="gmHits"></div>'+rep+'</td></tr>';
+      '<div class="gmHits"></div>'+
+      '<div class="gm-pick" style="margin-top:6px">'+skipBtn+'</div>'+
+      skipNote+rep+'</td></tr>';
 }
 
 function renderAll(){
@@ -379,11 +426,12 @@ function renderAll(){
     (S.rows.length?'<table class="gm-t"><thead><tr>'+
       '<th><input type="checkbox" id="gmAll" onchange="selectAll(this)" '+
         'title="Select every row loaded"></th><th>Resource</th>'+
-      '<th>Where it lives</th><th>Might belong to</th><th>Attach to a client</th>'+
+      '<th>Where it lives</th><th>Might belong to</th><th>Attach, or skip for now</th>'+
       '</tr></thead><tbody id="gmBody">'+S.rows.map(rowHtml).join('')+'</tbody></table>'+
       '<button class="gm-more" id="gmMore" onclick="fetchPage(false)"></button>'
       :'<p class="gm-muted" style="padding:12px 14px">'+
       (d.never_built?'The index has never been built — there is nothing to show yet.':
+       S.onlySkipped?'Nothing is skipped for later right now.':
        (d.orphans_total?'Nothing matches the current search or filters.':
         'Every Google resource we can reach is attached to a client.'))+
       '</p>')+'</div>';
@@ -391,7 +439,7 @@ function renderAll(){
   html+=sweepCard(d);
 
   if(d.by_platform&&Object.keys(d.by_platform).length){
-    html+='<div class="gm-card"><h3>Orphans by platform</h3><table class="gm-t"><tbody>'+
+    html+='<div class="gm-card"><h3>'+(S.onlySkipped?'Skipped':'Orphans')+' by platform</h3><table class="gm-t"><tbody>'+
       Object.keys(d.by_platform).map(function(k){
         return '<tr><td><b>'+esc(k)+'</b></td><td class="gm-muted">'+d.by_platform[k]+'</td></tr>';
       }).join('')+'</tbody></table></div>';
@@ -419,9 +467,11 @@ function appendRows(rows){
 function paintMore(){
   var d=S.meta; if(!d) return;
   var head=document.getElementById('gmListHead');
-  if(head) head.textContent='Orphaned accounts — showing '+S.rows.length+
-    ' of '+(d.count||0)+(d.count!==d.orphans_total?
-      ' matching (of '+(d.orphans_total||0)+' orphaned)':'');
+  var total=S.onlySkipped?(d.skipped_total||0):(d.orphans_total||0);
+  if(head) head.textContent=(S.onlySkipped?'Skipped for later':'Orphaned accounts')+
+    ' — showing '+S.rows.length+' of '+(d.count||0)+
+    (d.count!==total?' matching (of '+total+
+      (S.onlySkipped?' skipped':' orphaned')+')':'');
   var more=document.getElementById('gmMore');
   if(!more) return;
   var left=(d.count||0)-S.rows.length;
@@ -537,19 +587,59 @@ function attachOne(rid,si){
   if(r&&s) go(r,s.client);
 }
 
-function drop(rid){
+function removeRow(rid){
   var tr=document.querySelector('tr[data-rid="'+CSS.escape(rid)+'"]');
   if(tr) tr.remove();
   S.rows=S.rows.filter(function(x){return x.resource_id!==rid;});
   delete S.sel[rid];
+  S.offset=Math.max(0,S.offset-1);   /* the list shrank underneath the cursor */
+}
+
+function drop(rid){
+  removeRow(rid);
   if(S.meta){
     S.meta.count=Math.max(0,(S.meta.count||1)-1);
     S.meta.orphans_total=Math.max(0,(S.meta.orphans_total||1)-1);
     S.meta.mapped=(S.meta.mapped||0)+1;
-    S.offset=Math.max(0,S.offset-1);   /* the list shrank underneath the cursor */
     document.getElementById('gmMetrics').innerHTML=metrics(S.meta);
   }
   paintMore(); count();
+}
+
+/* Skipping and unskipping each move a row between two lists rather than
+   deleting it, so the count that grows is exactly the count the other one
+   loses — never "vanished from everywhere", which is what a plain drop would
+   read as. */
+function dropSkipped(rid, skippedNow){
+  removeRow(rid);
+  if(S.meta){
+    S.meta.count=Math.max(0,(S.meta.count||1)-1);
+    if(skippedNow){
+      S.meta.orphans_total=Math.max(0,(S.meta.orphans_total||0)-1);
+      S.meta.skipped_total=(S.meta.skipped_total||0)+1;
+    } else {
+      S.meta.skipped_total=Math.max(0,(S.meta.skipped_total||1)-1);
+      S.meta.orphans_total=(S.meta.orphans_total||0)+1;
+    }
+    document.getElementById('gmMetrics').innerHTML=metrics(S.meta);
+    drawSkipToggle();
+  }
+  paintMore(); count();
+}
+
+function skipRow(rid,on){
+  var r=rowFor(rid);
+  var label=(r&&(r.name||r.resource_id))||rid;
+  if(on && !confirm('Skip "'+label+'" for now?\n\n'+
+      'It comes off the orphaned list until it is unskipped. Nothing is '+
+      'attached and nothing else changes.')) return;
+  fetch('/api/google/skip',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({resource_id:rid, skip:on})})
+   .then(function(res){return res.json();}).then(function(rep){
+     if(!rep.ok){alert(rep.error||'That did not go through.');return;}
+     dropSkipped(rid, on);
+   }).catch(function(){alert('That did not go through.');});
 }
 
 function go(r,client){
