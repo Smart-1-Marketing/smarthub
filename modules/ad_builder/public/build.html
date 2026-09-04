@@ -208,6 +208,12 @@
   .size .st.pass { background: var(--pass); }
   .size .st.warn { background: var(--warn); }
   .size .st.fail { background: var(--fail); }
+  /* Carried from another size and worth an eye. Its own mark rather than the
+     status dot: "this has not been rendered yet" and "this was carried and the
+     carry did not fit" are different things to do about a size, and one dot for
+     both is how somebody learns to read neither. */
+  .size .cr { margin-left: 5px; font-size: 10px; line-height: 1; flex: none; color: var(--warn); }
+  .size .cr.clean { color: var(--ink-2); opacity: .55; }
 
   /* Approval, per size.
      
@@ -719,6 +725,17 @@
        wrong creative. */
     rendered: false,
     sizeStatus: {},   // size -> { status }
+    /** size -> CarryReport from the server. Adjustments made on one size are
+     *  carried to the rest in proportion (src/carry.ts); this is what the
+     *  carry did, so the rail can mark the sizes worth an eye. Never computed
+     *  here -- a second reading of that rule in the browser is the mirror this
+     *  codebase has paid for twice. */
+    carry: {},
+    review: [],
+    /** The style the server resolved for `resolvedFor`, so the panels show
+     *  what this size renders with rather than the master's pixels. */
+    resolvedStyle: null,
+    resolvedFor: null,
     /** field -> 'size' | 'all'. Asked once per field per campaign; see
      *  setCopy for why an unasked edit is not just defaulted. */
     copyScope: {},
@@ -1530,7 +1547,7 @@
      picture behind it, which is why this sits next to the background chooser
      rather than in a layout menu. */
   function logoStyleControls() {
-    var lg = (concept().styleOverrides || {}).logo || {};
+    var lg = styleOf('logo');
     var touched = Object.keys(lg).length > 0;
     var scale = typeof lg.scale === 'number' ? lg.scale : 1;
     var box = layoutLogoBox();
@@ -1598,9 +1615,21 @@
      overriding rather than an empty field labeled "auto". */
   function layoutLogoBox() { return layoutBox('logo'); }
 
+  /* What this size actually renders with.
+
+     The server resolves the carry and returns it with the preview, and this
+     reads that answer. Working it out here instead would be a second reading
+     of src/carry.ts in the browser -- the mirror CLAUDE.md counts the cost of
+     twice -- and it would show the master's pixels on a size that is rendering
+     something else entirely. Until a preview has come back for this size, the
+     concept's own values are the best answer there is. */
+  function resolvedStyle() {
+    if (state.resolvedFor === state.size && state.resolvedStyle) return state.resolvedStyle;
+    return concept().styleOverrides || {};
+  }
+
   function styleOf(block) {
-    var all = concept().styleOverrides || {};
-    return all[block] || {};
+    return resolvedStyle()[block] || {};
   }
 
   function blockStyleControls() {
@@ -1728,17 +1757,67 @@
     return c.accent || '#2563eb';
   }
 
-  function setBlockStyle(block, prop, raw) {
+  /* Which object an adjustment is written into.
+
+     The first size somebody tunes becomes the master, and its adjustments are
+     carried in proportion to every other size in the set (src/carry.ts). A size
+     that was carried INTO gets a correction of its own instead, because that is
+     the whole point of flagging it: the operator opens the one the carry could
+     not place, nudges it, and the rest of the set is left exactly as it was.
+     Writing that back into the master would propagate straight out again and
+     the size they had just got right would be the next one broken. */
+  function styleHome() {
     var c = concept();
     if (!c.styleOverrides) c.styleOverrides = {};
-    if (!c.styleOverrides[block]) c.styleOverrides[block] = {};
-    var st = c.styleOverrides[block];
+    var o = c.styleOverrides;
+    if (!o.authoredFor) { o.authoredFor = state.size; return o; }
+    if (o.authoredFor === state.size) return o;
+    if (!o.bySize) o.bySize = {};
+    if (!o.bySize[state.size]) o.bySize[state.size] = {};
+    return o.bySize[state.size];
+  }
+
+  /* True when this size takes its adjustments from another one. Asked of the
+     server's own answer rather than worked out here -- resolving the carry in
+     the browser would be a second reading of that rule, which is the mirror
+     this codebase has paid for twice. */
+  function carriedHere() {
+    var o = concept().styleOverrides || {};
+    return !!o.authoredFor && o.authoredFor !== state.size;
+  }
+
+  /* Tidy up after a write: drop an empty block, an empty per-size correction,
+     and finally the overrides themselves -- without ever reading `authoredFor`
+     or `bySize` as though they were a styled block. */
+  function pruneStyle() {
+    var c = concept(), o = c.styleOverrides;
+    if (!o) return;
+    if (o.bySize) {
+      Object.keys(o.bySize).forEach(function (sz) {
+        if (!Object.keys(o.bySize[sz]).length) delete o.bySize[sz];
+      });
+      if (!Object.keys(o.bySize).length) delete o.bySize;
+    }
+    var styled = Object.keys(o).filter(function (k) {
+      return k !== 'authoredFor' && k !== 'bySize';
+    });
+    // `authoredFor` alone is bookkeeping about adjustments that no longer
+    // exist, and leaving it would carry nothing to every size for ever.
+    if (!styled.length && !o.bySize) delete c.styleOverrides;
+  }
+
+  function setBlockStyle(block, prop, raw) {
+    var home = styleHome();
+    if (!home[block]) home[block] = {};
+    var st = home[block];
 
     var value = String(raw == null ? '' : raw).trim();
     if (prop === '*') {
-      // "Put it back" -- drop every override on this block at once.
-      delete c.styleOverrides[block];
-      if (!Object.keys(c.styleOverrides).length) delete c.styleOverrides;
+      // "Put it back" -- drop every override on this block at once. On a
+      // carried size that drops the correction and the carried value returns,
+      // which is what "put it back" means there.
+      delete home[block];
+      pruneStyle();
       state.dirty = true;
       schedule();
       return;
@@ -1762,8 +1841,8 @@
       st[prop] = value;
     }
 
-    if (!Object.keys(st).length) delete c.styleOverrides[block];
-    if (!Object.keys(c.styleOverrides).length) delete c.styleOverrides;
+    if (!Object.keys(st).length) delete home[block];
+    pruneStyle();
 
     state.dirty = true;
     schedule();          // same debounce the copy fields use
@@ -1880,7 +1959,7 @@
      there was no control anywhere that could change it. */
   function panelControls() {
     if (!willDraw('panel')) return '';
-    var ps = (concept().styleOverrides || {}).panel || {};
+    var ps = styleOf('panel');
     var op = typeof ps.opacity === 'number' ? ps.opacity : null;
     return '<details class="blockstyle" data-acc="panel"' +
         (openPanel('panel') ? ' open' : '') + '>' +
@@ -3118,7 +3197,10 @@
 
   /* -------------------------------------------------------------- preview */
   var timer = null;
-  function schedule() { clearTimeout(timer); timer = setTimeout(preview, 320); }
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(function () { preview(); refreshCarry(); }, 320);
+  }
 
   var inflight = 0;
   function preview() {
@@ -3140,6 +3222,9 @@
         $('preview').src = res.b.image;
         $('dims').textContent = res.b.width + ' x ' + res.b.height;
         state.sizeStatus[state.size] = { status: res.b.status };
+        state.resolvedStyle = res.b.style || null;
+        state.resolvedFor = res.b.style ? state.size : null;
+        if (res.b.carry) state.carry[state.size] = res.b.carry;
         drawQa(res.b.qa);
         markRail();
       })
@@ -3159,7 +3244,7 @@
             (left ? 'var(--ink-2)' : 'var(--pass)') + '">' +
             (sizes.length - left) + '/' + sizes.length + ' approved</span>'
           : '') +
-        '</h3></div>' +
+        '</h3></div><div id="carryNote"></div>' +
       sizes.map(function (sz) {
         var ok = isApproved(sz);
         return '<div class="size' + (sz === state.size ? ' on' : '') +
@@ -3168,6 +3253,7 @@
             'color:inherit;font:inherit;cursor:pointer;padding:0;flex:1;text-align:left">' +
             esc(sz) + '</button>' +
           '<span class="st" data-st="' + esc(sz) + '"></span>' +
+          '<span class="cr" data-cr="' + esc(sz) + '"></span>' +
           '<button type="button" class="ok' + (ok ? ' on' : '') + '" data-approve="' + esc(sz) + '"' +
             ' title="' + (ok ? 'Approved — click to unapprove and edit again'
                              : 'Approve this size and lock it') + '"' +
@@ -3194,6 +3280,7 @@
       });
     });
     markRail();
+    drawCarryNote();
   }
 
   /* Moving to another size with unsaved edits behind you.
@@ -3227,7 +3314,7 @@
 
   function showSize(size) {
     state.size = size;
-    drawControls(); drawRail(); preview();
+    drawControls(); drawRail(); preview(); refreshCarry();
     refreshOverrideNote();
   }
 
@@ -3236,6 +3323,65 @@
       var dot = $('rail').querySelector('[data-st="' + sz + '"]');
       if (dot) dot.className = 'st ' + state.sizeStatus[sz].status;
     });
+    Object.keys(state.carry).forEach(function (sz) {
+      var el = $('rail').querySelector('[data-cr="' + sz + '"]');
+      if (!el) return;
+      var c = state.carry[sz] || {};
+      if (!c.carried) { el.className = 'cr'; el.textContent = ''; el.title = ''; return; }
+      var held = (c.strained || []).concat(c.dropped || []);
+      if (c.corrected) {
+        el.className = 'cr clean'; el.textContent = '\u25C6';
+        el.title = 'Carried from ' + c.from + ', with a correction made here.';
+      } else if (held.length) {
+        el.className = 'cr'; el.textContent = '\u25B2';
+        el.title = 'Carried from ' + c.from + ', but ' + held.join(', ') +
+                   ' would not fit this canvas. Worth a look before it ships.';
+      } else {
+        el.className = 'cr clean'; el.textContent = '\u25CF';
+        el.title = 'Carried from ' + c.from + ' and it landed cleanly.';
+      }
+    });
+  }
+
+  /* Which sizes carry adjustments made somewhere else, and which of those did
+     not survive the move.
+
+     Asked for the whole set at once rather than filled in as previews come
+     back: a review count that grows as you click through the rail is one
+     nobody can trust as a count, which is the note CLAUDE.md makes about a
+     page reporting its own length as the total. The route renders nothing and
+     reaches no provider, so asking on every style change is free. */
+  function refreshCarry() {
+    if (!state.doc || !state.conceptId) return;
+    post('/api/carry', {
+      campaign: state.doc.campaign, conceptId: state.conceptId, platform: state.platform
+    }).then(function (b) {
+      if (!b || b.error) return;
+      state.carry = b.carry || {};
+      state.review = b.review || [];
+      markRail();
+      drawCarryNote();
+    }).catch(function () { /* the mark is worth losing, the panel is not */ });
+  }
+
+  /* One line above the size rail saying where this set's design came from and
+     how many sizes the carry could not place. Said once, at the top, rather
+     than repeated on each size: the per-size mark is the detail. */
+  function drawCarryNote() {
+    var el = $('carryNote');
+    if (!el) return;
+    var o = (concept() || {}).styleOverrides || {};
+    if (!o.authoredFor) { el.innerHTML = ''; return; }
+    var n = (state.review || []).length;
+    el.innerHTML =
+      '<div style="padding:0 16px 8px;font-size:11px;line-height:1.4;color:var(--ink-2)">' +
+        'Adjustments were made on <b>' + esc(o.authoredFor) + '</b> and carried to the ' +
+        'rest in proportion.' +
+        (n
+          ? ' <span style="color:var(--warn)">' + n + ' size' + (n === 1 ? '' : 's') +
+            ' did not take it cleanly — marked \u25B2.</span>'
+          : ' <span style="color:var(--pass)">Every other size took it cleanly.</span>') +
+      '</div>';
   }
 
   function drawQa(list) {
@@ -3337,7 +3483,7 @@
         // anything.
         var rail = railSizes();
         if (rail.length && rail.indexOf(state.size) < 0) state.size = rail[0];
-        drawControls(); drawRail(); preview();
+        drawControls(); drawRail(); preview(); refreshCarry();
         refreshDeliver(); refreshOverrideNote(); refreshStage();
         loadApprovals();
       });
@@ -3372,7 +3518,7 @@
       state.conceptId = pick;
       state.sizeStatus = {};
       state.copyScope = {};
-      drawControls(); drawRail(); preview();
+      drawControls(); drawRail(); preview(); refreshCarry();
     });
   });
 
