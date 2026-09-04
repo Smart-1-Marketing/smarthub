@@ -18,9 +18,19 @@ from hub import coverr
 # earlier version of this line. An attribute assignment carries the same
 # object under the same name -- coverr_service.search is hub.coverr.search,
 # identically -- without looking like dead code to anything that checks.
+#
+# __all__ names every one of them anyway. The assignment alone stopped the
+# "unused import" finding and traded it for "unused global variable" on the
+# three names that start with an underscore -- this file never calls them,
+# only services/provider_check.py does (coverr_service._key(),
+# coverr_service._app_id()), and no per-file linter can see across that
+# boundary. __all__ is the one signal every static-analysis tool reads the
+# same way: this name is the module's public surface, not dead code.
 BASE_URL = coverr.BASE_URL
 _app_id = coverr._app_id
 _key = coverr._key
 _mock_results = coverr._mock_results
 is_live = coverr.is_live
 search = coverr.search
+
+__all__ = ["BASE_URL", "_app_id", "_key", "_mock_results", "is_live", "search"]
