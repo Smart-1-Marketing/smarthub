@@ -96,7 +96,6 @@ from modules.commercial_builder.services import (                 # noqa: E402
     pexels_service, pixabay_service,
 )
 from modules.image_picker import filing                           # noqa: E402
-from modules.image_picker.models import SavedImage, session       # noqa: E402
 from modules.video_backgrounds import app as vb_app                # noqa: E402
 
 flask_app = flask.Flask(__name__)
