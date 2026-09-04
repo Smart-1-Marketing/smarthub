@@ -57,7 +57,6 @@
   }
   function addDays(d, n) { var x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
   function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
-  function endOfMonth(d) { return new Date(d.getFullYear(), d.getMonth() + 1, 0); }
   function startOfWeek(d) { return addDays(d, -d.getDay()); }           // Sunday
   function startOfQuarter(d) { return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1); }
   function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
