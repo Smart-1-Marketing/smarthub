@@ -556,6 +556,20 @@ check("and the variable to fix it", "PICKER_UPLOAD_SOURCES" in loud, True)
 env(PICKER_UPLOAD_SOURCES=None)
 
 
+# ---------------------------------------------------------------------------
+# Late columns: a boolean column with a numeric default never lands on Postgres
+# ---------------------------------------------------------------------------
+# `external` shipped as "BOOLEAN DEFAULT 0". SQLite takes it, Postgres refuses
+# an integer default on a boolean, the ALTER was swallowed, and every client
+# gallery answered "Couldn't load the gallery" because `image_picker_images.
+# external` did not exist. The DDL is written once here and run on two engines,
+# so the one that only breaks in production has a test that fails locally.
+from modules.image_picker import models as _models
+
+_bad = [(t, c, d) for t, c, d in _models._LATE_COLUMNS
+        if "BOOL" in d.upper() and any(ch.isdigit() for ch in d.split("DEFAULT")[-1])]
+check("no boolean late column defaults to a number", _bad, [])
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
