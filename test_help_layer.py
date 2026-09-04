@@ -286,22 +286,18 @@ ok("some walkthroughs are clean, so this is not reporting everything",
 check("no walkthrough drives none of the steps it names",
       [r["key"] for r in DEMO["rows"] if r["dead"]], [])
 
-# A scenario worked down to zero is named rather than left to the count.
-# The backlog above stays a backlog on purpose, so nothing here asserts how
-# large it is -- but a scenario somebody has repaired must not quietly come
-# apart again when a control it drives is renamed. Each of these was every-
-# step-dead-or-nearly before it was repaired against the tool that exists.
-_REPAIRED = ["seo_images.first_batch",
-             "sales_builder.first_quote",
-             "sales_builder.deliver"]
-_still_broken = sorted(r["key"] for r in DEMO["rows"] if r["key"] in _REPAIRED)
-check("a repaired walkthrough stays anchored", _still_broken, [])
-# And the list may not outlive its scenarios -- an entry naming one that has
-# been renamed or retired would pass by describing nothing, which is the
-# stale-exemption failure check_stale_json_exemptions() names.
-_known = set(DEMO["clean"]) | {r["key"] for r in DEMO["rows"]}
-check("and every scenario it names still exists",
-      sorted(k for k in _REPAIRED if k not in _known), [])
+# The backlog is empty, so the count is asserted rather than a list of the ones
+# somebody happened to repair. That list was the right check while a backlog
+# existed -- naming the count then would have been a check switched on red, the
+# thing this file is careful about. It is worth having now for the opposite
+# reason: it starts green, and it bites the first time a control a walkthrough
+# drives is renamed, which is how the backlog got to fifty-five in the first
+# place. A step whose selector this audit cannot test clears nothing, so
+# "untestable" cannot be used to satisfy it either.
+_unanchored = {r["key"]: [u["selector"] for u in r["unanchored"]]
+               for r in DEMO["rows"]}
+check("every walkthrough drives every step it names", _unanchored, {})
+check("...and every scenario is clean", len(DEMO["clean"]), DEMO["scenarios"])
 
 # A target is credited by the ATTRIBUTE being there, not by the word.
 # `_found()` used to test `name in everything`, so data-demo='unmatched' was

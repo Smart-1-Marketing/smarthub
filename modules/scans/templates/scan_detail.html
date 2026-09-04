@@ -140,7 +140,7 @@
   <div class="card">
     <h2>Result</h2>
     {% if scan.status == "complete" %}
-      <div class="scoreline">
+      <div class="scoreline" data-demo="scan-scores">
         <span class="bigscore">{{ scan.score if scan.score is not none else "—" }}</span>
         <span class="tier">{{ scan.tier }}</span>
         <span class="badge complete">complete</span>
@@ -277,7 +277,7 @@
   </div>
 
   {# ---------------- Fix list: broken links and images ----------------- #}
-  <div class="card">
+  <div class="card" data-demo="scan-findings">
     <h2>Fix These
       {% if fixes.measured %}
         <span class="hcount {{ fixes.worst }}">{{ fixes.total }} to fix</span>
@@ -380,7 +380,7 @@
     </dl>
   </div>
 
-  <div class="card">
+  <div class="card" data-demo="scan-reports">
     <h2>Reports</h2>
     {% if reports_menu %}
       <p class="sub" style="margin:0 0 12px">Each one reads the same audit and

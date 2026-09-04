@@ -3791,13 +3791,43 @@ element may still be drawn at runtime, the way a target accepted on a prefix
 already is.
 
 **Fifty-five of the 165 steps that name an element named one that is in no
-template**, across eighteen of the twenty-eight scenarios. That is a
-**backlog, not a regression**, and it is deliberately not an integrity
+template**, across eighteen of the twenty-eight scenarios. That was a
+**backlog, not a regression**, and it was deliberately not an integrity
 finding: a check switched on red is a check somebody turns off, and it would
-take the bubble check down with it. `help_audit.demo_targets()` gathers it and
-the **help layer** panel on `/diagnostics` lists it, so the scenarios written
-against a screen that has since been rebuilt are a list somebody works down
-rather than something a learner meets one step at a time.
+have taken the bubble check down with it. `help_audit.demo_targets()` gathers
+it and the **help layer** panel on `/diagnostics` lists it, so the scenarios
+written against a screen that has since been rebuilt were a list somebody
+works down rather than something a learner meets one step at a time.
+
+**It is at zero, and the count is asserted now rather than the list.** All
+twenty-eight scenarios drive every step they name. Asserting the number was
+the wrong check while a backlog existed — it would have started red, which is
+the failure this section is about — and it is the right one now, for the
+opposite reason: it starts green and it bites the first time a control a
+walkthrough drives is renamed, which is how fifty-five accumulated. A step
+whose selector the audit cannot test clears nothing, so *untestable* cannot
+satisfy it either.
+
+**Seven of the fifty-five were never dead.** `_needs()` reads a
+`[data-tour='…']` selector into a requirement and `_spellings()`, which says
+how one would be written in markup, was never told that attribute exists — so
+it returned an empty tuple and `_found()` could only answer False. Every
+tour-anchored step in the two Smart 1 Ads walkthroughs was counted as driving
+nothing while its hook sat in the templates. That is the false positive
+`_spellings()`'s own docstring warns about, inside the function written to
+stop the opposite mistake, and it is held by an invariant rather than by
+naming the attribute: every kind the parser emits must have a spelling the
+finder looks for.
+
+**And six scenarios named a page this Hub does not serve** — four guessed a
+`/tools/` prefix for a module mounted at the root. `catalogue()` prints that
+string into the index a rep reads and asks no route to resolve it, and
+`hub-demo.js` never navigates, so neither end could notice. Three of the six
+were among the scenarios whose steps read as anchored to nothing, which looks
+like a forgotten hook when the cause is the line above them.
+`test_help_layer.py` asks the composed app, the assertion
+`test_oauth_redirects.py` already makes about the OAuth callbacks; a redirect
+counts as served, because these are staff pages behind `AuthGuard`.
 
 **And the list is being worked down, which is what a backlog is for.** Three
 scenarios are repaired: `seo_images.first_batch` (eight of eleven steps dead),
@@ -3948,7 +3978,18 @@ already has, never folded into the anchored count. At least three characters,
 because a bare `data-demo="{{ x }}"` names no prefix and one that matched
 everything would switch the check off.
 
-Placing the rest is separate work and needs whoever knows each tool.
+The rest is placed. What it took was not one job: most steps named a control
+that exists under another selector and were simply anchored — `#runBtn`,
+`#checkNow`, `#refresh`, `#snapshotId`, `#prospectFirstName`, `#btnDownload` —
+and the rest named a control the tool does not have and were rewritten against
+the tool that does, the Web Tickets *"Sort by age"* rule. Site Scans promised
+that the image findings hand to the SEO Image Pipeline and the schema to
+Schema Builder, and that page links to neither; what it does have is the
+Reports card, which is the honest version of the same point. Google Finder
+offered an *SEO snapshot* it has never had and an *anomaly check* whose route
+(`/api/ga4/anomalies`) is live with **no caller anywhere in the repo** — that
+one is worth knowing on its own, since `ga_tools.html`'s own copy tells a rep
+the page has it.
 
 It asks whether the element exists **anywhere**, not on the scenario's own
 page — a walkthrough drives a screen whose markup half a dozen scripts write,
