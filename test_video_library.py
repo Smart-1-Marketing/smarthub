@@ -635,6 +635,118 @@ check_in("the page says the free stock libraries are not indexed here",
 
 
 # ---------------------------------------------------------------------------
+print("\nCoverr is searched live, alongside the owned library, never merged into it")
+# ---------------------------------------------------------------------------
+from flask import Flask                        # noqa: E402
+import hub.coverr as coverr_mod                 # noqa: E402
+from modules.commercial_builder.services import coverr_service as cb_coverr  # noqa: E402
+from modules.video_backgrounds import app as vb_app                          # noqa: E402
+
+# The Commercial Builder used to keep its own copy of this client. Now it is
+# one implementation in hub/coverr.py (this page needs it too), re-exported
+# under the old module path -- so every name has to actually be the same
+# object, not a second definition that happens to behave alike today.
+for _name in ("BASE_URL", "_key", "_app_id", "is_live", "search", "_mock_results"):
+    check(f"coverr_service.{_name} is hub.coverr.{_name}, not a second copy",
+          getattr(cb_coverr, _name) is getattr(coverr_mod, _name), True)
+
+# --- _coverr_note(): four situations, and only one of them means "hidden" ---
+check("no query typed says so, not 'nothing found'",
+      "Type a search" in vb_app._coverr_note("", False, False), True)
+check("no key set says so, distinct from 'no matches' -- checked even though",
+      "COVERR_API is not set" in vb_app._coverr_note("drone", False, False), True)
+check("...it would say so anyway if search() were ever asked while not live",
+      "COVERR_API is not set" in vb_app._coverr_note("drone", False, True), True)
+check("a real, live search with results carries no note at all",
+      vb_app._coverr_note("drone", True, True), "")
+check("a real, live search that found nothing says so",
+      vb_app._coverr_note("drone", True, False), "No Coverr matches for this search.")
+
+# --- the request coverr.search() actually builds ---
+_real_key, _real_app_id, _real_get = coverr_mod._key, coverr_mod._app_id, coverr_mod.requests.get
+_sent = {}
+
+
+class _FakeResp:
+    status_code = 200
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"hits": [{
+            "id": "abc123", "poster": "https://coverr.co/p.jpg",
+            "urls": {"mp4_preview": "https://coverr.co/prev.mp4",
+                     "mp4_download": "https://coverr.co/full.mp4"},
+            "max_width": 1920, "max_height": 1080, "duration": 12,
+        }]}
+
+
+def _fake_get(url, headers=None, params=None, timeout=None):
+    _sent.clear()
+    _sent.update(params or {})
+    _sent["_auth"] = (headers or {}).get("Authorization")
+    _sent["_url"] = url
+    return _FakeResp()
+
+
+coverr_mod._key = lambda: "k-test"
+coverr_mod._app_id = lambda: "app-test"
+coverr_mod.requests.get = _fake_get
+try:
+    check("is_live() is true once a key is present", coverr_mod.is_live(), True)
+    _got = coverr_mod.search("drone over a suburb", per_page=3)
+    check("the key goes in the Authorization header as a Bearer token",
+          _sent.get("_auth"), "Bearer k-test")
+    check("the app id rides along as a query param when this deployment has one",
+          _sent.get("app_id"), "app-test")
+    check("the request hits the documented videos endpoint",
+          _sent.get("_url"), coverr_mod.BASE_URL)
+    check("a real hit is shaped like the universal asset the other providers use",
+          (_got[0]["provider"], _got[0]["tier"], _got[0]["preview_url"]),
+          ("coverr", "FREE", "https://coverr.co/prev.mp4"))
+
+    coverr_mod._app_id = lambda: ""
+    coverr_mod.search("drone over a suburb", per_page=3)
+    check_true("...and is left out entirely when this deployment has none",
+               "app_id" not in _sent)
+finally:
+    coverr_mod._key, coverr_mod._app_id = _real_key, _real_app_id
+    coverr_mod.requests.get = _real_get
+
+# --- the route: a second shelf, never folded into the owned grid ---
+_flask_app = Flask("vb-coverr-route-test")
+with _flask_app.test_request_context("/tools/video-backgrounds/api/search?q="):
+    _payload = vb_app.api_search().get_json()
+check("an empty query never calls Coverr at all",
+      _payload["coverr"]["results"], [])
+check_in("...and says why the shelf is empty rather than leaving it blank",
+        "Type a search", _payload["coverr"]["note"])
+check("coverr.live reports honestly with no key configured",
+      _payload["coverr"]["live"], False)
+
+with _flask_app.test_request_context("/tools/video-backgrounds/api/search?q=drone"):
+    _payload = vb_app.api_search().get_json()
+check("a real query with no key returns no Coverr cards at all -- not even "
+      "mock ones, unlike the Commercial Builder's picker",
+      _payload["coverr"]["results"], [])
+check_in("...with a note saying the key is missing rather than 'no matches'",
+        "COVERR_API is not set", _payload["coverr"]["note"])
+check_true("the owned-library key is untouched by any of this",
+           "results" in _payload and "total" in _payload)
+
+# --- the page itself carries the shelf, separate from the owned grid ---
+check_in("the template has a second, dedicated results grid for Coverr",
+        'id="vb-coverr-results"', _page_src)
+check_in("...with its own head/note pair rather than sharing the owned one",
+        'id="vb-coverr-head"', _page_src)
+check_in("...labeled so nobody mistakes it for indexed, owned footage",
+        "free stock, searched live", _page_src)
+check_in("the JS never appends a Coverr card into the owned grid",
+        "coverrResults.appendChild(coverrCard(item))", _page_src)
+
+
+# ---------------------------------------------------------------------------
 print("\nLimits are clamped")
 # ---------------------------------------------------------------------------
 check_true("MAX_RESULTS is bounded", 0 < vl.MAX_RESULTS <= 500)

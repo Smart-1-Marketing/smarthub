@@ -918,7 +918,7 @@ def runway_duration(scene_seconds):
 # V2 is the one honest exception: nothing is implemented behind those two, so
 # they are drawn as a static "not built yet" label rather than a dot that
 # could never light.
-V1_PROVIDERS = ["openai", "pexels", "pixabay", "heygen", "elevenlabs", "creatomate", "cloudinary"]
+V1_PROVIDERS = ["openai", "pexels", "pixabay", "coverr", "heygen", "elevenlabs", "creatomate", "cloudinary"]
 V1_5_PROVIDERS = ["runway"]
 V2_PROVIDERS = ["storyblocks", "shutterstock"]
 

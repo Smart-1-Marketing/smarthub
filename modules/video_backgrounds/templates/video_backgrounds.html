@@ -95,11 +95,14 @@
          that returns three clips looks the same whether the library is small
          or whether half the internet's free stock is missing from it. #}
       <p class="vb-note">
-        This searches <strong>our own Cloudinary footage only</strong>. Free
-        stock libraries are not indexed here — Pexels and Pixabay are searched
-        live in the <a href="/tools/commercial-builder/">Commercial Builder</a>,
-        and a clip from there only appears in this library if someone uploads
-        it to Cloudinary after the cutoff above.
+        The results above are <strong>our own Cloudinary footage only</strong>,
+        vision-described and indexed ahead of time. Coverr is searched live
+        below it instead — nothing from Coverr is indexed, transformed, or
+        stored here, so it can never be mistaken for footage we hold. Pexels
+        and Pixabay are not searched on this page at all; those stay live in
+        the <a href="/tools/commercial-builder/">Commercial Builder</a>, and a
+        clip from any of the three only joins the library above if someone
+        uploads it to Cloudinary after the cutoff.
         Library health is also on <a href="/status">System Status</a>.
       </p>
       {% if status.missing_folders %}
@@ -170,6 +173,17 @@
 <div id="vb-msg" class="vb-note" style="margin:0 2px 12px"></div>
 <div id="vb-results" class="vb-grid"></div>
 
+{# Its own heading rather than folded into the grid above: these clips are
+   not indexed, not vision-described and not ours, and a shared heading would
+   let one read as the other. Hidden until a search actually asks Coverr
+   something -- see _coverr_note() in app.py for why a chip-only search never
+   reaches it. #}
+<div class="vb-shelf-head" id="vb-coverr-head" hidden>
+  <h3>Coverr <span class="pill info">free stock, searched live</span></h3>
+  <p class="vb-note" id="vb-coverr-note" style="margin:2px 0 10px"></p>
+</div>
+<div id="vb-coverr-results" class="vb-grid"></div>
+
 <style>
 /* The Hub is a light theme -- hub.css sets --bg #f4f6fa, --panel #fff and ink
    #1e293b, and .card is white. This page was first written against a dark
@@ -205,6 +219,9 @@
 .vb-chip[aria-pressed="true"]{background:var(--brand,#2563eb);
   border-color:var(--brand,#2563eb);color:#fff}
 .vb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.vb-shelf-head{margin:22px 0 10px;padding-top:14px;border-top:1px solid var(--line,#e2e8f0)}
+.vb-shelf-head h3{margin:0 0 2px;font-size:14px;color:var(--navy,#1a2e58);
+  display:flex;align-items:center;gap:8px}
 .vb-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:10px;
   overflow:hidden}
 /* Deliberately dark: a clip with light edges needs a plate behind it, and this
@@ -242,6 +259,9 @@
 
   var results = document.getElementById("vb-results");
   var msg = document.getElementById("vb-msg");
+  var coverrHead = document.getElementById("vb-coverr-head");
+  var coverrNote = document.getElementById("vb-coverr-note");
+  var coverrResults = document.getElementById("vb-coverr-results");
   var selected = [];
 
   function note(text, bad) {
@@ -304,15 +324,67 @@
     return el;
   }
 
+  // Coverr's shape has no public_id, folder, tags or description -- it is
+  // never indexed, so card() above (built for the owned-library shape) does
+  // not fit it. Its own card, and its own copy targets: preview_url/full_url
+  // rather than the transformed background_url/poster_url only Cloudinary
+  // delivery produces.
+  function coverrCard(item) {
+    var el = document.createElement("div");
+    el.className = "vb-card";
+    var secs = item.duration ? (Math.round(item.duration * 10) / 10) + "s" : "length unknown";
+    var dims = (item.width && item.height) ? item.width + "×" + item.height : "size unknown";
+    el.innerHTML =
+      '<video muted loop playsinline preload="none" poster="' + esc(item.thumbnail) + '"' +
+      ' src="' + esc(item.preview_url || item.full_url) + '"></video>' +
+      '<div class="vb-card-b">' +
+        "<h4>" + esc(item.author || "Coverr") + "</h4>" +
+        '<p class="vb-meta">' + esc(dims) + " · " + esc(secs) + "</p>" +
+        '<div class="vb-acts">' +
+          '<button type="button" data-copy="video">Copy video URL</button>' +
+          (item.source_url ? '<button type="button" data-copy="source">Open on Coverr</button>' : "") +
+        "</div>" +
+      "</div>";
+
+    var video = el.querySelector("video");
+    el.addEventListener("mouseenter", function () { video.play().catch(function () {}); });
+    el.addEventListener("mouseleave", function () { video.pause(); });
+    el.querySelectorAll("[data-copy]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var which = button.getAttribute("data-copy");
+        if (which === "source") { window.open(item.source_url, "_blank", "noopener"); return; }
+        copy(item.full_url || item.preview_url, button);
+      });
+    });
+    return el;
+  }
+
   function render(payload) {
     results.textContent = "";
     var items = payload.results || [];
     if (!items.length) {
       note(payload.note || "Nothing matched.", !payload.ok);
-      return;
+    } else {
+      note(items.length + " of " + payload.total + " matching clips.");
+      items.forEach(function (item) { results.appendChild(card(item)); });
     }
-    note(items.length + " of " + payload.total + " matching clips.");
-    items.forEach(function (item) { results.appendChild(card(item)); });
+    renderCoverr(payload.coverr);
+  }
+
+  // Its own function rather than folded into render() above: the owned grid
+  // returns early on an empty result, and the Coverr shelf must still show
+  // (or still explain why it is hidden) on that exact search.
+  function renderCoverr(coverrData) {
+    coverrResults.textContent = "";
+    var data = coverrData || {};
+    var items = data.results || [];
+    // The server already tells the whole story in one sentence -- no query,
+    // no key, or a real search that found nothing -- so it is read rather
+    // than re-derived here from data.live: two copies of "why is this empty"
+    // is how they come to disagree the day one of them is edited.
+    coverrHead.hidden = !(items.length || data.note);
+    coverrNote.textContent = data.note || "";
+    items.forEach(function (item) { coverrResults.appendChild(coverrCard(item)); });
   }
 
   function search() {
