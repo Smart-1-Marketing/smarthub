@@ -143,7 +143,16 @@
     return fetch(BASE + path, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify(body || {}), credentials:"same-origin"
-    }).then(function(r){ return r.json().catch(function(){ return {ok:false, error:"Unexpected response."}; }); });
+    }).then(function(r){ return r.json().catch(function(){
+      /* The server answered with something that is not JSON -- an error
+         page, or a sign-in redirect. Carry the status back: "Unexpected
+         response." on its own sent a 500 and an expired session to the
+         same dead end, and neither said which. */
+      return {ok:false, error: r.status === 401 || r.status === 403
+        ? "Your session has expired. Sign in again and reload this page."
+        : "The server did not answer with data (HTTP " + r.status + "). "
+          + "Try again in a moment; if it keeps happening this is a bug to report."};
+    }); });
   }
   function note(el, kind, title, detail){
     el.innerHTML = '<div class="note ' + kind + '"><h3>' + title + '</h3>' +
