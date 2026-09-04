@@ -916,12 +916,20 @@ LLMS_STALE_DAYS = 90   # house guidance, not a published rule: past this the
                        # rebuilding. Advisory — it never blocks anything.
 
 
-def _days_since(stamp: str) -> int | None:
-    """Whole days since an ISO-ish timestamp, or None if it will not parse."""
+def _days_since(stamp: str, today: str = "") -> int | None:
+    """Whole days since an ISO-ish timestamp, or None if it will not parse.
+
+    `today` is the day to count back from, defaulting to the real one. A
+    caller that pinned the day and then called this without it got a count
+    measured against the wall clock instead -- so the day it decided and the
+    day it counted from were the same until midnight and one apart after it.
+    """
     import datetime as _dt
     s = str(stamp or "")[:10]
     try:
-        return (_dt.date.today() - _dt.date.fromisoformat(s)).days
+        now = (_dt.date.fromisoformat(today[:10]) if today
+               else _dt.date.today())
+        return (now - _dt.date.fromisoformat(s)).days
     except Exception:  # noqa: BLE001 — a bad stamp is "not measured", never a crash
         return None
 
@@ -931,7 +939,8 @@ BLOG_CADENCE_SLACK = 1.5   # house guidance: a plan that has nothing planned
                            # out, whatever the setup says the cadence is.
 
 
-def blogs_health(store: dict, sells: bool | None = None) -> dict:
+def blogs_health(store: dict, sells: bool | None = None, *,
+                 today: str = "") -> dict:
     """The one rule for "behind on blogs", read by the SEO record's strip and
     by Client 360's -- two readings of it is how the two screens come to
     disagree about who is behind.
@@ -962,7 +971,11 @@ def blogs_health(store: dict, sells: bool | None = None) -> dict:
     """
     posts = (store.get("blogs") or {}).get("posts") or []
     setup = store.get("setup") or {}
-    today = _dt_date_today_iso()
+    # Injected or the real clock -- never both. Every date in here is "how far
+    # behind is this plan", so a caller that pins the day (a test, or a strip
+    # rendering a client's record as of a date) and a rule that reads the wall
+    # clock disagree by one every midnight, and the pill beside it does not.
+    today = today or _dt_date_today_iso()
     state = _blogs_state(store, sells)
 
     overdue = [p for p in posts
@@ -979,7 +992,7 @@ def blogs_health(store: dict, sells: bool | None = None) -> dict:
     plan_exhausted = False
     behind_by = None
     if cadence_days and sells is not False and state != "not_sold":
-        since = _days_since(last_planned) if last_planned else None
+        since = _days_since(last_planned, today) if last_planned else None
         if since is None:
             # No planned date at all: a plan that was never made has run out
             # by definition, and a date that will not parse is not judged.
@@ -991,7 +1004,7 @@ def blogs_health(store: dict, sells: bool | None = None) -> dict:
     return {
         "state": state, "label": BLOGS_STATES[state],
         "overdue": len(overdue),
-        "overdue_days": _days_since(oldest) if oldest else None,
+        "overdue_days": _days_since(oldest, today) if oldest else None,
         "cadence_days": cadence_days,
         "cadence_source": ("setup" if stated else "not recorded"),
         "plan_exhausted": plan_exhausted,
@@ -1007,7 +1020,8 @@ def blogs_health(store: dict, sells: bool | None = None) -> dict:
 
 def record_health(client: str, store: dict | None = None, *,
                   sells: bool | None = None,
-                  faq_pages: list[dict] | None = None) -> dict:
+                  faq_pages: list[dict] | None = None,
+                  today: str = "") -> dict:
     """The derived health block the record's strip and queue draw.
 
     `store`, `sells` and `faq_pages` are passed in by `client_detail`, which
@@ -1046,7 +1060,7 @@ def record_health(client: str, store: dict | None = None, *,
         })
 
     # ---- blogs: the plan's own dates, the one rule blogs_health() holds ----
-    blogs = blogs_health(store, sells)
+    blogs = blogs_health(store, sells, today=today)
     if blogs["overdue"]:
         n = blogs["overdue"]
         queue.append({
@@ -1110,7 +1124,7 @@ def record_health(client: str, store: dict | None = None, *,
         from . import llms_hosting as _lh
         pub = _lh.published(client)
         if pub:
-            days = _days_since(pub.get("at", ""))
+            days = _days_since(pub.get("at", ""), today)
             llms = {"measured": True, "state": "live",
                     "published_at": str(pub.get("at", ""))[:10], "days": days}
             if days is not None and days >= LLMS_STALE_DAYS:
