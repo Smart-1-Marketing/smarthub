@@ -27,6 +27,8 @@ jobs:
     name: matching, allocation and QBO payment payload
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
