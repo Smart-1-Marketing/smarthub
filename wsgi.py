@@ -305,6 +305,21 @@ class HubBar:
         else:
             body += _bar + _scripts
         headers = [(k, v) for k, v in headers if k.lower() != "content-length"]
+        # HubBar already holds the whole page in memory to splice the sidebar
+        # into it, so compressing here is a few more lines rather than a
+        # second full pass over the response -- the same reasoning
+        # hub/compress.py's docstring gives for doing this only where a body
+        # is already buffered whole, never by wrapping the WSGI stack in a
+        # third place that would have to re-buffer everything itself.
+        from hub import compress as _compress
+        body, _compressed = _compress.compress(
+            body, ctype, environ.get("HTTP_ACCEPT_ENCODING", ""))
+        if _compressed:
+            vary = next((v for k, v in headers if k.lower() == "vary"), "")
+            headers = [(k, v) for k, v in headers
+                       if k.lower() not in ("content-encoding", "vary")]
+            headers.append(("Content-Encoding", "gzip"))
+            headers.append(("Vary", _compress.add_vary(vary)))
         headers.append(("Content-Length", str(len(body))))
         start_response(status, headers, captured.get("exc_info"))
         return [body]
