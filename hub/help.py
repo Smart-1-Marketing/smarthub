@@ -414,6 +414,45 @@ REGISTRY: list[Help] = [
        "address and phone number here are offered into the client info strip "
        "at the top of this record, where one press keeps them."),
 
+    # ---------------- Ad Assets ----------------
+    _h("hub.ad_assets.intro", "Creative out of Drive, into their library",
+       "Campaign creative lives in a Google Drive folder and Smart 1 Team "
+       "carries the address of it — up to four links per product line. A "
+       "Drive address is an address in somebody else's filing cabinet: it "
+       "moves, it gets un-shared, and the row on Client 360 goes on looking "
+       "exactly as healthy as the day it worked. This copies that creative "
+       "into the client's own library, filed under Ad Assets, then the IO, "
+       "then the product number where Knack carried one. The Drive folder is "
+       "never written to — no move, no rename, no trash — so the media team "
+       "keeps working exactly where they are working today."),
+    _h("hub.ad_assets.access", "Why it may say Drive is refused",
+       "The Hub's connected Google logins were consented before Drive was "
+       "asked for, and Google never widens a token that already exists: the "
+       "grant is whatever the person agreed to on the day they connected. So "
+       "an account that has not been reconnected since cannot read Drive at "
+       "all, and this page says so rather than reporting an empty folder. "
+       "Reconnecting the login on Google Access re-consents it, which is one "
+       "click."),
+    _h("hub.ad_assets.dryrun", "Look before it copies",
+       "The dry run authenticates, walks every folder and lists exactly what "
+       "would be copied and what would be skipped, without downloading a byte "
+       "or writing a row. Run it first: a folder that turns out to hold "
+       "somebody's whole Drive is a mistake to notice here rather than after "
+       "four hundred files are filed. Copying is idempotent — every file "
+       "carries the Drive id it came from, so a second run over the same "
+       "client copies nothing twice and says so."),
+    _h("hub.ad_assets.proposals", "Rewriting the links in Smart 1 Team",
+       "Once the creative is in the library, the link on the product record "
+       "should point there. That is a write to the system of record, so it is "
+       "proposed here and applied only from a list somebody has read. A "
+       "proposal is offered only where every file behind that link came "
+       "across — a half-migrated folder keeps its Drive link, because "
+       "replacing it would hide the files that did not. The field is located "
+       "by the URL it currently holds, never by position, so a product with "
+       "four creative links cannot have the wrong one overwritten. Until a "
+       "proposal is applied nothing is waiting on it: Client 360 already "
+       "offers the library copy beside the Drive original."),
+
     # ---------------- Website Audit ----------------
     _h("hub.website_audit.intro", "What this tool is for",
        "One audit of a website already knows what the business is spending on "

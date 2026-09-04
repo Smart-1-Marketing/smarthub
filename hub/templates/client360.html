@@ -480,8 +480,16 @@ function render(g,q){
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><div class="right">${cre.length?`<a class="open-link" href="#" onclick="openGallery(0);return false">&#9635; View gallery (${cre.length})</a>`:''}<a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   if(cre.length){
     html+='<table><thead><tr><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
+    /* Where Ad Assets has copied this creative into the client library, the
+       library copy is what the row opens: a Drive link is an address in
+       somebody else's filing cabinet and it goes on looking healthy long
+       after it stops opening. The Drive original stays beside it rather than
+       being replaced -- the media team still works out of that folder, and a
+       copy is a copy until somebody decides otherwise. A row with no copy
+       reads exactly as it always did. */
     cre.slice(0,12).forEach((c,i)=>{
-      html+=`<tr><td>${esc(c.product||'—')}${memberTag(c.member)}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
+      const lib=c.library_url?`<a class="gbtn" href="${esc(c.library_gallery||c.library_url)}" title="Copied into this client's library — ${esc(String(c.library_count||1))} file(s)">&#128218; Library (${esc(String(c.library_count||1))}) →</a> `:'';
+      html+=`<tr><td>${esc(c.product||'—')}${memberTag(c.member)}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td>${lib}<a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} ${c.library_url?'Drive original':'view'} →</a></td></tr>`;
     });
     html+='</tbody></table>';
     if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;

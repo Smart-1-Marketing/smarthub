@@ -417,6 +417,10 @@ class Settings:
             # and filing them together is how one company's assets end up on
             # another's record.
             "prospects": "smart1-prospects",
+            # Campaign creative copied out of Google Drive and filed under the
+            # IO it ran on — hub/ad_assets.py. The tree below it is
+            # image_picker.filing.ad_asset_folder()'s, not this one's.
+            "ad_assets": "smart1-ad-assets",
         }
         return defaults.get(kind, f"smart1-{kind}")
 

@@ -638,6 +638,36 @@ def job_ads_performance_reports(app) -> dict:
         return monitoring.report_sweep(actor="scheduler")
 
 
+def job_ad_assets_sweep(app) -> dict:
+    """Copy any Drive creative that is not in the client's library yet.
+
+    A backfill that only runs when somebody remembers is a backfill, and the
+    folder full of creative delivered last Thursday is exactly the one nobody
+    remembers. Bounded per pass -- clients, not files -- because this walks
+    somebody else's Drive over the network and a scheduler thread is shared.
+
+    Drive being unreadable is reported, never swallowed as "nothing to do":
+    the Hub's Google logins were consented before Drive was asked for, so
+    `refused` is the ordinary first answer here and the fix is a reconnect.
+    """
+    if os.environ.get("AD_ASSETS_SWEEP", "1").strip().lower() in ("0", "off", "false"):
+        return {"skipped": "AD_ASSETS_SWEEP is off"}
+    try:
+        from hub import ad_assets
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        res = ad_assets.sweep(
+            limit_clients=int(os.environ.get("AD_ASSETS_SWEEP_CLIENTS") or 10))
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": type(exc).__name__}
+    if not res.get("ok"):
+        return {"ok": False, "reason": res.get("reason"),
+                "error": str(res.get("error") or "")[:200]}
+    return {"ok": True, "clients": res.get("clients", 0),
+            "copied": res.get("copied", 0)}
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -671,6 +701,8 @@ JOBS = {
                           "Refresh due weather caches and evaluate website triggers."),
     "smartforecast_backup": (720, job_smartforecast_backup,
                              "Mirror SmartForecast history into the database backup."),
+    "ad_assets":         (720, job_ad_assets_sweep,
+                          "Copy new Drive campaign creative into client libraries."),
     "smartforecast_maintenance": (1440, job_smartforecast_maintenance,
                                   "Expire overrides and enforce SmartForecast retention."),
 }

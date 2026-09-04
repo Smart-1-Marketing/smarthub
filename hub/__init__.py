@@ -6656,6 +6656,12 @@ def create_hub_app() -> Flask:
 
         from .image_audit import register_image_audit
         register_image_audit(app)
+
+        # Ad Assets — Drive creative copied into the client library. Same
+        # defensive registration: a migration tool that fails to import must
+        # not take Client 360 with it.
+        from .ad_assets import register_ad_assets
+        register_ad_assets(app)
     except Exception as _sc_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _sc_exc)
