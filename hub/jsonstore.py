@@ -441,6 +441,36 @@ def _file_lock(path: str) -> threading.Lock:
         return got
 
 
+def _take_flock(path: str):
+    """Open the sidecar lock file and hold it exclusively, or answer None.
+
+    Split out so the close is visible at the one place that owns it. Failing
+    here never costs the write: a filesystem that will not take an flock is a
+    reason to serialise less, not a reason to refuse to save, and the caller
+    still holds the in-process lock. What it must not do is fail *quietly* --
+    a deployment serialising less than it thinks it is looks exactly like one
+    that is -- so the reason is recorded and status() reports it.
+    """
+    global _lock_error
+    try:
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        handle = open(path + ".lock", "a+")                 # noqa: SIM115
+    except OSError as exc:
+        _lock_error = f"{path}: {type(exc).__name__}: {exc}"
+        return None
+    if fcntl is None:
+        return handle
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    except OSError as exc:
+        _lock_error = f"{path}: {type(exc).__name__}: {exc}"
+        handle.close()
+        return None
+    return handle
+
+
 @contextlib.contextmanager
 def _exclusive(path: str):
     """Hold one file against every other thread AND every other worker.
@@ -456,30 +486,20 @@ def _exclusive(path: str):
     in-process lock still holds and the write goes ahead. That is the rule
     every entry point in this module already works to.
     """
-    global _lock_error
     thread_lock = _file_lock(path)
     thread_lock.acquire()
+    handle = None
     try:
-        # Closing the descriptor releases the flock, so the `with` is the
-        # unlock: an explicit LOCK_UN in a finally would be a second silent
-        # except doing what the close already does.
-        with contextlib.ExitStack() as stack:
-            try:
-                parent = os.path.dirname(os.path.abspath(path))
-                if parent:
-                    os.makedirs(parent, exist_ok=True)
-                handle = stack.enter_context(open(path + ".lock", "a+"))
-                if fcntl is not None:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            except OSError as exc:
-                # Named rather than swallowed. Serialising across workers is
-                # the half that needs a filesystem to cooperate, and a
-                # deployment where it silently is not happening would look
-                # exactly like one where it is -- so status() says so, and
-                # the write still goes ahead behind the thread lock.
-                _lock_error = f"{path}: {type(exc).__name__}: {exc}"
-            yield
+        handle = _take_flock(path)
+        yield
     finally:
+        # Closing the descriptor is what releases the flock, so this is the
+        # unlock: an explicit LOCK_UN beside it would be a second call doing
+        # what the close already does. The thread lock is released whatever
+        # happened above -- a lock still held after an exception is a store
+        # that hangs, which is worse than the exception.
+        if handle is not None:
+            handle.close()
         thread_lock.release()
 
 
