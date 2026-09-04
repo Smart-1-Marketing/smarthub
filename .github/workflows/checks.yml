@@ -1110,6 +1110,21 @@ jobs:
             echo "test_client360_layout.py not on this branch — nothing to run."
           fi
 
+      - name: Client 360 Tracked links reads Knack too
+        # A tagged click-thru typed onto an insertion order is a tracked link
+        # as much as one built in the UTM Builder; reading only the builder
+        # made a client whose links all arrived that way read as a client with
+        # none. Holds the four object_135 fields, what counts as tagged, the
+        # dedupe, and a Knack failure that is named rather than drawn empty.
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file.
+        run: |
+          if [ -f test_client360_utm_knack.py ]; then
+            python test_client360_utm_knack.py
+          else
+            echo "test_client360_utm_knack.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder dashboard layout tests
         # The dashboard's sections, and the rail label assistive technology
         # reads. Guarded like the steps above so this workflow stays mergeable
