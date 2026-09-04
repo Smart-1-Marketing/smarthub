@@ -568,6 +568,73 @@ check("the older single-platform parameter still works",
 
 
 # ---------------------------------------------------------------------------
+section("Skipping a resource takes it off the orphaned list, not off the book")
+# ---------------------------------------------------------------------------
+_write_index(MANY)
+
+nothing_yet = google_links.orphans(limit=200)
+check("nothing is skipped before anybody presses the button",
+      nothing_yet["skipped_total"] == 0, nothing_yet["skipped_total"])
+check("orphans_total agrees with the book when nothing is skipped",
+      nothing_yet["orphans_total"] == 60, nothing_yet["orphans_total"])
+
+skip_rep = google_links.skip_resource("G-PAGE3", True, actor="Todd",
+                                      note="Cannot tell whose this is yet")
+check("skipping reports ok", skip_rep["ok"], skip_rep)
+
+after_skip = google_links.orphans(limit=200)
+check("the skipped resource leaves the main orphaned list at once",
+      "G-PAGE3" not in {r["resource_id"] for r in after_skip["rows"]},
+      [r["resource_id"] for r in after_skip["rows"]])
+check("...and the orphaned count drops by exactly one",
+      after_skip["orphans_total"] == 59, after_skip["orphans_total"])
+check("...while the whole book (mapped + orphaned + skipped) is unchanged",
+      after_skip["orphans_total"] + after_skip["skipped_total"] == 60,
+      after_skip)
+check("the scorecard-facing count says one is skipped",
+      after_skip["skipped_total"] == 1, after_skip["skipped_total"])
+
+skipped_view = google_links.orphans(limit=200, only_skipped=True)
+check("the full skipped list holds exactly the one skipped resource",
+      [r["resource_id"] for r in skipped_view["rows"]] == ["G-PAGE3"],
+      skipped_view["rows"])
+check("...still carrying its suggestions, not a stripped-down row",
+      "suggestions" in skipped_view["rows"][0], skipped_view["rows"][0])
+check("...and who skipped it and why, so it can be worked later",
+      skipped_view["rows"][0]["skip"]["by"] == "Todd"
+      and "Cannot tell" in skipped_view["rows"][0]["skip"]["note"],
+      skipped_view["rows"][0]["skip"])
+check("a plain orphan view carries no skipped rows at all even if asked",
+      google_links.orphans(limit=200, only_skipped=False)
+      .get("skipped_total") == 1)
+
+unskip_rep = google_links.skip_resource("G-PAGE3", False, actor="Todd")
+check("unskipping reports ok", unskip_rep["ok"], unskip_rep)
+back = google_links.orphans(limit=200)
+check("it is back on the main orphaned list", "G-PAGE3" in
+      {r["resource_id"] for r in back["rows"]}, [r["resource_id"] for r in back["rows"]])
+check("...and the skipped count returns to zero",
+      back["skipped_total"] == 0, back["skipped_total"])
+
+check("skipping a resource the index has never seen is refused, never invented",
+      not google_links.skip_resource("G-MADE-UP-999", True)["ok"])
+
+# Attaching a resource clears any skip mark left on it — the rule
+# `attach()` follows so a client who was matched up "the hard way" through the
+# search box does not go on sitting on the skipped list for a resource it now
+# has a home for.
+google_links.skip_resource("G-PAGE7", True, actor="Todd")
+attach_rep = google_links.attach("G-PAGE7", "Buckeye Lake Marina", actor="Todd")
+check("attaching a previously-skipped resource succeeds",
+      attach_rep["ok"], attach_rep)
+still_skipped = google_links.orphans(limit=200, only_skipped=True)
+check("...and it comes off the skipped list too, not only the orphaned one",
+      "G-PAGE7" not in {r["resource_id"] for r in still_skipped["rows"]},
+      [r["resource_id"] for r in still_skipped["rows"]])
+_write_index(LATE_ITEMS)
+
+
+# ---------------------------------------------------------------------------
 section("A platform that refused is not a platform with nothing in it")
 # ---------------------------------------------------------------------------
 # The reason Tag Manager and Search Console can vanish from this page with
@@ -674,12 +741,33 @@ try:
     composed.post("/login", data={"password": os.environ["PANEL_PASSWORD"],
                                   "name": "T"})
     for path in ("/tools/google-match", "/api/google/orphans",
-                 "/api/google/orphans?q=buckeye&platform=ga4"):
+                 "/api/google/orphans?q=buckeye&platform=ga4",
+                 "/api/google/orphans?only_skipped=1"):
         check(f"{path} answers", composed.get(path).status_code == 200)
     check("attach refuses an unknown resource through the route too",
           composed.post("/api/google/attach",
                         json={"resource_id": "G-MADEUP", "client": "X"}
                         ).get_json()["ok"] is False)
+
+    check("skip refuses an unknown resource through the route too",
+          composed.post("/api/google/skip",
+                        json={"resource_id": "G-MADEUP", "skip": True}
+                        ).get_json()["ok"] is False)
+    skip_ok = composed.post(
+        "/api/google/skip",
+        json={"resource_id": "G-NOURL1", "skip": True}).get_json()
+    check("skip succeeds through the route for a resource that exists",
+          skip_ok["ok"] and skip_ok["skipped"] is True, skip_ok)
+    orphaned_now = composed.get("/api/google/orphans").get_json()
+    check("...and it leaves the orphaned list through the route too",
+          "G-NOURL1" not in {r["resource_id"] for r in orphaned_now["rows"]},
+          [r["resource_id"] for r in orphaned_now["rows"]])
+    skipped_now = composed.get("/api/google/orphans?only_skipped=1").get_json()
+    check("...and shows up on the skipped-for-later route",
+          "G-NOURL1" in {r["resource_id"] for r in skipped_now["rows"]},
+          [r["resource_id"] for r in skipped_now["rows"]])
+    composed.post("/api/google/skip",
+                  json={"resource_id": "G-NOURL1", "skip": False})
 
     # A cooldown, shared with Google Finder's own "not found? refresh"
     # button (POST /google/api/refresh), so an impatient double-click on

@@ -419,7 +419,32 @@ def create_hub_app() -> Flask:
             # hub/webargs.py exists: ?limit=-1 was a 500 on Postgres and a
             # full dump on SQLite.
             limit=clamp_int(request.args.get("limit"), 25, 1, 200),
-            offset=clamp_int(request.args.get("offset"), 0, 0, 100000)))
+            offset=clamp_int(request.args.get("offset"), 0, 0, 100000),
+            # The other half of the skip overlay: the same list, with the
+            # filter inverted, so what was set aside is still somewhere a
+            # person can find it rather than gone from every screen.
+            only_skipped=str(request.args.get("only_skipped", "")).lower()
+            in ("1", "true", "yes")))
+
+    @app.route("/api/google/skip", methods=["POST"])
+    def api_google_skip():
+        """Skip (or unskip) one orphaned Google resource, for later.
+
+        Off the main orphaned list until unskipped — `hub/google_orphan_skip.py`
+        is the overlay, applied on every read of `google_links.orphans()`
+        rather than a second store that could drift from the account index.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        from .google_links import skip_resource
+        out = skip_resource(
+            str(body.get("resource_id") or ""),
+            bool(body.get("skip", True)),
+            actor=current_user() or "",
+            note=str(body.get("note") or ""))
+        return jsonify(out)
 
     @app.route("/api/google/attach", methods=["POST"])
     def api_google_attach():

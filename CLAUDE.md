@@ -11284,6 +11284,96 @@ against this repo's own hero photo, a three-slide 300x250 is 19 KB and a
 970x250 is 27 KB, against a 150 KB ceiling. `test_display_ads.py` asserts all
 of it, including that Amazon and Meta are offered none at any size.
 
+**And every adjustment made on one size was pasted onto the other ten as raw
+pixels.** `styleOverrides` is per **concept** — that is deliberate and right,
+because a font, a weight and a brand colour mean the same thing on every
+canvas — and it also carries geometry: the CTA's x and y, a block's width, the
+type size, the logo's box. Those are pixels, and a pixel authored against a
+300x250 means nothing on a 1080x1920. `applyBlockStyles` clamped them to the
+target canvas, which stopped anything rendering off-frame and is exactly what
+made it invisible: a clamp produces a plausible ad rather than a broken one.
+Measured against T01 on this repo's own templates, one ordinary tuning pass —
+nudge the button, size the headline, scale the logo — did this:
+
+    728x90     the logo went from 46px tall to 8px, which is `MIN_LOGO`, the
+               floor block-style.ts's own constant calls a smudge
+    970x250    headline type from [32,44] to [18,18], on a billboard
+    1080x1920  the button from y=1118 to y=200 — out of the end card and into
+               the middle of the hero photograph
+
+Nothing errored, every size passed its platform's minimum type size, and each
+one was internally consistent, which is why it survived: you have to open the
+other ten to see it. The operator perfects the first ad and ships ten they
+never looked at.
+
+**A departure carries; a pixel does not.** `modules/ad_builder/src/carry.ts`.
+Every size already has a hand-authored layout, so an override is not a position
+on a canvas — it is a **departure from that canvas's own template**, and what
+travels is the departure, in the target's own terms. A dimension carries as a
+**ratio** to the template's own, so *"the headline is a tenth bigger than
+default"* survives onto a billboard whose default is already twice the size. A
+position carries as a **fraction of the frame**, added to the target's own
+template position, so nudging the button a quarter of the way across a 300-wide
+ad moves it a quarter of the way on every other — rather than abandoning the
+composition its own layout put it in. `styleForSize()` is the one reading, and
+every render path asks it, so the preview and the delivered file cannot
+disagree about what was approved on screen — `copyForSize` one field over.
+
+**The first draft of this scaled everything by the smaller axis ratio, which is
+`modules/magic_resize/engine.py`'s rule, and it was a second wrong answer
+replacing the first.** That is right *there*: Magic Resize takes one design
+into empty frames with no target layout to depart from. Here 300x250 → 728x90
+is a factor of 0.36, so it drove the headline to the 8px floor and put the logo
+straight back at the smudge — measured, then changed. The two tools share the
+idea and deliberately not the arithmetic. Written down rather than left to be
+re-derived, because the tempting next edit is to "unify the engine":
+`test_display_ads.py` asserts the difference in both directions, so a change to
+either rule reports that this note has gone stale rather than letting somebody
+assume a shared engine that is not there.
+
+**Trying is half of it; the other half is saying which ones to look at.** The
+QA pass already knows how to find a bad layout — collision is a fail, safe-area
+and overflow and hierarchy are warnings — so the carry does not re-detect any
+of that. What it adds is the fact those checks cannot know: *where this size's
+design came from*. `carriedInto()` reports it, a `carry` finding names the
+source size, and a size whose departure **would not fit** is marked, because
+`applyBlockStyles`' clamp is right and is silent — where it bites, the ad on
+screen is not the adjustment that was asked for. It never fails: carrying is
+the feature, and a check that fires on every size in a set is one people stop
+reading, which is the note `QR_CODE_RULES` already carries.
+
+**The mark leads somewhere, which is the part that makes it worth having.**
+`bySize` is a correction authored against the size it names, merged last and
+carried nowhere — so the operator opens the one the carry could not place,
+nudges it, and the rest of the set is untouched. Without it the flag is a
+signpost: the correction would propagate straight back out and the size that
+had just been got right would be the next one broken. Same shape as
+`concept.copy`, because it is the same question one field over.
+
+**Two rules keep it from being worse than the bug.** A concept with **no
+`authoredFor`** is carried nowhere and resolves exactly as it always did —
+every ad saved before this exists carries pixels with no record of the canvas
+they were drawn against, and guessing one would rewrite creative that has been
+approved and delivered; the `backgroundPosition` precedent, superseded and kept
+and read only when the newer field is absent. And **geometry with no frame to
+come from is dropped, never pasted** — a family switched after tuning leaves
+nothing to re-anchor against, so the target's own composition stands and the
+report says so, since keeping the pixels silently would be the defect wearing a
+fix.
+
+**The browser resolves none of it.** The server returns the resolved style and
+the carry report with the preview, and `POST /api/carry` answers for the whole
+set at once — it renders nothing and reaches no provider, so the review count
+is right the moment something is tuned rather than filling in one size at a
+time as previews come back, which is a count nobody can trust. A second reading
+of the rule in JavaScript is the mirror this file counts the cost of twice.
+`test_display_ads.py` sweeps the **call sites** rather than naming the four
+that were wrong, so the fifth render path added next month cannot paste a pixel
+again, and `tests/carry.test.ts` drives the rule itself — both halves confirmed
+red against the real defect first, and one assertion in the first draft could
+not fail at all, because it checked that type stayed above `MIN_TYPE` and
+`applyBlockStyles` guarantees exactly that.
+
 ## Everyone has their own login, and there are two levels of it
 
 Fourteen people, uploaded from the company census. `hub/user_directory.py`
