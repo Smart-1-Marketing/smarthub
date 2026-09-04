@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 from flask import jsonify, request
 
-from . import config, edits, reframe, silence, sources, waveform
+from . import alerts, config, edits, reframe, silence, sources, waveform
 from .db import db
 from .models import VideoJob
 
@@ -301,6 +301,12 @@ def attach(bp, tool: str):
                 except sources.SourceError as exc:
                     job.status, job.error = "failed", str(exc)
                 db.session.commit()
+        # Somebody watching the job has been told about it, so it must not
+        # also arrive as a popup on the next page they open. The scheduler
+        # sweep is what catches the other case -- they left, it finished, and
+        # nothing on their screen was asking.
+        if job.status in ("done", "failed") and not job.seen_at:
+            alerts.mark_seen([job.id], job.actor or _actor())
         return jsonify(job.as_dict())
 
     @bp.post("/api/jobs/<int:job_id>/save")

@@ -423,6 +423,40 @@ def job_index_video_backlog(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_video_tools(app) -> dict:
+    """Ask Cloudinary how the Video Tools edits are getting on.
+
+    Without this, a job advanced only while the tab that started it stayed
+    open: the browser was the only thing polling, so closing the tab left the
+    edit finishing at Cloudinary with nothing on our side writing the answer
+    down. The row stayed `building` for ever and the person came back to a job
+    that looked stuck. These are edits people kick off and walk away from --
+    that is the whole reason the tools submit asynchronously -- so the polling
+    has to happen somewhere that does not depend on anybody looking.
+
+    Every minute, which is unusually often for this file and is right here:
+    the finished edit raises a popup and a dashboard card, and a notice that
+    arrives half an hour after the work finished is a notice people learn to
+    ignore. It is cheap -- one API call per job actually in flight, and
+    nothing at all when none are.
+
+    Safe to run late, skip and repeat, as the job contract requires. Progress
+    is on the rows, and `edits.poll()` is the same idempotent call the page
+    makes, so a double run asks Cloudinary the same question twice.
+    """
+    try:
+        from modules.video_tools import alerts
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        with app.app_context():
+            return alerts.sweep()
+    except Exception as exc:                            # noqa: BLE001
+        # A provider outage must not take the scheduler down with it. Jobs
+        # left `building` are asked again next minute.
+        return {"ok": False, "error": type(exc).__name__}
+
+
 def job_describe_client_uploads(app) -> dict:
     """Describe another batch of the photographs clients have sent us.
 
@@ -687,6 +721,8 @@ JOBS = {
                           "Re-pull the purchased-domain registry once a night."),
     "video_backlog":     (60, job_index_video_backlog,
                           "Describe another batch of the video background library."),
+    "video_tools":       (1, job_video_tools,
+                          "Poll Cloudinary for finished Video Tools edits."),
     "picker_describe":   (60, job_describe_client_uploads,
                           "Describe another batch of the photos clients sent us."),
     "social_ideas":      (60, job_social_idea_batches,

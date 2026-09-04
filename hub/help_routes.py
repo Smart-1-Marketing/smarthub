@@ -161,6 +161,17 @@ def static_qa_nudge_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/hub-video-alerts.js")
+def static_video_alerts_js():
+    """"Your video edit is ready" — the popup for an edit nobody is watching.
+
+    Root-level for the same reason as the scripts above. Video Tools submit an
+    edit to Cloudinary and do not wait for it, so somebody can start one and
+    leave; this is what tells them it landed, wherever they happen to be."""
+    return send_from_directory(_STATIC, "hub-video-alerts.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-thinking.js")
 def static_thinking_js():
     """The one mark that says something is running.

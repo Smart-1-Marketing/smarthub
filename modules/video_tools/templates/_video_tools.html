@@ -334,11 +334,19 @@ const VT = (function () {
     $("vt-src").addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); useSource(); } });
     $("vt-save").onclick = save;
+    const params = new URLSearchParams(location.search);
+    // ?job= arrives from the popup and the dashboard card, which is how
+    // somebody who started an edit and left comes back to it. It opens
+    // straight onto the result rather than onto the picker -- being told an
+    // edit is ready and then landing on an empty form is the notice not
+    // working.
+    const wanted = params.get("job");
+    if (wanted && /^\d+$/.test(wanted)) { poll(wanted); }
     // ?source= arrives from wherever the clip came from -- today that is the
     // Commercial Builder's filing report, which hands over the stored copy's
     // URL rather than an id, because a URL is what it has. `useSource()`
     // resolves either.
-    const handed = new URLSearchParams(location.search).get("source");
+    const handed = params.get("source");
     if (handed) { $("vt-src").value = handed; useSource(); }
     listSources("");
     loadJobs();

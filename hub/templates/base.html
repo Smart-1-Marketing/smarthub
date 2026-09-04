@@ -235,6 +235,12 @@ function s1hubFeedback(){
      interruption, and one place that can raise it is enough to be sure it is
      raised once. #}
   <script defer src="/hub-qa-nudge.js"></script>
+  {# "Your video edit is ready". Beside the birthday popup and for the same
+     reason it sits here rather than in the chrome the HubBar injects into
+     mounted modules: one place raises an interruption, so it is raised once.
+     Every page somebody lands on after starting an edit — the tool itself,
+     the dashboard, /creative — is a hub page. #}
+  <script defer src="/hub-video-alerts.js"></script>
   <script defer src="/hub-crumbs.js"></script>
   <script defer src="/hub-thinking.js"></script>
   <script defer src="/hub-autofill.js"></script>

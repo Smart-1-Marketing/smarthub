@@ -66,6 +66,15 @@
    system checks: it is the one block on this page about the people rather
    than the book, and under a table of green ticks nobody would ever see it. */
 .cheer-card{margin:0 0 18px;border-top:3px solid #f0b429}
+.vt-card{margin:0 0 18px;border-top:3px solid #1a2e58}
+.vt-h-ico{margin-right:4px}
+.vt-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.vt-list li{display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.45}
+.vt-list .vt-what{flex:1}
+.vt-list .vt-why{display:block;margin-top:3px;font-size:12px;color:#991b1b}
+.vt-list .vt-for{display:block;margin-top:3px;font-size:12px;color:#94a3b8}
+.vt-list a.vt-go{flex:0 0 auto;padding:5px 11px;border-radius:6px;background:#1a2e58;
+  color:#fff;text-decoration:none;font-size:12px;font-weight:600;white-space:nowrap}
 .cheer-h-ico{font-size:16px}
 .cheer-month{color:#94a3b8;font-weight:600;font-size:12.5px;margin-left:6px}
 .cheer-body{display:flex;flex-direction:column;gap:16px}
@@ -143,6 +152,20 @@
      rather than two side by side — at this width two columns of three names
      each was a lot of empty table. #}
   <div class="col-stack">
+    {# Video edits that finished while nobody was looking.
+       Hidden until there is one: Video Tools submit to Cloudinary and do not
+       wait, so an edit lands minutes after the person who started it has gone
+       somewhere else. The popup catches them if they are on a Hub page when
+       it happens; this catches them whenever they next look, which for most
+       people is here. An always-present card saying "nothing waiting" is a
+       card people stop reading, and this is the one that has to be read. #}
+    <div class="card vt-card" id="vt-card" hidden>
+      <div class="card-h">
+        <h3><span class="vt-h-ico">&#127916;</span> Video edits ready</h3>
+      </div>
+      <div class="card-b"><ul class="vt-list" id="vt-list"></ul></div>
+    </div>
+
     <div class="card cheer-card">
       <div class="card-h">
         <h3><span class="cheer-h-ico">&#127874;</span> Birthdays &amp; work anniversaries
@@ -345,6 +368,23 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
     $('k-seo-sub').textContent='$'+fmt(s.seo_billing_monthly)+'/mo SEO billing';
   }
 }).catch(()=>{$('k-clients').textContent='—'});
+
+/* Video edits that finished while nobody was watching the page that started
+   them. The same endpoint the popup reads, so the two cannot disagree about
+   what is outstanding — but this one deliberately does NOT mark anything as
+   seen: the card is a list of what is still waiting, and a list that empties
+   itself because somebody glanced at the dashboard is a list that loses the
+   edit they had not opened yet. Only opening the job clears it. */
+fetch('/video-tools/api/ready').then(r=>r.ok?r.json():null).then(d=>{
+  const card=$('vt-card'), list=$('vt-list');
+  if(!card||!list||!d||!(d.items||[]).length) return;
+  list.innerHTML=d.items.map(i=>'<li><span class="vt-what">'+esc(i.headline)
+    +(i.status==='failed'&&i.error?'<span class="vt-why">'+esc(i.error)+'</span>':'')
+    +(i.client_name?'<span class="vt-for">for '+esc(i.client_name)+'</span>':'')
+    +'</span><a class="vt-go" href="'+esc(i.url)+'">'
+    +(i.status==='failed'?'Look':'Open')+'</a></li>').join('');
+  card.hidden=false;
+}).catch(()=>{});
 
 /* Birthdays and work anniversaries, from the roster the Users panel already
    holds. What is still to come this month, today included — a day that has

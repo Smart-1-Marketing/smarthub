@@ -76,6 +76,13 @@ class VideoJob(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     finished_at = db.Column(db.DateTime)
 
+    # When the person who started this was told it had finished. Stamped on
+    # the row rather than kept in the browser, unlike the birthday popup: a
+    # birthday is everybody's and can be re-shown harmlessly, and "your edit
+    # is ready" is one person's and has to survive them opening the Hub on a
+    # different machine. NULL means still to tell them.
+    seen_at = db.Column(db.DateTime)
+
     # -- JSON columns as dicts ------------------------------------------
     # Text rather than a native JSON column so the module behaves identically
     # on SQLite and Postgres, which is the arrangement models.py in
@@ -116,6 +123,7 @@ class VideoJob(db.Model):
             "saved_url": self.saved_url or "",
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "finished_at": self.finished_at.isoformat() if self.finished_at else "",
+            "seen_at": self.seen_at.isoformat() if self.seen_at else "",
         }
 
 

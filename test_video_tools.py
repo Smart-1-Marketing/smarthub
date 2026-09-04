@@ -273,7 +273,7 @@ section("Both tools are wired the way a tool has to be")
 from werkzeug.test import Client  # noqa: E402
 
 import wsgi  # noqa: E402
-from hub import auth, help as hub_help, help_coverage, sidebar  # noqa: E402
+from hub import auth, help as hub_help, help_coverage, scheduler, sidebar  # noqa: E402
 
 MOUNTS = {"dead_air": "/tools/dead-air", "reframe": "/tools/vertical-reframe"}
 TILES = {"/tools/dead-air/": "Dead Air Cutter",
@@ -330,7 +330,7 @@ check("  ...handing over the STORED copy, not the expiring render URL",
       "approval.stored_url" in cb.split("function nextSteps")[1][:400], True)
 shared = (ROOT / "modules/video_tools/templates/_video_tools.html").read_text()
 check("  ...and the tools read ?source= on load",
-      'URLSearchParams(location.search).get("source")' in shared, True)
+      'params.get("source")' in shared and "URLSearchParams" in shared, True)
 
 # A source the account does not have is refused with a sentence, not a 500.
 bad = client.post("/tools/dead-air/api/source",
@@ -338,6 +338,160 @@ bad = client.post("/tools/dead-air/api/source",
 check("an unknown source is refused with a message", bad.status_code, 400)
 check("  ...that is fit to put on the page",
       bool(bad.get_json().get("error")), True)
+
+# ---------------------------------------------------------------------------
+section("An edit that finishes with nobody watching")
+
+# The failure this whole section exists for: the browser used to be the only
+# thing polling, so closing the tab left the edit finishing at Cloudinary with
+# nothing writing the answer down. The row stayed `building` for ever and the
+# person came back to a job that looked stuck.
+
+from datetime import datetime, timedelta  # noqa: E402
+
+from modules.video_tools import alerts, edits  # noqa: E402
+from modules.video_tools.db import db  # noqa: E402
+from modules.video_tools.models import VideoJob  # noqa: E402
+
+import hub  # noqa: E402
+
+app = hub.create_hub_app()
+
+
+def make_job(**kw):
+    job = VideoJob(tool=kw.pop("tool", "reframe"),
+                   source_public_id=kw.pop("source", "acme/videos/spot"),
+                   transformation="g_auto/w_1080,h_1920,c_fill,q_auto",
+                   status=kw.pop("status", "building"),
+                   actor=kw.pop("actor", "Todd"), **kw)
+    job.options = {"ratio": "9:16"}
+    db.session.add(job)
+    db.session.commit()
+    return job
+
+
+with app.app_context():
+    # Cloudinary is stubbed rather than called: the sweep's job is to write
+    # down whatever it is told, and what this has to prove is that it writes
+    # it down at all when no browser is asking.
+    real_poll, real_ready = edits.poll, alerts.sources.ready
+    answers = {}
+    alerts.sources.ready = lambda: True
+    edits.poll = lambda pid, tx: answers.get(pid, {"status": "building"})
+
+    answers["done/clip"] = {"status": "done", "url": "https://res/out.mp4"}
+    answers["bad/clip"] = {"status": "failed", "error": "Cloudinary said no."}
+    finished = make_job(source="done/clip")
+    broken = make_job(source="bad/clip")
+    waiting = make_job(source="slow/clip")
+    # Older than the page's own patience. The sweep has to give up on the same
+    # schedule the page does, or the two disagree about whether it is running.
+    stuck = make_job(source="stuck/clip")
+    stuck.created_at = datetime.utcnow() - timedelta(
+        seconds=alerts.STALE_SECONDS + 60)
+    db.session.commit()
+
+    out = alerts.sweep()
+    check("the sweep checks everything still building", out["checked"], 4)
+    check("  ...and finishes the one that finished",
+          (db.session.get(VideoJob, finished.id).status,
+           db.session.get(VideoJob, finished.id).result_url),
+          ("done", "https://res/out.mp4"))
+    check("  ...records the one that failed",
+          db.session.get(VideoJob, broken.id).status, "failed")
+    check("  ...leaves the one still building alone",
+          db.session.get(VideoJob, waiting.id).status, "building")
+    check("  ...and gives up on the one that never landed",
+          db.session.get(VideoJob, stuck.id).status, "failed")
+    check("a finished job is stamped with a finish time",
+          bool(db.session.get(VideoJob, finished.id).finished_at), True)
+
+    # An unconfigured deployment must say so rather than looking like a quiet
+    # success — the failure hub/google_index.py had to learn to stop making.
+    alerts.sources.ready = lambda: False
+    check("no Cloudinary is a skip with a reason, not silence",
+          "skipped" in alerts.sweep(), True)
+    alerts.sources.ready = lambda: True
+
+    # ---------------------------------------------------------------
+    notices = alerts.ready_for("Todd")
+    ids = [n["id"] for n in notices]
+    check("both finished edits are waiting to be announced",
+          sorted(ids), sorted([finished.id, broken.id, stuck.id]))
+    check("  ...and the one still building is not", waiting.id in ids, False)
+    check("the notice carries the link to the job itself",
+          next(n["url"] for n in notices if n["id"] == finished.id),
+          f"/tools/vertical-reframe/?job={finished.id}")
+    check("  ...and says what it is in a sentence",
+          "9:16" in next(n["headline"] for n in notices
+                         if n["id"] == finished.id), True)
+    check("  ...while a failed one reads as a failure",
+          next(n["status"] for n in notices if n["id"] == broken.id), "failed")
+
+    # Somebody else's edits are not their business, and are not silenced by
+    # them either.
+    theirs = make_job(actor="Jim", status="done", source="jim/clip")
+    check("an edit is announced to the person who started it",
+          [n["id"] for n in alerts.ready_for("Jim")], [theirs.id])
+    check("  ...and cannot be marked seen by anybody else",
+          alerts.mark_seen([theirs.id], "Todd"), 0)
+    check("  ...and still is not, having tried",
+          [n["id"] for n in alerts.ready_for("Jim")], [theirs.id])
+
+    check("marking seen stamps the row", alerts.mark_seen([finished.id], "Todd"), 1)
+    check("  ...so it is not announced twice",
+          finished.id in [n["id"] for n in alerts.ready_for("Todd")], False)
+    check("  ...and marking it again stamps nothing",
+          alerts.mark_seen([finished.id], "Todd"), 0)
+
+    # A shared-password session has no name to match on. It sees everything,
+    # because the one kind of session that cannot be told apart must not also
+    # be the one that is never told anything.
+    check("an anonymous session sees every outstanding edit",
+          theirs.id in [n["id"] for n in alerts.ready_for("")], True)
+
+    edits.poll, alerts.sources.ready = real_poll, real_ready
+
+# ---------------------------------------------------------------------------
+section("Where the notice actually shows up")
+
+check("the scheduler polls for finished edits", "video_tools" in scheduler.JOBS, True)
+check("  ...every minute, because a late notice is an ignored notice",
+      scheduler.JOBS["video_tools"][0], 1)
+
+alerts_api = client.get("/video-tools/api/ready")
+check("/video-tools/api/ready answers a signed-in reader", alerts_api.status_code, 200)
+check("  ...with a list", isinstance(alerts_api.get_json().get("items"), list), True)
+
+anon = Client(wsgi.application)
+check("  ...and refuses an anonymous one",
+      anon.get("/video-tools/api/ready").status_code in (302, 401), True)
+
+base = (ROOT / "hub/templates/base.html").read_text()
+check("the popup is loaded on every hub page", "/hub-video-alerts.js" in base, True)
+alerts_js = (ROOT / "hub/static/hub-video-alerts.js")
+check("  ...and the file it names exists", alerts_js.exists(), True)
+js = alerts_js.read_text()
+# The rule hub-cheers.js arrived at. Marked when SHOWN: a reload must not
+# bring the same interruption back.
+check("  ...marks a notice seen as it draws it",
+      "/video-tools/api/ready/seen" in js, True)
+check("  ...and stays silent inside somebody else's iframe", "framed()" in js, True)
+served = client.get("/hub-video-alerts.js")
+check("  ...and the Hub serves it", served.status_code, 200)
+
+dash = (ROOT / "hub/templates/dashboard.html").read_text()
+check("the dashboard reads the same endpoint", "/video-tools/api/ready" in dash, True)
+# Deliberately does not POST /seen: the card is what is still waiting, and a
+# card that empties because somebody glanced at the dashboard loses the edit
+# they had not opened yet.
+check("  ...without marking anything seen",
+      "/video-tools/api/ready/seen" in dash, False)
+check("  ...and stays hidden when there is nothing waiting",
+      'id="vt-card" hidden' in dash, True)
+
+check("a notice's link opens straight onto the job",
+      'params.get("job")' in shared, True)
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
