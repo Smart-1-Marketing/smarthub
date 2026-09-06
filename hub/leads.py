@@ -134,9 +134,15 @@ def rate_check(ip: str) -> tuple[bool, int]:
     """(allowed, seconds_until_a_slot_frees). Never raises."""
     if RATE_LIMIT <= 0:
         return True, 0
+    # Namespaced so this limiter's keys can never collide with rate_limited()'s
+    # "bucket:ip" keys in the same shared _hits dict -- a caller who controls
+    # the last X-Forwarded-For hop controls `ip` verbatim, and without this
+    # prefix a crafted address could land on (or overwrite) another module's
+    # bucket for an unrelated real address.
+    key = f"__leads_capture__:{ip}"
     now = time.time()
     with _hits_lock:
-        bucket = _hits[ip]
+        bucket = _hits[key]
         while bucket and now - bucket[0] > RATE_WINDOW:
             bucket.popleft()
         if len(bucket) >= RATE_LIMIT:

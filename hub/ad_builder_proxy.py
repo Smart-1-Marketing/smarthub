@@ -254,6 +254,14 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         # ASCII only and bounded: a header carrying anything else raises
         # UnicodeEncodeError inside requests, and losing the whole proxied
         # request over a name with an accent in it would be absurd.
+        #
+        # Stripped from the forwarded copy first, unconditionally and
+        # case-insensitively (a dict key is exact, and a header name is not):
+        # a non-ASCII display name (nothing survives the encode) must not
+        # fall back to whatever the caller's own browser fetch happened to
+        # set on this header, or an approval could be attributed to a name
+        # nobody signed in as.
+        headers = {k: v for k, v in headers.items() if k.lower() != "x-s1-user"}
         who = (current_user() or "").encode("ascii", "ignore").decode()[:120].strip()
         if who and signed_in:
             headers["X-S1-User"] = who
