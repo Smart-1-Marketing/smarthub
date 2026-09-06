@@ -79,25 +79,23 @@ app.config.update(JSON_SORT_KEYS=False)
 
 MOUNT = "/tools/radio-promo"
 
-_CLOUD_URL = (os.environ.get("CLOUDINARY_URL") or "").strip()
-_CLOUD_NAME = (os.environ.get("CLOUDINARY_CLOUD_NAME") or "").strip()
-_CLOUD_KEY = (os.environ.get("CLOUDINARY_API_KEY") or "").strip()
-_CLOUD_SECRET = (os.environ.get("CLOUDINARY_API_SECRET") or "").strip()
-
+# Configuration is hub.config's job, not this module's: hub/config.py
+# composes CLOUDINARY_URL from either the one-URL form or the three-part
+# credential group (and hub/storage.configure() is the one place that reads
+# it into the SDK, lazily, before every upload) -- a deployment given only
+# the three-part group, or a future fix to how that composition handles a
+# quoted value, would silently miss a second hand-rolled copy of the same
+# logic here. This module has no reads of the raw env vars left.
 try:
     import cloudinary
     import cloudinary.uploader
-    if _CLOUD_URL.startswith("cloudinary://"):
-        cloudinary.config(secure=True)                        # reads CLOUDINARY_URL
-    elif _CLOUD_NAME and _CLOUD_KEY and _CLOUD_SECRET:
-        cloudinary.config(cloud_name=_CLOUD_NAME, api_key=_CLOUD_KEY,
-                          api_secret=_CLOUD_SECRET, secure=True)
 except Exception:                                            # noqa: BLE001
     cloudinary = None
 
 
 def cloud_ready() -> bool:
-    return bool(cloudinary) and bool(_CLOUD_URL or (_CLOUD_NAME and _CLOUD_KEY and _CLOUD_SECRET))
+    from hub.config import settings
+    return bool(cloudinary) and settings.cloudinary_ready
 
 
 # ------------------------------------------------------------------ helpers
