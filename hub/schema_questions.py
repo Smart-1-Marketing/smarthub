@@ -6,14 +6,14 @@ specific fields (price range, service area, accepts reservations, founding
 date) that a ten-field set never covers.
 
 So: **35 questions across seven groups**, each answered from the Hub's own
-records first and then, for whatever is left, one AI call. Only what still
-cannot be found is put to a human.
+records first, then what a crawler has already read off the client's own
+website, and then, for whatever is left, one AI call. Only what still cannot
+be found is put to a human.
 
-Reading the client's own website and running a web search were both planned
-and neither is built. That is said here, and the two confidence levels for
-them are **not reported as zero**: `site: 0` on the panel reads as *their
-website had nothing on it*, when nothing ever looked — the difference this
-codebase treats as the whole point. `NOT_BUILT` names them.
+Running a web search was planned and is not built. That is said here, and
+its confidence level is **not reported as zero**: `search: 0` on the panel
+reads as *the web has nothing on this business*, when nothing ever looked —
+the difference this codebase treats as the whole point. `NOT_BUILT` names it.
 
 ## Why unanswered questions block approval
 
@@ -151,12 +151,20 @@ def _lookup(known: dict, key: str, typed: dict | None = None):
     return None
 
 
-# Planned and not built. Named rather than left as two confidence levels that
-# are always zero: `site: 0` on the panel reads as "their website had nothing
-# on it", which is a claim about the client rather than about us.
+# Planned and not built. Named rather than left as a confidence level that is
+# always zero: `search: 0` on the panel reads as "the web has nothing on this
+# business", which is a claim about the client rather than about us.
+#
+# The other one on this list -- reading the client's own website -- had
+# already half happened by accident. hub.client_context.context() merges
+# hub.scan_facts.contact_observed() into its "fields" for exactly this
+# reason (a client whose record is thin still has a website Insites has
+# already crawled), and build() below folded that straight into `known`
+# alongside genuine Knack answers, reported as "Already on the client
+# record." A fact a crawler read off their home page is not the same claim
+# as one the client record itself carries, and the site tier is separated
+# out below because context() already tracks where each field came from.
 NOT_BUILT = {
-    "site": "Reading the answers off the client's own website is not built. "
-            "Nothing here fetches their pages.",
     "search": "Answering from a web search is not built. The AI call is told "
               "to use only what it is given and not to look anything up.",
 }
@@ -199,14 +207,36 @@ def build(client: str, use_ai: bool = True) -> dict:
     # Kept apart rather than merged in: what a person typed is the one source
     # where "none" is an answer instead of an empty field.
     typed = {k: v for k, v in (store.get("answers") or {}).items() if v}
+
+    # context()'s own `sources` map is what separates the two: a field it
+    # resolved through Knack, the profile or a person is the client record
+    # speaking for itself, and one it resolved through scan_facts is a
+    # crawler's reading of their home page -- trusted, but a different claim,
+    # and the one this module used to fold silently into "known".
+    site_known: dict = {}
+    site_observed_at = ""
     try:
-        known.update({k: v for k, v in (context(client).get("fields") or {}).items() if v})
+        ctx = context(client)
+        ctx_fields = ctx.get("fields") or {}
+        ctx_sources = ctx.get("sources") or {}
+        for field, value in ctx_fields.items():
+            if not value:
+                continue
+            if ctx_sources.get(field) == "scan":
+                site_known[field] = value
+            else:
+                known[field] = value
+        site_observed_at = str(ctx_fields.get("observed_at") or "")
     except Exception:                                   # noqa: BLE001
         pass
 
     industry = str(typed.get("industry") or known.get("industry")
                    or typed.get("category") or known.get("category") or "")
     asked = [q for q in QUESTIONS if applies(q, industry)]
+
+    site_source = ("Read from the client's own website"
+                   + (f" (scanned {site_observed_at})" if site_observed_at else "")
+                   + ".")
 
     rows, unknown = [], []
     for key, question, group, _only in asked:
@@ -219,8 +249,14 @@ def build(client: str, use_ai: bool = True) -> dict:
             rows.append({"key": key, "question": question, "group": group,
                          "answer": str(val).strip(), "confidence": "known",
                          "source": "Already on the client record."})
-        else:
-            unknown.append((key, question, group))
+            continue
+        site_val = _lookup(site_known, key)
+        if site_val is not None:
+            rows.append({"key": key, "question": question, "group": group,
+                         "answer": str(site_val).strip(), "confidence": "site",
+                         "source": site_source})
+            continue
+        unknown.append((key, question, group))
 
     # One AI call for everything still missing, rather than 35 calls.
     if use_ai and unknown:
@@ -254,12 +290,12 @@ def build(client: str, use_ai: bool = True) -> dict:
         "need_answer": len(blocking),
         "need_keys": [r["key"] for r in blocking],
         "can_approve": not blocking,
-        # Only the levels this can actually produce. `site` and `search` were
-        # reported as 0 by a build that never looks at either, which reads as
-        # a fact about the client's website rather than about us; NOT_BUILT
-        # names them instead.
+        # Only the levels this can actually produce. `search` was reported as
+        # 0 by a build that never looks at the web, which reads as a fact
+        # about the client's website rather than about us; NOT_BUILT names it
+        # instead.
         "by_confidence": {c: sum(1 for r in rows if r["confidence"] == c)
-                          for c in ("known", "ai", "needed")},
+                          for c in ("known", "site", "ai", "needed")},
         "not_built": dict(NOT_BUILT),
         "note": _note(blocking, needed),
     }

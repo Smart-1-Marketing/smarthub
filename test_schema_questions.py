@@ -40,12 +40,19 @@ answered. Ready to approve."* in green on load and *"N still marked NEED
 ANSWER, so approval stays blocked."* in red on save. Two readings of one
 question on one panel.
 
-**And two confidence levels were always zero.** The docstring promises each
-question is answered "from the Hub's own records first, then the client's
-website, then a web search". Neither of the last two is built — nothing
-fetches their pages and the AI call is told not to look anything up — and
-`by_confidence` reported `site: 0, search: 0`, which reads as *their website
-had nothing on it*.
+**And two confidence levels were always zero, though one of them should not
+have been.** The docstring promises each question is answered "from the
+Hub's own records first, then the client's website, then a web search". Web
+search genuinely is not built, and `search: 0` on `by_confidence` correctly
+read as *the web has nothing on this business* rather than *nothing ever
+looked* -- `NOT_BUILT` names it. Reading the client's own website had
+**already half happened**: `hub.client_context.context()` merges
+`hub.scan_facts.contact_observed()` -- a crawler's reading of the client's
+home page -- into its own answer, tracked under `sources[field] = "scan"`,
+and `build()` folded that indiscriminately into `known`, reporting a fact
+read off somebody's home page as "Already on the client record." The site
+tier is now what it was always meant to be: separated out by the provenance
+`context()` was tracking the whole time.
 """
 import os
 import shutil
@@ -193,19 +200,78 @@ check("and every row says a human is needed",
 
 
 # =====================================================================
-section("Two sources that were reported as zero")
+section("A source that was still reported as zero")
 # =====================================================================
 reset()
 d = built()
-check("only the levels this can produce are counted",
-      sorted(d.get("by_confidence", {})), ["ai", "known", "needed"])
-check("a source that was never consulted is not reported as empty",
-      "site" in d.get("by_confidence", {}), False)
-check("nor the other", "search" in d.get("by_confidence", {}), False)
-check("they are named, with why", sorted(d.get("not_built", {})),
-      ["search", "site"])
+check("site is counted now that it is built",
+      sorted(d.get("by_confidence", {})), ["ai", "known", "needed", "site"])
+check("only the level that is genuinely unbuilt is named",
+      sorted(d.get("not_built", {})), ["search"])
 check("and the reason is about us, not about the client",
-      "not built" in d["not_built"]["site"], True)
+      "not built" in d["not_built"]["search"], True)
+
+
+# =====================================================================
+section("Reading the client's own website, and telling it apart from the record")
+# =====================================================================
+# context() already merges hub.scan_facts.contact_observed() into its own
+# "fields" -- a crawler's reading of the client's home page, tracked under
+# `sources[field] = "scan"` -- and build() used to fold that straight into
+# `known` next to genuine Knack answers, reporting both as "Already on the
+# client record." A fact read off their website is a different claim.
+import hub.client_context as _cc                                # noqa: E402
+_real_context = _cc.context
+
+reset(name="", industry="")
+_cc.context = lambda client, domain="": {
+    "fields": {"business_name": "Acme Tyre & Auto", "phone": "555-0100",
+              "industry": "Tyre fitting", "observed_at": "2026-08-01"},
+    "sources": {"business_name": "scan", "phone": "scan", "industry": "knack"},
+}
+try:
+    d = built()
+    check("a scan-sourced field reads as site confidence, not known",
+          row(d, "legal_name").get("confidence"), "site")
+    check("...naming the client's own website as where it came from",
+          "client's own website" in row(d, "legal_name").get("source", ""), True)
+    check("...with the scan date, since a sighting with no date reads as today's",
+          "2026-08-01" in row(d, "legal_name").get("source", ""), True)
+    check("phone reads the same way", row(d, "phone").get("confidence"), "site")
+    check("a Knack-sourced field in the same response still reads as known",
+          row(d, "category").get("confidence"), "known")
+    check("a site answer does not block approval",
+          "legal_name" in d.get("need_keys", []), False)
+finally:
+    _cc.context = _real_context
+
+# A person's own answer, or a genuine client-record value, must still win
+# over a site sighting of the same field -- the overlay rule this codebase
+# applies everywhere: a value someone typed or already recorded beats one a
+# crawler observed.
+reset(name="Acme Tyre", industry="Tyre fitting")
+_cc.context = lambda client, domain="": {
+    "fields": {"business_name": "A Different Name Entirely", "observed_at": ""},
+    "sources": {"business_name": "scan"},
+}
+try:
+    check("the client record's own name is not overridden by a site sighting",
+          row(built(), "legal_name").get("answer"), "Acme Tyre")
+    check("...and it is reported as known, not site",
+          row(built(), "legal_name").get("confidence"), "known")
+finally:
+    _cc.context = _real_context
+
+# context() itself can fail to reach anything -- no Knack, no scan on file --
+# and build() must not raise for want of a site answer.
+reset()
+_cc.context = lambda client, domain="": (_ for _ in ()).throw(RuntimeError("boom"))
+try:
+    d = built()
+    check("a context() that raises costs nothing but the site tier",
+          "raised" in d, False)
+finally:
+    _cc.context = _real_context
 
 
 # =====================================================================
