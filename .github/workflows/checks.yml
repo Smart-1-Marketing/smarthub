@@ -1940,6 +1940,21 @@ jobs:
       - name: IO Builder — the model calls, and the landing page it now reads
         run: python3 test_io_builder.py
 
+      # The three PDF-producing routes and the per-product checklist logic
+      # behind them had no test of their own -- the bug that started this
+      # pass (customerRequirementItems() calling a function that never
+      # existed, and a generic "confirm the creative files" line printed for
+      # products with no design spec) was only ever verified by hand against
+      # a throwaway Node harness. This lifts the real rate card and the real
+      # productRequirements/creativeChecklistItems/customerFriendlyNeeds/
+      # buildPdfPayload functions out of the template and runs every product
+      # actually on the card through them, then exercises the direct
+      # download, the Cloudinary-backed generate-client/internal-pdf routes
+      # (upload, gallery filing, the SECURE_INTERNAL_PDF signed-URL branch)
+      # and the not-configured 503 path.
+      - name: IO Builder — every product's PDF checklist, and the three download routes
+        run: python3 test_io_downloads.py
+
       # The panel that creates and deletes clients' Smart 1 Suite sub-accounts
       # had no test of its own. Its double-submit guard was a dict in memory
       # against two gunicorn workers, and it was written *after* the account
