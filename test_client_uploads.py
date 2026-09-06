@@ -154,10 +154,12 @@ check("above the checklist it belongs to",
       IOHTML.index('id="uploadLinkBox"') < IOHTML.index('id="creativeChecklist"'), True)
 check("carried on the order so every document agrees",
       "clientUploadUrl" in IOHTML, True)
-# Both PDFs and the webhook, from one helper — three descriptions of one
+# Both PDFs and the Suite note, from one helper — three descriptions of one
 # address is how the client PDF and the internal one come to disagree.
 check("both documents read one helper", IOAPP.count("_upload_link_for(") >= 3, True)
-check("and the Suite payload carries it", '"client_upload_url"' in IOAPP, True)
+check("and the Suite note carries it",
+      "_upload_link_for(data)" in IOAPP[IOAPP.index("def _order_note_lines"):],
+      True)
 # Building a PDF must never create a gallery: the client and internal
 # documents are generated repeatedly, often twice in a row.
 check("a document only ever reads", "create=False" in IOAPP, True)

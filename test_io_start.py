@@ -387,8 +387,8 @@ check("and what is already there is shown before it is added to",
       "Already on this order" in page, True)
 check("the replacement is visible on the order itself",
       "replaces IO ${state.replacesIo}" in page, True)
-check("the replacement reaches the Suite payload",
-      '"replaces_io"' in (ROOT / "modules" / "io_builder" / "app.py").read_text(),
+check("the replacement reaches the Suite note",
+      'data.get("replacesIo")' in (ROOT / "modules" / "io_builder" / "app.py").read_text(),
       True)
 
 

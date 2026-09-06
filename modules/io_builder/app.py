@@ -1112,7 +1112,8 @@ def submit_io():
             "error": "Both the client PDF URL and internal PDF URL are required before the IO can be submitted."
         }), 400
 
-    def _keep(delivered=False, error="", status=None):
+    def _keep(delivered=False, error="", status=None,
+              suite_opportunity_id="", suite_contact_id=""):
         """Everything the Hub writes down about an order that went out.
 
         One place, reached at every exit past this point, because these three
@@ -1145,7 +1146,9 @@ def submit_io():
         try:
             from hub import io_records
             io_records.record(data, delivered=delivered, error=error,
-                              status=status, actor=actor)
+                              status=status, actor=actor,
+                              suite_opportunity_id=suite_opportunity_id,
+                              suite_contact_id=suite_contact_id)
         except Exception:  # noqa: BLE001
             pass
 
@@ -1193,31 +1196,7 @@ def submit_io():
         except Exception:  # noqa: BLE001
             pass
 
-    webhook_url = os.environ.get("GHL_WEBHOOK_URL", "").strip()
-    if not webhook_url:
-        # Smart 1 Suite delivery is deliberately off while this tool is being
-        # tested end to end: a rep must be able to finish and submit an IO —
-        # and get a Hub record of it, with both PDFs — without the missing
-        # webhook turning every attempt into a dead end. This is NOT the same
-        # as a webhook that is configured and refuses the order (handled
-        # below, which still fails loudly): here nothing was ever sent, and
-        # the response says so in plain words rather than a quiet 200.
-        _keep(delivered=False,
-              error="GHL_WEBHOOK_URL is not configured, so Smart 1 Suite "
-                    "delivery is currently turned off. The order was recorded "
-                    "in the Hub but not sent to Suite or GoHighLevel.")
-        return jsonify({
-            "ok": True,
-            "delivered_to_suite": False,
-            "message": "Order recorded. Smart 1 Suite delivery is turned off "
-                       "while this tool is being tested, so nothing was sent "
-                       "to Smart 1 Suite or GoHighLevel.",
-            "client_pdf_url": client_pdf_url,
-            "internal_pdf_url": internal_pdf_url,
-        })
-
-    # Compute opportunity-friendly summary fields so GoHighLevel can map an
-    # Opportunity Name and Lead Value without digging into nested campaign_data.
+    # Compute opportunity-friendly summary fields.
     def _num(value):
         try:
             return float(value or 0)
@@ -1227,96 +1206,157 @@ def submit_io():
     monthly_budget = round(sum(_num(i.get("budget")) for i in items if isinstance(i, dict)), 2)
     total_campaign_budget = round(sum(_num(i.get("campaignBudget")) for i in items if isinstance(i, dict)), 2)
     order_number = data.get("orderNumber") or ""
-    opportunity_name = " - ".join([str(p) for p in [
-        data.get("client"), data.get("ioType"),
-        (f"Order {order_number}" if order_number else None)
+
+    from hub import suite_opportunity, io_records
+
+    if not suite_opportunity.configured():
+        # Same shape the old "GHL_WEBHOOK_URL is not configured" branch had —
+        # a rep must be able to finish and submit an IO, and get a Hub record
+        # of it with both PDFs, without a missing credential turning every
+        # attempt into a dead end. This is not the same as Suite refusing the
+        # order (handled below, which still fails loudly): here nothing was
+        # ever sent, and the response says so in plain words rather than a
+        # quiet 200.
+        reason = "; ".join(suite_opportunity.status()["problems"]) or "Smart 1 Suite is not configured."
+        _keep(delivered=False,
+              error=f"Smart 1 Suite is not configured, so nothing was sent. {reason}")
+        return jsonify({
+            "ok": True,
+            "delivered_to_suite": False,
+            "message": f"Order recorded. Smart 1 Suite is not configured, so "
+                       f"nothing was sent to Suite. {reason}",
+            "client_pdf_url": client_pdf_url,
+            "internal_pdf_url": internal_pdf_url,
+        })
+
+    # A resubmission (a correction, or the same order sent twice) updates the
+    # one opportunity this order already made rather than opening a second —
+    # GoHighLevel has no natural key for "the opportunity this IO made", so
+    # the Hub's own record of the last successful push is what supplies it.
+    prior = io_records.get(order_number) or {}
+    opportunity_id = str(prior.get("suite_opportunity_id") or "")
+    contact = {
+        "id": str(prior.get("suite_contact_id") or ""),
+        "name": str(data.get("clientContactName") or "").strip(),
+        "email": str(data.get("clientContactEmail") or "").strip(),
+        "phone": str(data.get("clientContactPhone") or "").strip(),
+    }
+    title = " — ".join([str(p) for p in [
+        data.get("client"),
+        (f"Insertion Order {order_number}" if order_number else "Insertion Order"),
     ] if p])
 
-    # Keep the full record, while also exposing commonly mapped fields at the top level.
-    payload = {
-        "event": "smart1_io_completed",
-        "submitted_at": datetime.now(timezone.utc).isoformat(),
-        "order_number": order_number,
-        "opportunity_name": opportunity_name,
-        "lead_value": total_campaign_budget,
-        "monthly_budget": monthly_budget,
-        "total_campaign_budget": total_campaign_budget,
-        "io_type": data.get("ioType"),
-        "client_name": data.get("client"),
-        "client_website": data.get("url"),
-        "client_contact_name": data.get("clientContactName"),
-        "client_contact_email": data.get("clientContactEmail"),
-        "client_contact_phone": data.get("clientContactPhone"),
-        "sales_contact": data.get("salesContact"),
-        "sales_contact_email": data.get("salesEmail"),
-        "media_partner": data.get("partner"),
-        "campaign_start_date": data.get("start"),
-        "campaign_end_date": data.get("end"),
-        "campaign_goals": data.get("objectives", []),
-        "kpis": data.get("kpis", []),
-        # geographic_target stays a single string -- a GoHighLevel workflow
-        # already reads it -- and now holds every area rather than the first.
-        # target_areas is the structured list for anything that can use it.
-        "geographic_target": _payload_geo(data),
-        "target_areas": _payload_areas(data),
-        "audiences": data.get("audiences", []),
-        "income_targets": data.get("incomes", data.get("income", [])),
-        "dayparting": data.get("dayparting"),
-        "creative_source": data.get("creativeSource"),
-        # The address the client uploads their own creative through, so a
-        # Suite automation can put it in a chase email or a task rather than
-        # somebody hunting for it in another tool.
-        "client_upload_url": _upload_link_for(data),
-        "exclusions_negative_keywords": data.get("exclusions"),
-        "landing_page_mode": data.get("landingPageMode"),
-        "shared_landing_page": data.get("landingPage"),
-        "products": data.get("items", []),
-        "creative_assets": data.get("creativeUploads", []),
-        "brandfetch": data.get("brandfetch", {}),
-        "client_pdf_url": client_pdf_url,
-        "internal_pdf_url": internal_pdf_url,
-        "cloudinary_documents": data.get("documents", {}),
-        "management_fee": data.get("managementFee"),
-        "creative_fee": data.get("creativeFee"),
-        "tracking_plan": data.get("trackingPlan", {}),
-        "guardrail_warnings": data.get("guardrailWarnings", []),
-        "media_mix_recommendation": data.get("mediaMixRecommendation", {}),
-        "naming_conventions": data.get("naming", {}),
-        "campaign_owner": data.get("campaignOwner"),
-        # Which order this one supersedes, and the date that one stops. Both
-        # at the top level rather than only inside campaign_data: a Suite
-        # automation that has to close the old opportunity should not have to
-        # dig for the number, and an end date nobody read is an order that
-        # keeps billing.
-        "replaces_io": data.get("replacesIo") or "",
-        "replaces_io_end": data.get("replacesIoEnd") or "",
-        "campaign_data": data
-    }
-
     try:
-        response = requests.post(webhook_url, json=payload, timeout=30)
-    except requests.RequestException as exc:
+        suite = suite_opportunity.push_proposal(
+            client=str(data.get("client") or ""), title=title,
+            value=monthly_budget, contact=contact,
+            website=str(data.get("url") or ""),
+            opportunity_id=opportunity_id,
+            note_lines=_order_note_lines(data, order_number, monthly_budget,
+                                         total_campaign_budget,
+                                         client_pdf_url, internal_pdf_url),
+            source="Smart 1 IO Builder")
+    except Exception as exc:  # noqa: BLE001
         _keep(error=f"Smart 1 Suite could not be reached: {exc}")
-        return jsonify({"ok": False, "error": f"Webhook request failed: {exc}"}), 502
+        return jsonify({"ok": False, "error": f"Smart 1 Suite could not be reached: {exc}"}), 502
 
-    if response.status_code >= 400:
-        _keep(error="Smart 1 Suite refused the order: " + response.text[:200],
-              status=response.status_code)
+    if suite.get("needs_contact"):
+        # Not an error — hub/suite_opportunity.py's own rule. The order is
+        # already recorded and both PDFs already exist; a rep adds a contact
+        # email or phone and submits again, and nothing here is lost while
+        # they do.
+        reason = suite.get("reason") or ("Smart 1 Suite needs the client "
+                                         "contact's email or phone to open an opportunity.")
+        _keep(delivered=False, error=reason)
+        return jsonify({
+            "ok": True,
+            "delivered_to_suite": False,
+            "message": f"Order recorded. {reason}",
+            "client_pdf_url": client_pdf_url,
+            "internal_pdf_url": internal_pdf_url,
+        })
+
+    if not suite.get("ok"):
+        _keep(error="Smart 1 Suite refused the order: " + str(suite.get("reason") or ""))
         return jsonify({
             "ok": False,
-            "error": "Smart 1 Suite webhook returned an error.",
-            "status_code": response.status_code,
-            "response": response.text[:1000]
+            "error": suite.get("reason") or "Smart 1 Suite refused the order.",
         }), 502
 
-    _keep(delivered=True, status=response.status_code)
+    opp_id = str(suite.get("opportunity_id") or "")
+    contact_id = str((suite.get("contact") or {}).get("id") or "")
+    _keep(delivered=True, suite_opportunity_id=opp_id, suite_contact_id=contact_id)
     return jsonify({
         "ok": True,
-        "status_code": response.status_code,
+        "delivered_to_suite": True,
         "message": "The completed IO was sent to Smart 1 Suite.",
+        "suite_opportunity_id": opp_id,
         "client_pdf_url": client_pdf_url,
-        "internal_pdf_url": internal_pdf_url
+        "internal_pdf_url": internal_pdf_url,
     })
+
+
+def _order_note_lines(data, order_number, monthly_budget, total_campaign_budget,
+                       client_pdf_url, internal_pdf_url):
+    """The insertion order, in the words a salesperson reads inside Suite.
+
+    A GoHighLevel opportunity has no field shaped like a campaign, so what
+    used to be twenty structured fields on a webhook payload becomes a note —
+    the same choice hub/suite_opportunity.push_proposal already makes for a
+    delivered proposal and a finished commercial, for the same reason: two
+    kinds of write is two things for those to disagree about later.
+    """
+    lines = []
+    if order_number:
+        lines.append(f"Order #{order_number}"
+                     + (f" ({data.get('ioType')})" if data.get("ioType") else ""))
+    if data.get("salesContact"):
+        lines.append(f"Sales contact: {data.get('salesContact')}"
+                     + (f" ({data.get('salesEmail')})" if data.get("salesEmail") else ""))
+    if data.get("sameDates") and data.get("start"):
+        lines.append(f"Campaign dates: {data.get('start')} to {data.get('end') or '?'}")
+    geo = _payload_geo(data)
+    if geo:
+        lines.append(f"Geography: {geo}")
+    if data.get("partner"):
+        lines.append(f"Media partner: {data.get('partner')}")
+    items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
+    if items:
+        lines.append("Products:")
+        for i in items[:60]:
+            product = i.get("product") or "?"
+            dates = f" ({i.get('start')} to {i.get('end')})" if i.get("start") else ""
+            lines.append(f"  • {product} — ${_to_float(i.get('budget')):,.2f}/mo{dates}")
+    lines.append(f"Monthly budget: ${monthly_budget:,.2f}    "
+                f"Campaign total: ${total_campaign_budget:,.2f}")
+    if data.get("creativeSource"):
+        lines.append(f"Creative source: {data.get('creativeSource')}")
+    upload_url = _upload_link_for(data)
+    if upload_url:
+        lines.append(f"Client upload link: {upload_url}")
+    tracking = data.get("trackingPlan") or {}
+    if tracking.get("primaryConversion"):
+        lines.append(f"Primary conversion: {tracking.get('primaryConversion')}")
+    if data.get("managementFee"):
+        lines.append(f"Management fee: {data.get('managementFee')}")
+    if data.get("specialInstructions"):
+        lines.append(f"Special instructions: {data.get('specialInstructions')}")
+    if data.get("replacesIo"):
+        lines.append(f"Replaces IO {data.get('replacesIo')}"
+                     + (f" — that order ends {data.get('replacesIoEnd')}"
+                        if data.get("replacesIoEnd") else ""))
+    if client_pdf_url:
+        lines.append(f"Customer PDF: {client_pdf_url}")
+    if internal_pdf_url:
+        lines.append(f"Internal PDF: {internal_pdf_url}")
+    return lines
+
+
+def _to_float(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _payload_areas(data):

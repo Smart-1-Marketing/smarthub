@@ -44,8 +44,9 @@ Deliberately:
   * **Legacy state converts both ways.** ``from_legacy`` reads either tool's
     old single-geo fields; ``to_legacy_geo`` writes the one-string form back.
     Every saved quote and every IO in the database predates this module, and
-    the Suite webhook's ``geographic_target`` is a single string that a
-    GoHighLevel workflow already reads. Neither may break.
+    the IO's Suite note reads a single geography line built from it — a
+    multi-area campaign joins all of them rather than sending only the first.
+    Neither may break.
   * **Population is estimated, never invented.** ``estimated_population``
     returns ``None`` for an area it cannot size, and callers must say "not
     measured" rather than showing a confident zero.
@@ -517,11 +518,11 @@ def from_legacy(state) -> list[dict]:
 
 
 def to_legacy_geo(areas) -> str:
-    """The single geography string the IO PDF and the Suite webhook expect.
+    """The single geography string the IO PDF and the Suite note expect.
 
-    ``geographic_target`` is read by a GoHighLevel workflow that predates
-    multi-area campaigns. It keeps receiving one string; a multi-area campaign
-    sends all of them joined, which is strictly more than it used to get.
+    Both predate multi-area campaigns and print one line. A multi-area
+    campaign joins all of them into that line rather than sending only the
+    first, which is strictly more than either used to get.
     """
     rows = normalize(areas)
     if not rows:

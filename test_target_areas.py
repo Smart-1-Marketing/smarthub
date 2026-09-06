@@ -429,9 +429,9 @@ from modules.io_builder import app as io_app                       # noqa: E402
 io_data = {"client": "Riverstone Dental", "orderNumber": "10501",
            "targetAreas": FIXTURES[:3], "sameDates": True,
            "start": "01/01/2026", "end": "06/30/2026"}
-check("the webhook's single geo string holds all three",
+check("the Suite note's single geo line holds all three",
       io_app._payload_geo(io_data).count("||") == 2, io_app._payload_geo(io_data))
-check("and the structured list is sent alongside it",
+check("and the structured list is still there for the PDF",
       len(io_app._payload_areas(io_data)) == 3)
 io_pdf, _ = io_app._build_requirements_pdf(io_data, "client")
 check("the IO PDF builds with several areas", len(io_pdf) > 2000)
