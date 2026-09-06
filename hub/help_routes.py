@@ -180,6 +180,21 @@ def static_crumbs_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/fabric.min.js")
+def static_fabric_js():
+    """Fabric.js, root-level so a second Fabric-based tool needs no static
+    folder of its own.
+
+    Image Creator keeps its own copy under its own mount -- static_folder=None
+    on modules/magic_resize's app means it has nowhere to serve one from, and
+    Magic Resize's editing surface is the second tool built on this library.
+    A pinned third-party file is not the drift the rest of this codebase
+    warns about (that is about our own logic disagreeing with itself); two
+    copies of one version-pinned vendor file cost nothing to keep in step."""
+    return send_from_directory(_STATIC, "fabric.min.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-help.css")
 def static_css():
     return send_from_directory(_STATIC, "hub-help.css", mimetype="text/css",

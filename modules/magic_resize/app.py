@@ -95,6 +95,25 @@ def project_page(pid: str):
                            min_font_source=qc.MIN_FONT_SOURCE)
 
 
+@app.route("/p/<pid>/frames/<size_id>/edit")
+def frame_edit_page(pid: str, size_id: str):
+    """The Fabric editing surface, one frame at a time.
+
+    The API behind this has been here since the module shipped --
+    api_frame_fabric() hands out the frame as editable Fabric objects
+    and api_frame_save() takes them back -- and nothing has ever called
+    either from a browser. This is that screen: drag, resize, rotate and
+    retext with Fabric's own controls, then Save posts the canvas back.
+    """
+    project = store.get(pid)
+    frame = (project or {}).get("frames", {}).get(size_id)
+    if not frame:
+        return render_template("missing.html", version=_version()), 404
+    return render_template("frame_edit.html", version=_version(),
+                           project=project, pid=pid, size_id=size_id,
+                           frame=frame)
+
+
 # --------------------------------------------------------------------------
 # Configuration a screen reads rather than restating
 # --------------------------------------------------------------------------
@@ -279,10 +298,28 @@ def api_resize(pid: str):
 
 @app.route("/api/projects/<pid>/frames/<size_id>", methods=["POST"])
 def api_frame_save(pid: str, size_id: str):
+    """Save a frame the editor hand-tuned.
+
+    The body is `{"fabric": <canvas.toJSON() output>}` -- exactly what the
+    browser already has once somebody has dragged, resized or retexted an
+    object, and exactly the shape api_frame_fabric() below handed out to
+    load the canvas in the first place. fabric_io.to_frame() is the one
+    reading of what that means as the engine's boxes; a second copy of that
+    mapping in the browser is what fabric_io.py's own docstring exists to
+    avoid, so nothing here asks the client to compute x/y/w/h itself.
+    """
     project = store.get(pid)
     if not project:
         return jsonify({"error": "No project of that id."}), 404
-    frame = store.mark_edited(project, size_id, _body().get("objects") or [])
+    existing = (project.get("frames") or {}).get(size_id)
+    if not existing:
+        return jsonify({"error": "No frame of that size on this project."}), 404
+    canvas_json = _body().get("fabric")
+    if not isinstance(canvas_json, dict):
+        return jsonify({"error": "No Fabric canvas in the request body."}), 400
+    parsed = fabric_io.to_frame(canvas_json, width=existing["width"],
+                                height=existing["height"])
+    frame = store.mark_edited(project, size_id, parsed["objects"])
     if frame is None:
         return jsonify({"error": "No frame of that size on this project."}), 404
     store.save(project)

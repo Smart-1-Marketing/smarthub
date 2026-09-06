@@ -936,6 +936,53 @@ Key Events: ${m2.keyEvents.toLocaleString()}
   });
 }
 
+const runAnomalyBtn = document.getElementById('run-anomaly-check');
+if (runAnomalyBtn) {
+  runAnomalyBtn.addEventListener('click', async () => {
+    const property_id = document.getElementById('comp-property-id').value.trim();
+    const google_login = document.getElementById('comp-login').value.trim();
+    const resBox = document.getElementById('anomaly-results');
+
+    if (!property_id || !google_login) {
+      resBox.innerHTML = `<div style="color:#c5221f; font-size:13px;">Enter a GA4 Property ID and Google login above first.</div>`;
+      return;
+    }
+
+    resBox.innerHTML = renderSkeletonCard();
+
+    const resp = await fetch('/google/api/ga4/anomalies', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({property_id, google_login})
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      resBox.innerHTML = `<div style="color:#c5221f; font-size:13px;">Error: ${esc(data.error || 'Anomaly check failed.')}</div>`;
+      return;
+    }
+    if (data.measured === false) {
+      resBox.innerHTML = `<div style="color:#58677e; font-size:13px;">Not measured: ${esc(data.reason || 'GA4 did not answer for both periods.')}</div>`;
+      return;
+    }
+
+    const anomalies = data.anomalies || [];
+    if (!anomalies.length) {
+      resBox.innerHTML = `<div style="color:#137333; font-size:13px;">✓ No swing of 20% or more in sessions or key events over the last 7 days.</div>`;
+      return;
+    }
+
+    resBox.innerHTML = anomalies.map(a => {
+      const color = a.type === 'DROP' ? '#c5221f' : '#137333';
+      const icon = a.type === 'DROP' ? '▼' : '▲';
+      return `<div style="border-left:3px solid ${color}; padding:8px 12px; margin-bottom:6px; background:#fff; font-size:13px;">
+                <b style="color:${color};">${icon} ${esc(a.metric)} ${esc(a.type)}</b>
+                <div style="color:#3c4043;">${esc(a.message)}</div>
+              </div>`;
+    }).join('');
+  });
+}
+
 function renderChart(data) {
   const ctx = document.getElementById('ga4CompareChart');
   if (!ctx) return;

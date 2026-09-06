@@ -348,6 +348,38 @@ def check_knack() -> Check:
     return Check("knack", "Knack", state, detail, ms)
 
 
+def check_quickbooks() -> Check:
+    """Connection health and invoice-link coverage, on the one panel that
+    reports every provider — `qb.health()` and `qb.link_status()` each had
+    no reader at all, one behind an orphaned `/api/qb/health` route and the
+    other with no route at any address, so neither had ever been seen
+    outside `/status`'s bare connect/disconnect card.
+
+    Both reads are local: `health()` inspects the stored token file and
+    `link_status()` reads a cached JSON file of invoice links, so this
+    check costs nothing and reaches QuickBooks for neither.
+    """
+    from . import quickbooks as qb
+    if not qb.configured():
+        return _off("quickbooks", "QuickBooks", "QB_CLIENT_ID / QB_CLIENT_SECRET",
+                    "Client 360 cannot show a client's invoices.")
+    if not qb.connected():
+        return Check("quickbooks", "QuickBooks", "warn",
+                     "Configured, but not connected.", 0,
+                     fix="Connect QuickBooks from /status.")
+
+    h = qb.health()
+    ls = qb.link_status()
+    refreshed = (f"invoice links last refreshed {ls['last_refresh']}"
+                if ls.get("last_refresh") else "invoice links never refreshed")
+    detail = (f"Connected. {ls['with_public_link']} of {ls['cached']} cached "
+             f"invoices have a public link; {refreshed}.")
+    if h["problems"]:
+        return Check("quickbooks", "QuickBooks", "warn",
+                     " ".join(h["problems"]) + " " + detail, 0)
+    return Check("quickbooks", "QuickBooks", "ok", detail, 0)
+
+
 def check_google_oauth() -> Check:
     if not (os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET")):
         return _off("google_oauth", "Google sign-in",
@@ -608,7 +640,8 @@ CHECKS = [
     check_openai, check_cloudinary,
     check_brandfetch, check_insites, check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
-    check_ghl_app, check_knack, check_google_oauth, check_google_accounts,
+    check_ghl_app, check_knack, check_quickbooks, check_google_oauth,
+    check_google_accounts,
 ]
 
 
