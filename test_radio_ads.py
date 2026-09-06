@@ -689,16 +689,27 @@ check("a variation is not itself born with variations",
 # =====================================================================
 section("None of this is a client's to open")
 # =====================================================================
-# Radio Promo is staff-only and declares no public prefixes -- `wsgi.py` wraps
-# the whole mount in AuthGuard. That is what makes the new routes safe: they
-# name clients, carry briefs, and spend money per press. Fan Radio is the one
-# with a customer-facing page, and it declares its three prefixes.
-check("Radio Promo still declares nothing public",
-      getattr(rp_app, "PUBLIC_PREFIXES", None), None)
+# The routes on this page -- beds, mixes, voice uploads, variations -- name
+# clients, carry briefs and spend money per press, so none of them may be
+# reachable without a Hub login. Radio Promo now declares its own client
+# review page too (hub/radio_share.py, the one implementation with Fan
+# Radio's), so PUBLIC_PREFIXES is no longer empty -- it is exactly the three
+# mount-relative prefixes a customer reaches, and none of the billed routes
+# this file exercises fall under any of them.
+check("Radio Promo declares exactly the client review page as public",
+      getattr(rp_app, "PUBLIC_PREFIXES", None), ("/r/", "/api/public/", "/file/"))
 _writes = [r for r in rp_app.app.url_map.iter_rules()
            if {"POST"} & r.methods and any(
                k in str(r) for k in ("/bed/", "/mix", "/voice/upload", "/variations"))]
 check("and every new write route is inside that mount", len(_writes), 6)
+check("and none of the billed writes fall under the public prefixes",
+      all(not str(r).startswith(("/tools/radio-promo/r/",
+                                 "/tools/radio-promo/api/public/",
+                                 "/tools/radio-promo/file/"))
+          for r in rp_app.app.url_map.iter_rules()
+          if {"POST"} & r.methods and any(
+              k in str(r) for k in ("/bed/", "/mix", "/voice/upload", "/variations"))),
+      True)
 
 
 
