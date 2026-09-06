@@ -375,9 +375,10 @@ COMPLETE = {"client": "Never Sent LLC", "orderNumber": "99001",
 # is -- so it is stubbed the way modules/commercial_builder/routes/suite.py's
 # own tests already stub the same function: overwrite the attribute on the
 # `hub` package itself, which is what a function-local `from hub import X`
-# actually reads once X has been imported once.
-import hub                                                          # noqa: E402
-from hub import suite_opportunity as _real_suite_opportunity        # noqa: E402,F401
+# actually reads once X has been imported once. sys.modules rather than a
+# second `import hub` alongside the `from hub import (...)` above.
+from hub import suite_opportunity as _real_suite_opportunity        # noqa: E402
+_hub_pkg = sys.modules["hub"]
 _push_calls = []
 
 
@@ -392,7 +393,7 @@ class _StubSuite:
 
 
 _StubSuite.answer = {"ok": False, "reason": "down"}
-hub.suite_opportunity = _StubSuite
+_hub_pkg.suite_opportunity = _StubSuite
 try:
     # 1. The rep pressed Submit before generating both PDFs. Nothing was
     #    built and nothing went, so nothing is written down -- otherwise
@@ -470,7 +471,7 @@ try:
     check("  naming the missing credential",
           "GHL_PRIVATE_TOKEN" in r.get_json().get("message", ""))
 finally:
-    hub.suite_opportunity = _real_suite_opportunity
+    _hub_pkg.suite_opportunity = _real_suite_opportunity
 
 
 # ---------------------------------------------------------------------------
