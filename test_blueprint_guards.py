@@ -130,6 +130,8 @@ PUBLIC: dict[str, str] = {
     # --- shared front-end assets, served at the root by hub/help_routes.py ---
     "/hub-*": "the chrome's own scripts and stylesheet, injected into every "
               "page including the twenty mounted modules",
+    "/fabric.min.js": "the shared Fabric.js editing library, so a second "
+                      "Fabric-based tool needs no static folder of its own",
     "/ad-copy.js": "the Ad Copy request drawer, loaded by three templates",
     "/knack-form.js": "the shared Knack form renderer",
     "/web-ticket.js": "the web ticket drawer",
