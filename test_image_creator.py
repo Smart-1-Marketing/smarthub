@@ -117,7 +117,6 @@ check("a client that merely contains the name gets nothing",
 section("The panel is always handed a way to the full gallery")
 # ---------------------------------------------------------------------------
 
-import flask                                                      # noqa: E402
 from modules.image_creator import app as image_creator_app        # noqa: E402
 
 http = image_creator_app.app.test_client()
