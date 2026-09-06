@@ -27,14 +27,13 @@ from __future__ import annotations
 
 import os
 import re
-import threading
-import time
 from pathlib import Path
 
 import requests
 from flask import (Flask, jsonify, render_template, request, send_file)
 
 from . import ai, catalog, phrases, speech, store, voices
+from hub import radio_share
 
 try:
     from hub import audit as hub_audit
@@ -65,10 +64,10 @@ app.config["JSON_SORT_KEYS"] = False
 #                which is why a missing Cloudinary credential must not also
 #                mean a silent player
 PUBLIC_PREFIXES = ("/r/", "/api/public/", "/audio/")
+MOUNT = "/tools/fan-radio"
 
 MAX_SPOTS = 12
-_rate_lock = threading.Lock()
-_hits: dict[str, list[float]] = {}
+_limiter = radio_share.RateLimiter()
 
 
 # ------------------------------------------------------------------ utils
@@ -101,20 +100,7 @@ def client_ip() -> str:
 
 
 def rate_limited(bucket: str, limit: int, window: int = 60) -> bool:
-    key = f"{bucket}:{client_ip()}"
-    cutoff = time.time() - window
-    with _rate_lock:
-        hits = [t for t in _hits.get(key, []) if t > cutoff]
-        if len(hits) >= limit:
-            _hits[key] = hits
-            return True
-        hits.append(time.time())
-        _hits[key] = hits
-        if len(_hits) > 5000:                          # cheap sweep
-            for k in list(_hits):
-                if not [t for t in _hits[k] if t > cutoff]:
-                    _hits.pop(k, None)
-    return False
+    return _limiter.hit(bucket, client_ip(), limit, window)
 
 
 def fail(message: str, code: int = 400):
@@ -645,9 +631,7 @@ def api_record(pid, sid):
 # Sharing
 # =====================================================================
 def share_url(project: dict) -> str:
-    base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
-    path = f"/tools/fan-radio/r/{(project.get('share') or {}).get('token')}"
-    return (base + path) if base else path
+    return radio_share.share_url(MOUNT, (project.get("share") or {}).get("token"))
 
 
 @app.route("/api/projects/<pid>/share", methods=["POST"])
@@ -656,17 +640,8 @@ def api_share(pid):
     if not project:
         return fail("No project with that id.", 404)
     body = request.get_json(silent=True) or {}
-    share = project.setdefault("share", {})
-    share.setdefault("token", store.new_token())
-    if "enabled" in body:
-        share["enabled"] = bool(body["enabled"])
-    for key, cap in (("headline", 120), ("intro", 600),
-                     ("cta_label", 60), ("cta_url", 400)):
-        if key in body:
-            share[key] = str(body[key] or "").strip()[:cap]
-    if body.get("regenerate"):
-        share["token"] = store.new_token()
-        share["opened"] = 0
+    share = radio_share.update_share(project.get("share") or {}, body)
+    project["share"] = share
     store.save(project)
     _log("share_updated", project=pid, enabled=bool(share.get("enabled")))
     url = share_url(project)
@@ -714,17 +689,12 @@ def api_public_feedback(token):
                     "fresh one.", 404)
 
     body = request.get_json(silent=True) or {}
-    action = body.get("action")
-    if action not in ("approve", "changes", "comment", "approve_all"):
-        return fail("Pick approve or request changes.")
-    name = str(body.get("name") or "").strip()
-    if not name:
-        return fail("Add your name so we know who approved it.")
-    comment = str(body.get("comment") or "").strip()
-    if action == "changes" and not comment:
-        return fail("Tell us what to change and we'll turn it around.")
+    valid = radio_share.validate_feedback(body)
+    if not valid["ok"]:
+        return fail(valid["error"])
+    action, name, comment = valid["action"], valid["name"], valid["comment"]
 
-    sid = str(body.get("spot_id") or "").strip()
+    sid = valid["spot_id"]
     targets = []
     if action == "approve_all":
         targets = [s for s in project.get("spots") or []
@@ -739,40 +709,25 @@ def api_public_feedback(token):
 
     # Written before anything else runs — no notification, no redirect, no
     # webhook happens ahead of the record being on disk.
+    feedback = project.setdefault("feedback", [])
     if targets:
         for spot in targets:
-            spot["status"] = "approved" if action in ("approve", "approve_all") \
-                else "changes"
-            spot["decided_at"] = store.now()
-            spot["decided_by"] = name[:80]
-            store.add_feedback(project, {
-                "name": name, "spot_id": spot["id"],
-                "action": "approve" if action in ("approve", "approve_all")
-                else action, "comment": comment})
+            radio_share.record_decision(spot, feedback, name=name,
+                                        action=action, comment=comment,
+                                        spot_id=spot["id"])
     else:
-        store.add_feedback(project, {"name": name, "spot_id": "",
-                                     "action": "comment", "comment": comment})
+        radio_share.record_decision(None, feedback, name=name, action=action,
+                                    comment=comment)
+    project["feedback"] = feedback[-500:]
     store.save(project)
     _log("customer_feedback", project=project["id"], action=action,
          spots=len(targets), by=name[:40])
-    _notify(project, name, action, comment, len(targets))
+    radio_share.notify("FAN_RADIO_NOTIFY_URL", {
+        "source": "fan-radio", "project": project.get("id"),
+        "company": project.get("company"), "client": project.get("client"),
+        "by": name, "action": action, "spots": len(targets),
+        "comment": comment[:1000], "at": store.now()})
     return jsonify({"ok": True, **public_view(project)})
-
-
-def _notify(project: dict, name: str, action: str, comment: str, count: int):
-    """Best-effort ping. Runs after the write, never before, and a failure
-    here can't lose the feedback."""
-    url = (os.environ.get("FAN_RADIO_NOTIFY_URL") or "").strip()
-    if not url:
-        return
-    try:
-        requests.post(url, json={
-            "source": "fan-radio", "project": project.get("id"),
-            "company": project.get("company"), "client": project.get("client"),
-            "by": name, "action": action, "spots": count,
-            "comment": comment[:1000], "at": store.now()}, timeout=6)
-    except requests.RequestException:
-        pass
 
 
 @app.route("/audio/<name>")

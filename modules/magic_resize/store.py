@@ -44,7 +44,10 @@ import threading
 from hub import jsonstore
 
 from . import engine
+from . import roles as R
 from . import sizes as S
+
+_HEX_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
 
 _lock = threading.Lock()
 
@@ -170,6 +173,117 @@ def role_map(project: dict) -> dict[str, str]:
     return {o.get("id", ""): o.get("role", "")
             for o in (project.get("source") or {}).get("objects") or []
             if o.get("id")}
+
+
+# --------------------------------------------------------------------------
+# A client's brand, pulled into the source design
+# --------------------------------------------------------------------------
+#
+# The BrandTemplate decision `brand_profile_ref` was left inert for is
+# still open — this is not it. That decision is which *editing surface* a
+# brand template lives in, and needs the shared Fabric editor this module
+# does not have yet. What is answered here is smaller: the same colors and
+# logo `hub/client_brand.py` already resolves for every other client-facing
+# tool, applied to the two roles a resize actually has room to vary —
+# `roles.LOGO` and `roles.BACKGROUND` — and nowhere else, because a headline
+# or a disclaimer recolored out from under whoever wrote it is not a brand
+# pull-in, it is an unannounced edit.
+
+def brand_preview(project: dict, domain: str) -> dict:
+    """What a client's brand kit holds, without changing the design.
+
+    A domain is required and never guessed from the client name — the
+    `hub/ad_builder_link.py`/`hub/brand_lookup.py` rule: a wrong logo on a
+    client-facing design is worse than none, because nobody proof-reads the
+    thing they recognise.
+    """
+    from hub import client_brand
+    domain = (domain or "").strip()
+    if not domain:
+        return {"found": False, "has_brand": False,
+                "note": "A website is needed to look a brand up by."}
+    return client_brand.brand_kit(project.get("client", ""), domain)
+
+
+def apply_brand(project: dict, *, domain: str, logo: bool = True,
+                 color_hex: str = "", kit: dict | None = None) -> dict:
+    """Pull a resolved brand's logo and/or background color into the source.
+
+    `kit` is injectable so a test can hand this a brand kit directly rather
+    than reaching a real lookup — the `recompose.propose(frame, ask=...)`
+    pattern, kept for the same reason: this file must not need a network
+    stub to be tested.
+
+    Nothing is guessed. A color is one the caller chose off the kit's own
+    palette, never "the primary" applied on its own authority — the
+    `hub/ad_builder/src/palette.ts` rule, that a proposal is not the same as
+    an application. And nothing is silently skipped: a request that changed
+    nothing says why, naming which half (logo, color, or both) had no role
+    to land on.
+    """
+    domain = (domain or "").strip()
+    if not domain:
+        return {"applied": False, "reason": "A website is needed to look a "
+                "brand up by — nothing is guessed from the client's name."}
+    color_hex = (color_hex or "").strip()
+    if color_hex and not _HEX_RE.fullmatch(color_hex):
+        return {"applied": False,
+                "reason": f"'{color_hex}' is not a 6-digit hex color."}
+    if color_hex and not color_hex.startswith("#"):
+        color_hex = "#" + color_hex
+
+    if kit is None:
+        kit = brand_preview(project, domain)
+    if not kit.get("has_brand"):
+        return {"applied": False,
+                "reason": kit.get("note") or "No brand data found for that "
+                "domain."}
+
+    logo_url = ""
+    if logo:
+        tiles = kit.get("logo_tiles") or kit.get("logos") or []
+        logo_url = tiles[0]["url"] if tiles else ""
+
+    objects = (project.get("source") or {}).get("objects") or []
+    touched: list[str] = []
+    logo_reason = ""
+    color_reason = ""
+
+    if logo:
+        if not logo_url:
+            logo_reason = "This client's brand kit has no logo on file."
+        else:
+            targets = [o for o in objects
+                      if o.get("role") == R.LOGO and o.get("kind") == "image"]
+            if not targets:
+                logo_reason = ("No object on this design is tagged Logo — "
+                              "set a role above, then apply again.")
+            for obj in targets:
+                obj.setdefault("fabric", {})["src"] = logo_url
+                touched.append(obj.get("id", ""))
+
+    if color_hex:
+        targets = [o for o in objects if o.get("role") == R.BACKGROUND]
+        if not targets:
+            color_reason = ("No object on this design is tagged Background "
+                            "— set a role above, then apply again.")
+        for obj in targets:
+            obj["fill"] = color_hex
+            obj.setdefault("fabric", {})["fill"] = color_hex
+            touched.append(obj.get("id", ""))
+
+    if not touched:
+        reason = " ".join(r for r in (logo_reason, color_reason) if r) \
+            or "Nothing on this design carries a role a brand can be applied to."
+        return {"applied": False, "reason": reason}
+
+    project["brand_profile_ref"] = domain
+    report = generate(project)
+    return {"applied": True, "touched": touched, "domain": domain,
+            "logo_url": logo_url if logo and not logo_reason else "",
+            "logo_reason": logo_reason,
+            "color": color_hex if color_hex and not color_reason else "",
+            "color_reason": color_reason, "report": report}
 
 
 # --------------------------------------------------------------------------
