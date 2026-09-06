@@ -401,6 +401,16 @@ def _extract_check(raw: bytes, mime: str) -> dict[str, Any]:
                 {"type": "image_url", "image_url": {"url": data_url}},
             ]}],
         )
+        # A billed call that records nothing is invisible on the usage page,
+        # which is the untracked-spend failure hub/quotas.py sweeps for. The
+        # chat completions response carries real token counts, so they are
+        # recorded; standalone runs (no hub package) lose the row, never the
+        # read.
+        try:
+            from hub import ai as hub_ai
+            hub_ai.note_sdk_usage("check_reconciliation", resp, purpose="check_ocr")
+        except Exception:
+            pass
         text = resp.choices[0].message.content or "{}"
         text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I).strip()
         parsed = json.loads(text)
