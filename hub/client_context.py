@@ -37,6 +37,7 @@ import ast
 import os
 import re
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 # Fields a form might want prefilled, and which source is allowed to win.
 FIELD_ORDER = ("knack", "scan", "website", "brand", "store")
@@ -477,6 +478,69 @@ def gallery_images(client: str, limit: int = 60) -> tuple[list[dict], str]:
             pass
 
 
+def gallery_videos(client: str, limit: int = 60) -> tuple[list[dict], str]:
+    """The client's existing videos, newest first, and why there are none.
+
+    A sibling of `gallery_images()` rather than that function widened to take
+    a resource type: every caller of `gallery_images()` builds an image
+    picker and would otherwise have to filter video rows back out, and a
+    parameter nobody passes is a parameter that drifts to meaning nothing.
+    Same exact-slug matching, same reason -- one client's B-roll on another
+    client's commercial is exactly the mistake this corner of the Hub exists
+    to refuse.
+
+    This is what lets the Commercial Builder's "Use Client Asset" picker see
+    a clip Video Search or Video Tools saved for this client, not only what
+    Commercial Builder uploaded into its own Cloudinary tree for them --
+    every one of those producers files through the same `file_asset()`, so
+    reading the same table is reading the whole of what any of them made.
+    """
+    try:
+        from sqlalchemy import select
+
+        from modules.image_picker import filing
+        from modules.image_picker.models import SavedImage, session
+    except Exception:                                     # noqa: BLE001
+        return [], "Video gallery unavailable in this environment."
+    try:
+        db = session()
+    except Exception:                                     # noqa: BLE001
+        return [], "Video gallery database unreachable."
+    try:
+        gallery = filing.gallery_for_name(db, client)
+        if gallery is None:
+            return [], f"No gallery on file for {client}."
+        rows = db.execute(
+            select(SavedImage)
+            .where(SavedImage.client_id == gallery.id)
+            .where(SavedImage.resource_type == "video")
+            .order_by(SavedImage.created_at.desc())
+            .limit(limit)
+        ).scalars().all()
+        out = []
+        for row in rows:
+            url = row.cloudinary_url or row.source_url or ""
+            if not url.startswith("https://"):
+                continue
+            out.append({
+                "url": url,
+                "public_id": row.cloudinary_public_id or "",
+                "alt": (row.alt_text or "")[:300],
+                "label": (row.collection_label or row.filename or "")[:120],
+                "provider": row.provider or "",
+            })
+        if not out:
+            return [], f"No video is on file for {client} outside this project."
+        return out, ""
+    except Exception as exc:                              # noqa: BLE001
+        return [], f"Video gallery read failed ({type(exc).__name__})."
+    finally:
+        try:
+            db.close()
+        except Exception:                                 # noqa: BLE001
+            pass
+
+
 def tool_context(client: str, url: str = "", *, gallery: bool = True) -> dict:
     """What a creative tool needs to know about a client, assembled once.
 
@@ -503,7 +567,16 @@ def tool_context(client: str, url: str = "", *, gallery: bool = True) -> dict:
     out = {"client": client, "url": url, "domain": "", "industry": "",
            "description": "", "products": [], "colors": [], "logo": "",
            "logo_from": "", "observed": {}, "gallery": [],
-           "gallery_note": "", "brand_note": "", "scan_note": ""}
+           "gallery_note": "", "brand_note": "", "scan_note": "",
+           # Offered whether or not `gallery` below found anything: this
+           # tool's own picker is a slice (a handful of images, a squares-
+           # first sort), and a picker that only ever shows its own slice is
+           # not the same thing as the client's actual gallery. The resolver
+           # behind this link always lands somewhere real -- their full
+           # gallery if one exists, or wherever else the Hub holds work for
+           # them if it does not (modules/image_picker/app.py::gallery_for_client).
+           "gallery_url": ("/tools/image-picker/gallery/for-client?name="
+                           + quote(client)) if client.strip() else ""}
     try:
         out["domain"] = canonical_domain(url or client) or ""
     except Exception:                                     # noqa: BLE001

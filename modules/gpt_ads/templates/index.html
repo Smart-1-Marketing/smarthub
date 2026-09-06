@@ -747,18 +747,43 @@ $("file").addEventListener("change", function(){
     .catch(function(){ say("imgmsg", "That upload failed.", "err"); });
 });
 
+function galleryTiles(list){
+  return list.map(function(g){
+    return '<img src="' + esc(g.url) + '" alt="' + esc(g.alt || g.label) + '" title="' +
+      esc(g.label || "") + (g.width ? " (" + g.width + "x" + g.height + ")" : "") + '"' +
+      (g.square ? ' class="sq"' : "") + ' data-url="' + esc(g.url) + '" data-pid="' +
+      esc(g.public_id) + '" data-alt="' + esc(g.alt || "") + '">';
+  }).join("");
+}
 function renderGallery(){
   var c = state.context || {};
-  if (!c.gallery || !c.gallery.length) { $("galleryWrap").innerHTML = ""; return; }
+  var link = c.gallery_url ? " &mdash; <a href='" + esc(c.gallery_url) +
+    "' target='_blank' rel='noopener'>search " + esc(state.client) +
+    "'s full gallery ↗</a>" : "";
+  if (!c.gallery || !c.gallery.length) {
+    // Offered even with nothing to show here: this picker is a squares-first
+    // slice of the client's gallery, capped at 60, and a client with more
+    // than that (or nothing square) still has a real gallery worth reaching.
+    $("galleryWrap").innerHTML = link
+      ? "<p class='hint' style='margin-top:14px'>Nothing square in " + esc(state.client) +
+        "'s gallery yet" + link + ".</p>" : "";
+    return;
+  }
   $("galleryWrap").innerHTML = "<label class='f' style='margin-top:14px'>Or pick from " +
     esc(state.client) + "'s gallery <span class='opt'>&mdash; squares first; every pick is " +
-    "measured before it is attached</span></label><div class='gal' id='gal'>" +
-    c.gallery.map(function(g){
-      return '<img src="' + esc(g.url) + '" alt="' + esc(g.alt || g.label) + '" title="' +
-        esc(g.label || "") + (g.width ? " (" + g.width + "x" + g.height + ")" : "") + '"' +
-        (g.square ? ' class="sq"' : "") + ' data-url="' + esc(g.url) + '" data-pid="' +
-        esc(g.public_id) + '" data-alt="' + esc(g.alt || "") + '">';
-    }).join("") + "</div>";
+    "measured before it is attached</span></label>" +
+    "<input type='search' id='galSearch' placeholder='Filter this list…' style='margin:6px 0;width:100%'>" +
+    "<div class='gal' id='gal'>" + galleryTiles(c.gallery) + "</div>" +
+    (link ? "<p class='hint'>Not what you need?" + link + "</p>" : "");
+  var box = $("galSearch");
+  if (box) box.addEventListener("input", function(){
+    var q = this.value.trim().toLowerCase();
+    var filtered = !q ? c.gallery : c.gallery.filter(function(g){
+      return (g.alt || "").toLowerCase().indexOf(q) !== -1 ||
+        (g.label || "").toLowerCase().indexOf(q) !== -1;
+    });
+    $("gal").innerHTML = galleryTiles(filtered);
+  });
 }
 $("galleryWrap").addEventListener("click", function(ev){
   var url = ev.target.getAttribute("data-url");

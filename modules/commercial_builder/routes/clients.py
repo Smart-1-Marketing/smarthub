@@ -273,10 +273,50 @@ def analyze_website():
 
 @bp.get("/<int:client_id>/assets")
 def client_assets(client_id):
+    """This project's own asset tree, merged with the client's shared gallery.
+
+    `cloudinary_service.list_client_assets()` only ever saw what Commercial
+    Builder itself had uploaded into `commercials/<slug>/<category>/` — so a
+    clip Video Search or Video Tools had already saved for this exact client
+    was invisible to the one picker in this module that offers to reuse
+    something they already have, despite this being described as a "sixth
+    scene source" reading the client's real assets. Every other producer
+    files through the same `file_asset()` (`hub/image_audit.py`), so this
+    reads the same table `hub/client_context.py` does rather than teaching
+    this module a second copy of that query.
+
+    Merged by public_id/url so an asset both trees happen to hold (this
+    module's own uploads are filed into the shared gallery too, per
+    `_file_in_gallery()`) is not offered twice.
+    """
     client = Client.query.get_or_404(client_id)
     category = request.args.get("category", "photo")
     assets = cloudinary_service.list_client_assets(client.slug, category)
-    return jsonify({"ok": True, "assets": assets, "live": cloudinary_service.is_live()})
+    seen = {a.get("public_id") for a in assets if a.get("public_id")}
+
+    from hub import client_context
+    if category in cloudinary_service.GALLERY_CATEGORIES:
+        shared, _note = client_context.gallery_images(client.name)
+    else:
+        shared, _note = client_context.gallery_videos(client.name)
+    for row in shared:
+        pid = row.get("public_id") or ""
+        if pid and pid in seen:
+            continue
+        seen.add(pid)
+        assets.append({"secure_url": row.get("url"), "public_id": pid,
+                       "format": "", "created_at": "", "source": "gallery"})
+
+    from urllib.parse import quote
+    return jsonify({
+        "ok": True, "assets": assets, "live": cloudinary_service.is_live(),
+        # Offered whatever the merge finds, because a picker that only ever
+        # shows what it happened to match is not the same thing as the
+        # client's actual gallery — the reason `test_image_creator.py` holds
+        # this same link to the same standard one tool over.
+        "gallery_url": ("/tools/image-picker/gallery/for-client?name="
+                        + quote(client.name)),
+    })
 
 
 @bp.post("/<int:client_id>/assets/upload")

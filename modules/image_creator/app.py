@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
@@ -230,8 +231,19 @@ def api_fonts():
 # =====================================================================
 @app.route("/api/assets/gallery")
 def api_gallery_assets():
-    return jsonify({"assets": assets.gallery_assets(
-        request.args.get("client", ""), request.args.get("q", ""))})
+    client = request.args.get("client", "")
+    return jsonify({
+        "assets": assets.gallery_assets(client, request.args.get("q", "")),
+        # Offered whether or not a search turns anything up, and whether or
+        # not this client has a gallery yet — the resolver behind it (see
+        # modules/image_picker/app.py::gallery_for_client) always lands
+        # somewhere real: their full gallery if one exists, or everything
+        # else the Hub holds for them if it does not. A "Client gallery"
+        # chip with no way to reach the actual client gallery is the thing
+        # this route exists to stop being true.
+        "gallery_url": ("/tools/image-picker/gallery/for-client?name="
+                        + quote(client)) if client.strip() else "",
+    })
 
 
 @app.route("/api/assets/scans")

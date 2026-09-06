@@ -923,9 +923,18 @@
     closeExistingPickers();
     const picker = card.querySelector(".asset-picker");
     picker.innerHTML = '<div class="cb-card" style="margin-top:10px;padding:12px;"><span class="cb-spinner"></span> Loading client library…</div>';
-    const { assets, live } = await CB.api(`/api/clients/${clientId}/assets?category=video`);
+    const { assets, live, gallery_url } = await CB.api(`/api/clients/${clientId}/assets?category=video`);
     const box = CB.el(`<div class="cb-card" style="margin-top:10px;padding:12px;"></div>`);
     if (!live) box.appendChild(CB.el(`<p class="cb-hint">Mock mode — no Cloudinary credentials set, or nothing uploaded yet for ${clientSlug}.</p>`));
+    // Offered whether or not this project's own tree turned anything up --
+    // the full gallery holds whatever any tool has filed for this client,
+    // and a picker that can only ever show what it happened to match is not
+    // the client's actual library.
+    if (gallery_url) {
+      const link = CB.el(`<p class="cb-hint" style="margin-bottom:8px">`
+        + `<a href="${gallery_url}" target="_blank" rel="noopener">Search this client's full gallery ↗</a></p>`);
+      box.appendChild(link);
+    }
     const grid = CB.el('<div class="cb-choice-grid"></div>');
     (assets || []).forEach((a) => {
       const cell = CB.el(`<div class="cb-choice" style="padding:6px;">
