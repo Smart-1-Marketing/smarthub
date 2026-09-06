@@ -94,10 +94,6 @@ ALLOW = {
     "modules/sites_admin/simvoly_client.py:activate_project_for_period":
         "Simvoly API surface",
     "modules/sites_admin/simvoly_client.py:set_addon": "Simvoly API surface",
-    "modules/scans/insites_client.py:fetch_llm_report":
-        "Insites API surface -- the narrative payload, for a caller that does "
-        "not exist yet",
-
     # --- a named reading of a table this module owns ------------------------
     # Each is one expression over a constant in the same file. Kept because
     # the alternative is the next screen reading the table with a literal, and

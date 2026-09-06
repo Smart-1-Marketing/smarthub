@@ -519,6 +519,16 @@
   </script>
   {% endif %}
 
+  {% if llm_narrative_json %}
+  <div class="card">
+    <h2>Insites' Own Narrative</h2>
+    <p class="sub" style="margin:0 0 10px">Insites' own written-for-an-LLM
+      summary of this audit -- not Smart 1's, and not what a client is sent.
+      Kept here as a second read on the same data.</p>
+    <pre>{{ llm_narrative_json }}</pre>
+  </div>
+  {% endif %}
+
   {% if raw_json %}
   <div class="card">
     <h2>Raw Audit Data</h2>
