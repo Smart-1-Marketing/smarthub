@@ -264,7 +264,11 @@ def _init() -> bool:
         try:
             from . import extensions
             _engine = extensions.engine_for()
-            _engine_url = wanted or _database_url()
+            # `wanted` *is* `_database_url()`, taken a few lines up under this
+            # same lock: where it came back empty a second call answers empty
+            # too, so an empty here means "we could not name the URL this
+            # engine is for" rather than a reading nobody took.
+            _engine_url = wanted
             meta = MetaData()
             _table = Table(
                 "hub_json_blobs", meta,
