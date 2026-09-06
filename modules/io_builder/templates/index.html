@@ -2503,8 +2503,13 @@ function render(){
 }
 function creativeChecklistItems(productKey){
  const r=productRequirements(productKey),items=[...(r.creative||[])];
+ // A product with no design spec has nothing to check here. The old
+ // fallback asked every product to "confirm the creative files" whether
+ // or not one was ever going to exist -- a phone number or a management
+ // fee has no creative to confirm, and printing that line taught people
+ // to ignore the checklist. Nothing invented for an empty slot.
+ if(!items.length)return [];
  if(state.creativeSource==="Smart 1 is building the creative")items.unshift("Provide approved logo, brand colors, photos, offer details, call to action and required disclaimers.");
- if(!items.length)items.push("Confirm the creative files, copy, destination URL and approval contact needed for this product.");
  return [...new Set(items)];
 }
 /* The client's own upload link, fetched on demand and remembered on the
@@ -2572,7 +2577,12 @@ function toggleCreativeChecklist(key,checked){state.creativeChecklist[key]=check
 function renderCreativeChecklist(){
  const box=document.getElementById("creativeChecklist");if(!box)return;
  if(!state.selected.length){box.innerHTML='<div class="empty">Select products to build the creative checklist.</div>';return}
- box.innerHTML=state.selected.map(p=>{
+ // Only a product with a design spec gets a card here -- a phone number or
+ // a management fee has nothing to check, and a heading with nothing under
+ // it reads as this list being broken rather than as a real answer.
+ const withCreative=state.selected.filter(p=>creativeChecklistItems(p).length);
+ if(!withCreative.length){box.innerHTML='<div class="empty">None of the selected products call for supplied creative.</div>';return}
+ box.innerHTML=withCreative.map(p=>{
   const cfg=productConfig[p]||{},items=creativeChecklistItems(p);
   return `<div class="check-product"><h3>${esc(cfg.product||p)}</h3>${items.map(item=>{const key=checklistKey(p,item),done=!!state.creativeChecklist[key];return `<label class="check-item ${done?'done':''}"><input type="checkbox" ${done?'checked':''} onchange='toggleCreativeChecklist(${JSON.stringify(key)},this.checked)'><span>${esc(item)}</span></label>`}).join('')}</div>`
  }).join('')
@@ -2697,7 +2707,7 @@ function productRequirements(productKey){
   pushUnique(creative,"Single image: 1200 x 627 JPG/PNG","Carousel: 2-10 cards at 1080 x 1080","Video: MP4 plus thumbnail","Text ad: 100 x 100 image, 25-character headline and 75-character description","Introductory text, headline and landing-page URL");
   pushUnique(setup,"Job titles, job functions, industries, company names/sizes and seniority","Skills, education/professional groups and geography","Matched audiences, objective, budget/dates and conversion goal","Excluded industries, companies or job titles");
  }
- if(/tiktok/.test(s)){
+ if(/tiktok|tik tok/.test(s)){
   pushUnique(access,"TikTok Business Center and Ads Manager access","TikTok account access when ads run from the account","TikTok Pixel plus website/Tag Manager access","CRM or lead-delivery access when applicable");
   pushUnique(creative,"Vertical 9:16 MP4/MOV video; 5-60 seconds, with 9-15 seconds preferred","Brand name: 2-20 characters; description: 12-100 characters","Square profile image, call to action and landing-page URL");
   pushUnique(setup,"Audience, geography, age, interests and objective","Budget at or above platform minimum","Dates, pixel/conversion event, music-usage confirmation and exclusions");
@@ -2833,7 +2843,7 @@ function customerFriendlyNeeds(productKey){
  if(/geo-fence/.test(s))add("The exact addresses or areas to target, event dates/times if applicable, and the location that should count as a visit.");
  if(/facebook|instagram|meta/.test(s))add("Partner access to your Facebook Page, Instagram account and advertising account through Meta Business Portfolio.","Your photos or videos, offer, destination link and any required wording.","For lead ads, tell us what questions to ask and who should receive new leads.");
  if(/linkedin/.test(s))add("Access to your LinkedIn Company Page and advertising account.","Your preferred job titles, industries, company types and professional audiences.","An image/video, short message and destination link.");
- if(/tiktok|snapchat|pinterest|twitter|\bx\b/.test(s))add("Business/advertising access to the selected social platform.","Platform-ready photos or vertical videos, short ad copy, call to action and destination link.","The audiences, locations, topics and content you want included or excluded.");
+ if(/tiktok|tik tok|snapchat|pinterest|twitter|\bx\b/.test(s))add("Business/advertising access to the selected social platform.","Platform-ready photos or vertical videos, short ad copy, call to action and destination link.","The audiences, locations, topics and content you want included or excluded.");
  if(/social media management/.test(s))add("Admin access to each social account we will manage - please use official partner permissions, not emailed passwords.","Your logo, photo/video library, services, promotions, events, staff news, testimonials and important dates.","Your preferred brand voice, approval contact, response policy and any topics we should not discuss.");
  if(/youtube/.test(s))add("Access to Google Ads and the YouTube channel.","A video uploaded to YouTube, the destination link, call to action and any channels or topics to include or avoid.");
  if(/video/.test(s)&&!/youtube/.test(s))add("A finished video file, usually 15 or 30 seconds, plus the destination page.","Tell us the audience, geography, campaign schedule and any websites, apps or content to avoid.");
@@ -3105,16 +3115,43 @@ function customerRequirementItems(){
   'Competitors, negative keywords, locations, websites, audiences or topics to avoid',
   'Preferred days or hours for the campaign to run'
  ];
- state.selected.forEach(k=>customerItemsForProduct(k).forEach(x=>{if(!lines.includes(x))lines.push(x)}));
+ // customerFriendlyNeeds() is the one reading of what a product asks a
+ // customer for -- the same function customerRequirementsText()/HTML()
+ // already use for the print/copy checklist. A second, differently-named
+ // reader here had never been defined at all, which threw the moment any
+ // product was selected and took both PDF buttons down with it silently
+ // (an async function throwing before its first await rejects the
+ // returned promise rather than raising where onclick can see it).
+ state.selected.forEach(k=>customerFriendlyNeeds(k).forEach(x=>{if(!lines.includes(x))lines.push(x)}));
  return lines;
 }
 function internalRequirementSections(){
  return state.selected.map(k=>{const cfg=productConfig[k]||{};const r=productRequirements(k);return{title:cfg.product||k,items:[...(r.common||[]),...(r.creative||[]),...(r.access||[]),...(r.setup||[])]}});
 }
+// The one reading of what goes on a generated PDF, for both the buttons a
+// rep presses by hand and the copy Submit Finished IO builds on the way to
+// Suite. Two readers of one payload is how the submitted PDF came to carry
+// none of this: ensurePdfForWebhook() used to post the bare state object,
+// so the "What We Need From You" and "Internal Product Requirements"
+// sections -- and the formatted spend figures -- were empty on every IO
+// that was ever actually submitted, even though the manual download button
+// computed them correctly (when it worked at all).
+function buildPdfPayload(type){
+ const totalCampaignBudget=state.items.reduce((s,i)=>s+(i.campaignBudget||0),0);
+ const monthlySpend=state.items.reduce((s,i)=>s+(i.budget||0),0);
+ return {...state,
+  monthlySpendFormatted:money(monthlySpend),
+  totalCampaignBudgetFormatted:money(totalCampaignBudget),
+  documentType:type,
+  brandfetch:state.brandfetch,
+  creativeAssets:state.creativeAssets.map(a=>({...a,productLabel:(productConfig[a.product]||{}).product||a.product})),
+  customerRequirements:customerRequirementItems(),
+  internalRequirements:internalRequirementSections()};
+}
 async function generateStoredPDF(type){
  if(!state.client){alert('Enter the client name first.');return}
  buildStrategy();render();
- const totalCampaignBudget=state.items.reduce((s,i)=>s+(i.campaignBudget||0),0);const monthlySpend=state.items.reduce((s,i)=>s+(i.budget||0),0);const payload={...state,monthlySpendFormatted:money(monthlySpend),totalCampaignBudgetFormatted:money(totalCampaignBudget),documentType:type,brandfetch:state.brandfetch,creativeAssets:state.creativeAssets.map(a=>({...a,productLabel:(productConfig[a.product]||{}).product||a.product})),customerRequirements:customerRequirementItems(),internalRequirements:internalRequirementSections()};
+ const payload=buildPdfPayload(type);
  const label=type==='internal'?'Internal requirements':'Customer PDF';
  try{
   const r=await fetch('{{ request.script_root }}/api/download-requirements-pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -4112,10 +4149,14 @@ async function ensurePdfForWebhook(kind){
   if(state.documents[key]) return state.documents[key];
 
   const endpoint = kind === "client" ? "/api/generate-client-pdf" : "/api/generate-internal-pdf";
+  // buildPdfPayload(), not the bare state -- the submitted PDF has to carry
+  // the same "What We Need From You" / "Internal Product Requirements"
+  // sections and formatted spend figures the manual download button sends,
+  // or the copy Suite receives is missing the whole requirements checklist.
   const response = await fetch(endpoint,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(state)
+    body:JSON.stringify(buildPdfPayload(kind))
   });
   const result = await response.json().catch(()=>({}));
   if(!response.ok || !result.ok){
