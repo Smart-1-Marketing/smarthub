@@ -6628,21 +6628,47 @@ a moving 720x1560 GIF. Splitting it would invent two names the kit does not
 publish, which is exactly what `kit_name_drift()` exists to catch. No file
 weight is published for it, so none is invented.
 
-**Three of the twenty are a different kind of gap, and it reaches the client
+**Three of the twenty were a different kind of gap, and it reached the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
-formats are sold by the kit and this module holds **no unit** for any of them
+formats are sold by the kit and this module held **no unit** for any of them
 — not "we cannot parse that table" but "there is nothing here to judge one
 against". So a Meta requirement listed Stories and never Reels and read as
 complete, on the page the client is sent, while the kit itself says in as many
 words that *"Facebook Reels and Instagram Reels are not interchangeable —
 different file types, text limits and duration rules."* That is the Pinterest
 failure one placement along: judged against the nearest thing rather than
-reported as not measured. `_KIT_NOT_MODELLED` names them against the channels
-whose presence puts them in play, and `required_units()` carries them in the
-payload **and** on the one line `units_line()` prints — left in the note alone,
-the requirement a client actually reads still looks complete. `measured` stays
-true, because the units we do have are measured; what is withdrawn is the
-claim that the list is all of it.
+reported as not measured. `_KIT_NOT_MODELLED` named them against the channels
+whose presence put them in play, and `required_units()` carried them in the
+payload **and** on the one line `units_line()` prints — left in the note
+alone, the requirement a client actually reads still looks complete.
+
+**All nine are modelled now, and `_KIT_NOT_MODELLED` is empty.** The kit's own
+sentence is the specification: the two Reels units differ in **three** ways
+and a single shared unit would have satisfied every check above and been
+wrong — Instagram refuses GIF where Facebook takes it, Instagram caps at
+fifteen minutes where Facebook publishes none, and Facebook carries a
+55-character headline where Instagram has no such field. Both are on
+`_META_CHANNELS`, so a Meta buy asks for them by name.
+
+**The six CTV formats are modelled and are deliberately not an ask.** Pause,
+menu, screensaver, in-scene, squeezeback and overlay sit on a channel of their
+own — `ctv_interactive`, which no product maps to — because the kit sells them
+*beyond* the standard in-stream spot and says in as many words that
+availability varies by publisher. On the `ctv` channel they would have joined
+every CTV requirement line, asking every client for six files against a
+portfolio their publisher may not carry: the crying-wolf failure `ADDITIONS`
+and `QR_CODE_RULES` both refuse, on the line a client reads. Modelled means
+`check()` can judge one that arrives and `BY_ID` resolves its tag; it does not
+mean anybody is asked for it, and each carries the kit's own
+confirm-before-selling warning in its notes.
+
+**All three sections are declared unreadable with their reasons**, because
+what the parser cannot read has not changed: the Reels tables publish a format
+name against prose rather than the Unit / Dimensions / weight columns
+`kit_drift()` reads, and the CTV section publishes minimums rather than
+specifications. Declared rather than silently outside every check —
+`kit_coverage()` reports a section on the page nobody declared and a
+declaration that outlives its section, in both directions.
 
 ### A category heading is not a word about the product
 
