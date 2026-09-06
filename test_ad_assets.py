@@ -35,13 +35,29 @@ And the wiring, because this repo's most expensive failure is a feature that
 is complete except for being reachable: the blueprint registered, the tile,
 the help keys, the crumb and the scheduled sweep.
 """
+import os
 import pathlib
 import re
 import sys
+import tempfile
 import types
 
 ROOT = pathlib.Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+
+# Set BEFORE the first `from hub import ...` below, and both of them, because
+# `jsonstore` caches its engine on the first `_init()` and `data_root()` is
+# read per call but the engine is not -- so a `DATABASE_URL` assigned after
+# the import is a **no-op**, and the mirror writes this file makes land in
+# whatever database the session already had. That reads as an isolated test
+# and is not one: measured, it left ~70 `abs:/tmp/adassets-*` rows in the
+# shared Postgres. It is also the shape `test_jsonstore.py`'s sweep exists to
+# catch -- own directory, inherited mirror -- and that sweep reads the
+# *assignment*, so assigning it too late exempts the file while changing
+# nothing. The same trap `test_ghl_forms.py` had to undo one module over.
+_TMP = tempfile.mkdtemp(prefix="adassets-")
+os.environ["HUB_DATA_DIR"] = os.path.join(_TMP, "root")
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "mirror.db")
 
 _passed = _failed = 0
 
@@ -294,19 +310,15 @@ check("the copy is attached to the creative rows it belongs to",
 print("\nWhere the stores live")
 
 import ast
-import os
-import tempfile
 import threading
 
-_prev = {k: os.environ.get(k) for k in ("HUB_DATA_DIR", "DATABASE_URL")}
-_tmp = tempfile.mkdtemp(prefix="adassets-")
-os.environ["HUB_DATA_DIR"] = os.path.join(_tmp, "root")
-os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_tmp, "mirror.db")
-# The old paths were resolved against the process working directory, so the
-# check has to run from somewhere that is not the data root to mean anything.
+# The data root and the mirror were isolated at the top of this file, before
+# the hub imports, for the reason given there. What is left to do here is the
+# working directory: the old paths were resolved against it, so the check has
+# to run from somewhere that is not the data root to mean anything.
 _cwd = os.getcwd()
-os.makedirs(os.path.join(_tmp, "cwd"), exist_ok=True)
-os.chdir(os.path.join(_tmp, "cwd"))
+os.makedirs(os.path.join(_TMP, "cwd"), exist_ok=True)
+os.chdir(os.path.join(_TMP, "cwd"))
 
 try:
     from hub import ad_assets, jsonstore
@@ -396,11 +408,6 @@ try:
           os.path.exists(_legacy_disk), False)
 finally:
     os.chdir(_cwd)
-    for _k, _v in _prev.items():
-        if _v is None:
-            os.environ.pop(_k, None)
-        else:
-            os.environ[_k] = _v
 
 
 # A test naming the module we fixed proves nothing about the next store
