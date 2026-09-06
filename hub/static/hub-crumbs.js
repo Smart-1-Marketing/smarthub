@@ -110,8 +110,12 @@
   // page the tool is actually listed on. Anything absent falls back to the
   // mount it sits under, which is right for a tool tiled where its URL says.
   var PARENT = {
-    "tools": null, "qa": null, "scans": null, "client360": null, "seo": null,
+    "tools": null, "qa": null, "scans": null, "client360": null,
     "diagnostics": null, "activity": null, "status": null,
+    // In the nav AND tiled on Tools (Web Development / SEO groups) -- the
+    // my-clients rule below: back goes to the index the tool is listed on
+    // rather than nowhere.
+    "seo": ["/tools", "Tools"], "sites": ["/tools", "Tools"],
     // Moved to QA Reports; their URLs stayed where they were.
     "stale-creative": ["/qa", "QA Reports"],
     "unattached-images": ["/qa", "QA Reports"],
