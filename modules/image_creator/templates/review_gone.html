@@ -1,0 +1,29 @@
+{# Shown for a token that is revoked, deleted or never existed — deliberately
+   the same page for all three. A client-facing URL must not confirm which
+   tokens are real, the arrangement modules/ads_builder and
+   modules/commercial_builder already use for their own review links. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Review unavailable</title>
+<style>
+  body { margin:0; background:#e8ecf3; color:#1e293b;
+         font:15px/1.6 'Segoe UI', system-ui, -apple-system, sans-serif;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; padding:24px }
+  .card { background:#fff; border-radius:12px; padding:36px 40px; max-width:32rem; text-align:center }
+  h1 { font-size:20px; margin:0 0 8px; color:#1a2e58 }
+  p { color:#475569; margin:0 0 6px }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>This review link is no longer available</h1>
+    <p>The link may have expired, or a newer version may have been sent.</p>
+    <p>Please get in touch with your Smart 1 Marketing contact and they will send you
+       the current one.</p>
+  </div>
+</body>
+</html>

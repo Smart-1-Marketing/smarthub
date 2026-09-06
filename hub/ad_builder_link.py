@@ -141,8 +141,12 @@ def save_client_logo(*, client_name: str, url: str, public_id: str = "",
 # so putting one behind a new ad prints all three twice; and the saved logo is
 # the one thing the brief says must never appear inside the picture. Both are
 # in the gallery because filing them there is right -- they just are not
-# photographs, and this list is what keeps that distinction.
-NOT_A_BACKGROUND = (LOGO_KIND, GALLERY_KIND)
+# photographs, and this list is what keeps that distinction. ANIMATION_KIND is
+# here too: an animated ad is a finished ad rendered as a GIF, which Cloudinary
+# stores as resource_type "image" -- so without this it would pass the
+# resource-type check and be offered back as a background exactly like the
+# static version it is a twin of.
+NOT_A_BACKGROUND = (LOGO_KIND, GALLERY_KIND, ANIMATION_KIND)
 
 # Wide enough to carry a background at the largest banner Smart 1 runs
 # (970x250). Matches MIN_WIDTH in the renderer's landing-images.ts, which is

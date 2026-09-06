@@ -1024,6 +1024,87 @@ when unset instead of returning a quiet 200. Check the two do not hold the
 same URL before switching a trigger off, or the thing that stops is insertion
 orders.
 
+**And five landing apps outside this repo were still on the webhook the Hub
+retired.** `smart1boat`, `smart1legal`, `smart1ski`, `smarthvac` and
+`smart1rv` are their own Render services, so every rule above was written
+about modules the Hub can see and none of it reached them: each POSTed its
+leads at a GoHighLevel inbound webhook, which confirms that GoHighLevel
+accepted a *request* and never that a contact exists — the weak confirmation
+`hub/ghl_contacts.py` exists to replace. smart1rv is the one that shows what
+that costs: `SMART1_SUITE_WEBHOOK_URL` was never set on it, so **every lead
+that app has ever taken was discarded**, behind an `ok: true` already on its
+way to the visitor.
+
+They post to `/api/leads/capture` now, and the Hub writes the contact. Routing
+them through here rather than giving each one the Contacts API is the same
+argument this file makes about `hub/storage.py`: the token and the sub-account
+id stay in one place rather than on five more services, the retry machinery
+already exists, and these leads are finally *in the panel* — they were
+invisible to it, which is where anybody actually looks for a lead.
+
+**A rate limit written for a browser is wrong for a server.** Three an hour
+per address is generous for a person; every lead one of those apps takes
+arrives from that app's single Render egress address, so a busy afternoon on
+one page spends the whole allowance and the fourth visitor is refused with a
+429 while they see their report and nothing on any screen says a lead was
+turned away — the rate limit doing its job and losing leads doing it. A caller
+presenting `LEADS_SOURCE_TOKEN` skips the per-IP check and **nothing else**:
+the lead is stored, tagged and delivered down the same single path, and the
+row records that it came from a trusted caller, because an exemption nobody
+can see afterwards is one nobody can audit. Unset means **nobody** is trusted,
+never everybody — a deployment that has not set it behaves exactly as it did,
+which is the safe direction to be wrong in. It is reported on the panel as a
+fact rather than a warning: a deployment with no standalone landing apps needs
+no token, and a permanently amber row is the check people learn to skip.
+
+**And `meta` was the one part of a lead row that was never cleaned.** `fields`
+has always been cleaned per value; `meta` was written to the store verbatim
+and unbounded, which mattered less while it was a Hub page's own dict and
+matters now that five apps fill it in over an unauthenticated endpoint. It is
+cleaned and capped like a field, with two exceptions that are exceptions on
+purpose: a boolean stays a boolean (`trusted_source` is a real flag), and
+`tags` stays a list, because `lead_tags.extra_tags()` reads it as one.
+
+**Those tags are how segmentation survived the webhook's retirement.** boat,
+ski and hvac drove GoHighLevel "Add Tag" workflow actions off `market_tag` and
+`package_tag` in the webhook body; over the API a tag is a field on the
+contact, so they are written directly and there is no workflow in the middle
+to go missing. They are **free**, like the page tag and unlike the source tag,
+because what a vocabulary protects — a workflow triggering on the string — is
+not what these are for. What they may not do is impersonate the controlled
+half: `meta` is the part of the payload a landing app fills in, so a row
+naming `smart1-hub` or naming a source would put a lead into a triggered
+audience it was never captured for, and that is a mistake to make impossible
+rather than one to ask people not to make. The cap drops segmentation before
+it drops the source tag, for the same reason.
+
+**Three answers from the Hub, and a fourth that is not an answer at all.**
+Each app records what came back, and they are separate states because they
+need opposite handling. **delivered** is a contact id — the only thing that
+means the lead is in Smart 1 Suite. **accepted** is the Hub having stored it
+and taken over the retry: done as far as that app is concerned, and still not
+a contact, so it is counted apart rather than merged; replaying one from the
+app writes a second lead row for one visitor. **undeliverable** is a lead with
+neither an email nor a phone — an abandoned form that never reached the
+contact step, which smart1legal's and smart1ski's partial-lead routes produce
+by design. It is deliberately not a failure: left as one it would sit in the
+owed count for ever and be re-posted on every replay run, which is the
+permanent red this file names elsewhere. And **failed** is owed, and replayed.
+A `delivered: true` carrying no contact id is read as *accepted* — the safe
+reading of a self-contradictory answer — and the contradiction is said out
+loud rather than quietly rounded down to a state that looks routine.
+
+**There is no fallback to the webhook, and that is the same rule one service
+out.** The tempting version is: if the Hub is unreachable, fire the old URL
+instead. The failure that matters most is a timeout, which is precisely the
+case where nothing can tell whether the write landed — falling back there is
+how one visitor becomes two contacts with nothing to reconcile them against.
+Each app still *reads* its old webhook variable, for one reason: to say on
+`/health` that a value is still sitting there. Nothing in any of the five
+posts to it, so what could still write a second contact is outside all six
+codebases — a Suite workflow triggered by that URL, or a page posting straight
+at it. Turn the trigger off in Suite, then clear the variable.
+
 **The marketing site's form and the Hub's form were two different forms.**
 Nine industry tools live here (`/land/boat`, `/land/ski`, `/land/stadium`, …),
 each of which writes every lead through `hub/leads.py` into Smart 1 Suite.
@@ -3710,13 +3791,43 @@ element may still be drawn at runtime, the way a target accepted on a prefix
 already is.
 
 **Fifty-five of the 165 steps that name an element named one that is in no
-template**, across eighteen of the twenty-eight scenarios. That is a
-**backlog, not a regression**, and it is deliberately not an integrity
+template**, across eighteen of the twenty-eight scenarios. That was a
+**backlog, not a regression**, and it was deliberately not an integrity
 finding: a check switched on red is a check somebody turns off, and it would
-take the bubble check down with it. `help_audit.demo_targets()` gathers it and
-the **help layer** panel on `/diagnostics` lists it, so the scenarios written
-against a screen that has since been rebuilt are a list somebody works down
-rather than something a learner meets one step at a time.
+have taken the bubble check down with it. `help_audit.demo_targets()` gathers
+it and the **help layer** panel on `/diagnostics` lists it, so the scenarios
+written against a screen that has since been rebuilt were a list somebody
+works down rather than something a learner meets one step at a time.
+
+**It is at zero, and the count is asserted now rather than the list.** All
+twenty-eight scenarios drive every step they name. Asserting the number was
+the wrong check while a backlog existed — it would have started red, which is
+the failure this section is about — and it is the right one now, for the
+opposite reason: it starts green and it bites the first time a control a
+walkthrough drives is renamed, which is how fifty-five accumulated. A step
+whose selector the audit cannot test clears nothing, so *untestable* cannot
+satisfy it either.
+
+**Seven of the fifty-five were never dead.** `_needs()` reads a
+`[data-tour='…']` selector into a requirement and `_spellings()`, which says
+how one would be written in markup, was never told that attribute exists — so
+it returned an empty tuple and `_found()` could only answer False. Every
+tour-anchored step in the two Smart 1 Ads walkthroughs was counted as driving
+nothing while its hook sat in the templates. That is the false positive
+`_spellings()`'s own docstring warns about, inside the function written to
+stop the opposite mistake, and it is held by an invariant rather than by
+naming the attribute: every kind the parser emits must have a spelling the
+finder looks for.
+
+**And six scenarios named a page this Hub does not serve** — four guessed a
+`/tools/` prefix for a module mounted at the root. `catalogue()` prints that
+string into the index a rep reads and asks no route to resolve it, and
+`hub-demo.js` never navigates, so neither end could notice. Three of the six
+were among the scenarios whose steps read as anchored to nothing, which looks
+like a forgotten hook when the cause is the line above them.
+`test_help_layer.py` asks the composed app, the assertion
+`test_oauth_redirects.py` already makes about the OAuth callbacks; a redirect
+counts as served, because these are staff pages behind `AuthGuard`.
 
 **And the list is being worked down, which is what a backlog is for.** Three
 scenarios are repaired: `seo_images.first_batch` (eight of eleven steps dead),
@@ -3867,7 +3978,18 @@ already has, never folded into the anchored count. At least three characters,
 because a bare `data-demo="{{ x }}"` names no prefix and one that matched
 everything would switch the check off.
 
-Placing the rest is separate work and needs whoever knows each tool.
+The rest is placed. What it took was not one job: most steps named a control
+that exists under another selector and were simply anchored — `#runBtn`,
+`#checkNow`, `#refresh`, `#snapshotId`, `#prospectFirstName`, `#btnDownload` —
+and the rest named a control the tool does not have and were rewritten against
+the tool that does, the Web Tickets *"Sort by age"* rule. Site Scans promised
+that the image findings hand to the SEO Image Pipeline and the schema to
+Schema Builder, and that page links to neither; what it does have is the
+Reports card, which is the honest version of the same point. Google Finder
+offered an *SEO snapshot* it has never had and an *anomaly check* whose route
+(`/api/ga4/anomalies`) is live with **no caller anywhere in the repo** — that
+one is worth knowing on its own, since `ga_tools.html`'s own copy tells a rep
+the page has it.
 
 It asks whether the element exists **anywhere**, not on the scenario's own
 page — a walkthrough drives a screen whose markup half a dozen scripts write,
@@ -3999,6 +4121,63 @@ cannot resolve a path is worse than one in the wrong place. Nothing moves on
 Render. `test_jsonstore.py` asserts a named root moves all seven, that the
 overrides still beat it, and that no file goes back to deciding for itself.
 
+**One file holding every record, changed one record at a time.** A store that
+keeps its whole collection in a single JSON file changes one row by reading
+the list, editing an entry and writing the **whole list** back. So two writers
+each start from the same snapshot and the second one to finish drops the
+first, and it needs no contention over a single row for that to happen: two
+people editing two *unrelated* projects lose one of the two edits, because
+what is written is the whole list either way. Both are told it saved. Nothing
+errors, nothing is logged, and the row that vanished looks exactly like one
+nobody made.
+
+**`modules/radio_promo` lost writes inside a single worker**, because its
+`threading.Lock` covered the write and not the read. Measured: two threads,
+two unrelated projects, one edit gone. Worse, `add_version()` read the
+versions list through `get()` and wrote it whole through `update()`, so
+**eight concurrent appends kept one** — in the module whose own docstring
+opens by promising that every draft, rewrite, tighten and hand edit is
+*appended* rather than overwriting, "so nothing a client approved can be
+silently lost". The append was the thing being lost.
+
+**`modules/social_planner/intake.py` had the other half.** Its lock covered
+the read as well, so within one worker it was right — and it is per-process,
+and this deployment runs two gunicorn workers, so it never saw the other one.
+Threads cannot show that failure, which is why it stood: it takes two real
+processes, and with them **one request of two survived**. That is a location
+manager submitting from a phone, on the form whose own comment says turning
+one away "has cost us the photograph".
+
+`hub/jsonstore.update_json(path, mutate)` is the missing half of `read_json`
+and `write_json`, and it takes **two locks, because there are two ways to lose
+a write**: a per-path `threading.Lock` for the threads inside one worker, and
+an `flock` on a sidecar file for the workers. Either one alone leaves half the
+problem, and each was separately confirmed — reverting the lock's *scope* back
+outside the read fails the thread checks and the process checks together;
+removing only the flock fails only the process ones.
+
+Three rules on it. **Failing to take the flock never costs the write** — a
+filesystem that will not take one is a reason to serialise less, not a reason
+to refuse to save, the rule every other entry point in that module works to.
+**Returning `None` from `mutate` writes nothing**, which is how "no such
+project", "nothing to delete" and "already there" are said: `google_index`'s
+rule, so a lookup that misses does not queue a pointless write on each of the
+two workers. And **a `mutate` that raises is the caller's own bug and is left
+to surface** — the locks release either way, because a lock held after an
+exception is a store that hangs rather than one that lost a row.
+
+**What is deliberately not done is the rest of the class, and the reason is
+that they are not all the same failure.** About fifty functions here read a
+store and write it back. A store keeping **one file per record** — `fan_radio`
+is the shape — collides only when two people edit the *same* record, which is
+the far narrower case and is why `hub/drafts.py` states one-file-per-draft as
+a rule. The ones that carry this failure in full are the single-file
+many-record stores, and the two migrated are the two where it was measured
+rather than reasoned about. The remainder is a list to work down with whoever
+knows each tool, not a sweep to land red: `test_jsonstore.py` holds the two
+that moved so neither can quietly go back to a lock of its own, which is what
+a per-process lock reads as when you find one.
+
 **Deleting a mirrored file needs `jsonstore.delete_json`, not `os.remove`.**
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one
@@ -4094,6 +4273,58 @@ same set.
 `./data` inside the container and is wiped on *every deploy* — not merely if
 the disk is recreated. Page Image Optimizer and Tickets both had it, which is
 where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
+
+**And a bare relative path is the same trap with the deploy wipe hidden.**
+`hub/ad_assets.py` handed `jsonstore.write_json` the literal
+`"ad_assets/runs.json"`, and `_atomic_write` resolves a path against the
+**process working directory** — so on Render both of that module's stores
+landed at `/app/ad_assets/*.json`, inside the container image, and `key_for()`
+saw a path outside the root and keyed the mirror `abs:/app/…` rather than
+root-relative. What made it survive review is that nothing was lost on the
+ordinary path: the mirror is written at save time, `read_json` restores by
+key, and `WORKDIR` is stable, so a redeploy really did come back with the data.
+
+**What was lost is the repair.** `sweep()` walks the data root, so it never
+scanned either file — measured, `scanned: 1` over a rooted store and this one
+side by side — and that sweep is precisely what picks up a save made while the
+mirror was unavailable. For every other store in the Hub it does; for these two
+the gap stood until somebody saved again, and the next redeploy took the file
+with it. Reproduced end to end: written with the mirror down, swept, disk
+recreated, and the rooted store came back while this one read `None`. The
+`abs:` key defeats the other half of `key_for()`'s own docstring too — a
+production blob restoring into a development checkout.
+
+**Both of that module's stores were also read-modify-write of a whole
+collection**, the class `update_json` exists for, and it is not theoretical
+here: the scheduled catch-up sweep and a rep pressing Migrate overlap by
+design, there are two workers, and **eight concurrent records kept 1 of 8**.
+What that drops is the only account of who moved which client's creative and
+when. `apply_proposals` does its Knack writes *before* it touches the store,
+deliberately — `update_json` holds a lock across both workers, and a network
+call inside it would hold the other worker off for as long as Knack takes to
+answer.
+
+**The old spellings are still read**, so nothing already recorded is orphaned
+— the `audit.LOG_NAMES` rule — and only while the rooted file is empty, or
+removing a row would resurrect it from the old location. Each store moves
+itself the first time it is written.
+
+**And that fallback re-created the file it exists to abandon.** `read_json`
+writes a restored blob back to disk, and a `default=` argument is evaluated
+whether or not it is needed — so passing the legacy read as `update_json`'s
+default did the old read on **every** run and rewrote the pre-move file every
+time, for ever. The fallback belongs *inside* the mutate, which runs under the
+lock and only where the rooted store is empty: once. The check written for it
+first could not fail — it ran in a fresh directory where the mirror holds no
+pre-move key, so there was nothing to restore and nothing to rewrite, and the
+defect passed it. It seeds that key now, which is the live deployment's state
+and not a fresh directory's. `test_ad_assets.py` asserts all of it and
+sweeps `hub/` and `modules/` for the shape: a **string literal** handed to a
+store function is unambiguously CWD-relative and is a finding, while a path
+built from a call or a name is *not determinable* and is deliberately not
+reported — a check with false positives is one somebody switches off, and
+switching this one off costs the real finding. It started green, which is the
+only way it was worth adding.
 
 ---
 
@@ -6506,21 +6737,47 @@ a moving 720x1560 GIF. Splitting it would invent two names the kit does not
 publish, which is exactly what `kit_name_drift()` exists to catch. No file
 weight is published for it, so none is invented.
 
-**Three of the twenty are a different kind of gap, and it reaches the client
+**Three of the twenty were a different kind of gap, and it reached the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
-formats are sold by the kit and this module holds **no unit** for any of them
+formats are sold by the kit and this module held **no unit** for any of them
 — not "we cannot parse that table" but "there is nothing here to judge one
 against". So a Meta requirement listed Stories and never Reels and read as
 complete, on the page the client is sent, while the kit itself says in as many
 words that *"Facebook Reels and Instagram Reels are not interchangeable —
 different file types, text limits and duration rules."* That is the Pinterest
 failure one placement along: judged against the nearest thing rather than
-reported as not measured. `_KIT_NOT_MODELLED` names them against the channels
-whose presence puts them in play, and `required_units()` carries them in the
-payload **and** on the one line `units_line()` prints — left in the note alone,
-the requirement a client actually reads still looks complete. `measured` stays
-true, because the units we do have are measured; what is withdrawn is the
-claim that the list is all of it.
+reported as not measured. `_KIT_NOT_MODELLED` named them against the channels
+whose presence put them in play, and `required_units()` carried them in the
+payload **and** on the one line `units_line()` prints — left in the note
+alone, the requirement a client actually reads still looks complete.
+
+**All nine are modelled now, and `_KIT_NOT_MODELLED` is empty.** The kit's own
+sentence is the specification: the two Reels units differ in **three** ways
+and a single shared unit would have satisfied every check above and been
+wrong — Instagram refuses GIF where Facebook takes it, Instagram caps at
+fifteen minutes where Facebook publishes none, and Facebook carries a
+55-character headline where Instagram has no such field. Both are on
+`_META_CHANNELS`, so a Meta buy asks for them by name.
+
+**The six CTV formats are modelled and are deliberately not an ask.** Pause,
+menu, screensaver, in-scene, squeezeback and overlay sit on a channel of their
+own — `ctv_interactive`, which no product maps to — because the kit sells them
+*beyond* the standard in-stream spot and says in as many words that
+availability varies by publisher. On the `ctv` channel they would have joined
+every CTV requirement line, asking every client for six files against a
+portfolio their publisher may not carry: the crying-wolf failure `ADDITIONS`
+and `QR_CODE_RULES` both refuse, on the line a client reads. Modelled means
+`check()` can judge one that arrives and `BY_ID` resolves its tag; it does not
+mean anybody is asked for it, and each carries the kit's own
+confirm-before-selling warning in its notes.
+
+**All three sections are declared unreadable with their reasons**, because
+what the parser cannot read has not changed: the Reels tables publish a format
+name against prose rather than the Unit / Dimensions / weight columns
+`kit_drift()` reads, and the CTV section publishes minimums rather than
+specifications. Declared rather than silently outside every check —
+`kit_coverage()` reports a section on the page nobody declared and a
+declaration that outlives its section, in both directions.
 
 ### A category heading is not a word about the product
 
@@ -11162,6 +11419,96 @@ against this repo's own hero photo, a three-slide 300x250 is 19 KB and a
 970x250 is 27 KB, against a 150 KB ceiling. `test_display_ads.py` asserts all
 of it, including that Amazon and Meta are offered none at any size.
 
+**And every adjustment made on one size was pasted onto the other ten as raw
+pixels.** `styleOverrides` is per **concept** — that is deliberate and right,
+because a font, a weight and a brand colour mean the same thing on every
+canvas — and it also carries geometry: the CTA's x and y, a block's width, the
+type size, the logo's box. Those are pixels, and a pixel authored against a
+300x250 means nothing on a 1080x1920. `applyBlockStyles` clamped them to the
+target canvas, which stopped anything rendering off-frame and is exactly what
+made it invisible: a clamp produces a plausible ad rather than a broken one.
+Measured against T01 on this repo's own templates, one ordinary tuning pass —
+nudge the button, size the headline, scale the logo — did this:
+
+    728x90     the logo went from 46px tall to 8px, which is `MIN_LOGO`, the
+               floor block-style.ts's own constant calls a smudge
+    970x250    headline type from [32,44] to [18,18], on a billboard
+    1080x1920  the button from y=1118 to y=200 — out of the end card and into
+               the middle of the hero photograph
+
+Nothing errored, every size passed its platform's minimum type size, and each
+one was internally consistent, which is why it survived: you have to open the
+other ten to see it. The operator perfects the first ad and ships ten they
+never looked at.
+
+**A departure carries; a pixel does not.** `modules/ad_builder/src/carry.ts`.
+Every size already has a hand-authored layout, so an override is not a position
+on a canvas — it is a **departure from that canvas's own template**, and what
+travels is the departure, in the target's own terms. A dimension carries as a
+**ratio** to the template's own, so *"the headline is a tenth bigger than
+default"* survives onto a billboard whose default is already twice the size. A
+position carries as a **fraction of the frame**, added to the target's own
+template position, so nudging the button a quarter of the way across a 300-wide
+ad moves it a quarter of the way on every other — rather than abandoning the
+composition its own layout put it in. `styleForSize()` is the one reading, and
+every render path asks it, so the preview and the delivered file cannot
+disagree about what was approved on screen — `copyForSize` one field over.
+
+**The first draft of this scaled everything by the smaller axis ratio, which is
+`modules/magic_resize/engine.py`'s rule, and it was a second wrong answer
+replacing the first.** That is right *there*: Magic Resize takes one design
+into empty frames with no target layout to depart from. Here 300x250 → 728x90
+is a factor of 0.36, so it drove the headline to the 8px floor and put the logo
+straight back at the smudge — measured, then changed. The two tools share the
+idea and deliberately not the arithmetic. Written down rather than left to be
+re-derived, because the tempting next edit is to "unify the engine":
+`test_display_ads.py` asserts the difference in both directions, so a change to
+either rule reports that this note has gone stale rather than letting somebody
+assume a shared engine that is not there.
+
+**Trying is half of it; the other half is saying which ones to look at.** The
+QA pass already knows how to find a bad layout — collision is a fail, safe-area
+and overflow and hierarchy are warnings — so the carry does not re-detect any
+of that. What it adds is the fact those checks cannot know: *where this size's
+design came from*. `carriedInto()` reports it, a `carry` finding names the
+source size, and a size whose departure **would not fit** is marked, because
+`applyBlockStyles`' clamp is right and is silent — where it bites, the ad on
+screen is not the adjustment that was asked for. It never fails: carrying is
+the feature, and a check that fires on every size in a set is one people stop
+reading, which is the note `QR_CODE_RULES` already carries.
+
+**The mark leads somewhere, which is the part that makes it worth having.**
+`bySize` is a correction authored against the size it names, merged last and
+carried nowhere — so the operator opens the one the carry could not place,
+nudges it, and the rest of the set is untouched. Without it the flag is a
+signpost: the correction would propagate straight back out and the size that
+had just been got right would be the next one broken. Same shape as
+`concept.copy`, because it is the same question one field over.
+
+**Two rules keep it from being worse than the bug.** A concept with **no
+`authoredFor`** is carried nowhere and resolves exactly as it always did —
+every ad saved before this exists carries pixels with no record of the canvas
+they were drawn against, and guessing one would rewrite creative that has been
+approved and delivered; the `backgroundPosition` precedent, superseded and kept
+and read only when the newer field is absent. And **geometry with no frame to
+come from is dropped, never pasted** — a family switched after tuning leaves
+nothing to re-anchor against, so the target's own composition stands and the
+report says so, since keeping the pixels silently would be the defect wearing a
+fix.
+
+**The browser resolves none of it.** The server returns the resolved style and
+the carry report with the preview, and `POST /api/carry` answers for the whole
+set at once — it renders nothing and reaches no provider, so the review count
+is right the moment something is tuned rather than filling in one size at a
+time as previews come back, which is a count nobody can trust. A second reading
+of the rule in JavaScript is the mirror this file counts the cost of twice.
+`test_display_ads.py` sweeps the **call sites** rather than naming the four
+that were wrong, so the fifth render path added next month cannot paste a pixel
+again, and `tests/carry.test.ts` drives the rule itself — both halves confirmed
+red against the real defect first, and one assertion in the first draft could
+not fail at all, because it checked that type stayed above `MIN_TYPE` and
+`applyBlockStyles` guarantees exactly that.
+
 ## Everyone has their own login, and there are two levels of it
 
 Fourteen people, uploaded from the company census. `hub/user_directory.py`
@@ -12148,6 +12495,110 @@ Removing it is checkable rather than remembered: the allowlist entry went with
 the file, and `test_unwired.py` fails on an entry naming a function that is
 gone — so the removal cannot be half-done.
 
+## A review nobody wrote down is a review nobody can point at
+
+`hub/qa_tasks.py`, `hub/qa_tasks_routes.py` and `/qa-tasks`. There are
+twenty-odd tools here and nobody can test all of them, so the way a check
+actually happens is that somebody is asked to do it — *open the Proposal
+Builder, run a quote end to end, tell me what breaks.* That ask lived in a
+chat message, and the answer came back the same way: no list of what had been
+asked, no record of what came back, and no way to tell an open question from
+one somebody answered three weeks ago. The QA Reports page says what is
+**wrong**; this is the other half of the same question, which is how somebody
+is asked to go and look.
+
+**Anyone can assign, and the assigner owns the answer.** Not admins only — the
+person who notices a page is wrong is very often not an admin, and a review
+queue only an admin can fill is one nobody fills. What that costs is a rule: a
+response goes back to *whoever raised the task*, keyed on `created_by_email`,
+never to a shared inbox. It is in the nav for a General account for the same
+reason: a queue behind a door the people answering it cannot open is not a
+queue.
+
+**Four states, and the two middle ones are the point.** `open` (nobody has
+answered), `answered` (the assignee replied and it is now the assigner's
+move), `needs_more` (the assigner read it and asked for something else) and
+`complete`. A single `done` flag collapses the two *somebody is waiting*
+states into one, which is precisely the thing anybody looking at this list
+needs to tell apart — the distinction `hub/social_content.py` draws about a
+round still out with the client.
+
+**Which kind of post it is comes from who is posting**, never from a flag the
+route passes: the assignee answering and the assigner asking for more are the
+same action from the table's point of view, and letting a route decide would
+be a second place the state machine lives. The reviewer **cannot close their
+own review** — a review the reviewer signs off is a review nobody read — and
+nothing is ever deleted, only completed: *what did we ask people to check
+before the last release* has to be answerable a year from now.
+
+**A need-by date is optional, and that is Todd's own rule.** Required, it gets
+filled in with a guess. `overdue` is derived from it on read rather than
+stored, so it cannot go stale the way a written flag would — `hub/creative_evergreen.py`'s
+rule, and it matters more here because there are two gunicorn workers.
+
+**The dropdown is read from the Hub, not restated.** `targets()` reads the nav
+in `hub/sidebar.py`, the tiles on `/tools` and `/creative`, and the reports in
+`hub/qa.py` — the same tiles `test_menu_layout.py` and `hub/help_coverage.py`
+read, for the same reason those two do: a hand-typed list of tools is a list
+that goes stale the week a tool is added. It comes to 111 entries today and it
+still ends with **"Something else"** and a free-text box, because a dropdown
+that cannot hold the answer is worse than a text box — a note this repo has
+already had to write down once, about the ad copy request form.
+
+**An attachment lives in the database.** Not the disk, which Render recreates
+and `hub/jsonstore.py` exists because of; not Cloudinary, which is configured
+per environment, and a review that cannot be filed because a key is missing is
+a review that does not happen. It is a `LargeBinary` column inside the database
+backup with `MAX_ATTACHMENT_BYTES` in front of it — enforced here rather than
+left to the app-wide `MAX_CONTENT_LENGTH`, which is 512 MB because one module
+renders video. It is served `Content-Disposition: attachment` with
+`X-Content-Type-Options: nosniff`: rendering an arbitrary upload inline on the
+staff origin is how a stored file becomes a script running on it.
+
+**"Notify me of any new updates" is answered without a mailer, because there
+is no mailer in this Hub.** That sentence appears in half a dozen modules here
+and the answer every one of them arrives at is the same: put the number where
+people already look. So there are two surfaces and they are deliberately
+different. The **dashboard card** sits above Recent activity, reads the same
+`for_person()` run the page draws — two screens counting the same thing
+separately is how they come to disagree in front of one person — and keeps the
+two queues apart, because *you have been asked to check this* and *somebody
+answered and is waiting on your reply* are two different jobs. And
+`hub/static/hub-qa-nudge.js` is the reminder for somebody who signs in and goes
+straight to a tool, which is most people most mornings: once per person per
+day, marked when it is **shown** rather than when it is dismissed, silent
+inside an iframe (a staff to-do list in a client-facing panel is an internal
+note in front of a client), silent when nothing is waiting, and a corner card
+rather than a modal — the change `hub-help.js` was made for. It is loaded from
+`base.html` alone and not from the chrome `HubBar` injects, the rule
+`hub-cheers.js` gives: one place that can raise an interruption is how you
+stay sure it is raised once.
+
+**What is new to you is what has moved since you last looked.**
+`assignee_seen_at` / `owner_seen_at` are one comparison against
+`last_activity_at`, rather than a per-message read flag that would have to be
+written for both people on every post — and they are stamped by **opening one
+task**, never by loading the list. A badge that clears itself because somebody
+glanced at a dashboard is a badge that stops meaning anything.
+
+**A shared-password session is told so rather than shown somebody's book.**
+`PANEL_PASSWORD` grants a session with no account behind it, so there is no
+email to key on — the `hub/ad_copy.py` refusal, where "Shared login" is a true
+statement about the session and a useless one where the whole value is whose
+it is.
+
+**Every reader answers with `measured` and a sentence, never an exception.**
+A SQLAlchemy `OperationalError` carries the database host and the SQL, and
+both screens interpolate this straight into a page; the cause goes to the log.
+An empty QA list is read as permission to stop looking, so *we could not read
+the table* must never render as *you have nothing to do* — which is why the
+dashboard card and the reminder each branch on it.
+
+The blueprint carries `hub/blueprint_guard.install()`. Nothing on it is
+public: every route names a member of staff, what they were asked to check and
+what they said about it. `test_qa_tasks.py` asserts all of it.
+
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -12243,6 +12694,19 @@ python3 test_magic_resize.py       # one design into the whole size set: sizes r
 python3 test_menu_layout.py        # the three index pages: every tool tiled once and
                                    #   only once, and the internal calculator that
                                    #   computes the same plan and captures nothing
+python3 test_qa_tasks.py           # asking somebody to check a page: four states
+                                   #   rather than a done flag, a reviewer who
+                                   #   cannot close their own review, an
+                                   #   attachment in the database rather than on
+                                   #   a disk nothing backs up, a dropdown read
+                                   #   from the nav and the tiles, and a card
+                                   #   that never draws a zero over a table it
+                                   #   could not read
+python3 test_department_views.py   # a curated shortlist per department: block
+                                   #   validation, a delete that un-assigns
+                                   #   rather than dangling, and the editor
+                                   #   gated behind Utilities while reading
+                                   #   your own view is not
 python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
                                    #   one reading, and counts that land on rows
 python3 test_knack_map.py          # what is mapped in Knack and what is
@@ -12374,6 +12838,9 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
+                                   #   gallery, searches it, and always offers the link
+                                   #   to the full one
 python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP
@@ -12421,6 +12888,14 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   override that needs a reason and a name,
                                    #   and a variation that carries the scripts
                                    #   without the audio
+python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
+                                   #   and the :60 that were unbuildable, the
+                                   #   cost note said at pick time rather than
+                                   #   after the read exists, the beats moved
+                                   #   out of the prompt's own prose, and a
+                                   #   named script panel run on the copy --
+                                   #   where certainty rather than severity
+                                   #   decides what may refuse a billed record
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,
@@ -12603,37 +13078,60 @@ It runs against a real Postgres rather than SQLite because Sites Admin refuses
 to start without one and serves the 503 fallback instead: on SQLite a whole
 module drops out of every check that boots the app, and nothing says so.
 
-**A setting that is right about a thing that has never happened.** smart1-hub
-is configured `autoDeploy: yes`, `autoDeployTrigger: checksPass`, branch
-`main`, and the checks it is waiting on pass — and Render has never once
-deployed it by itself. Every deploy in its history, past the hundredth and
-back to the week the service was created, is trigger `manual` or `api`, and
-**no service in the workspace has a single `new_commit` in its history**. So
-what is missing is the webhook rather than the setting, which is why reading
-the service config says nothing is wrong: each screen is internally
-consistent, and the one number that shows it is a column nobody scrolls to.
-The stored repo path is the pre-transfer one (`smart1marketing/smarthub`,
-where the repo now lives under the `Smart-1-Marketing` org), and git follows
-that redirect happily — so a manual deploy builds the right code and only the
-event subscription is absent. Reconnecting the repository under the org, with
-Render's GitHub App installed there, is the fix at that end and is the only
-half of this that cannot be done from the repo.
+**A setting that was right about a thing that had never happened — and then
+started happening, quietly, on the side nobody was watching.** This section
+used to say Render had never once deployed smart1-hub by itself: every deploy
+in its history was trigger `manual` or `api`, and no service in the workspace
+had a single `new_commit` in it. The diagnosis was the repo path — the service
+was still pointed at the pre-transfer `smart1marketing/smarthub` rather than
+`Smart-1-Marketing/smarthub` — and the fix named was reconnecting the
+repository under the org with Render's GitHub App installed there.
 
-The half that can is the `deploy` job in `checks.yml`, which makes the same
-promise on the side that demonstrably works: the commit whose checks just went
-green is the commit that ships. It is the workflow's one exception to *no
-secrets*, and it is a separate job for exactly that reason — it never runs on
-a pull request, so a fork's run and a contributor's branch still have no
+That reconnect happened at some point since, and nobody updated this file to
+say so. Checked directly against Render on 2026-09-04: the service now reads
+`autoDeployTrigger: commit`, not `checksPass`, and its deploy history is nine
+deploys deep of nothing but `trigger: new_commit` — one per push to `main`,
+each going `live` the moment it finishes building and `deactivated` the moment
+the next one supersedes it, exactly as an auto-deploying service should. A
+merge landing at 22:07 was live by 22:08; three more merges landed in the next
+eighteen minutes and each one deployed in turn. The failure this section spent
+a page describing is gone, and the only reason it took a direct API check to
+notice is the same one the section already names: a working auto-deploy and a
+broken one look identical from the GitHub side, because neither one is
+watched from there.
+
+**Which is what makes the other half's silence worth reading twice.** The
+`deploy` job in `checks.yml` below still runs on every push to `main`, still
+posts to `RENDER_DEPLOY_HOOK_URL`, and has been failing every single time —
+refusing by design, per its own comment, because `RENDER_DEPLOY_HOOK_URL` was
+never actually set as a repository secret. It was built as the route around a
+broken webhook; the webhook fixed itself and the route around it did not, and
+a job whose entire job is redundancy insurance can fail for a very long time
+before anyone notices, because the thing it insures keeps working without it.
+Nothing here is currently at risk *because* of that — Render's own auto-deploy
+is the one actually shipping code — but it means this repo is one webhook away
+from silently having no deploy path at all again, with a CI job that has been
+printing "Refusing rather than passing" into a log nobody reads for as long as
+the secret has been unset. Setting `RENDER_DEPLOY_HOOK_URL` under Settings →
+Secrets and variables → Actions, from the smart1-hub service's own Settings →
+Deploy Hook on Render, is what closes it — after which this job stops being
+insurance nobody has checked works and starts being insurance that does.
+
+The job is otherwise unchanged, and its own reasoning still holds: it deploys
+the commit whose checks just went green rather than a bare hook, because main
+takes a merge every few minutes here and "check main is green, then trigger a
+deploy" is not atomic — a deploy triggered that way could pick up a commit
+that landed in the intervening seconds. It is the workflow's one exception to
+*no secrets*, and it is a separate job for exactly that reason: it never runs
+on a pull request, so a fork's run and a contributor's branch still have no
 credential and no path to production.
 
-Three rules on it. It deploys **`ref=<sha>` and never a bare hook**: main takes
-a merge every few minutes here, so "check main is green, then trigger a
-deploy" is not atomic, and a deploy triggered that way has already picked up a
-commit that landed in the intervening seconds — naming the sha ships what was
-tested. A **missing secret is a refusal**, not a skip, because a green tick
-over a deploy that did not happen is the confident wrong answer this file
-spends its length undoing. And **the hook URL is never echoed**: the whole URL
-is the credential, anyone holding it can deploy, and the `services/provider_check.py`
+Three rules on it. It deploys **`ref=<sha>` and never a bare hook**, for the
+race named above. A **missing secret is a refusal**, not a skip, because a
+green tick over a deploy that did not happen is the confident wrong answer
+this file spends its length undoing — which is exactly the state it has been
+sitting in. And **the hook URL is never echoed**: the whole URL is the
+credential, anyone holding it can deploy, and the `services/provider_check.py`
 rule about never carrying a key into something a person reads applies to a CI
 log as much as to a page.
 

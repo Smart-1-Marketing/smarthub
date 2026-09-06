@@ -297,6 +297,82 @@ check("both list views carry the banner — an id would have put it on "
       tpl.count('class="focusBanner"') == 2)
 
 # ---------------------------------------------------------------------------
+section("a signal can draft its own follow-up, and only a signal can")
+# ---------------------------------------------------------------------------
+# The chase email, written from the pipeline's own reading. What is worth
+# asserting is the grounding, enforced rather than requested: the signal
+# comes from scoreboard()'s buckets and never from the browser, the facts in
+# the prompt are the measured ones, an invented percentage discards the
+# whole draft, and nothing is ever stored — a follow-up about Monday's
+# silence is stale by Friday, so re-drafting is a fresh reading.
+from hub import ai as hub_ai                                        # noqa: E402
+
+_fu = quote("Follow Up Motors", 3000)
+staff.put(f"/sales/builder/api/quotes/{_fu['id']}", json={"status": "Approved"})
+
+_real_chat = hub_ai.chat
+_fu_prompts = []
+
+
+def _fake_chat(messages, **kw):
+    _fu_prompts.append(messages[0]["content"])
+    return "Subject: Next step\n\nThanks for the yes — shall we book it in?\n\n[Your name]"
+
+
+hub_ai.chat = _fake_chat
+try:
+    ok = staff.post(f"/sales/builder/api/quotes/{_fu['id']}/draft-followup").get_json()
+    check("an accepted quote with no IO drafts a thank-you-and-next-step",
+          ok["ok"] and ok["email"]["signal"] == "to_convert", ok)
+    check("...from the measured facts, not the browser's",
+          "Follow Up Motors" in _fu_prompts[-1]
+          and "$3,000" in _fu_prompts[-1]
+          and "insertion order has not been written" in _fu_prompts[-1],
+          _fu_prompts[-1][:300])
+    check("...with invention forbidden in the prompt",
+          "invent no discounts, no percentages" in _fu_prompts[-1])
+    check("...and the answer says it is not saved and not sent",
+          "not saved" in ok["email"]["note"] and "nothing is sent" in ok["email"]["note"].lower(),
+          ok["email"]["note"])
+
+    _draft_q = quote("Never Sent Anywhere", 900)
+    refused = staff.post(f"/sales/builder/api/quotes/{_draft_q['id']}/draft-followup")
+    check("a Draft quote is refused by name — nothing is waiting on it",
+          refused.status_code == 400
+          and "Nothing is waiting" in refused.get_json()["error"],
+          refused.get_json())
+
+    def _discount_chat(messages, **kw):
+        return "Subject: Deal\n\nSay yes this week and we'll take 20% off.\n\n[Your name]"
+
+    hub_ai.chat = _discount_chat
+    bad = staff.post(f"/sales/builder/api/quotes/{_fu['id']}/draft-followup")
+    check("an invented percentage discards the whole draft, named",
+          bad.status_code == 502
+          and "invented discount" in bad.get_json()["error"], bad.get_json())
+
+    def _down_chat(messages, **kw):
+        raise hub_ai.AIUnavailable("OPENAI_API_KEY is not set.")
+
+    hub_ai.chat = _down_chat
+    down = staff.post(f"/sales/builder/api/quotes/{_fu['id']}/draft-followup")
+    check("a model that says no is a named refusal",
+          down.status_code == 502 and "OPENAI_API_KEY" in down.get_json()["error"])
+finally:
+    hub_ai.chat = _real_chat
+
+# Never stored: the quote's data blob is exactly what it was before the
+# draft, because a stored draft outlives the signal it was written about.
+_after = staff.get(f"/sales/builder/api/quotes/{_fu['id']}").get_json()["quote"]
+check("nothing was written to the quote by drafting",
+      "followup" not in json.dumps(_after.get("data") or {}).lower(), True)
+
+check("the row offers the drafter only where a chase could exist",
+      "draftFollowup" in tpl and "x.status==='Sent'||x.status==='Approved'" in tpl)
+check("and the modal never claims a copy that did not happen",
+      "press Ctrl-C" in tpl)
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

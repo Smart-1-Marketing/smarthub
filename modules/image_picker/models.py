@@ -9,6 +9,7 @@ DATABASE_URL -- the Scans module review flagged exactly that risk.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import secrets
@@ -22,6 +23,8 @@ from sqlalchemy.orm import declarative_base, relationship
 
 from hub.extensions import (BootProbe, create_all_metadata, session_factory,
                             shared_engine)
+
+log = logging.getLogger("hub")
 
 Base = declarative_base()
 
@@ -93,7 +96,12 @@ _LATE_COLUMNS = [
     ("image_picker_images", "io_number", "VARCHAR(80)"),
     ("image_picker_images", "product_number", "VARCHAR(80)"),
     ("image_picker_images", "asset_folder", "VARCHAR(600)"),
-    ("image_picker_images", "external", "BOOLEAN DEFAULT 0"),
+    # DEFAULT FALSE, not DEFAULT 0. Postgres refuses an integer default on a
+    # boolean column ('external' is of type boolean but the default
+    # expression is of type integer), the ALTER was swallowed by the except
+    # below, and every gallery read then died on "column
+    # image_picker_images.external does not exist". SQLite accepts FALSE too.
+    ("image_picker_images", "external", "BOOLEAN DEFAULT FALSE"),
 ]
 
 
@@ -134,8 +142,20 @@ def _add_missing_columns() -> None:
                 conn.execute(_text(
                     f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
             known[table].add(column)
-        except Exception:                               # noqa: BLE001
-            pass                                        # raced by the other worker
+        except Exception as exc:                        # noqa: BLE001
+            # Normally the other worker won the race and the column is there
+            # now. If it is not, the column is genuinely missing and every
+            # query naming it will 500 -- so say so once, rather than leaving
+            # the failure silent as the boolean-default bug did.
+            try:
+                fresh = {c["name"] for c in _inspect(_ENGINE).get_columns(table)}
+            except Exception:                           # noqa: BLE001
+                fresh = set()
+            if column in fresh:
+                known[table].add(column)
+            else:
+                log.error("image_picker: could not add %s.%s (%s): %s",
+                          table, column, coltype, exc)
 
 
 def db_error() -> str | None:

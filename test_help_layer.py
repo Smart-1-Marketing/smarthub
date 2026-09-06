@@ -286,22 +286,18 @@ ok("some walkthroughs are clean, so this is not reporting everything",
 check("no walkthrough drives none of the steps it names",
       [r["key"] for r in DEMO["rows"] if r["dead"]], [])
 
-# A scenario worked down to zero is named rather than left to the count.
-# The backlog above stays a backlog on purpose, so nothing here asserts how
-# large it is -- but a scenario somebody has repaired must not quietly come
-# apart again when a control it drives is renamed. Each of these was every-
-# step-dead-or-nearly before it was repaired against the tool that exists.
-_REPAIRED = ["seo_images.first_batch",
-             "sales_builder.first_quote",
-             "sales_builder.deliver"]
-_still_broken = sorted(r["key"] for r in DEMO["rows"] if r["key"] in _REPAIRED)
-check("a repaired walkthrough stays anchored", _still_broken, [])
-# And the list may not outlive its scenarios -- an entry naming one that has
-# been renamed or retired would pass by describing nothing, which is the
-# stale-exemption failure check_stale_json_exemptions() names.
-_known = set(DEMO["clean"]) | {r["key"] for r in DEMO["rows"]}
-check("and every scenario it names still exists",
-      sorted(k for k in _REPAIRED if k not in _known), [])
+# The backlog is empty, so the count is asserted rather than a list of the ones
+# somebody happened to repair. That list was the right check while a backlog
+# existed -- naming the count then would have been a check switched on red, the
+# thing this file is careful about. It is worth having now for the opposite
+# reason: it starts green, and it bites the first time a control a walkthrough
+# drives is renamed, which is how the backlog got to fifty-five in the first
+# place. A step whose selector this audit cannot test clears nothing, so
+# "untestable" cannot be used to satisfy it either.
+_unanchored = {r["key"]: [u["selector"] for u in r["unanchored"]]
+               for r in DEMO["rows"]}
+check("every walkthrough drives every step it names", _unanchored, {})
+check("...and every scenario is clean", len(DEMO["clean"]), DEMO["scenarios"])
 
 # A target is credited by the ATTRIBUTE being there, not by the word.
 # `_found()` used to test `name in everything`, so data-demo='unmatched' was
@@ -561,6 +557,62 @@ for _path in ("/api/help", "/api/demos"):
     check(f"{_path} stays public, because the chrome fetches it everywhere",
           _anon.get(_path).status_code, 200)
 
+# A scenario's `path` is where a rep is told to go before the walkthrough can
+# run at all, and six of them named a page the composed app answers 404 to:
+# /tools/google against a module mounted at /google, /tools/sites against
+# /sites, /tools/suite against /suite, and three more. Nothing reported it --
+# `catalogue()` prints the string, `hub-demo.js` never navigates, and the
+# steps then read as anchored-to-nothing for a reason that is one line above
+# them. This is the assertion test_oauth_redirects.py already makes about the
+# six callback paths, wearing a walkthrough: a route the app serves, or the
+# scenario is describing somewhere nobody can open.
+#
+# A redirect counts as served -- these are staff pages behind AuthGuard, and
+# `302 -> /login` is the route existing and refusing an anonymous caller. Only
+# a 404 means there is no such page.
+print()
+# `_needs()` reads a step's selector into (kind, name); `_spellings()` says
+# how that kind would be written in markup. They have to cover the same kinds
+# or a step asks for no spelling at all, `_found()` answers False on an empty
+# tuple, and a hook sitting in the template reads as driving nothing. That was
+# live for `data-tour`: the parser had been taught to read it and this map had
+# not, so seven steps across the two Smart 1 Ads walkthroughs were counted dead
+# while every one of their hooks was in the templates. A false positive is what
+# gets a check switched off, and switching this one off costs the real findings.
+print()
+print("Both halves of the audit know the same anchors")
+print("-" * 62)
+_probe = {
+    "id": "#anId",
+    "name": "[name='aField']",
+    "data-demo": "[data-demo='a-hook']",
+    "data-tour": "[data-tour='a-hook']",
+}
+for _kind, _selector in _probe.items():
+    _kinds = {k for k, _ in help_audit._needs(_selector)}
+    ok(f"a {_kind} selector is read as a requirement", _kind in _kinds, _kinds)
+    ok(f"...and {_kind} has a spelling to look for",
+       bool(help_audit._spellings(_kind, "a-hook")),
+       "_spellings returned nothing, so _found() can only answer False")
+# ...and the pair is the whole rule: every kind the parser emits must spell.
+_unspelled = sorted(
+    k for sel in _probe.values() for k, _ in help_audit._needs(sel)
+    if not help_audit._spellings(k, "x"))
+ok("no anchor kind is read but never looked for", not _unspelled, _unspelled)
+
+from hub import demos as _demos                                    # noqa: E402
+print("And every walkthrough names a page this Hub actually serves")
+print("-" * 62)
+_lost = []
+for _s in _demos.SCENARIOS:
+    if _anon.get(_s.path, follow_redirects=False).status_code == 404:
+        _lost.append(f"{_s.key} -> {_s.path}")
+ok("every scenario path is a route the composed app serves", not _lost,
+   "; ".join(_lost))
+# ...and it can go red: a path nothing is mounted at must be reported.
+ok("...and a path nothing serves is reported",
+   _anon.get("/tools/a-page-no-module-is-mounted-at").status_code == 404)
+
 _staff = Client(wsgi.application)
 _staff.post("/login", data={"password": "test"})
 _r = _staff.get("/api/help/coverage")
@@ -713,6 +765,64 @@ check("no key is registered twice", _dupes, [])
 # the shape of a check nobody can trust.
 check("every registered entry survives into the payload",
       len(help_registry.as_json()["help"]), len(help_registry.REGISTRY))
+
+
+# ---------------------------------------------------------------------------
+# The launcher has to be reachable, and it was behind the sidebar
+# ---------------------------------------------------------------------------
+import pathlib                                                    # noqa: E402
+print("\nA walkthrough nobody can start is 28 scenarios nobody can reach")
+
+# demo_targets() is at zero and every scenario drives every step it names --
+# and the button that starts one was underneath the nav. `.s1-demo-fab` is
+# `position:fixed` at the bottom left with z-index 1150; the injected sidebar
+# is fixed at left:0 with z-index 99990, so the sidebar won wherever the two
+# overlapped. Measured in a browser at 1440x900, signed in:
+#
+#   /qa, /tools/utm/          sidebar 224px   launcher 100% covered
+#   /client360, /tools/seo-images/, the Commercial Builder's own screens
+#                             sidebar  56px   launcher  19% covered, and the
+#                                             visible left edge -- the play
+#                                             glyph -- was a nav link, so
+#                                             pressing it went to /status
+#
+# Nothing could report it: the button renders, every selector it drives is
+# anchored, and every check in this file was green. It is the failure this
+# file exists for, one layer earlier than the layer it watches.
+_side_css = pathlib.Path("hub/sidebar.py").read_text(errors="ignore")
+_help_css = pathlib.Path("hub/static/hub-help.css").read_text(errors="ignore")
+
+# The variable is published on EVERY body, not only the ones that also get
+# margin-left. Those are different questions: the Hub's own pages offset
+# their own .main and must not be offset twice, and a fixed element on those
+# pages still has to clear the same 224px. Tying the two together is what
+# left it unset on exactly the pages where the launcher was worst covered.
+check("the rail's width is published on every body",
+      bool(re.search(r"^\s*body\s*\{[^}]*--s1hub-offset:\s*224px",
+                     _side_css, re.M)), True)
+check("...and the collapsed rail publishes its own width",
+      bool(re.search(r"^\s*body\.s1hub-collapsed\s*\{[^}]*--s1hub-offset:\s*56px",
+                     _side_css, re.M)), True)
+check("margin-left stays guarded, so a hub page is not offset twice",
+      bool(re.search(r"body:not\(:has\(\.shell > \.main\)\)\s*\{\s*margin-left:\s*224px;\s*\}",
+                     _side_css)), True)
+
+# Positioned from the variable rather than from a literal. A literal is what
+# it had, and a literal cannot know how wide the rail is on the page it is
+# sitting on -- which is the whole of the defect.
+_fab = re.search(r"\.s1-demo-fab\{[^}]*\}", _help_css, re.S)
+check("the launcher is positioned from the rail's own width",
+      bool(_fab and "var(--s1hub-offset" in _fab.group(0)), True)
+check("...and no longer from a bare left:1rem",
+      bool(_fab and not re.search(r"left:\s*1rem", _fab.group(0))), True)
+
+# The narrow-screen override is the same rule at a smaller inset, not an
+# exemption from it: below 950px the sidebar is a drawer and the variable is
+# unset, so the calc falls back to 0 and the inset is all that is left.
+_fab_sm = re.search(r"@media \(max-width:640px\)\{\.s1-demo-fab\{[^}]*\}",
+                    _help_css, re.S)
+check("the narrow-screen launcher clears it too",
+      bool(_fab_sm and "var(--s1hub-offset" in _fab_sm.group(0)), True)
 
 import shutil as _shutil                                          # noqa: E402
 _shutil.rmtree(_T, ignore_errors=True)

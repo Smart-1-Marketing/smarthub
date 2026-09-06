@@ -117,6 +117,7 @@
 
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
+<script src="/date-range.js"></script>
 <script src="/knack-form.js"></script>
 <script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
@@ -480,8 +481,16 @@ function render(g,q){
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Creative Information</h3><div class="right">${cre.length?`<a class="open-link" href="#" onclick="openGallery(0);return false">&#9635; View gallery (${cre.length})</a>`:''}<a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   if(cre.length){
     html+='<table><thead><tr><th>Product / Campaign</th><th>IO</th><th>Creative</th></tr></thead><tbody>';
+    /* Where Ad Assets has copied this creative into the client library, the
+       library copy is what the row opens: a Drive link is an address in
+       somebody else's filing cabinet and it goes on looking healthy long
+       after it stops opening. The Drive original stays beside it rather than
+       being replaced -- the media team still works out of that folder, and a
+       copy is a copy until somebody decides otherwise. A row with no copy
+       reads exactly as it always did. */
     cre.slice(0,12).forEach((c,i)=>{
-      html+=`<tr><td>${esc(c.product||'—')}${memberTag(c.member)}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} view →</a></td></tr>`;
+      const lib=c.library_url?`<a class="gbtn" href="${esc(c.library_gallery||c.library_url)}" title="Copied into this client's library — ${esc(String(c.library_count||1))} file(s)">&#128218; Library (${esc(String(c.library_count||1))}) →</a> `:'';
+      html+=`<tr><td>${esc(c.product||'—')}${memberTag(c.member)}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td>${lib}<a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} ${c.library_url?'Drive original':'view'} →</a></td></tr>`;
     });
     html+='</tbody></table>';
     if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
@@ -505,9 +514,16 @@ function render(g,q){
   } else html+='<div class="empty">No GTM container on record for this client.</div>';
   html+='</div></div>';
 
-  // ---------- Social Media + Client Notes (one row, two columns) ----------
+  // ---------- Social Media + Tracked links (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  /* Tracked links sits beside Social Media because the two answer the same
+     question — where this client's traffic is being sent from — and a rep
+     reading the profile URLs is the one who wants the tagged link. It used to
+     live eight cards further down, next to nothing. */
+  html+=`<div class="card"><div class="card-h">
+    <span class="src-tag src-web" style="background:#e0f2fe;color:#075985">UTM</span><h3>Tracked links</h3>
+    <div class="right"><a class="gbtn" href="/tools/utm/" target="_blank">Build links &rarr;</a></div></div>
+    <div class="card-b" id="c-utm"><div class="empty">Loading…</div></div></div>`;
 
   // ---------- Social content: what this client has asked us for ----------
   // The Social Media card above is their profile URLs. This is the work:
@@ -518,7 +534,7 @@ function render(g,q){
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social content requests</h3><a class="open-link" id="c-scq" href="/tools/social/requests">Open the queue →</a></div><div class="card-b" id="c-social-content"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-range" style="margin-bottom:14px"></div><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
@@ -547,10 +563,7 @@ function render(g,q){
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
     <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
 
-  html+=`<div class="card"><div class="card-h">
-    <span class="src-tag src-web" style="background:#e0f2fe;color:#075985">UTM</span><h3>Tracked links</h3>
-    <div class="right"><a class="mini" href="/tools/utm/" target="_blank">Build links &rarr;</a></div></div>
-    <div class="card-b" id="c-utm"><div class="empty">Loading…</div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
     <span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">SUITE</span><h3>Form submissions</h3>
@@ -1461,8 +1474,7 @@ function render(g,q){
         inv.map(i=>`<tr><td><b>${esc(i.doc_number||i.id)}</b></td><td>${esc(i.date||'')}</td><td class="muted">${esc(i.due_date||'')}</td><td>${money(i.total)}</td><td>${Number(i.balance)>0?money(i.balance):'—'}</td><td><span class="pill ${i.status==='Paid'?'ok':(i.status==='Overdue'?'err':'warn')}">${esc(i.status)}</span></td><td>${i.public_link
         ? '<a class="gbtn" href="'+esc(i.link)+'" target="_blank" rel="noopener" '+
           'title="Opens without a QuickBooks login — safe to send to the client">Customer link &#8599;</a>'+
-          ' <button class="btn-ghost" style="padding:2px 7px;font-size:11px" '+
-          'onclick="navigator.clipboard.writeText(\''+esc(i.link)+'\');this.textContent=\'copied\'">copy</button>'
+          ' <button class="gbtn" data-copy-url="'+esc(i.link)+'">Copy</button>'
         : '<a class="gbtn" href="'+esc(i.link)+'" target="_blank" rel="noopener" '+
           'title="QuickBooks app — needs a login. No public link cached for this invoice yet.">Open in QB &#8599;</a>'}</td></tr>`).join('')+'</tbody></table>';
       return h;
@@ -2055,35 +2067,175 @@ function render(g,q){
     }
   };
 
-  // Social Media — shared store with the SEO page
-  const SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];
+  // Social Media, and every other listing a client has a URL for.
+  //
+  // Two rules, both learned from the old grid: a row with nothing in it is
+  // noise, and the nine hard-coded platforms were never the whole list. So
+  // only saved links render, and everything else is one click away in the
+  // add menu. The catalog comes from /api/client/social so the server and
+  // this page can't drift; the page hard-codes no platform list at all.
+  var SOCIAL_CATALOG=[], SOCIAL_LABELS={}, socialLoaded=[];
+
+  function socialLabelFor(k){
+    if(SOCIAL_LABELS[k]) return SOCIAL_LABELS[k];
+    var hit=SOCIAL_CATALOG.filter(function(c){return c.key===k;})[0];
+    return hit ? hit.label : k.replace(/^c_/,'').replace(/-/g,' ');
+  }
+  function socialCustomKey(label){
+    var slug=String(label||'').toLowerCase().replace(/[^a-z0-9]+/g,'-')
+      .replace(/^-+|-+$/g,'').slice(0,38);
+    if(!slug) return '';
+    var k='c_'+slug;
+    return SOCIAL_CATALOG.some(function(c){return c.key===k;}) ? '' : k;
+  }
+  function socialRow(k,v,custom){
+    var head=custom
+      ? '<input class="s-label" value="'+esc(socialLabelFor(k))+'" placeholder="Name"'
+        +' style="width:86px;flex:none;padding:5px 6px;border:1px solid var(--line);'
+        +'border-radius:7px;font:12px inherit;color:var(--muted)">'
+      : '<b style="width:104px;flex:none;font-size:12px;color:var(--muted)">'
+        +esc(socialLabelFor(k))+'</b>';
+    return '<div class="s-row" data-sk="'+esc(k)+'" data-custom="'+(custom?'1':'0')
+      +'" style="display:flex;gap:6px;align-items:center">'+head
+      +'<input class="s-url" value="'+esc(v||'')+'" placeholder="https://…"'
+      +' style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);'
+      +'border-radius:8px;font:12.5px inherit">'
+      +(safeExternalUrl(v)?'<a href="'+esc(safeExternalUrl(v))+'" target="_blank"'
+        +' rel="noopener" style="flex:none" title="Open">↗</a>':'')
+      +'<button type="button" class="s-del" title="Remove this link"'
+      +' style="flex:none;border:0;background:none;cursor:pointer;color:#94a3b8;'
+      +'font-size:16px;line-height:1;padding:0 2px">&times;</button></div>';
+  }
+  function socialUsedKeys(){
+    var used={};
+    document.querySelectorAll('#c-social .s-row').forEach(function(r){
+      if(r.dataset.sk) used[r.dataset.sk]=1;});
+    return used;
+  }
+  function socialAddMenu(used){
+    // Only what isn't already on the record. A menu that offers a platform
+    // the client already has just makes a duplicate row. The caller passes
+    // what is used rather than the menu reading the page, so the rows it was
+    // built beside and the menu can't disagree.
+    used=used||{};
+    var groups=[], byGroup={};
+    SOCIAL_CATALOG.forEach(function(c){
+      if(used[c.key]) return;
+      if(!byGroup[c.group]){byGroup[c.group]=[];groups.push(c.group);}
+      byGroup[c.group].push(c);
+    });
+    var opts=groups.map(function(g){
+      return '<optgroup label="'+esc(g)+'">'+byGroup[g].map(function(c){
+        return '<option value="'+esc(c.key)+'">'+esc(c.label)+'</option>';
+      }).join('')+'</optgroup>';
+    }).join('');
+    return '<div style="display:flex;gap:6px;align-items:center;margin-top:10px">'
+      +'<select id="c-social-add" style="flex:1;max-width:280px;padding:6px 9px;'
+      +'border:1px solid var(--line);border-radius:8px;font:12.5px inherit">'
+      +'<option value="">+ Add a link…</option>'+opts
+      +'<optgroup label="Anything else"><option value="__custom">Custom link…</option>'
+      +'</optgroup></select>'
+      +'<span class="muted" style="font-size:11.5px">Pick a platform, paste the URL, then Save.</span>'
+      +'</div>';
+  }
+  function renderSocial(social,fromScan){
+    var order=SOCIAL_CATALOG.map(function(c){return c.key;});
+    var keys=Object.keys(social||{}).filter(function(k){
+      return String(social[k]||'').trim();});
+    keys.sort(function(a,b){
+      var ia=order.indexOf(a), ib=order.indexOf(b);
+      if(ia<0) ia=999; if(ib<0) ib=999;
+      return ia-ib || a.localeCompare(b);
+    });
+    var rows=keys.map(function(k){
+      return socialRow(k,social[k],order.indexOf(k)<0);}).join('');
+    $('c-social').innerHTML=
+      (rows
+        ? '<div id="c-social-rows" style="display:grid;'
+          +'grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">'+rows+'</div>'
+        : '<div id="c-social-rows"></div><div class="empty" style="padding:6px 0">'
+          +'No links saved for this client yet.</div>')
+      + ((fromScan&&fromScan.length)
+          ? '<div class="muted" style="font-size:11.5px;margin-top:8px">'
+            + fromScan.length + ' found on their own website ('
+            + fromScan.map(socialLabelFor).join(', ') + ') — the brand lookup didn\'t have '
+            + (fromScan.length>1?'them':'it') + '. Save to keep.</div>'
+          : '')
+      + socialAddMenu(keys.reduce(function(a,k){a[k]=1;return a;},{}));
+    wireSocial();
+  }
+  function wireSocial(){
+    var add=document.getElementById('c-social-add');
+    if(add) add.onchange=function(){
+      var k=add.value; add.value='';
+      if(!k) return;
+      var host=document.getElementById('c-social-rows');
+      if(!host) return;
+      if(!host.style.display){
+        host.style.display='grid';
+        host.style.gridTemplateColumns='repeat(auto-fill,minmax(280px,1fr))';
+        host.style.gap='8px';
+      }
+      var empty=$('c-social').querySelector('.empty'); if(empty) empty.remove();
+      host.insertAdjacentHTML('beforeend',
+        k==='__custom' ? socialRow('','',true) : socialRow(k,'',false));
+      var row=host.lastElementChild;
+      wireSocialRows();
+      var f=row.querySelector(k==='__custom'?'.s-label':'.s-url'); if(f) f.focus();
+      // The menu must not keep offering what was just added.
+      var menu=document.getElementById('c-social-add');
+      if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
+      wireSocial();
+    };
+    wireSocialRows();
+  }
+  function wireSocialRows(){
+    document.querySelectorAll('#c-social .s-del').forEach(function(b){
+      b.onclick=function(){
+        var row=b.closest('.s-row'); if(!row) return;
+        // Blank it rather than only dropping it from the page: the save
+        // below posts every key it started with, and an empty value is what
+        // tells the server to delete the link.
+        var u=row.querySelector('.s-url'); if(u) u.value='';
+        row.remove();
+        var menu=document.getElementById('c-social-add');
+        if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
+        wireSocial();
+      };
+    });
+  }
+
   fetchJson('/api/client/social?name='+encodeURIComponent(name)+(web0&&web0.domain?'&domain='+encodeURIComponent(web0.domain):''))
     .then(d=>{
       const social=d.social||{};
-      $('c-social').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">'
-        +SOCIAL_KEYS.map(k=>{
-          const v=social[k]||'';
-          return `<div style="display:flex;gap:6px;align-items:center">
-            <b style="width:74px;flex:none;font-size:12px;color:var(--muted);text-transform:capitalize">${k==='gbp'?'Google Biz':esc(k)}</b>
-            <input data-sk="${k}" value="${esc(v)}" placeholder="https://…" style="flex:1;min-width:0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font:12.5px inherit">
-            ${safeExternalUrl(v)?`<a href="${esc(safeExternalUrl(v))}" target="_blank" rel="noopener" style="flex:none">↗</a>`:''}
-          </div>`;}).join('')+'</div>'
-        /* Say where the extra ones came from. A URL that appears without
-           explanation looks like something a person typed and forgot. */
-        + (d.from_scan && d.from_scan.length
-            ? '<div class="muted" style="font-size:11.5px;margin-top:8px">'
-              + d.from_scan.length + ' found on their own website ('
-              + d.from_scan.join(', ') + ') — the brand lookup didn\'t have '
-              + (d.from_scan.length>1?'them':'it') + '. Save to keep.</div>'
-            : '');
+      SOCIAL_CATALOG=d.catalog||[]; SOCIAL_LABELS=d.labels||{};
+      socialLoaded=Object.keys(social);
+      renderSocial(social,d.from_scan);
       const saveBtn=document.getElementById('c-social-save');
       if(saveBtn) saveBtn.onclick=()=>{
-        const soc={};
-        document.querySelectorAll('#c-social input').forEach(i=>{soc[i.dataset.sk]=i.value.trim();});
+        const soc={},labels={};
+        document.querySelectorAll('#c-social .s-row').forEach(row=>{
+          let k=row.dataset.sk||'';
+          if(row.dataset.custom==='1'){
+            const li=row.querySelector('.s-label');
+            k=socialCustomKey(li?li.value:'');
+            if(k) labels[k]=(li.value||'').trim();
+          }
+          if(!k) return;
+          soc[k]=(row.querySelector('.s-url')||{value:''}).value.trim();
+        });
+        // Everything that was on the record when the page loaded and is no
+        // longer on it goes back as empty — that is the delete.
+        socialLoaded.forEach(k=>{ if(!(k in soc)) soc[k]=''; });
         fetch('/api/client/social',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,social:soc})})
+          body:JSON.stringify({client:name,social:soc,labels:labels})})
           .then(r=>r.json()).then(res=>{
             saveBtn.textContent=res.error?('Error: '+res.error):'Saved ✓';
+            if(!res.error){
+              SOCIAL_LABELS=res.labels||{};
+              socialLoaded=Object.keys(res.social||{});
+              renderSocial(res.social||{},null);
+            }
             setTimeout(()=>{saveBtn.textContent='Save →';},1600);
           });
       };
@@ -2311,15 +2463,47 @@ function c360AskReady(){
   };
 }
 
+/* The period this card reads.
+
+   It used to have none: the card reported last full month, always, and there
+   was no way to ask it anything else. It now carries the same Smart1Range
+   picker as the SEO client page — the same list of periods, the same
+   comparison options, the same custom boxes underneath — and opens on month
+   to date, which is what that page opens on too. Flipping between the two
+   pages for one client should not change the numbers. */
+var c360Range=null;
+function c360RangeReady(){
+  if(!window.Smart1Range) return;
+  var host=$('c-traffic-range'); if(!host) return;
+  /* Searching a second client rebuilds the card, which leaves the old picker
+     attached to an element no longer on the page — still holding the period
+     and still firing onChange into nothing. Re-mount when the host it drew
+     into is not the host that is on screen now. */
+  if(c360Range && c360Range.el && c360Range.el.parentNode===host) return;
+  if(host.firstChild) host.innerHTML='';
+  c360Range=window.Smart1Range.mount(host,{
+    preset:'mtd', compare:'previous',
+    onChange:function(){
+      var ga=window.__c360GA||{};
+      if(ga.property) c360Traffic(ga.property,ga.login);
+    }
+  });
+}
+
 function c360Traffic(propertyId,googleLogin){
   /* Ask AI needs the same property this card just resolved. Holding it here
      means the button works whether the property came from an attachment, a
      name match, or a manual attach a moment ago. */
   window.__c360GA={property:propertyId,login:googleLogin};
   c360AskReady();
-  $('c-traffic').innerHTML='<div class="empty">Pulling last month vs the previous period… <span class="spin" data-s1-think="scan"></span></div>';
+  c360RangeReady();
+  var body={property_id:propertyId,google_login:googleLogin};
+  var params=(c360Range&&c360Range.params&&c360Range.params())||{};
+  Object.keys(params).forEach(function(k){body[k]=params[k];});
+  var periodName=(c360Range&&c360Range.value()&&c360Range.value().label)||'month to date';
+  $('c-traffic').innerHTML='<div class="empty">Pulling '+esc(periodName)+' vs the comparison period… <span class="spin" data-s1-think="scan"></span></div>';
   fetch('/google/api/ga4/monthly-summary',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({property_id:propertyId,google_login:googleLogin})})
+    body:JSON.stringify(body)})
     .then(r=>r.json()).then(d=>{
       if(d.needs_reauth){
         // A revoked Google token is fixable in one click — say so, rather than
@@ -2337,7 +2521,7 @@ function c360Traffic(propertyId,googleLogin){
         ['Total key events',cur.key_events,prev.key_events,del.key_events,v=>Number(v||0).toLocaleString()],
       ];
       let h=`<div style="background:#eef6ff;border:1px solid #cfe3ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13.5px;line-height:1.55">
-        <b>Executive summary — ${esc((d.period||{}).current||'last month')}:</b> ${esc(d.summary||'')}</div>`;
+        <b>Executive summary — ${esc((d.period||{}).current||periodName)}:</b> ${esc(d.summary||'')}</div>`;
       h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">';
       rows.forEach(([label,c,p,dl,fmt])=>{
         h+=`<div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 14px">
@@ -2446,13 +2630,23 @@ function clientUploadLink(name, web0){
   }
 }
 
+/* One delegated handler for every "Copy" button that carries its own url, so a
+   card can render one without also wiring a listener for it. */
+document.addEventListener('click', function(ev){
+  var b = ev.target && ev.target.closest ? ev.target.closest('button[data-copy-url]') : null;
+  if(!b) return;
+  ev.preventDefault();
+  copyToClipboard(b.getAttribute('data-copy-url'), b);
+});
+
 /* navigator.clipboard is not available on http and is allowed to refuse, and
    a button that reports a copy it never made is worse than one that asks. */
-function copyToClipboard(text, btn){
+function copyToClipboard(text, btn, fieldId){
+  function field(){ return document.getElementById(fieldId || 'c-uplink-url'); }
   function done(){ var was = btn.textContent; btn.textContent = 'Copied \u2713';
                    setTimeout(function(){ btn.textContent = was; }, 1400); }
   function manual(){
-    var f = document.getElementById('c-uplink-url');
+    var f = field();
     if(f){ f.focus(); f.select(); }
     btn.textContent = 'Press Ctrl-C';
   }
@@ -2465,7 +2659,7 @@ function copyToClipboard(text, btn){
   fallback();
   function fallback(){
     try{
-      var f = document.getElementById('c-uplink-url');
+      var f = field();
       if(f){ f.focus(); f.select(); if(document.execCommand('copy')){ done(); return; } }
     }catch(e){}
     manual();
@@ -2679,8 +2873,8 @@ function loadClientLinks(name){
     if(!d||!d.ok){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';return;}
     var open=document.getElementById('c-client-links-open'); if(open)open.href=d.url;
     var items=(d.links||[]).map(x=>'<li><b>'+esc(x.kind||'Proof')+'</b> · <a href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(x.label)+' →</a></li>').join('')||'<li class="muted">No client links yet. Add a proof below or create an upload gallery.</li>';
-    box.innerHTML='<p class="muted" style="font-size:12px;margin-top:0">Navigation-free Smart 1 Marketing page to send the client.</p><div style="display:flex;gap:7px;flex-wrap:wrap"><input readonly value="'+esc(d.url)+'" id="c-client-links-url" style="flex:1;min-width:230px;padding:7px"><button class="mini" id="c-client-links-copy">Copy page link</button></div><ul>'+items+'</ul><details><summary>Add a client-safe proof link</summary><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><input id="c-proof-label" placeholder="Proof label"><input id="c-proof-url" placeholder="https://…" style="flex:1"><button class="mini" id="c-proof-add">Add</button></div></details>';
-    document.getElementById('c-client-links-copy').onclick=function(){copyToClipboard(d.url,this);};
+    box.innerHTML='<p class="muted" style="font-size:12px;margin-top:0">Navigation-free Smart 1 Marketing page to send the client.</p><div style="display:flex;gap:7px;flex-wrap:wrap"><input readonly value="'+esc(d.url)+'" id="c-client-links-url" style="flex:1;min-width:230px;padding:7px"><button class="gbtn" id="c-client-links-copy">Copy page link</button></div><ul>'+items+'</ul><details><summary>Add a client-safe proof link</summary><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><input id="c-proof-label" placeholder="Proof label"><input id="c-proof-url" placeholder="https://…" style="flex:1"><button class="gbtn" id="c-proof-add">Add</button></div></details>';
+    document.getElementById('c-client-links-copy').onclick=function(){copyToClipboard(d.url,this,'c-client-links-url');};
     document.getElementById('c-proof-add').onclick=function(){fetch('/api/client/client-links',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,label:document.getElementById('c-proof-label').value,url:document.getElementById('c-proof-url').value})}).then(r=>r.json()).then(x=>x.ok?loadClientLinks(name):alert(x.error||'Could not add that link.'));};
   }).catch(function(){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';});
 }
@@ -2731,11 +2925,13 @@ function renderUtm(d){
         '<div class="muted" style="font-size:11.5px">'+esc(l.source||'')+
         (l.medium?' / '+esc(l.medium):'')+'</div></td>'+
         '<td style="padding:5px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
-        '<button class="mini" onclick="navigator.clipboard.writeText('+
-        JSON.stringify(l.url||'')+');this.textContent=\'copied\'">copy</button></td></tr>';
+        '<button class="gbtn" data-utm-url="'+esc(l.url||'')+'">Copy</button></td></tr>';
     }).join('')+'</table>'+
     (d.count>12?'<div class="muted" style="font-size:11.5px;margin-top:6px">'+
       (d.count-12)+' more in the UTM Builder.</div>':'');
+  el.querySelectorAll('button[data-utm-url]').forEach(function(b){
+    b.onclick=function(){ copyToClipboard(b.getAttribute('data-utm-url'), b); };
+  });
 }
 
 

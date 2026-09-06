@@ -166,6 +166,24 @@ def generate_asset_image(role: str, prompt: str, *, client: str = "",
         "ads_pmax", f"{storage.slug(business or client or 'asset')}-{role}.jpg",
         processed.data, client=client or "")
     url = stored.get("url") if isinstance(stored, dict) else getattr(stored, "url", "")
+    public_id = (stored.get("public_id") if isinstance(stored, dict)
+                 else getattr(stored, "public_id", ""))
+
+    # Into the client's gallery, the same as every other producer here. This
+    # is real campaign creative — a Google Ads asset group cannot deploy
+    # without it — and a client who asks "what have you made for us" should
+    # be able to see it, not just the Google Ads account it was pushed to.
+    if client and url and public_id:
+        try:
+            from modules.image_picker import filing
+            filing.file_asset(
+                client_name=client, public_id=public_id, url=url,
+                kind="display_ad", label=f"Performance Max — {entry['label']}",
+                filename=f"{role}.jpg", provider="ads_pmax",
+                saved_by="ads_builder")
+        except Exception:                                # noqa: BLE001
+            pass
+
     return {
         "role": role, "url": url or "",
         # Derived on the row rather than in the template: a 1200x628 hero drawn

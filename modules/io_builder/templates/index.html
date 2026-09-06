@@ -1557,106 +1557,6 @@ function question(){
                  :`What should this target area be called? A name you'd use on a call — "Carmel showroom", "North trade area". Type SKIP to name it after its geography.`};
   }
 
-  if(String(q.key||"").indexOf("intake")===0){
-  const v=val.trim();
-
-  if(q.key==="intakeMode"){
-   PROPOSAL.intakeMode=/one at a time/i.test(v)?"each":"bulk";
-   if(PROPOSAL.intakeMode==="bulk"){
-    /* Only what the document actually supports: a product the card matched
-       and a price the proposal printed. The term comes from the campaign,
-       and the monthly assumption is recorded on the row so the summary can
-       say it was assumed rather than answered. */
-    const months=Math.max(1,+state.termMonths||intakeDefaultTerm()||1);
-    intakeRows().forEach(r=>{
-     if(r.product&&+r.amount>0&&!r.consulting){
-      r.basis="monthly";r.term_months=months;r.assumed=true;
-     }
-    });
-   }
-   index++;render();ask();return;
-  }
-
-  const e=intakeCurrent();
-  if(!e){index++;render();ask();return;}
-
-  if(q.key==="intakeProduct"){
-   if(v===INTAKE_SKIP||/^(skip|none|no)$/i.test(v)){
-    /* Skipped deliberately, and recorded as such. "Not selected" was the old
-       behavior precisely because nobody had decided -- a skip somebody chose
-       is a different thing and is worth being able to tell apart. */
-    e.skipped=true;e.product="";
-    addMsg(`Left off: “${e.query}”.`);
-    index=flow.findIndex(f=>f.key==="intakeNext");render();ask();return;
-   }
-   if(v===CONSULTING_PRODUCT||/^consult/i.test(v)){
-    e.consulting=true;e.product=CONSULTING_PRODUCT;e.category="ADD-ON PRODUCT";
-   }else if(/^y$/i.test(v)&&e.product){
-    /* keeps the matched product */
-   }else{
-    /* A candidate the rep picked, or a product name they typed. Resolve it
-       against the card the same way the reader did rather than trusting the
-       typed string -- otherwise a near-miss becomes a product code nothing
-       downstream recognizes. */
-    const label=(typeof cardLabelFor==="function"&&cardLabelFor(v))||"";
-    if(!label&&!(e.candidates||[]).some(c=>intakeShortName(c.product)===v)){
-     addMsg(`⚠ “${v}” is not a product on the rate card. Choose one of the options, ${CONSULTING_PRODUCT}, or ${INTAKE_SKIP}.`);
-     ask();return;
-    }
-    const full=(e.candidates||[]).find(c=>intakeShortName(c.product)===v);
-    e.product=full?full.product:(productConfig[label]||{}).product||label||v;
-    e.category=full?full.category:(productConfig[label]||{}).category||"";
-    e.consulting=false;
-   }
-   e.status="matched";
-   index++;render();ask();return;
-  }
-
-  if(q.key==="intakeDescribe"){e.description=v;index++;render();ask();return;}
-
-  if(q.key==="intakeBasis"){
-   e.basis=/^one/i.test(v)?"one_time":"monthly";
-   if(e.basis==="one_time")e.term_months=1;
-   index++;render();ask();return;
-  }
-
-  if(q.key==="intakeTerm"){
-   const n=parseInt(String(v).replace(/[^0-9]/g,""),10);
-   if(!(n>0)){addMsg("⚠ Enter the number of months as a number, for example 6.");ask();return;}
-   e.term_months=n;index++;render();ask();return;
-  }
-
-  if(q.key==="intakeAmount"){
-   let n=/^y$/i.test(v)?+e.amount:parseFloat(String(v).replace(/[^0-9.]/g,""));
-   if(!(n>0)){addMsg("⚠ Enter the amount as a number, for example 2500.");ask();return;}
-   e.amount=n;index++;render();ask();return;
-  }
-
-  if(q.key==="intakeNext"){
-   if(/one-time/i.test(v)){
-    /* Correcting an assumption, not answering the next-product question. */
-    e.basis="one_time";e.term_months=1;e.assumed=false;
-    addMsg(`${intakeShortName(e.product)} recorded as a one-time cost of ${money(e.amount)}.`);
-    ask();return;
-   }
-   intakeCommit(e);
-   const next=(PROPOSAL.intakeIx||0)+1;
-   if(next<intakeRows().length){
-    PROPOSAL.intakeIx=next;
-    index=flow.findIndex(f=>f.key==="intakeProduct");
-    render();ask();return;
-   }
-   /* Done. Clearing the list is what switches intakeActive() off, so the
-      six questions above stop applying and the ordinary product picker
-      follows -- a rep still adds anything the proposal did not mention. */
-   PROPOSAL.intake=[];PROPOSAL.intakeIx=0;
-   const done=(PROPOSAL.intakeCommitted||[]).length;
-   addMsg(done
-    ? `${done} product${done===1?"":"s"} from the proposal are on this IO with their budgets and terms. Add anything it missed from the categories below.`
-    : "Nothing from the proposal was added. Choose the products for this IO below.");
-   index++;render();ask();return;
-  }
- }
 
  if(q.key==="moreTargetAreas"){
    // Reads back what was just described, so "add another?" is answered
@@ -1823,6 +1723,117 @@ async function submit(raw){
 
  
  /* ---- the questions the document raised, answered ------------------ */
+ /* This whole block used to live inside question() -- the function that
+    only ever builds the *next* question's text -- guarded by a second
+    copy of the same "does this key start with intake" check that
+    question() already returns on higher up, so it could never run, and it
+    referenced a `val` that did not exist in that function's scope. Nothing
+    in submit() handled these keys either, so an answer to any of the
+    "Product N of M from the proposal" questions fell through to the
+    generic `state[q.key]=val` catch-all at the bottom of this function:
+    the row was never resolved, matched, described, priced or committed,
+    and a converted proposal's products never reached this IO. */
+ if(String(q.key||"").indexOf("intake")===0){
+  const v=val.trim();
+
+  if(q.key==="intakeMode"){
+   PROPOSAL.intakeMode=/one at a time/i.test(v)?"each":"bulk";
+   if(PROPOSAL.intakeMode==="bulk"){
+    /* Only what the document actually supports: a product the card matched
+       and a price the proposal printed. The term comes from the campaign,
+       and the monthly assumption is recorded on the row so the summary can
+       say it was assumed rather than answered. */
+    const months=Math.max(1,+state.termMonths||intakeDefaultTerm()||1);
+    intakeRows().forEach(r=>{
+     if(r.product&&+r.amount>0&&!r.consulting){
+      r.basis="monthly";r.term_months=months;r.assumed=true;
+     }
+    });
+   }
+   index++;render();ask();return;
+  }
+
+  const e=intakeCurrent();
+  if(!e){index++;render();ask();return;}
+
+  if(q.key==="intakeProduct"){
+   if(v===INTAKE_SKIP||/^(skip|none|no)$/i.test(v)){
+    /* Skipped deliberately, and recorded as such. "Not selected" was the old
+       behavior precisely because nobody had decided -- a skip somebody chose
+       is a different thing and is worth being able to tell apart. */
+    e.skipped=true;e.product="";
+    addMsg(`Left off: “${e.query}”.`);
+    index=flow.findIndex(f=>f.key==="intakeNext");render();ask();return;
+   }
+   if(v===CONSULTING_PRODUCT||/^consult/i.test(v)){
+    e.consulting=true;e.product=CONSULTING_PRODUCT;e.category="ADD-ON PRODUCT";
+   }else if(/^y$/i.test(v)&&e.product){
+    /* keeps the matched product */
+   }else{
+    /* A candidate the rep picked, or a product name they typed. Resolve it
+       against the card the same way the reader did rather than trusting the
+       typed string -- otherwise a near-miss becomes a product code nothing
+       downstream recognizes. */
+    const label=(typeof cardLabelFor==="function"&&cardLabelFor(v))||"";
+    if(!label&&!(e.candidates||[]).some(c=>intakeShortName(c.product)===v)){
+     addMsg(`⚠ “${v}” is not a product on the rate card. Choose one of the options, ${CONSULTING_PRODUCT}, or ${INTAKE_SKIP}.`);
+     ask();return;
+    }
+    const full=(e.candidates||[]).find(c=>intakeShortName(c.product)===v);
+    e.product=full?full.product:(productConfig[label]||{}).product||label||v;
+    e.category=full?full.category:(productConfig[label]||{}).category||"";
+    e.consulting=false;
+   }
+   e.status="matched";
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeDescribe"){e.description=v;index++;render();ask();return;}
+
+  if(q.key==="intakeBasis"){
+   e.basis=/^one/i.test(v)?"one_time":"monthly";
+   if(e.basis==="one_time")e.term_months=1;
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeTerm"){
+   const n=parseInt(String(v).replace(/[^0-9]/g,""),10);
+   if(!(n>0)){addMsg("⚠ Enter the number of months as a number, for example 6.");ask();return;}
+   e.term_months=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeAmount"){
+   let n=/^y$/i.test(v)?+e.amount:parseFloat(String(v).replace(/[^0-9.]/g,""));
+   if(!(n>0)){addMsg("⚠ Enter the amount as a number, for example 2500.");ask();return;}
+   e.amount=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeNext"){
+   if(/one-time/i.test(v)){
+    /* Correcting an assumption, not answering the next-product question. */
+    e.basis="one_time";e.term_months=1;e.assumed=false;
+    addMsg(`${intakeShortName(e.product)} recorded as a one-time cost of ${money(e.amount)}.`);
+    ask();return;
+   }
+   intakeCommit(e);
+   const next=(PROPOSAL.intakeIx||0)+1;
+   if(next<intakeRows().length){
+    PROPOSAL.intakeIx=next;
+    index=flow.findIndex(f=>f.key==="intakeProduct");
+    render();ask();return;
+   }
+   /* Done. Clearing the list is what switches intakeActive() off, so the
+      six questions above stop applying and the ordinary product picker
+      follows -- a rep still adds anything the proposal did not mention. */
+   PROPOSAL.intake=[];PROPOSAL.intakeIx=0;
+   const done=(PROPOSAL.intakeCommitted||[]).length;
+   addMsg(done
+    ? `${done} product${done===1?"":"s"} from the proposal are on this IO with their budgets and terms. Add anything it missed from the categories below.`
+    : "Nothing from the proposal was added. Choose the products for this IO below.");
+   index++;render();ask();return;
+  }
+ }
+
  if(q.key==="proposalBudget"){
   const n=num(val);
   if(!(n>0)){addMsg("⚠ Enter the agreed monthly budget as a number, for example 6525.");ask();return}
@@ -2503,8 +2514,13 @@ function render(){
 }
 function creativeChecklistItems(productKey){
  const r=productRequirements(productKey),items=[...(r.creative||[])];
+ // A product with no design spec has nothing to check here. The old
+ // fallback asked every product to "confirm the creative files" whether
+ // or not one was ever going to exist -- a phone number or a management
+ // fee has no creative to confirm, and printing that line taught people
+ // to ignore the checklist. Nothing invented for an empty slot.
+ if(!items.length)return [];
  if(state.creativeSource==="Smart 1 is building the creative")items.unshift("Provide approved logo, brand colors, photos, offer details, call to action and required disclaimers.");
- if(!items.length)items.push("Confirm the creative files, copy, destination URL and approval contact needed for this product.");
  return [...new Set(items)];
 }
 /* The client's own upload link, fetched on demand and remembered on the
@@ -2572,7 +2588,12 @@ function toggleCreativeChecklist(key,checked){state.creativeChecklist[key]=check
 function renderCreativeChecklist(){
  const box=document.getElementById("creativeChecklist");if(!box)return;
  if(!state.selected.length){box.innerHTML='<div class="empty">Select products to build the creative checklist.</div>';return}
- box.innerHTML=state.selected.map(p=>{
+ // Only a product with a design spec gets a card here -- a phone number or
+ // a management fee has nothing to check, and a heading with nothing under
+ // it reads as this list being broken rather than as a real answer.
+ const withCreative=state.selected.filter(p=>creativeChecklistItems(p).length);
+ if(!withCreative.length){box.innerHTML='<div class="empty">None of the selected products call for supplied creative.</div>';return}
+ box.innerHTML=withCreative.map(p=>{
   const cfg=productConfig[p]||{},items=creativeChecklistItems(p);
   return `<div class="check-product"><h3>${esc(cfg.product||p)}</h3>${items.map(item=>{const key=checklistKey(p,item),done=!!state.creativeChecklist[key];return `<label class="check-item ${done?'done':''}"><input type="checkbox" ${done?'checked':''} onchange='toggleCreativeChecklist(${JSON.stringify(key)},this.checked)'><span>${esc(item)}</span></label>`}).join('')}</div>`
  }).join('')
@@ -2697,7 +2718,7 @@ function productRequirements(productKey){
   pushUnique(creative,"Single image: 1200 x 627 JPG/PNG","Carousel: 2-10 cards at 1080 x 1080","Video: MP4 plus thumbnail","Text ad: 100 x 100 image, 25-character headline and 75-character description","Introductory text, headline and landing-page URL");
   pushUnique(setup,"Job titles, job functions, industries, company names/sizes and seniority","Skills, education/professional groups and geography","Matched audiences, objective, budget/dates and conversion goal","Excluded industries, companies or job titles");
  }
- if(/tiktok/.test(s)){
+ if(/tiktok|tik tok/.test(s)){
   pushUnique(access,"TikTok Business Center and Ads Manager access","TikTok account access when ads run from the account","TikTok Pixel plus website/Tag Manager access","CRM or lead-delivery access when applicable");
   pushUnique(creative,"Vertical 9:16 MP4/MOV video; 5-60 seconds, with 9-15 seconds preferred","Brand name: 2-20 characters; description: 12-100 characters","Square profile image, call to action and landing-page URL");
   pushUnique(setup,"Audience, geography, age, interests and objective","Budget at or above platform minimum","Dates, pixel/conversion event, music-usage confirmation and exclusions");
@@ -2833,7 +2854,7 @@ function customerFriendlyNeeds(productKey){
  if(/geo-fence/.test(s))add("The exact addresses or areas to target, event dates/times if applicable, and the location that should count as a visit.");
  if(/facebook|instagram|meta/.test(s))add("Partner access to your Facebook Page, Instagram account and advertising account through Meta Business Portfolio.","Your photos or videos, offer, destination link and any required wording.","For lead ads, tell us what questions to ask and who should receive new leads.");
  if(/linkedin/.test(s))add("Access to your LinkedIn Company Page and advertising account.","Your preferred job titles, industries, company types and professional audiences.","An image/video, short message and destination link.");
- if(/tiktok|snapchat|pinterest|twitter|\bx\b/.test(s))add("Business/advertising access to the selected social platform.","Platform-ready photos or vertical videos, short ad copy, call to action and destination link.","The audiences, locations, topics and content you want included or excluded.");
+ if(/tiktok|tik tok|snapchat|pinterest|twitter|\bx\b/.test(s))add("Business/advertising access to the selected social platform.","Platform-ready photos or vertical videos, short ad copy, call to action and destination link.","The audiences, locations, topics and content you want included or excluded.");
  if(/social media management/.test(s))add("Admin access to each social account we will manage - please use official partner permissions, not emailed passwords.","Your logo, photo/video library, services, promotions, events, staff news, testimonials and important dates.","Your preferred brand voice, approval contact, response policy and any topics we should not discuss.");
  if(/youtube/.test(s))add("Access to Google Ads and the YouTube channel.","A video uploaded to YouTube, the destination link, call to action and any channels or topics to include or avoid.");
  if(/video/.test(s)&&!/youtube/.test(s))add("A finished video file, usually 15 or 30 seconds, plus the destination page.","Tell us the audience, geography, campaign schedule and any websites, apps or content to avoid.");
@@ -3105,16 +3126,43 @@ function customerRequirementItems(){
   'Competitors, negative keywords, locations, websites, audiences or topics to avoid',
   'Preferred days or hours for the campaign to run'
  ];
- state.selected.forEach(k=>customerItemsForProduct(k).forEach(x=>{if(!lines.includes(x))lines.push(x)}));
+ // customerFriendlyNeeds() is the one reading of what a product asks a
+ // customer for -- the same function customerRequirementsText()/HTML()
+ // already use for the print/copy checklist. A second, differently-named
+ // reader here had never been defined at all, which threw the moment any
+ // product was selected and took both PDF buttons down with it silently
+ // (an async function throwing before its first await rejects the
+ // returned promise rather than raising where onclick can see it).
+ state.selected.forEach(k=>customerFriendlyNeeds(k).forEach(x=>{if(!lines.includes(x))lines.push(x)}));
  return lines;
 }
 function internalRequirementSections(){
  return state.selected.map(k=>{const cfg=productConfig[k]||{};const r=productRequirements(k);return{title:cfg.product||k,items:[...(r.common||[]),...(r.creative||[]),...(r.access||[]),...(r.setup||[])]}});
 }
+// The one reading of what goes on a generated PDF, for both the buttons a
+// rep presses by hand and the copy Submit Finished IO builds on the way to
+// Suite. Two readers of one payload is how the submitted PDF came to carry
+// none of this: ensurePdfForWebhook() used to post the bare state object,
+// so the "What We Need From You" and "Internal Product Requirements"
+// sections -- and the formatted spend figures -- were empty on every IO
+// that was ever actually submitted, even though the manual download button
+// computed them correctly (when it worked at all).
+function buildPdfPayload(type){
+ const totalCampaignBudget=state.items.reduce((s,i)=>s+(i.campaignBudget||0),0);
+ const monthlySpend=state.items.reduce((s,i)=>s+(i.budget||0),0);
+ return {...state,
+  monthlySpendFormatted:money(monthlySpend),
+  totalCampaignBudgetFormatted:money(totalCampaignBudget),
+  documentType:type,
+  brandfetch:state.brandfetch,
+  creativeAssets:state.creativeAssets.map(a=>({...a,productLabel:(productConfig[a.product]||{}).product||a.product})),
+  customerRequirements:customerRequirementItems(),
+  internalRequirements:internalRequirementSections()};
+}
 async function generateStoredPDF(type){
  if(!state.client){alert('Enter the client name first.');return}
  buildStrategy();render();
- const totalCampaignBudget=state.items.reduce((s,i)=>s+(i.campaignBudget||0),0);const monthlySpend=state.items.reduce((s,i)=>s+(i.budget||0),0);const payload={...state,monthlySpendFormatted:money(monthlySpend),totalCampaignBudgetFormatted:money(totalCampaignBudget),documentType:type,brandfetch:state.brandfetch,creativeAssets:state.creativeAssets.map(a=>({...a,productLabel:(productConfig[a.product]||{}).product||a.product})),customerRequirements:customerRequirementItems(),internalRequirements:internalRequirementSections()};
+ const payload=buildPdfPayload(type);
  const label=type==='internal'?'Internal requirements':'Customer PDF';
  try{
   const r=await fetch('{{ request.script_root }}/api/download-requirements-pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -4112,10 +4160,14 @@ async function ensurePdfForWebhook(kind){
   if(state.documents[key]) return state.documents[key];
 
   const endpoint = kind === "client" ? "/api/generate-client-pdf" : "/api/generate-internal-pdf";
+  // buildPdfPayload(), not the bare state -- the submitted PDF has to carry
+  // the same "What We Need From You" / "Internal Product Requirements"
+  // sections and formatted spend figures the manual download button sends,
+  // or the copy Suite receives is missing the whole requirements checklist.
   const response = await fetch(endpoint,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(state)
+    body:JSON.stringify(buildPdfPayload(kind))
   });
   const result = await response.json().catch(()=>({}));
   if(!response.ok || !result.ok){

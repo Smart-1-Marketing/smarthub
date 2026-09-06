@@ -105,7 +105,7 @@ section("The defect underneath: which key the submit route logs")
 src = open(os.path.join(ROOT, "modules", "io_builder", "app.py"),
            encoding="utf-8").read()
 submit = src[src.index('@app.post("/api/submit-io")'):]
-submit = submit[:submit.index("webhook_url = os.environ")]
+submit = submit[:submit.index("@app.post('/api/zipcodes-in-radius')")]
 check("submit_io logs the payload's own key, `orderNumber` — reading "
       "`order_number` alone wrote a blank on every entry ever logged",
       'get("orderNumber")' in submit)

@@ -6,7 +6,13 @@
 <title>Unattached Images — Smart 1 Hub</title>
 <style>
   :root{--ink:#0a2240;--ink-2:#33507a;--muted:#6b7d99;--line:#dfe6f0;
-        --bg:#f6f8fb;--card:#fff;--red:#c0392b;--amber:#d18b1f;
+        --bg:#f6f8fb;--card:#fff;--red:#c0392b;
+        /* Matched to hub-detail.css's .s1d-pill.warn (#94620a on #fef7e7,
+           4.9:1) rather than this page's own lighter #d18b1f, which read at
+           2.57:1 against the pill's #fdf3e3 background -- a local color that
+           had drifted from the shared standard the rest of the Hub holds
+           warning pills to. */
+        --amber:#94620a;
         --blue:#2f80ed;--green:#1e8e5a}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
@@ -34,7 +40,7 @@
   .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600}
   .pill.ok{background:#e6f4ec;color:var(--green)}
   .pill.bad{background:#fbeae8;color:var(--red)}
-  .pill.warn{background:#fdf3e3;color:var(--amber)}
+  .pill.warn{background:#fef7e7;color:var(--amber)}
   .pill.neutral{background:#eef2f7;color:var(--ink-2)}
   .muted{color:var(--muted)}
   .why{font-size:12.5px;color:var(--muted);margin:2px 0 0}
@@ -329,7 +335,7 @@ function drawRecon(d){
       + (d.not_reconciled||[]).map(x=>esc(x.key)+' — '+esc(x.why)).join(' ') + '</p>'
     : '';
   const unread = (d.stores_unread||[]).length
-    ? '<p class="note" style="color:#d18b1f">These stores would not answer, so '
+    ? '<p class="note" style="color:var(--amber)">These stores would not answer, so '
       + 'anything they know about may be listed here wrongly: '
       + (d.stores_unread||[]).map(x=>esc(x.label)+' ('+esc(x.error)+')').join('; ')+'</p>'
     : '';

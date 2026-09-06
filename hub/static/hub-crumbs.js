@@ -78,6 +78,7 @@
     "smartforecast": "SmartForecast Dynamic Website",
     "widgets": "Scan Widgets",
     "google-access": "Google Access", "utm": "UTM Builder",
+    "ad-assets": "Ad Assets",
     "ga-tools": "GA4 Tools", "gtm-tools": "GTM Tools",
     "webmaster-tools": "Webmaster Tools", "gmb-tools": "Business Profile",
     "history": "Google History & Logs", "leads": "Leads",
@@ -92,6 +93,8 @@
     // disagrees with the tile somebody clicked is a small lie the reader
     // corrects by ignoring the trail.
     "client-owners": "Assign Clients", "my-clients": "My Clients",
+    // Named rather than left to the slug: title-casing gives "Qa Tasks".
+    "qa-tasks": "QA Tasks",
     "users": "Users"
   };
 
@@ -107,8 +110,12 @@
   // page the tool is actually listed on. Anything absent falls back to the
   // mount it sits under, which is right for a tool tiled where its URL says.
   var PARENT = {
-    "tools": null, "qa": null, "scans": null, "client360": null, "seo": null,
+    "tools": null, "qa": null, "scans": null, "client360": null,
     "diagnostics": null, "activity": null, "status": null,
+    // In the nav AND tiled on Tools (Web Development / SEO groups) -- the
+    // my-clients rule below: back goes to the index the tool is listed on
+    // rather than nowhere.
+    "seo": ["/tools", "Tools"], "sites": ["/tools", "Tools"],
     // Moved to QA Reports; their URLs stayed where they were.
     "stale-creative": ["/qa", "QA Reports"],
     "unattached-images": ["/qa", "QA Reports"],
@@ -122,6 +129,9 @@
     // the Dashboard offers no way to the list it came from, which is the
     // whole job of the crumb.
     "my-clients": ["/qa", "QA Reports"],
+    // /qa-tasks is in the nav *and* tiled on QA Reports, exactly as
+    // /my-clients is. Back goes to the index it is listed on.
+    "qa-tasks": ["/qa", "QA Reports"],
     // Tiled on Tools.
     "calculators": ["/tools", "Tools"], "google-access": ["/tools", "Tools"],
     "builder": ["/tools", "Tools"], "landing": ["/tools", "Tools"],

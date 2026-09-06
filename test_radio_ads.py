@@ -40,6 +40,8 @@ import pathlib
 import struct
 import subprocess
 import sys
+import threading
+import time
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -79,6 +81,7 @@ from modules.radio_promo import app as rp_app                   # noqa: E402
 from modules.radio_promo import ai as rp_ai                     # noqa: E402
 from modules.radio_promo import catalog as rp_catalog           # noqa: E402
 from modules.radio_promo import store as rp_store               # noqa: E402
+from hub import jsonstore as _jstore                            # noqa: E402
 
 client = rp_app.app.test_client()
 TEMPLATE = (ROOT / "modules" / "radio_promo" / "templates" / "index.html").read_text()
@@ -342,8 +345,14 @@ check("and so is a deliberate voice-only spot", bed_level(BED, vo_only=True), "p
 # =====================================================================
 section("The :60 is asked for, not assumed")
 # =====================================================================
-check("the catalog sells three lengths", list(rp_catalog.SLOT_KEYS),
-      ["fifteen", "thirty", "sixty"])
+# The property, not the count. This asserted "three lengths" and went red the
+# day a :10 was added -- a number in an assertion is a number that drifts, and
+# what actually matters is that everything outside the pair is opt-in.
+check("the catalog sells the pair and the units either side",
+      list(rp_catalog.SLOT_KEYS), ["ten", "fifteen", "thirty", "sixty"])
+check("and every length outside the pair has to be asked for",
+      sorted(set(rp_catalog.SLOT_KEYS) - set(rp_catalog.slots_of({}))),
+      ["sixty", "ten"])
 check("a project with no slot list on it is the pair it always was",
       list(rp_catalog.slots_of({})), ["fifteen", "thirty"])
 check("a row saved before the field existed reads the same way",
@@ -680,16 +689,101 @@ check("a variation is not itself born with variations",
 # =====================================================================
 section("None of this is a client's to open")
 # =====================================================================
-# Radio Promo is staff-only and declares no public prefixes -- `wsgi.py` wraps
-# the whole mount in AuthGuard. That is what makes the new routes safe: they
-# name clients, carry briefs, and spend money per press. Fan Radio is the one
-# with a customer-facing page, and it declares its three prefixes.
-check("Radio Promo still declares nothing public",
-      getattr(rp_app, "PUBLIC_PREFIXES", None), None)
+# The routes on this page -- beds, mixes, voice uploads, variations -- name
+# clients, carry briefs and spend money per press, so none of them may be
+# reachable without a Hub login. Radio Promo now declares its own client
+# review page too (hub/radio_share.py, the one implementation with Fan
+# Radio's), so PUBLIC_PREFIXES is no longer empty -- it is exactly the three
+# mount-relative prefixes a customer reaches, and none of the billed routes
+# this file exercises fall under any of them.
+check("Radio Promo declares exactly the client review page as public",
+      getattr(rp_app, "PUBLIC_PREFIXES", None), ("/r/", "/api/public/", "/file/"))
 _writes = [r for r in rp_app.app.url_map.iter_rules()
            if {"POST"} & r.methods and any(
                k in str(r) for k in ("/bed/", "/mix", "/voice/upload", "/variations"))]
 check("and every new write route is inside that mount", len(_writes), 6)
+check("and none of the billed writes fall under the public prefixes",
+      all(not str(r).startswith(("/tools/radio-promo/r/",
+                                 "/tools/radio-promo/api/public/",
+                                 "/tools/radio-promo/file/"))
+          for r in rp_app.app.url_map.iter_rules()
+          if {"POST"} & r.methods and any(
+              k in str(r) for k in ("/bed/", "/mix", "/voice/upload", "/variations"))),
+      True)
+
+
+
+# =====================================================================
+# Two people, two projects, and only one edit survived
+# =====================================================================
+# Every project in this module lives in ONE file, so changing one is written
+# back as the whole list. The lock covered the write and not the read, so two
+# threads that had already read the same snapshot overwrote each other -- and
+# it needs no contention over a single project to happen: two people editing
+# two UNRELATED projects lose one of the two edits. Both are told it saved.
+#
+# The module docstring also promises every draft and rewrite is *appended*
+# rather than overwriting, "so nothing a client approved can be silently
+# lost". Measured before the fix, eight concurrent appends kept one.
+section("One file for every project, changed one project at a time")
+
+_a = rp_store.create({"project_name": "Alpha"})
+_b = rp_store.create({"project_name": "Bravo"})
+
+_real_read = _jstore.read_json
+
+
+def _slow_read(path, default=None, **kw):
+    got = _real_read(path, default=default, **kw)
+    time.sleep(0.02)                  # the window a read-change-write has
+    return got
+
+
+_answers = {}
+
+
+def _rename(pid, name):
+    _answers[name] = rp_store.update(pid, {"project_name": name})
+
+
+_jstore.read_json = _slow_read
+_pair = [threading.Thread(target=_rename, args=(_a["id"], "Alpha EDITED")),
+         threading.Thread(target=_rename, args=(_b["id"], "Bravo EDITED"))]
+for _th in _pair:
+    _th.start()
+for _th in _pair:
+    _th.join()
+_jstore.read_json = _real_read
+
+check("both saves report success", all(bool(v) for v in _answers.values()), True)
+_titles = {r["id"]: r.get("project_name") for r in rp_store.all_projects()}
+check("and the edit to one project does not drop the other",
+      sorted([_titles.get(_a["id"]) or "", _titles.get(_b["id"]) or ""]),
+      ["Alpha EDITED", "Bravo EDITED"])
+
+
+def _append(i):
+    rp_store.add_version(_a["id"], f"kind{i}", {"n": i})
+
+
+_jstore.read_json = _slow_read
+_appends = [threading.Thread(target=_append, args=(i,)) for i in range(8)]
+for _th in _appends:
+    _th.start()
+for _th in _appends:
+    _th.join()
+_jstore.read_json = _real_read
+check("eight concurrent appends all land, as the docstring promises",
+      len((rp_store.get(_a["id"]) or {}).get("versions") or []), 8)
+
+# And it must not go back to deciding for itself. A threading.Lock here reads
+# as correct and is half a lock: it cannot see the second gunicorn worker.
+_store_src = (pathlib.Path(__file__).parent
+              / "modules/radio_promo/store.py").read_text()
+check("the store keeps no per-process lock of its own",
+      "threading.Lock()" in _store_src, False)
+check("and reads the shared read-change-write",
+      "jsonstore.update_json(" in _store_src, True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")

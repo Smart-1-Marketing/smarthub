@@ -50,15 +50,19 @@ from __future__ import annotations
 import base64
 import io
 import os
-import re
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
 from . import VERSION, VERSION_DATE
-from . import ai, speech, store, voices
-from .catalog import (DURATIONS, SLOT_KEYS, TONES, VOICE_CHARACTERISTICS,
-                      duration_by_key, slots_of, tone_by_id)
+from . import ai, qc, speech, store, voices
+from .catalog import (DEFAULT_SLOTS, DURATIONS, SLOT_KEYS, TONES,
+                      VOICE_CHARACTERISTICS, duration_by_key,
+                      length_warning, slot_budget_line, slots_of,
+                      structure_for, tone_by_id)
+
+from hub import radio_share
+from hub import script_contents
 
 try:
     from hub import radio_spec
@@ -76,25 +80,43 @@ app.config.update(JSON_SORT_KEYS=False)
 
 MOUNT = "/tools/radio-promo"
 
-_CLOUD_URL = (os.environ.get("CLOUDINARY_URL") or "").strip()
-_CLOUD_NAME = (os.environ.get("CLOUDINARY_CLOUD_NAME") or "").strip()
-_CLOUD_KEY = (os.environ.get("CLOUDINARY_API_KEY") or "").strip()
-_CLOUD_SECRET = (os.environ.get("CLOUDINARY_API_SECRET") or "").strip()
+# The mount-relative prefixes the CUSTOMER reaches, and a customer has no Hub
+# login. wsgi.py hands this to _mount, which passes it to both AuthGuard (so
+# the page is reachable at all) and HubBar (so the staff sidebar and help
+# layer are not injected into a page a client reads) -- the arrangement
+# modules/fan_radio already uses, and hub/radio_share.py is what keeps the
+# two tools' approval flow one implementation rather than two that drift.
+#
+# /r/            the approval page itself
+# /api/public/   what that page fetches, and the approve/comment it posts
+# /file/         the local-disk render fallback the page's <audio> element
+#                plays when Cloudinary is not configured
+PUBLIC_PREFIXES = ("/r/", "/api/public/", "/file/")
 
+_limiter = radio_share.RateLimiter()
+
+
+def client_ip() -> str:
+    return request.remote_addr or "unknown"
+
+
+# Configuration is hub.config's job, not this module's: hub/config.py
+# composes CLOUDINARY_URL from either the one-URL form or the three-part
+# credential group (and hub/storage.configure() is the one place that reads
+# it into the SDK, lazily, before every upload) -- a deployment given only
+# the three-part group, or a future fix to how that composition handles a
+# quoted value, would silently miss a second hand-rolled copy of the same
+# logic here. This module has no reads of the raw env vars left.
 try:
     import cloudinary
     import cloudinary.uploader
-    if _CLOUD_URL.startswith("cloudinary://"):
-        cloudinary.config(secure=True)                        # reads CLOUDINARY_URL
-    elif _CLOUD_NAME and _CLOUD_KEY and _CLOUD_SECRET:
-        cloudinary.config(cloud_name=_CLOUD_NAME, api_key=_CLOUD_KEY,
-                          api_secret=_CLOUD_SECRET, secure=True)
 except Exception:                                            # noqa: BLE001
     cloudinary = None
 
 
 def cloud_ready() -> bool:
-    return bool(cloudinary) and bool(_CLOUD_URL or (_CLOUD_NAME and _CLOUD_KEY and _CLOUD_SECRET))
+    from hub.config import settings
+    return bool(cloudinary) and settings.cloudinary_ready
 
 
 # ------------------------------------------------------------------ helpers
@@ -192,9 +214,14 @@ def _version() -> str:
 
 @app.route("/")
 def index():
+    slots = [dict(slot, budget=slot_budget_line(slot["key"]),
+                  warning=length_warning(slot["key"]),
+                  beats=structure_for(slot["key"]))
+             for slot in DURATIONS]
     return render_template("index.html", version=_version(), tones=TONES,
                            characteristics=VOICE_CHARACTERISTICS,
-                           durations=DURATIONS, mount=MOUNT)
+                           durations=slots, default_slots=list(DEFAULT_SLOTS),
+                           mount=MOUNT)
 
 
 @app.route("/library")
@@ -328,27 +355,42 @@ def _decorate(slot_key: str, script: str, pronunciations: list) -> dict:
             "spoken": spoken["spoken"], "changes": spoken["changes"]}
 
 
+def _qc(row: dict) -> dict:
+    """Every named check for this project's chosen reads.
+
+    `catalog.slots_of()` rather than a second reading of which lengths this
+    project writes: two answers to that question is how the store and the
+    panel come to disagree about what is being graded.
+    """
+    return qc.run(row, list(slots_of(row)), required=qc.required_for(row))
+
+
 def _required_script_gaps(row: dict, script: str, slot: str) -> list[str]:
-    """Non-negotiables are checked in the app, not entrusted to a prompt."""
-    normalized = re.sub(r"\s+", " ", str(script or "").lower())
-    company = str(row.get("company") or row.get("client") or "").strip()
-    url = str(row.get("landing_url") or row.get("home_url") or "").strip()
-    gaps = []
-    if company and company.lower() not in normalized:
-        gaps.append("company name")
-    # Allow the spoken, protocol-free form as well as the literal URL.
-    url_words = re.sub(r"^https?://", "", url, flags=re.I).rstrip("/").lower()
-    if url_words and url_words not in normalized:
-        gaps.append("URL")
-    if row.get("include_phone") and str(row.get("phone") or "").strip() and str(row["phone"]).lower() not in normalized:
-        gaps.append("phone number")
-    # Every slot has a floor, and it is the one in the budget table rather
-    # than a literal for the single length that used to have one: a :60
-    # written to :30 length is the same defect the :30 floor exists to catch.
+    """Non-negotiables are checked in the app, not entrusted to a prompt.
+
+    The three content rules are `hub/script_contents.py`, because the
+    Commercial Builder has to answer the same question and was answering a
+    much easier one -- see that module. Radio has one channel, so nothing is
+    `shown`: if the read does not say it, nobody gets it. That shared rule is
+    also what stops three false positives this check used to make, each of
+    which sent a writer round the loop again: a legal suffix nobody reads
+    aloud, a phone number compared on its punctuation rather than its digits,
+    and a web address already written the way it is spoken.
+
+    The minimum-read rule stays here. It is about the clock rather than the
+    copy, and it is radio's own: a :30 slot is bought and billed by the
+    second, so a read that lands well under it is dead air somebody paid for.
+    The floor is `min_seconds` -- the one number the prompt also states -- and
+    a slot with none is a tag, which is naturally tight and would be refused
+    by a floor derived for it.
+    """
+    result = script_contents.check(qc.facts_for(row), spoken=script,
+                                   require=qc.required_for(row))
+    gaps = script_contents.gap_labels(result)
     spec = duration_by_key(slot) or {}
-    floor = int(round((spec.get("low") or 0) / speech.WORDS_PER_SECOND))
+    floor = spec.get("min_seconds")
     if floor and speech.estimate_seconds(script) < floor:
-        gaps.append(f'a minimum {floor}-second {spec.get("label", slot)} read')
+        gaps.append(f'a minimum {floor:g}-second {spec.get("label", slot)} read')
     return gaps
 
 
@@ -383,12 +425,12 @@ def api_scripts(pid):
         scripts[key] = _decorate(key, script, prons)
         scripts[key]["notes"] = part.get("notes", "")
     row = store.update(pid, {"scripts": scripts, "tone_id": tone_id,
-                             "status": "scripted"})
+                             "slots": slots, "status": "scripted"})
     store.add_version(pid, "revision" if data.get("revision_note") else "draft",
                       {"tone_id": tone_id, "scripts": scripts,
                        "note": data.get("revision_note", "")}, actor())
     log("project.scripts", project=pid, tone=tone_id)
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/script/edit", methods=["POST"])
@@ -415,7 +457,7 @@ def api_script_edit(pid):
     scripts[slot]["notes"] = notes
     row = store.update(pid, {"scripts": scripts})
     store.add_version(pid, "hand-edit", {"slot": slot, "scripts": scripts}, actor())
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/tighten", methods=["POST"])
@@ -455,7 +497,7 @@ def api_tighten(pid):
     row = store.update(pid, {"scripts": scripts})
     store.add_version(pid, "tighten", {"slot": slot, "trim_words": trim,
                                        "scripts": scripts}, actor())
-    return jsonify({"ok": True, "project": row})
+    return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
 
 @app.route("/api/projects/<pid>/pronunciations", methods=["POST"])
@@ -475,6 +517,25 @@ def api_pronunciations(pid):
             scripts[slot]["notes"] = notes
     row = store.update(pid, {"pronunciations": prons, "scripts": scripts})
     return jsonify({"ok": True, "project": row})
+
+
+@app.route("/api/projects/<pid>/script-qc")
+def api_script_qc(pid):
+    """The script panel, on demand. Cheap: it reads the copy and reaches no
+    provider, which is the whole point of running it on the Copy step.
+
+    Its own path, and deliberately not `/qc`. That one is the **mix** panel --
+    the bed's source, the loudness, the length measured off the stored WAV --
+    and it answers after a render. This one answers before anybody has paid
+    for a voice. They are neighbours rather than two readings of one question,
+    so they are asked separately; sharing a URL would have made whichever
+    registered second the only one anybody could reach.
+    """
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    return jsonify({"ok": True, "qc": _qc(row), "labels": qc.CHECK_LABELS})
 
 
 @app.route("/api/speech/preview", methods=["POST"])
@@ -606,6 +667,14 @@ def api_render(pid):
     voice_id = (data.get("voice_id") or "").strip()
     if not voice_id:
         return fail("Assign a voice to this spot first.")
+    # ElevenLabs bills the character, so a read with a fact wrong in it is
+    # money spent twice. Only the checks that cannot be wrong refuse — the
+    # timing verdict is an estimate and is reported rather than enforced.
+    panel = qc.run_slot(row, slot, required=qc.required_for(row))
+    stopped = qc.blocking(panel)
+    if stopped:
+        return fail("This read is not ready to record: " + " ".join(
+            panel["checks"][key]["message"] for key in stopped), 422)
 
     try:
         out = voices.render_audio(voice_id, script["spoken"],
@@ -1304,6 +1373,157 @@ def api_variation(pid):
                              "recorded did — re-record the voice and re-mix, "
                              "because audio of the previous wording filed under "
                              "this name is the wrong file.")})
+
+
+# =====================================================================
+# Sharing — one implementation with Fan Radio, in hub/radio_share.py
+# =====================================================================
+def _client_units(row: dict) -> list[dict]:
+    """One reviewable unit per slot this project writes, best audio first.
+
+    The finished mix is what a client should hear; a slot not yet mixed
+    falls back to its raw voice take so there is still something to review
+    while a bed is being composed. A slot with neither is left out — there
+    is nothing to approve yet, and offering an empty player is worse than
+    not listing it.
+    """
+    mixes = row.get("mixes") or {}
+    units = []
+    for slot in slots_of(row):
+        mix = mixes.get(slot)
+        spot = _spot_for(row, slot)
+        audio_url = (mix or {}).get("audio_url") or (spot or {}).get("audio_url") or ""
+        if not audio_url:
+            continue
+        script = (row.get("scripts") or {}).get(slot) or {}
+        duration = duration_by_key(slot) or {}
+        units.append({"id": slot, "slot": slot,
+                      "length_label": duration.get("label") or slot,
+                      "script": script.get("script", ""),
+                      "audio_url": audio_url,
+                      "mixed": bool(mix)})
+    return units
+
+
+def public_view(row: dict) -> dict:
+    """Exactly what the customer page is allowed to see, built by picking
+    fields out — the `modules/fan_radio` rule, so a field added to the
+    project later is invisible here by default rather than by omission."""
+    share = row.get("share") or {}
+    decisions = row.get("decisions") or {}
+    units = []
+    for unit in _client_units(row):
+        decision = decisions.get(unit["slot"]) or {}
+        units.append(dict(unit, status=decision.get("status") or "pending",
+                          comments=[f for f in (row.get("feedback") or [])
+                                   if f.get("spot_id") == unit["slot"]]))
+    return {
+        "company": row.get("company") or row.get("client") or "",
+        "headline": share.get("headline") or "",
+        "intro": share.get("intro") or "",
+        "cta_label": share.get("cta_label") or "",
+        "cta_url": share.get("cta_url") or "",
+        "spots": units,
+        "general": [f for f in (row.get("feedback") or [])
+                   if not f.get("spot_id")],
+    }
+
+
+def share_url(row: dict) -> str:
+    return radio_share.share_url(MOUNT, (row.get("share") or {}).get("token"))
+
+
+@app.route("/api/projects/<pid>/share", methods=["POST"])
+def api_share(pid):
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    share = radio_share.update_share(row.get("share") or {}, body())
+    row = store.update(pid, {"share": share})
+    log("share_updated", project=pid, enabled=bool(share.get("enabled")))
+    url = share_url(row)
+    warning = None
+    if share.get("enabled") and not os.environ.get("PUBLIC_BASE_URL"):
+        warning = ("PUBLIC_BASE_URL isn't set, so the link above is a path, "
+                   "not a full URL. Set it on Render before you send it to "
+                   "a client.")
+    return jsonify({"ok": True, "share": share, "share_url": url,
+                    "warning": warning})
+
+
+@app.route("/r/<token>")
+def public_page(token):
+    row = store.find_by_token(token)
+    if not row or not (row.get("share") or {}).get("enabled"):
+        return render_template("share.html", missing=True, token=""), 404
+    share = dict(row["share"], opened=int((row["share"].get("opened") or 0)) + 1)
+    store.update(row["id"], {"share": share})
+    return render_template("share.html", missing=False, token=token,
+                           company=row.get("company") or row.get("client") or "")
+
+
+@app.route("/api/public/<token>")
+def api_public(token):
+    if _limiter.hit("public", client_ip(), 120, 60):
+        return fail("Too many requests. Refresh in a moment.", 429)
+    row = store.find_by_token(token)
+    if not row or not (row.get("share") or {}).get("enabled"):
+        return fail("This link isn't active. Ask your account manager for a "
+                    "fresh one.", 404)
+    return jsonify({"ok": True, **public_view(row)})
+
+
+@app.route("/api/public/<token>/feedback", methods=["POST"])
+def api_public_feedback(token):
+    if _limiter.hit("feedback", client_ip(), 30, 300):
+        return fail("That's a lot of comments at once — give it a minute.", 429)
+    row = store.find_by_token(token)
+    if not row or not (row.get("share") or {}).get("enabled"):
+        return fail("This link isn't active. Ask your account manager for a "
+                    "fresh one.", 404)
+
+    valid = radio_share.validate_feedback(body())
+    if not valid["ok"]:
+        return fail(valid["error"])
+    action, name, comment = valid["action"], valid["name"], valid["comment"]
+
+    sid = valid["spot_id"]
+    available = {u["slot"] for u in _client_units(row)}
+    targets: list[str] = []
+    if action == "approve_all":
+        targets = sorted(available)
+    elif sid:
+        if sid not in available:
+            return fail("That spot isn't on this page.")
+        targets = [sid]
+    elif action != "comment":
+        return fail("That spot isn't on this page.")
+
+    # Written before anything else runs — no notification, no redirect, no
+    # webhook happens ahead of the record being on disk.
+    decisions = dict(row.get("decisions") or {})
+    feedback = list(row.get("feedback") or [])
+    if targets:
+        for slot in targets:
+            target = dict(decisions.get(slot) or {})
+            radio_share.record_decision(target, feedback, name=name,
+                                        action=action, comment=comment,
+                                        spot_id=slot)
+            decisions[slot] = target
+    else:
+        radio_share.record_decision(None, feedback, name=name, action=action,
+                                    comment=comment)
+    row = store.update(row["id"], {"decisions": decisions,
+                                   "feedback": feedback[-500:]})
+    log("customer_feedback", project=row["id"], action=action,
+        spots=len(targets), by=name[:40])
+    radio_share.notify("RADIO_PROMO_NOTIFY_URL", {
+        "source": "radio-promo", "project": row.get("id"),
+        "company": row.get("company"), "client": row.get("client"),
+        "by": name, "action": action, "spots": len(targets),
+        "comment": comment[:1000], "at": store.now()})
+    return jsonify({"ok": True, **public_view(row)})
 
 
 if __name__ == "__main__":

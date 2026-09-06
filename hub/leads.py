@@ -54,6 +54,7 @@ visible, and can be retried by hand or by the scheduler.
 from __future__ import annotations
 
 import collections
+import hmac
 import json
 import os
 import re
@@ -133,9 +134,15 @@ def rate_check(ip: str) -> tuple[bool, int]:
     """(allowed, seconds_until_a_slot_frees). Never raises."""
     if RATE_LIMIT <= 0:
         return True, 0
+    # Namespaced so this limiter's keys can never collide with rate_limited()'s
+    # "bucket:ip" keys in the same shared _hits dict -- a caller who controls
+    # the last X-Forwarded-For hop controls `ip` verbatim, and without this
+    # prefix a crafted address could land on (or overwrite) another module's
+    # bucket for an unrelated real address.
+    key = f"__leads_capture__:{ip}"
     now = time.time()
     with _hits_lock:
-        bucket = _hits[ip]
+        bucket = _hits[key]
         while bucket and now - bucket[0] > RATE_WINDOW:
             bucket.popleft()
         if len(bucket) >= RATE_LIMIT:
@@ -145,6 +152,60 @@ def rate_check(ip: str) -> tuple[bool, int]:
             for k in [k for k, v in _hits.items() if not v][:5000]:
                 _hits.pop(k, None)
     return True, 0
+
+
+# --- A trusted server is not "anyone who finds the URL" -------------------
+#
+# The limit above is written for a browser: three submissions an hour from
+# one address is generous for a person and tight for a script. It is exactly
+# wrong for a *server*. The five standalone landing apps (smart1boat,
+# smart1legal, smart1ski, smarthvac, smart1rv) post their leads from Render,
+# so every lead one of them ever takes arrives from that app's single egress
+# address — a busy afternoon on one page is one address spending the whole
+# allowance, and the fourth visitor's lead is turned away with a 429 while
+# the visitor sees their report and nothing on any screen says a lead was
+# refused. The rate limit would be doing its job and losing leads doing it.
+#
+# So a caller that can present a shared secret skips the per-IP check. It is
+# not a way past the limit for anybody else: the secret is set on the Hub and
+# on those five services and nowhere else, and it is compared with
+# `hmac.compare_digest` so a wrong guess cannot be narrowed down by timing.
+#
+# Two rules on it, and the second is the one that would go wrong quietly:
+#
+#   * An unset LEADS_SOURCE_TOKEN means **nobody** is trusted, never
+#     everybody. A deployment that has not set it behaves exactly as it does
+#     today, which is the safe direction to be wrong in.
+#   * Being trusted skips the *limit* and nothing else. The lead is stored,
+#     tagged and delivered down the same single path, and the row records
+#     that it arrived from a trusted caller — an exemption nobody can see
+#     afterwards is one nobody can audit.
+SOURCE_TOKEN_ENV = "LEADS_SOURCE_TOKEN"
+SOURCE_TOKEN_HEADER = "X-S1-Lead-Token"
+
+
+def source_token() -> str:
+    """The shared secret trusted lead sources present, if one is set.
+
+    Quotes are stripped because Render stores them literally, which has
+    silently broken token matching in this codebase before.
+    """
+    return (os.environ.get(SOURCE_TOKEN_ENV) or "").strip().strip('"').strip("'")
+
+
+def trusted_source(request) -> bool:
+    """Did this request come from a lead source we configured? Never raises.
+
+    False whenever no secret is set, so switching the feature on is a
+    deliberate act rather than the default.
+    """
+    want = source_token()
+    if not want:
+        return False
+    got = (request.headers.get(SOURCE_TOKEN_HEADER) or "").strip()
+    if not got:
+        return False
+    return hmac.compare_digest(got, want)
 
 
 def _now() -> str:
@@ -183,6 +244,42 @@ def _clean(v, limit: int = 400) -> str:
     return re.sub(r"\s+", " ", str(v or "")).strip()[:limit]
 
 
+# `meta` arrives from an unauthenticated endpoint and was written to the
+# store verbatim, uncleaned and unbounded — the one part of a lead row that
+# was. `fields` has always been cleaned per value; nothing did the same here,
+# so a caller could put a megabyte in it and every lead line on a 5 GB disk
+# is one append. It mattered less while `meta` was a Hub page's own dict; it
+# matters now that the standalone landing apps fill it in over the wire.
+#
+# The one value that is not a string is `tags`, which `lead_tags.extra_tags()`
+# reads as a list — so a list of strings survives as one, and everything else
+# is flattened the way a field is. Keys are capped as well as values: a
+# thousand one-character keys is the same disk with a different shape.
+META_MAX_KEYS = 40
+META_MAX_ITEMS = 20
+
+
+def _clean_meta(meta) -> dict:
+    """A stored `meta` dict: same per-value cleaning `fields` gets, bounded.
+    Never raises — a lead is not worth losing over the shape of its metadata.
+    """
+    if not isinstance(meta, dict):
+        return {}
+    out: dict = {}
+    for k, v in list(meta.items())[:META_MAX_KEYS]:
+        key = _clean(k, 60)
+        if not key:
+            continue
+        if isinstance(v, bool):
+            out[key] = v                      # trusted_source is a real flag
+        elif isinstance(v, (list, tuple)):
+            out[key] = [_clean(i) for i in list(v)[:META_MAX_ITEMS]
+                        if isinstance(i, (str, int, float))]
+        else:
+            out[key] = _clean(v)
+    return out
+
+
 def _valid_email(v: str) -> bool:
     return bool(re.match(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", (v or "").strip(), re.I))
 
@@ -208,7 +305,7 @@ def capture(source: str, page: str, fields: dict, pdf_url: str = "",
         "pdf_url": _clean(pdf_url, 500),
         "fields": {k: _clean(v) for k, v in (fields or {}).items()
                    if k not in ("name", "email", "phone", "company")},
-        "meta": meta or {},
+        "meta": _clean_meta(meta),
         "delivered": False,
         "attempts": 0,
         "last_error": "",
@@ -960,6 +1057,12 @@ def route_status(rows: list[dict] | None = None) -> dict:
 
     return {"route": mode, "note": note, "route_warning": warning,
             "route_warning_title": title,
+            # Reported as a fact and deliberately not as a warning. A
+            # deployment with no standalone landing apps needs no token, so
+            # drawing one amber for ever is the check people learn to skip;
+            # the two places it actually bites -- the 429 this endpoint
+            # answers, and each app's own /health -- name the fix themselves.
+            "source_token_set": bool(source_token()),
             "links_warning": links_warning, "links_warning_title": links_title,
             "api_contacts": api_contacts, "api_last": api_last,
             "route_label": {"api": "Smart 1 Suite API",

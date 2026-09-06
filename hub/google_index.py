@@ -72,6 +72,61 @@ from hub import jsonstore
 # troubled by four sweeps.
 DEFAULT_MAX_AGE = 6 * 3600
 
+# A *manual* rebuild — someone pressing "Refresh" because a search came back
+# empty, or the "Rebuild the index" button on /tools/google-match — costs the
+# same Tag Manager budget as the scheduled sweep. Without a cooldown, an
+# impatient double-click (or two people pressing it a minute apart) stacks a
+# second live sweep on top of the first, straight into the per-user rate
+# limit the first one had just finished annoying. This is deliberately
+# separate from DEFAULT_MAX_AGE and the scheduler's own due_for_refresh():
+# those decide when the *durable* index goes stale; this only throttles how
+# often a human can force a fresh one — the same shape as
+# hub/domain_purchase.py's BUILD_RETRY_SECONDS, one page along. Per-process
+# rather than stored, because the real path is still the scheduled job: a
+# cooldown that failed to load on a fresh worker would cost nothing worse
+# than the double-click it exists to catch.
+MANUAL_REBUILD_COOLDOWN = 120
+_last_manual_rebuild = 0.0
+
+
+def manual_rebuild_wait() -> float:
+    """Seconds until a manual rebuild is allowed again, or 0.0 if it is now."""
+    remaining = MANUAL_REBUILD_COOLDOWN - (time.time() - _last_manual_rebuild)
+    return max(0.0, remaining)
+
+
+def note_manual_rebuild() -> None:
+    """Record that a manual rebuild was just started."""
+    global _last_manual_rebuild
+    _last_manual_rebuild = time.time()
+
+
+def manual_rebuild() -> dict:
+    """A person asked for a fresh sweep right now, rather than waiting.
+
+    Both /api/google/rebuild (the hub route behind /tools/google-match's
+    "Rebuild the index" button) and Google Finder's own /google/api/refresh
+    (behind its search page's "not found? refresh" button) call this rather
+    than build() directly, so the cooldown that stops one screen's double-click
+    stacking a sweep on top of another screen's lives in exactly one place.
+
+    A refusal carries `cooling_down: True` so a caller can tell "please wait"
+    from a genuine sweep failure — build() already reports the second kind as
+    `ok: False` with its own `error`, and this must not be confused with it.
+    """
+    wait = manual_rebuild_wait()
+    if wait > 0:
+        return {
+            "ok": False,
+            "cooling_down": True,
+            "error": (f"A Google sweep was started in the last "
+                      f"{MANUAL_REBUILD_COOLDOWN // 60} minute(s). Try again "
+                      f"in {round(wait)} seconds."),
+            "retry_after_seconds": round(wait),
+        }
+    note_manual_rebuild()
+    return build(force=True)
+
 
 def _path() -> str:
     return os.path.join(jsonstore.data_dir("google"), "account_index.json")

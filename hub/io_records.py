@@ -181,12 +181,21 @@ def _domain(url: str) -> str:
 
 
 def record(payload: dict, *, delivered: bool = False, error: str = "",
-           status: int | None = None, actor: str = "") -> dict:
+           status: int | None = None, actor: str = "",
+           suite_opportunity_id: str = "", suite_contact_id: str = "") -> dict:
     """Write down one submitted insertion order. Never raises.
 
     `delivered` is what Smart 1 Suite actually did with it, so the record can
     tell an order that reached the CRM from one that was built and refused —
     the second is the only one anybody has to do something about.
+
+    `suite_opportunity_id` is what keeps a resubmission of the same order
+    updating one Suite opportunity rather than opening a second — GoHighLevel
+    has no natural key for "the opportunity this order made", so it is
+    resolved here and handed back to the caller before the next push. Once
+    set it is never overwritten with blank: a push that failed to read one
+    back must not make the next resubmission forget the one a working push
+    already made.
     """
     try:
         summary = _summary(payload)
@@ -207,6 +216,11 @@ def record(payload: dict, *, delivered: bool = False, error: str = "",
                             "error": _text(error, 300)})
         summary["domain"] = _domain(summary["url"])
         summary.update({
+            # A push that did not return an id (not configured, refused,
+            # unreachable) must not blank out one a previous, working push
+            # already recorded.
+            "suite_opportunity_id": _text(suite_opportunity_id, 64) or row.get("suite_opportunity_id", ""),
+            "suite_contact_id": _text(suite_contact_id, 64) or row.get("suite_contact_id", ""),
             # The first submission is when the client got the document; the
             # last is when it was corrected. Both are on the row, because a
             # record that only kept the latest would date an order written in

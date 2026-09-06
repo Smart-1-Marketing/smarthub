@@ -91,6 +91,10 @@
     <div class="t-ico">&#129309;</div>
     <h3>IMS Calculator</h3>
   </a>
+  <a class="tool-tile" href="/tools/ad-assets">
+    <div class="t-ico">&#128193;</div>
+    <h3>Ad Assets</h3>
+  </a>
 </div>
 
 <div class="qa-group-label">Content</div>
@@ -116,13 +120,9 @@
 <p class="qa-group-blurb">Public lead-capture pages, one per industry. Each is
   live on its own URL for embedding or linking, and every submission lands in
   the <a href="/sales/leads">Leads panel</a> with its report attached. The
-  first three build new ones: a section of HTML for our own site, an
-  embeddable scanner to drop on a client's, and the gated media calculators.</p>
+  first two build new ones: an embeddable scanner to drop on a client's site,
+  and the gated media calculators.</p>
 <div class="tool-tiles compact">
-  <a class="tool-tile" href="/tools/site-blocks/">
-    <div class="t-ico">&#129513;</div>
-    <h3>Website Blocks</h3>
-  </a>
   {#
     Lives inside the Scans module because the placements, their runs and the
     pages they serve are all there -- but it is a lead-capture page you paste
@@ -192,6 +192,50 @@
   <a class="tool-tile" href="/land/tourism/" target="_blank">
     <div class="t-ico">&#127796;</div>
     <h3>Tourism Landing Page</h3>
+  </a>
+</div>
+
+<div class="qa-group-label">Web Development</div>
+<p class="qa-group-blurb">Building and running client websites. The
+  <a href="/tools/website-audit">Website Audit</a> sits with Sales — it is the
+  reading a proposal starts from — and Web Tickets and Match Sites to Clients
+  are worked from <a href="/qa">QA Reports</a>; Site Scans has its own sidebar
+  entry.</p>
+<div class="tool-tiles compact">
+  {#
+    The Sites module is in the sidebar under Modules as well -- the Smart 1
+    Ads arrangement, where the nav opens it directly and the tile is where
+    somebody looks for it by what it does. hub-crumbs.js sends "back" here,
+    the my-clients rule: back lands on a page the tool is listed on.
+  #}
+  <a class="tool-tile" href="/sites/">
+    <div class="t-ico">&#127760;</div>
+    <h3>Sites</h3>
+  </a>
+  <a class="tool-tile" href="/tools/site-blocks/">
+    <div class="t-ico">&#129513;</div>
+    <h3>Website Blocks</h3>
+  </a>
+</div>
+
+<div class="qa-group-label">SEO</div>
+<p class="qa-group-blurb">Search and AI visibility. The per-client work —
+  schema, FAQs, blogs, alt text, llms.txt — lives on each client's own record
+  under <a href="/seo">SEO Clients</a>; the SEO Image Pipeline and Page Image
+  Optimizer are on <a href="/creative">Creative</a>.</p>
+<div class="tool-tiles compact">
+  <a class="tool-tile" href="/seo">
+    <div class="t-ico">&#128269;</div>
+    <h3>SEO Clients</h3>
+  </a>
+  {#
+    A page inside SEO Clients, tiled the way /tools/seo-images/house is: the
+    trail names the tool it lives in, and test_menu_layout.py's INSIDE list
+    says so.
+  #}
+  <a class="tool-tile" href="/seo/webmaster">
+    <div class="t-ico">&#128202;</div>
+    <h3>Webmaster Reports</h3>
   </a>
 </div>
 

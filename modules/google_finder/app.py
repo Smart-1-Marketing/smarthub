@@ -131,6 +131,14 @@ SCOPES = [
     "https://www.googleapis.com/auth/tagmanager.edit.containers",
     "https://www.googleapis.com/auth/business.manage",
     "https://www.googleapis.com/auth/webmasters",
+    # Read-only Drive, for hub/ad_assets.py: campaign creative lives in Drive
+    # folders and the Hub copies it into the client library. Read-only is the
+    # whole grant — nothing in the Hub writes to, moves or trashes a Drive
+    # file. An account connected before this scope was added keeps its
+    # narrower grant, because Google never widens an existing refresh token;
+    # drive_files.access() reports that as `refused` with the reconnect as the
+    # fix, rather than as an empty folder.
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 CACHE = {}
@@ -1240,6 +1248,23 @@ def logout():
 
 @app.route("/api/search")
 def api_search():
+    """Search the shared, cross-worker Google index — never a live sweep.
+
+    This used to call get_index() directly, which is a live sweep across
+    every connected login on every keystroke: on a cold worker — every
+    gunicorn worker after a deploy — that meant a full ~180-account Tag
+    Manager crawl, rate-paced, before the first search anyone typed could
+    answer. hub.google_index is the durable version of the same data: built
+    on a schedule, mirrored into Postgres, and already what Client 360 and
+    every QA report read for exactly this reason (see hub/google_index.py).
+    This route now reads that one shared list, so a search here is a
+    dictionary scan rather than an outbound call to Google.
+
+    If nothing has ever been swept into it — a brand-new deployment before
+    the scheduler's first pass, or HUB_SCHEDULER disabled — that is said
+    outright rather than silently falling back to a live sweep here, which is
+    the exact stampede this route existed to cause.
+    """
     if not connected_accounts():
         return jsonify({"error": "No Google accounts connected."}), 401
 
@@ -1248,18 +1273,28 @@ def api_search():
     if not q:
         return jsonify({"results": [], "errors": []})
 
-    indexed, errors = get_index()
+    from hub import google_index
+
+    data = google_index.load()
+    if data.get("never_built"):
+        return jsonify({
+            "results": [], "errors": [], "never_built": True,
+            "error": "The Google index has not been built yet. Press "
+                     "Refresh to sweep every connected account now.",
+        })
+
     results = []
     seen = set()
 
-    for item in indexed:
-        if platform == "analytics" and item["platform"] not in ["Google Analytics", "Google Tag Manager"]:
+    for item in data.get("items") or []:
+        item_platform = item.get("platform") or ""
+        if platform == "analytics" and item_platform not in ("Google Analytics", "Google Tag Manager"):
             continue
-        if platform == "gtm" and item["platform"] != "Google Tag Manager":
+        if platform == "gtm" and item_platform != "Google Tag Manager":
             continue
-        if platform == "gmb" and item["platform"] != "Google Business Profile":
+        if platform == "gmb" and item_platform != "Google Business Profile":
             continue
-        if platform == "gsc" and item["platform"] != "Search Console":
+        if platform == "gsc" and item_platform != "Search Console":
             continue
 
         haystack = " ".join([
@@ -1267,13 +1302,18 @@ def api_search():
             item.get("resource_id", ""), item.get("search_extra", ""), item.get("google_login", "")
         ]).lower()
         if q.lower() in haystack:
-            key = (item.get("platform"), item.get("account_id"), item.get("resource_id"), item.get("google_login"))
+            key = (item_platform, item.get("account_id"), item.get("resource_id"), item.get("google_login"))
             if key not in seen:
                 seen.add(key)
                 results.append(item)
 
     results.sort(key=lambda x: (x.get("name", "").lower(), x.get("google_login", "")))
-    return jsonify({"results": results[:200], "errors": errors})
+    age = google_index.age_seconds()
+    return jsonify({
+        "results": results[:200], "errors": data.get("errors") or [],
+        "index_age_hours": round(age / 3600, 1) if age is not None else None,
+        "index_stale": google_index.is_stale(),
+    })
 
 
 @app.route("/api/gtm/inspect", methods=["POST"])
@@ -2011,10 +2051,44 @@ def api_ga4_webmaster_row():
     return jsonify(payload)
 
 
+def _range_label(start, end):
+    """A period named the way somebody would say it out loud.
+
+    A whole calendar month is "August 2026", a whole year is "2026", and
+    anything else is its two dates. The Client 360 summary used to hard-code
+    "%B %Y" because the period was always a whole month; now that any period
+    can be asked for, a nine-day window labelled "September 2026" would be a
+    sentence about a month that has not happened."""
+    import datetime as _dt
+    s = _dt.date.fromisoformat(start)
+    e = _dt.date.fromisoformat(end)
+    if s.day == 1 and e == (_dt.date(e.year + (e.month == 12), (e.month % 12) + 1, 1)
+                            - _dt.timedelta(days=1)):
+        if s.month == 1 and e.month == 12 and s.year == e.year:
+            return str(s.year)
+        if s.year == e.year and s.month == e.month:
+            return s.strftime("%B %Y")
+    if s == e:
+        return s.strftime("%b %-d, %Y")
+    return f"{s.strftime('%b %-d, %Y')} – {e.strftime('%b %-d, %Y')}"
+
+
 @app.route("/api/ga4/monthly-summary", methods=["POST"])
 def api_ga4_monthly_summary():
-    """Last full month vs the month before: totals + top source/mediums.
-    Powers the Client 360 traffic summary card."""
+    """One period vs a comparison: totals + top source/mediums.
+    Powers the Client 360 traffic summary card.
+
+    It answered for last full month against the month before, full stop —
+    Client 360 had no way to ask for anything else, so a question as ordinary
+    as "how are they doing this month?" could not be put to the card at all.
+    It now takes the same start/end/compare_start/compare_end as
+    /api/ga4/seo-snapshot, through the same `_snapshot_ranges`, so the two
+    cards cannot drift into meaning different things by the same words.
+
+    The default moved with it: month to date against the same days of last
+    month, matching the SEO client page. Last month is one entry away in the
+    period list, and the two pages now open on the same period, so numbers
+    seen on one and then the other are the same numbers."""
     data = request.json or {}
     property_id = str(data.get("property_id", "")).strip()
     google_login = str(data.get("google_login", "")).strip().lower()
@@ -2024,12 +2098,7 @@ def api_ga4_monthly_summary():
     if not account:
         return jsonify({"error": f"Account {google_login} is not connected."}), 404
 
-    from datetime import date, timedelta
-    first_this = date.today().replace(day=1)
-    last_end = first_this - timedelta(days=1)          # end of last month
-    last_start = last_end.replace(day=1)
-    prev_end = last_start - timedelta(days=1)
-    prev_start = prev_end.replace(day=1)
+    ranges, mode = _snapshot_ranges(data)
 
     METRICS = ["sessions", "engagedSessions", "activeUsers",
                "userEngagementDuration", "eventCount", "keyEvents"]
@@ -2062,8 +2131,6 @@ def api_ga4_monthly_summary():
     try:
         access_token = refresh_access_token(google_login, account["refresh_token"])
         url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
-        ranges = [{"startDate": last_start.isoformat(), "endDate": last_end.isoformat()},
-                  {"startDate": prev_start.isoformat(), "endDate": prev_end.isoformat()}]
         mreq = [{"name": n} for n in METRICS]
 
         # ---- totals (two date ranges -> implicit dateRange dimension) ----
@@ -2107,8 +2174,8 @@ def api_ga4_monthly_summary():
         breakdown = breakdown[:10]
 
         # ---- positive executive summary ----
-        label_cur = last_start.strftime("%B %Y")
-        label_prev = prev_start.strftime("%B %Y")
+        label_cur = _range_label(ranges[0]["startDate"], ranges[0]["endDate"])
+        label_prev = _range_label(ranges[1]["startDate"], ranges[1]["endDate"])
         names = {"sessions": "sessions", "engaged_sessions": "engaged sessions",
                  "avg_engagement_seconds": "average engagement time",
                  "events": "total events", "key_events": "key events"}
@@ -2133,7 +2200,12 @@ def api_ga4_monthly_summary():
             parts.append(f"Continued optimization is focused on {soft} to build on this momentum.")
         summary = " ".join(parts)
 
-        return jsonify({"period": {"current": label_cur, "previous": label_prev},
+        return jsonify({"mode": mode,
+                        "period": {"current": label_cur, "previous": label_prev,
+                                   "start": ranges[0]["startDate"],
+                                   "end": ranges[0]["endDate"]},
+                        "compare": {"start": ranges[1]["startDate"],
+                                    "end": ranges[1]["endDate"]},
                         "summary": summary, "current": cur, "previous": prev,
                         "deltas": deltas, "breakdown": breakdown})
     except ReauthRequired as exc:
@@ -2190,7 +2262,13 @@ def api_ga4_ask():
     # A question with no defensible default gets asked back rather than
     # guessed at.
     if planned.get("clarify"):
-        return jsonify({"clarify": planned["clarify"], "question": question})
+        # The suggestions travel with the question so the page can offer
+        # them as choices. A question back with nothing to pick from asks
+        # the reader to guess what this can answer, which is the thing
+        # they already could not do.
+        return jsonify({"clarify": planned["clarify"],
+                        "suggestions": planned.get("suggestions") or [],
+                        "question": question})
 
     req = planned["request"]
     try:
@@ -2564,10 +2642,36 @@ def search_gtm_logs():
 
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
+    """Force a fresh sweep now, through the shared cross-worker index.
+
+    This used to call get_index(force=True) directly and run unconditionally
+    on every page load (index.html's DOMContentLoaded handler) — which is
+    the actual cause of "a ton of GTM calls" after a deploy: two cold
+    workers, no shared cache yet, and every visit to this page re-swept every
+    connected account from scratch before anyone typed a character. Worse,
+    the result only ever populated *this worker's* private in-memory CACHE
+    (see get_account_index), so the other gunicorn worker — and every page
+    reading hub.google_index, Client 360 included — never saw it: the full
+    GTM cost was paid and nothing durable came of it.
+
+    It is only ever called now by a person pressing "Refresh" after a search
+    came up empty, cooled down the same way /api/google/rebuild is
+    (google_index.manual_rebuild()), and it writes through the shared,
+    Postgres-mirrored index so the cost is paid once for every worker and
+    every page rather than once per visit to this one.
+    """
     if not connected_accounts():
         return jsonify({"error": "No Google accounts connected."}), 401
-    items, errors = get_index(force=True)
-    return jsonify({"ok": not errors, "count": len(items), "errors": errors})
+    from hub import google_index
+
+    result = google_index.manual_rebuild()
+    return jsonify({
+        "ok": bool(result.get("ok")),
+        "count": result.get("resources", 0),
+        "errors": result.get("errors") or [],
+        "error": result.get("error", ""),
+        "retry_after_seconds": result.get("retry_after_seconds"),
+    }), (429 if result.get("cooling_down") else 200)
 
 
 @app.route("/health")

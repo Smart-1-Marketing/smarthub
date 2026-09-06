@@ -172,7 +172,11 @@ check("a later search cannot render an earlier search result",
       and 'if(searchGeneration!==c360SearchGeneration) return;' in REC)
 check("the social card validates an outbound URL before making a link",
       'function safeExternalUrl(value)' in REC
-      and 'href="${esc(safeExternalUrl(v))}"' in REC)
+      # The social card was rebuilt as concatenation when it grew an add
+      # menu and per-row controls; the guard on the href is the assertion,
+      # not the string form it is written in.
+      and 'safeExternalUrl(v)?' in REC
+      and '\'<a href="\'+esc(safeExternalUrl(v))+\'"' in REC)
 check("a failed card request is surfaced to the record rather than hidden",
       'function showC360RequestFailure(status)' in REC
       and "if(!response.ok) showC360RequestFailure(response.status);" in REC

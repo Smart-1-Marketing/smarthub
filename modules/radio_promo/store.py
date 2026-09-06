@@ -16,10 +16,11 @@ import datetime as _dt
 import os
 import re
 import secrets
-import threading
 from hub import jsonstore
+from hub import radio_share
 
-_lock = threading.Lock()
+from .catalog import normalize_slots
+
 MAX_PROJECTS = 4000
 
 
@@ -61,9 +62,21 @@ def _read() -> list[dict]:
     return rows if isinstance(rows, list) else []
 
 
-def _write(rows: list[dict]):
-    with _lock:
-        jsonstore.write_json(_path(), rows[:MAX_PROJECTS], indent=1)
+def _mutate(apply):
+    """Read, change and write the collection as one indivisible step.
+
+    `threading.Lock` was the wrong tool twice over and it is gone. It guarded
+    only the write, so two threads that had already read the same snapshot
+    still overwrote each other; and it is per-process, while this deployment
+    runs two gunicorn workers, so it never saw the other one at all.
+    `jsonstore.update_json` holds both a per-path thread lock and an flock
+    across workers, for the whole read-change-write.
+
+    `apply` returns the rows to write, or None to write nothing -- which is
+    what "no such project" and "nothing to delete" mean here, and is why a
+    lookup that misses does not queue a pointless write on both workers.
+    """
+    return jsonstore.update_json(_path(), apply, default=[], indent=1)
 
 
 def all_projects() -> list[dict]:
@@ -89,6 +102,14 @@ def create(fields: dict) -> dict:
         "promotion": (fields.get("promotion") or "").strip(),
         "disclaimer": (fields.get("disclaimer") or "").strip(),
         "pronunciations": fields.get("pronunciations") or [],
+        # Which lengths this job writes, normalised HERE rather than left to
+        # the caller. The merge that brought the two builders' slot work
+        # together left this key written twice, and the second -- which only
+        # listed what it was handed -- silently won: a slot the catalog cannot
+        # describe reached the store, in whatever order it had been ticked.
+        # A row saved before this field existed carries none, and every reader
+        # falls back to the pair the studio shipped.
+        "slots": list(normalize_slots(fields.get("slots"))),
         "brand": fields.get("brand") or {},
         # These four are empty on a new project and carried on a variation,
         # which is why they read from `fields` rather than being hardcoded: a
@@ -100,10 +121,6 @@ def create(fields: dict) -> dict:
         "voice_want": fields.get("voice_want") or {},
         "voice_matches": [],
         "music_beds": [],
-        # Which lengths this job writes. Normalised by the caller through
-        # `catalog.slots_of()`; a row saved before this field existed carries
-        # none, and that function reads the absence as the :15/:30 pair.
-        "slots": list(fields.get("slots") or ()),
         # A bed and a mix per slot, because a :15 and a :60 need beds of their
         # own length. Keyed on the slot rather than a list, so replacing one
         # cannot leave two claiming the same slot.
@@ -117,10 +134,23 @@ def create(fields: dict) -> dict:
         "spots": [],
         "banner": None,
         "versions": [],
+        # The client's approval link. One implementation with Fan Radio's,
+        # in hub/radio_share.py: a share is a dict, not a row, and there is
+        # no round history here for the same reason there is none there.
+        "share": radio_share.new_share(),
+        # Keyed by slot rather than held in a list — this project's client-
+        # facing units are the lengths it writes, not a list of spots with
+        # ids of their own. record_decision() writes status/decided_at/
+        # decided_by onto whichever of these it is handed.
+        "decisions": {},
+        "feedback": [],
     }
-    rows = _read()
-    rows.insert(0, row)
-    _write(rows)
+
+    def _insert(rows):
+        rows.insert(0, row)
+        return rows[:MAX_PROJECTS]
+
+    _mutate(_insert)
     return row
 
 
@@ -131,37 +161,89 @@ def get(project_id: str) -> dict | None:
     return None
 
 
+def find_by_token(token: str) -> dict | None:
+    """Linear scan, same shape as Fan Radio's — fine at this scale, and it
+    keeps the token out of any filename."""
+    if not radio_share.is_token(token):
+        return None
+    for row in _read():
+        if (row.get("share") or {}).get("token") == token:
+            return row
+    return None
+
+
 def update(project_id: str, changes: dict) -> dict | None:
-    rows = _read()
-    for i, row in enumerate(rows):
-        if row.get("id") == project_id:
+    """Change one project, reading and writing the collection as one step.
+
+    The read has to be inside the lock, not merely the write. This file holds
+    every project, so a change to one is written back as the whole list -- and
+    with the read outside, two people editing two *unrelated* projects each
+    start from the same snapshot and the second save silently drops the first.
+    Both are told it worked. Reproduced with two threads and two projects
+    before this moved onto `jsonstore.update_json`.
+    """
+    found: list[dict] = []
+
+    def _apply(rows):
+        for i, row in enumerate(rows):
+            if row.get("id") != project_id:
+                continue
             row.update(changes)
             row["updated_at"] = now()
             if "client" in changes:
                 row["client_slug"] = slugify(row.get("client") or "", "spec")
                 row["spec"] = not bool(row.get("client"))
             rows[i] = row
-            _write(rows)
-            return row
-    return None
+            found.append(row)
+            return rows
+        return None                     # no such project: write nothing
+
+    _mutate(_apply)
+    return found[0] if found else None
 
 
 def add_version(project_id: str, kind: str, payload: dict, actor: str = "") -> dict | None:
-    row = get(project_id)
-    if not row:
+    """Append one version, reading the list inside the same lock that writes it.
+
+    This module opens by promising that every draft, rewrite, tighten and hand
+    edit is *appended* rather than overwriting, "so nothing a client approved
+    can be silently lost". Read through `get()` and written through `update()`
+    that promise did not hold: the list was read in one step and written whole
+    in another, so two appends racing kept one and dropped the other -- the
+    exact loss the append was there to prevent.
+    """
+    entry = {"at": now(), "kind": kind, "actor": actor, "payload": payload}
+    found: list[dict] = []
+
+    def _apply(rows):
+        for i, row in enumerate(rows):
+            if row.get("id") != project_id:
+                continue
+            versions = list(row.get("versions") or [])
+            versions.append(entry)
+            row["versions"] = versions[-60:]
+            row["updated_at"] = now()
+            rows[i] = row
+            found.append(row)
+            return rows
         return None
-    versions = list(row.get("versions") or [])
-    versions.append({"at": now(), "kind": kind, "actor": actor, "payload": payload})
-    return update(project_id, {"versions": versions[-60:]})
+
+    _mutate(_apply)
+    return found[0] if found else None
 
 
 def delete(project_id: str) -> bool:
-    rows = _read()
-    kept = [r for r in rows if r.get("id") != project_id]
-    if len(kept) == len(rows):
-        return False
-    _write(kept)
-    return True
+    gone: list[bool] = []
+
+    def _apply(rows):
+        kept = [r for r in rows if r.get("id") != project_id]
+        if len(kept) == len(rows):
+            return None                 # nothing to remove: write nothing
+        gone.append(True)
+        return kept
+
+    _mutate(_apply)
+    return bool(gone)
 
 
 def library(query: str = "", scope: str = "all") -> list[dict]:

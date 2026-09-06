@@ -399,11 +399,21 @@ function renderContext(c){
   } else if (c.brand_note) {
     bits.push('<p class="absent">' + esc(c.brand_note) + "</p>");
   }
+  // Images on file is a count off the first 60 this tool asked for, not the
+  // whole of what the client has -- so the link out is offered either way,
+  // to the resolver that always lands on their real gallery
+  // (modules/image_picker/app.py::gallery_for_client), never the bare
+  // unscoped picker a rep would then have to search for the client in.
+  var galleryLink = c.gallery_url
+    ? '<a href="' + esc(c.gallery_url) + '" target="_blank" rel="noopener">'
+      + (c.gallery.length ? "Search the full gallery" : "Add some") + " →</a>"
+    : "";
   if (c.gallery.length) {
-    bits.push("<p><strong>Images on file:</strong> " + c.gallery.length + "</p>");
+    bits.push("<p><strong>Images on file:</strong> " + c.gallery.length +
+              (galleryLink ? " &mdash; " + galleryLink : "") + "</p>");
   } else {
     bits.push('<p class="absent">' + esc(c.gallery_note || "No images on file.") +
-              ' <a href="/tools/image-picker/" target="_blank">Add some &rarr;</a></p>');
+              (galleryLink ? " " + galleryLink : "") + "</p>");
   }
   $("ctx").innerHTML = '<div class="ctx"><h4>What the Hub already knows</h4>' +
                        bits.join("") + "</div>";

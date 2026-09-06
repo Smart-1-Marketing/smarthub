@@ -91,13 +91,9 @@
     <div class="seoc-muted" id="trafficMeta"></div></div>
   <div id="trafficBody" class="seoc-muted">Looking up this client&rsquo;s Analytics property&hellip;</div>
   <div class="seoc-trafbar" id="trafficBar" style="display:none">
-    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn is-on"
-            data-range="mtd" type="button">Month to date</button>
-    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn"
-            data-range="custom" type="button">Custom compare</button>
+    <div id="trafficRange"></div>
     <button class="seoc-btn seoc-sec seoc-small" id="btnAskAnalytics" type="button">&#10024; Ask Analytics</button>
   </div>
-  <div id="customRangeOrganic"><div id="customRange" class="seoc-customrange" style="display:none"></div></div>
   <div id="askPanel" style="display:none;margin-top:12px"></div>
 </div>
 
@@ -106,13 +102,9 @@
     <div class="seoc-muted">ChatGPT, Perplexity, Gemini, Copilot, Claude &amp; other AI referrals</div></div>
   <div id="aiBody" class="seoc-muted">Waiting for Analytics&hellip;</div>
   <div class="seoc-trafbar" id="aiBar" style="display:none">
-    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn is-on"
-            data-range="mtd" type="button">Month to date</button>
-    <button class="seoc-btn seoc-sec seoc-small seoc-rangebtn"
-            data-range="custom" type="button">Custom compare</button>
-    <span class="seoc-muted" style="font-size:12px">Both cards read the same period</span>
+    <span class="seoc-muted" style="font-size:12px">Same period as Organic Traffic above &mdash;
+      <b id="aiRangeLabel"></b>. One request answers both cards.</span>
   </div>
-  <div id="customRangeAI"></div>
 </div>
 </section>
 
@@ -841,14 +833,6 @@ table.seoc-blogt input[type=checkbox]{width:auto}
    metric is ever added, it needs its own direction, not this default. */
 .seoc-trafbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;
   padding-top:12px;border-top:1px solid #eef2f7}
-.seoc-btn.seoc-rangebtn.is-on{background:#1a2e58;color:#fff;border-color:#1a2e58}
-.seoc-customrange{margin-top:10px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;
-  border-radius:10px}
-.seoc-customrange .rr{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
-.seoc-customrange label{display:block;font:700 10.5px system-ui;text-transform:uppercase;
-  letter-spacing:.5px;color:#64748b;margin-bottom:3px}
-.seoc-customrange input{padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;
-  font:13px system-ui;background:#fff}
 .seoc-tile.up{background:#f0fdf4;border-color:#bbf7d0}
 .seoc-tile.down{background:#fef2f2;border-color:#fecaca}
 .seoc-tile .d{font-size:12px;font-weight:700;margin-top:4px}
@@ -1098,6 +1082,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
 {% endblock %}
 {% block scripts %}
 <script src="/ask-analytics.js"></script>
+<script src="/date-range.js"></script>
 <script>
 (function(){
   var CLIENT = {{ client|tojson }};
@@ -1970,7 +1955,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
      One request answers Organic and AI together, so the range belongs to the
      page, not to a card. Two independent range pickers would let the two
      cards show different periods side by side and say so nowhere. */
-  var trafficProp=null, trafficRange={mode:'mtd'};
+  var trafficProp=null, trafficRange={server_default:true};
 
   function pctText(v){
     if(v===null||v===undefined) return '<span class="seoc-nochg">no earlier data</span>';
@@ -1992,74 +1977,33 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     return esc(p.start)+' \u2192 '+esc(p.end)+'  vs  '+esc(c.start)+' \u2192 '+esc(c.end);
   }
 
-  function setRangeButtons(mode){
-    document.querySelectorAll('.seoc-rangebtn').forEach(function(b){
-      if(b.dataset.range===mode) b.classList.add('is-on'); else b.classList.remove('is-on');
-    });
-  }
+  /* One period for the page, not one per card.
 
-  /* One picker, moved to whoever asked for it.
+     Both cards are answered by a single request, so a second picker beside
+     the AI card would let the two show different periods and say so nowhere.
+     The picker lives with Organic Traffic and the AI card names the period it
+     inherited.
 
-     There is one period — both cards read the same request — so there is one
-     set of date inputs. But the picker started life inside the Organic card,
-     which put it several hundred pixels above the Custom compare button in
-     the AI card: pressing that button appeared to do nothing at all. Scrolling
-     to it was the first fix and it is the weaker one, because it moves the
-     reader away from the thing they just pressed. Moving the picker instead
-     keeps one set of inputs and always puts them under the button. */
-  function showCustomRange(fromBar){
-    var box=$('customRange');
-    var target=(fromBar==='ai') ? $('customRangeAI') : $('customRangeOrganic');
-
-    if(box.dataset.open==='1' && box.parentNode===target){
-      box.style.display='none'; box.dataset.open='0'; return;   // same button: close
-    }
-    target.appendChild(box);            // a DOM move keeps values and handlers
-    box.style.display=''; box.dataset.open='1';
-
-    if(box.dataset.built) return;
-    box.dataset.built='1';
-    var today=new Date().toISOString().slice(0,10);
-    box.innerHTML='<div class="rr">'
-      +'<div><label>Period start</label><input type="date" id="crStart" value="'+today.slice(0,8)+'01"></div>'
-      +'<div><label>Period end</label><input type="date" id="crEnd" value="'+today+'"></div>'
-      +'<div><label>Compare start</label><input type="date" id="crCStart"></div>'
-      +'<div><label>Compare end</label><input type="date" id="crCEnd"></div>'
-      +'<button class="seoc-btn seoc-small" id="crApply" type="button">Apply</button>'
-      +'</div><div class="seoc-muted" style="font-size:12px;margin-top:8px">'
-      +'Leave the compare dates empty and the period immediately before, of the same length, '
-      +'is used \u2014 so the two are never different sizes.</div>';
-    $('crApply').onclick=function(){
-      var st=$('crStart').value, en=$('crEnd').value;
-      if(!st||!en){ alert('Pick a period start and end.'); return; }
-      trafficRange={mode:'custom',start:st,end:en,
-                    compare_start:$('crCStart').value||'',compare_end:$('crCEnd').value||''};
-      setRangeButtons('custom');
-      renderSnapshot(trafficProp.id, trafficProp.login);
-    };
-  }
-
-  function closeCustomRange(){
-    var box=$('customRange');
-    box.style.display='none'; box.dataset.open='0';
-  }
+     What used to be here: two buttons — "Month to date" and "Custom compare"
+     — and four empty date boxes behind the second one. Every period other
+     than the current month had to be typed, every time. Smart1Range is the
+     list Analytics and Ads both offer, with the custom boxes still underneath
+     for the periods no list covers. */
+  var rangePicker=null;
 
   function wireTrafficButtons(){
-    document.querySelectorAll('.seoc-rangebtn').forEach(function(b){
-      if(b.dataset.wired) return;
-      b.dataset.wired='1';
-      b.onclick=function(){
-        if(b.dataset.range==='mtd'){
-          closeCustomRange();
-          trafficRange={mode:'mtd'};
-          setRangeButtons('mtd');
-          renderSnapshot(trafficProp.id, trafficProp.login);
-        } else {
-          showCustomRange(b.closest('#aiBar') ? 'ai' : 'organic');
+    if(!rangePicker){
+      rangePicker=window.Smart1Range.mount($('trafficRange'),{
+        preset:'mtd', compare:'previous',
+        onChange:function(v){
+          trafficRange=v;
+          if(trafficProp) renderSnapshot(trafficProp.id, trafficProp.login);
         }
-      };
-    });
+      });
+      trafficRange=rangePicker.value()||trafficRange;
+    }
     var ask=$('btnAskAnalytics');
+
     if(ask && !ask.dataset.wired){
       ask.dataset.wired='1';
       ask.onclick=function(){
@@ -2125,7 +2069,10 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('trafficBody').innerHTML='Pulling the numbers&hellip;';
     $('aiBody').innerHTML='Pulling the numbers&hellip;';
     var body={property_id:property_id, google_login:google_login};
-    if(trafficRange.mode==='custom'){
+    /* Month to date against the same days of last month is the server's own
+       default and a better comparison than any pair of dates we could send,
+       so that one case sends none. Everything else sends all four. */
+    if(!trafficRange.server_default && trafficRange.start && trafficRange.end){
       body.start=trafficRange.start; body.end=trafficRange.end;
       if(trafficRange.compare_start&&trafficRange.compare_end){
         body.compare_start=trafficRange.compare_start;
@@ -2146,6 +2093,9 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         $('trafficBar').style.display='flex';
         $('aiBar').style.display='flex';
         wireTrafficButtons();
+        var lbl=$('aiRangeLabel');
+        if(lbl) lbl.textContent=(trafficRange.label||'Month to date')
+          +' ('+rangeLabel(d).replace(/</g,'')+')';
 
         var o=d.organic||{}, prev=d.organic_previous||{}, ch=d.organic_change||{};
         var num=function(v){return Number(v||0).toLocaleString();};

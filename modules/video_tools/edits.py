@@ -141,7 +141,29 @@ def save(job, *, url: str, filename: str) -> dict:
     job.saved_public_id = asset.public_id
     job.saved_url = asset.url
     job.finished_at = datetime.utcnow()
-    return {"public_id": asset.public_id, "url": asset.url}
+
+    # Into the client's own gallery. Every other producer in this Hub files
+    # what it makes (hub/image_audit.py); without this an edit somebody just
+    # decided is the deliverable sits in the "commercials" Cloudinary folder
+    # with a client tag and nowhere a client's own record can show it.
+    # Best-effort -- the file is already stored above, and a gallery write
+    # that fails must not cost the save that already succeeded.
+    gallery_url = ""
+    if job.client_name:
+        try:
+            from modules.image_picker import filing
+            filed = filing.file_asset(
+                client_name=job.client_name, public_id=asset.public_id,
+                url=asset.url, kind="video_edit",
+                label=f"Video Tools — {job.tool.replace('_', ' ').title()}",
+                filename=filename, resource_type="video",
+                provider="video_tools", saved_by="video_tools")
+            gallery_url = filed.get("gallery_url", "") if filed.get("ok") else ""
+        except Exception:                                # noqa: BLE001
+            pass
+
+    return {"public_id": asset.public_id, "url": asset.url,
+            "gallery_url": gallery_url}
 
 
 def output_name(job) -> str:

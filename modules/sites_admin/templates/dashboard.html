@@ -11,7 +11,7 @@
       <input type="hidden" name="csrf_token" value="{{session.csrf}}">
       <button class="s1d-btn">Sync Platform Catalog</button>
     </form>
-    <a class="s1d-btn sec" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Export CSV</a>
+    <a class="s1d-btn sec" data-demo="export-csv" href="{{url_for('export_csv', q=q, status=status, plan=plan, partner=partner)}}">Export CSV</a>
     <a class="s1d-btn sec" href="{{url_for('inventory')}}">Import / Discover Projects</a>
   </div>
 </div>
@@ -27,7 +27,7 @@
   <div class="s1d-tile"><div class="v">{{statuses.get('EXPIRED',0)}}</div><div class="l">Expired</div></div>
   <div class="s1d-tile"><div class="v">{{money(revenue)}}</div><div class="l">Active client MRR</div></div>
   <div class="s1d-tile"><div class="v">{{money(cost)}}</div><div class="l">Platform cost</div></div>
-  <div class="s1d-tile"><div class="v">{{money(margin)}}</div><div class="l">Gross margin</div></div>
+  <div class="s1d-tile" data-demo="margin"><div class="v">{{money(margin)}}</div><div class="l">Gross margin</div></div>
 </div>
 
 <div class="s1d-grid">
@@ -85,7 +85,7 @@
 
 {% if preview %}<div class="s1d-note">Showing the 10 most recent active sites. Search or use the filters above to see the full portfolio ({{total}} projects).</div>{% endif %}
 
-<div class="tablewrap">
+<div class="tablewrap" data-demo="unmatched">
 <table class="s1d-t">
   <thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Domain</th><th>Next Billing</th><th>Client Price</th><th>Partner</th></tr></thead>
   <tbody>

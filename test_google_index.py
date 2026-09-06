@@ -35,6 +35,12 @@ or fail to say that it could not decide.
   17. a refused account        — keeps the last sweep's containers, and says so
   18. a login that went silent — is still counted as a login
   19. the sweep is not free    — a redeploy must not re-run a fresh one
+  20. a search never sweeps    — /google/api/search reads the stored index,
+                                  never Google, whatever a search box asks
+  21. never built is honest    — said outright, not swept live to hide it
+  22. a manual rebuild cools   — one impatient double-click cannot stack a
+                                  second live sweep on the first, whichever
+                                  screen asked for it
 """
 import json
 import os
@@ -829,6 +835,124 @@ try:
     check("...and sweeps when the index really has aged out", _swept, [True])
 finally:
     gi.build = _real_build
+
+section("A search never sweeps Google live — it reads the shared index")
+
+# The bug this section exists for: /google/api/search called get_index()
+# directly on every request, live, every time — on a cold worker (every
+# gunicorn worker after a deploy) that meant a full rate-paced sweep of
+# every connected login before the first search could answer. Proven by
+# stubbing get_account_index to explode: if the route still answers
+# correctly from a pre-populated index, it never touched Google.
+gi.jsonstore.write_json(gi._path(), {
+    "built_at": _hours_ago(1),
+    "items": [{
+        "platform": "Google Tag Manager", "name": "Riverside HVAC — Main",
+        "account_name": "Riverside HVAC", "account_id": "1",
+        "resource_id": "GTM-ABC1", "google_login": "rep@smart1marketing.com",
+        "search_extra": "", "domains": [], "client": "Riverside HVAC",
+        "match": "domain",
+    }],
+    "accounts": ["rep@smart1marketing.com"], "errors": [],
+})
+
+with gf.app.app_context():
+    gf.save_account("rep@smart1marketing.com", "refresh-token-value")
+
+_real_get_account_index = gf.get_account_index
+
+
+def _must_not_sweep(*a, **k):
+    raise AssertionError("a search must never sweep Google live")
+
+
+gf.get_account_index = _must_not_sweep
+gf.CACHE.clear()
+web = gf.app.test_client()
+try:
+    r = web.get("/api/search?q=riverside&platform=all")
+    check("a search that hit a live sweep would have raised",
+          r.status_code, 200)
+    body = r.get_json()
+    check("...and instead answers from the stored index",
+          [x["resource_id"] for x in body["results"]], ["GTM-ABC1"])
+    check("...carrying the stored index's own age",
+          body.get("index_age_hours") is not None, True)
+
+    section("Never built is said outright, not swept live to hide it")
+    gi.jsonstore.delete_json(gi._path())
+    r = web.get("/api/search?q=riverside")
+    body = r.get_json()
+    check("a never-built index answers rather than sweeping to cover for it",
+          r.status_code, 200)
+    check("...and says outright that nothing has been swept yet",
+          body.get("never_built"), True)
+    check("...with no results invented to fill the gap", body.get("results"), [])
+finally:
+    gf.get_account_index = _real_get_account_index
+
+
+section("A manual rebuild cools down, whichever screen asked for it")
+
+# google_index.manual_rebuild() is what both /api/google/rebuild (the hub
+# route behind /tools/google-match) and /google/api/refresh (Google Finder's
+# own "not found? refresh" button) call now, so this is asserted once rather
+# than once per screen — two readings of one cooldown is how they'd drift.
+gi._last_manual_rebuild = 0.0                                    # noqa: SLF001
+check("nothing pending, so no wait", gi.manual_rebuild_wait(), 0.0)
+gi.note_manual_rebuild()
+check("a rebuild just started leaves a wait", gi.manual_rebuild_wait() > 0, True)
+
+_swept = []
+gi.build = lambda force=True: _swept.append(force) or {"ok": True, "resources": 3}
+try:
+    out = gi.manual_rebuild()
+    check("a cooling-down rebuild refuses rather than sweeping",
+          out.get("cooling_down"), True)
+    check("...and never calls build() at all", _swept, [])
+    check("...and names when to try again",
+          out.get("retry_after_seconds", 0) > 0, True)
+
+    gi._last_manual_rebuild = 0.0                                # noqa: SLF001
+    out = gi.manual_rebuild()
+    check("once the cooldown has passed, it sweeps", _swept, [True])
+    check("...and reports the build's own result", out.get("resources"), 3)
+
+    check("a second call right after is cooled down again",
+          gi.manual_rebuild().get("cooling_down"), True)
+    check("...and still did not sweep a second time", _swept, [True])
+finally:
+    gi.build = _real_build
+    gi._last_manual_rebuild = 0.0                                # noqa: SLF001
+
+
+section("/google/api/refresh sweeps through the shared index, cooled down")
+
+# This used to call get_index(force=True) directly: a live sweep on every
+# press that only ever populated this one process's private CACHE, so the
+# other gunicorn worker — and every page reading hub.google_index — never
+# benefited from it. It goes through google_index.manual_rebuild() now, so
+# the result lands in the one shared, cross-worker table.
+_swept2 = []
+gi.build = lambda force=True: (_swept2.append(force)
+                               or {"ok": True, "resources": 7, "errors": []})
+try:
+    r = web.post("/api/refresh")
+    check("a fresh refresh sweeps through the shared build()", _swept2, [True])
+    check("...and reports what it swept", r.get_json().get("count"), 7)
+
+    r = web.post("/api/refresh")
+    check("an immediate second refresh is cooled down, not a second sweep",
+          _swept2, [True])
+    check("...and answers 429", r.status_code, 429)
+    check("...naming when to try again",
+          r.get_json().get("retry_after_seconds", 0) > 0, True)
+finally:
+    gi.build = _real_build
+    gi._last_manual_rebuild = 0.0                                # noqa: SLF001
+
+gi.jsonstore.write_json(gi._path(), _saved)
+
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

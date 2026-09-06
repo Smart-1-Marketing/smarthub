@@ -430,8 +430,20 @@ def _payment_payload(customer_id: str, txn_date: str, check_number: str,
 
 
 def _post_payment_groups(check: dict[str, Any], allocations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    invoices = {x["id"]: x for x in _open_invoices(list({str(a["customer_id"]) for a in allocations}))}
+    """Create customer-grouped Payments without making a partial success retryable.
+
+    A single paper check can span more than one QuickBooks Customer record,
+    and QuickBooks requires one Payment per Customer, so this operation cannot
+    be atomic. Each successful Payment ID is persisted immediately; if a later
+    Customer payment fails, the check is locked in ``partial`` state instead
+    of becoming retryable and accidentally posting the first Payment twice.
+    """
+    customer_ids = {str(a.get("customer_id") or "") for a in allocations}
+    if "" in customer_ids:
+        raise RuntimeError("Every allocation must name its QuickBooks customer.")
+    invoices = {x["id"]: x for x in _open_invoices(list(customer_ids))}
     groups: dict[str, list[dict[str, Any]]] = {}
+    # Validate the entire request before the first write to QuickBooks.
     for alloc in allocations:
         iid = str(alloc.get("invoice_id") or "")
         inv = invoices.get(iid)
@@ -449,14 +461,48 @@ def _post_payment_groups(check: dict[str, Any], allocations: list[dict[str, Any]
     if abs(expected - allocated) > 0.005:
         raise RuntimeError(f"Allocations total ${allocated:,.2f}; the check is ${expected:,.2f}. Allocate the full check before posting.")
     results = []
-    for cid, group in groups.items():
-        payload = _payment_payload(cid, check["date"], check.get("check_number") or "", group, check.get("payer") or "")
-        data = _qbo("POST", "payment", payload=payload)
-        payment = data.get("Payment") or {}
-        pid = str(payment.get("Id") or "")
-        if not pid:
-            raise RuntimeError("QuickBooks accepted the request but did not return a Payment ID.")
-        results.append({"customer_id": cid, "payment_id": pid, "amount": payload["TotalAmt"], "allocations": group})
+    try:
+        for cid, group in groups.items():
+            payload = _payment_payload(cid, check["date"], check.get("check_number") or "", group, check.get("payer") or "")
+            data = _qbo("POST", "payment", payload=payload)
+            payment = data.get("Payment") or {}
+            pid = str(payment.get("Id") or "")
+            if not pid:
+                raise RuntimeError(
+                    "QuickBooks accepted the request but did not return a Payment ID. "
+                    "Stop and verify QuickBooks before retrying.")
+            result = {"customer_id": cid, "payment_id": pid, "amount": payload["TotalAmt"], "allocations": group}
+            results.append(result)
+
+            # Persist the external write before attempting another external write.
+            def remember(state, posted=result):
+                target = _find_check(check["id"], state)
+                if not target:
+                    raise RuntimeError("Check record disappeared while posting.")
+                saved = target.setdefault("payments", [])
+                if not any(x.get("payment_id") == posted["payment_id"] for x in saved):
+                    saved.append(posted)
+                target["status"] = "posting"
+                target["posting_updated_at"] = _now()
+
+            _mutate(remember)
+    except Exception as exc:
+        if results:
+            def partial(state):
+                target = _find_check(check["id"], state)
+                if target:
+                    target["status"] = "partial"
+                    target["partial_error"] = str(exc)[:800]
+                    target["posting_updated_at"] = _now()
+            _mutate(partial)
+            _audit("payment_partial", check_id=check["id"],
+                   payment_ids=[x["payment_id"] for x in results], error=str(exc)[:500])
+            raise RuntimeError(
+                "QuickBooks posted part of this check before a later customer payment failed. "
+                "The successful Payment ID(s) were saved and this check is locked to prevent "
+                "a duplicate. Review the partial record before any manual completion. "
+                f"Original error: {exc}") from exc
+        raise
     return results
 
 

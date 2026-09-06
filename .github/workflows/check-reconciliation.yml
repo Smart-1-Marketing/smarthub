@@ -5,8 +5,6 @@ on:
     paths:
       - 'modules/check_reconciliation/**'
       - 'wsgi.py'
-      - 'wsgi_core.py'
-      - 'wsgi_check_reconciliation.py'
       - 'tests/test_check_reconciliation.py'
       - 'docs/check-reconciliation.md'
       - '.github/workflows/check-reconciliation.yml'
@@ -15,8 +13,6 @@ on:
     paths:
       - 'modules/check_reconciliation/**'
       - 'wsgi.py'
-      - 'wsgi_core.py'
-      - 'wsgi_check_reconciliation.py'
       - 'tests/test_check_reconciliation.py'
 
 permissions:

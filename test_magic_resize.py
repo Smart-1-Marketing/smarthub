@@ -657,6 +657,135 @@ check("a target with no dimensions is refused rather than divided by",
       engine.NEEDS_REVIEW)
 
 
+# ==========================================================================
+section("The exported ZIP is a download, not the only record")
+# ==========================================================================
+# A rep presses Export and gets a ZIP — and nothing else in this Hub reads
+# it, so "what have you built us?" on that client's own record would show
+# nothing. Every other producer files what it makes (hub/image_audit.py);
+# this asserts the same call happens here, from the frames that actually
+# made the cut, and only when the project names a client.
+
+from modules.magic_resize import app as magic_app                # noqa: E402
+import hub.storage as _storage                                   # noqa: E402
+from modules.image_picker import filing as _filing               # noqa: E402
+
+_filed: list[dict] = []
+_orig_put, _orig_file_asset = _storage.put, _filing.file_asset
+
+
+def _fake_put(kind, filename, data, **kw):
+    return _storage.StoredAsset(
+        public_id=f"{kind}/{filename}", url="https://example.test/x.png",
+        resource_type="image", bytes=len(data or b""), backend="cloudinary",
+        folder=kind, checksum="x")
+
+
+def _fake_file_asset(**kw):
+    _filed.append(kw)
+    return {"ok": True, "gallery_url": "/tools/image-picker/gallery/1"}
+
+
+_storage.put, _filing.file_asset = _fake_put, _fake_file_asset
+try:
+    # actor_name() reads flask.request, so this needs a request in play --
+    # the real caller (api_export) always has one.
+    with magic_app.app.test_request_context("/api/projects/x/export"):
+        magic_app._file_to_gallery(
+            {"client": "Acme Plumbing", "name": "Fall Sale"},
+            [{"size_id": "leaderboard", "fmt": "png", "data": b"x", "ok": True},
+             {"size_id": "skyscraper", "fmt": "jpg", "data": b"y", "ok": False,
+              "error": "too heavy for its ceiling"}])
+    check("only the frame that made the cut is filed", len(_filed), 1)
+    check("under the client on the project",
+          _filed[0].get("client_name"), "Acme Plumbing")
+    check("tagged as this tool's own provider, not Display Ad Builder's",
+          _filed[0].get("provider"), "magic_resize")
+
+    _filed.clear()
+    with magic_app.app.test_request_context("/api/projects/x/export"):
+        magic_app._file_to_gallery(
+            {"client": "", "name": "No client yet"},
+            [{"size_id": "leaderboard", "fmt": "png", "data": b"x", "ok": True}])
+    check("a project with no client files nothing", _filed, [])
+finally:
+    _storage.put, _filing.file_asset = _orig_put, _orig_file_asset
+
+check("the provider is one the gallery can name",
+      "magic_resize" in _filing.SOURCE_LABELS, True)
+check("and it sorts as our own work, not something the client sent",
+      "magic_resize" in _filing.WE_MADE, True)
+
+section("A client's brand, pulled into the design and nowhere invented")
+
+brand_project = store.create(name="Brand test", client="Cool Air Co",
+                             source=design(), bundle="display_standard")
+store.generate(brand_project)
+
+check("no domain is a refusal, not a guess at one",
+      store.apply_brand(brand_project, domain="")["applied"], False)
+
+no_brand_kit = {"found": False, "has_brand": False,
+               "note": "No brand data on file yet."}
+result = store.apply_brand(brand_project, domain="coolair.com",
+                           kit=no_brand_kit)
+check("no brand on file is refused rather than applied empty",
+      result["applied"], False)
+check("and the reason is the kit's own note",
+      result["reason"], "No brand data on file yet.")
+check("an untouched project keeps brand_profile_ref empty",
+      brand_project["brand_profile_ref"], "")
+
+good_kit = {"found": True, "has_brand": True,
+           "logo_tiles": [{"url": "https://cdn.example/logo.png"}],
+           "palette": [{"hex": "#112233", "type": "brand"}]}
+result = store.apply_brand(brand_project, domain="coolair.com",
+                           color_hex="112233", kit=good_kit)
+check("a good kit applies", result["applied"], True)
+check("the reference is the domain that was actually looked up",
+      brand_project["brand_profile_ref"], "coolair.com")
+logo_obj = next(o for o in brand_project["source"]["objects"] if o["id"] == "logo")
+check("the logo-role object's image source is the resolved logo",
+      logo_obj["fabric"]["src"], "https://cdn.example/logo.png")
+bg_obj = next(o for o in brand_project["source"]["objects"] if o["id"] == "bg")
+check("a bare hex is normalized with a leading #",
+      bg_obj["fill"], "#112233")
+check("only the background role's fill changed",
+      next(o for o in brand_project["source"]["objects"]
+          if o["id"] == "head").get("fill", ""), "")
+check("frames were rebuilt off the new source",
+      len(result["report"]["built"]) > 0, True)
+
+check("an invalid hex is refused by name",
+      store.apply_brand(brand_project, domain="coolair.com",
+                        color_hex="not-a-color",
+                        kit=good_kit)["applied"], False)
+
+no_role_project = store.create(
+    name="No roles", client="Nobody",
+    source={"width": 300, "height": 250, "family": "square_medium",
+           "objects": [{"id": "x", "role": "", "kind": "shape",
+                       "x": 0, "y": 0, "w": 300, "h": 250}]},
+    bundle="display_standard")
+result = store.apply_brand(no_role_project, domain="nobody.com",
+                           color_hex="112233", kit=good_kit)
+check("a design with nothing tagged Logo or Background changes nothing",
+      result["applied"], False)
+check("and says which roles were missing",
+      "Logo" in result["reason"] and "Background" in result["reason"], True)
+
+edited_project = store.create(name="Edited frame test", client="Cool Air Co",
+                              source=design(), bundle="display_standard")
+store.generate(edited_project)
+edited_sid = next(iter(edited_project["frames"]))
+store.mark_edited(edited_project, edited_sid,
+                  edited_project["frames"][edited_sid]["objects"])
+result = store.apply_brand(edited_project, domain="coolair.com",
+                           color_hex="445566", kit=good_kit)
+check("applying a brand does not rebuild a hand-tuned frame",
+      edited_sid in result["report"]["skipped"], True)
+
+
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

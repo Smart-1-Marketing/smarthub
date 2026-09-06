@@ -413,7 +413,7 @@
 
 <div class="overlay" id="ov" onclick="closeDrawer()"></div>
 <div class="drawer" id="dr">
-  <div class="dhead"><button class="xclose" onclick="closeDrawer()">✕</button><h2 id="dTitle">Quote</h2><div class="sub" id="dSub"></div></div>
+  <div class="dhead"><button class="xclose" onclick="closeDrawer()" title="Close" aria-label="Close">✕</button><h2 id="dTitle">Quote</h2><div class="sub" id="dSub"></div></div>
   <div class="dbody" id="dBody"></div>
   <div class="dfoot" id="dFoot"></div>
 </div>
@@ -422,6 +422,12 @@
   <div class="mhead"><h2 id="convTitle">Convert to Insertion Order</h2><div class="sub" id="convSub"></div></div>
   <div class="mbody" id="convBody"></div>
   <div class="mfoot" id="convFoot"></div>
+</div></div>
+
+<div class="modal" id="fuModal"><div class="mbox">
+  <div class="mhead"><h2>Follow-up email</h2><div class="sub" id="fuSub"></div></div>
+  <div class="mbody" id="fuBody"></div>
+  <div class="mfoot" id="fuFoot"></div>
 </div></div>
 
 <div class="toast" id="toastEl"></div>
@@ -843,6 +849,7 @@ function rowHtml(x){
    ${x.status==='Draft'&&x.step>0?`<small style="display:block;color:var(--muted);margin-top:3px">Left at step ${x.step+1} of ${STEP_COUNT}</small>`:""}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    <button class="ic" title="Edit proposal" onclick="editQuote(${x.id})">✏️</button>
+   ${x.status==='Sent'||x.status==='Approved'?`<button class="ic" title="Draft the follow-up email (AI)" onclick="draftFollowup(${x.id})">✉️</button>`:""}
    <button class="ic" data-demo="quote-pdf" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
    <button class="ic" data-demo="quote-docx" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
    <button class="ic" data-demo="duplicate" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
@@ -1258,6 +1265,45 @@ function copyShare(){
   return;}
  try{document.execCommand('copy');toast("Link copied.");}
  catch(e){toast("Select the link above and press Ctrl-C.");}}
+/* The follow-up drafter. The server decides whether a chase exists — the
+   pipeline reading (hub/sales_status) is the one authority on what is
+   waiting, so the button appears on every Sent/Approved row and a quote in
+   no bucket is refused by name rather than the form being the gate. The
+   draft is never stored: it is written from the pipeline as it stands at
+   the press, and a follow-up about Monday's silence is stale by Friday. */
+async function draftFollowup(id){
+ const x=LIST.find(r=>Number(r.id)===Number(id))||{};
+ const m=document.getElementById('fuModal');
+ document.getElementById('fuSub').textContent=(x.quote_number||'')+(x.client?' — '+x.client:'');
+ document.getElementById('fuBody').innerHTML='<div class="note"><span class="spin" data-s1-think="ai"></span> Reading the pipeline and drafting…</div>';
+ document.getElementById('fuFoot').innerHTML='<button class="btn btn-line" onclick="fuClose()">Close</button>';
+ m.classList.add('open');
+ try{
+  const d=await api('/sales/builder/api/quotes/'+id+'/draft-followup',{method:'POST'});
+  const e=d.email||{};
+  document.getElementById('fuBody').innerHTML=
+   '<div class="note" style="margin-bottom:10px">'+esc(e.situation||'')+'</div>'
+   +'<textarea id="fuText" style="width:100%;min-height:230px;font:13px/1.5 ui-monospace,Menlo,monospace;border:1px solid var(--line);border-radius:8px;padding:10px 12px">'+esc(e.text||'')+'</textarea>'
+   +'<div class="note" style="margin-top:8px">'+esc(e.note||'')+'</div>';
+  document.getElementById('fuFoot').innerHTML=
+   '<button class="btn btn-line" onclick="draftFollowup('+id+')">Re-draft</button>'
+   +'<button class="btn btn-gold" onclick="fuCopy()">Copy the email</button>'
+   +'<button class="btn btn-line" onclick="fuClose()">Close</button>';
+ }catch(err){
+  document.getElementById('fuBody').innerHTML='<div class="warnbox"><b>Nothing was drafted</b> '+esc(err.message)+'</div>';
+ }}
+/* Same three-step copy as copyShare, same reason: a button that lies about
+   copying is worse than one that asks. */
+function fuCopy(){
+ const el=document.getElementById('fuText');if(!el)return;
+ el.select();
+ if(navigator.clipboard&&navigator.clipboard.writeText){
+  navigator.clipboard.writeText(el.value).then(()=>toast("Email copied — paste it into your own email."),
+    ()=>toast("Select the text above and press Ctrl-C."));
+  return;}
+ try{document.execCommand('copy');toast("Email copied — paste it into your own email.");}
+ catch(e){toast("Select the text above and press Ctrl-C.");}}
+function fuClose(){document.getElementById('fuModal').classList.remove('open');}
 function closeDrawer(){document.getElementById('ov').style.display="none";document.getElementById('dr').classList.remove("open");}
 async function setStatus(id,s){try{await api('/sales/builder/api/quotes/'+id,{method:'PUT',body:JSON.stringify({status:s})});toast("Status → "+s);openDrawer(id);refreshLists();}catch(e){toast(e.message);}}
 async function dupQuote(id){try{const d=await api('/sales/builder/api/quotes/'+id+'/duplicate',{method:'POST'});toast("Created "+d.quote.quote_number+" from the original.");closeDrawer();editLoaded(d.quote);}catch(e){toast(e.message);}}
@@ -3873,7 +3919,36 @@ function creativeCard(r){
             <button class="btn btn-line" onclick="setCreative('${r.medium}','client')">No — the client pays</button>`}
       </div></div>`
    : `<div class="note" style="margin-top:12px">${money(r.spend)} is above the ${money(r.threshold||COMP_CONFIRM_UNDER)} mark, so the comp is recorded without a second question.</div>`;}
+ /* A first-draft spot, offered only where Smart 1 is producing it — a client
+    who has creative needs no draft, and the ask otherwise leaves this step
+    as a one-line note and comes back weeks later as "what should it say?".
+    The harvested Radio Scripts / TV Scripts prompts (hub/prompts_harvested)
+    answer from this quote's own fields. Stored under S.draftSpots, which is
+    deliberately NOT creativePlan: creativePlan rides to the insertion order
+    and the draft is internal working notes. */
+ if((r.medium==="audio"||r.medium==="video")&&(r.answer==="client"||r.answer==="comp")){
+  html+=`<div style="margin-top:12px" id="spotBox-${r.medium}">${spotDraftHtml(r.medium)}</div>`;}
  return html+`</div>`;}
+function spotDraftHtml(medium){
+ const d=(S.draftSpots||{})[medium];
+ const what=medium==="audio"?"a :30 radio spot":"a set of TV scripts";
+ let h='';
+ if(d&&d.text){
+  h+=`<div style="white-space:pre-wrap;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#F7F9FC;font-size:13px;max-height:260px;overflow:auto">${esc(d.text)}</div>
+   <div class="note" style="margin-top:6px">Internal working draft${d.generated?" ("+esc(String(d.generated).slice(0,10))+")":""} — on neither the proposal nor the IO. The real ${medium==="audio"?"spot is made in the Radio Ad Creator":"cut is made in the Commercial Builder"}; this is the starting brief.</div>`;}
+ h+=`<div style="margin-top:8px"><button class="btn btn-line" onclick="draftSpot('${medium}')">${d&&d.text?"Re-draft":"✨ Draft "+what+" (AI)"}</button></div>`;
+ return h;}
+async function draftSpot(medium){
+ const box=document.getElementById('spotBox-'+medium);
+ if(box)box.innerHTML='<span class="spin" data-s1-think="ai"></span> Writing a first draft…';
+ try{
+  const d=await api('/sales/builder/api/draft-spot',{method:'POST',
+    body:JSON.stringify({medium,data:S})});
+  S.draftSpots=S.draftSpots||{};S.draftSpots[medium]=d.spot;saveSoon();
+  if(box)box.innerHTML=spotDraftHtml(medium);
+ }catch(e){
+  if(box)box.innerHTML=spotDraftHtml(medium)
+   +'<div class="note" style="color:#8c2f24;margin-top:6px">Nothing was drafted — '+esc(e.message)+'</div>';}}
 function setCreative(medium,answer){
  S.creativePlan=S.creativePlan||{};
  const prev=S.creativePlan[medium]||{};
@@ -4257,7 +4332,7 @@ function drawItems(){const host=document.getElementById('prodList');if(!host)ret
   <div class="alloc">${consult
     ? `<input type="number" value="${i.dollars||0}" disabled title="Priced by formula — base + per-product, not a media budget slice"><small>$ / mo — formula-priced</small>`
     : `<input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / ${i.basis==="one_time"?"one time":"month"}</small>`}</div>
-  <button class="x" onclick="rmItem(${ix})">✕</button>
+  <button class="x" onclick="rmItem(${ix})" title="Remove ${esc(itemLabel(i))}" aria-label="Remove ${esc(itemLabel(i))}">✕</button>
   ${rateRow(i,ix)}
   ${basisRow(i,ix)}</div>`;}).join('');
  const noteEl=document.getElementById('consultPriceNote');

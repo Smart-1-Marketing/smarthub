@@ -90,6 +90,10 @@ _ITEMS = [
     # "what do we know about this client" and this one answers "which of them
     # needs an hour today", which is the question somebody opens the Hub with.
     ("myclients", "/my-clients", "&#128203;", "My Clients"),
+    # A curated shortlist for the department somebody is on -- nothing here is
+    # more or less reachable because of it, so it needs no access level of its
+    # own; the editor that curates it is Utilities-gated instead, below.
+    ("deptviews", "/views", "&#128065;", "My View"),
     ("_sec2", "", "", "Sales"),
     # One entry, because there is one proposal builder. /sales/proposals is the
     # retired standalone tool: it redirects here and serves its archive only.
@@ -116,6 +120,12 @@ _ITEMS = [
     # account, and it is opened directly rather than looked up.
     ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
     ("qa", "/qa", "&#9989;", "QA Reports"),
+    # Directly under QA Reports, because it is the other half of the same
+    # question: those pages say what is wrong, and this one is how somebody
+    # is asked to go and look. Everyone gets it -- Todd's rule for it is that
+    # anyone can assign a review, so a nav entry only admins see would put
+    # the queue behind the same door the people answering it cannot open.
+    ("qatasks", "/qa-tasks", "&#128221;", "QA Tasks"),
     ("_secseo", "", "", "SEO"),
     ("seo", "/seo", "&#128269;", "SEO Clients"),
     ("scans", "/scans/", "&#128200;", "Site Scans"),
@@ -133,6 +143,7 @@ _ITEMS = [
     ("diagnostics", "/diagnostics", "&#128300;", "Diagnostics", ADMIN_ONLY),
     ("status", "/status", "&#128678;", "System Status", ADMIN_ONLY),
     ("users", "/diagnostics/users", "&#128100;", "Users", ADMIN_ONLY),
+    ("deptviews_manage", "/views/manage", "&#9881;", "Department Views", ADMIN_ONLY),
     # Not named in the reshuffle, and it had to land somewhere rather than be
     # dropped: it is a system-wide record read for the same reason as the three
     # above, so it sits with them rather than among the tools that write to it.
@@ -162,10 +173,23 @@ _CSS = """
      the sidebar — on every visit, with nothing erroring. Only the Hub's own
      base.html puts a `.main` directly inside `.shell`, which is precisely the
      layout this needs to keep its hands off. */
-  body:not(:has(.shell > .main)) { margin-left: 224px; --s1hub-offset: 224px; }
-  /* Published so full-height tools (Image Creator) can size themselves
-     against the space the sidebar actually took, rather than guessing. */
-  body.s1hub-collapsed:not(:has(.shell > .main)) { --s1hub-offset: 56px; }
+  body:not(:has(.shell > .main)) { margin-left: 224px; }
+  /* Published so anything that has to sit clear of the rail can measure it
+     rather than guessing: full-height tools (Image Creator) size themselves
+     against it, and .s1-demo-fab is positioned from it.
+
+     Set on EVERY body rather than only the ones that get margin-left above.
+     The two are different questions -- the Hub's own pages offset their own
+     .main and must not be offset again, and a *fixed* element on those pages
+     still has to clear the same 224px. Tying the variable to the margin left
+     it unset exactly there, so the walkthrough launcher sat behind the rail
+     on every hub page: at 224px it was completely covered and could not be
+     pressed at all, and at 56px its left edge was a nav link, so pressing
+     the visible ▶ navigated to /status instead of starting the walkthrough.
+     Nothing reported it -- the button renders, every check is green, and it
+     is the entry point to all 28 scenarios. */
+  body { --s1hub-offset: 224px; }
+  body.s1hub-collapsed { --s1hub-offset: 56px; }
   .s1hub-chip { display: none !important; }
 }
 /* Below 950px the sidebar becomes a slide-out drawer rather than vanishing.

@@ -116,6 +116,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "secret_key": ("SECRET_KEY", "FLASK_SECRET_KEY", "SESSION_SECRET"),
     "pexels_key": ("PEXELS_API", "PEXELS_API_KEY", "PEXELS_KEY"),
     "pixabay_key": ("PIXABAY_API", "PIXABAY_API_KEY", "PIXABAY_KEY"),
+    "coverr_key": ("COVERR_API", "COVERR_API_KEY", "COVERR_KEY"),
     "unsplash_key": ("UNSPLASH_API", "UNSPLASH_ACCESS_KEY", "UNSPLASH_API_KEY",
                      "UNSPLASH_KEY"),
     "remove_bg_key": ("REMOVE_BG_API", "REMOVE_BG_API_KEY", "REMOVEBG_API_KEY"),
@@ -258,6 +259,14 @@ class Settings:
     # found. Nothing here restates a name list.
     pexels_key: str = field(default_factory=lambda: _alias("pexels_key"))
     pixabay_key: str = field(default_factory=lambda: _alias("pixabay_key"))
+    coverr_key: str = field(default_factory=lambda: _alias("coverr_key"))
+    # One spelling only, per the ALIASES note above: Coverr's own docs describe
+    # a single API key and say nothing about a second "app" identifier being
+    # sent on a request, so there is nothing here for an alias to fix. It is
+    # captured anyway because this deployment's Coverr account issues one
+    # alongside the key — see coverr_service.py for where (and how tentatively)
+    # it is used.
+    coverr_app_id: str = field(default_factory=lambda: _s("COVERR_APP_ID"))
     unsplash_key: str = field(default_factory=lambda: _alias("unsplash_key"))
     remove_bg_key: str = field(default_factory=lambda: _alias("remove_bg_key"))
     brandfetch_key: str = field(default_factory=lambda: _alias("brandfetch_key"))
@@ -408,6 +417,10 @@ class Settings:
             # and filing them together is how one company's assets end up on
             # another's record.
             "prospects": "smart1-prospects",
+            # Campaign creative copied out of Google Drive and filed under the
+            # IO it ran on — hub/ad_assets.py. The tree below it is
+            # image_picker.filing.ad_asset_folder()'s, not this one's.
+            "ad_assets": "smart1-ad-assets",
         }
         return defaults.get(kind, f"smart1-{kind}")
 
@@ -464,6 +477,7 @@ class Settings:
         "secret_key": "Signed sessions",
         "pexels_key": "Pexels stock",
         "pixabay_key": "Pixabay stock",
+        "coverr_key": "Coverr stock video",
         "unsplash_key": "Unsplash stock",
         "remove_bg_key": "remove.bg",
         "brandfetch_key": "Brandfetch logo lookup",
@@ -595,6 +609,7 @@ class Settings:
                 "back to the Hub's own AI."),
             row("Pexels", bool(self.pexels_key), False, f"{self.spellings('pexels_key')} — stock search provider."),
             row("Pixabay", bool(self.pixabay_key), False, f"{self.spellings('pixabay_key')} — stock search provider."),
+            row("Coverr", bool(self.coverr_key), False, f"{self.spellings('coverr_key')} — Commercial Builder stock video provider."),
             row("Unsplash", bool(self.unsplash_key), False, f"{self.spellings('unsplash_key')} — stock search provider."),
             row("remove.bg", bool(self.remove_bg_key), False, f"{self.spellings('remove_bg_key')} — Background Remover is disabled without it."),
             row("Brandfetch", bool(self.brandfetch_key), False, f"{self.spellings('brandfetch_key')} — logo and brand-color lookup."),

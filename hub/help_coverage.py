@@ -135,6 +135,9 @@ PREFIXES: dict[str, str] = {
     # `website_audit` this matched nothing and reported a tool carrying six
     # bubbles and a six-step tour as having no help at all.
     "/tools/website-audit": "hub.website_audit",
+    # A hub route rather than a mounted module, so its keys are `hub.ad_assets.*`
+    # for the same reason the Website Audit's are `hub.website_audit.*`.
+    "/tools/ad-assets": "hub.ad_assets",
     "/sales/builder/": "sales_builder",
     "/tools/io/": "io_builder",
     "/sales/landing": "landing_maker",
@@ -159,6 +162,14 @@ PREFIXES: dict[str, str] = {
     "/tools/seo-images/house": "seo_images",
     "/tools/utm/": "utm",
     "/tools/smartforecast/": "smartforecast",
+    # Web Development / SEO groups. The seo prefix's bubbles are the schema
+    # and FAQ builders on the client record -- the tool's working screen,
+    # which is where a tool's help ordinarily lives; the /seo index is the
+    # door to it. Sites has no help written yet, so its tile reads as
+    # missing, which is the true statement.
+    "/sites/": "sites_admin",
+    "/seo": "seo",
+    "/seo/webmaster": "seo",
 }
 
 # Tiled for staff and served to somebody who is not staff. The help layer is
@@ -196,7 +207,8 @@ NOT_A_TOOL: dict[str, str] = {
                      "rather than tiled on Creative or Client Tools",
     "client_owner": "Assign Clients, reached from the QA index and from the "
                     "owner strip on a client record",
-    "seo": "the schema and FAQ builders, reached from a client record",
+    # "seo" left this list the day SEO Clients was tiled on Client Tools --
+    # its prefix is mapped from that tile now, in PREFIXES above.
     "demo": "the walkthrough layer explaining itself",
 }
 

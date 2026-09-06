@@ -229,6 +229,12 @@ function s1hubFeedback(){
      mounted modules: this is an interruption, and one place that can raise it
      is enough to be sure it is raised once. #}
   <script defer src="/hub-cheers.js"></script>
+  {# QA tasks somebody is waiting on, once a day, on the first Hub page
+     opened. Loaded here rather than in the chrome HubBar injects into mounted
+     modules, for the reason hub-cheers.js gives directly above: this is an
+     interruption, and one place that can raise it is enough to be sure it is
+     raised once. #}
+  <script defer src="/hub-qa-nudge.js"></script>
   <script defer src="/hub-crumbs.js"></script>
   <script defer src="/hub-thinking.js"></script>
   <script defer src="/hub-autofill.js"></script>

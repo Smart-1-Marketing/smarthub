@@ -414,6 +414,45 @@ REGISTRY: list[Help] = [
        "address and phone number here are offered into the client info strip "
        "at the top of this record, where one press keeps them."),
 
+    # ---------------- Ad Assets ----------------
+    _h("hub.ad_assets.intro", "Creative out of Drive, into their library",
+       "Campaign creative lives in a Google Drive folder and Smart 1 Team "
+       "carries the address of it — up to four links per product line. A "
+       "Drive address is an address in somebody else's filing cabinet: it "
+       "moves, it gets un-shared, and the row on Client 360 goes on looking "
+       "exactly as healthy as the day it worked. This copies that creative "
+       "into the client's own library, filed under Ad Assets, then the IO, "
+       "then the product number where Knack carried one. The Drive folder is "
+       "never written to — no move, no rename, no trash — so the media team "
+       "keeps working exactly where they are working today."),
+    _h("hub.ad_assets.access", "Why it may say Drive is refused",
+       "The Hub's connected Google logins were consented before Drive was "
+       "asked for, and Google never widens a token that already exists: the "
+       "grant is whatever the person agreed to on the day they connected. So "
+       "an account that has not been reconnected since cannot read Drive at "
+       "all, and this page says so rather than reporting an empty folder. "
+       "Reconnecting the login on Google Finder re-consents it, which is one "
+       "click."),
+    _h("hub.ad_assets.dryrun", "Look before it copies",
+       "The dry run authenticates, walks every folder and lists exactly what "
+       "would be copied and what would be skipped, without downloading a byte "
+       "or writing a row. Run it first: a folder that turns out to hold "
+       "somebody's whole Drive is a mistake to notice here rather than after "
+       "four hundred files are filed. Copying is idempotent — every file "
+       "carries the Drive id it came from, so a second run over the same "
+       "client copies nothing twice and says so."),
+    _h("hub.ad_assets.proposals", "Rewriting the links in Smart 1 Team",
+       "Once the creative is in the library, the link on the product record "
+       "should point there. That is a write to the system of record, so it is "
+       "proposed here and applied only from a list somebody has read. A "
+       "proposal is offered only where every file behind that link came "
+       "across — a half-migrated folder keeps its Drive link, because "
+       "replacing it would hide the files that did not. The field is located "
+       "by the URL it currently holds, never by position, so a product with "
+       "four creative links cannot have the wrong one overwritten. Until a "
+       "proposal is applied nothing is waiting on it: Client 360 already "
+       "offers the library copy beside the Drive original."),
+
     # ---------------- Website Audit ----------------
     _h("hub.website_audit.intro", "What this tool is for",
        "One audit of a website already knows what the business is spending on "
@@ -604,6 +643,15 @@ REGISTRY: list[Help] = [
        "1x is right for the web. 2x when it'll be viewed on a high-density "
        "screen or printed. Transparent background only works on PNG and WebP.",
        step=6, selector="[data-tour='export']"),
+    _h("image_creator.qc.check", "One QC panel, every creative tool",
+       "Checks the export against the S1M spec kit for the size you picked — "
+       "dimensions, file weight, an animation over 30 seconds — plus advisory "
+       "notes on the logo, the safe margin and contrast. Blocks stop a clean "
+       "export; advisory notes do not."),
+    _h("image_creator.review.send", "A client answers with no Hub login",
+       "Mints a link the client opens to approve, approve with changes, or "
+       "ask for changes required. Save the project first — the link points at "
+       "what's saved, not what's on screen."),
 
     # ---------------- Magic Resize ----------------
     # No `step=` and no `selector=` on any of these, and no `data-screen` on
@@ -643,6 +691,12 @@ REGISTRY: list[Help] = [
        "all mark a frame for review. The type-size floor only warns: no "
        "platform publishes a minimum for display, so a hard failure there "
        "would be our opinion wearing a platform's name."),
+    _h("magic_resize.brand", "Pulled from the same brand kit as Client 360",
+       "A website is required and never guessed from the client's name — a "
+       "wrong logo on a design is worse than none. It only touches whatever "
+       "on this design is tagged Logo or Background; a headline or "
+       "disclaimer is never recolored out from under whoever wrote it, and "
+       "a hand-tuned frame is never rebuilt by it."),
 
     # ---------------- Background Remover ----------------
     _h("bg_remover.upload.credits", "This one costs money",
@@ -1709,6 +1763,14 @@ REGISTRY: list[Help] = [
        "through the Hub so a use is recorded — Unsplash's terms "
        "require a ping when a photo is actually used rather than "
        "browsed."),
+    _h("stock_photos.search.client", "Save to their gallery",
+       "Pick a client and every copy, download or explicit save files the "
+       "photo into their gallery under Stock photo picks — no client, "
+       "nothing filed, and the page says so rather than guessing who it "
+       "was for. The folder is optional: leave it blank to save straight "
+       "into that group, or name one to start a folder inside it, and "
+       "typing the start of a name already used offers it back so a "
+       "second one is not created by mistake."),
 
     # ---------------- Radio Promo ----------------
     _h("radio_promo.build.setup", "Spec now, theirs later",
@@ -1718,6 +1780,18 @@ REGISTRY: list[Help] = [
        "wins the account and the spot becomes theirs. The required "
        "disclaimer is read verbatim and counts against the word budget, "
        "so a long one buys a shorter sell."),
+    _h("radio_promo.build.lengths", "Every length is a spend decision",
+       "The reads are written in one call so they share a hook, which is "
+       "why they are picked before anything is written rather than added "
+       "one at a time afterwards. ElevenLabs bills the character, so a "
+       ":60 is about twice a :30 to make and twice as much again every "
+       "time it is re-recorded — build one where the air is bought for it "
+       "and cut a shorter length alongside for everywhere else. The :10 "
+       "is a sponsorship tag: one idea and the brand, with no offer and "
+       "no phone number, because ten seconds is gone before anybody can "
+       "act on it. A :30 and a :60 also carry a floor on the read, since "
+       "those slots are sold by the second and a short one is air "
+       "somebody paid for."),
     _h("radio_promo.build.cast", "Cast by ear, not by list",
        "The ranking reads the labels ElevenLabs publishes against what "
        "you asked for, and it is a ranking, never a filter — a "

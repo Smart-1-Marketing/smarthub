@@ -26,6 +26,7 @@ import secrets
 import threading
 from datetime import datetime, timezone
 from hub import jsonstore
+from hub import radio_share
 
 _lock = threading.RLock()
 
@@ -86,7 +87,7 @@ def new_id() -> str:
 
 
 def new_token() -> str:
-    return secrets.token_urlsafe(24)
+    return radio_share.new_token()
 
 
 def create(fields: dict, actor: str = "") -> dict:
@@ -109,8 +110,7 @@ def create(fields: dict, actor: str = "") -> dict:
         "brief": {},
         "voice": {},
         "spots": [],
-        "share": {"token": new_token(), "enabled": False, "opened": 0,
-                  "headline": "", "intro": "", "cta_label": "", "cta_url": ""},
+        "share": radio_share.new_share(),
         "feedback": [],
     }
     save(project)
@@ -181,7 +181,7 @@ def index() -> list[dict]:
 def find_by_token(token: str) -> dict | None:
     """Linear scan of the index, then one file open. Fine at this scale and
     it keeps the token out of any filename."""
-    if not re.fullmatch(r"[A-Za-z0-9_-]{20,64}", str(token or "")):
+    if not radio_share.is_token(token):
         return None
     for row in index():
         project = load(row.get("id") or "")
@@ -241,17 +241,19 @@ def sort_spots(project: dict) -> None:
 # --------------------------------------------------------------- feedback
 def add_feedback(project: dict, entry: dict) -> dict:
     """Written to disk by the caller immediately after. Kept small and
-    append-only; nothing here is ever edited by the customer afterwards."""
-    entry = {
-        "at": now(),
-        "name": str(entry.get("name") or "")[:80],
-        "spot_id": entry.get("spot_id") or "",
-        "action": entry.get("action") or "comment",
-        "comment": str(entry.get("comment") or "")[:4000],
-    }
-    project.setdefault("feedback", []).append(entry)
+    append-only; nothing here is ever edited by the customer afterwards.
+
+    A thin wrapper over `hub.radio_share.record_decision()` — this call
+    site never passes a `target`, because by the time it runs, the caller
+    (`api_public_feedback`) has already written the decision onto the spot
+    itself; this is only ever appending the feedback row.
+    """
+    saved = radio_share.record_decision(
+        None, project.setdefault("feedback", []),
+        name=entry.get("name") or "", action=entry.get("action") or "comment",
+        comment=entry.get("comment") or "", spot_id=entry.get("spot_id") or "")
     project["feedback"] = project["feedback"][-500:]
-    return entry
+    return saved
 
 
 # ------------------------------------------------------------- audio file

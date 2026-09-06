@@ -128,6 +128,10 @@ HUB_PAGES = [
     # page rather than one row, exactly like url_for('website_check_limits')
     # in Sites Admin.
     "/tools/video-backgrounds/",
+    # Ad Assets: another hub blueprint under /tools, and the whole page --
+    # the Drive access banner, both result tables and the proposal list --
+    # is drawn from JavaScript into chrome the hub app injects afterwards.
+    "/tools/ad-assets",
     # The two HyperFrames tools. Both are hub blueprints extending base.html,
     # and both render the whole form from a server-supplied vocabulary --
     # `hyperframes.PAINT_STYLES` and `vox_spec.TREATMENTS` -- so a page-context

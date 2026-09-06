@@ -175,6 +175,27 @@
   .drops div{padding:7px 10px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f1f5f9}
   .drops div:hover{background:#eff6ff}
 
+  /* ---------- QC panel ---------- */
+  .qcrow{display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}
+  .qcrow:last-child{border-bottom:0}
+  .qcmark{flex:none;width:19px;height:19px;border-radius:50%;display:flex;align-items:center;
+          justify-content:center;font-size:11px;font-weight:800;color:#fff;margin-top:1px}
+  .qcmark.fail{background:var(--bad)}
+  .qcmark.warn{background:#d97706}
+  .qcmsg{font-size:12.5px;line-height:1.45}
+  .qcsource{color:var(--muted);font-size:11px;display:block;margin-top:2px}
+  .qcclean{color:var(--ok);font-size:13px;font-weight:600}
+
+  /* ---------- review history ---------- */
+  .rvround{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .rvround .top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px}
+  .rvpill{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700}
+  .rvpill.green{background:#dcfce7;color:#166534}
+  .rvpill.yellow{background:#fef3c7;color:#92400e}
+  .rvpill.red{background:#fee2e2;color:#b91c1c}
+  .rvpill.gray{background:#f1f5f9;color:#64748b}
+  .rvlink{font-size:11.5px;word-break:break-all;color:var(--blue)}
+
   /* ---------- responsive: below full desktop width the side panels
      become slide-over drawers instead of pushing the canvas around ---------- */
   .panelClose{display:none;border:0;background:none;font-size:19px;color:var(--muted);
@@ -207,6 +228,10 @@
     <button class="tbtn" id="btnResize" data-demo="canvas-size">Canvas size</button>
     <span class="sp"></span>
     <span class="csize" id="saveMsg"></span>
+    <button class="tbtn" id="btnQC" title="Run QC against ad network specs">✓ Check ad</button>
+    {{ help_dot('image_creator.qc.check') if help_dot is defined else '' }}
+    <button class="tbtn" id="btnReview" title="Send this graphic to a client for approval">👁 Send for review</button>
+    {{ help_dot('image_creator.review.send') if help_dot is defined else '' }}
     <a class="tbtn" href="projects" title="Browse saved projects">📁 Projects</a>
     <button class="tbtn" id="btnSave" data-demo="save-project">💾 Save</button>
     <button class="tbtn pri" id="btnDownload">⬇ Download</button>
@@ -224,7 +249,7 @@
       <button data-p="text"><span class="ico">T</span>Text</button>
       <button data-p="shapes"><span class="ico">◼</span>Shapes</button>
       <button data-p="ai"><span class="ico">✨</span>AI</button>
-      <button data-p="layers"><span class="ico">☰</span>Layers</button>
+      <button data-p="layers" data-demo="layers"><span class="ico">☰</span>Layers</button>
     </div>
 
     <!-- ================= LEFT PANEL ================= -->
@@ -240,9 +265,9 @@
         <div class="canvshell"><canvas id="c"></canvas></div>
       </div>
       <div class="zoombar">
-        <button id="zOut">−</button>
+        <button id="zOut" title="Zoom out" aria-label="Zoom out">−</button>
         <span id="zLabel">100%</span>
-        <button id="zIn">+</button>
+        <button id="zIn" title="Zoom in" aria-label="Zoom in">+</button>
         <button id="zFit" style="width:auto;padding:0 9px">Fit</button>
       </div>
     </div>
@@ -292,6 +317,7 @@
           <button class="chip on" data-f="png">PNG</button>
           <button class="chip" data-f="jpeg">JPG</button>
           <button class="chip" data-f="webp">WebP</button>
+          <button class="chip" data-f="gif" id="dlFmtGif" title="Give at least one object an entrance in Properties first">Animated GIF</button>
         </div>
       </div>
       <div class="sect">
@@ -344,6 +370,39 @@
       <span class="hint" id="svMsg" style="margin-right:auto"></span>
       <button class="btn sec sm" data-close>Cancel</button>
       <button class="btn sm" id="svGo">Save project</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="qcModal">
+  <div class="mbox" style="width:520px">
+    <div class="mhead"><b>Ad QC</b><button class="x" data-close>&times;</button></div>
+    <div class="mbody">
+      <div class="hint" id="qcSummary">Checking…</div>
+      <div id="qcList" style="margin-top:10px"></div>
+    </div>
+    <div class="mfoot">
+      <span class="hint" style="margin-right:auto">Block issues stop a clean export; advisory issues do not.</span>
+      <button class="btn sm" data-close>Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="reviewModal">
+  <div class="mbox" style="width:520px">
+    <div class="mhead"><b>Send for review</b><button class="x" data-close>&times;</button></div>
+    <div class="mbody">
+      <div class="sect">
+        <label class="f">Note to the client <span style="font-weight:400;color:var(--muted)">— optional</span></label>
+        <textarea id="rvMessage" rows="2" placeholder="Here's the first draft — let us know what you think."></textarea>
+      </div>
+      <div class="hint" id="rvMsg"></div>
+      <div id="rvHistory" style="margin-top:12px"></div>
+    </div>
+    <div class="mfoot">
+      <span class="hint" style="margin-right:auto" id="rvFoot"></span>
+      <button class="btn sec sm" data-close>Close</button>
+      <button class="btn sm" id="rvSend">Send link</button>
     </div>
   </div>
 </div>

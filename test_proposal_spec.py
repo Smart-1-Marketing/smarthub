@@ -1539,6 +1539,91 @@ check("choosing to comp a $600 audio campaign asks for confirmation, with the nu
       "$600" in comped_row["question"] and not comped_row["resolved"],
       comped_row["question"])
 
+# ---------------------------------------------------------------------------
+section("a gated line can carry a drafted spot")
+# ---------------------------------------------------------------------------
+# The harvested Radio Scripts / TV Scripts prompts, wired into the creative
+# gate. What is worth asserting is what the route does when a source says no,
+# and what reaches the prompt: an absent quote answer arrives as "not
+# provided" plus what not to invent — the phone number by name, because a
+# plausible one written into a script gets recorded before anybody checks it.
+from hub import ai as hub_ai                                       # noqa: E402
+
+_real_chat = hub_ai.chat
+_spot_prompts = []
+
+
+def _fake_chat(messages, **kw):
+    _spot_prompts.append((messages[0]["content"], kw))
+    return "ANNOUNCER: A drafted spot."
+
+
+hub_ai.chat = _fake_chat
+try:
+    drafted = api("post", "/sales/builder/api/draft-spot",
+                  json={"medium": "audio", "data": quote_state})
+    check("an audio line drafts a :30",
+          drafted["ok"] and drafted["spot"]["text"] == "ANNOUNCER: A drafted spot."
+          and drafted["spot"]["length"] == ":30", drafted)
+    check("...from a prompt carrying the quote's own answers",
+          "Riverstone Dental" in _spot_prompts[-1][0]
+          and ":30" in _spot_prompts[-1][0]
+          and "{length}" not in _spot_prompts[-1][0], _spot_prompts[-1][0][:200])
+    check("...at the script writer's own temperature",
+          _spot_prompts[-1][1].get("temperature") == 0, _spot_prompts[-1][1])
+    check("...and says it is internal working notes",
+          "neither the proposal nor the insertion order" in drafted["spot"]["note"])
+
+    video = api("post", "/sales/builder/api/draft-spot",
+                json={"medium": "video", "data": quote_state})
+    check("a video line drafts the TV script set",
+          video["ok"] and "drafted spot" in video["spot"]["text"].lower())
+    check("...refusing to invent a phone number, by name",
+          "do not include a phone number" in _spot_prompts[-1][0],
+          _spot_prompts[-1][0][:300])
+
+    refused = api("post", "/sales/builder/api/draft-spot",
+                  json={"medium": "display", "data": quote_state})
+    check("a medium with no script writer is refused by name",
+          refused["ok"] is False and "display" in refused["error"], refused)
+    not_on_plan = api("post", "/sales/builder/api/draft-spot",
+                      json={"medium": "audio",
+                            "data": {"items": [{"category": "DATA TARGETED DISPLAY",
+                                                "product": "Category", "dollars": 500}]}})
+    check("a medium the plan does not carry is refused rather than drafted",
+          not_on_plan["ok"] is False and "not on this media plan" in not_on_plan["error"],
+          not_on_plan)
+
+    def _down_chat(messages, **kw):
+        raise hub_ai.AIUnavailable("OPENAI_API_KEY is not set.")
+
+    hub_ai.chat = _down_chat
+    down = api("post", "/sales/builder/api/draft-spot",
+               json={"medium": "audio", "data": quote_state})
+    check("a model that says no is a named refusal, never a blank draft",
+          down["ok"] is False and "OPENAI_API_KEY" in down["error"], down)
+finally:
+    hub_ai.chat = _real_chat
+
+# The draft is working notes: on the wizard, and on nothing a client reads
+# and nothing the IO receives. ioDataPayload picks named keys, so the
+# assertion is that draftSpots is not one of them — the whole reason the
+# draft lives outside creativePlan, which does travel.
+with open(os.path.join(ROOT, "modules/sales_builder/templates/index.html"),
+          encoding="utf-8") as _f:
+    _wizard_src = _f.read()
+_io_start = _wizard_src.index("function ioDataPayload(){")
+_io_body = _wizard_src[_io_start:_wizard_src.index("\nfunction ", _io_start + 10)]
+check("the wizard stores the draft under its own key",
+      "S.draftSpots" in _wizard_src, True)
+check("...which the IO payload deliberately does not carry",
+      "draftSpots" not in _io_body, True)
+for _doc in ("client_proposal.html", "client_gone.html"):
+    with open(os.path.join(ROOT, "modules/sales_builder/templates", _doc),
+              encoding="utf-8") as _f:
+        check(f"...and {_doc} never renders it",
+              "draftSpots" not in _f.read(), True)
+
 answered = dict(quote_state)
 answered["creativePlan"] = {"video": {"answer": cn.HAS},
                             "audio": {"answer": cn.COMP, "confirmed": True,
@@ -2515,44 +2600,89 @@ finally:
 check("an undeclared section is reported rather than passing quietly",
       _bit_cov["undeclared"] == ["tiktok"], _bit_cov["undeclared"])
 
-# Three published sections are a different kind of gap: the kit sells them and
-# this module holds no unit for them at all. A Meta requirement that lists
-# Stories and never Reels reads as complete, and the page itself says the two
-# are not interchangeable.
-check("a Meta buy is told the kit also sells both Reels",
-      cs.unmodelled_for(["facebook", "instagram", "stories"]) ==
-      ["Instagram Reels", "Facebook Reels"],
+# The three sections that used to be a gap. The kit sells both Reels and the
+# six CTV interactive formats, and this module held no unit for any of them --
+# so a Meta requirement listed Stories and never Reels and read as complete,
+# while the page itself says the two are not interchangeable. They are
+# modelled now, and `unmodelled_for()` is empty everywhere rather than
+# announcing what it cannot size.
+check("nothing is left unmodelled on a Meta buy",
+      cs.unmodelled_for(["facebook", "instagram", "stories"]) == [],
       cs.unmodelled_for(["facebook", "instagram", "stories"]))
-check("a CTV buy is told about the interactive formats",
-      len(cs.unmodelled_for(["ctv"])) == 1, cs.unmodelled_for(["ctv"]))
+check("nor on a CTV buy",
+      cs.unmodelled_for(["ctv"]) == [], cs.unmodelled_for(["ctv"]))
 check("and a display buy is told nothing, because nothing is missing",
       cs.unmodelled_for(["desktop_display", "mobile_display"]) == [],
       cs.unmodelled_for(["desktop_display", "mobile_display"]))
 
-# It has to reach the line the client document prints, not only the payload:
-# left in the note alone the requirement a client reads still looks complete.
+# The client is asked for the files, which is the half that was missing: a
+# note in the payload is not a requirement line, and the requirement line is
+# what a client reads.
 _meta_row = next(p for p in _rc_for_media.products()
                  if p["product"].startswith("Facebook | Instagram - Awareness"))
 _meta_st = {"items": [dict(_meta_row, dollars=4000)], "months": 3}
 _meta_req = cn.required_units(_meta_st, cn.medium_of(_meta_row))
-check("the requirement payload names what it cannot size",
-      _meta_req["not_measured_formats"] == ["Instagram Reels", "Facebook Reels"],
+_meta_labels = [u.get("label") for u in _meta_req["units"]]
+check("a Meta buy asks for both Reels by name",
+      "Instagram Reels" in _meta_labels and "Facebook Reels" in _meta_labels,
+      _meta_labels)
+check("...and nothing is left announced-but-unsized",
+      _meta_req["not_measured_formats"] == [],
       _meta_req["not_measured_formats"])
-check("...and says so without claiming to have measured it",
-      "not measured" not in _meta_req["note"].lower()
-      and "no unit here to measure" in _meta_req["note"], _meta_req["note"])
-check("and the one-line requirement carries it too",
-      "Instagram Reels and Facebook Reels" in
-      cn.units_line(_meta_st, cn.medium_of(_meta_row)),
+check("the one-line requirement carries them too",
+      "Instagram Reels" in cn.units_line(_meta_st, cn.medium_of(_meta_row))
+      and "Facebook Reels" in cn.units_line(_meta_st, cn.medium_of(_meta_row)),
       cn.units_line(_meta_st, cn.medium_of(_meta_row)))
 check("but the gate still measures the units it does have",
       _meta_req["measured"] is True)
+
+# The kit's own reason for two units rather than one, held as three facts
+# rather than as a sentence: "different file types, text limits and duration
+# rules". A single Reels unit would pass every check above and be wrong.
+_ig, _fb = cs.BY_ID["instagram_reels"], cs.BY_ID["facebook_reels"]
+check("Instagram Reels refuses GIF and Facebook Reels takes it",
+      "gif" not in _ig["formats"] and "gif" in _fb["formats"],
+      (_ig["formats"], _fb["formats"]))
+check("Instagram Reels is capped at 15 minutes and Facebook Reels is not",
+      _ig.get("duration") == (0, 900) and "duration" not in _fb,
+      (_ig.get("duration"), _fb.get("duration")))
+check("Instagram Reels has no headline and Facebook Reels has one",
+      "headline" not in _ig["text"] and _fb["text"]["headline"] == 55,
+      (_ig["text"], _fb["text"]))
+
+# The six CTV interactive formats are modelled and are NOT an ask. The kit
+# sells them "beyond the standard in-stream spot" and says availability
+# varies by publisher, so putting them on the requirement line asks every CTV
+# client for six files on the strength of a portfolio their publisher may not
+# carry -- the crying wolf `ADDITIONS` and `QR_CODE_RULES` both refuse.
+_ctv_ids = ("ctv_pause", "ctv_menu", "ctv_screensaver", "ctv_in_scene",
+            "ctv_squeezeback", "ctv_overlay")
+check("every CTV interactive format resolves by id",
+      all(i in cs.BY_ID for i in _ctv_ids),
+      [i for i in _ctv_ids if i not in cs.BY_ID])
+check("...and none of them is on a product's channel list",
+      all(cs.BY_ID[i]["channel"] == "ctv_interactive" for i in _ctv_ids),
+      [cs.BY_ID[i]["channel"] for i in _ctv_ids])
+# The card files Connected TV under the heading OTT, not "CONNECTED TV" --
+# the same reason `quote_label()` exists: a heading is not the product name.
+_ctv_row = next(p for p in _rc_for_media.products()
+                if p["category"] == "OTT")
+_ctv_st = {"items": [dict(_ctv_row, dollars=9000)], "months": 3}
+check("so a CTV requirement is the spot, not six formats nobody sold",
+      "Pause Ad" not in cn.units_line(_ctv_st, cn.medium_of(_ctv_row)),
+      cn.units_line(_ctv_st, cn.medium_of(_ctv_row)))
+check("and each carries the kit's confirm-before-selling warning",
+      all(any("varies by publisher" in n for n in cs.BY_ID[i]["notes"])
+          for i in _ctv_ids),
+      [i for i in _ctv_ids
+       if not any("varies by publisher" in n for n in cs.BY_ID[i]["notes"])])
 
 _disp_row = next(p for p in _rc_for_media.products() if p["category"] == "DISPLAY")
 _disp_st = {"items": [dict(_disp_row, dollars=4000)], "months": 3}
 check("a display requirement gains no such clause",
       "the kit also sells" not in cn.units_line(_disp_st, cn.medium_of(_disp_row)),
       cn.units_line(_disp_st, cn.medium_of(_disp_row)))
+
 
 # ---------------------------------------------------------------------------
 section("the Budget Allocation table states a rate or says Managed")

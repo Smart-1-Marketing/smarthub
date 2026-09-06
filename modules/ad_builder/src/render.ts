@@ -24,6 +24,7 @@ import { compose, resolveColor, reverseLogoOnBackdrop } from './svg';
 import { rasterise } from './raster';
 import { rollUp, runQa } from './qa';
 import { applyBlockStyles, type StyleOverrides } from './block-style';
+import { carriedInto, styleForSize } from './carry';
 import { getPlatform, getTemplate, renderableSizes } from './registry';
 import {
   animationFindings,
@@ -70,7 +71,7 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
   }
   // Same overrides the preview applied, so what was approved on screen is what
   // ships. Clamped in block-style.ts, not here.
-  const layout = applyBlockStyles(rawLayout, concept.styleOverrides);
+  const layout = applyBlockStyles(rawLayout, styleForSize(concept.styleOverrides, template, size));
 
   const scale = rule.deliverScale;
   const copy = copyForSize(concept, size);
@@ -147,6 +148,7 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     backgroundImage: concept.backgroundImage,
     backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
+    carry: carriedInto(concept.styleOverrides, template, size),
   });
 
   const dir = path.join(outDir, platform, concept.conceptId);
@@ -189,7 +191,7 @@ export async function renderPreview(opts: {
   if (!rawLayout) throw new Error(`${template.id} has no layout for ${size}`);
   // Both render paths apply the concept's overrides here, so the preview and
   // the delivered file cannot disagree about the type.
-  const layout = applyBlockStyles(rawLayout, concept.styleOverrides);
+  const layout = applyBlockStyles(rawLayout, styleForSize(concept.styleOverrides, template, size));
   const rule = getPlatform(platform).sizes[size];
   if (!rule) throw new Error(`${platform} does not define ${size}`);
 
@@ -230,6 +232,7 @@ export async function renderPreview(opts: {
     backgroundImage: concept.backgroundImage,
     backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
+    carry: carriedInto(concept.styleOverrides, template, size),
   });
 
   return {
@@ -318,7 +321,8 @@ async function buildFrames(opts: {
 
   for (let i = 0; i < plan.frames.length; i++) {
     const frame = plan.frames[i];
-    const overrides: StyleOverrides = mergeStyle(concept.styleOverrides, frame.style);
+    const overrides: StyleOverrides = mergeStyle(
+      styleForSize(concept.styleOverrides, template, size), frame.style);
     const layout = applyBlockStyles(rawLayout, overrides);
     const copy = { ...baseCopy, ...(frame.copy ?? {}) } as CopySet;
     const shared = {
@@ -365,6 +369,10 @@ async function buildFrames(opts: {
       backgroundImage: concept.backgroundImage,
       backgroundOverlay: concept.backgroundOverlay,
       backgroundOverlayColor: concept.backgroundOverlayColor,
+      // Frame 1 IS the static ad, so the carry line belongs on it. Later frames
+      // report the same thing and the dedupe below drops it, which is right:
+      // where the design came from is a fact about the size, not about slide 3.
+      carry: carriedInto(concept.styleOverrides, template, size),
     });
 
     if (i === 0) {
@@ -424,7 +432,7 @@ function ctaFillFor(
 ): { hasCta: boolean; fill?: string } {
   const raw = getTemplate(layoutFamily).sizes[size];
   if (!raw?.cta) return { hasCta: false };
-  const layout = applyBlockStyles(raw, concept.styleOverrides);
+  const layout = applyBlockStyles(raw, styleForSize(concept.styleOverrides, getTemplate(layoutFamily), size));
   const bg = layout.cta?.bg;
   if (!bg) return { hasCta: true };
   return { hasCta: true, fill: resolveColor(bg, brand, '#000000') };

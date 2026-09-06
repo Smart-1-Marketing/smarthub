@@ -151,11 +151,13 @@
       <textarea id="disclaimer" style="min-height:52px"></textarea>
     </div>
     <div style="margin-top:13px">
-      <label class="f">Which lengths <span class="opt">— every one you tick is written, cast and mixed</span></label>
-      <div class="rowbar" id="slotPicks"></div>
+      <label class="f">Which lengths {{ help_dot('radio_promo.build.lengths') if help_dot is defined else '' }}
+        <span class="opt">— every one you tick is written, cast and mixed</span></label>
+      <div id="slotPicks"></div>
       <p class="hint" style="margin:4px 0 0">The :15 and :30 are the matched pair this tool has always
-        written. A :60 is its own read at its own budget — tick it only if the buy has one, because
-        each length is a model call and a slot somebody then has to record.</p>
+        written. Each of the other two is its own read at its own budget — tick one only if the buy
+        has it, because each length is a model call and a slot somebody then has to record.</p>
+      <div class="hint" id="slotWarning" style="margin-top:6px"></div>
     </div>
     <div class="rowbar">
       <button class="btn" id="startBtn" onclick="start()">Read the site &amp; brief it</button>
@@ -458,11 +460,48 @@ function renderCopy(){
           ${over?`<button class="btn sec sm" onclick="tighten('${k}')">Tighten to fit</button>`:''}
           <span class="hint" style="margin:0">${esc(v.tighten_note||'')}</span>
         </div>
+        ${beatRail(k)}
       </div>`;
     }).join('');
   renderSpoken();
   renderCast();
+  $('copyBox').insertAdjacentHTML('beforeend','<div id="scriptQc"></div>');
   $('copyBox').insertAdjacentHTML('beforeend','<div class="rowbar"><button class="btn" onclick="goView(\'cast\')">Continue to voice casting</button></div>');
+  loadScriptQc();
+}
+
+/* The script panel, run on the copy rather than after the render -- the way to
+   find out a :30 read short used to be to spend the ElevenLabs characters and
+   listen to the dead air. The checks are the server's and so are their labels:
+   a check missing from a label map is skipped silently by the loop that draws
+   it, which is how a panel comes to look clean about a question nobody asked. */
+let SQC = null, SQC_LABELS = {};
+async function loadScriptQc(){
+  const box = $('scriptQc'); if(!box) return;
+  try{
+    const d = await api('/api/projects/'+P.id+'/script-qc');
+    SQC = d.qc; SQC_LABELS = d.labels || {};
+  }catch(e){
+    // A panel that cannot be read says so. Silence here reads as a clean bill.
+    box.innerHTML = '<p class="hint">The checks could not be read just now.</p>';
+    return;
+  }
+  renderScriptQc();
+}
+function renderScriptQc(){
+  const box = $('scriptQc'); if(!box || !SQC) return;
+  box.innerHTML = (SQC.slots||[]).map(sl => {
+    const rows = Object.keys(sl.checks||{}).map(k => {
+      const c = sl.checks[k];
+      const pill = QC_PILL[c.level] !== undefined ? QC_PILL[c.level] : '';
+      return `<tr><td>${esc(SQC_LABELS[k] || k)}</td>
+        <td><span class="meter ${pill}">${esc(c.level||'')}</span></td>
+        <td class="hint">${esc(c.message||'')}</td></tr>`;
+    }).join('');
+    return `<div class="slot"><h3><span>Checks — ${esc(slotName(sl.slot))}</span>
+        <span class="meter ${sl.ready?'good':'long'}">${sl.ready?'ready':'not ready'}</span></h3>
+      <table>${rows}</table></div>`;
+  }).join('');
 }
 
 async function saveScript(k){
@@ -583,14 +622,46 @@ function slotsOf(){
 function slotName(k){ return (DUR[k]||{}).label || k; }
 function slotSeconds(k){ return (DUR[k]||{}).seconds || 30; }
 
+/* The picker, and the cost note beside it. A length is a spend decision --
+   ElevenLabs bills the character -- and a decision nobody was told they were
+   taking is the one that gets regretted, so what the unit is for and what it
+   costs are drawn at pick time rather than after the read exists. */
 function renderSlotPicks(){
   const box = $('slotPicks'); if(!box) return;
   box.innerHTML = Object.keys(DUR).map(k => {
     const d = DUR[k], on = (k==='fifteen'||k==='thirty') ? 'checked' : '';
-    return `<label class="f" style="margin:0 14px 0 0;font-weight:600">
-      <input type="checkbox" class="slotPick" value="${k}" ${on}> ${esc(d.label)}
-      <span class="opt" style="font-weight:400">${esc(d.word_target)}</span></label>`;
+    return `<label class="f" style="display:block;margin:0 0 8px;font-weight:600;cursor:pointer">
+      <span style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+        <span><input type="checkbox" class="slotPick" value="${k}" ${on}
+           onchange="drawSlotWarning()"> ${esc(d.label)}${d.name?' — '+esc(d.name):''}</span>
+        <span class="opt" style="font-weight:400">${esc(d.budget||d.word_target||'')}</span>
+      </span>
+      <span class="hint" style="display:block;margin:3px 0 0 22px;font-weight:400">${esc(d.note||'')}
+        <i>${esc(d.cost||'')}</i></span></label>`;
   }).join('');
+  drawSlotWarning();
+}
+
+/* Only the lengths that carry one. A note on every length is a note nobody
+   reads, and then the one that mattered goes past unread too. */
+function drawSlotWarning(){
+  const box = $('slotWarning'); if(!box) return;
+  const notes = pickedSlots().map(k => (DUR[k]||{}).warning).filter(Boolean);
+  box.innerHTML = notes.map(n => `<p style="margin:4px 0"><b>Worth knowing:</b> ${esc(n)}</p>`).join('');
+}
+
+/* The beats the read is built on, drawn beside the copy. The plan lived in
+   the writer's prompt, where a rep could not see it -- so a script that had
+   wandered from it read exactly like one written to it. */
+function beatRail(k){
+  const beats = (DUR[k]||{}).beats || [];
+  if(!beats.length) return '';
+  return `<details style="margin-top:8px"><summary class="hint" style="cursor:pointer">
+      How a ${esc(slotName(k))} is built</summary>
+    <table style="margin-top:6px"><tr><th>Beat</th><th>Where</th><th>What it does</th></tr>` +
+    beats.map(b => `<tr><td><b>${esc(b.label)}</b></td>
+      <td>${b.start_pct}–${b.end_pct}%</td><td>${esc(b.guidance)}</td></tr>`).join('') +
+    `</table></details>`;
 }
 function pickedSlots(){
   return Array.from(document.querySelectorAll('.slotPick'))

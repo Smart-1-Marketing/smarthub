@@ -111,9 +111,9 @@ from __future__ import annotations
 import os
 import re
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
-from hub import jsonstore
+from hub import jsonstore, nightly
 
 MONTHS_AHEAD = 3
 
@@ -128,15 +128,18 @@ _YES = {"yes", "y", "true", "1", "checked", "on"}
 #    else's domain from one billed against a domain nothing here carries.
 SNAPSHOT_VERSION = 2
 
-# The hour (UTC) the nightly pull is due after. Around 3-4am US Eastern, which
-# is when nobody is reading this page. The scheduler ticks hourly and asks
-# `due_for_refresh()`, so a leader that restarted through the window still
-# picks the pull up rather than skipping a day in silence.
+# The hour (Eastern, DST-aware — hub/nightly.py) the nightly pull is due
+# after. 2am by default, which is when nobody is reading this page. The
+# scheduler ticks hourly and asks `due_for_refresh()`, so a leader that
+# restarted through the window still picks the pull up rather than skipping
+# a day in silence.
+#
+# This used to be a fixed UTC hour described as "around 3-4am US Eastern" —
+# a fixed offset cannot mean a fixed *local* hour across a Daylight Saving
+# change, so it quietly drifted an hour twice a year. hub/nightly.py reads
+# the actual Eastern wall clock instead.
 def refresh_hour() -> int:
-    try:
-        return max(0, min(23, int(os.environ.get("DOMAINS_REFRESH_HOUR") or 8)))
-    except ValueError:
-        return 8
+    return nightly.hour_for("DOMAINS_REFRESH_HOUR")
 
 
 # When there is no snapshot at all, `report()` builds one — but only one, and
@@ -326,19 +329,17 @@ def invalidate() -> None:
 
 
 def _last_window(now: datetime) -> datetime:
-    """The most recent time the nightly pull was due."""
-    mark = now.replace(hour=refresh_hour(), minute=0, second=0, microsecond=0)
-    return mark if mark <= now else mark - timedelta(days=1)
+    """The most recent Eastern-time moment the nightly pull was due at."""
+    return nightly.last_window(now, refresh_hour())
 
 
 def due_for_refresh(now: datetime | None = None) -> bool:
     """Has the nightly window passed since the last successful pull?"""
     now = now or datetime.now(timezone.utc)
     snap = snapshot()
-    if not snap:
-        return True
-    taken = datetime.fromtimestamp(float(snap.get("fetched") or 0), timezone.utc)
-    return taken < _last_window(now)
+    taken = (datetime.fromtimestamp(float(snap["fetched"]), timezone.utc)
+             if snap else None)
+    return nightly.due(taken, env_var="DOMAINS_REFRESH_HOUR", now=now)
 
 
 def refresh(*, force: bool = True, now: datetime | None = None) -> dict:
@@ -406,7 +407,7 @@ def _iso(epoch) -> str:
 
 
 def _next_refresh(now: datetime) -> datetime:
-    return _last_window(now) + timedelta(days=1)
+    return nightly.next_window(now, refresh_hour())
 
 
 def cache_state(now: datetime | None = None) -> dict:

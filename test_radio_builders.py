@@ -95,6 +95,7 @@ def section(title):
 
 
 from hub import jsonstore                                     # noqa: E402
+from hub import radio_share                                    # noqa: E402
 from modules.fan_radio import app as fan_app                  # noqa: E402
 from modules.fan_radio import catalog as fan_catalog          # noqa: E402
 from modules.fan_radio import phrases                         # noqa: E402
@@ -218,11 +219,16 @@ _wsgi_src = (ROOT / "wsgi.py").read_text()
 check("and the mount is handed them",
       "public_prefixes=_FANRAD_PUBLIC" in _wsgi_src, True)
 
-# Radio Promo is staff-only and declares none. That is not an oversight: it
-# has no customer-facing route, and a prefix wide enough to be "helpful" here
-# would open the whole tool.
-check("Radio Promo declares none, because none of it is a client's",
-      hasattr(promo_app, "PUBLIC_PREFIXES"), False)
+# Radio Promo now has the same shape of client-facing link Fan Radio does —
+# read hub/radio_share.py, one implementation rather than two that drift.
+check("Radio Promo declares its own public prefixes too",
+      tuple(getattr(promo_app, "PUBLIC_PREFIXES", ())),
+      ("/r/", "/api/public/", "/file/"))
+check("and wsgi.py reads them from it rather than restating them",
+      tuple(getattr(wsgi, "_RADIOP_PUBLIC", ())),
+      tuple(promo_app.PUBLIC_PREFIXES))
+check("and the mount is handed them",
+      "public_prefixes=_RADIOP_PUBLIC" in _wsgi_src, True)
 
 
 # =====================================================================
@@ -286,6 +292,155 @@ check("and a malformed one never reaches the store",
 # approved something, and that record is what the whole page exists to make.
 check("switching a link off does not lose what was already approved",
       fan_store.get_spot(fan_store.load(PID), "sp15")["status"], "approved")
+
+
+# =====================================================================
+section("Radio Promo's approval page is the customer's too")
+# =====================================================================
+# The same shape of check as Fan Radio's above, over hub/radio_share.py's
+# implementation instead of a second one — this is the whole point of
+# lifting it out: a defect fixed in one tool cannot still be live in the
+# other because the other never had the fix to begin with.
+
+promo_project = promo_store.create({
+    "client": "Ridgeline Tyre", "company": "Ridgeline Tyre",
+    "home_url": "ridgelinetyre.com", "slots": ["fifteen", "thirty"]})
+PROMO_PID = promo_project["id"]
+promo_store.update(PROMO_PID, {
+    "scripts": {"fifteen": {"script": "Come see us at Ridgeline Tyre.",
+                            "spoken": "Come see us at Ridgeline Tyre."}},
+    "spots": [{"slot": "fifteen",
+              "audio_url": "https://cdn.example.com/vo-fifteen.mp3"}]})
+promo_project = promo_store.get(PROMO_PID)
+share = dict(promo_project["share"], enabled=True)
+promo_project = promo_store.update(PROMO_PID, {"share": share})
+PROMO_TOKEN = promo_project["share"]["token"]
+
+promo_page = composed.get(f"/tools/radio-promo/r/{PROMO_TOKEN}")
+check("the approval page opens with no Hub session", promo_page.status_code, 200)
+check("and it is the right project",
+      "Ridgeline Tyre" in promo_page.get_data(as_text=True), True)
+
+promo_html = promo_page.get_data(as_text=True)
+for marker, what in (("s1hub-sidebar", "the sidebar"),
+                     ("hub-help.js", "the help layer"),
+                     ("hub-feedback", "the feedback tab")):
+    check(f"{what} is not injected into it", marker in promo_html, False)
+check("but the inline wait-mark is, the same one Fan Radio's page carries",
+      ("S1Wait" in promo_html) == ("S1Wait" in html), True)
+
+check("what that page fetches is public too",
+      composed.get(f"/tools/radio-promo/api/public/{PROMO_TOKEN}").status_code,
+      200)
+check("and the settings route that built the link stays behind the login",
+      composed.post(f"/tools/radio-promo/api/projects/{PROMO_PID}/share",
+                    json={"enabled": True}).status_code, 401)
+
+promo_view = composed.get(
+    f"/tools/radio-promo/api/public/{PROMO_TOKEN}").get_json()
+check("only the slot with audio on it reaches the client",
+      [s["id"] for s in promo_view["spots"]], ["fifteen"])
+check("and the internal notes/team fields do not — only what public_view names",
+      set(promo_view["spots"][0]) ==
+      {"id", "slot", "length_label", "script", "audio_url", "mixed",
+       "status", "comments"}, True)
+
+promo_approval = composed.post(
+    f"/tools/radio-promo/api/public/{PROMO_TOKEN}/feedback",
+    json={"action": "approve", "name": "Dana Reed", "spot_id": "fifteen"})
+check("a client can actually answer without signing in",
+      promo_approval.status_code, 200)
+check("and the decision lands on the project",
+      promo_store.get(PROMO_PID)["decisions"]["fifteen"]["status"], "approved")
+check("with who and when recorded",
+      promo_store.get(PROMO_PID)["decisions"]["fifteen"]["decided_by"],
+      "Dana Reed")
+
+no_name = composed.post(
+    f"/tools/radio-promo/api/public/{PROMO_TOKEN}/feedback",
+    json={"action": "approve", "spot_id": "fifteen"})
+check("a decision with no name is refused", no_name.get_json()["ok"], False)
+no_comment = composed.post(
+    f"/tools/radio-promo/api/public/{PROMO_TOKEN}/feedback",
+    json={"action": "changes", "name": "Dana", "spot_id": "fifteen"})
+check("changes with no comment is refused",
+      no_comment.get_json()["ok"], False)
+unknown_slot = composed.post(
+    f"/tools/radio-promo/api/public/{PROMO_TOKEN}/feedback",
+    json={"action": "approve", "name": "Dana", "spot_id": "sixty"})
+check("a slot that is not on the page is refused",
+      unknown_slot.get_json()["ok"], False)
+
+promo_live = composed.get(f"/tools/radio-promo/r/{PROMO_TOKEN}").status_code
+share = dict(promo_store.get(PROMO_PID)["share"], enabled=False)
+promo_store.update(PROMO_PID, {"share": share})
+promo_disabled = composed.get(f"/tools/radio-promo/r/{PROMO_TOKEN}").status_code
+
+share = dict(promo_store.get(PROMO_PID)["share"], enabled=True)
+promo_stale_token = share["token"]
+share["token"] = radio_share.new_token()
+promo_store.update(PROMO_PID, {"share": share})
+
+check("a live link opens", promo_live, 200)
+check("a switched-off one is 404, not a message", promo_disabled, 404)
+check("a regenerated link retires the one already sent",
+      composed.get(f"/tools/radio-promo/r/{promo_stale_token}").status_code,
+      404)
+check("an invented token answers the same",
+      composed.get(f"/tools/radio-promo/r/{'B' * 30}").status_code, 404)
+check("and a malformed one never reaches the store",
+      promo_store.find_by_token("short"), None)
+check("switching a link off does not lose what was already approved",
+      promo_store.get(PROMO_PID)["decisions"]["fifteen"]["status"], "approved")
+
+
+# =====================================================================
+section("hub/radio_share.py — one implementation, both tools read it")
+# =====================================================================
+check("a token is the shape both stores validate against",
+      radio_share.is_token(radio_share.new_token()), True)
+check("too short to be one of ours is refused by shape",
+      radio_share.is_token("short"), False)
+
+share = radio_share.new_share()
+check("a fresh share starts disabled", share["enabled"], False)
+updated = radio_share.update_share(share, {"enabled": True, "headline": "Hi"})
+check("update_share applies what it is given", updated["enabled"], True)
+check("and caps a field rather than truncating silently wrong",
+      len(radio_share.update_share(
+          share, {"intro": "x" * 900})["intro"]), 600)
+before = updated["token"]
+regenerated = radio_share.update_share(updated, {"regenerate": True})
+check("regenerating mints a new token", regenerated["token"] != before, True)
+check("and resets the open count", regenerated["opened"], 0)
+
+bad = radio_share.validate_feedback({"action": "nonsense"})
+check("an unrecognized action is refused", bad["ok"], False)
+no_name = radio_share.validate_feedback({"action": "approve"})
+check("no name is refused", no_name["ok"], False)
+no_comment = radio_share.validate_feedback({"action": "changes", "name": "A"})
+check("changes with no comment is refused", no_comment["ok"], False)
+good = radio_share.validate_feedback(
+    {"action": "approve", "name": "Dana", "spot_id": "x"})
+check("a valid decision is accepted", good["ok"], True)
+
+target, feedback = {}, []
+radio_share.record_decision(target, feedback, name="Dana", action="approve",
+                            comment="", spot_id="x")
+check("approving writes the status onto the target", target["status"],
+      "approved")
+check("and appends the feedback row", len(feedback), 1)
+radio_share.record_decision(None, feedback, name="Dana", action="comment",
+                            comment="General note")
+check("a general comment writes no target and still appends",
+      len(feedback), 2)
+
+limiter = radio_share.RateLimiter()
+allowed = [limiter.hit("t", "1.2.3.4", 3, 60) for _ in range(4)]
+check("a rate limiter refuses past its own limit",
+      allowed, [False, False, False, True])
+check("and a different address is unaffected",
+      limiter.hit("t", "9.9.9.9", 3, 60), False)
 
 
 # =====================================================================
@@ -599,18 +754,21 @@ section("The word budgets the two tools quote are the same clock")
 # =====================================================================
 # A script written in one and moved to the other must not need re-timing.
 
-check("Radio Promo sells three slots", [d["key"] for d in DURATIONS],
-      ["fifteen", "thirty", "sixty"])
-# The :60 is Radio Promo's alone, and opt-in. Fan Radio sells football
-# dayparts, where a :60 is not a unit anybody buys -- so the two catalogues
-# are deliberately NOT the same set any more, and asserting that they are
-# would be asserting that neither tool may ever sell a length the other does
-# not. What still has to hold is the pair they share.
+# Radio Promo sells the pair and the two units either side of it -- the :10
+# sponsorship tag and the :60. That is a superset of what Fan Radio sells
+# rather than a disagreement, and the assertion is deliberately not that the
+# two menus match: Fan Radio sells football dayparts, where a :60 is not a
+# unit anybody buys, so requiring one catalogue to mirror the other would be
+# requiring that neither may ever sell a length the other does not. What has
+# to hold is that every length Fan Radio sells is one Radio Promo can also
+# write, so a spot moved between them lands on a slot that exists at both ends.
+check("Radio Promo sells the pair and the two units either side",
+      [d["key"] for d in DURATIONS], ["ten", "fifteen", "thirty", "sixty"])
 check("a project asks for the pair unless it says otherwise",
       list(slots_of({})), ["fifteen", "thirty"])
-check("and the :60 is asked for rather than assumed",
-      list(slots_of({"slots": ["fifteen", "thirty", "sixty"]})),
-      ["fifteen", "thirty", "sixty"])
+check("and the longer and shorter units are asked for rather than assumed",
+      list(slots_of({"slots": ["ten", "fifteen", "thirty", "sixty"]})),
+      ["ten", "fifteen", "thirty", "sixty"])
 check("Fan Radio sells the two lengths a daypart buys", fan_catalog.LENGTH_IDS,
       [15, 30])
 check("and every length Fan Radio sells, Radio Promo also sells",
@@ -620,7 +778,8 @@ check("and every length Fan Radio sells, Radio Promo also sells",
 # They are budgets, not limits, and the numbers are deliberately close
 # rather than identical — Radio Promo's are the studio's, measured at a
 # natural read pace. What must not happen is one calling a script long that
-# the other calls short.
+# the other calls short. Only the lengths both sell can be compared; the :10
+# and the :60 have no Fan Radio budget to contradict.
 for seconds, key in ((15, "fifteen"), (30, "thirty")):
     promo_slot = duration_by_key(key)
     fan_slot = fan_catalog.budget(seconds)

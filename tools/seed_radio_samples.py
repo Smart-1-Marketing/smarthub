@@ -351,6 +351,11 @@ def seed_radio_promo(verbose: bool = True) -> dict:
         "sample": True,
         "analysis": PROMO_ANALYSIS,
         "tone_id": "conversational",
+        # Which lengths this sample writes, said rather than left to the
+        # default. The tool sells four now -- a :10 tag and a :60 either side
+        # of the pair -- and a sample carrying two scripts with no slot list
+        # on it is one every reader has to infer the shape of.
+        "slots": ["fifteen", "thirty"],
         "scripts": scripts,
         "status": "scripted",
         "voice_want": {"gender": "male", "age": "middle_aged",

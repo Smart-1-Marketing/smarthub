@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ department.name if department else 'My View' }} — Smart 1 Hub{% endblock %}
+{% block body_attrs %} class="s1d-page"{% endblock %}
+{% block content %}
+{#
+  One template for two routes: /views (your own department, is_mine always
+  true) and /views/<id> (browsing anybody's — the same "open" reading
+  hub/client_owner.py gives the owner assignments, since nothing here is more
+  or less reachable for having been left off a view). The blocks it draws are
+  never trusted HTML: a tile's href was validated on the way in by
+  hub/department_views.py, and every label and note here is plain text, left
+  to Jinja's own autoescaping like everything else in this Hub.
+#}
+<div class="s1d-head">
+  <div>
+    <div class="s1d-crumb">
+      <a href="/">Dashboard</a> /
+      {% if is_mine %}My View{% else %}<a href="/views">My View</a> / {{ department.name }}{% endif %}
+    </div>
+    {% if department %}
+      <h1>{{ department.name }}</h1>
+      {% if department.description %}<p>{{ department.description }}</p>{% endif %}
+    {% else %}
+      <h1>My View</h1>
+      <p>Nobody has put you on a department view yet.</p>
+    {% endif %}
+  </div>
+  {% if is_admin %}
+  <div class="s1d-actions">
+    <a class="s1d-btn sec" href="/views/manage">Manage department views</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if department %}
+  {% set notes = department.blocks | selectattr('type', 'equalto', 'note') | list %}
+  {% set tiles = department.blocks | selectattr('type', 'equalto', 'tile') | list %}
+
+  {% for note in notes %}
+  <div class="s1d-note info">
+    {% if note.label %}<b>{{ note.label }}</b><br>{% endif %}
+    {{ note.note }}
+  </div>
+  {% endfor %}
+
+  {% if tiles %}
+  <div class="tool-tiles compact">
+    {% for tile in tiles %}
+    <a class="tool-tile" href="{{ tile.href }}">
+      <div class="t-ico">{{ tile.icon or "🧩" }}</div>
+      <h3>{{ tile.label }}</h3>
+    </a>
+    {% endfor %}
+  </div>
+  {% elif not notes %}
+  <div class="card">
+    <p class="s1d-muted">Nothing has been put on this view yet.
+      {% if is_admin %}<a href="/views/manage">Add something</a>.{% endif %}</p>
+  </div>
+  {% endif %}
+{% else %}
+  <div class="card">
+    {% if is_admin %}
+      <p>Create a department, curate its view, and put people on it from
+        <a href="/views/manage">Department Views</a>.</p>
+    {% else %}
+      <p>Ask an admin to put you on a department's view, from Diagnostics
+        &rarr; <b>Department Views</b>.</p>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

@@ -132,6 +132,33 @@ PRODUCERS = [
      "module": "modules/commercial_builder/services/cloudinary_service.py",
      "makes": "create",
      "why": "Stills and spokesperson frames in a commercial."},
+    {"key": "video_backgrounds", "label": "Video Search",
+     "provider": ["video_library", "pexels", "pixabay", "coverr"],
+     "module": "modules/video_backgrounds/app.py", "makes": "choose",
+     "why": "Footage found in the owned library or free stock, saved to a "
+            "client's gallery under Video Searches."},
+    {"key": "social_planner", "label": "Social Content Planner",
+     "provider": ["social_request"],
+     "module": "modules/social_planner/app.py", "makes": "upload",
+     "why": "A photograph a location manager sends in with a post request."},
+    {"key": "ads_builder_logo", "label": "Smart 1 Ads logo upload",
+     "provider": ["logo_upload"],
+     "module": "modules/ads_builder/logo.py", "makes": "upload",
+     "why": "A client logo a rep uploads by hand on a Smart 1 Ads proposal."},
+    {"key": "ads_builder_pmax", "label": "Smart 1 Ads Performance Max images",
+     "provider": ["ads_pmax"],
+     "module": "modules/ads_builder/pmax_images.py", "makes": "create",
+     "why": "The landscape, square and portrait images a Performance Max "
+            "asset group cannot deploy without."},
+    {"key": "magic_resize", "label": "Magic Resize",
+     "provider": ["magic_resize"],
+     "module": "modules/magic_resize/app.py", "makes": "create",
+     "why": "One design resized into a whole size set for a client."},
+    {"key": "video_tools", "label": "Video Tools",
+     "provider": ["video_tools"],
+     "module": "modules/video_tools/edits.py", "makes": "create",
+     "why": "A dead-air cut or a reframe, once a rep decides it is the "
+            "deliverable rather than a trial."},
 ]
 
 
@@ -559,6 +586,8 @@ RECONCILE_KINDS = [
     ("prospects", "Prospect 360 files"),
     ("commercials", "Commercial Builder"),
     ("ads_logos", "Smart 1 Ads logos"),
+    ("ads_pmax", "Smart 1 Ads Performance Max images"),
+    ("magic_resize", "Magic Resize"),
 ]
 
 # Each folder key against the (kind, provider) pair the tool that fills it
@@ -583,7 +612,9 @@ _FOLDER_FILING = {
     "social_requests": ("client_upload", "social_request"),
     "prospects":       ("upload", "prospect"),
     "commercials":     ("commercial", "commercial_builder"),
-    "ads_logos":       ("logo", "display_ads"),
+    "ads_logos":       ("logo", "logo_upload"),
+    "ads_pmax":        ("display_ad", "ads_pmax"),
+    "magic_resize":    ("display_ad", "magic_resize"),
 }
 
 

@@ -51,6 +51,23 @@
      A frame somebody has hand-tuned is never rebuilt by a change here.</p>
 </div>
 
+<div class="s1d-card">
+  <h2 class="s1d-h">
+    Client brand
+    {{ help_dot('magic_resize.brand') if help_dot is defined else '' }}
+  </h2>
+  <p>Pulls this client's logo and colors from the same brand kit Client 360
+     reads, and applies them to whatever on this design is tagged
+     <strong>Logo</strong> or <strong>Background</strong>. Nothing else on the
+     design is touched, and a hand-tuned frame is never rebuilt by it.</p>
+  <p>
+    <label>Website<input id="mr-brand-domain" placeholder="example.com" maxlength="200"></label>
+    <button class="s1d-btn ghost" id="mr-brand-lookup">Look up</button>
+  </p>
+  <div id="mr-brand-preview"></div>
+  <p class="mr-src" id="mr-brand-msg"></p>
+</div>
+
 <h2 class="s1d-h">The set</h2>
 <div class="mr-grid" id="mr-frames">
 {% for sid, f in project.frames.items() %}
@@ -195,6 +212,78 @@
         if(line) line.textContent = 'No layout came back: ' + e;
       });
     });
+  });
+
+  var brandDomain = document.getElementById('mr-brand-domain');
+  var brandLookup = document.getElementById('mr-brand-lookup');
+  var brandPreview = document.getElementById('mr-brand-preview');
+  var brandMsg = document.getElementById('mr-brand-msg');
+  var selectedColor = '';
+
+  function sayBrand(t){ if(brandMsg) brandMsg.textContent = t; }
+
+  function drawBrandPreview(kit){
+    if(!brandPreview) return;
+    selectedColor = '';
+    if(!kit.has_brand){
+      brandPreview.innerHTML = '';
+      sayBrand(kit.note || 'No brand data found for that domain.');
+      return;
+    }
+    var html = '';
+    var logos = kit.logo_tiles || kit.logos || [];
+    if(logos.length){
+      html += '<p><img src="' + logos[0].url + '" alt="" style="max-height:48px;max-width:160px">' +
+              ' <label><input type="checkbox" id="mr-brand-apply-logo" checked> Apply this logo</label></p>';
+    }
+    var palette = kit.palette || kit.colors || [];
+    if(palette.length){
+      html += '<p>';
+      palette.forEach(function(c, i){
+        html += '<button type="button" class="mr-swatch" data-hex="' + c.hex +
+                '" style="background:' + c.hex + ';width:28px;height:28px;' +
+                'border:2px solid transparent;border-radius:4px;margin-right:6px;cursor:pointer"' +
+                ' title="' + c.hex + '"></button>';
+      });
+      html += '</p><p class="mr-src">Pick a color to apply it to the Background role.</p>';
+    }
+    html += '<button class="s1d-btn" id="mr-brand-apply">Apply to design</button>';
+    brandPreview.innerHTML = html;
+    sayBrand('');
+
+    Array.prototype.forEach.call(brandPreview.querySelectorAll('.mr-swatch'), function(sw){
+      sw.addEventListener('click', function(){
+        Array.prototype.forEach.call(brandPreview.querySelectorAll('.mr-swatch'),
+          function(s){ s.style.borderColor = 'transparent'; });
+        selectedColor = (selectedColor === sw.getAttribute('data-hex')) ? '' : sw.getAttribute('data-hex');
+        if(selectedColor) sw.style.borderColor = '#111';
+      });
+    });
+
+    var applyBtn = document.getElementById('mr-brand-apply');
+    if(applyBtn) applyBtn.addEventListener('click', function(){
+      var applyLogo = document.getElementById('mr-brand-apply-logo');
+      var wait = (window.S1Think && window.S1Think.attach)
+        ? window.S1Think.attach(brandMsg, {kind:'wait'}) : null;
+      sayBrand('Applying…');
+      post('/brand', {domain: brandDomain.value,
+                      logo: applyLogo ? applyLogo.checked : false,
+                      color: selectedColor}).then(function(res){
+        if(wait) wait.done();
+        if(!res.ok){ sayBrand(res.d.reason || res.d.error || 'That could not be applied.'); return; }
+        window.location.reload();
+      }).catch(function(e){ if(wait) wait.done(); sayBrand('That could not be applied: ' + e); });
+    });
+  }
+
+  if(brandLookup) brandLookup.addEventListener('click', function(){
+    var domain = (brandDomain.value || '').trim();
+    if(!domain){ sayBrand('Enter a website first.'); return; }
+    sayBrand('Looking up…');
+    fetch('../api/projects/' + root + '/brand?domain=' + encodeURIComponent(domain))
+      .then(function(r){ return r.json(); })
+      .then(drawBrandPreview)
+      .catch(function(e){ sayBrand('That could not be looked up: ' + e); });
   });
 
   var exportBtn = document.getElementById('mr-export');

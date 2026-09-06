@@ -58,6 +58,19 @@
   .empty{text-align:center;color:var(--muted);padding:34px 12px;font-size:13.5px;line-height:1.6}
   .spin{display:none;font-size:13px;color:var(--muted);margin-left:12px}
   .spin.on{display:inline}
+  .saverow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;
+           padding-top:14px;border-top:1px solid var(--line)}
+  @media(max-width:840px){.saverow{grid-template-columns:1fr}}
+  .savedrop{position:relative}
+  .droplist{position:absolute;left:0;right:0;top:100%;z-index:30;background:#fff;
+            border:1px solid var(--line);border-radius:0 0 8px 8px;max-height:220px;
+            overflow:auto;box-shadow:0 6px 18px rgba(15,23,42,.12)}
+  .droplist div{padding:8px 11px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f1f5f9}
+  .droplist div:hover{background:#eff6ff}
+  .savehint{color:var(--muted);font-size:11.5px;margin-top:5px}
+  .tilesave{font-size:11px;padding:0 12px 10px;color:var(--muted)}
+  .tilesave.ok{color:var(--ok)}
+  .tilesave.err{color:var(--bad)}
 </style>
 </head>
 {# `data-screen` is what offers a tour, and this screen registers no steps.
@@ -101,6 +114,24 @@
     <div class="picks" id="sources"></div>
     <p class="hint" id="sourcehint"></p>
     <div id="folders"></div>
+
+    <div class="saverow">
+      <div class="savedrop">
+        <label class="f" for="client">Client {{ help_dot('stock_photos.search.client') if help_dot is defined else '' }}</label>
+        <input type="search" id="client" placeholder="Search clients&hellip;" autocomplete="off">
+        <div class="droplist" id="clientDrop" style="display:none"></div>
+      </div>
+      <div class="savedrop">
+        <label class="f" for="folder">Folder under Stock photo picks
+          <span style="font-weight:400;color:var(--muted)">&mdash; optional</span></label>
+        <input type="search" id="folder" placeholder="New or existing folder name&hellip;"
+               autocomplete="off" list="folderList">
+        <datalist id="folderList"></datalist>
+      </div>
+    </div>
+    <p class="savehint" id="savehint">Pick a client to save photos to their gallery, under
+      <b>Stock photo picks</b>. Leave the folder blank to save straight into that group, or
+      name one to start a new folder inside it or add to one already there.</p>
   </div>
 
   <div id="status"></div>
@@ -254,15 +285,69 @@ function draw(items, q){
       '<div class="acts">' +
         '<button class="btn sec sm" data-act="copy">Copy URL</button>' +
         '<button class="btn sec sm" data-act="open">Download</button>' +
+        '<button class="btn sec sm" data-act="save">Save to gallery</button>' +
       "</div>" +
+      '<div class="tilesave" data-save></div>' +
     "</div>";
   }).join("");
   window.__items = items;
 }
 
-// Both buttons go through /api/use rather than linking straight out: Unsplash's
-// API terms require a download ping at the moment a photo is actually used,
-// and the pick is what puts the work on the client's activity record.
+// The client picker and folder field, the pattern every other tool that files
+// a gallery already uses -- its own thin route over the shared registry
+// rather than a shared widget, because none exists yet in this Hub.
+var chosenClient = null, clientTimer = null;
+$("client").addEventListener("input", function(){
+  chosenClient = null;
+  $("folderList").innerHTML = "";
+  clearTimeout(clientTimer);
+  clientTimer = setTimeout(searchClients, 220);
+});
+$("client").addEventListener("blur", function(){
+  setTimeout(function(){ $("clientDrop").style.display = "none"; }, 170);
+});
+
+function searchClients(){
+  var q = $("client").value.trim(), box = $("clientDrop");
+  if (q.length < 2) { box.style.display = "none"; return; }
+  fetch("api/clients?q=" + encodeURIComponent(q)).then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.clients || !d.clients.length) { box.style.display = "none"; return; }
+      box.innerHTML = d.clients.map(function(c){
+        return '<div data-c=\'' + esc(JSON.stringify(c)) + '\'>' +
+          "<b>" + esc(c.name) + "</b>" + (c.is_house ? " <span class=\"hint\">house</span>" : "") +
+          '<div style="color:var(--muted);font-size:11px">' + esc(c.domain || "") + "</div></div>";
+      }).join("");
+      box.style.display = "block";
+      Array.prototype.forEach.call(box.querySelectorAll("[data-c]"), function(el){
+        el.onmousedown = function(ev){
+          ev.preventDefault();
+          chosenClient = JSON.parse(el.getAttribute("data-c"));
+          $("client").value = chosenClient.name;
+          box.style.display = "none";
+          loadFolders(chosenClient.name);
+        };
+      });
+    }).catch(function(){ box.style.display = "none"; });
+}
+
+// Existing folders for this client, offered rather than left to be retyped
+// exactly -- a rep who cannot remember yesterday's spelling would otherwise
+// start a second folder next to the one they meant.
+function loadFolders(name){
+  fetch("api/client-folders?client=" + encodeURIComponent(name))
+    .then(function(r){ return r.json(); }).then(function(d){
+      var folders = (d && d.folders) || [];
+      $("folderList").innerHTML = folders.map(function(f){
+        return '<option value="' + esc(f.label) + '">';
+      }).join("");
+    }).catch(function(){});
+}
+
+// The three actions go through /api/use rather than linking straight out:
+// Unsplash's API terms require a download ping at the moment a photo is
+// actually used, and any of the three is what puts the work on the client's
+// activity record and, when a client is chosen, files it into their gallery.
 $("grid").addEventListener("click", function(ev){
   var btn = ev.target.closest("[data-act]");
   if (!btn) return;
@@ -270,30 +355,61 @@ $("grid").addEventListener("click", function(ev){
   var it = (window.__items || [])[parseInt(tile.getAttribute("data-i"), 10)];
   if (!it) return;
   var act = btn.getAttribute("data-act");
+  var noteEl = tile.querySelector("[data-save]");
 
   // Opened in the handler, before the fetch: window.open() inside a promise
   // callback is a popup the browser blocks, and a blocked popup looks exactly
   // like a button that does nothing.
   var win = (act === "open") ? window.open("", "_blank") : null;
   var was = btn.textContent;
+  if (act === "save") { btn.disabled = true; btn.textContent = "Saving…"; }
+
+  var client = chosenClient ? chosenClient.name : $("client").value.trim();
+  var folder = $("folder").value.trim();
 
   fetch("api/use", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({id: it.id, provider: it.provider, url: it.full,
-                          download_location: it.download_location || ""})
+                          download_location: it.download_location || "",
+                          client: client, folder: folder})
   }).then(function(r){ return r.json(); }).then(function(d){
+    noteSave(noteEl, d, client, folder);
     var href = (d && d.download) || it.full;
+    if (act === "save") { btn.disabled = false; btn.textContent = was; return; }
     if (act === "open") {
       if (win) { win.location = href; } else { window.location = href; }
       return;
     }
     copy(href, btn, was);
   }).catch(function(){
-    if (act === "open") { if (win) win.location = it.full; }
+    if (act === "save") { btn.disabled = false; btn.textContent = was; }
+    else if (act === "open") { if (win) win.location = it.full; }
     else copy(it.full, btn, was);
   });
 });
+
+// What "filed" turned into, said in words rather than left to be inferred
+// from a button's own state -- a save that silently did nothing is worse
+// than one that says why.
+function noteSave(el, d, client, folder){
+  if (!el) return;
+  if (!client) {
+    el.className = "tilesave";
+    el.textContent = "Pick a client above to save this to their gallery.";
+    return;
+  }
+  if (d && d.filed) {
+    el.className = "tilesave ok";
+    el.textContent = d.note || (folder
+      ? "Saved to Stock photo picks → " + folder + "."
+      : "Saved to their Stock photo picks.");
+    if (folder) loadFolders(client);   // a brand-new folder is now one to reuse
+    return;
+  }
+  el.className = "tilesave err";
+  el.textContent = (d && d.note) || "Could not be saved.";
+}
 
 // navigator.clipboard is unavailable on http and is allowed to refuse. A button
 // that reports a copy it never made is worse than one that asks.

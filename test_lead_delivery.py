@@ -52,6 +52,13 @@ def check(label, got, want):
         FAILURES.append(f"{label}: expected {want!r}, got {got!r}")
 
 
+class Req:
+    """The one thing trusted_source() reads: a headers mapping."""
+
+    def __init__(self, headers):
+        self.headers = headers
+
+
 class Resp:
     def __init__(self, code, body):
         self.status_code, self._b = code, body
@@ -316,6 +323,106 @@ def webhook_source_checks():
     check("posts to a webhook-named target", stray_posts, [])
 
 
+def trusted_source_checks():
+    """A landing *server* is not "anyone who finds the URL".
+
+    /api/leads/capture is limited to three an hour per address, which is right
+    for a browser and exactly wrong for the five standalone landing apps: every
+    lead each of them takes arrives at the Hub from that app's one Render
+    egress address, so on a busy afternoon the fourth visitor's lead is refused
+    while the visitor sees their report and nothing on any screen says a lead
+    was turned away. The token lifts the limit for those callers and does
+    nothing else.
+    """
+    print("an unset token trusts nobody, rather than everybody")
+    os.environ.pop(leads.SOURCE_TOKEN_ENV, None)
+    check("trusted with no token set", leads.trusted_source(Req({})), False)
+    check("trusted with a header and no token set",
+          leads.trusted_source(Req({leads.SOURCE_TOKEN_HEADER: "anything"})), False)
+
+    print("and with one set, only the right value is trusted")
+    os.environ[leads.SOURCE_TOKEN_ENV] = "s3cret"
+    check("no header at all", leads.trusted_source(Req({})), False)
+    check("a wrong value", leads.trusted_source(Req({leads.SOURCE_TOKEN_HEADER: "nope"})), False)
+    check("a prefix of the right value",
+          leads.trusted_source(Req({leads.SOURCE_TOKEN_HEADER: "s3cre"})), False)
+    check("the right value", leads.trusted_source(Req({leads.SOURCE_TOKEN_HEADER: "s3cret"})), True)
+    # Render stores quotes literally, which has silently broken token matching
+    # in this codebase before.
+    os.environ[leads.SOURCE_TOKEN_ENV] = '"s3cret"'
+    check("quotes Render stored literally are stripped",
+          leads.trusted_source(Req({leads.SOURCE_TOKEN_HEADER: "s3cret"})), True)
+    os.environ.pop(leads.SOURCE_TOKEN_ENV, None)
+
+    print("the capture route skips the limit for a trusted caller and nobody else")
+    src = pathlib.Path("hub/__init__.py").read_text()
+    fn = src[src.index("def api_leads_capture"):]
+    fn = fn[:fn.index("@app.route", 10)]
+    check("it asks whether the caller is trusted", "leads.trusted_source(request)" in fn, True)
+    check("and the rate check is what it skips",
+          "if trusted else leads.rate_check(ip)" in fn, True)
+    # An exemption nobody can see afterwards is one nobody can audit.
+    check("the exemption is recorded on the lead", '"trusted_source": True' in fn, True)
+    # The caller meeting this is a server, and "wait" is not the fix.
+    check("the 429 names the token as the fix", "SOURCE_TOKEN_HEADER" in fn, True)
+
+
+def meta_tag_checks():
+    """Segmentation tags survive the webhook's retirement.
+
+    boat, ski and hvac drove GoHighLevel "Add Tag" workflow actions off
+    market_tag / package_tag in the webhook body. Over the Contacts API a tag
+    is a field on the contact, so those ride in the lead's meta and are written
+    directly -- no workflow in the middle to go missing.
+    """
+    print("free tags ride beside the controlled ones")
+    row = {"source": "boat", "page": "smart1boat.onrender.com",
+           "meta": {"tags": ["Boat - Coastal", "Boat - Growth"]}}
+    check("the controlled tags come first",
+          lead_tags.tags_for(row)[:3],
+          [lead_tags.HUB_TAG, "boat", "smart1boat.onrender.com"])
+    check("and the segmentation follows",
+          lead_tags.tags_for(row)[3:], ["Boat - Coastal", "Boat - Growth"])
+
+    print("a free tag may not impersonate the controlled half")
+    # meta is the part of the payload a landing app fills in, so putting a lead
+    # into a triggered audience it was never captured for is a mistake to make
+    # impossible rather than one to ask people not to make.
+    row = {"source": "boat", "meta": {"tags": [lead_tags.HUB_TAG, "ski", "Real Tag"]}}
+    check("the hub tag and a source tag are refused",
+          lead_tags.tags_for(row), [lead_tags.HUB_TAG, "boat", "Real Tag"])
+
+    print("and the cap drops segmentation rather than the source tag")
+    row = {"source": "boat", "page": "p",
+           "meta": {"tags": [f"t{i}" for i in range(30)]}}
+    tags = lead_tags.tags_for(row)
+    check("capped", len(tags), lead_tags.MAX_TAGS)
+    check("the source tag survived the cap", tags[1], "boat")
+
+    print("junk in meta costs the junk, never the lead")
+    row = {"source": "boat", "meta": {"tags": [None, {}, "  spaced   out  ", 42]}}
+    check("cleaned", lead_tags.tags_for(row)[2:], ["spaced out", "42"])
+    check("meta that is not a dict at all", lead_tags.tags_for({"source": "boat",
+                                                               "meta": "nope"})[1:], ["boat"])
+
+    print("meta is bounded on the way into the store")
+    # It arrives from an unauthenticated endpoint and was written verbatim --
+    # the one part of a lead row that was uncleaned and unbounded, on a 5 GB
+    # disk where every lead is one append.
+    # Driven through capture() rather than through the helper: asserting the
+    # helper alone passes with the call site reverted, which is the check
+    # testing its own copy of the rule instead of the code that runs.
+    big = {"tags": ["a", "b"], "trusted_source": True, "long": "y" * 5000}
+    big.update({f"k{i}": i for i in range(200)})
+    m = leads.capture("x", "/y", {"email": "a@example.com"}, meta=big)["meta"]
+    check("keys capped", len(m), leads.META_MAX_KEYS)
+    check("values cleaned like a field", len(m["long"]), 400)
+    check("a real flag survives as a flag", m["trusted_source"], True)
+    check("and tags survive as a list", m["tags"], ["a", "b"])
+    check("meta that is not a dict is dropped rather than stored",
+          leads.capture("x", "/y", {"email": "a@example.com"}, meta="nope")["meta"], {})
+
+
 def main():
     os.environ["GHL_PRIVATE_TOKEN"] = "pit-test-token"
     os.environ["GHL_COMPANY_ID"] = "COMPANY123"
@@ -394,6 +501,8 @@ def main():
     check("retryable", row5["retryable"], False)
 
     tag_and_link_checks()
+    trusted_source_checks()
+    meta_tag_checks()
     webhook_source_checks()
     source_registry_checks()
 

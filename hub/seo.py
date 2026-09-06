@@ -179,8 +179,118 @@ def client_status(store: dict, sells_blogs: bool | None = None) -> dict:
     }
 
 
-_SOCIAL_KEYS = ("facebook", "instagram", "linkedin", "twitter", "youtube",
-                "tiktok", "pinterest", "yelp", "gbp")
+# ---------------------------------------------- the link catalog
+# A client record carries more than seven social profiles. Directory and
+# review listings are where most of a local client's reputation actually
+# lives, and until now there was nowhere to keep the URL: it sat in a
+# spreadsheet, or in somebody's head.
+#
+# Ordered (key, label, group). Order is the order the "add a link" menu
+# offers them; group is the optgroup it puts them under. Keys are stable and
+# stored — rename a LABEL freely, never a key, or saved links orphan.
+SOCIAL_PLATFORMS: tuple[tuple[str, str, str], ...] = (
+    # the seven that already existed, plus Google Business Profile
+    ("facebook",        "Facebook",              "Social"),
+    ("instagram",       "Instagram",             "Social"),
+    ("linkedin",        "LinkedIn",              "Social"),
+    ("twitter",         "X / Twitter",           "Social"),
+    ("youtube",         "YouTube",               "Social"),
+    ("tiktok",          "TikTok",                "Social"),
+    ("pinterest",       "Pinterest",             "Social"),
+    ("gbp",             "Google Business Profile", "Search & maps"),
+
+    ("yelp",            "Yelp",                  "Reviews & directories"),
+    ("bbb",             "Better Business Bureau", "Reviews & directories"),
+    ("trustpilot",      "Trustpilot",            "Reviews & directories"),
+    ("consumeraffairs", "Consumer Affairs",      "Reviews & directories"),
+    ("citysearch",      "Citysearch",            "Reviews & directories"),
+    ("yellowpages",     "Yellow Pages",          "Reviews & directories"),
+    ("yell",            "Yell",                  "Reviews & directories"),
+
+    ("angi",            "Angi",                  "Home services"),
+    ("homeadvisor",     "HomeAdvisor",           "Home services"),
+    ("thumbtack",       "Thumbtack",             "Home services"),
+    ("houzz",           "Houzz",                 "Home services"),
+
+    ("tripadvisor",     "TripAdvisor",           "Travel & hospitality"),
+    ("booking",         "Booking.com",           "Travel & hospitality"),
+    ("agoda",           "Agoda",                 "Travel & hospitality"),
+    ("airbnb",          "Airbnb",                "Travel & hospitality"),
+    ("hotels",          "Hotels.com",            "Travel & hospitality"),
+    ("opentable",       "OpenTable",             "Travel & hospitality"),
+    ("zomato",          "Zomato",                "Travel & hospitality"),
+    ("ubereats",        "Uber Eats",             "Travel & hospitality"),
+
+    ("amazon",          "Amazon",                "Marketplaces & apps"),
+    ("aliexpress",      "AliExpress",            "Marketplaces & apps"),
+    ("appstore",        "Apple App Store",       "Marketplaces & apps"),
+    ("producthunt",     "Product Hunt",          "Marketplaces & apps"),
+
+    ("capterra",        "Capterra",              "Software reviews"),
+    ("trustradius",     "TrustRadius",           "Software reviews"),
+    ("productreview",   "Product Review",        "Software reviews"),
+
+    ("healthgrades",    "Healthgrades",          "Healthcare"),
+    ("ratemds",         "RateMDs",               "Healthcare"),
+    ("webmd",           "WebMD",                 "Healthcare"),
+    ("zocdoc",          "Zocdoc",                "Healthcare"),
+    ("caring",          "Caring.com",            "Healthcare"),
+
+    ("avvo",            "Avvo",                  "Legal"),
+    ("lawyers",         "Lawyers.com",           "Legal"),
+
+    ("cargurus",        "CarGurus",              "Automotive"),
+    ("cars",            "Cars.com",              "Automotive"),
+
+    ("zillow",          "Zillow",                "Real estate"),
+
+    ("weddingwire",     "WeddingWire",           "Weddings & events"),
+    ("theknot",         "The Knot",              "Weddings & events"),
+
+    ("indeed",          "Indeed",                "Careers & media"),
+    ("imdb",            "IMDb",                  "Careers & media"),
+)
+
+SOCIAL_LABELS: dict[str, str] = {k: lab for k, lab, _g in SOCIAL_PLATFORMS}
+
+_SOCIAL_KEYS = tuple(k for k, _l, _g in SOCIAL_PLATFORMS)
+
+# A custom link the account team adds by hand — anything not in the catalog.
+# The key is generated from the label the person typed; the label itself lives
+# in store["social_labels"] so it survives a reload. Validated rather than
+# free-form so a stored key can never collide with a catalog key or carry
+# anything that has to be escaped on the way back out.
+_CUSTOM_KEY = re.compile(r"^c_[a-z0-9][a-z0-9-]{0,38}$")
+
+
+def is_social_key(key: str) -> bool:
+    """True for a catalog key or a well-formed custom key."""
+    key = str(key or "").lower().strip()
+    return key in _SOCIAL_KEYS or bool(_CUSTOM_KEY.match(key))
+
+
+def custom_social_key(label: str) -> str:
+    """Stable custom key for a hand-typed label. Empty when unusable."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(label or "").lower()).strip("-")[:38]
+    if not slug or slug[0] not in "abcdefghijklmnopqrstuvwxyz0123456789":
+        return ""
+    key = "c_" + slug
+    return key if _CUSTOM_KEY.match(key) and key not in _SOCIAL_KEYS else ""
+
+
+def social_catalog() -> list[dict]:
+    """The catalog as the browser wants it: ordered, grouped, labelled."""
+    return [{"key": k, "label": lab, "group": g}
+            for k, lab, g in SOCIAL_PLATFORMS]
+
+
+def social_label(key: str, labels: dict | None = None) -> str:
+    """Display label for a key — catalog first, then the client's own."""
+    key = str(key or "").lower().strip()
+    if key in SOCIAL_LABELS:
+        return SOCIAL_LABELS[key]
+    saved = str((labels or {}).get(key) or "").strip()
+    return saved or key.replace("c_", "").replace("-", " ").title()
 
 
 def _social_url(value: object) -> str:
@@ -203,7 +313,7 @@ def get_social(client: str, domain: str = "") -> dict:
     social = {}
     for key, value in (store.get("social") or {}).items():
         key = str(key).lower().strip()
-        if key not in _SOCIAL_KEYS:
+        if not is_social_key(key):
             continue
         try:
             social[key] = _social_url(value)
@@ -225,7 +335,20 @@ def get_social(client: str, domain: str = "") -> dict:
     return social
 
 
-def set_social(client: str, updates: dict) -> dict:
+def get_social_labels(client: str) -> dict:
+    """Labels for this client's custom links. Catalog keys are not stored —
+    their label is in the catalog, so a rename there reaches every client."""
+    store = load_store(client)
+    out = {}
+    for key, label in (store.get("social_labels") or {}).items():
+        key = str(key).lower().strip()
+        label = str(label or "").strip()[:60]
+        if key.startswith("c_") and is_social_key(key) and label:
+            out[key] = label
+    return out
+
+
+def set_social(client: str, updates: dict, labels: dict | None = None) -> dict:
     store = load_store(client)
     social = store.setdefault("social", {})
     # seed first so a partial save doesn't wipe brandfetch-known urls
@@ -233,15 +356,30 @@ def set_social(client: str, updates: dict) -> dict:
         webs = _client_websites(client)
         domain = str(webs[0].get("domain") or "") if webs else ""
         social.update(get_social(client, domain))
+    saved_labels = store.setdefault("social_labels", {})
     for k, v in (updates or {}).items():
         k = str(k).lower().strip()
         v = str(v or "").strip()
-        if k not in _SOCIAL_KEYS:
+        if not is_social_key(k):
             continue
         if v:
             social[k] = _social_url(v)
         else:
+            # An empty value is a deletion. That is how the record's remove
+            # button works: it blanks the row and saves, so a link the team
+            # took off the record does not come back on the next load.
             social.pop(k, None)
+            saved_labels.pop(k, None)
+    # A custom row carries its own label; without it the row comes back as a
+    # slug ("c_chamber-of-commerce") and nobody knows what they are looking at.
+    for k, label in (labels or {}).items():
+        k = str(k).lower().strip()
+        label = str(label or "").strip()[:60]
+        if k.startswith("c_") and is_social_key(k) and label and k in social:
+            saved_labels[k] = label
+    for k in list(saved_labels):
+        if k not in social:
+            saved_labels.pop(k, None)
     save_store(client, store)
     return social
 

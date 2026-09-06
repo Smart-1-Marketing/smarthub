@@ -440,6 +440,95 @@ UNITS: list[dict[str, Any]] = [
      "notes": ["Leave 14% of the top and bottom free.",
                "A 1080x1080 image ad can run in essentially any ad format."]},
 
+    # ---- Meta Reels ------------------------------------------------------
+    # Transcribed against the 2026 kit. The kit sells both and this module
+    # modelled neither, so a Meta requirement listed Stories and stopped --
+    # and the kit says in as many words why that is not close enough:
+    # "Facebook Reels and Instagram Reels are not interchangeable — different
+    # file types, text limits and duration rules." They are two units rather
+    # than one for exactly that reason: Instagram refuses GIF and caps at 15
+    # minutes with no headline at all; Facebook takes GIF, publishes no
+    # maximum duration, and carries a headline.
+    #
+    # New ids rather than a re-point of stories_*: `tags_for()` has written
+    # unit_stories_image and unit_stories_video onto delivered creative, and
+    # a Reel is a different placement, not a rename.
+    {"id": "instagram_reels", "channel": "instagram_reels",
+     "name": "Instagram Reels", "kind": "video", "formats": ["mp4", "mov"],
+     "ratios": [(9, 16)], "min_size": (1440, 2560), "max_bytes": 4 * GB,
+     "duration": (0, 900), "min_width": 250,
+     "text": {"primary": 44},
+     "notes": ["No GIF — MP4 or MOV only.",
+               "1440x2560 is the recommended resolution; the floor is 250px "
+               "wide under :30 and 500px at :30 or longer.",
+               "No headline field: 44 characters of primary text is the whole "
+               "of the copy.",
+               "Safe zone: leave at least 14% of the top, 35% of the bottom "
+               "and 6% of each side clear. Carrying disclaimers, leave the "
+               "bottom 40% free.",
+               "H.264, square pixels, fixed frame rate, progressive scan; "
+               "stereo AAC at 128 kbps or higher.",
+               "Must not contain licensed music (use the Meta Sound "
+               "Collection), face or camera effects, GIFs, product tags, or "
+               "edit lists and special boxes."]},
+    {"id": "facebook_reels", "channel": "facebook_reels",
+     "name": "Facebook Reels", "kind": "video",
+     "formats": ["mp4", "mov", "gif"],
+     "ratios": [(9, 16)], "min_size": (1440, 2560), "max_bytes": 4 * GB,
+     "text": {"primary": 40, "headline": 55},
+     "notes": ["The kit publishes no maximum duration for this placement, so "
+               "none is set here — a ceiling borrowed from Instagram Reels "
+               "would refuse a cut Facebook accepts.",
+               "GIF is accepted here and refused on Instagram Reels.",
+               "Safe zone: leave at least 14% of the top, 35% of the bottom "
+               "and 6% of each side clear.",
+               "Auto-captioning is not supported, and special boxes are not "
+               "permitted."]},
+
+    # ---- CTV interactive formats -----------------------------------------
+    # The IAB Tech Lab published the CTV Ad Portfolio in December 2025,
+    # defining six formats beyond the standard in-stream spot. The kit gives a
+    # minimum duration for three of them and nothing else -- no dimensions, no
+    # file weight, no format list -- so these are `other` and carry only what
+    # is published. Inventing a ceiling from the in-stream spot is the
+    # `target_bytes` mistake one placement over.
+    #
+    # Every one of them carries the kit's own warning, because a format sold
+    # before the publisher is confirmed is creative that cannot run.
+    #
+    # And that warning is why they are their own channel, which no product in
+    # `_PRODUCT_CHANNELS` maps to. The kit sells these "beyond the standard
+    # in-stream spot" and says availability varies by publisher -- so putting
+    # them on the `ctv` channel asks every CTV client for six extra files on
+    # the strength of a portfolio their publisher may not carry, which is the
+    # requirement line crying wolf. They are modelled so the name resolves,
+    # a tag written on a delivered file still means something, and
+    # `kit_coverage()` is not carrying a gap; they are not modelled as an ask.
+    {"id": "ctv_pause", "channel": "ctv_interactive", "name": "Pause Ad",
+     "kind": "other", "formats": [],
+     "notes": ["Served when the viewer pauses content.",
+               "Availability varies by publisher — confirm before selling."]},
+    {"id": "ctv_menu", "channel": "ctv_interactive", "name": "Menu Ad",
+     "kind": "other", "formats": [],
+     "notes": ["Aspect ratios 2:3, 6:5 and 16:9.",
+               "Availability varies by publisher — confirm before selling."]},
+    {"id": "ctv_screensaver", "channel": "ctv_interactive", "name": "Screensaver Ad",
+     "kind": "other", "formats": [],
+     "notes": ["Served during idle states.",
+               "Availability varies by publisher — confirm before selling."]},
+    {"id": "ctv_in_scene", "channel": "ctv_interactive", "name": "In-Scene Ad",
+     "kind": "other", "formats": [],
+     "notes": [":03 minimum. Placed within the content frame.",
+               "Availability varies by publisher — confirm before selling."]},
+    {"id": "ctv_squeezeback", "channel": "ctv_interactive", "name": "Squeezeback",
+     "kind": "other", "formats": [],
+     "notes": [":10 minimum. Content shrinks; the ad occupies the freed area.",
+               "Availability varies by publisher — confirm before selling."]},
+    {"id": "ctv_overlay", "channel": "ctv_interactive", "name": "Overlay",
+     "kind": "other", "formats": [],
+     "notes": [":10 minimum. Rendered over playing content.",
+               "Availability varies by publisher — confirm before selling."]},
+
     # ---- X (formerly Twitter) -------------------------------------------
     # Transcribed against the 2026 kit. The 2025 model was eight units and not
     # one of its names is a format X still sells: "Website Card" and "Direct
@@ -887,7 +976,11 @@ CHANNEL_LABELS = {
 # two hand-written copies of it is how one of them comes to be missing the
 # carousel.
 _META_CHANNELS = ["facebook", "instagram", "facebook_video",
-                  "facebook_carousel", "stories"]
+                  "facebook_carousel", "stories",
+                  # Added when Reels were modelled. A Meta buy sells them, and
+                  # until now the requirement a client reads listed Stories
+                  # and never Reels -- so the files were never asked for.
+                  "instagram_reels", "facebook_reels"]
 
 _PRODUCT_CHANNELS: list[tuple[str, list[str]]] = [
     # First, because "GPT display" must not be read as a display buy by the
@@ -1040,6 +1133,9 @@ _SHAPE = ("published as prose per format rather than a Unit / Dimensions / "
           "weight table")
 _COLUMNS = ("published as a table of Format / Copy / Media / File Size, not "
             "the Unit / Dimensions / weight shape this parser reads")
+_MINIMUMS = ("published as a table of Format / Minimum duration / Notes -- "
+             "the kit sets no dimension and no file weight for these at all, "
+             "so there is no number for the drift pass to compare")
 
 _KIT_UNREAD = {
     "native-display": _COLUMNS,
@@ -1059,6 +1155,14 @@ _KIT_UNREAD = {
     "linkedin": _COLUMNS,
     "snapchat": _COLUMNS,
     "tiktok": _COLUMNS,
+    # Modelled, and still outside the drift pass: both Reels sections publish
+    # prose per format, and the CTV portfolio publishes durations and nothing
+    # else. Declared here rather than left undeclared, which is what
+    # `kit_coverage()` reports and is the state they were in before they had
+    # units at all.
+    "instagram-reels": _SHAPE,
+    "facebook-reels": _SHAPE,
+    "ctv-new-formats": _MINIMUMS,
 }
 
 # And three of the twenty are a different kind of gap. These are formats the
@@ -1072,18 +1176,13 @@ _KIT_UNREAD = {
 # interchangeable -- different file types, text limits and duration rules."
 # A Meta requirement that lists Stories and never Reels is the Pinterest
 # failure again, one placement along.
-_KIT_NOT_MODELLED = (
-    {"id": "instagram-reels", "name": "Instagram Reels",
-     "when": ("instagram", "stories", "facebook", "facebook_video",
-              "facebook_carousel")},
-    {"id": "facebook-reels", "name": "Facebook Reels",
-     "when": ("instagram", "stories", "facebook", "facebook_video",
-              "facebook_carousel")},
-    {"id": "ctv-new-formats", "name": "CTV interactive formats "
-                                      "(pause, menu, screensaver, in-scene, "
-                                      "squeezeback, overlay)",
-     "when": ("ctv",)},
-)
+# Empty: every section the kit publishes now has units behind it. An entry
+# here is a channel whose requirement line is knowingly short -- the client is
+# not asked for files the buy needs -- so it is named in the payload and on
+# the line itself rather than left to be noticed. `kit_coverage()` holds it in
+# both directions, so an entry that outlives its gap fails rather than passing
+# by describing nothing.
+_KIT_NOT_MODELLED: tuple[dict, ...] = ()
 
 
 # Sections whose table's first column is a format name, for channels this

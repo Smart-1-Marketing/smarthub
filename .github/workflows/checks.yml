@@ -368,6 +368,18 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Client 360 social & links tests
+        # The card renders only links that exist and offers the rest from a
+        # catalogue that ships from the server, so the menu and the keys the
+        # server accepts cannot drift. Guarded like the steps above so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_client360_social.py ]; then
+            python test_client360_social.py
+          else
+            echo "test_client360_social.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder dashboard layout tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
@@ -629,6 +641,59 @@ jobs:
             python test_image_picker.py
           else
             echo "test_image_picker.py not on this branch — nothing to run."
+          fi
+
+      - name: Image Creator gallery tests
+        # The "Client gallery" chip reads the real shared gallery now, not the
+        # SEO Image Pipeline's own archive, and always offers a way to the
+        # full gallery. Guarded like the steps around it.
+        run: |
+          if [ -f test_image_creator.py ]; then
+            python test_image_creator.py
+          else
+            echo "test_image_creator.py not on this branch — nothing to run."
+          fi
+
+      - name: Display ad QC tests
+        # The seven checks in modules/image_creator/qc.py: a GDN size is
+        # judged by the spec kit's own ceiling rather than a restated number,
+        # everything else is advisory, and contrast/safe-margin are measured
+        # only where the answer is actually knowable. Guarded like the steps
+        # around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_display_ad_qc.py ]; then
+            python test_display_ad_qc.py
+          else
+            echo "test_display_ad_qc.py not on this branch — nothing to run."
+          fi
+
+      - name: Animated GIF export tests
+        # The timeline math in modules/image_creator/animation.py and the
+        # Pillow assembly behind it: no motion means no export, the timeline
+        # is the slowest object to settle, an over-length animation is
+        # flagged rather than truncated, and a transparent frame is
+        # flattened onto white the way the existing export/optimize endpoint
+        # already does. Guarded like the steps around it.
+        run: |
+          if [ -f test_animated_export.py ]; then
+            python test_animated_export.py
+          else
+            echo "test_animated_export.py not on this branch — nothing to run."
+          fi
+
+      - name: Image Creator review link tests
+        # The client review link ported from Commercial Builder's: token
+        # minting and round rollover, the four approval states with the most
+        # restrictive answer winning, the four-round cap flagging rather than
+        # refusing, and that PUBLIC_PREFIXES actually bypasses AuthGuard for
+        # /review/ and nothing else on the mount. Guarded like the steps
+        # around it.
+        run: |
+          if [ -f test_ic_shares.py ]; then
+            python test_ic_shares.py
+          else
+            echo "test_ic_shares.py not on this branch — nothing to run."
           fi
 
       - name: Lead delivery tests
@@ -901,6 +966,15 @@ jobs:
             echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
+      - name: Nightly-window helper tests
+        # hub/nightly.py — "run once after 2am Eastern," shared by every job
+        # that wants a once-a-day window rather than restating it. The thing
+        # worth proving is the DST awareness a fixed-UTC-hour scheme cannot
+        # have: the same wall-clock hour in January and in July has to land
+        # on different UTC hours, because the clocks changed. No I/O, no
+        # fixtures, so it needs nothing external and nothing to guard.
+        run: python3 test_nightly.py
+
       - name: Suite embed tests
         # Hub pages framed inside Smart 1 Suite: the SameSite=None companion
         # cookie that reaches a cross-site frame, the safe-method + allowlist
@@ -1091,6 +1165,20 @@ jobs:
             echo "test_client_uploads.py not on this branch — nothing to run."
           fi
 
+      - name: Ad Assets — Drive creative into the client library
+        # The folder shape, the dedupe key, and the two writes a copy must not
+        # make: nothing to Drive at all, and nothing to Knack until somebody
+        # applies a proposal they have read. Also that a Drive scope Google
+        # never granted is reported as refused rather than as an empty folder.
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file. Needs no network.
+        run: |
+          if [ -f test_ad_assets.py ]; then
+            python test_ad_assets.py
+          else
+            echo "test_ad_assets.py not on this branch — nothing to run."
+          fi
+
       - name: Image attribution audit, and the gallery that reads it
         # Every tool that creates, uploads or lets somebody choose an image
         # files it against a client or a lead; the audit reports the ones that
@@ -1127,6 +1215,16 @@ jobs:
             python test_video_library.py
           else
             echo "test_video_library.py not on this branch — nothing to run."
+          fi
+
+      - name: Video Search gallery tests
+        # Same shape as the step above: this file also sets its own throwaway
+        # DATABASE_URL and HUB_DATA_DIR, so it is safe to re-run.
+        run: |
+          if [ -f test_video_search_gallery.py ]; then
+            python test_video_search_gallery.py
+          else
+            echo "test_video_search_gallery.py not on this branch — nothing to run."
           fi
 
       - name: Video Tools tests
@@ -1661,6 +1759,21 @@ jobs:
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         run: python3 test_radio_ads.py
 
+      # Radio Promo's half of the same list. The length menu held the :15/:30
+      # pair, so the :10 sponsorship tag and the :60 -- the one radio length
+      # with room for a story rather than an offer -- were unbuildable, and the
+      # slot keys were hardcoded in six places. Only the :60 warns about what a
+      # re-record costs, because a note on every length is a note nobody reads
+      # and then the one that mattered goes past unread too. The beats moved
+      # out of the prompt's own prose, where a rep could not see them and a
+      # script that had wandered from the plan read exactly like one written to
+      # it. And the QC panel runs on the copy rather than after the render:
+      # the line between what may refuse a billed record and what may only
+      # report is certainty rather than severity, so a missing disclaimer
+      # blocks and a read length -- words divided by a pace -- does not.
+      - name: Radio Promo parity — the lengths, their costs, the beats, the panel
+        run: python3 test_radio_parity.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were
@@ -1719,6 +1832,27 @@ jobs:
       # is not. Lifts the resolution block out of the page and runs it in node.
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
+
+      # Asking somebody to check a page, and getting their answer back. Four
+      # states, and the two middle ones are the point: collapse "waiting on
+      # them" and "waiting on you" into one flag and the queue stops being
+      # able to say whose move it is, which is the only question anybody opens
+      # it with. Also holds the refusals -- a stranger answering somebody
+      # else's task, a reviewer closing their own review -- and the wiring:
+      # the blueprint's own login gate, the tile, and a dashboard card that
+      # never draws a zero over a table it could not read.
+      - name: A QA review asked for, answered and closed
+        run: python3 test_qa_tasks.py
+
+      # A curated shortlist per department, laid over the sidebar rather than
+      # a second permission system. Block validation (a javascript: href, a
+      # blank label, the cap), a delete that un-assigns rather than leaving a
+      # dangling id, a roster read that names a database it could not reach,
+      # and the wiring: the editor behind Utilities, reading your own view
+      # not, and the blueprint actually guarded rather than open to a
+      # stranger.
+      - name: Department Views — curated per department, gated at the editor
+        run: python3 test_department_views.py
 
       # One design into the whole size set. The failure it exists to catch is
       # a resize that produced a broken ad and reported success -- silent from
@@ -1782,6 +1916,12 @@ jobs:
         # off as $0, and GHL refusing or the company id being unset is never
         # an all-clear. tools/probe_ghl_saas.py is the read-only live half.
         run: python3 test_ghl_billing.py
+
+      - name: Client 360 Tracked links card and copy controls
+        # Tracked links must render beside Social Media, and every copy button
+        # must be a class the stylesheets define (.mini is not one) going
+        # through copyToClipboard rather than reporting a copy it never made.
+        run: python3 test_client360_utm_card.py
 
       - name: The gate runs every check a person runs
         run: python3 test_ci_gate.py
@@ -1970,6 +2110,20 @@ jobs:
       # limit is the top N presented as the whole.
       - name: July versus June, and the comparison that answered with June
         run: python3 test_analytics_ask.py
+      # Two buttons -- "Month to date" and "Custom compare" -- and four empty
+      # date boxes behind the second one. Every period but the current month
+      # was four dates typed by hand, on every visit, and Client 360 had no
+      # picker at all: it reported the last full calendar month and nothing
+      # else could be asked of it. One shared control now serves both, both
+      # open on month to date so the same client reads the same on either
+      # page, and the month-to-date default still sends no dates so the
+      # server keeps comparing it to the SAME DAYS of last month rather than
+      # to the whole of it. Beside it: Ask Analytics could reply "which
+      # measure did you mean?" and put the question in the input's
+      # PLACEHOLDER, where the first keystroke erased it -- leaving someone
+      # answering a question they could no longer read.
+      - name: The period picker, and the question that asks a better one back
+        run: python3 test_analytics_ranges.py
       # hub/webargs.py is 51 lines reached from twenty files, named by no
       # test. Its docstring lists three faults it exists to end -- int()
       # outside a try, an upper bound with no lower one, and the same clamp
@@ -2047,11 +2201,23 @@ jobs:
       - name: Brand elements found by the InSites scan
         run: python3 test_scan_brand.py
 
-  # Render's own auto-deploy has never fired for this service. It is set to
-  # deploy main after CI checks pass, the checks pass, and every deploy in its
-  # history is `manual` or `api` -- so the setting is right and the webhook is
-  # not arriving. This job is the same promise made on the side that demonstrably
-  # works: the commit whose checks just went green is the commit that ships.
+  # Render's own auto-deploy (trigger: commit) has been shipping every push to
+  # main on its own since the repo was reconnected under the org -- confirmed
+  # directly against Render's API on 2026-09-06, nine deploys deep of nothing
+  # but new_commit, each one live within a minute of the merge. This job is
+  # redundancy insurance for the day that stops being true, not the thing
+  # currently shipping code.
+  #
+  # It has never actually run: RENDER_DEPLOY_HOOK_URL has never been set as a
+  # repository secret, so every run of this job fails at the first step, on
+  # purpose (see the refusal below). That is harmless today because Render's
+  # own trigger is doing the real work, and it is also why nobody noticed --
+  # a job whose only purpose is insurance can fail for months in silence,
+  # because the thing it insures keeps working without it. Setting the secret
+  # under Settings -> Secrets and variables -> Actions (copy the value from
+  # the smart1-hub service's own Settings -> Deploy Hook on Render) is what
+  # turns this from insurance nobody has checked works into insurance that
+  # does. Nobody has done that yet.
   #
   # It is `ref=<sha>` and never a bare hook, which fixes a race the webhook
   # never had: main takes a merge every few minutes here, so "check main is
