@@ -414,6 +414,7 @@ CLIENT_FACING = tuple(t for t in TILES if t[0].startswith("/land/"))
 # on covering whatever is served at that path next.
 INSIDE = {
     "/tools/seo-images/house": "SEO Image Pipeline",
+    "/seo/webmaster": "SEO Clients",
     "/google/ga-tools": "GA4 Tools", "/google/gtm-tools": "GTM Tools",
     "/google/webmaster-tools": "Webmaster Tools",
     "/google/gmb-tools": "Business Profile",
