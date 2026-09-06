@@ -1057,6 +1057,149 @@ def get_quote(qid):
         db.close()
 
 
+# Which chase each signal is, in the words the email is drafted from. The
+# signal itself comes from hub/sales_status.scoreboard() — the one reading of
+# the pipeline both dashboards already share — never from the browser, so a
+# button cannot draft a chase about a state the quote is not in.
+_FOLLOWUP_SIGNALS = {
+    "unopened": "The proposal was sent and the client has not opened it yet.",
+    "waiting": "The client opened the proposal and has not replied.",
+    "expiring": "The quoted pricing lapses soon.",
+    "expired": "The quoted pricing has lapsed, so the proposal needs "
+               "re-quoting before they can say yes.",
+    "to_convert": "The client accepted, and the insertion order has not been "
+                  "written yet — this note is a thank-you and a next step, "
+                  "not a chase.",
+}
+
+
+@app.post("/api/quotes/<int:qid>/draft-followup")
+def api_draft_followup(qid):
+    """The chase email, drafted from what the pipeline already measured.
+
+    The Hub knows "sent and never opened", "read and silent", "price lapses
+    Friday" and "said yes, no IO" — and nobody acts on a signal they then
+    have to compose an email about from scratch. This drafts it, from the
+    quote's own measured state and nothing else.
+
+    Grounded, enforced rather than requested: the facts block is computed
+    server-side (the browser names only the quote), the prompt forbids
+    invention, and the checks that matter run over what comes back — a
+    percentage nothing quoted is an invented discount and the draft is
+    DISCARDED rather than shown, the audit-summary rule. Nothing is sent and
+    nothing reaches Smart 1 Suite: the rep copies it into their own email.
+
+    Deliberately never stored. The draft is derived from the pipeline as it
+    stands at the press — a follow-up written about Monday's silence is
+    stale by Friday, and a stored one would go on reading as current, which
+    is the confident wrong answer this codebase keeps having to undo.
+    Re-drafting is a fresh reading.
+    """
+    from hub import ai as hub_ai
+    from hub import sales_status as hub_sales
+
+    sb = hub_sales.scoreboard(limit=1)
+    if not sb.get("measured"):
+        return jsonify({"ok": False, "error": "The pipeline could not be "
+                        "read, so there is no measured state to draft from. "
+                        + str(sb.get("error") or "")}), 502
+    signal = next((k for k, ids in (sb.get("ids") or {}).items()
+                   if qid in (ids or [])), "")
+    if not signal:
+        return jsonify({"ok": False, "error":
+                        "Nothing is waiting on this quote — only a sent "
+                        "proposal the client has not answered, one whose "
+                        "pricing is lapsing, or an accepted one with no IO "
+                        "has a follow-up to draft."}), 400
+
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+
+        facts = [f"Client: {q.client or 'not recorded'}",
+                 f"Quote number: {q.quote_number or 'not recorded'}"]
+        monthly = int(q.monthly_budget or 0)
+        facts.append(f"Monthly investment quoted: ${monthly:,}"
+                     if monthly else "Monthly investment quoted: not recorded")
+
+        share = (db.query(QuoteShare).filter(QuoteShare.quote_id == qid)
+                 .order_by(QuoteShare.id.desc()).first())
+        opens = db.query(QuoteView).filter(QuoteView.quote_id == qid).count()
+        sent_on = ""
+        if share is not None and share.sent_at:
+            sent_on = str(share.sent_at)[:10]
+        win = {}
+        try:
+            win = hub_validity.window(
+                q.status or "", sent_at=(share.sent_at if share else None),
+                created_at=q.created_at,
+                state=json.loads(q.data or "{}"),
+                now=datetime.now(timezone.utc))
+        except Exception:                               # noqa: BLE001
+            win = {}
+
+        facts.append("Situation: " + _FOLLOWUP_SIGNALS[signal])
+        if signal in ("unopened", "waiting") and sent_on:
+            facts.append(f"The proposal was sent on {sent_on}.")
+        if signal == "waiting" and opens:
+            facts.append(f"They have opened it {opens} time{'s' if opens != 1 else ''}.")
+        if signal in ("expiring", "expired") and win.get("expires_on"):
+            facts.append(f"The quoted pricing "
+                         f"{'lapses' if signal == 'expiring' else 'lapsed'} "
+                         f"on {win['expires_on']}.")
+    finally:
+        db.close()
+
+    # A new prompt rather than a harvested one — no Pickaxe ever did this
+    # job, so unlike hub/prompts_harvested.py's entries there is no
+    # two-years-of-accepted-output reason to preserve its wording.
+    prompt = (
+        "You draft a short follow-up email for a Smart 1 Marketing "
+        "salesperson to send about a proposal. These facts are the ONLY "
+        "things you may assert:\n\n" + "\n".join("- " + f for f in facts) +
+        "\n\nWrite a subject line and a body under 120 words — plain, warm, "
+        "in the salesperson's own voice, with one concrete next step (a "
+        "call, a question, or a yes). Use ONLY the facts above: invent no "
+        "discounts, no percentages, no new prices, and no deadline beyond "
+        "any lapse date given. Claim nothing about what the client said or "
+        "did that the facts do not say. Do not mention AI or Smart 1's "
+        "internal tools. Sign off as [Your name].")
+    try:
+        text = hub_ai.chat([{"role": "user", "content": prompt}],
+                           module="sales_builder", purpose="followup_email",
+                           temperature=0.4, max_tokens=600)
+    except hub_ai.AIUnavailable as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+    text = hub_spec.clean_ai_text(text or "")
+    if not text.strip():
+        return jsonify({"ok": False, "error": "The model returned nothing."}), 502
+    problems = hub_spec.violations(text)
+    # A percentage nothing quoted is an invented discount, which is the one
+    # thing a chase email must never volunteer. Discarded whole rather than
+    # patched — the Smart 1 Labs precedent: copy is thrown away, never
+    # paraphrased into something nobody wrote.
+    if "%" in text and not any("%" in f for f in facts):
+        problems.append("Offered a percentage nothing quoted — an invented "
+                        "discount.")
+    if problems:
+        return jsonify({"ok": False, "error":
+                        "The draft broke a rule and was discarded rather "
+                        "than shown: " + " ".join(problems)}), 502
+
+    return jsonify({"ok": True, "email": {
+        "text": text.strip(), "signal": signal,
+        "situation": _FOLLOWUP_SIGNALS[signal],
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "note": "Drafted just now from the pipeline's own reading, and "
+                "deliberately not saved — a follow-up written about Monday's "
+                "silence is stale by Friday. Copy it into your own email; "
+                "nothing is sent from here.",
+    }})
+
+
 @app.put("/api/quotes/<int:qid>")
 def update_quote(qid):
     body = request.get_json(force=True) or {}
