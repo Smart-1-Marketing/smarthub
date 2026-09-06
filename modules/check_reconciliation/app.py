@@ -410,6 +410,8 @@ def _extract_check(raw: bytes, mime: str) -> dict[str, Any]:
             from hub import ai as hub_ai
             hub_ai.note_sdk_usage("check_reconciliation", resp, purpose="check_ocr")
         except Exception:
+            # Standalone run without the hub package: the usage row is lost,
+            # the check read must not be.
             pass
         text = resp.choices[0].message.content or "{}"
         text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I).strip()
