@@ -1557,106 +1557,6 @@ function question(){
                  :`What should this target area be called? A name you'd use on a call — "Carmel showroom", "North trade area". Type SKIP to name it after its geography.`};
   }
 
-  if(String(q.key||"").indexOf("intake")===0){
-  const v=val.trim();
-
-  if(q.key==="intakeMode"){
-   PROPOSAL.intakeMode=/one at a time/i.test(v)?"each":"bulk";
-   if(PROPOSAL.intakeMode==="bulk"){
-    /* Only what the document actually supports: a product the card matched
-       and a price the proposal printed. The term comes from the campaign,
-       and the monthly assumption is recorded on the row so the summary can
-       say it was assumed rather than answered. */
-    const months=Math.max(1,+state.termMonths||intakeDefaultTerm()||1);
-    intakeRows().forEach(r=>{
-     if(r.product&&+r.amount>0&&!r.consulting){
-      r.basis="monthly";r.term_months=months;r.assumed=true;
-     }
-    });
-   }
-   index++;render();ask();return;
-  }
-
-  const e=intakeCurrent();
-  if(!e){index++;render();ask();return;}
-
-  if(q.key==="intakeProduct"){
-   if(v===INTAKE_SKIP||/^(skip|none|no)$/i.test(v)){
-    /* Skipped deliberately, and recorded as such. "Not selected" was the old
-       behavior precisely because nobody had decided -- a skip somebody chose
-       is a different thing and is worth being able to tell apart. */
-    e.skipped=true;e.product="";
-    addMsg(`Left off: “${e.query}”.`);
-    index=flow.findIndex(f=>f.key==="intakeNext");render();ask();return;
-   }
-   if(v===CONSULTING_PRODUCT||/^consult/i.test(v)){
-    e.consulting=true;e.product=CONSULTING_PRODUCT;e.category="ADD-ON PRODUCT";
-   }else if(/^y$/i.test(v)&&e.product){
-    /* keeps the matched product */
-   }else{
-    /* A candidate the rep picked, or a product name they typed. Resolve it
-       against the card the same way the reader did rather than trusting the
-       typed string -- otherwise a near-miss becomes a product code nothing
-       downstream recognizes. */
-    const label=(typeof cardLabelFor==="function"&&cardLabelFor(v))||"";
-    if(!label&&!(e.candidates||[]).some(c=>intakeShortName(c.product)===v)){
-     addMsg(`⚠ “${v}” is not a product on the rate card. Choose one of the options, ${CONSULTING_PRODUCT}, or ${INTAKE_SKIP}.`);
-     ask();return;
-    }
-    const full=(e.candidates||[]).find(c=>intakeShortName(c.product)===v);
-    e.product=full?full.product:(productConfig[label]||{}).product||label||v;
-    e.category=full?full.category:(productConfig[label]||{}).category||"";
-    e.consulting=false;
-   }
-   e.status="matched";
-   index++;render();ask();return;
-  }
-
-  if(q.key==="intakeDescribe"){e.description=v;index++;render();ask();return;}
-
-  if(q.key==="intakeBasis"){
-   e.basis=/^one/i.test(v)?"one_time":"monthly";
-   if(e.basis==="one_time")e.term_months=1;
-   index++;render();ask();return;
-  }
-
-  if(q.key==="intakeTerm"){
-   const n=parseInt(String(v).replace(/[^0-9]/g,""),10);
-   if(!(n>0)){addMsg("⚠ Enter the number of months as a number, for example 6.");ask();return;}
-   e.term_months=n;index++;render();ask();return;
-  }
-
-  if(q.key==="intakeAmount"){
-   let n=/^y$/i.test(v)?+e.amount:parseFloat(String(v).replace(/[^0-9.]/g,""));
-   if(!(n>0)){addMsg("⚠ Enter the amount as a number, for example 2500.");ask();return;}
-   e.amount=n;index++;render();ask();return;
-  }
-
-  if(q.key==="intakeNext"){
-   if(/one-time/i.test(v)){
-    /* Correcting an assumption, not answering the next-product question. */
-    e.basis="one_time";e.term_months=1;e.assumed=false;
-    addMsg(`${intakeShortName(e.product)} recorded as a one-time cost of ${money(e.amount)}.`);
-    ask();return;
-   }
-   intakeCommit(e);
-   const next=(PROPOSAL.intakeIx||0)+1;
-   if(next<intakeRows().length){
-    PROPOSAL.intakeIx=next;
-    index=flow.findIndex(f=>f.key==="intakeProduct");
-    render();ask();return;
-   }
-   /* Done. Clearing the list is what switches intakeActive() off, so the
-      six questions above stop applying and the ordinary product picker
-      follows -- a rep still adds anything the proposal did not mention. */
-   PROPOSAL.intake=[];PROPOSAL.intakeIx=0;
-   const done=(PROPOSAL.intakeCommitted||[]).length;
-   addMsg(done
-    ? `${done} product${done===1?"":"s"} from the proposal are on this IO with their budgets and terms. Add anything it missed from the categories below.`
-    : "Nothing from the proposal was added. Choose the products for this IO below.");
-   index++;render();ask();return;
-  }
- }
 
  if(q.key==="moreTargetAreas"){
    // Reads back what was just described, so "add another?" is answered
@@ -1823,6 +1723,117 @@ async function submit(raw){
 
  
  /* ---- the questions the document raised, answered ------------------ */
+ /* This whole block used to live inside question() -- the function that
+    only ever builds the *next* question's text -- guarded by a second
+    copy of the same "does this key start with intake" check that
+    question() already returns on higher up, so it could never run, and it
+    referenced a `val` that did not exist in that function's scope. Nothing
+    in submit() handled these keys either, so an answer to any of the
+    "Product N of M from the proposal" questions fell through to the
+    generic `state[q.key]=val` catch-all at the bottom of this function:
+    the row was never resolved, matched, described, priced or committed,
+    and a converted proposal's products never reached this IO. */
+ if(String(q.key||"").indexOf("intake")===0){
+  const v=val.trim();
+
+  if(q.key==="intakeMode"){
+   PROPOSAL.intakeMode=/one at a time/i.test(v)?"each":"bulk";
+   if(PROPOSAL.intakeMode==="bulk"){
+    /* Only what the document actually supports: a product the card matched
+       and a price the proposal printed. The term comes from the campaign,
+       and the monthly assumption is recorded on the row so the summary can
+       say it was assumed rather than answered. */
+    const months=Math.max(1,+state.termMonths||intakeDefaultTerm()||1);
+    intakeRows().forEach(r=>{
+     if(r.product&&+r.amount>0&&!r.consulting){
+      r.basis="monthly";r.term_months=months;r.assumed=true;
+     }
+    });
+   }
+   index++;render();ask();return;
+  }
+
+  const e=intakeCurrent();
+  if(!e){index++;render();ask();return;}
+
+  if(q.key==="intakeProduct"){
+   if(v===INTAKE_SKIP||/^(skip|none|no)$/i.test(v)){
+    /* Skipped deliberately, and recorded as such. "Not selected" was the old
+       behavior precisely because nobody had decided -- a skip somebody chose
+       is a different thing and is worth being able to tell apart. */
+    e.skipped=true;e.product="";
+    addMsg(`Left off: “${e.query}”.`);
+    index=flow.findIndex(f=>f.key==="intakeNext");render();ask();return;
+   }
+   if(v===CONSULTING_PRODUCT||/^consult/i.test(v)){
+    e.consulting=true;e.product=CONSULTING_PRODUCT;e.category="ADD-ON PRODUCT";
+   }else if(/^y$/i.test(v)&&e.product){
+    /* keeps the matched product */
+   }else{
+    /* A candidate the rep picked, or a product name they typed. Resolve it
+       against the card the same way the reader did rather than trusting the
+       typed string -- otherwise a near-miss becomes a product code nothing
+       downstream recognizes. */
+    const label=(typeof cardLabelFor==="function"&&cardLabelFor(v))||"";
+    if(!label&&!(e.candidates||[]).some(c=>intakeShortName(c.product)===v)){
+     addMsg(`⚠ “${v}” is not a product on the rate card. Choose one of the options, ${CONSULTING_PRODUCT}, or ${INTAKE_SKIP}.`);
+     ask();return;
+    }
+    const full=(e.candidates||[]).find(c=>intakeShortName(c.product)===v);
+    e.product=full?full.product:(productConfig[label]||{}).product||label||v;
+    e.category=full?full.category:(productConfig[label]||{}).category||"";
+    e.consulting=false;
+   }
+   e.status="matched";
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeDescribe"){e.description=v;index++;render();ask();return;}
+
+  if(q.key==="intakeBasis"){
+   e.basis=/^one/i.test(v)?"one_time":"monthly";
+   if(e.basis==="one_time")e.term_months=1;
+   index++;render();ask();return;
+  }
+
+  if(q.key==="intakeTerm"){
+   const n=parseInt(String(v).replace(/[^0-9]/g,""),10);
+   if(!(n>0)){addMsg("⚠ Enter the number of months as a number, for example 6.");ask();return;}
+   e.term_months=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeAmount"){
+   let n=/^y$/i.test(v)?+e.amount:parseFloat(String(v).replace(/[^0-9.]/g,""));
+   if(!(n>0)){addMsg("⚠ Enter the amount as a number, for example 2500.");ask();return;}
+   e.amount=n;index++;render();ask();return;
+  }
+
+  if(q.key==="intakeNext"){
+   if(/one-time/i.test(v)){
+    /* Correcting an assumption, not answering the next-product question. */
+    e.basis="one_time";e.term_months=1;e.assumed=false;
+    addMsg(`${intakeShortName(e.product)} recorded as a one-time cost of ${money(e.amount)}.`);
+    ask();return;
+   }
+   intakeCommit(e);
+   const next=(PROPOSAL.intakeIx||0)+1;
+   if(next<intakeRows().length){
+    PROPOSAL.intakeIx=next;
+    index=flow.findIndex(f=>f.key==="intakeProduct");
+    render();ask();return;
+   }
+   /* Done. Clearing the list is what switches intakeActive() off, so the
+      six questions above stop applying and the ordinary product picker
+      follows -- a rep still adds anything the proposal did not mention. */
+   PROPOSAL.intake=[];PROPOSAL.intakeIx=0;
+   const done=(PROPOSAL.intakeCommitted||[]).length;
+   addMsg(done
+    ? `${done} product${done===1?"":"s"} from the proposal are on this IO with their budgets and terms. Add anything it missed from the categories below.`
+    : "Nothing from the proposal was added. Choose the products for this IO below.");
+   index++;render();ask();return;
+  }
+ }
+
  if(q.key==="proposalBudget"){
   const n=num(val);
   if(!(n>0)){addMsg("⚠ Enter the agreed monthly budget as a number, for example 6525.");ask();return}
