@@ -29,12 +29,16 @@ So each check below destroys something and asserts the data came back:
   11. same-disk detection            — the mirror-on-/var/data trap is caught
   12. oversized payload              — reported, never silently truncated
   13. path parity                    — the tools whose storage moved
+  14. update_json                    — read-change-write as ONE step,
+                                       across threads AND across workers
 """
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import threading
 import tempfile
 import time
 from pathlib import Path
@@ -593,6 +597,126 @@ else:
     # Naming one file is still more specific than naming a root.
     check("HUB_LEADS_FILE still wins", _q["leads_named"], "/tmp/named-leads.jsonl")
 
+
+
+# ------------------------------------------------- 14. update_json is one step
+# A store that keeps many records in one file changes a record by writing the
+# whole collection back. With the read outside the lock, two writers start from
+# the same snapshot and the second silently drops the first -- and it does not
+# take two writers on ONE record: two people editing two unrelated records lose
+# one of the two edits, because the whole list is what gets written either way.
+section("14. update_json — read, change and write as one step")
+js = reset_module()
+
+_u = os.path.join(DISK, "update_one.json")
+js.write_json(_u, {"a": 1})
+
+check("it returns what was written",
+      js.update_json(_u, lambda d: {**d, "b": 2}), {"a": 1, "b": 2})
+check("and that is what is on disk", js.read_json(_u), {"a": 1, "b": 2})
+
+# "Nothing changed" has to be sayable, or a sweep that found nothing to do
+# queues a pointless write on each of the two workers.
+check("returning None writes nothing",
+      js.update_json(_u, lambda d: None), {"a": 1, "b": 2})
+_before = os.path.getmtime(_u)
+time.sleep(0.01)
+js.update_json(_u, lambda d: None)
+check("and really does not touch the file", os.path.getmtime(_u), _before)
+
+check("a missing file starts from the default",
+      js.update_json(os.path.join(DISK, "update_new.json"),
+                            lambda d: d + ["x"], default=[]), ["x"])
+
+# A caller's own bug is the caller's, and it must not leave the lock held --
+# the next write would hang for ever, which is worse than the exception.
+def _boom(_data):
+    raise RuntimeError("caller's own bug")
+
+try:
+    js.update_json(_u, _boom)
+    _raised = ""
+except RuntimeError as exc:
+    _raised = str(exc)
+check("a mutate that raises surfaces", _raised, "caller's own bug")
+check("and the lock was released", js.update_json(_u, lambda d: {"ok": 1}),
+      {"ok": 1})
+
+# Threads: this is the half modules/radio_promo was missing entirely -- its
+# lock covered the write and not the read, so this lost data inside ONE worker.
+_t = os.path.join(DISK, "update_threads.json")
+js.write_json(_t, {})
+
+_real_read = js.read_json
+
+
+def _slow_read(path, default=None, **kw):
+    got = _real_read(path, default=default, **kw)
+    time.sleep(0.02)                      # the window every read-change-write has
+    return got
+
+
+def _bump(name):
+    def _apply(data):
+        return {**data, name: True}
+    js.update_json(_t, _apply, default={})
+
+
+js.read_json = _slow_read
+_threads = [threading.Thread(target=_bump, args=(f"k{i}",)) for i in range(8)]
+for _th in _threads:
+    _th.start()
+for _th in _threads:
+    _th.join()
+js.read_json = _real_read
+check("eight threads writing different keys all survive",
+      len(js.read_json(_t) or {}), 8)
+
+# Processes: the other half. A threading.Lock cannot see the second gunicorn
+# worker at all, so this is the only way the cross-worker guarantee is real
+# rather than asserted. Two processes, one file, both writes must land.
+_p = os.path.join(DISK, "update_procs.json")
+js.write_json(_p, {})
+_child = f"""
+import os, sys, time
+sys.path.insert(0, {str(ROOT)!r})
+os.environ["HUB_DATA_DIR"] = {DISK!r}
+os.environ["DATABASE_URL"] = "sqlite:///" + {MIRROR!r}
+from hub import jsonstore
+real = jsonstore.read_json
+def slow(path, default=None, **kw):
+    got = real(path, default=default, **kw)
+    time.sleep(0.4)
+    return got
+jsonstore.read_json = slow
+jsonstore.update_json({_p!r}, lambda d: dict(d, **{{sys.argv[1]: True}}), default={{}})
+"""
+_kids = [subprocess.Popen([sys.executable, "-c", _child, name],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+         for name in ("one", "two")]
+for _kid in _kids:
+    _kid.wait(timeout=90)
+check("and two separate workers do not overwrite each other",
+      sorted((js.read_json(_p) or {}).keys()), ["one", "two"])
+
+# The flock is the cross-worker half and it is best-effort: a filesystem that
+# will not take one is a reason to serialise less, never a reason to refuse to
+# save. Same rule every other entry point in that module works to.
+_saved_fcntl = js.fcntl
+js.fcntl = None
+try:
+    check("with no flock available the write still happens",
+          js.update_json(_u, lambda d: {"nolock": 1}), {"nolock": 1})
+finally:
+    js.fcntl = _saved_fcntl
+
+# The two stores that moved onto it must not go back to deciding for
+# themselves: a per-process lock here reads as correct and is half a lock.
+for _mod in ("modules/radio_promo/store.py", "modules/social_planner/intake.py"):
+    _src = (ROOT / _mod).read_text()
+    check(f"{_mod} keeps no per-process lock of its own",
+          "threading.Lock()" in _src, False)
+    check(f"{_mod} reads the shared one", "update_json(" in _src, True)
 
 
 # ------------------------------------------------------------------- summary

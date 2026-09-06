@@ -16,12 +16,10 @@ import datetime as _dt
 import os
 import re
 import secrets
-import threading
 from hub import jsonstore
 
 from .catalog import normalize_slots
 
-_lock = threading.Lock()
 MAX_PROJECTS = 4000
 
 
@@ -63,9 +61,21 @@ def _read() -> list[dict]:
     return rows if isinstance(rows, list) else []
 
 
-def _write(rows: list[dict]):
-    with _lock:
-        jsonstore.write_json(_path(), rows[:MAX_PROJECTS], indent=1)
+def _mutate(apply):
+    """Read, change and write the collection as one indivisible step.
+
+    `threading.Lock` was the wrong tool twice over and it is gone. It guarded
+    only the write, so two threads that had already read the same snapshot
+    still overwrote each other; and it is per-process, while this deployment
+    runs two gunicorn workers, so it never saw the other one at all.
+    `jsonstore.update_json` holds both a per-path thread lock and an flock
+    across workers, for the whole read-change-write.
+
+    `apply` returns the rows to write, or None to write nothing -- which is
+    what "no such project" and "nothing to delete" mean here, and is why a
+    lookup that misses does not queue a pointless write on both workers.
+    """
+    return jsonstore.update_json(_path(), apply, default=[], indent=1)
 
 
 def all_projects() -> list[dict]:
@@ -124,9 +134,12 @@ def create(fields: dict) -> dict:
         "banner": None,
         "versions": [],
     }
-    rows = _read()
-    rows.insert(0, row)
-    _write(rows)
+
+    def _insert(rows):
+        rows.insert(0, row)
+        return rows[:MAX_PROJECTS]
+
+    _mutate(_insert)
     return row
 
 
@@ -138,36 +151,77 @@ def get(project_id: str) -> dict | None:
 
 
 def update(project_id: str, changes: dict) -> dict | None:
-    rows = _read()
-    for i, row in enumerate(rows):
-        if row.get("id") == project_id:
+    """Change one project, reading and writing the collection as one step.
+
+    The read has to be inside the lock, not merely the write. This file holds
+    every project, so a change to one is written back as the whole list -- and
+    with the read outside, two people editing two *unrelated* projects each
+    start from the same snapshot and the second save silently drops the first.
+    Both are told it worked. Reproduced with two threads and two projects
+    before this moved onto `jsonstore.update_json`.
+    """
+    found: list[dict] = []
+
+    def _apply(rows):
+        for i, row in enumerate(rows):
+            if row.get("id") != project_id:
+                continue
             row.update(changes)
             row["updated_at"] = now()
             if "client" in changes:
                 row["client_slug"] = slugify(row.get("client") or "", "spec")
                 row["spec"] = not bool(row.get("client"))
             rows[i] = row
-            _write(rows)
-            return row
-    return None
+            found.append(row)
+            return rows
+        return None                     # no such project: write nothing
+
+    _mutate(_apply)
+    return found[0] if found else None
 
 
 def add_version(project_id: str, kind: str, payload: dict, actor: str = "") -> dict | None:
-    row = get(project_id)
-    if not row:
+    """Append one version, reading the list inside the same lock that writes it.
+
+    This module opens by promising that every draft, rewrite, tighten and hand
+    edit is *appended* rather than overwriting, "so nothing a client approved
+    can be silently lost". Read through `get()` and written through `update()`
+    that promise did not hold: the list was read in one step and written whole
+    in another, so two appends racing kept one and dropped the other -- the
+    exact loss the append was there to prevent.
+    """
+    entry = {"at": now(), "kind": kind, "actor": actor, "payload": payload}
+    found: list[dict] = []
+
+    def _apply(rows):
+        for i, row in enumerate(rows):
+            if row.get("id") != project_id:
+                continue
+            versions = list(row.get("versions") or [])
+            versions.append(entry)
+            row["versions"] = versions[-60:]
+            row["updated_at"] = now()
+            rows[i] = row
+            found.append(row)
+            return rows
         return None
-    versions = list(row.get("versions") or [])
-    versions.append({"at": now(), "kind": kind, "actor": actor, "payload": payload})
-    return update(project_id, {"versions": versions[-60:]})
+
+    _mutate(_apply)
+    return found[0] if found else None
 
 
 def delete(project_id: str) -> bool:
-    rows = _read()
-    kept = [r for r in rows if r.get("id") != project_id]
-    if len(kept) == len(rows):
-        return False
-    _write(kept)
-    return True
+    gone: list[bool] = []
+
+    def _apply(rows):
+        kept = [r for r in rows if r.get("id") != project_id]
+        if len(kept) == len(rows):
+            return None                 # nothing to remove: write nothing
+        gone.append(True)
+        return kept
+
+    _mutate(_apply)
+    return bool(gone)
 
 
 def library(query: str = "", scope: str = "all") -> list[dict]:
