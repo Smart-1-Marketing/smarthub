@@ -1147,6 +1147,29 @@ def test_a_generated_picture_can_be_kept():
           "id=\"aiRevise\"" in screen)
 
 
+def test_the_gallery_source_is_searchable_and_always_reaches_the_real_one():
+    """The "Client gallery" background source, and the way out of it.
+
+    `hub/ad_builder_link.client_gallery()` can hand back up to 400 rows with
+    nothing narrowing them, and the build screen drew every one into a grid
+    with no way to search it — fine for a client with a dozen photographs and
+    useless for one with hundreds. It also had no way off this panel to the
+    client's *actual* gallery, the one `modules/image_picker` serves with its
+    own server-side search: this source is a slice of that gallery filtered
+    to backgrounds, and a rep who cannot find what they want here had nowhere
+    else in this tool to look.
+    """
+    screen = BUILD_HTML.read_text()
+    check("a search box is offered over the gallery source",
+          'id="bgGallerySearch"' in screen)
+    check("it filters on what a photograph is actually described as",
+          "(i.alt || '').toLowerCase().indexOf(q)" in screen)
+    check("typing does not lose the words already typed",
+          "again.selectionStart = again.selectionEnd = again.value.length" in screen)
+    check("and the panel always offers the way to the real client gallery",
+          "/tools/image-picker/gallery/for-client?name=" in screen)
+
+
 def test_softness_and_text_weight_are_checked():
     """Two defects that pass every other check, then arrive on the proof.
 

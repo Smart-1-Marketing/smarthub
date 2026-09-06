@@ -12786,6 +12786,9 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
+                                   #   gallery, searches it, and always offers the link
+                                   #   to the full one
 python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP

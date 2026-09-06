@@ -320,7 +320,10 @@ form.addEventListener("submit", async e => {
         throw new Error((res.error || "Could not save to the gallery") +
                         " — downloaded it instead so nothing is lost.");
       }
-      status.textContent = `Complete · ${(blob.size / 1024).toFixed(1)} KB saved to ${client}'s gallery`;
+      status.textContent = res.gallery_filed
+        ? `Complete · ${(blob.size / 1024).toFixed(1)} KB saved to ${client}'s gallery`
+        : `Complete · ${(blob.size / 1024).toFixed(1)} KB saved, but it could not `
+          + `be filed to ${client}'s gallery — check the client name and try again.`;
       return;
     }
 

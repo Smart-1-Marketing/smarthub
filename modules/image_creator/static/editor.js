@@ -346,21 +346,25 @@ async function aiPhotoQueries(){
 /* ---------- Smart 1 assets ---------- */
 PANELS.assets = host => {
   host.innerHTML = `
-    <div class="hint">Assets already in the Hub — optimized client images, and imagery
+    <div class="hint">Assets already in the Hub — the client's own gallery, and imagery
       captured by site audits.</div>
     <div class="row" style="margin:9px 0">
-      <input type="search" id="asQ" placeholder="Filter…">
+      <input type="search" id="asQ" placeholder="Search this client's gallery…">
       <button class="btn sm" id="asGo" style="flex:none">Find</button>
     </div>
     <div class="chips">
       <button class="chip on" data-src="gallery">Client gallery</button>
       <button class="chip" data-src="scans">Site audits</button>
     </div>
+    <div id="asGalleryLink" hidden style="margin:6px 0">
+      <a class="btn sec sm" id="asGalleryOpen" target="_blank" rel="noopener">Open the full gallery ↗</a>
+    </div>
     <div id="asBody"><div class="loading">Loading…</div></div>`;
   let src = 'gallery';
   host.querySelectorAll('.chip').forEach(c => c.onclick = () => {
     src = c.dataset.src;
     host.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x===c));
+    $('asGalleryLink').hidden = src !== 'gallery';
     loadAssets(src);
   });
   $('asGo').onclick = () => loadAssets(src);
@@ -378,9 +382,24 @@ async function loadAssets(src){
       : `api/assets/scans?client=${encodeURIComponent(client)}`;
     const d = await fetch(url).then(r=>r.json());
     const list = d.assets||[];
+    // The full gallery — every folder, every source, its own search — is
+    // offered whenever this client has one, whether or not this search
+    // found anything: a "Client gallery" chip that only ever shows what
+    // this panel happened to match is not the client's gallery.
+    const glLink = $('asGalleryLink'), glOpen = $('asGalleryOpen');
+    if(src === 'gallery' && d.gallery_url && glLink && glOpen){
+      glOpen.href = d.gallery_url;
+      glLink.hidden = false;
+    } else if(glLink){
+      glLink.hidden = true;
+    }
     if(!list.length){
       box.innerHTML = '<div class="loading">'+(src==='gallery'
-        ? 'No gallery images'+(client?' for '+esc(client):'')+' yet.'
+        ? (client
+            ? (q ? `No match for “${esc(q)}” in ${esc(client)}'s gallery.`
+                 : `Nothing in ${esc(client)}'s gallery yet — `
+                   + `use "Open the full gallery" above to add some.`)
+            : 'Pick a client to search their gallery.')
         : 'No audit imagery found.')+'</div>';
       return;
     }

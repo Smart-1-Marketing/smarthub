@@ -643,6 +643,17 @@ jobs:
             echo "test_image_picker.py not on this branch — nothing to run."
           fi
 
+      - name: Image Creator gallery tests
+        # The "Client gallery" chip reads the real shared gallery now, not the
+        # SEO Image Pipeline's own archive, and always offers a way to the
+        # full gallery. Guarded like the steps around it.
+        run: |
+          if [ -f test_image_creator.py ]; then
+            python test_image_creator.py
+          else
+            echo "test_image_creator.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.

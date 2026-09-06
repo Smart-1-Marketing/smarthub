@@ -279,6 +279,24 @@ def store_uploaded(data: bytes, filename: str, client_name: str) -> dict:
     if not getattr(stored, "url", ""):
         return {"found": False, "source": "upload",
                 "note": "The logo was uploaded but no URL came back for it."}
+
+    # Into the client's own gallery, the same way every other upload in this
+    # Hub is filed — otherwise this logo exists only in the "ads_logos"
+    # Cloudinary folder and Client 360 has no way to show it was ever
+    # uploaded. Best-effort: the logo is already stored, and a gallery that
+    # will not answer must not cost the rep the upload they just made.
+    gallery_url = ""
+    try:
+        from modules.image_picker import filing
+        filed = filing.file_asset(
+            client_name=client_name or "", public_id=stored.public_id,
+            url=stored.url, kind="logo", label="Logo",
+            filename=filename or "logo.png", provider="logo_upload",
+            saved_by="ads_builder")
+        gallery_url = filed.get("gallery_url", "") if filed.get("ok") else ""
+    except Exception:  # noqa: BLE001
+        pass
+
     return {"found": True, "source": "upload", "url": stored.url,
-            "public_id": stored.public_id,
+            "public_id": stored.public_id, "gallery_url": gallery_url,
             "note": f"Uploaded by hand ({filename})."}

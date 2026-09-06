@@ -2442,19 +2442,54 @@
       fetch('/_hub/gallery?client=' + encodeURIComponent(who))
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          if (!d.images || !d.images.length) {
-            bgSay('<span class="bgmsg">' + esc(d.note ||
-              'Nothing in that gallery can be used as a background.') +
-              ' Try uploading one.</span>');
-            return;
-          }
-          bgGrid(d.images.map(function (i) {
+          var all = d.images || [];
+          var galleryUrl = '/tools/image-picker/gallery/for-client?name=' + encodeURIComponent(who);
+          var term = '';
+          function toTile(i) {
             // `thumb` is what the tile draws; `url` is what gets applied and
             // what the magnifier opens. Only the Hub-fed gallery carries one
             // -- stock, AI and a fresh upload pass none and fall back to the
             // asset, exactly as they did before.
             return { url: i.url, thumb: i.thumb || '', label: i.label || '' };
-          }), 'gallery');
+          }
+          function matches(i, q) {
+            return (i.alt || '').toLowerCase().indexOf(q) !== -1 ||
+              (i.kind || '').toLowerCase().indexOf(q) !== -1 ||
+              (i.label || '').toLowerCase().indexOf(q) !== -1;
+          }
+          // Offered whether or not there is anything to search yet, and
+          // whatever a search here does or does not turn up -- a "Client
+          // gallery" source with no way to reach the client's actual
+          // gallery is not one.
+          var head = '<div class="bggallerysearch">' +
+            '<input type="search" id="bgGallerySearch" placeholder="Search ' +
+            esc(who) + '\u2019s gallery\u2026" style="width:70%"> ' +
+            '<a href="' + esc(galleryUrl) + '" target="_blank" rel="noopener">' +
+            'Open the full gallery \u2197</a></div>';
+          function render(list) {
+            var body = list.length
+              ? '<p class="bgmsg">Click one to put it behind this concept, ' +
+                'or the magnifier to see it full size first.</p>'
+              : '<span class="bgmsg">' + esc(term
+                  ? '\u201c' + term + '\u201d matched nothing in ' + who + '\u2019s gallery.'
+                  : (d.note || 'Nothing in that gallery can be used as a background.')) +
+                (term || all.length ? '' : ' Try uploading one.') + '</span>';
+            bgGrid(list.map(toTile), 'gallery', head + body);
+            var input = document.getElementById('bgGallerySearch');
+            if (!input) return;
+            input.value = term;
+            if (!all.length) { input.disabled = true; return; }
+            input.addEventListener('input', function () {
+              term = this.value.trim().toLowerCase();
+              var wasFocused = document.activeElement === this;
+              render(term ? all.filter(function (i) { return matches(i, term); }) : all);
+              if (wasFocused) {
+                var again = document.getElementById('bgGallerySearch');
+                if (again) { again.focus(); again.selectionStart = again.selectionEnd = again.value.length; }
+              }
+            });
+          }
+          render(all);
         })
         .catch(function () {
           bgSay('<span class="bgmsg">That gallery could not be read.</span>');

@@ -339,6 +339,73 @@ check("an unknown source is refused with a message", bad.status_code, 400)
 check("  ...that is fit to put on the page",
       bool(bad.get_json().get("error")), True)
 
+# ---------------------------------------------------------------------------
+section("A saved edit reaches the client's gallery, not just Cloudinary")
+# ---------------------------------------------------------------------------
+# save() has always filed the finished edit through hub.storage.put_remote,
+# which puts it in the "commercials" Cloudinary tree — and stopped there, so
+# it never reached modules.image_picker's gallery, the one page a client is
+# pointed at. Asserted with both real dependencies faked out: nothing here
+# should touch Cloudinary or a database.
+
+from modules.video_tools import edits                              # noqa: E402
+import hub.storage as _vt_storage                                  # noqa: E402
+from modules.image_picker import filing as _vt_filing              # noqa: E402
+
+
+class _FakeJob:
+    tool = "dead_air"
+    source_public_id = "commercials/acme/source"
+    client_name = "Acme Plumbing"
+    saved_public_id = ""
+    saved_url = ""
+    finished_at = None
+
+
+_vt_filed: list[dict] = []
+_orig_put_remote = _vt_storage.put_remote
+_orig_file_asset = _vt_filing.file_asset
+
+
+def _fake_put_remote(kind, url, **kw):
+    return _vt_storage.StoredAsset(
+        public_id=f"{kind}/acme/edits/source-tightened", url=url,
+        resource_type="video", bytes=0, backend="cloudinary",
+        folder=kind, checksum="x")
+
+
+def _fake_file_asset(**kw):
+    _vt_filed.append(kw)
+    return {"ok": True, "gallery_url": "/tools/image-picker/gallery/1"}
+
+
+_vt_storage.put_remote, _vt_filing.file_asset = _fake_put_remote, _fake_file_asset
+try:
+    out = edits.save(_FakeJob(), url="https://derived.example/x.mp4",
+                     filename="source-tightened.mp4")
+    check("the save still returns the stored asset", bool(out.get("public_id")), True)
+    check("and now files into the client's gallery", len(_vt_filed), 1)
+    check("  ...under the client on the job",
+          _vt_filed[0].get("client_name"), "Acme Plumbing")
+    check("  ...tagged as this tool's own provider",
+          _vt_filed[0].get("provider"), "video_tools")
+    check("  ...as video, not an image", _vt_filed[0].get("resource_type"), "video")
+
+    _vt_filed.clear()
+    job_no_client = _FakeJob()
+    job_no_client.client_name = ""
+    edits.save(job_no_client, url="https://derived.example/x.mp4",
+              filename="source-tightened.mp4")
+    check("an edit with no client files nothing", _vt_filed, [])
+finally:
+    _vt_storage.put_remote, _vt_filing.file_asset = _orig_put_remote, _orig_file_asset
+
+check("the provider is one the gallery can name",
+      "video_tools" in _vt_filing.SOURCE_LABELS, True)
+check("and it sorts as our own work, not something the client sent",
+      "video_tools" in _vt_filing.WE_MADE, True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
