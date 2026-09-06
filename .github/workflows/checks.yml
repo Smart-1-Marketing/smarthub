@@ -2152,6 +2152,21 @@ jobs:
       # cannot quietly add a literal.
       - name: What this Hub signs with
         run: python3 test_signing.py
+      # The owner-only QuickBooks check reconciliation tool: name
+      # normalization, match scoring, allocation suggestions (an exact
+      # balance, the pre-late-fee principal flagged rather than silently
+      # applied, exact multi-invoice combinations) and the Payment payload.
+      # It arrived with a workflow of its own; test_knack_websites_source.py
+      # asserts checks.yml is the only workflow, for the reason the ci.yml
+      # that once existed was folded in -- two gates disagreeing about what
+      # green means is worse than either alone.
+      - name: Check reconciliation matching and payloads
+        run: |
+          if [ -f test_check_reconciliation.py ]; then
+            python3 test_check_reconciliation.py
+          else
+            echo "test_check_reconciliation.py not on this branch — nothing to run."
+          fi
       # hub/landing_images.py picks the pictures on a page a prospect reads,
       # and its docstring ends "a page may be short, it may not lie".
       # from_site() regexed every image URL out of a 400 KB scan payload and

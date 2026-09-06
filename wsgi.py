@@ -118,6 +118,7 @@ _MOUNT_ACTIVE = {
     "/tools/google-access": "google_access",
     "/tools/image-picker": "image_picker",
     "/tools/page-images": "page_image_optimizer",
+    "/tools/check-reconciliation": "tools",
     # Its own sidebar entry rather than "tools": this one operates a
     # client's live Google Ads account, and a page that can enable
     # spend should say where it is in the nav.
@@ -508,6 +509,19 @@ except Exception as _smartforecast_exc:  # noqa: BLE001
         "SmartForecast Dynamic Website", str(_smartforecast_exc))
 
 try:
+    # Owner-only QuickBooks check reconciliation. The module carries its own
+    # second gate (an email allowlist over a real account session) on top of
+    # the AuthGuard the mount already provides.
+    import importlib as _il_checkrec
+    checkrec = _il_checkrec.import_module("modules.check_reconciliation.app")
+    checkrec_fb = None
+except Exception as _checkrec_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    checkrec, checkrec_fb = None, _fallback_app(
+        "Check Reconciliation", str(_checkrec_exc))
+
+try:
     import importlib as _il_social
     social = _il_social.import_module("modules.social_planner.app")
     social_fb = None
@@ -854,6 +868,11 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
     "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio",
                                public_prefixes=_FANRAD_PUBLIC) if fanrad else fanrad_fb,
+    # Nothing on it is public: every route reads or writes the owner's
+    # QuickBooks book, and the module refuses even a signed-in account whose
+    # email is not on its allowlist.
+    "/tools/check-reconciliation": _mount(checkrec.app, "/tools/check-reconciliation")
+                                   if checkrec else checkrec_fb,
 })
 from hub import errors as _errors
 application = _errors.ErrorMirror(application)
