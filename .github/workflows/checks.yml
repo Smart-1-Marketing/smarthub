@@ -1791,6 +1791,16 @@ jobs:
       - name: A QA review asked for, answered and closed
         run: python3 test_qa_tasks.py
 
+      # A curated shortlist per department, laid over the sidebar rather than
+      # a second permission system. Block validation (a javascript: href, a
+      # blank label, the cap), a delete that un-assigns rather than leaving a
+      # dangling id, a roster read that names a database it could not reach,
+      # and the wiring: the editor behind Utilities, reading your own view
+      # not, and the blueprint actually guarded rather than open to a
+      # stranger.
+      - name: Department Views — curated per department, gated at the editor
+        run: python3 test_department_views.py
+
       # One design into the whole size set. The failure it exists to catch is
       # a resize that produced a broken ad and reported success -- silent from
       # every direction, because the frame renders and the file uploads and it

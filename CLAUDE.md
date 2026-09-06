@@ -12650,6 +12650,11 @@ python3 test_qa_tasks.py           # asking somebody to check a page: four state
                                    #   from the nav and the tiles, and a card
                                    #   that never draws a zero over a table it
                                    #   could not read
+python3 test_department_views.py   # a curated shortlist per department: block
+                                   #   validation, a delete that un-assigns
+                                   #   rather than dangling, and the editor
+                                   #   gated behind Utilities while reading
+                                   #   your own view is not
 python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
                                    #   one reading, and counts that land on rows
 python3 test_knack_map.py          # what is mapped in Knack and what is

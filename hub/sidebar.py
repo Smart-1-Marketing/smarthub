@@ -90,6 +90,10 @@ _ITEMS = [
     # "what do we know about this client" and this one answers "which of them
     # needs an hour today", which is the question somebody opens the Hub with.
     ("myclients", "/my-clients", "&#128203;", "My Clients"),
+    # A curated shortlist for the department somebody is on -- nothing here is
+    # more or less reachable because of it, so it needs no access level of its
+    # own; the editor that curates it is Utilities-gated instead, below.
+    ("deptviews", "/views", "&#128065;", "My View"),
     ("_sec2", "", "", "Sales"),
     # One entry, because there is one proposal builder. /sales/proposals is the
     # retired standalone tool: it redirects here and serves its archive only.
@@ -139,6 +143,7 @@ _ITEMS = [
     ("diagnostics", "/diagnostics", "&#128300;", "Diagnostics", ADMIN_ONLY),
     ("status", "/status", "&#128678;", "System Status", ADMIN_ONLY),
     ("users", "/diagnostics/users", "&#128100;", "Users", ADMIN_ONLY),
+    ("deptviews_manage", "/views/manage", "&#9881;", "Department Views", ADMIN_ONLY),
     # Not named in the reshuffle, and it had to land somewhere rather than be
     # dropped: it is a system-wide record read for the same reason as the three
     # above, so it sits with them rather than among the tools that write to it.

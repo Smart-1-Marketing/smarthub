@@ -86,6 +86,11 @@ UTILITY_PREFIXES = (
     # emptying it makes every report on the Hub run again, which is not
     # everybody's button to press.
     "/api/report-cache",
+    # Curating what a department's view contains, and who is on it. Reading
+    # your own view (`/views`, `/api/department-views/mine`) stays open to
+    # everyone -- this is only the editor and the roster it writes against.
+    "/views/manage",
+    "/api/department-views/admin",
 )
 
 # Utilities paths that stay open to everyone, because being locked out of them
