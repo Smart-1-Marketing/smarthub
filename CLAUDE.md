@@ -6685,21 +6685,47 @@ a moving 720x1560 GIF. Splitting it would invent two names the kit does not
 publish, which is exactly what `kit_name_drift()` exists to catch. No file
 weight is published for it, so none is invented.
 
-**Three of the twenty are a different kind of gap, and it reaches the client
+**Three of the twenty were a different kind of gap, and it reached the client
 document.** Instagram Reels, Facebook Reels and the six CTV interactive
-formats are sold by the kit and this module holds **no unit** for any of them
+formats are sold by the kit and this module held **no unit** for any of them
 — not "we cannot parse that table" but "there is nothing here to judge one
 against". So a Meta requirement listed Stories and never Reels and read as
 complete, on the page the client is sent, while the kit itself says in as many
 words that *"Facebook Reels and Instagram Reels are not interchangeable —
 different file types, text limits and duration rules."* That is the Pinterest
 failure one placement along: judged against the nearest thing rather than
-reported as not measured. `_KIT_NOT_MODELLED` names them against the channels
-whose presence puts them in play, and `required_units()` carries them in the
-payload **and** on the one line `units_line()` prints — left in the note alone,
-the requirement a client actually reads still looks complete. `measured` stays
-true, because the units we do have are measured; what is withdrawn is the
-claim that the list is all of it.
+reported as not measured. `_KIT_NOT_MODELLED` named them against the channels
+whose presence put them in play, and `required_units()` carried them in the
+payload **and** on the one line `units_line()` prints — left in the note
+alone, the requirement a client actually reads still looks complete.
+
+**All nine are modelled now, and `_KIT_NOT_MODELLED` is empty.** The kit's own
+sentence is the specification: the two Reels units differ in **three** ways
+and a single shared unit would have satisfied every check above and been
+wrong — Instagram refuses GIF where Facebook takes it, Instagram caps at
+fifteen minutes where Facebook publishes none, and Facebook carries a
+55-character headline where Instagram has no such field. Both are on
+`_META_CHANNELS`, so a Meta buy asks for them by name.
+
+**The six CTV formats are modelled and are deliberately not an ask.** Pause,
+menu, screensaver, in-scene, squeezeback and overlay sit on a channel of their
+own — `ctv_interactive`, which no product maps to — because the kit sells them
+*beyond* the standard in-stream spot and says in as many words that
+availability varies by publisher. On the `ctv` channel they would have joined
+every CTV requirement line, asking every client for six files against a
+portfolio their publisher may not carry: the crying-wolf failure `ADDITIONS`
+and `QR_CODE_RULES` both refuse, on the line a client reads. Modelled means
+`check()` can judge one that arrives and `BY_ID` resolves its tag; it does not
+mean anybody is asked for it, and each carries the kit's own
+confirm-before-selling warning in its notes.
+
+**All three sections are declared unreadable with their reasons**, because
+what the parser cannot read has not changed: the Reels tables publish a format
+name against prose rather than the Unit / Dimensions / weight columns
+`kit_drift()` reads, and the CTV section publishes minimums rather than
+specifications. Declared rather than silently outside every check —
+`kit_coverage()` reports a section on the page nobody declared and a
+declaration that outlives its section, in both directions.
 
 ### A category heading is not a word about the product
 
@@ -12992,37 +13018,60 @@ It runs against a real Postgres rather than SQLite because Sites Admin refuses
 to start without one and serves the 503 fallback instead: on SQLite a whole
 module drops out of every check that boots the app, and nothing says so.
 
-**A setting that is right about a thing that has never happened.** smart1-hub
-is configured `autoDeploy: yes`, `autoDeployTrigger: checksPass`, branch
-`main`, and the checks it is waiting on pass — and Render has never once
-deployed it by itself. Every deploy in its history, past the hundredth and
-back to the week the service was created, is trigger `manual` or `api`, and
-**no service in the workspace has a single `new_commit` in its history**. So
-what is missing is the webhook rather than the setting, which is why reading
-the service config says nothing is wrong: each screen is internally
-consistent, and the one number that shows it is a column nobody scrolls to.
-The stored repo path is the pre-transfer one (`smart1marketing/smarthub`,
-where the repo now lives under the `Smart-1-Marketing` org), and git follows
-that redirect happily — so a manual deploy builds the right code and only the
-event subscription is absent. Reconnecting the repository under the org, with
-Render's GitHub App installed there, is the fix at that end and is the only
-half of this that cannot be done from the repo.
+**A setting that was right about a thing that had never happened — and then
+started happening, quietly, on the side nobody was watching.** This section
+used to say Render had never once deployed smart1-hub by itself: every deploy
+in its history was trigger `manual` or `api`, and no service in the workspace
+had a single `new_commit` in it. The diagnosis was the repo path — the service
+was still pointed at the pre-transfer `smart1marketing/smarthub` rather than
+`Smart-1-Marketing/smarthub` — and the fix named was reconnecting the
+repository under the org with Render's GitHub App installed there.
 
-The half that can is the `deploy` job in `checks.yml`, which makes the same
-promise on the side that demonstrably works: the commit whose checks just went
-green is the commit that ships. It is the workflow's one exception to *no
-secrets*, and it is a separate job for exactly that reason — it never runs on
-a pull request, so a fork's run and a contributor's branch still have no
+That reconnect happened at some point since, and nobody updated this file to
+say so. Checked directly against Render on 2026-09-04: the service now reads
+`autoDeployTrigger: commit`, not `checksPass`, and its deploy history is nine
+deploys deep of nothing but `trigger: new_commit` — one per push to `main`,
+each going `live` the moment it finishes building and `deactivated` the moment
+the next one supersedes it, exactly as an auto-deploying service should. A
+merge landing at 22:07 was live by 22:08; three more merges landed in the next
+eighteen minutes and each one deployed in turn. The failure this section spent
+a page describing is gone, and the only reason it took a direct API check to
+notice is the same one the section already names: a working auto-deploy and a
+broken one look identical from the GitHub side, because neither one is
+watched from there.
+
+**Which is what makes the other half's silence worth reading twice.** The
+`deploy` job in `checks.yml` below still runs on every push to `main`, still
+posts to `RENDER_DEPLOY_HOOK_URL`, and has been failing every single time —
+refusing by design, per its own comment, because `RENDER_DEPLOY_HOOK_URL` was
+never actually set as a repository secret. It was built as the route around a
+broken webhook; the webhook fixed itself and the route around it did not, and
+a job whose entire job is redundancy insurance can fail for a very long time
+before anyone notices, because the thing it insures keeps working without it.
+Nothing here is currently at risk *because* of that — Render's own auto-deploy
+is the one actually shipping code — but it means this repo is one webhook away
+from silently having no deploy path at all again, with a CI job that has been
+printing "Refusing rather than passing" into a log nobody reads for as long as
+the secret has been unset. Setting `RENDER_DEPLOY_HOOK_URL` under Settings →
+Secrets and variables → Actions, from the smart1-hub service's own Settings →
+Deploy Hook on Render, is what closes it — after which this job stops being
+insurance nobody has checked works and starts being insurance that does.
+
+The job is otherwise unchanged, and its own reasoning still holds: it deploys
+the commit whose checks just went green rather than a bare hook, because main
+takes a merge every few minutes here and "check main is green, then trigger a
+deploy" is not atomic — a deploy triggered that way could pick up a commit
+that landed in the intervening seconds. It is the workflow's one exception to
+*no secrets*, and it is a separate job for exactly that reason: it never runs
+on a pull request, so a fork's run and a contributor's branch still have no
 credential and no path to production.
 
-Three rules on it. It deploys **`ref=<sha>` and never a bare hook**: main takes
-a merge every few minutes here, so "check main is green, then trigger a
-deploy" is not atomic, and a deploy triggered that way has already picked up a
-commit that landed in the intervening seconds — naming the sha ships what was
-tested. A **missing secret is a refusal**, not a skip, because a green tick
-over a deploy that did not happen is the confident wrong answer this file
-spends its length undoing. And **the hook URL is never echoed**: the whole URL
-is the credential, anyone holding it can deploy, and the `services/provider_check.py`
+Three rules on it. It deploys **`ref=<sha>` and never a bare hook**, for the
+race named above. A **missing secret is a refusal**, not a skip, because a
+green tick over a deploy that did not happen is the confident wrong answer
+this file spends its length undoing — which is exactly the state it has been
+sitting in. And **the hook URL is never echoed**: the whole URL is the
+credential, anyone holding it can deploy, and the `services/provider_check.py`
 rule about never carrying a key into something a person reads applies to a CI
 log as much as to a page.
 
