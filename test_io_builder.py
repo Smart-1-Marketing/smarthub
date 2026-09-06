@@ -370,9 +370,29 @@ COMPLETE = {"client": "Never Sent LLC", "orderNumber": "99001",
             "client_pdf_url": "https://x/c.pdf",
             "internal_pdf_url": "https://x/i.pdf"}
 
-_real_env = os.environ.get("GHL_WEBHOOK_URL")
-_real_post_io = io.requests.post
-os.environ["GHL_WEBHOOK_URL"] = "https://hooks.example/io"
+# submit_io() reaches Suite through hub.suite_opportunity.push_proposal(),
+# imported fresh inside the route the way every hub.* dependency in this file
+# is -- so it is stubbed the way modules/commercial_builder/routes/suite.py's
+# own tests already stub the same function: overwrite the attribute on the
+# `hub` package itself, which is what a function-local `from hub import X`
+# actually reads once X has been imported once.
+import hub                                                          # noqa: E402
+from hub import suite_opportunity as _real_suite_opportunity        # noqa: E402,F401
+_push_calls = []
+
+
+class _StubSuite:
+    configured = staticmethod(lambda: True)
+    status = staticmethod(lambda: {"ok": True, "problems": []})
+
+    @staticmethod
+    def push_proposal(**kwargs):
+        _push_calls.append(kwargs)
+        return _StubSuite.answer
+
+
+_StubSuite.answer = {"ok": False, "reason": "down"}
+hub.suite_opportunity = _StubSuite
 try:
     # 1. The rep pressed Submit before generating both PDFs. Nothing was
     #    built and nothing went, so nothing is written down -- otherwise
@@ -385,11 +405,11 @@ try:
     check("  and registers no client", registered(), [])
     check("  and writes no order record",
           io_records.get("99001") is None)
+    check("  and Suite is never even asked", _push_calls, [])
 
     # 2. The documents exist and Suite refuses. The client has an order.
-    io.requests.post = lambda url, **kw: Resp(500, {"error": "down"})
     r = client.post("/api/submit-io", json=COMPLETE)
-    check("a webhook that refuses is refused back", r.status_code, 502)
+    check("a Suite push that refuses is refused back", r.status_code, 502)
     rec = io_records.get("99001") or {}
     check("  but the order is written down anyway", rec.get("order"), "99001")
     check("  marked as one Suite has never taken",
@@ -398,12 +418,17 @@ try:
           [e.get("delivered") for e in submitted()], [False])
 
     # 3. It went.
-    io.requests.post = lambda url, **kw: Resp(200, {"ok": True})
+    _StubSuite.answer = {"ok": True, "opportunity_id": "opp_1",
+                         "contact": {"id": "c_1"}, "created": True}
     r = client.post("/api/submit-io", json=COMPLETE)
     check("an order Suite took is accepted", r.status_code, 200)
+    check("  with the opportunity id back on the response",
+          r.get_json().get("suite_opportunity_id"), "opp_1")
     rec = io_records.get("99001") or {}
     check("  and the same order is updated rather than filed twice",
           (rec.get("suite") or {}).get("ever_delivered"), True)
+    check("  the opportunity id is kept on the Hub's own record",
+          rec.get("suite_opportunity_id"), "opp_1")
     rows = submitted()
     check("  the newest entry is the delivered one",
           rows[0].get("delivered"), True)
@@ -413,12 +438,39 @@ try:
           [rows[0].get("client"), rows[0].get("start"), rows[0].get("monthly")],
           ["Never Sent LLC", "2026-09-01", 1000.0])
     check("  and the client registered", registered(), ["never sent"])
+
+    # 4. A correction is sent. It must update opp_1, not open a second deal --
+    #    GoHighLevel has no natural key for "the opportunity this IO made",
+    #    so the Hub's own record of the last successful push is what supplies
+    #    it back.
+    client.post("/api/submit-io", json=COMPLETE)
+    check("  a resubmission is handed back its own opportunity id",
+          _push_calls[-1].get("opportunity_id"), "opp_1")
+
+    # 5. Suite has no contact to attach the opportunity to. Not an error --
+    #    the order is still recorded and both PDFs still exist.
+    _StubSuite.answer = {"ok": False, "needs_contact": True,
+                         "reason": "No Smart 1 Suite contact matches this client."}
+    r = client.post("/api/submit-io", json=COMPLETE)
+    check("a Suite push needing a contact is not a failure", r.status_code, 200)
+    check("  and says so rather than reading as delivered",
+          r.get_json().get("delivered_to_suite"), False)
+    check("  naming what is missing",
+          "contact" in r.get_json().get("message", ""))
+
+    # 6. Suite is not configured at all -- the same graceful, non-blocking
+    #    shape the retired webhook's "unconfigured" branch had.
+    _StubSuite.configured = staticmethod(lambda: False)
+    _StubSuite.status = staticmethod(
+        lambda: {"ok": False, "problems": ["No Suite token — set GHL_PRIVATE_TOKEN."]})
+    r = client.post("/api/submit-io", json=COMPLETE)
+    check("an unconfigured Suite still finishes the submit", r.status_code, 200)
+    check("  recorded, not delivered",
+          r.get_json().get("delivered_to_suite"), False)
+    check("  naming the missing credential",
+          "GHL_PRIVATE_TOKEN" in r.get_json().get("message", ""))
 finally:
-    io.requests.post = _real_post_io
-    if _real_env is None:
-        os.environ.pop("GHL_WEBHOOK_URL", None)
-    else:
-        os.environ["GHL_WEBHOOK_URL"] = _real_env
+    hub.suite_opportunity = _real_suite_opportunity
 
 
 # ---------------------------------------------------------------------------
