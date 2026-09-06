@@ -256,34 +256,122 @@ def guidance_for(section_id: str) -> str:
 # ---------------------------------------------------------------------------
 # Standing directives
 # ---------------------------------------------------------------------------
-DIRECTIVES = [
-    "Never reference Smart 1 Labs. Technology recommendations cover Smart 1 Sites, "
-    "Smart 1 Snap and the Smart 1 Suite's operational tools only.",
-
-    "Position the Smart 1 Suite as the central nervous system of the campaign. Paid "
-    "media is never a standalone solution: the channels feed traffic into the Suite, "
-    "which captures and nurtures those leads through Missed Call Text Back, unified "
-    "communications and automated text and email workflows. Frame the Suite as what "
-    "turns awareness into measurable revenue.",
-
-    "Absolute client confidentiality. Never name another Smart 1 Marketing client, "
-    "current or former, in this proposal — not as a case study, not as a credential, "
-    "not as an example. Use anonymised industry benchmarks instead.",
-
-    "Use only the facts supplied. Do not invent statistics, client results, awards, "
-    "years in business, service areas, conversion rates or capabilities. Every price, "
-    "product name and delivery figure is already computed in the tables the client "
-    "will read next to your copy; contradicting one is worse than omitting it.",
-
-    "Never mention a rate card, a price list or any internal pricing document. The "
-    "client sees the prices quoted to them, and naming the sheet they came off "
-    "invites a question this document cannot answer.",
-
-    "Write as a Smart 1 senior strategist: consultative, confident, specific. Never "
-    "open with 'Based on the information provided' or 'It is important to note'. "
-    "Explain programmatic, CTV, DOOH and IP targeting in terms a business owner would "
-    "use, not in ad-tech vocabulary.",
+# The standing directives, each with the short name a screen can show.
+#
+# Structured rather than a flat list of paragraphs because the rules are now
+# read in two places: the AI prompt, which wants the full sentence, and the
+# wizard's rules panel, which wants a heading a rep can scan. Two copies of
+# the same rule is how the panel comes to describe a directive the prompt no
+# longer carries -- so `DIRECTIVES` is derived from this rather than written
+# beside it.
+#
+# `enforcement` is the honest answer to "and what happens if the model
+# ignores it": `checked` is verified in code on the way back, `computed`
+# means the model never writes those numbers at all, and `asked` means the
+# instruction is in the prompt and nothing verifies it. A rep reading the
+# panel should be able to tell which is which, because that is the difference
+# between a rule and a hope.
+DIRECTIVE_RULES = [
+    {
+        "key": "labs",
+        "title": "No Smart 1 Labs",
+        "enforcement": "checked",
+        "text": "Never reference Smart 1 Labs. Technology recommendations cover "
+                "Smart 1 Sites, Smart 1 Snap and the Smart 1 Suite's operational "
+                "tools only.",
+    },
+    {
+        "key": "suite",
+        "title": "The Smart 1 Suite is the central nervous system",
+        "enforcement": "asked",
+        "text": "Position the Smart 1 Suite as the central nervous system of the "
+                "campaign. Paid media is never a standalone solution: the channels "
+                "feed traffic into the Suite, which captures and nurtures those leads "
+                "through Missed Call Text Back, unified communications and automated "
+                "text and email workflows. Frame the Suite as what turns awareness "
+                "into measurable revenue.",
+    },
+    {
+        "key": "confidentiality",
+        "title": "Absolute client confidentiality",
+        "enforcement": "asked",
+        "text": "Absolute client confidentiality. Never name another Smart 1 Marketing "
+                "client, current or former, in this proposal — not as a case study, "
+                "not as a credential, not as an example. Use anonymised industry "
+                "benchmarks instead.",
+    },
+    {
+        "key": "facts",
+        "title": "Only the facts supplied",
+        "enforcement": "asked",
+        "text": "Use only the facts supplied. Do not invent statistics, client results, "
+                "awards, years in business, service areas, conversion rates or "
+                "capabilities. Every price, product name and delivery figure is "
+                "already computed in the tables the client will read next to your "
+                "copy; contradicting one is worse than omitting it.",
+    },
+    {
+        "key": "ratecard",
+        "title": "Never name the rate card",
+        "enforcement": "checked",
+        "text": "Never mention a rate card, a price list or any internal pricing "
+                "document. The client sees the prices quoted to them, and naming the "
+                "sheet they came off invites a question this document cannot answer.",
+    },
+    {
+        "key": "voice",
+        "title": "Write as a Smart 1 senior strategist",
+        "enforcement": "asked",
+        "text": "Write as a Smart 1 senior strategist: consultative, confident, "
+                "specific. Never open with 'Based on the information provided' or "
+                "'It is important to note'. Explain programmatic, CTV, DOOH and IP "
+                "targeting in terms a business owner would use, not in ad-tech "
+                "vocabulary.",
+    },
 ]
+
+# What the prompt has always been given: the directive sentences, in order.
+DIRECTIVES = [rule["text"] for rule in DIRECTIVE_RULES]
+
+
+def rules() -> list[dict]:
+    """Every standing rule this proposal is held to, for display.
+
+    The wizard's rules panel reads this, so a rep can see what the document
+    is being held to instead of only meeting a rule when copy is discarded
+    for breaking one. Built here rather than mirrored in JavaScript: a
+    directive edited in this file and not in the panel would leave the screen
+    describing a rule that no longer exists, which is worse than no panel.
+    """
+    listed = [dict(rule) for rule in DIRECTIVE_RULES]
+    listed.append({
+        "key": "numbers",
+        "title": "Every number is computed, never written",
+        "enforcement": "computed",
+        "text": "Impressions, reach, rates, package pricing and Expected Results & "
+                "ROI come from the rate card and this campaign's own line items. The "
+                "AI writes the prose above those tables and never the figures inside "
+                "them, so a projection cannot contradict the media plan printed with "
+                "it.",
+    })
+    listed.append({
+        "key": "required",
+        "title": "Three sections cannot be removed",
+        "enforcement": "checked",
+        "text": "Expected Results & ROI, the Media Mix & Budget Allocation and the "
+                "Investment Summary are on every Smart 1 proposal. They can be "
+                "re-worded and reordered; a quote saved without one gets it back on "
+                "the next save.",
+    })
+    listed.append({
+        "key": "formatting",
+        "title": "Plain prose, cleaned on the way through",
+        "enforcement": "checked",
+        "text": FORMATTING_DIRECTIVE + " Generated copy and anything pasted into a "
+                "section are both run through the cleaner, so Markdown or an emoji "
+                "cannot reach the PDF, the Word export or the client.",
+    })
+    return listed
 
 
 def violations(text: str) -> list[str]:

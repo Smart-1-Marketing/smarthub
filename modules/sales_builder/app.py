@@ -3864,6 +3864,12 @@ def api_proposal_spec():
         "outline": [{"id": s["id"], "title": s["title"], "kind": s["kind"],
                      "purpose": s["purpose"], "required": s["id"] in hub_spec.REQUIRED}
                     for s in hub_spec.OUTLINE],
+        # The standing rules, for the wizard's rules panel. Served rather
+        # than mirrored in the page: PROPOSAL_OUTLINE is a mirror a test
+        # holds in place, and a second mirror of six paragraphs of directive
+        # prose would drift the first time one is re-worded here.
+        "rules": hub_spec.rules(),
+        "required": list(hub_spec.REQUIRED),
         "saas_tiers": hub_spec.SAAS_TIERS,
         "next_steps": hub_spec.NEXT_STEPS,
         "comp_confirm_under": hub_creative.COMP_CONFIRM_UNDER,

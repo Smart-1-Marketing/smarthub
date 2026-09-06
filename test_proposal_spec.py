@@ -122,6 +122,40 @@ check("the Smart 1 Suite is not caught by mistake",
       spec.violations("Everything lands in the Smart 1 Suite.") == [])
 
 # ---------------------------------------------------------------------------
+section("the rules a rep can read")
+# ---------------------------------------------------------------------------
+# The panel in the wizard shows these. The failure it guards against is a
+# silent one: a directive re-worded in hub/proposal_spec.py while the screen
+# goes on describing the old rule, which is worse than showing no rules --
+# a rep would be reading a rule the document is not held to.
+displayed = spec.rules()
+check("every standing directive is in the displayable rules",
+      [r["text"] for r in displayed[:len(spec.DIRECTIVES)]] == spec.DIRECTIVES)
+check("the prompt's directive list is derived from the same structure",
+      spec.DIRECTIVES == [r["text"] for r in spec.DIRECTIVE_RULES])
+check("each rule carries a short title and how it is enforced",
+      all(r.get("title") and r.get("enforcement") in
+          ("checked", "computed", "asked") for r in displayed),
+      [r for r in displayed if not r.get("title")])
+check("the Smart 1 Labs rule is shown as checked, because it is",
+      next(r["enforcement"] for r in displayed if r["key"] == "labs") == "checked")
+check("the rules cover the three that are not directives",
+      {"numbers", "required", "formatting"} <= {r["key"] for r in displayed})
+check("the formatting rule shows the directive the model is actually given",
+      spec.FORMATTING_DIRECTIVE in
+      next(r["text"] for r in displayed if r["key"] == "formatting"))
+
+_WIZARD = open(os.path.join(ROOT, "modules", "sales_builder",
+                            "templates", "index.html"), encoding="utf-8").read()
+check("the wizard fetches the rules rather than carrying its own copy",
+      "/sales/builder/api/proposal-spec" in _WIZARD and "drawRules()" in _WIZARD)
+check("...and no directive prose is pasted into the page",
+      not any(rule["text"][:60] in _WIZARD for rule in spec.DIRECTIVE_RULES),
+      [r["key"] for r in spec.DIRECTIVE_RULES if r["text"][:60] in _WIZARD])
+check("a discarded draft names the rule it broke",
+      "broke a proposal rule" not in _WIZARD and "d.breaches" in _WIZARD)
+
+# ---------------------------------------------------------------------------
 section("audience segments are named, not described")
 # ---------------------------------------------------------------------------
 legal = spec.audience_segments_for("Law Firms")
@@ -1522,6 +1556,10 @@ check("the wizard can read the specification from the server",
       len(served["outline"]) == len(spec.OUTLINE))
 check("including the comp threshold",
       served["comp_confirm_under"] == cn.COMP_CONFIRM_UNDER)
+check("and the standing rules the panel shows",
+      [r["title"] for r in served["rules"]] == [r["title"] for r in spec.rules()])
+check("...with the required sections named the same way",
+      set(served["required"]) == set(spec.REQUIRED))
 
 checked = api("post", "/sales/builder/api/creative-check", json={"data": quote_state})
 audio_row = next(r for r in checked["media"] if r["medium"] == "audio")

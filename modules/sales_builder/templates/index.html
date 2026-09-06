@@ -3542,7 +3542,9 @@ async function rewriteSecById(id){
    body:JSON.stringify({data:S,section:id})});
   if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];saveNow();drawPreview();
    toast("✨ "+S.sections[i].title+" rewritten.");return;}
-  toast((d.breaches&&Object.keys(d.breaches).length)?"The rewrite broke a proposal rule and was discarded.":"The AI returned nothing for that section.");
+  const broke=Object.values(d.breaches||{}).flat();
+  toast(broke.length?(broke.join(" ")+" The draft was discarded.")
+                    :"The AI returned nothing for that section.");
  }catch(e){toast("Rewrite failed: "+e.message);}}
 
 /* ============================================================
@@ -3824,7 +3826,9 @@ const STEPS=[
      <button class="btn ${preview?'btn-primary':'btn-line'}" onclick="S._docView='preview';renderStep()">👁 Preview</button>
      <button class="btn ${preview?'btn-line':'btn-primary'}" onclick="S._docView='list';renderStep()">☰ Section order</button>
      <button class="btn btn-good" id="draftBtn" onclick="draftSections()">✨ Write every section</button>
+     <button class="btn btn-ghost" id="rulesBtn" onclick="toggleRules()">📋 Rules this proposal follows</button>
      <span class="note" style="margin:0">Writes each section from the campaign you just built — the tables stay generated from the real numbers.</span></div>
+    <div id="rulesPanel"></div>
     <div id="draftProgress"></div>`
     +(preview
       ? '<div id="docPreview"></div>'
@@ -4754,7 +4758,10 @@ async function draftSections(){
    }else{
     // A section discarded for breaking a proposal rule is named, not
     // silently skipped -- otherwise it just looks like it wrote nothing.
-    S._drafting.failed.push(item.title+((d.breaches&&Object.keys(d.breaches).length)?" (broke a proposal rule)":""));
+    // Which rule, not just that one was broken: a bare "it broke a rule"
+    // sends a rep back to the same button expecting a different answer.
+    const broke=Object.values(d.breaches||{}).flat();
+    S._drafting.failed.push(item.title+(broke.length?" — "+broke.join(" "):""));
    }
   }catch(e){S._drafting.failed.push(item.title+" ("+e.message+")");}
   S._drafting.done++;drawDraftProgress();
@@ -4766,6 +4773,46 @@ async function draftSections(){
  toast(failed.length?("Wrote "+(plan.length-failed.length)+" of "+plan.length+" — "+failed.length+" need another go.")
                     :("✨ Wrote all "+plan.length+" sections — read them before they go out."));
 }
+/* The rules the document is held to, on the screen where the copy is written.
+   Every one of them was already enforced -- some in code, some in the prompt --
+   and none of them was anywhere a rep could read. So a section vanishing for
+   naming Smart 1 Labs was the first time anybody met the rule, which is a poor
+   place to learn it.
+
+   Fetched from /api/proposal-spec rather than written here. hub/proposal_spec.py
+   owns the wording; a second copy in this file would go stale the first time a
+   directive is re-worded there, and a panel that describes a rule the server no
+   longer carries is worse than no panel at all. */
+let RULES=null,RULES_OPEN=false;
+const RULE_TAG={
+ checked:{label:"checked",title:"Verified in code — copy that breaks this is discarded, not shipped"},
+ computed:{label:"computed",title:"These numbers come from the rate card; the AI never writes them"},
+ asked:{label:"in the AI's instructions",title:"Stated in the prompt. Nothing verifies it — read the copy"}};
+async function toggleRules(){
+ RULES_OPEN=!RULES_OPEN;
+ if(!RULES_OPEN){drawRules();return;}
+ if(!RULES){
+  drawRules();                       /* the loading line, before the wait */
+  try{RULES=(await api('/sales/builder/api/proposal-spec')).rules||[];}
+  catch(e){RULES=null;RULES_OPEN=false;toast("Couldn't load the proposal rules: "+e.message);}
+ }
+ drawRules();}
+function drawRules(){
+ const host=document.getElementById('rulesPanel');if(!host)return;
+ if(!RULES_OPEN){host.innerHTML='';return;}
+ if(!RULES){host.innerHTML='<div class="bpanel"><div class="note">Loading the proposal rules…</div></div>';return;}
+ host.innerHTML=`<div class="bpanel" style="margin-top:0;margin-bottom:14px">
+  <div class="ttl">📋 Rules this proposal follows</div>
+  <div class="note" style="margin-bottom:10px">Standing rules from the Smart 1 proposal specification. They apply to every
+   proposal — the AI is told them, and the ones tagged <b>checked</b> are verified on the way back, so copy that breaks one is
+   discarded rather than sent.</div>
+  ${RULES.map(r=>{const t=RULE_TAG[r.enforcement]||RULE_TAG.asked;
+   return `<div style="padding:10px 0;border-top:1px solid var(--line)">
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+     <b style="color:var(--navy);font-size:13px">${esc(r.title)}</b>
+     <span class="autotag" style="font-size:10.5px;font-weight:800;color:var(--blue);background:var(--sky);border-radius:6px;padding:3px 8px;text-transform:uppercase;letter-spacing:.5px" title="${esc(t.title)}">${esc(t.label)}</span></div>
+    <div style="font-size:12.5px;color:var(--muted);margin-top:5px">${esc(r.text)}</div></div>`;}).join('')}
+  </div>`;}
 function drawDraftProgress(){
  const host=document.getElementById('draftProgress');if(!host)return;
  const d=S._drafting;
