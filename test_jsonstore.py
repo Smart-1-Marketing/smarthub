@@ -200,10 +200,21 @@ check("blobs reported unknown, not 0", st["blobs"], None)
 
 # -------------------------------------------------------- 10. database wakes
 section("The database comes back")
+# The cooldown is a verdict about the database that just failed, so it holds
+# while the URL is unchanged -- that is what stops a down database costing
+# every writer a connection attempt.
+check("a failure is still cached at the same URL", js.available(), False)
+
+# ...and it is NOT carried across a change of URL. This section used to
+# simulate the wake by swapping database_url() and then assert the verdict
+# still held, which conflated two different things: on Render a database
+# wakes at the *same* address, and a URL that changes is a different target
+# entirely. Serving the old verdict about it would hold a healthy database
+# down for the rest of the cooldown.
 import hub.extensions as _ext
 _ext.database_url = lambda: "sqlite:///" + MIRROR
-check("still cached as down", js.available(), False)
-time.sleep(1.1)
+check("but a changed URL is re-resolved at once, not held down by it",
+      js.available(), True)
 js.write_json(down, {"i": "after-wake"})
 check("mirroring resumed", js.available(), True)
 os.remove(down)
@@ -717,6 +728,105 @@ for _mod in ("modules/radio_promo/store.py", "modules/social_planner/intake.py")
     check(f"{_mod} keeps no per-process lock of its own",
           "threading.Lock()" in _src, False)
     check(f"{_mod} reads the shared one", "update_json(" in _src, True)
+
+
+section("Which database the mirror uses is a setting, not a latch")
+# =====================================================================
+# `_init()` latches on the FIRST read or write, and `engine_for()` underneath
+# it re-resolves per call -- so the latch was the only thing freezing this.
+# What that cost is a `DATABASE_URL` set after the first jsonstore call: it
+# reads as applied, and every row goes on landing in whatever database the
+# first call happened to see.
+#
+# Measured on test_ad_assets.py, which is what turned this up. It set both
+# variables in section 8; section 3 had already called `ad_assets.migrate()`,
+# which writes a run record -- so the engine was opened against the session's
+# Postgres a hundred lines earlier, and ~70 `abs:/tmp/adassets-*` rows
+# accumulated there, two per run. Moving that assignment above the imports
+# fixed that file and not the class: any hub call can be the first write, so
+# "assign it early" is a rule nothing enforces and the next file gets it
+# wrong the same way.
+#
+# Deliberately NOT a static check on where the assignment sits. Two files
+# assign these after their first hub import today -- test_ad_copy.py and
+# test_help_layer.py -- and neither leaks a single row, because neither
+# writes anything durable first. A check failing on those has false
+# positives, which is the kind somebody switches off.
+
+_sw = os.path.join(TMP, "switch")
+_root_sw = os.path.join(_sw, "root")
+os.makedirs(_root_sw, exist_ok=True)
+_second = "sqlite:///" + os.path.join(_sw, "second.db")
+
+from hub import jsonstore as _js                                   # noqa: E402
+
+_prev_db = os.environ.get("DATABASE_URL")
+_prev_root = os.environ.get("HUB_DATA_DIR")
+try:
+    os.environ["HUB_DATA_DIR"] = _root_sw
+    # Open the engine first, which is the state the trap needs: latched
+    # before the variable moves. This file set DATABASE_URL to its own
+    # MIRROR at the top, so that is what the first write opens against.
+    _js.write_json(os.path.join(_root_sw, "early.json"), {"v": "before"})
+    _held = _js._engine
+    check("the first write opens an engine", _held is not None, True)
+    _base_switches = _js.status().get("database_switched")
+
+    def _delta(st):
+        """Never raises: a missing key must fail one check, not abort the
+        file and take every check after it out of the run."""
+        now, base = st.get("database_switched"), _base_switches
+        if not isinstance(now, int) or not isinstance(base, int):
+            return "not reported"
+        return now - base
+
+
+    os.environ["DATABASE_URL"] = _second
+    _js.write_json(os.path.join(_root_sw, "late.json"), {"v": "after"})
+    check("a DATABASE_URL set after the first write is applied",
+          str(_js._engine.url).endswith("second.db"), True)
+    check("and the later row is in the later database",
+          _js.read_json(os.path.join(_root_sw, "late.json"),
+                              default=None), {"v": "after"})
+
+    # Rows already written are NOT moved, so a mirror that looks complete may
+    # be missing everything written before the switch. Said out loud.
+    _st = _js.status()
+    check("the switch is reported rather than made silently",
+          _delta(_st), 1)
+    # A URL carries a password, and status() is rendered into /diagnostics and
+    # pasted into chats -- the services/provider_check.py rule.
+    check("and no database URL is carried in the report",
+          any("sqlite:" in str(v) for k, v in _st.items() if k != "root"), False)
+
+    # The half that matters in production, where the variable never changes:
+    # nothing re-opens, and nothing further is reported.
+    _engines = set()
+    for _i in range(25):
+        _js.write_json(os.path.join(_root_sw, "steady.json"), {"i": _i})
+        _engines.add(id(_js._engine))
+    check("a constant URL re-opens nothing", len(_engines), 1)
+    check("and reports no further switch",
+          _delta(_js.status()), 1)
+
+    # A URL that cannot be resolved must leave the engine where it is rather
+    # than tearing it down -- _init() is on the write path, and the safe
+    # direction to be wrong in is "do not re-resolve".
+    _keep = _js._engine
+    _real = _js._database_url
+    _js._database_url = lambda: ""
+    try:
+        _js.write_json(os.path.join(_root_sw, "unres.json"), {"v": 1})
+        check("an unresolvable URL leaves the engine alone",
+              _js._engine is _keep, True)
+    finally:
+        _js._database_url = _real
+finally:
+    for _k, _v in (("DATABASE_URL", _prev_db), ("HUB_DATA_DIR", _prev_root)):
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
 
 
 # ------------------------------------------------------------------- summary

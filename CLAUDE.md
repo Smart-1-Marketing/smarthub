@@ -4326,6 +4326,52 @@ reported — a check with false positives is one somebody switches off, and
 switching this one off costs the real finding. It started green, which is the
 only way it was worth adding.
 
+**And the reason first given for the test half of that was wrong.** Its commit
+says `jsonstore` caches its engine on the first `_init()`, so a `DATABASE_URL`
+assigned after `from hub import …` is a no-op. Measured, that is not what
+happens: importing `jsonstore`, importing `hub` and importing `ad_assets` all
+leave `_engine` at `None`, and a late assignment takes effect perfectly well.
+The engine is opened by the first **read or write**, and in that file it was
+`ad_assets.migrate()` in section 3 — a hundred lines above the assignment in
+section 8 — so the engine was opened against the session's Postgres and ~70
+`abs:/tmp/adassets-*` rows accumulated there, two per run. Moving the
+assignment above the imports was the right fix for the wrong stated reason:
+what makes it right is that after the first hub import *any* call may be the
+first write, not that the import itself latches anything.
+
+**A rule nothing enforces is one the next file gets wrong the same way**, and
+the obvious enforcement does not work: a static check on where the assignment
+sits reports `test_ad_copy.py` and `test_help_layer.py`, both of which assign
+after their first hub import and **neither of which leaks a row**, because
+neither writes anything durable first. That is the false-positive shape this
+file names a dozen times over.
+
+So the latch is gone instead. `_init()` re-resolves the URL and re-opens when
+it has changed — `extensions.engine_for()` already re-resolves per call and
+keys its pool on the URL, so that latch was the only thing freezing it. In
+production the variable never changes, `wanted` equals `_engine_url`, and it
+costs one environment read: measured, 300 writes in 0.45s against one engine
+object with no switch reported. Three rules on it. **It never raises** —
+`_database_url()` answers `""` where it cannot resolve, and `""` means *do not
+re-resolve*, which leaves the engine exactly where it was; `_init()` is on the
+write path, and a mirror that cannot name its own database must still let the
+disk write succeed. **The switch is reported rather than made silently**,
+because rows already written are in the previous database and are **not
+moved** — a mirror that looks complete may be missing everything written
+before it — and `status()` carries the count and **never a URL**, since a URL
+carries a password and that dict is rendered into `/diagnostics` and pasted
+into chats. And **a failure cached against one database is not a verdict about
+another**: the retry cooldown is cleared on a change of URL, or a healthy
+database would be held down for the rest of a window recorded about something
+else.
+
+That last one is what `test_jsonstore.py`'s section 10 had been quietly
+asserting the opposite of. It simulated the database *waking* by swapping
+`database_url()` and then required the cached failure to still hold — which
+conflates two different things, because on Render a database wakes at the
+**same** address and a URL that changes is a different target entirely. Both
+halves are asserted separately now.
+
 ---
 
 ## Data sources, and which are stale
@@ -12628,7 +12674,9 @@ python tools/linkcheck.py          # every internal URL resolves, every url_for 
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
-python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
+python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
+                                   #   it, and which database it mirrors into being a
+                                   #   setting rather than a latch on the first write
 python3 test_db_boot.py            # a database blip at boot is not a verdict for
                                    #   the life of the worker, and sign-in says
                                    #   so in words rather than answering 500
