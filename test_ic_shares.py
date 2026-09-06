@@ -153,8 +153,6 @@ after = store.get_share(token)["opened_count"]
 check("opening the link increments its own counter", after, before + 2)
 
 # ------------------------------------------------------------- round cap
-for n in range(review_spec.MAX_ROUNDS + 2):
-    state = review_spec.round_state(n + 1)
 check("round 4 of 4 is not flagged as over", review_spec.round_state(4)["over"], False)
 check("round 5 is flagged as over the cap", review_spec.round_state(5)["over"], True)
 check("...but the client note only appears on the LAST scheduled round",

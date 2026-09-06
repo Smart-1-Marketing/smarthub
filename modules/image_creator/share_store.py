@@ -20,8 +20,8 @@ import logging
 import secrets
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, select
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, select
+from sqlalchemy.orm import declarative_base
 
 from hub.extensions import create_all_metadata, session_factory, shared_engine
 

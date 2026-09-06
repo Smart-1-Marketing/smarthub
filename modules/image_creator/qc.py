@@ -98,7 +98,6 @@ def check_dimensions_and_weight(preset: dict, *, width: int, height: int,
     """
     out: list[dict] = []
     unit_id = preset.get("unit") or ""
-    key = preset.get("key") or ""
 
     if unit_id and creative_specs is not None:
         verdict = creative_specs.check(width=width, height=height,
