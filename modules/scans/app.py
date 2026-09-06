@@ -441,7 +441,7 @@ def _fetch_llm_narrative(s: Scan) -> None:
         try:
             s.llm_narrative = json.dumps(payload)
         except (TypeError, ValueError):
-            pass
+            pass  # an unserialisable payload costs only the narrative, not the scan
 
 
 # =====================================================================
