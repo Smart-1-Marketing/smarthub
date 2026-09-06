@@ -413,7 +413,7 @@
 
 <div class="overlay" id="ov" onclick="closeDrawer()"></div>
 <div class="drawer" id="dr">
-  <div class="dhead"><button class="xclose" onclick="closeDrawer()">✕</button><h2 id="dTitle">Quote</h2><div class="sub" id="dSub"></div></div>
+  <div class="dhead"><button class="xclose" onclick="closeDrawer()" title="Close" aria-label="Close">✕</button><h2 id="dTitle">Quote</h2><div class="sub" id="dSub"></div></div>
   <div class="dbody" id="dBody"></div>
   <div class="dfoot" id="dFoot"></div>
 </div>
@@ -4257,7 +4257,7 @@ function drawItems(){const host=document.getElementById('prodList');if(!host)ret
   <div class="alloc">${consult
     ? `<input type="number" value="${i.dollars||0}" disabled title="Priced by formula — base + per-product, not a media budget slice"><small>$ / mo — formula-priced</small>`
     : `<input type="number" min="0" step="50" value="${i.dollars||0}" onchange="setItemDollars(${ix},+this.value)"><small>$ / ${i.basis==="one_time"?"one time":"month"}</small>`}</div>
-  <button class="x" onclick="rmItem(${ix})">✕</button>
+  <button class="x" onclick="rmItem(${ix})" title="Remove ${esc(itemLabel(i))}" aria-label="Remove ${esc(itemLabel(i))}">✕</button>
   ${rateRow(i,ix)}
   ${basisRow(i,ix)}</div>`;}).join('');
  const noteEl=document.getElementById('consultPriceNote');

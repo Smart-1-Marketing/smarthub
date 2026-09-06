@@ -236,6 +236,16 @@ check("a creative tool now sees the client's own site scan",
 check("...and a logo lifted off a page says so rather than standing in",
       '"seen on their website"' in ctxsrc)
 
+# A picker built from tool_context()'s own gallery is a slice -- a handful of
+# images, sorted for one tool's own purpose -- and the link out has to reach
+# the client's real gallery whether or not that slice found anything, so
+# both callers gained it at once rather than each growing its own.
+check("tool_context always offers the way to the client's real gallery",
+      cc.tool_context("Riverside HVAC", gallery=False)["gallery_url"],
+      "/tools/image-picker/gallery/for-client?name=Riverside%20HVAC")
+check("except for a blank client, which has no gallery to resolve",
+      cc.tool_context("", gallery=False)["gallery_url"], "")
+
 
 shutil.rmtree(TMP, ignore_errors=True)
 print("\n" + "-" * 60)

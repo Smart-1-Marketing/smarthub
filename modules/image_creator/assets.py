@@ -181,24 +181,75 @@ def _brand_colors(payload: dict) -> list[dict]:
 
 # ------------------------------------------------- the Hub's own assets
 def gallery_assets(client: str = "", q: str = "", limit: int = 60) -> list[dict]:
-    """Images already optimised by the SEO Image Pipeline."""
+    """The client's actual gallery — every source, every tool, one search.
+
+    This used to read `modules.seo_images.load_archive()`, which is the SEO
+    Image Pipeline's own optimised-image archive, matched on an exact company
+    name. That is one of a dozen producers that file into a client's gallery
+    (`hub/image_audit.py` lists them), so a photo a client uploaded through
+    their own picker link, or one saved by Ad Builder, GPT Ads or Social
+    Planner, never showed up here despite the chip reading "Client gallery" —
+    the same failure `hub/scan_facts.py` names about a logo lifted off a page
+    being taken for the real thing: the label promised the whole gallery and
+    delivered one tool's slice of it.
+
+    Read the same way `hub/client_context.gallery_images()` does — directly
+    against `modules.image_picker`'s own tables, in-process, because a
+    background editor session should not need a session cookie to talk to
+    itself. Matching is the narrow kind `filing.gallery_for_name` does: an
+    exact slug or nothing, never a substring, for the reason this whole
+    corner of the codebase keeps needing said — a near match is how one
+    client's photograph ends up on another client's ad.
+    """
+    client = (client or "").strip()
+    if not client:
+        return []
     try:
-        from modules.seo_images import app as seo_images
+        from sqlalchemy import or_, select
+
+        from modules.image_picker import filing
+        from modules.image_picker.models import SavedImage, session
+        from hub import storage
     except Exception:                                 # noqa: BLE001
         return []
-    rows = seo_images.load_archive()
-    if client:
-        rows = [r for r in rows if str(r.get("company", "")).lower() == client.lower()]
-    if q:
-        ql = q.lower()
-        rows = [r for r in rows if any(
-            ql in str(r.get(k, "")).lower()
-            for k in ("seo_filename", "alt_text", "project", "page", "company"))]
-    return [{"url": r.get("url", ""), "thumbnail": r.get("url", ""),
-             "name": r.get("filename", ""), "alt": r.get("alt_text", ""),
-             "client": r.get("company", ""), "project": r.get("project", ""),
-             "width": r.get("width"), "height": r.get("height"),
-             "source": "gallery"} for r in rows[:limit] if r.get("url")]
+    try:
+        db = session()
+    except Exception:                                 # noqa: BLE001
+        return []
+    try:
+        gallery = filing.gallery_for_name(db, client)
+        if gallery is None:
+            return []
+        stmt = (select(SavedImage)
+                .where(SavedImage.client_id == gallery.id)
+                .where(SavedImage.resource_type == "image"))
+        q = (q or "").strip()
+        if q:
+            like = f"%{q}%"
+            stmt = stmt.where(or_(
+                SavedImage.filename.ilike(like),
+                SavedImage.alt_text.ilike(like),
+                SavedImage.collection_label.ilike(like)))
+        rows = db.execute(
+            stmt.order_by(SavedImage.created_at.desc()).limit(max(1, min(200, limit)))
+        ).scalars().all()
+    finally:
+        db.close()
+
+    out = []
+    for r in rows:
+        url = r.cloudinary_url or r.source_url or ""
+        if not url:
+            continue
+        out.append({
+            "url": url,
+            "thumbnail": storage.preview_url(url, r.resource_type or "image"),
+            "name": r.filename or "", "alt": r.alt_text or "",
+            "client": client, "project": r.collection_label or "",
+            "width": r.width, "height": r.height,
+            "source": "gallery",
+        })
+    return out
 
 
 def scan_assets(client: str = "", domain: str = "", limit: int = 40) -> list[dict]:

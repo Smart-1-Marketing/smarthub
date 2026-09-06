@@ -1350,6 +1350,53 @@ check("the module still names hub.storage for the listing",
 check("and for the configure", "storage.configure()" in _cs_src, True)
 
 
+# ---------------------------------------------------------------------------
+# 13. "Use Client Asset" sees the shared gallery, not only this project's tree
+#
+# list_client_assets() only ever read commercials/<slug>/<category>/ -- this
+# module's own Cloudinary uploads for this client. A clip Video Search or
+# Video Tools had already saved for the identical client, through the same
+# file_asset() every producer in this Hub files through, was invisible to the
+# one picker here that exists to reuse something the client already has.
+# ---------------------------------------------------------------------------
+section("Use Client Asset reads the client's real gallery too")
+
+from modules.image_picker import filing as _picker_filing               # noqa: E402
+
+_filed_video = _picker_filing.file_asset(
+    client_name="Wizard Test HVAC", public_id="video_tools/wizard-test-hvac/edits/clip",
+    url="https://example.test/clip.mp4", kind="video_edit",
+    filename="clip.mp4", resource_type="video", provider="video_tools",
+    saved_by="test")
+check("a video from a different tool files for this exact client",
+      _filed_video.get("ok"), True)
+
+assets_resp = client.get(MOUNT + f"/api/clients/{client_id}/assets?category=video")
+assets_body = assets_resp.get_json()
+check("the route still answers", assets_resp.status_code, 200)
+check("and the shared gallery's clip is offered alongside this project's own",
+      any(a.get("public_id") == _filed_video["image"]["public_id"]
+          for a in assets_body.get("assets", [])), True)
+check("carrying a link to the full gallery, whatever the merge found",
+      assets_body.get("gallery_url"),
+      "/tools/image-picker/gallery/for-client?name=Wizard%20Test%20HVAC")
+
+# Filed a second time under the module's own provider — this is the shape
+# _file_in_gallery() already produces for a photo/logo upload, and the merge
+# must not offer the same asset twice just because two trees both know it.
+_filed_photo = _picker_filing.file_asset(
+    client_name="Wizard Test HVAC", public_id="commercials/wizard-test-hvac/photos/logo",
+    url="https://example.test/logo.png", kind="commercial",
+    filename="logo.png", provider="commercial_builder", saved_by="test")
+photo_resp = client.get(MOUNT + f"/api/clients/{client_id}/assets?category=photo").get_json()
+check("a photo category merges the shared gallery too",
+      any(a.get("public_id") == _filed_photo["image"]["public_id"]
+          for a in photo_resp.get("assets", [])), True)
+check("and does not appear twice",
+      sum(1 for a in photo_resp.get("assets", [])
+          if a.get("public_id") == _filed_photo["image"]["public_id"]), 1)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

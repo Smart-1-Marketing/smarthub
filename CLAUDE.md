@@ -12702,6 +12702,11 @@ python3 test_qa_tasks.py           # asking somebody to check a page: four state
                                    #   from the nav and the tiles, and a card
                                    #   that never draws a zero over a table it
                                    #   could not read
+python3 test_department_views.py   # a curated shortlist per department: block
+                                   #   validation, a delete that un-assigns
+                                   #   rather than dangling, and the editor
+                                   #   gated behind Utilities while reading
+                                   #   your own view is not
 python3 test_sales_status.py       # the pipeline on the dashboard: five signals,
                                    #   one reading, and counts that land on rows
 python3 test_knack_map.py          # what is mapped in Knack and what is
@@ -12833,6 +12838,9 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
 python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
+                                   #   gallery, searches it, and always offers the link
+                                   #   to the full one
 python3 test_stock_search.py       # four sources in one search; a missing folder is not an empty one
 python3 test_alt_text.py           # the alt-text scan, its clamps, the Claude prompts
 python3 test_gpt_ads.py            # the 1:1 gate, the copy checks, the ad-ops ZIP

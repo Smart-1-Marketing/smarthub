@@ -333,11 +333,52 @@ def api_export(pid: str):
     _log("pack_exported",
          detail=f"{sum(1 for r in report if r.get('included'))} of {len(report)}",
          client=project.get("client", ""))
+    if not body.get("report_only"):
+        _file_to_gallery(project, prepared)
     if body.get("report_only"):
         return jsonify({"report": report})
     name = store.slugify(project.get("name", "resize")) or "resize"
     return send_file(io.BytesIO(blob), mimetype="application/zip",
                      as_attachment=True, download_name=f"{name}-sizes.zip")
+
+
+def _file_to_gallery(project: dict, prepared: list[dict]) -> None:
+    """Put every size that made the cut into the client's own gallery.
+
+    The ZIP handed to a browser is a download, not a record: nothing else
+    reads it, and a client asking "what have you built us?" would see
+    nothing here at all. Every other producer in this Hub files what it
+    makes (`hub/image_audit.py`), so this does too — one Cloudinary upload
+    and one gallery row per size, best-effort, because the export a rep is
+    waiting on has already succeeded and a gallery that will not answer must
+    not cost them that.
+    """
+    client = str(project.get("client") or "").strip()
+    if not client:
+        return
+    try:
+        from hub import storage
+        from modules.image_picker import filing
+    except Exception:                                    # noqa: BLE001
+        return
+    name = project.get("name") or "resize"
+    for row in prepared:
+        if row.get("ok") is False or not row.get("data"):
+            continue
+        size_id = row.get("size_id", "")
+        try:
+            stored = storage.put(
+                "magic_resize", export.filename_for(size_id, row.get("fmt", "png")),
+                row["data"], client=client, subpath=store.slugify(name))
+            filing.file_asset(
+                client_name=client, public_id=stored.public_id, url=stored.url,
+                kind="display_ad", label=f"Magic Resize — {name}",
+                key=store.slugify(name)[:80],
+                filename=export.filename_for(size_id, row.get("fmt", "png")),
+                resource_type="image", size_bytes=stored.bytes,
+                provider="magic_resize", saved_by=actor_name())
+        except Exception:                                # noqa: BLE001
+            continue
 
 
 def _decode(data_url: str) -> bytes:

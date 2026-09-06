@@ -68,6 +68,12 @@ KIND_LABELS = {
     # thing to browse than the stock photos chosen for their creative, and the
     # two tools file at different times for different reasons.
     "video_search": "Video Searches",
+    # A dead-air cut or a reframe out of modules/video_tools, saved as its
+    # own asset once a rep has decided the edit is the deliverable rather
+    # than a trial. Its own heading rather than folded into "commercial":
+    # this tool works on any video a client already has, not only a
+    # commercial the Commercial Builder made.
+    "video_edit": "Video edits",
 }
 
 # A label declared here and written by nothing is the failure this codebase
@@ -121,6 +127,7 @@ SOURCE_LABELS = {
     "gpt_ads": "GPT ads",
     "logo_brand": "Logo (from their brand record)",
     "logo_scan": "Logo (seen on their website)",
+    "logo_upload": "Logo (uploaded)",
     "display_ads": "Display ads",
     # Files kept against a business before they were a client. They live on
     # the prospect record while it is one, and a conversion carries them
@@ -145,6 +152,19 @@ SOURCE_LABELS = {
     # client specifically, so it sorts last and claims nothing.
     "video_library": "Our video library",
     "coverr": "Coverr",
+    # Generated for a Performance Max asset group in modules/ads_builder --
+    # a distinct provider from Display Ad Builder's own "display_ads" because
+    # a different tool made it, and the two must be able to disagree without
+    # one silently covering for the other.
+    "ads_pmax": "Performance Max creative",
+    # One design resized into a whole size set -- modules/magic_resize. Its
+    # own provider rather than "display_ads": that is the Display Ad Builder,
+    # a different tool that generates a set from copy and a brand rather than
+    # resizing a design somebody drew.
+    "magic_resize": "Magic Resize",
+    "video_edit": "Video edits",
+    # A dead-air cut or a reframe, kept as its own asset -- modules/video_tools.
+    "video_tools": "Video edits",
 }
 
 # Which of the three questions a group answers. The first thing anybody asks
@@ -154,10 +174,12 @@ SOURCE_LABELS = {
 THEIRS = ("local", "camera", "google_drive", "dropbox", "instagram",
           "facebook", "url", "social_request")
 WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
-           "display_ads", "ad_builder", "logo", "logo_brand", "logo_scan",
-           "client_logos", "bg_remover", "cutout", "image_creator", "graphic",
+           "display_ads", "ad_builder", "ads_pmax", "magic_resize", "logo",
+           "logo_brand", "logo_scan", "logo_upload", "client_logos",
+           "bg_remover", "cutout", "image_creator", "graphic",
            "page_image_optimizer", "page_image", "commercial_builder",
-           "commercial", "gpt_ads", "prospect", "io_builder")
+           "commercial", "gpt_ads", "prospect", "io_builder",
+           "video_edit", "video_tools")
 
 
 def source_tiers() -> dict:

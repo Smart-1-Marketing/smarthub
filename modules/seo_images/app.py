@@ -765,8 +765,8 @@ def api_save_one():
 
     url = result.get("secure_url", "")
     try:
-        # Same archive the pipeline writes, so it shows in the client gallery
-        # alongside everything else rather than only existing in Cloudinary.
+        # Same archive the pipeline writes, so it shows in the SEO Image
+        # Pipeline's own list alongside everything else.
         rows = load_archive()
         rows.insert(0, {
             "id": secrets.token_hex(8),
@@ -782,8 +782,31 @@ def api_save_one():
     except Exception:  # noqa: BLE001
         pass          # the image is stored; the index entry is a convenience
 
+    # The button says "the client's gallery" — that is
+    # modules/image_picker's gallery, not this archive, and the two used to
+    # be different stores. File it the same way api_finalize() above does,
+    # or the button's own label is a promise the route does not keep.
+    gallery_url = ""
+    gallery_filed = False
+    try:
+        from modules.image_picker import filing
+        filed = filing.file_asset(
+            client_name=company, public_id=result.get("public_id", ""),
+            url=url, kind="seo_image", label="SEO images — Optimized",
+            filename=upload.filename, resource_type="image",
+            size_bytes=result.get("bytes", len(data)),
+            provider="seo_image", saved_by=actor_name())
+        gallery_filed = bool(filed.get("ok"))
+        gallery_url = filed.get("gallery_url", "")
+    except Exception:  # noqa: BLE001
+        pass          # the image is stored; the gallery write is best-effort
+
     return jsonify({"ok": True, "url": url,
-                    "note": f"Saved to {company}'s gallery."})
+                    "gallery_filed": gallery_filed, "gallery_url": gallery_url,
+                    "note": f"Saved to {company}'s gallery." if gallery_filed
+                            else f"Saved, but could not be filed to "
+                                 f"{company}'s gallery — it's still in the "
+                                 f"SEO Image Pipeline archive."})
 
 
 @app.route("/api/clients")
