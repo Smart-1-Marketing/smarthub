@@ -46,10 +46,13 @@ proposal_spec.clean_ai_text() after, like every other piece of copy.
 
 Wiring status — because a prompt landed here and wired nowhere is the
 declared-but-unwired failure CLAUDE.md counts six of. AD_COPY and
-AD_EXTENSIONS are wired (modules/ads_builder/copy_ideas.py, this change). The
-remaining seven land with the module each names, in the order
-docs/pickaxe-integration.md gives, so the two-year-old wording travels here
-once rather than being re-harvested per PR.
+AD_EXTENSIONS are wired (modules/ads_builder/copy_ideas.py); RADIO_SCRIPT and
+TV_SCRIPTS are wired into the Proposal Builder's creative gate
+(/sales/builder/api/draft-spot) — the two radio builders and the Commercial
+Builder keep their own budget-aware writers, so the gate is where a drafted
+spot was actually missing. The rest land with the module each names, in the
+order docs/pickaxe-integration.md gives, so the two-year-old wording travels
+here once rather than being re-harvested per PR.
 """
 from __future__ import annotations
 

@@ -3873,7 +3873,36 @@ function creativeCard(r){
             <button class="btn btn-line" onclick="setCreative('${r.medium}','client')">No — the client pays</button>`}
       </div></div>`
    : `<div class="note" style="margin-top:12px">${money(r.spend)} is above the ${money(r.threshold||COMP_CONFIRM_UNDER)} mark, so the comp is recorded without a second question.</div>`;}
+ /* A first-draft spot, offered only where Smart 1 is producing it — a client
+    who has creative needs no draft, and the ask otherwise leaves this step
+    as a one-line note and comes back weeks later as "what should it say?".
+    The harvested Radio Scripts / TV Scripts prompts (hub/prompts_harvested)
+    answer from this quote's own fields. Stored under S.draftSpots, which is
+    deliberately NOT creativePlan: creativePlan rides to the insertion order
+    and the draft is internal working notes. */
+ if((r.medium==="audio"||r.medium==="video")&&(r.answer==="client"||r.answer==="comp")){
+  html+=`<div style="margin-top:12px" id="spotBox-${r.medium}">${spotDraftHtml(r.medium)}</div>`;}
  return html+`</div>`;}
+function spotDraftHtml(medium){
+ const d=(S.draftSpots||{})[medium];
+ const what=medium==="audio"?"a :30 radio spot":"a set of TV scripts";
+ let h='';
+ if(d&&d.text){
+  h+=`<div style="white-space:pre-wrap;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#F7F9FC;font-size:13px;max-height:260px;overflow:auto">${esc(d.text)}</div>
+   <div class="note" style="margin-top:6px">Internal working draft${d.generated?" ("+esc(String(d.generated).slice(0,10))+")":""} — on neither the proposal nor the IO. The real ${medium==="audio"?"spot is made in the Radio Ad Creator":"cut is made in the Commercial Builder"}; this is the starting brief.</div>`;}
+ h+=`<div style="margin-top:8px"><button class="btn btn-line" onclick="draftSpot('${medium}')">${d&&d.text?"Re-draft":"✨ Draft "+what+" (AI)"}</button></div>`;
+ return h;}
+async function draftSpot(medium){
+ const box=document.getElementById('spotBox-'+medium);
+ if(box)box.innerHTML='<span class="spin" data-s1-think="ai"></span> Writing a first draft…';
+ try{
+  const d=await api('/sales/builder/api/draft-spot',{method:'POST',
+    body:JSON.stringify({medium,data:S})});
+  S.draftSpots=S.draftSpots||{};S.draftSpots[medium]=d.spot;saveSoon();
+  if(box)box.innerHTML=spotDraftHtml(medium);
+ }catch(e){
+  if(box)box.innerHTML=spotDraftHtml(medium)
+   +'<div class="note" style="color:#8c2f24;margin-top:6px">Nothing was drafted — '+esc(e.message)+'</div>';}}
 function setCreative(medium,answer){
  S.creativePlan=S.creativePlan||{};
  const prev=S.creativePlan[medium]||{};
