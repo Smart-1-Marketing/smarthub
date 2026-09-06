@@ -4274,6 +4274,58 @@ same set.
 the disk is recreated. Page Image Optimizer and Tickets both had it, which is
 where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
 
+**And a bare relative path is the same trap with the deploy wipe hidden.**
+`hub/ad_assets.py` handed `jsonstore.write_json` the literal
+`"ad_assets/runs.json"`, and `_atomic_write` resolves a path against the
+**process working directory** — so on Render both of that module's stores
+landed at `/app/ad_assets/*.json`, inside the container image, and `key_for()`
+saw a path outside the root and keyed the mirror `abs:/app/…` rather than
+root-relative. What made it survive review is that nothing was lost on the
+ordinary path: the mirror is written at save time, `read_json` restores by
+key, and `WORKDIR` is stable, so a redeploy really did come back with the data.
+
+**What was lost is the repair.** `sweep()` walks the data root, so it never
+scanned either file — measured, `scanned: 1` over a rooted store and this one
+side by side — and that sweep is precisely what picks up a save made while the
+mirror was unavailable. For every other store in the Hub it does; for these two
+the gap stood until somebody saved again, and the next redeploy took the file
+with it. Reproduced end to end: written with the mirror down, swept, disk
+recreated, and the rooted store came back while this one read `None`. The
+`abs:` key defeats the other half of `key_for()`'s own docstring too — a
+production blob restoring into a development checkout.
+
+**Both of that module's stores were also read-modify-write of a whole
+collection**, the class `update_json` exists for, and it is not theoretical
+here: the scheduled catch-up sweep and a rep pressing Migrate overlap by
+design, there are two workers, and **eight concurrent records kept 1 of 8**.
+What that drops is the only account of who moved which client's creative and
+when. `apply_proposals` does its Knack writes *before* it touches the store,
+deliberately — `update_json` holds a lock across both workers, and a network
+call inside it would hold the other worker off for as long as Knack takes to
+answer.
+
+**The old spellings are still read**, so nothing already recorded is orphaned
+— the `audit.LOG_NAMES` rule — and only while the rooted file is empty, or
+removing a row would resurrect it from the old location. Each store moves
+itself the first time it is written.
+
+**And that fallback re-created the file it exists to abandon.** `read_json`
+writes a restored blob back to disk, and a `default=` argument is evaluated
+whether or not it is needed — so passing the legacy read as `update_json`'s
+default did the old read on **every** run and rewrote the pre-move file every
+time, for ever. The fallback belongs *inside* the mutate, which runs under the
+lock and only where the rooted store is empty: once. The check written for it
+first could not fail — it ran in a fresh directory where the mirror holds no
+pre-move key, so there was nothing to restore and nothing to rewrite, and the
+defect passed it. It seeds that key now, which is the live deployment's state
+and not a fresh directory's. `test_ad_assets.py` asserts all of it and
+sweeps `hub/` and `modules/` for the shape: a **string literal** handed to a
+store function is unambiguously CWD-relative and is a finding, while a path
+built from a call or a name is *not determinable* and is deliberately not
+reported — a check with false positives is one somebody switches off, and
+switching this one off costs the real finding. It started green, which is the
+only way it was worth adding.
+
 ---
 
 ## Data sources, and which are stale
