@@ -6783,6 +6783,21 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Department Views ----------------
+    # A blueprint for the same reason QA Tasks is one: everything it reads --
+    # the account table, the nav, the tool tiles -- is the hub's own. It has
+    # no model of its own (a small jsonstore overlay, `hub/department_views.py`
+    # says why), so unlike QA Tasks it does not need to register before
+    # create_all() -- there is no table for that call to be responsible for.
+    try:
+        from .department_views_routes import register_department_views
+        register_department_views(app)
+    except Exception as _dv_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _dv_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Imported for its side effect: the Presence model has to exist before the
     # create_all() below or `hub_presence` is never created, and every read of
     # it fails into "we could not look" for ever.
