@@ -954,6 +954,68 @@ finally:
 gi.jsonstore.write_json(gi._path(), _saved)
 
 
+section("The GA4 anomaly check reads two rows, not one row twice")
+# GA4 returns a period comparison as extra ROWS carrying a dateRange
+# dimension, not as extra metricValues on one row. The original code read
+# rows[0]["metricValues"][0] as "recent" and rows[0]["metricValues"][1] as
+# "prior" -- which, once there really are two rows, is actually this row's
+# OWN second metric (keyEvents) rather than the other period's first metric
+# (sessions). Rows also are not guaranteed to arrive in date-range order, so
+# the fixture below deliberately lists "prior" before "recent".
+_real_refresh = gf.refresh_access_token
+_real_post = gf.google_post
+gf.refresh_access_token = lambda email, token: "fake-access-token"
+
+_anomaly_report = {"rows": [
+    {"dimensionValues": [{"value": "prior"}],
+     "metricValues": [{"value": "800"}, {"value": "50"}]},
+    {"dimensionValues": [{"value": "recent"}],
+     "metricValues": [{"value": "1200"}, {"value": "20"}]},
+]}
+gf.google_post = lambda token, url, body=None: _anomaly_report
+
+try:
+    r = web.post("/api/ga4/anomalies", json={
+        "property_id": "123456", "google_login": "rep@smart1marketing.com"})
+    check("the route answers", r.status_code, 200)
+    found = {a["metric"]: a for a in r.get_json()["anomalies"]}
+    check("sessions read the RECENT row's sessions, not the prior row's",
+          found["Sessions"]["type"], "SPIKE")
+    check("...at the recent-vs-prior sessions percentage (1200 vs 800)",
+          found["Sessions"]["change_pct"], 50.0)
+    check("key events read as their own metric, not borrowed from sessions",
+          found["Key Events"]["type"], "DROP")
+    check("...at the recent-vs-prior key-events percentage (20 vs 50)",
+          found["Key Events"]["change_pct"], -60.0)
+
+    section("A row GA4 could not place in a period is not silently folded in")
+    gf.google_post = lambda token, url, body=None: {"rows": [
+        {"dimensionValues": [{"value": "recent"}],
+         "metricValues": [{"value": "1200"}, {"value": "20"}]},
+    ]}
+    r = web.post("/api/ga4/anomalies", json={
+        "property_id": "123456", "google_login": "rep@smart1marketing.com"})
+    body = r.get_json()
+    check("only one period answering is reported, not computed against zero",
+          body.get("measured"), False)
+    check("...and no anomaly is invented from a missing prior period",
+          body.get("anomalies"), [])
+
+    section("A swing under 20% is not flagged")
+    gf.google_post = lambda token, url, body=None: {"rows": [
+        {"dimensionValues": [{"value": "prior"}],
+         "metricValues": [{"value": "1000"}, {"value": "100"}]},
+        {"dimensionValues": [{"value": "recent"}],
+         "metricValues": [{"value": "1050"}, {"value": "105"}]},
+    ]}
+    r = web.post("/api/ga4/anomalies", json={
+        "property_id": "123456", "google_login": "rep@smart1marketing.com"})
+    check("a 5% move on both metrics raises nothing", r.get_json()["anomalies"], [])
+finally:
+    gf.refresh_access_token = _real_refresh
+    gf.google_post = _real_post
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
