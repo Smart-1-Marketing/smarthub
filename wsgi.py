@@ -749,6 +749,15 @@ _SOCIAL_PUBLIC = tuple(getattr(social, "PUBLIC_PREFIXES", ("/c/",))) \
 _FANRAD_PUBLIC = tuple(getattr(fanrad, "PUBLIC_PREFIXES",
                                ("/r/", "/api/public/", "/audio/"))) \
     if fanrad else ("/r/", "/api/public/", "/audio/")
+
+# Radio Promo's own client approval link, added alongside Fan Radio's and
+# reading hub/radio_share.py for the same token/feedback rules — the two
+# tools' approval flow is one implementation now, not two that happened to
+# start out looking alike. /file/ is its local-disk audio fallback, the
+# module's own equivalent of Fan Radio's /audio/.
+_RADIOP_PUBLIC = tuple(getattr(radiop, "PUBLIC_PREFIXES",
+                               ("/r/", "/api/public/", "/file/"))) \
+    if radiop else ("/r/", "/api/public/", "/file/")
 _SMARTFORECAST_PUBLIC = tuple(getattr(
     smartforecast, "PUBLIC_PREFIXES", ("/embed/", "/api/public/"))) \
     if smartforecast else ("/embed/", "/api/public/")
@@ -831,7 +840,8 @@ application = DispatcherMiddleware(hub_app, {
                     if hvac_app else hvac_fb),
     "/land/legal": (AuthGuard(legal_app.app, "/land/legal", public_prefixes=("/",))
                     if legal_app else legal_fb),
-    "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo") if radiop else radiop_fb,
+    "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo",
+                                 public_prefixes=_RADIOP_PUBLIC) if radiop else radiop_fb,
     "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
     "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio",
                                public_prefixes=_FANRAD_PUBLIC) if fanrad else fanrad_fb,

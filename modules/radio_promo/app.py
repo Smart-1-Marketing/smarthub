@@ -61,6 +61,7 @@ from .catalog import (DEFAULT_SLOTS, DURATIONS, SLOT_KEYS, TONES,
                       length_warning, slot_budget_line, slots_of,
                       structure_for, tone_by_id)
 
+from hub import radio_share
 from hub import script_contents
 
 try:
@@ -78,6 +79,26 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
 app.config.update(JSON_SORT_KEYS=False)
 
 MOUNT = "/tools/radio-promo"
+
+# The mount-relative prefixes the CUSTOMER reaches, and a customer has no Hub
+# login. wsgi.py hands this to _mount, which passes it to both AuthGuard (so
+# the page is reachable at all) and HubBar (so the staff sidebar and help
+# layer are not injected into a page a client reads) -- the arrangement
+# modules/fan_radio already uses, and hub/radio_share.py is what keeps the
+# two tools' approval flow one implementation rather than two that drift.
+#
+# /r/            the approval page itself
+# /api/public/   what that page fetches, and the approve/comment it posts
+# /file/         the local-disk render fallback the page's <audio> element
+#                plays when Cloudinary is not configured
+PUBLIC_PREFIXES = ("/r/", "/api/public/", "/file/")
+
+_limiter = radio_share.RateLimiter()
+
+
+def client_ip() -> str:
+    return request.remote_addr or "unknown"
+
 
 # Configuration is hub.config's job, not this module's: hub/config.py
 # composes CLOUDINARY_URL from either the one-URL form or the three-part
@@ -1352,6 +1373,157 @@ def api_variation(pid):
                              "recorded did — re-record the voice and re-mix, "
                              "because audio of the previous wording filed under "
                              "this name is the wrong file.")})
+
+
+# =====================================================================
+# Sharing — one implementation with Fan Radio, in hub/radio_share.py
+# =====================================================================
+def _client_units(row: dict) -> list[dict]:
+    """One reviewable unit per slot this project writes, best audio first.
+
+    The finished mix is what a client should hear; a slot not yet mixed
+    falls back to its raw voice take so there is still something to review
+    while a bed is being composed. A slot with neither is left out — there
+    is nothing to approve yet, and offering an empty player is worse than
+    not listing it.
+    """
+    mixes = row.get("mixes") or {}
+    units = []
+    for slot in slots_of(row):
+        mix = mixes.get(slot)
+        spot = _spot_for(row, slot)
+        audio_url = (mix or {}).get("audio_url") or (spot or {}).get("audio_url") or ""
+        if not audio_url:
+            continue
+        script = (row.get("scripts") or {}).get(slot) or {}
+        duration = duration_by_key(slot) or {}
+        units.append({"id": slot, "slot": slot,
+                      "length_label": duration.get("label") or slot,
+                      "script": script.get("script", ""),
+                      "audio_url": audio_url,
+                      "mixed": bool(mix)})
+    return units
+
+
+def public_view(row: dict) -> dict:
+    """Exactly what the customer page is allowed to see, built by picking
+    fields out — the `modules/fan_radio` rule, so a field added to the
+    project later is invisible here by default rather than by omission."""
+    share = row.get("share") or {}
+    decisions = row.get("decisions") or {}
+    units = []
+    for unit in _client_units(row):
+        decision = decisions.get(unit["slot"]) or {}
+        units.append(dict(unit, status=decision.get("status") or "pending",
+                          comments=[f for f in (row.get("feedback") or [])
+                                   if f.get("spot_id") == unit["slot"]]))
+    return {
+        "company": row.get("company") or row.get("client") or "",
+        "headline": share.get("headline") or "",
+        "intro": share.get("intro") or "",
+        "cta_label": share.get("cta_label") or "",
+        "cta_url": share.get("cta_url") or "",
+        "spots": units,
+        "general": [f for f in (row.get("feedback") or [])
+                   if not f.get("spot_id")],
+    }
+
+
+def share_url(row: dict) -> str:
+    return radio_share.share_url(MOUNT, (row.get("share") or {}).get("token"))
+
+
+@app.route("/api/projects/<pid>/share", methods=["POST"])
+def api_share(pid):
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    share = radio_share.update_share(row.get("share") or {}, body())
+    row = store.update(pid, {"share": share})
+    log("share_updated", project=pid, enabled=bool(share.get("enabled")))
+    url = share_url(row)
+    warning = None
+    if share.get("enabled") and not os.environ.get("PUBLIC_BASE_URL"):
+        warning = ("PUBLIC_BASE_URL isn't set, so the link above is a path, "
+                   "not a full URL. Set it on Render before you send it to "
+                   "a client.")
+    return jsonify({"ok": True, "share": share, "share_url": url,
+                    "warning": warning})
+
+
+@app.route("/r/<token>")
+def public_page(token):
+    row = store.find_by_token(token)
+    if not row or not (row.get("share") or {}).get("enabled"):
+        return render_template("share.html", missing=True, token=""), 404
+    share = dict(row["share"], opened=int((row["share"].get("opened") or 0)) + 1)
+    store.update(row["id"], {"share": share})
+    return render_template("share.html", missing=False, token=token,
+                           company=row.get("company") or row.get("client") or "")
+
+
+@app.route("/api/public/<token>")
+def api_public(token):
+    if _limiter.hit("public", client_ip(), 120, 60):
+        return fail("Too many requests. Refresh in a moment.", 429)
+    row = store.find_by_token(token)
+    if not row or not (row.get("share") or {}).get("enabled"):
+        return fail("This link isn't active. Ask your account manager for a "
+                    "fresh one.", 404)
+    return jsonify({"ok": True, **public_view(row)})
+
+
+@app.route("/api/public/<token>/feedback", methods=["POST"])
+def api_public_feedback(token):
+    if _limiter.hit("feedback", client_ip(), 30, 300):
+        return fail("That's a lot of comments at once — give it a minute.", 429)
+    row = store.find_by_token(token)
+    if not row or not (row.get("share") or {}).get("enabled"):
+        return fail("This link isn't active. Ask your account manager for a "
+                    "fresh one.", 404)
+
+    valid = radio_share.validate_feedback(body())
+    if not valid["ok"]:
+        return fail(valid["error"])
+    action, name, comment = valid["action"], valid["name"], valid["comment"]
+
+    sid = valid["spot_id"]
+    available = {u["slot"] for u in _client_units(row)}
+    targets: list[str] = []
+    if action == "approve_all":
+        targets = sorted(available)
+    elif sid:
+        if sid not in available:
+            return fail("That spot isn't on this page.")
+        targets = [sid]
+    elif action != "comment":
+        return fail("That spot isn't on this page.")
+
+    # Written before anything else runs — no notification, no redirect, no
+    # webhook happens ahead of the record being on disk.
+    decisions = dict(row.get("decisions") or {})
+    feedback = list(row.get("feedback") or [])
+    if targets:
+        for slot in targets:
+            target = dict(decisions.get(slot) or {})
+            radio_share.record_decision(target, feedback, name=name,
+                                        action=action, comment=comment,
+                                        spot_id=slot)
+            decisions[slot] = target
+    else:
+        radio_share.record_decision(None, feedback, name=name, action=action,
+                                    comment=comment)
+    row = store.update(row["id"], {"decisions": decisions,
+                                   "feedback": feedback[-500:]})
+    log("customer_feedback", project=row["id"], action=action,
+        spots=len(targets), by=name[:40])
+    radio_share.notify("RADIO_PROMO_NOTIFY_URL", {
+        "source": "radio-promo", "project": row.get("id"),
+        "company": row.get("company"), "client": row.get("client"),
+        "by": name, "action": action, "spots": len(targets),
+        "comment": comment[:1000], "at": store.now()})
+    return jsonify({"ok": True, **public_view(row)})
 
 
 if __name__ == "__main__":

@@ -232,6 +232,33 @@ def api_project_source(pid: str):
                     "layout": layout_report})
 
 
+@app.route("/api/projects/<pid>/brand")
+def api_brand_preview(pid: str):
+    """What a client's brand kit holds, before anything is changed."""
+    project = store.get(pid)
+    if not project:
+        return jsonify({"error": "No project of that id."}), 404
+    domain = request.args.get("domain", "")
+    return jsonify(store.brand_preview(project, domain))
+
+
+@app.route("/api/projects/<pid>/brand", methods=["POST"])
+def api_brand_apply(pid: str):
+    project = store.get(pid)
+    if not project:
+        return jsonify({"error": "No project of that id."}), 404
+    body = _body()
+    result = store.apply_brand(project, domain=body.get("domain", ""),
+                               logo=bool(body.get("logo", True)),
+                               color_hex=body.get("color", ""))
+    if not result.get("applied"):
+        return jsonify(result), 400
+    store.save(project)
+    _log("brand_applied", detail=result.get("domain", ""),
+         client=project.get("client", ""))
+    return jsonify({"project": project, **result})
+
+
 @app.route("/api/projects/<pid>/resize", methods=["POST"])
 def api_resize(pid: str):
     project = store.get(pid)

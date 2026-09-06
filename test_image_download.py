@@ -436,6 +436,7 @@ FULL_ASSET_ON_PURPOSE = {
     ("modules/ads_builder/templates/ads_proposal.html", 'alt="logo"'): _LOGO,
     ("modules/ads_builder/templates/ads_proposal.html", 'alt="Logo"'): _LOGO,
     ("modules/scans/templates/scan_detail.html", "mark.url"): _LOGO,
+    ("modules/magic_resize/templates/project.html", "logos[0].url"): _LOGO,
     ("modules/scans/templates/scan_detail.html", "preview.url"):
         "one provider screenshot per breakpoint in the scan's dedicated "
         "appearance panel; InSites supplies only the remote original and the "

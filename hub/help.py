@@ -682,6 +682,12 @@ REGISTRY: list[Help] = [
        "all mark a frame for review. The type-size floor only warns: no "
        "platform publishes a minimum for display, so a hard failure there "
        "would be our opinion wearing a platform's name."),
+    _h("magic_resize.brand", "Pulled from the same brand kit as Client 360",
+       "A website is required and never guessed from the client's name — a "
+       "wrong logo on a design is worse than none. It only touches whatever "
+       "on this design is tagged Logo or Background; a headline or "
+       "disclaimer is never recolored out from under whoever wrote it, and "
+       "a hand-tuned frame is never rebuilt by it."),
 
     # ---------------- Background Remover ----------------
     _h("bg_remover.upload.credits", "This one costs money",
