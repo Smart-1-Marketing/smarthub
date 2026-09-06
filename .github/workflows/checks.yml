@@ -2138,11 +2138,23 @@ jobs:
       - name: Brand elements found by the InSites scan
         run: python3 test_scan_brand.py
 
-  # Render's own auto-deploy has never fired for this service. It is set to
-  # deploy main after CI checks pass, the checks pass, and every deploy in its
-  # history is `manual` or `api` -- so the setting is right and the webhook is
-  # not arriving. This job is the same promise made on the side that demonstrably
-  # works: the commit whose checks just went green is the commit that ships.
+  # Render's own auto-deploy (trigger: commit) has been shipping every push to
+  # main on its own since the repo was reconnected under the org -- confirmed
+  # directly against Render's API on 2026-09-06, nine deploys deep of nothing
+  # but new_commit, each one live within a minute of the merge. This job is
+  # redundancy insurance for the day that stops being true, not the thing
+  # currently shipping code.
+  #
+  # It has never actually run: RENDER_DEPLOY_HOOK_URL has never been set as a
+  # repository secret, so every run of this job fails at the first step, on
+  # purpose (see the refusal below). That is harmless today because Render's
+  # own trigger is doing the real work, and it is also why nobody noticed --
+  # a job whose only purpose is insurance can fail for months in silence,
+  # because the thing it insures keeps working without it. Setting the secret
+  # under Settings -> Secrets and variables -> Actions (copy the value from
+  # the smart1-hub service's own Settings -> Deploy Hook on Render) is what
+  # turns this from insurance nobody has checked works into insurance that
+  # does. Nobody has done that yet.
   #
   # It is `ref=<sha>` and never a bare hook, which fixes a race the webhook
   # never had: main takes a merge every few minutes here, so "check main is
