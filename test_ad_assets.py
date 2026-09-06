@@ -288,5 +288,135 @@ check("the copy is attached to the creative rows it belongs to",
       "_attach_library" in (ROOT / "hub" / "knack_data.py").read_text(), True)
 
 
+# ---------------------------------------------------------------------------
+# 8. Where the two stores live, and what the old spelling cost
+# ---------------------------------------------------------------------------
+print("\nWhere the stores live")
+
+import ast
+import os
+import tempfile
+import threading
+
+_prev = {k: os.environ.get(k) for k in ("HUB_DATA_DIR", "DATABASE_URL")}
+_tmp = tempfile.mkdtemp(prefix="adassets-")
+os.environ["HUB_DATA_DIR"] = os.path.join(_tmp, "root")
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_tmp, "mirror.db")
+# The old paths were resolved against the process working directory, so the
+# check has to run from somewhere that is not the data root to mean anything.
+_cwd = os.getcwd()
+os.makedirs(os.path.join(_tmp, "cwd"), exist_ok=True)
+os.chdir(os.path.join(_tmp, "cwd"))
+
+try:
+    from hub import ad_assets, jsonstore
+
+    _root = os.path.abspath(jsonstore.data_root())
+
+    def _under_root(path):
+        a = os.path.abspath(path)
+        return a == _root or a.startswith(_root + os.sep)
+
+    check("the run log resolves under the data root",
+          _under_root(ad_assets._runs_path()), True)
+    check("so does the applied-proposals record",
+          _under_root(ad_assets._proposals_path()), True)
+
+    # An `abs:` key is what a path outside the root produces, and it defeats
+    # the one property key_for()'s docstring names: a production blob
+    # restoring into a development checkout.
+    check("the mirror key is root-relative, not an absolute one",
+          jsonstore.key_for(ad_assets._runs_path()), "ad_assets/runs.json")
+
+    # The half that was actually lost. sweep() walks the data root, so a save
+    # made while the mirror was unavailable was never picked up afterwards --
+    # and the next redeploy took the file with it.
+    import unittest.mock as _mock
+    with _mock.patch.object(jsonstore, "_init", return_value=False):
+        ad_assets._record_run({"client": "Mirror Down", "counts": {}}, "t")
+    _swept = jsonstore.sweep()
+    check("a save made while the mirror was down is swept up afterwards",
+          _swept.get("mirrored", 0) >= 1, True)
+    os.remove(ad_assets._runs_path())
+    _back = jsonstore.read_json(ad_assets._runs_path(), default=None)
+    check("and it comes back after the disk is recreated",
+          bool(_back and _back.get("runs")), True)
+
+    # Eight concurrent records measured 1 of 8 kept before this. The scheduled
+    # catch-up sweep and a rep pressing Migrate overlap by design.
+    jsonstore.write_json(ad_assets._runs_path(), {"runs": []})
+    _ts = [threading.Thread(target=ad_assets._record_run,
+                            args=({"client": f"c{i}", "counts": {}}, "t"))
+           for i in range(8)]
+    for _t in _ts:
+        _t.start()
+    for _t in _ts:
+        _t.join()
+    check("eight concurrent runs all reach the log",
+          len(jsonstore.read_json(ad_assets._runs_path(),
+                                  default={"runs": []})["runs"]), 8)
+
+    # Nothing already recorded is orphaned by the move.
+    jsonstore.delete_json(ad_assets._proposals_path())
+    jsonstore.write_json(ad_assets.LEGACY_PROPOSALS_PATH,
+                         {"applied": [{"key": "k1", "client": "Acme"}]})
+    _old = ad_assets._read_store(ad_assets._proposals_path(),
+                                 ad_assets.LEGACY_PROPOSALS_PATH,
+                                 {"applied": []})
+    check("rows written before the move are still read",
+          [a["key"] for a in _old["applied"]], ["k1"])
+
+    # ...and once the rooted file holds something, the old location stops
+    # being consulted, or removing a row would resurrect it.
+    jsonstore.write_json(ad_assets._proposals_path(),
+                         {"applied": [{"key": "k2"}]})
+    _now = ad_assets._read_store(ad_assets._proposals_path(),
+                                 ad_assets.LEGACY_PROPOSALS_PATH,
+                                 {"applied": []})
+    check("and the old location is not consulted past that",
+          [a["key"] for a in _now["applied"]], ["k2"])
+finally:
+    os.chdir(_cwd)
+    for _k, _v in _prev.items():
+        if _v is None:
+            os.environ.pop(_k, None)
+        else:
+            os.environ[_k] = _v
+
+
+# A test naming the module we fixed proves nothing about the next store
+# somebody adds. A path handed to jsonstore as a bare relative string literal
+# is unambiguously resolved against the process working directory -- so that
+# is the shape swept for, across hub/ and modules/. A path built from a call
+# or a name is *not determinable* here and is deliberately not reported: a
+# check with false positives is one somebody switches off, and switching this
+# one off costs the real finding.
+print("\nNo store writes outside the data root")
+
+_STORE_FNS = {"read_json", "write_json", "update_json", "delete_json"}
+_relative = []
+for _py in sorted(list((ROOT / "hub").rglob("*.py"))
+                  + list((ROOT / "modules").rglob("*.py"))):
+    if "_attic" in _py.parts or _py.name == "jsonstore.py":
+        continue
+    try:
+        _tree = ast.parse(_py.read_text(errors="ignore"))
+    except SyntaxError:
+        continue
+    for _n in ast.walk(_tree):
+        if not isinstance(_n, ast.Call) or not _n.args:
+            continue
+        _f = _n.func
+        _name = _f.attr if isinstance(_f, ast.Attribute) else getattr(_f, "id", "")
+        if _name not in _STORE_FNS:
+            continue
+        _a = _n.args[0]
+        if (isinstance(_a, ast.Constant) and isinstance(_a.value, str)
+                and not _a.value.startswith("/")):
+            _relative.append(f"{_py.relative_to(ROOT)}:{_n.lineno}")
+
+check("no jsonstore call site is handed a bare relative path", _relative, [])
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

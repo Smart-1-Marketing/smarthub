@@ -75,8 +75,58 @@ bp = Blueprint("ad_assets", __name__)
 TOOL = "ad-assets"
 KIND = "ad_asset"
 PROVIDER = "google_drive"
-PROPOSALS_PATH = "ad_assets/knack_proposals.json"
-RUNS_PATH = "ad_assets/runs.json"
+# What these used to be, and what a bare relative path cost. `write_json` hands
+# the path to `_atomic_write`, which resolves it against the **process working
+# directory** rather than the data root -- so on Render these two landed at
+# `/app/ad_assets/*.json`, inside the container image, and `key_for()` saw a
+# path outside the root and keyed the mirror `abs:/app/...` instead of a
+# root-relative key.
+#
+# Neither file was ever lost by that on its own: the mirror is written at save
+# time and `read_json` restores by key, and WORKDIR is stable. What was lost is
+# the **repair**. `sweep()` walks the data root, so it never scanned these --
+# measured, `scanned: 1` over a rooted file and this one side by side -- and a
+# save made while the mirror was unavailable is exactly what that sweep exists
+# to pick up afterwards. For every other store in the Hub it does; for these
+# two the gap stood until somebody saved again, and the next redeploy took the
+# file with it. The `abs:` key also defeats the one property `key_for()`'s own
+# docstring names: a production blob restoring into a development checkout.
+#
+# The old spellings are still **read**, so nothing already recorded is
+# orphaned -- the rule `audit.LOG_NAMES` and `video_library.TAG_ALIASES` work
+# to. Every write goes to the rooted path, so each store moves itself the
+# first time it is written.
+LEGACY_PROPOSALS_PATH = "ad_assets/knack_proposals.json"
+LEGACY_RUNS_PATH = "ad_assets/runs.json"
+
+
+def _proposals_path() -> str:
+    """Which Knack creative links we have already rewritten.
+
+    Resolved at call time rather than fixed at import, because `data_root()`
+    reads `HUB_DATA_DIR` and a constant frozen at import is the trap
+    `config.settings` already carries -- a test or a correction made after the
+    module loads would be answered with the old root.
+    """
+    return os.path.join(jsonstore.data_dir("ad_assets"), "knack_proposals.json")
+
+
+def _runs_path() -> str:
+    """The log of who migrated what, for which client, and when."""
+    return os.path.join(jsonstore.data_dir("ad_assets"), "runs.json")
+
+
+def _read_store(path: str, legacy: str, default):
+    """Read the rooted file, falling back to the pre-move one.
+
+    Only when the rooted file holds nothing: a store that has been written
+    since the move is the answer, and consulting the old location past that
+    point would resurrect rows somebody has since removed.
+    """
+    rows = jsonstore.read_json(path, default=None)
+    if rows:
+        return rows
+    return jsonstore.read_json(legacy, default=default)
 
 MAX_FILE_MB = int(os.environ.get("AD_ASSETS_MAX_FILE_MB") or 200)
 
@@ -369,15 +419,36 @@ def _set_source_url(image: dict, url: str) -> None:
 
 
 def _record_run(result: dict, actor: str) -> None:
-    runs = jsonstore.read_json(RUNS_PATH, default={"runs": []}) or {"runs": []}
-    runs.setdefault("runs", []).insert(0, {
+    """Write this run into the log, without dropping a concurrent one.
+
+    Read-the-whole-list, insert, write-the-whole-list back is the shape
+    `jsonstore.update_json` exists for: two runs starting from one snapshot
+    and the second to finish silently drops the first. It is not theoretical
+    on this store -- the scheduled catch-up sweep and a rep pressing Migrate
+    overlap by design, there are two gunicorn workers, and eight concurrent
+    records measured **1 of 8 kept** before this. What is lost is the only
+    account of who moved which client's creative and when.
+    """
+    entry = {
         "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "client": result.get("client", ""), "actor": actor or "system",
         "counts": result.get("counts", {}),
         "account": result.get("account", ""),
-    })
-    runs["runs"] = runs["runs"][:200]
-    jsonstore.write_json(RUNS_PATH, runs)
+    }
+
+    def add(runs):
+        runs = runs if isinstance(runs, dict) else {"runs": []}
+        rows = runs.setdefault("runs", [])
+        rows.insert(0, entry)
+        runs["runs"] = rows[:200]
+        return runs
+
+    # `default` is consulted only where the rooted file is absent, which is
+    # exactly the pre-move case -- so the fallback belongs here rather than in
+    # a read of our own, which would read the rooted path twice.
+    jsonstore.update_json(
+        _runs_path(), add,
+        default=jsonstore.read_json(LEGACY_RUNS_PATH, default={"runs": []}))
     try:
         from hub import audit
         audit.log(TOOL, "migrated", actor=actor, client=result.get("client", ""),
@@ -415,7 +486,8 @@ def proposals(client: str = "") -> dict:
             "gallery_url": _scoped_gallery(name, link),
             "library": entry["files"][:4],
         })
-    stored = jsonstore.read_json(PROPOSALS_PATH, default={"applied": []}) or {}
+    stored = _read_store(_proposals_path(), LEGACY_PROPOSALS_PATH,
+                         {"applied": []}) or {}
     applied = {a.get("key") for a in stored.get("applied", [])}
     for row in out:
         row["applied"] = _proposal_key(row) in applied
@@ -450,9 +522,7 @@ def apply_proposals(keys: list, *, actor: str = "") -> dict:
         return {"ok": False, "error": "Nothing was selected."}
 
     ready = {_proposal_key(p): p for p in proposals().get("proposals", [])}
-    stored = jsonstore.read_json(PROPOSALS_PATH, default={"applied": []}) or {}
-    applied = stored.setdefault("applied", [])
-    done, failed = [], []
+    done, failed, fresh = [], [], []
     for key in wanted:
         row = ready.get(key)
         if not row:
@@ -462,16 +532,33 @@ def apply_proposals(keys: list, *, actor: str = "") -> dict:
         res = knack_api.set_creative_url(row["record_id"], row["url"],
                                          row["gallery_url"])
         if res.get("ok"):
-            applied.append({"key": key, "client": row["client"],
-                            "io": row["io"], "from": row["url"],
-                            "to": row["gallery_url"], "actor": actor or "system",
-                            "at": _dt.datetime.now(_dt.timezone.utc)
-                            .isoformat(timespec="seconds")})
+            fresh.append({"key": key, "client": row["client"],
+                          "io": row["io"], "from": row["url"],
+                          "to": row["gallery_url"], "actor": actor or "system",
+                          "at": _dt.datetime.now(_dt.timezone.utc)
+                          .isoformat(timespec="seconds")})
             done.append(key)
         else:
             failed.append({"key": key, "error": res.get("error", "")})
-    stored["applied"] = applied[-2000:]
-    jsonstore.write_json(PROPOSALS_PATH, stored)
+
+    # Every Knack write is finished before the store is touched, deliberately.
+    # `update_json` holds a lock across two workers, and a network call made
+    # inside it would hold the other worker off for as long as Knack takes to
+    # answer -- so the lock covers the append and nothing else. Recorded only
+    # where Knack accepted: a rewrite it refused has not happened, and a row
+    # claiming it did is what makes this file unreadable as a record.
+    if fresh:
+        def add(stored):
+            stored = stored if isinstance(stored, dict) else {"applied": []}
+            rows = stored.setdefault("applied", [])
+            rows.extend(fresh)
+            stored["applied"] = rows[-2000:]
+            return stored
+
+        jsonstore.update_json(
+            _proposals_path(), add,
+            default=jsonstore.read_json(LEGACY_PROPOSALS_PATH,
+                                        default={"applied": []}))
     return {"ok": bool(done), "applied": len(done), "failed": failed}
 
 
