@@ -753,6 +753,14 @@ _SMARTFORECAST_PUBLIC = tuple(getattr(
     smartforecast, "PUBLIC_PREFIXES", ("/embed/", "/api/public/"))) \
     if smartforecast else ("/embed/", "/api/public/")
 
+# And for Image Creator: /tools/image-creator/review/<token> is the client
+# review link a rep sends for a graphic, and a client has no Hub login. Read
+# from the module so the mount and the module cannot drift, and handed to
+# both AuthGuard (reachable) and HubBar (no sidebar, help layer or feedback
+# tab on a page a client reads).
+_IMGCREATOR_PUBLIC = tuple(getattr(imgcreator, "PUBLIC_PREFIXES", ("/review/",))) \
+    if imgcreator else ("/review/",)
+
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
@@ -766,7 +774,8 @@ application = DispatcherMiddleware(hub_app, {
                              public_prefixes=_SALESB_PUBLIC) if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/seo-images": _mount(seoimg.app, "/tools/seo-images") if seoimg else seoimg_fb,
-    "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,
+    "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator",
+                                   public_prefixes=_IMGCREATOR_PUBLIC) if imgcreator else imgcreator_fb,
     # Not /tools/display-ads: that prefix is the Display Ad Builder's, and
     # DispatcherMiddleware routes purely by prefix, so a second module under
     # it never receives a request.

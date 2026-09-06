@@ -654,6 +654,48 @@ jobs:
             echo "test_image_creator.py not on this branch — nothing to run."
           fi
 
+      - name: Display ad QC tests
+        # The seven checks in modules/image_creator/qc.py: a GDN size is
+        # judged by the spec kit's own ceiling rather than a restated number,
+        # everything else is advisory, and contrast/safe-margin are measured
+        # only where the answer is actually knowable. Guarded like the steps
+        # around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_display_ad_qc.py ]; then
+            python test_display_ad_qc.py
+          else
+            echo "test_display_ad_qc.py not on this branch — nothing to run."
+          fi
+
+      - name: Animated GIF export tests
+        # The timeline math in modules/image_creator/animation.py and the
+        # Pillow assembly behind it: no motion means no export, the timeline
+        # is the slowest object to settle, an over-length animation is
+        # flagged rather than truncated, and a transparent frame is
+        # flattened onto white the way the existing export/optimize endpoint
+        # already does. Guarded like the steps around it.
+        run: |
+          if [ -f test_animated_export.py ]; then
+            python test_animated_export.py
+          else
+            echo "test_animated_export.py not on this branch — nothing to run."
+          fi
+
+      - name: Image Creator review link tests
+        # The client review link ported from Commercial Builder's: token
+        # minting and round rollover, the four approval states with the most
+        # restrictive answer winning, the four-round cap flagging rather than
+        # refusing, and that PUBLIC_PREFIXES actually bypasses AuthGuard for
+        # /review/ and nothing else on the mount. Guarded like the steps
+        # around it.
+        run: |
+          if [ -f test_ic_shares.py ]; then
+            python test_ic_shares.py
+          else
+            echo "test_ic_shares.py not on this branch — nothing to run."
+          fi
+
       - name: Lead delivery tests
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.

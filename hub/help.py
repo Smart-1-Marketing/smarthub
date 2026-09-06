@@ -643,6 +643,15 @@ REGISTRY: list[Help] = [
        "1x is right for the web. 2x when it'll be viewed on a high-density "
        "screen or printed. Transparent background only works on PNG and WebP.",
        step=6, selector="[data-tour='export']"),
+    _h("image_creator.qc.check", "One QC panel, every creative tool",
+       "Checks the export against the S1M spec kit for the size you picked — "
+       "dimensions, file weight, an animation over 30 seconds — plus advisory "
+       "notes on the logo, the safe margin and contrast. Blocks stop a clean "
+       "export; advisory notes do not."),
+    _h("image_creator.review.send", "A client answers with no Hub login",
+       "Mints a link the client opens to approve, approve with changes, or "
+       "ask for changes required. Save the project first — the link points at "
+       "what's saved, not what's on screen."),
 
     # ---------------- Magic Resize ----------------
     # No `step=` and no `selector=` on any of these, and no `data-screen` on
