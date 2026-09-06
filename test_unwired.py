@@ -145,10 +145,6 @@ ALLOW = {
         "builder renders",
     "modules/tickets/reports.py:summary_counts":
         "one line per ticket report; the /qa index draws its own counts",
-    "hub/quickbooks.py:link_status":
-        "how much of the invoice cache has a public link -- written for a "
-        "Diagnostics row that has not been added",
-
     # --- a half that is deliberately switched off ---------------------------
     # Google sign-in stays off until the OAuth consent screen clears review
     # (CLAUDE.md says so at the end of the accounts section). Both routes
