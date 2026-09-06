@@ -420,6 +420,10 @@ FULL_ASSET_ON_PURPOSE = {
         "one image per post card; the planner's rows do not carry a preview yet",
     ("modules/social_planner/templates/client_approve.html", "esc(p.image_url)"):
         "same, on the client's approval page",
+    ("modules/image_creator/templates/review.html", "v.url"):
+        "the client review link — the client is approving the actual creative "
+        "they were sent, not browsing a gallery, so the full asset is the "
+        "point, the same reasoning as the gpt_ads chosen-image exemption above",
     ("modules/smartforecast/templates/embed.html", "payload.content.desktop_image_url"):
         "the public campaign embed is the client website deliverable, not a "
         "gallery tile; it intentionally serves the approved responsive asset",
