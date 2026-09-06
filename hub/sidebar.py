@@ -168,10 +168,23 @@ _CSS = """
      the sidebar — on every visit, with nothing erroring. Only the Hub's own
      base.html puts a `.main` directly inside `.shell`, which is precisely the
      layout this needs to keep its hands off. */
-  body:not(:has(.shell > .main)) { margin-left: 224px; --s1hub-offset: 224px; }
-  /* Published so full-height tools (Image Creator) can size themselves
-     against the space the sidebar actually took, rather than guessing. */
-  body.s1hub-collapsed:not(:has(.shell > .main)) { --s1hub-offset: 56px; }
+  body:not(:has(.shell > .main)) { margin-left: 224px; }
+  /* Published so anything that has to sit clear of the rail can measure it
+     rather than guessing: full-height tools (Image Creator) size themselves
+     against it, and .s1-demo-fab is positioned from it.
+
+     Set on EVERY body rather than only the ones that get margin-left above.
+     The two are different questions -- the Hub's own pages offset their own
+     .main and must not be offset again, and a *fixed* element on those pages
+     still has to clear the same 224px. Tying the variable to the margin left
+     it unset exactly there, so the walkthrough launcher sat behind the rail
+     on every hub page: at 224px it was completely covered and could not be
+     pressed at all, and at 56px its left edge was a nav link, so pressing
+     the visible ▶ navigated to /status instead of starting the walkthrough.
+     Nothing reported it -- the button renders, every check is green, and it
+     is the entry point to all 28 scenarios. */
+  body { --s1hub-offset: 224px; }
+  body.s1hub-collapsed { --s1hub-offset: 56px; }
   .s1hub-chip { display: none !important; }
 }
 /* Below 950px the sidebar becomes a slide-out drawer rather than vanishing.
