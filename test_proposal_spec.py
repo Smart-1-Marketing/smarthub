@@ -1539,6 +1539,91 @@ check("choosing to comp a $600 audio campaign asks for confirmation, with the nu
       "$600" in comped_row["question"] and not comped_row["resolved"],
       comped_row["question"])
 
+# ---------------------------------------------------------------------------
+section("a gated line can carry a drafted spot")
+# ---------------------------------------------------------------------------
+# The harvested Radio Scripts / TV Scripts prompts, wired into the creative
+# gate. What is worth asserting is what the route does when a source says no,
+# and what reaches the prompt: an absent quote answer arrives as "not
+# provided" plus what not to invent — the phone number by name, because a
+# plausible one written into a script gets recorded before anybody checks it.
+from hub import ai as hub_ai                                       # noqa: E402
+
+_real_chat = hub_ai.chat
+_spot_prompts = []
+
+
+def _fake_chat(messages, **kw):
+    _spot_prompts.append((messages[0]["content"], kw))
+    return "ANNOUNCER: A drafted spot."
+
+
+hub_ai.chat = _fake_chat
+try:
+    drafted = api("post", "/sales/builder/api/draft-spot",
+                  json={"medium": "audio", "data": quote_state})
+    check("an audio line drafts a :30",
+          drafted["ok"] and drafted["spot"]["text"] == "ANNOUNCER: A drafted spot."
+          and drafted["spot"]["length"] == ":30", drafted)
+    check("...from a prompt carrying the quote's own answers",
+          "Riverstone Dental" in _spot_prompts[-1][0]
+          and ":30" in _spot_prompts[-1][0]
+          and "{length}" not in _spot_prompts[-1][0], _spot_prompts[-1][0][:200])
+    check("...at the script writer's own temperature",
+          _spot_prompts[-1][1].get("temperature") == 0, _spot_prompts[-1][1])
+    check("...and says it is internal working notes",
+          "neither the proposal nor the insertion order" in drafted["spot"]["note"])
+
+    video = api("post", "/sales/builder/api/draft-spot",
+                json={"medium": "video", "data": quote_state})
+    check("a video line drafts the TV script set",
+          video["ok"] and "drafted spot" in video["spot"]["text"].lower())
+    check("...refusing to invent a phone number, by name",
+          "do not include a phone number" in _spot_prompts[-1][0],
+          _spot_prompts[-1][0][:300])
+
+    refused = api("post", "/sales/builder/api/draft-spot",
+                  json={"medium": "display", "data": quote_state})
+    check("a medium with no script writer is refused by name",
+          refused["ok"] is False and "display" in refused["error"], refused)
+    not_on_plan = api("post", "/sales/builder/api/draft-spot",
+                      json={"medium": "audio",
+                            "data": {"items": [{"category": "DATA TARGETED DISPLAY",
+                                                "product": "Category", "dollars": 500}]}})
+    check("a medium the plan does not carry is refused rather than drafted",
+          not_on_plan["ok"] is False and "not on this media plan" in not_on_plan["error"],
+          not_on_plan)
+
+    def _down_chat(messages, **kw):
+        raise hub_ai.AIUnavailable("OPENAI_API_KEY is not set.")
+
+    hub_ai.chat = _down_chat
+    down = api("post", "/sales/builder/api/draft-spot",
+               json={"medium": "audio", "data": quote_state})
+    check("a model that says no is a named refusal, never a blank draft",
+          down["ok"] is False and "OPENAI_API_KEY" in down["error"], down)
+finally:
+    hub_ai.chat = _real_chat
+
+# The draft is working notes: on the wizard, and on nothing a client reads
+# and nothing the IO receives. ioDataPayload picks named keys, so the
+# assertion is that draftSpots is not one of them — the whole reason the
+# draft lives outside creativePlan, which does travel.
+with open(os.path.join(ROOT, "modules/sales_builder/templates/index.html"),
+          encoding="utf-8") as _f:
+    _wizard_src = _f.read()
+_io_start = _wizard_src.index("function ioDataPayload(){")
+_io_body = _wizard_src[_io_start:_wizard_src.index("\nfunction ", _io_start + 10)]
+check("the wizard stores the draft under its own key",
+      "S.draftSpots" in _wizard_src, True)
+check("...which the IO payload deliberately does not carry",
+      "draftSpots" not in _io_body, True)
+for _doc in ("client_proposal.html", "client_gone.html"):
+    with open(os.path.join(ROOT, "modules/sales_builder/templates", _doc),
+              encoding="utf-8") as _f:
+        check(f"...and {_doc} never renders it",
+              "draftSpots" not in _f.read(), True)
+
 answered = dict(quote_state)
 answered["creativePlan"] = {"video": {"answer": cn.HAS},
                             "audio": {"answer": cn.COMP, "confirmed": True,

@@ -3609,6 +3609,110 @@ def api_creative_check():
     return jsonify({"ok": True, **result})
 
 
+def _spot_given(value, absent: str) -> str:
+    """A quote value, or an honest absence the model cannot mistake for an
+    answer — "not provided" plus what not to do about it, never a blank a
+    model fills in with something plausible. The ads workshop's rule."""
+    v = str(value or "").strip()
+    return v if v else absent
+
+
+def _spot_prefill(state: dict, medium: str) -> dict:
+    """The harvested script prompts' placeholders, answered from the quote.
+
+    The one invention worth refusing by name is the phone number: nothing on
+    a quote carries one, and a plausible number written into a script is the
+    kind that gets recorded before anybody checks it.
+    """
+    state = state or {}
+    items = [i for i in (state.get("items") or [])
+             if hub_creative.medium_of(i) == medium]
+    products = ", ".join(dict.fromkeys(
+        str(i.get("product") or "").strip() for i in items
+        if str(i.get("product") or "").strip()))
+    sells = str(state.get("sells") or "").strip()
+    url = str(state.get("url") or "").strip()
+    no_invention = ("not provided — invent no specific offers, prices, "
+                    "deadlines or claims")
+    if medium == "audio":
+        topic = " — ".join(x for x in (sells, products) if x)
+        return {
+            "client": _spot_given(state.get("client"), "not provided"),
+            "topic": _spot_given(topic, f"a general brand spot; {no_invention}"),
+            "cta": _spot_given(f"Visit {url}" if url else "", no_invention),
+            # The :30 is the length the other cuts come from — the
+            # Commercial Builder's BUILD_ORDER rule, one medium over.
+            "length": ":30",
+        }
+    return {
+        "client": _spot_given(state.get("client"), "not provided"),
+        "website": _spot_given(url, "not provided"),
+        "industry": _spot_given(state.get("industry"), "not provided"),
+        "phone": _spot_given("", "not provided — do not include a phone "
+                                 "number in the scripts"),
+        "products": _spot_given(products or sells, "not provided"),
+        "cta": _spot_given(f"Visit {url}" if url else "", no_invention),
+    }
+
+
+@app.post("/api/draft-spot")
+def api_draft_spot():
+    """A first-draft spot for a gated audio or video line.
+
+    The harvested Radio Scripts / TV Scripts Pickaxes
+    (hub/prompts_harvested.py), wired into the creative gate so a line
+    answered "Smart 1 produces it" can carry a drafted script out of the
+    same step that recorded the answer — instead of the ask leaving this
+    tool as a one-line note and coming back weeks later as "what should the
+    spot say?".
+
+    Internal working notes only. The draft is stored by the browser under
+    its own quote key (`draftSpots`), which deliberately never rides in
+    `creativePlan` — that object travels to the insertion order — and
+    reaches neither the client's proposal nor either PDF. A real spot is
+    made in the Radio Ad Creator or the Commercial Builder; this is the
+    starting brief for whoever opens one.
+    """
+    body = request.get_json(force=True) or {}
+    state = body.get("data") or {}
+    medium = str(body.get("medium") or "").strip()
+    if medium not in ("audio", "video"):
+        return jsonify({"ok": False, "error":
+                        f"No script writer for {medium or 'that medium'} — "
+                        "audio and video are the gated mediums a spot is "
+                        "drafted for."}), 400
+    if medium not in hub_creative.gated_media(state):
+        return jsonify({"ok": False, "error":
+                        "That medium is not on this media plan, so there is "
+                        "nothing to draft a spot for."}), 400
+
+    from hub import ai as hub_ai
+    from hub.prompts_harvested import RADIO_SCRIPT, TV_SCRIPTS
+    spec_entry = RADIO_SCRIPT if medium == "audio" else TV_SCRIPTS
+    prefill = _spot_prefill(state, medium)
+    try:
+        text = hub_ai.chat(
+            [{"role": "user", "content": spec_entry["prompt"].format(**prefill)}],
+            module="sales_builder", purpose=f"draft_spot_{medium}",
+            temperature=spec_entry["temperature"],
+            # TV_SCRIPTS asks for ideas plus four lengths of script; the
+            # default 2000-token ceiling truncates that, and hub.ai reads a
+            # truncated answer as the failure it is.
+            max_tokens=3000 if medium == "video" else 1200)
+    except hub_ai.AIUnavailable as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    if not (text or "").strip():
+        return jsonify({"ok": False, "error": "The model returned nothing."}), 502
+    return jsonify({"ok": True, "spot": {
+        "medium": medium,
+        "length": ":30" if medium == "audio" else "",
+        "text": text.strip(),
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "note": "Internal working draft — on neither the proposal nor the "
+                "insertion order.",
+    }})
+
+
 @app.get("/api/proposal-spec")
 def api_proposal_spec():
     """The Smart 1 proposal specification the wizard builds against."""

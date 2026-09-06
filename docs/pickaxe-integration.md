@@ -33,21 +33,29 @@ AI, so a wrong path costs the Pickaxe answer, never the feature — the first
 live call with a real key is what confirms it, and the recorded `http_404`
 rows on the usage page are what would say it is wrong.
 
+## Landed since
+
+**Scripts** — `RADIO_SCRIPT` and `TV_SCRIPTS` are wired into the Proposal
+Builder's creative gate (`/sales/builder/api/draft-spot`): a gated audio or
+video line answered "Smart 1 produces it" carries a first-draft spot out of
+the same step that recorded the answer, stored on the quote as internal
+working notes and never on the client document or the IO. Deliberately not
+wired into Fan Radio, Radio Promo or the Commercial Builder — each already
+has its own budget-aware writer, and a second writer beside one is the
+two-proposal-builders failure.
+
 ## Still to wire (in this order)
 
-1. **Scripts** — `RADIO_SCRIPT` → Fan Radio / Radio Promo; `TV_SCRIPTS` →
-   Commercial Builder. Wire both into the creative-needs gate so a gated
-   audio/CTV line item can carry a drafted spot.
-2. **Page analyzers** — `CTA_ANALYZER` as a shared helper (Landing Page
+1. **Page analyzers** — `CTA_ANALYZER` as a shared helper (Landing Page
    Maker, SEO client page, Homepage review); `SOCIAL_PAGES_REVIEW` +
    `CONTENT_CALENDAR` into the social planner. The analyzers need real page
    text: `{page_text}` / `{pages_block}` is the fetched page, and absent data
    is labeled "no data could be retrieved", never invented.
-3. **Proposal last** — `SPEND_AND_DEMO` on the Executive Summary step (not
+2. **Proposal last** — `SPEND_AND_DEMO` on the Executive Summary step (not
    the Cover — the cover is visual and carries no copy). Touches the document
    clients sign, so it goes after everything else has been read by a person.
    `SNAP_CONCEPT` → Landing Page Maker rides along here or with step 2.
-4. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
+3. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
    `hub/audience_spec.py`, the rep-confirmation gate, the IO and proposal
    reads, the client page. Its registry entry is already in
    `hub/pickaxe_registry.py` so both live-call tools share one file.
