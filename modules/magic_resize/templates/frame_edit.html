@@ -1,0 +1,144 @@
+{% extends "_base.html" %}
+{% block title %}{{ frame.label or size_id }} — {{ project.name }}{% endblock %}
+{% block body_attrs %} data-s1hub-collapse="1"{% endblock %}
+{% block heading %}{{ frame.label or size_id }} &middot; {{ frame.width }}&times;{{ frame.height }}{% endblock %}
+{% block actions %}
+  <a class="s1d-btn ghost" href="{{ request.script_root }}/p/{{ pid }}">Back to {{ project.name }}</a>
+{% endblock %}
+{% block body %}
+
+<div class="s1d-card">
+  <h2 class="s1d-h">
+    Hand-tune this frame
+    {{ help_dot('magic_resize.frame_edit') if help_dot is defined else '' }}
+  </h2>
+  <p class="mr-src">Drag to move, drag a corner to resize, drag the top handle
+    to rotate. Saving marks this size Hand-tuned, which means a future rebuild
+    of the set leaves it exactly as you left it.</p>
+</div>
+
+<div class="mr-edit-layout">
+  <div class="mr-frame-shell">
+    <canvas id="mr-fabric-canvas"></canvas>
+  </div>
+  <div class="s1d-card mr-edit-panel">
+    <h3 class="s1d-h">Selected object</h3>
+    <p class="mr-src" id="mr-edit-role">Nothing selected. Click an object on the canvas.</p>
+    <div id="mr-edit-text-box" hidden>
+      <label>Text<textarea id="mr-edit-text" rows="3"></textarea></label>
+      <button class="s1d-btn ghost" id="mr-edit-apply-text">Apply text</button>
+    </div>
+    <p class="mr-src" id="mr-edit-status"></p>
+    <p>
+      <button class="s1d-btn" id="mr-edit-save">Save</button>
+      <a class="s1d-btn ghost" href="{{ request.script_root }}/p/{{ pid }}">Cancel</a>
+    </p>
+  </div>
+</div>
+
+<style>
+  .mr-edit-layout{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+  .mr-edit-panel{width:280px;flex:0 0 280px}
+  .mr-edit-panel textarea{width:100%;box-sizing:border-box;margin:6px 0;
+                          font:13px inherit}
+  .mr-edit-panel label{font-size:12px;color:#4a5f7a;display:block}
+</style>
+
+<script src="/fabric.min.js"></script>
+<script>
+(function(){
+  // The API this page drives -- api_frame_fabric() to load, api_frame_save()
+  // to save -- has been in modules/magic_resize/app.py since the module
+  // shipped, and nothing has ever called either from a browser. This is
+  // that screen.
+  var API_BASE = {{ (request.script_root + '/api/projects/' + pid) | tojson }};
+  var SIZE_ID = {{ size_id | tojson }};
+  var BACK_URL = {{ (request.script_root + '/p/' + pid) | tojson }};
+  var FRAME_W = {{ frame.width | tojson }};
+  var FRAME_H = {{ frame.height | tojson }};
+
+  var statusLine = document.getElementById('mr-edit-status');
+  function say(t){ if(statusLine) statusLine.textContent = t || ''; }
+
+  if(typeof fabric === 'undefined'){
+    say("The editing engine didn't load — reload the page.");
+    return;
+  }
+
+  var MAX_W = 760, MAX_H = 760;
+  var scale = Math.min(MAX_W / FRAME_W, MAX_H / FRAME_H, 1);
+
+  var canvas = new fabric.Canvas('mr-fabric-canvas', {
+    backgroundColor: '#ffffff', preserveObjectStacking: true
+  });
+  canvas.setDimensions({width: Math.round(FRAME_W * scale),
+                        height: Math.round(FRAME_H * scale)});
+  canvas.setZoom(scale);
+
+  var TEXT_TYPES = {'text':1, 'textbox':1, 'i-text':1, 'itext':1};
+
+  function syncPanel(){
+    var obj = canvas.getActiveObject();
+    var roleLine = document.getElementById('mr-edit-role');
+    var textBox = document.getElementById('mr-edit-text-box');
+    var textArea = document.getElementById('mr-edit-text');
+    if(!obj || canvas.getActiveObjects().length > 1){
+      roleLine.textContent = obj
+        ? 'Multiple objects selected — text can only be edited one at a time.'
+        : 'Nothing selected. Click an object on the canvas.';
+      textBox.hidden = true;
+      return;
+    }
+    roleLine.textContent = 'Role: ' + (obj.s1Role || 'not set');
+    if(TEXT_TYPES[(obj.type || '').toLowerCase()]){
+      textBox.hidden = false;
+      textArea.value = obj.text || '';
+    } else {
+      textBox.hidden = true;
+    }
+  }
+  canvas.on('selection:created', syncPanel);
+  canvas.on('selection:updated', syncPanel);
+  canvas.on('selection:cleared', syncPanel);
+
+  document.getElementById('mr-edit-apply-text').addEventListener('click', function(){
+    var obj = canvas.getActiveObject();
+    if(!obj || !TEXT_TYPES[(obj.type || '').toLowerCase()]) return;
+    obj.set('text', document.getElementById('mr-edit-text').value);
+    canvas.requestRenderAll();
+  });
+
+  say('Loading…');
+  fetch(API_BASE + '/frames/' + SIZE_ID + '/fabric')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.error){ say(d.error); return; }
+      canvas.loadFromJSON(d.fabric, function(){
+        canvas.renderAll();
+        say('');
+      });
+    })
+    .catch(function(e){ say('Could not load this frame: ' + e); });
+
+  document.getElementById('mr-edit-save').addEventListener('click', function(){
+    var wait = (window.S1Think && window.S1Think.attach)
+      ? window.S1Think.attach(statusLine, {kind: 'wait'}) : null;
+    say('Saving…');
+    var payload = canvas.toJSON(['id', 's1Role']);
+    fetch(API_BASE + '/frames/' + SIZE_ID, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({fabric: payload})
+    }).then(function(r){
+      return r.json().then(function(d){ return {ok: r.ok, d: d}; });
+    }).then(function(res){
+      if(wait) wait.done();
+      if(!res.ok){ say(res.d.error || 'That could not be saved.'); return; }
+      window.location.href = BACK_URL;
+    }).catch(function(e){
+      if(wait) wait.done();
+      say('That could not be saved: ' + e);
+    });
+  });
+})();
+</script>
+{% endblock %}

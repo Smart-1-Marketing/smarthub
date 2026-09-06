@@ -42,6 +42,7 @@ it ignores an id it invented, it leaves an object it did not mention where it
 was, and its answer goes back through the same guard a template's output does.
 """
 import io
+import json
 import os
 import shutil
 import sys
@@ -784,6 +785,82 @@ result = store.apply_brand(edited_project, domain="coolair.com",
                            color_hex="445566", kit=good_kit)
 check("applying a brand does not rebuild a hand-tuned frame",
       edited_sid in result["report"]["skipped"], True)
+
+
+section("The editing surface: the API existed, nothing had ever called it")
+# ==========================================================================
+# api_frame_fabric() and api_frame_save() have been in this module since it
+# shipped, and no browser page has ever fetched or posted to either. The
+# route below is that page, and this drives the API the way it does: fetch
+# the frame as Fabric objects, mutate one, post the canvas back.
+
+edit_project = store.create(name="Edit surface test", client="Acme Plumbing",
+                            source=design(), bundle="display_standard")
+store.generate(edit_project)
+store.save(edit_project)
+edit_sid = next(iter(edit_project["frames"]))
+edit_pid = edit_project["id"]
+
+client = magic_app.app.test_client()
+
+page = client.get(f"/p/{edit_pid}/frames/{edit_sid}/edit")
+check("the editor page renders", page.status_code, 200)
+body = page.get_data(as_text=True)
+check("it loads the shared Fabric library from the root, not its own copy",
+      '"/fabric.min.js"' in body, True)
+check("it drives the existing per-frame fabric API",
+      "/frames/' + SIZE_ID + '/fabric" in body, True)
+check("...against this frame's own size id",
+      json.dumps(edit_sid) in body, True)
+
+check("an unknown size on a real project is missing, not a 500",
+      client.get(f"/p/{edit_pid}/frames/no-such-size/edit").status_code, 404)
+check("an unknown project is missing too",
+      client.get(f"/p/not-a-project/frames/{edit_sid}/edit").status_code, 404)
+
+fabric_resp = client.get(f"/api/projects/{edit_pid}/frames/{edit_sid}/fabric")
+check("the fabric API this page fetches still answers", fabric_resp.status_code, 200)
+canvas_json = fabric_resp.get_json()["fabric"]
+check("it hands back real objects, not an empty canvas",
+      len(canvas_json.get("objects") or []), len(edit_project["frames"][edit_sid]["objects"]))
+
+# Simulate what canvas.toJSON(['id', 's1Role']) produces after somebody has
+# dragged and resized the first object -- this is the whole of what the
+# browser sends back, and fabric_io.to_frame() (already tested on its own)
+# is the one reading of what that means as engine boxes.
+moved = json.loads(json.dumps(canvas_json))
+target = moved["objects"][0]
+original_id = target.get("id")
+target["left"] = 12.5
+target["top"] = 34.0
+target["scaleX"] = 2.0
+target["scaleY"] = 1.5
+
+save_resp = client.post(f"/api/projects/{edit_pid}/frames/{edit_sid}",
+                        json={"fabric": moved})
+check("saving a hand-tuned frame answers", save_resp.status_code, 200)
+saved = save_resp.get_json()["frame"]
+check("the frame is marked Hand-tuned", saved["status"], engine.EDITED)
+moved_obj = next(o for o in saved["objects"] if o["id"] == original_id)
+check("the moved object's new position is what the canvas actually sent",
+      (moved_obj["x"], moved_obj["y"]), (12.5, 34.0))
+check("...and its resized dimensions, computed from scale times intrinsic size",
+      (moved_obj["w"], moved_obj["h"]),
+      (round(target["width"] * 2.0, 2), round(target["height"] * 1.5, 2)))
+
+check("saving with no fabric canvas in the body is refused, not a 500",
+      client.post(f"/api/projects/{edit_pid}/frames/{edit_sid}",
+                 json={"objects": []}).status_code, 400)
+check("saving against an unknown size is a 404",
+      client.post(f"/api/projects/{edit_pid}/frames/no-such-size",
+                 json={"fabric": canvas_json}).status_code, 404)
+check("saving against an unknown project is a 404",
+      client.post("/api/projects/not-a-project/frames/x",
+                 json={"fabric": canvas_json}).status_code, 404)
+
+reloaded = store.get(edit_pid)
+check("the save actually persisted", reloaded["frames"][edit_sid]["status"],
+      engine.EDITED)
 
 
 print("\n" + "-" * 60)

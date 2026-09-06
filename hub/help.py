@@ -697,6 +697,11 @@ REGISTRY: list[Help] = [
        "on this design is tagged Logo or Background; a headline or "
        "disclaimer is never recolored out from under whoever wrote it, and "
        "a hand-tuned frame is never rebuilt by it."),
+    _h("magic_resize.frame_edit", "Drag, resize and retext with Fabric",
+       "This is the same editing engine Image Creator uses. Nothing you move "
+       "here is deleted from the design — it is a per-frame adjustment, and "
+       "saving marks this one size Hand-tuned so a rebuild of the set leaves "
+       "it exactly as you left it."),
 
     # ---------------- Background Remover ----------------
     _h("bg_remover.upload.credits", "This one costs money",
