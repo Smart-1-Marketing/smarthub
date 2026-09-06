@@ -4307,7 +4307,18 @@ answer.
 **The old spellings are still read**, so nothing already recorded is orphaned
 — the `audit.LOG_NAMES` rule — and only while the rooted file is empty, or
 removing a row would resurrect it from the old location. Each store moves
-itself the first time it is written. `test_ad_assets.py` asserts all of it and
+itself the first time it is written.
+
+**And that fallback re-created the file it exists to abandon.** `read_json`
+writes a restored blob back to disk, and a `default=` argument is evaluated
+whether or not it is needed — so passing the legacy read as `update_json`'s
+default did the old read on **every** run and rewrote the pre-move file every
+time, for ever. The fallback belongs *inside* the mutate, which runs under the
+lock and only where the rooted store is empty: once. The check written for it
+first could not fail — it ran in a fresh directory where the mirror holds no
+pre-move key, so there was nothing to restore and nothing to rewrite, and the
+defect passed it. It seeds that key now, which is the live deployment's state
+and not a fresh directory's. `test_ad_assets.py` asserts all of it and
 sweeps `hub/` and `modules/` for the shape: a **string literal** handed to a
 store function is unambiguously CWD-relative and is a finding, while a path
 built from a call or a name is *not determinable* and is deliberately not

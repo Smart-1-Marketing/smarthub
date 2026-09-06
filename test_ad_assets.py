@@ -375,6 +375,25 @@ try:
                                  {"applied": []})
     check("and the old location is not consulted past that",
           [a["key"] for a in _now["applied"]], ["k2"])
+
+    # `read_json` writes a restored blob back to disk, and a `default=`
+    # argument is evaluated whether or not it is needed -- so reading the old
+    # location eagerly re-created the file this move exists to abandon, on
+    # every single run, for ever.
+    #
+    # It only reproduces where the mirror still holds the pre-move key, which
+    # is the live deployment's state and not a fresh directory's: seeded here
+    # rather than assumed, or this passes whatever the code does.
+    jsonstore.write_json(ad_assets.LEGACY_RUNS_PATH, {"runs": [{"client": "old"}]})
+    _legacy_disk = os.path.abspath(ad_assets.LEGACY_RUNS_PATH)
+    check("the pre-move key really is in the mirror",
+          jsonstore.key_for(_legacy_disk).startswith("abs:"), True)
+    jsonstore.write_json(ad_assets._runs_path(), {"runs": [{"client": "moved"}]})
+    os.remove(_legacy_disk)          # as a redeploy leaves it
+
+    ad_assets._record_run({"client": "After The Move", "counts": {}}, "t")
+    check("and the pre-move file is not written back on every run",
+          os.path.exists(_legacy_disk), False)
 finally:
     os.chdir(_cwd)
     for _k, _v in _prev.items():

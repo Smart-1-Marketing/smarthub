@@ -116,6 +116,18 @@ def _runs_path() -> str:
     return os.path.join(jsonstore.data_dir("ad_assets"), "runs.json")
 
 
+def _read_legacy(legacy: str, default):
+    """Read a store from where it lived before the move.
+
+    Restoring is left on: after a redeploy the pre-move file is gone from the
+    image and the mirror is the only copy, so this is what recovers it. The
+    cost is that `read_json` writes what it restored back to the old location,
+    which is why every caller reaches this only while the rooted store is
+    empty -- once, rather than on every run.
+    """
+    return jsonstore.read_json(legacy, default=default)
+
+
 def _read_store(path: str, legacy: str, default):
     """Read the rooted file, falling back to the pre-move one.
 
@@ -126,7 +138,7 @@ def _read_store(path: str, legacy: str, default):
     rows = jsonstore.read_json(path, default=None)
     if rows:
         return rows
-    return jsonstore.read_json(legacy, default=default)
+    return _read_legacy(legacy, default)
 
 MAX_FILE_MB = int(os.environ.get("AD_ASSETS_MAX_FILE_MB") or 200)
 
@@ -437,18 +449,22 @@ def _record_run(result: dict, actor: str) -> None:
     }
 
     def add(runs):
+        # The fallback is read *here* rather than passed as `default`, and the
+        # difference is not tidiness. A `default=` argument is evaluated on
+        # every call whether or not it is needed, and `read_json` writes a
+        # restored blob back to disk -- so reading the old location eagerly
+        # re-created the very file this move exists to abandon, on every run,
+        # for ever. Inside the mutate it is reached only where the rooted
+        # store is empty, which is once.
+        if not runs:
+            runs = _read_legacy(LEGACY_RUNS_PATH, {"runs": []})
         runs = runs if isinstance(runs, dict) else {"runs": []}
         rows = runs.setdefault("runs", [])
         rows.insert(0, entry)
         runs["runs"] = rows[:200]
         return runs
 
-    # `default` is consulted only where the rooted file is absent, which is
-    # exactly the pre-move case -- so the fallback belongs here rather than in
-    # a read of our own, which would read the rooted path twice.
-    jsonstore.update_json(
-        _runs_path(), add,
-        default=jsonstore.read_json(LEGACY_RUNS_PATH, default={"runs": []}))
+    jsonstore.update_json(_runs_path(), add, default=None)
     try:
         from hub import audit
         audit.log(TOOL, "migrated", actor=actor, client=result.get("client", ""),
@@ -549,16 +565,15 @@ def apply_proposals(keys: list, *, actor: str = "") -> dict:
     # claiming it did is what makes this file unreadable as a record.
     if fresh:
         def add(stored):
+            if not stored:
+                stored = _read_legacy(LEGACY_PROPOSALS_PATH, {"applied": []})
             stored = stored if isinstance(stored, dict) else {"applied": []}
             rows = stored.setdefault("applied", [])
             rows.extend(fresh)
             stored["applied"] = rows[-2000:]
             return stored
 
-        jsonstore.update_json(
-            _proposals_path(), add,
-            default=jsonstore.read_json(LEGACY_PROPOSALS_PATH,
-                                        default={"applied": []}))
+        jsonstore.update_json(_proposals_path(), add, default=None)
     return {"ok": bool(done), "applied": len(done), "failed": failed}
 
 
