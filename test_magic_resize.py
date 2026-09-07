@@ -42,6 +42,7 @@ it ignores an id it invented, it leaves an object it did not mention where it
 was, and its answer goes back through the same guard a template's output does.
 """
 import io
+import json
 import os
 import shutil
 import sys
@@ -715,6 +716,151 @@ check("the provider is one the gallery can name",
       "magic_resize" in _filing.SOURCE_LABELS, True)
 check("and it sorts as our own work, not something the client sent",
       "magic_resize" in _filing.WE_MADE, True)
+
+section("A client's brand, pulled into the design and nowhere invented")
+
+brand_project = store.create(name="Brand test", client="Cool Air Co",
+                             source=design(), bundle="display_standard")
+store.generate(brand_project)
+
+check("no domain is a refusal, not a guess at one",
+      store.apply_brand(brand_project, domain="")["applied"], False)
+
+no_brand_kit = {"found": False, "has_brand": False,
+               "note": "No brand data on file yet."}
+result = store.apply_brand(brand_project, domain="coolair.com",
+                           kit=no_brand_kit)
+check("no brand on file is refused rather than applied empty",
+      result["applied"], False)
+check("and the reason is the kit's own note",
+      result["reason"], "No brand data on file yet.")
+check("an untouched project keeps brand_profile_ref empty",
+      brand_project["brand_profile_ref"], "")
+
+good_kit = {"found": True, "has_brand": True,
+           "logo_tiles": [{"url": "https://cdn.example/logo.png"}],
+           "palette": [{"hex": "#112233", "type": "brand"}]}
+result = store.apply_brand(brand_project, domain="coolair.com",
+                           color_hex="112233", kit=good_kit)
+check("a good kit applies", result["applied"], True)
+check("the reference is the domain that was actually looked up",
+      brand_project["brand_profile_ref"], "coolair.com")
+logo_obj = next(o for o in brand_project["source"]["objects"] if o["id"] == "logo")
+check("the logo-role object's image source is the resolved logo",
+      logo_obj["fabric"]["src"], "https://cdn.example/logo.png")
+bg_obj = next(o for o in brand_project["source"]["objects"] if o["id"] == "bg")
+check("a bare hex is normalized with a leading #",
+      bg_obj["fill"], "#112233")
+check("only the background role's fill changed",
+      next(o for o in brand_project["source"]["objects"]
+          if o["id"] == "head").get("fill", ""), "")
+check("frames were rebuilt off the new source",
+      len(result["report"]["built"]) > 0, True)
+
+check("an invalid hex is refused by name",
+      store.apply_brand(brand_project, domain="coolair.com",
+                        color_hex="not-a-color",
+                        kit=good_kit)["applied"], False)
+
+no_role_project = store.create(
+    name="No roles", client="Nobody",
+    source={"width": 300, "height": 250, "family": "square_medium",
+           "objects": [{"id": "x", "role": "", "kind": "shape",
+                       "x": 0, "y": 0, "w": 300, "h": 250}]},
+    bundle="display_standard")
+result = store.apply_brand(no_role_project, domain="nobody.com",
+                           color_hex="112233", kit=good_kit)
+check("a design with nothing tagged Logo or Background changes nothing",
+      result["applied"], False)
+check("and says which roles were missing",
+      "Logo" in result["reason"] and "Background" in result["reason"], True)
+
+edited_project = store.create(name="Edited frame test", client="Cool Air Co",
+                              source=design(), bundle="display_standard")
+store.generate(edited_project)
+edited_sid = next(iter(edited_project["frames"]))
+store.mark_edited(edited_project, edited_sid,
+                  edited_project["frames"][edited_sid]["objects"])
+result = store.apply_brand(edited_project, domain="coolair.com",
+                           color_hex="445566", kit=good_kit)
+check("applying a brand does not rebuild a hand-tuned frame",
+      edited_sid in result["report"]["skipped"], True)
+
+
+section("The editing surface: the API existed, nothing had ever called it")
+# ==========================================================================
+# api_frame_fabric() and api_frame_save() have been in this module since it
+# shipped, and no browser page has ever fetched or posted to either. The
+# route below is that page, and this drives the API the way it does: fetch
+# the frame as Fabric objects, mutate one, post the canvas back.
+
+edit_project = store.create(name="Edit surface test", client="Acme Plumbing",
+                            source=design(), bundle="display_standard")
+store.generate(edit_project)
+store.save(edit_project)
+edit_sid = next(iter(edit_project["frames"]))
+edit_pid = edit_project["id"]
+
+client = magic_app.app.test_client()
+
+page = client.get(f"/p/{edit_pid}/frames/{edit_sid}/edit")
+check("the editor page renders", page.status_code, 200)
+body = page.get_data(as_text=True)
+check("it loads the shared Fabric library from the root, not its own copy",
+      '"/fabric.min.js"' in body, True)
+check("it drives the existing per-frame fabric API",
+      "/frames/' + SIZE_ID + '/fabric" in body, True)
+check("...against this frame's own size id",
+      json.dumps(edit_sid) in body, True)
+
+check("an unknown size on a real project is missing, not a 500",
+      client.get(f"/p/{edit_pid}/frames/no-such-size/edit").status_code, 404)
+check("an unknown project is missing too",
+      client.get(f"/p/not-a-project/frames/{edit_sid}/edit").status_code, 404)
+
+fabric_resp = client.get(f"/api/projects/{edit_pid}/frames/{edit_sid}/fabric")
+check("the fabric API this page fetches still answers", fabric_resp.status_code, 200)
+canvas_json = fabric_resp.get_json()["fabric"]
+check("it hands back real objects, not an empty canvas",
+      len(canvas_json.get("objects") or []), len(edit_project["frames"][edit_sid]["objects"]))
+
+# Simulate what canvas.toJSON(['id', 's1Role']) produces after somebody has
+# dragged and resized the first object -- this is the whole of what the
+# browser sends back, and fabric_io.to_frame() (already tested on its own)
+# is the one reading of what that means as engine boxes.
+moved = json.loads(json.dumps(canvas_json))
+target = moved["objects"][0]
+original_id = target.get("id")
+target["left"] = 12.5
+target["top"] = 34.0
+target["scaleX"] = 2.0
+target["scaleY"] = 1.5
+
+save_resp = client.post(f"/api/projects/{edit_pid}/frames/{edit_sid}",
+                        json={"fabric": moved})
+check("saving a hand-tuned frame answers", save_resp.status_code, 200)
+saved = save_resp.get_json()["frame"]
+check("the frame is marked Hand-tuned", saved["status"], engine.EDITED)
+moved_obj = next(o for o in saved["objects"] if o["id"] == original_id)
+check("the moved object's new position is what the canvas actually sent",
+      (moved_obj["x"], moved_obj["y"]), (12.5, 34.0))
+check("...and its resized dimensions, computed from scale times intrinsic size",
+      (moved_obj["w"], moved_obj["h"]),
+      (round(target["width"] * 2.0, 2), round(target["height"] * 1.5, 2)))
+
+check("saving with no fabric canvas in the body is refused, not a 500",
+      client.post(f"/api/projects/{edit_pid}/frames/{edit_sid}",
+                 json={"objects": []}).status_code, 400)
+check("saving against an unknown size is a 404",
+      client.post(f"/api/projects/{edit_pid}/frames/no-such-size",
+                 json={"fabric": canvas_json}).status_code, 404)
+check("saving against an unknown project is a 404",
+      client.post("/api/projects/not-a-project/frames/x",
+                 json={"fabric": canvas_json}).status_code, 404)
+
+reloaded = store.get(edit_pid)
+check("the save actually persisted", reloaded["frames"][edit_sid]["status"],
+      engine.EDITED)
 
 
 print("\n" + "-" * 60)

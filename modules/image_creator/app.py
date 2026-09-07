@@ -24,7 +24,7 @@ try:
 except Exception:                                     # noqa: BLE001
     hub_audit = None
 
-from . import assets, photo_search, projects
+from . import animation, assets, photo_search, projects, qc, review_spec, share_store
 from hub.webargs import clamp_int
 
 
@@ -58,12 +58,31 @@ CANVAS_PRESETS = [
     {"key": "ig-portrait", "label": "Instagram Portrait", "w": 1080, "h": 1350, "group": "Social"},
     {"key": "ig-story", "label": "Story / Reel", "w": 1080, "h": 1920, "group": "Social"},
     {"key": "og", "label": "Facebook / OG Share", "w": 1200, "h": 630, "group": "Social"},
-    {"key": "mrec", "label": "Medium Rectangle", "w": 300, "h": 250, "group": "Display ads"},
-    {"key": "leaderboard", "label": "Leaderboard", "w": 728, "h": 90, "group": "Display ads"},
-    {"key": "mobile-banner", "label": "Mobile Banner", "w": 320, "h": 50, "group": "Display ads"},
-    {"key": "halfpage", "label": "Half Page", "w": 300, "h": 600, "group": "Display ads"},
-    {"key": "billboard", "label": "Billboard", "w": 970, "h": 250, "group": "Display ads"},
+    # "unit" names the hub.creative_specs id for this size, which is where
+    # its dimensions AND its file-weight ceiling actually come from (see
+    # qc.py) -- never restated here as a number, because that is the exact
+    # drift this codebase has already paid for once (Half Page enforced at
+    # 150 KB against a published 250 KB).
+    {"key": "mrec", "label": "Medium Rectangle", "w": 300, "h": 250, "group": "Display ads",
+     "unit": "medium_rectangle"},
+    {"key": "leaderboard", "label": "Leaderboard", "w": 728, "h": 90, "group": "Display ads",
+     "unit": "leaderboard"},
+    {"key": "mobile-banner", "label": "Mobile Banner", "w": 320, "h": 50, "group": "Display ads",
+     "unit": "mobile_banner_320"},
+    {"key": "halfpage", "label": "Half Page", "w": 300, "h": 600, "group": "Display ads",
+     "unit": "half_page"},
+    {"key": "billboard", "label": "Billboard", "w": 970, "h": 250, "group": "Display ads",
+     "unit": "rising_star"},
 ]
+
+# Everything under /review/ is a client-facing link with no Hub login — the
+# arrangement modules/ads_builder and modules/scans already use. Read from
+# here by wsgi.py, which hands it to BOTH AuthGuard (so it is reachable) and
+# HubBar (so the sidebar, help layer and feedback tab are not injected into a
+# page a client reads), so the mount and the module cannot disagree about
+# what is public.
+PUBLIC_PREFIXES = ("/review/",)
+MOUNT = "/tools/image-creator"
 
 
 def actor_name() -> str:
@@ -586,3 +605,259 @@ def api_export_cloudinary():
         return jsonify({"error": f"Upload failed: {exc}"}), 502
     _log("export_saved", detail=body.get("name", ""), client=body.get("client", ""))
     return jsonify({"ok": True, **out})
+
+
+def _preset_for(key: str) -> dict:
+    return next((p for p in CANVAS_PRESETS if p["key"] == key), CANVAS_PRESETS[0])
+
+
+def _preset_for_canvas(body: dict, canvas: dict) -> dict:
+    """Which preset a QC or export call is judged against.
+
+    An explicit ``preset`` key wins when the caller sends one; otherwise the
+    canvas's own dimensions are matched against the presets exactly — the
+    editor tracks no "which preset is this" state of its own once a size has
+    been applied, so a 300x250 canvas is the Medium Rectangle whether it got
+    there from the size picker or from typing the numbers in by hand.
+    """
+    key = str(body.get("preset") or "").strip()
+    if key:
+        return _preset_for(key)
+    width = int((canvas or {}).get("width") or 0)
+    height = int((canvas or {}).get("height") or 0)
+    for p in CANVAS_PRESETS:
+        if p.get("w") and p.get("h") and int(p["w"]) == width and int(p["h"]) == height:
+            return p
+    return CANVAS_PRESETS[0]
+
+
+# =====================================================================
+# QC — one block/advisory panel, the same shape Commercial Builder and
+# Magic Resize already draw theirs in.
+# =====================================================================
+@app.route("/api/qc/check", methods=["POST"])
+def api_qc_check():
+    body = request.get_json(silent=True) or {}
+    canvas = body.get("canvas") or {}
+    if not isinstance(canvas, dict):
+        return jsonify({"error": "Nothing to check."}), 400
+    preset = _preset_for_canvas(body, canvas)
+    size_bytes = clamp_int(body.get("size_bytes"), 0, 0, 200 * 1024 * 1024)
+    fmt = str(body.get("format") or "png").strip().lower()
+    return jsonify(qc.run(preset, canvas, size_bytes=size_bytes, fmt=fmt))
+
+
+# =====================================================================
+# Animated GIF export — the browser interpolates each object's entrance and
+# rasterises one frame per timestamp (Fabric's own renderer, the only place
+# the canvas — fonts, groups, crops — actually exists); this assembles the
+# finished sequence with Pillow. See modules/image_creator/animation.py.
+# =====================================================================
+@app.route("/api/export/animated", methods=["POST"])
+def api_export_animated():
+    body = request.get_json(silent=True) or {}
+    frames = body.get("frames") or []
+    if not isinstance(frames, list) or not frames:
+        return jsonify({"error": "No animated frames were captured — give at "
+                                 "least one object an entrance first."}), 400
+    frame_ms = clamp_int(body.get("frameMs"), animation.FRAME_INTERVAL_MS, 20, 2000)
+    try:
+        gif_bytes = animation.assemble_gif(frames, frame_ms=frame_ms)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:                          # noqa: BLE001
+        return jsonify({"error": f"Animation export failed: {exc}"}), 502
+
+    canvas = body.get("canvas") or {}
+    preset = _preset_for_canvas(body, canvas)
+    objects = canvas.get("objects") or []
+    width = int(canvas.get("width") or preset.get("w") or 0)
+    height = int(canvas.get("height") or preset.get("h") or 0)
+    findings = (qc.check_dimensions_and_weight(
+                    preset, width=width, height=height,
+                    size_bytes=len(gif_bytes), fmt="gif")
+               + qc.check_animation_duration(objects))
+
+    _log("animated_export", detail=body.get("name", ""), client=body.get("client", ""))
+    import base64 as _b64
+    return jsonify({
+        "ok": True,
+        "image": "data:image/gif;base64," + _b64.b64encode(gif_bytes).decode(),
+        "bytes": len(gif_bytes),
+        "frames": len(frames),
+        "duration_ms": frame_ms * max(0, len(frames) - 1),
+        "qc": {"result": qc.verdict(findings), "findings": findings},
+    })
+
+
+# =====================================================================
+# Client review link — a rep sends a graphic for approval, a client answers
+# with no Hub login. Ported from modules/commercial_builder's review link
+# (the more complete of the two prior implementations of this pattern).
+# =====================================================================
+def _share_url(token: str) -> str:
+    """Absolute where the Hub knows its own address, root-relative otherwise
+    — the same fallback modules/ads_builder's `_share_url` uses, since a
+    guessed host is worse than a relative link and PUBLIC_BASE_URL unset
+    means this process does not know its own address."""
+    try:
+        from hub.config import public_base_origin
+        base = public_base_origin()
+    except Exception:                                 # noqa: BLE001
+        base = ""
+    return f"{base}{MOUNT}/review/{token}" if base else f"{MOUNT}/review/{token}"
+
+
+def _project_row(pid: str) -> dict | None:
+    return next((r for r in projects.load_index() if r.get("id") == pid), None)
+
+
+@app.route("/api/projects/<pid>/reviews", methods=["GET"])
+def api_reviews_list(pid):
+    rows = share_store.list_shares(pid)
+    for r in rows:
+        r["url"] = _share_url(r["token"])
+        r["verdict"] = review_spec.verdict(r["decisions"])
+        r["round_state"] = review_spec.round_state(r["round"])
+    live = next((r for r in rows if not r["revoked"]), None)
+    return jsonify({
+        "reviews": rows,
+        "current": live,
+        "standing": (live or {}).get("verdict") or review_spec.verdict([]),
+        "next_round": review_spec.round_state(len(rows) + 1),
+    })
+
+
+@app.route("/api/projects/<pid>/reviews", methods=["POST"])
+def api_reviews_send(pid):
+    row = _project_row(pid)
+    if not row:
+        return jsonify({"error": "Save this project before sending it for review."}), 404
+
+    body = request.get_json(silent=True) or {}
+    variants = body.get("variants")
+    if not variants and row.get("preview_url"):
+        # The project's own current preview, offered by default so sending a
+        # review does not first require a separate export step. Once Magic
+        # Resize can hand this route its own per-size renders, several land
+        # here instead of one.
+        variants = [{"label": row.get("name", ""), "url": row["preview_url"]}]
+    if not variants:
+        return jsonify({"error": "There is nothing to review yet — save the "
+                                 "project (or export it) first."}), 400
+
+    data = share_store.create_share(pid, created_by=actor_name(),
+                                    message=str(body.get("message") or ""),
+                                    variants=variants)
+    data["url"] = _share_url(data["token"])
+    state = review_spec.round_state(data["round"])
+    data["round_state"] = state
+    if state["over"]:
+        _log("review_rounds_exceeded", project=pid, client=row.get("client", ""),
+             detail=f"{state['label']} on {row.get('name', 'a graphic')}")
+    _log("review_sent", project=pid, client=row.get("client", ""),
+        detail=f"{state['label']} · {row.get('name', 'Untitled')}")
+    return jsonify({"ok": True, "review": data})
+
+
+@app.route("/api/projects/<pid>/reviews/<int:share_id>/revoke", methods=["POST"])
+def api_reviews_revoke(pid, share_id):
+    ok = share_store.revoke_share(pid, share_id)
+    if ok:
+        row = _project_row(pid) or {}
+        _log("review_revoked", project=pid, client=row.get("client", ""))
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/reviews/waiting")
+def api_reviews_waiting():
+    """Every live round across every project, sorted into who is waiting on
+    whom. Never raises — a card drawing a clean zero over a table that would
+    not answer is the confident wrong answer this is written to avoid."""
+    try:
+        rows = share_store.reviews_waiting()
+        index = {r.get("id"): r for r in projects.load_index()}
+        inbox_rows = []
+        for r in rows:
+            proj = index.get(r["project_id"], {})
+            inbox_rows.append({
+                "project_id": r["project_id"], "title": proj.get("name", ""),
+                "client": proj.get("client", ""), "round_no": r["round_no"],
+                "sent_at": r["sent_at"], "sent_by": r["sent_by"],
+                "answered": r["verdict"]["answered"], "comments": r["comments"],
+                "outcome": r["verdict"]["outcome"], "color": r["verdict"]["color"],
+                "by": r["verdict"]["by"], "conflicting": r["verdict"]["conflicting"],
+                "filed": False,
+            })
+        return jsonify({"ok": True, **review_spec.inbox(inbox_rows)})
+    except Exception as exc:                          # noqa: BLE001
+        return jsonify({"ok": True, **review_spec.inbox_unmeasured(str(exc))})
+
+
+# ---------------------------------------------------------------------------
+# The public half — reached with nothing but the token, no Hub session.
+# ---------------------------------------------------------------------------
+def _live_share_or_none(token: str) -> dict | None:
+    share = share_store.get_share(token)
+    if not share or share["revoked"]:
+        return None
+    return share
+
+
+@app.route("/review/<token>")
+def page_client_review(token):
+    share = _live_share_or_none(token)
+    if not share:
+        # Deliberately the same answer for revoked, deleted and never-existed
+        # — a client-facing page must not confirm which tokens are real.
+        return render_template("review_gone.html"), 404
+    row = _project_row(share["project_id"]) or {}
+    share_store.note_opened(token)
+    return render_template(
+        "review.html", token=token, share=share, project=row,
+        outcomes=review_spec.OUTCOMES, outcome_labels=review_spec.OUTCOME_LABELS,
+        round_state=review_spec.round_state(share["round"]))
+
+
+@app.route("/review/<token>/comment", methods=["POST"])
+def api_client_comment(token):
+    share = _live_share_or_none(token)
+    if not share:
+        return jsonify({"error": "This review link is no longer available."}), 404
+    clean = review_spec.clean_comment(request.get_json(silent=True) or {})
+    if not clean["text"]:
+        return jsonify({"error": "Type your note first."}), 400
+    if not clean["reviewer_name"]:
+        return jsonify({"error": "Please add your name — a note nobody can "
+                                 "attribute is one we cannot come back to "
+                                 "you about."}), 400
+    updated = share_store.add_comment(token, clean["text"], clean["reviewer_name"],
+                                      clean["reviewer_email"])
+    row = _project_row(share["project_id"]) or {}
+    _log("review_commented", project=share["project_id"], client=row.get("client", ""),
+        detail=f"{clean['reviewer_name']} left a note on round {share['round']}")
+    return jsonify({"ok": True, "comments": (updated or {}).get("comments", [])})
+
+
+@app.route("/review/<token>/decide", methods=["POST"])
+def api_client_decide(token):
+    share = _live_share_or_none(token)
+    if not share:
+        return jsonify({"error": "This review link is no longer available."}), 404
+    body = request.get_json(silent=True) or {}
+    outcome = str(body.get("outcome") or "")
+    if not review_spec.is_outcome(outcome):
+        return jsonify({"error": "Choose one of the three answers."}), 400
+    name = str(body.get("name") or "").strip()
+    email = str(body.get("email") or "").strip()
+    if review_spec.decision_requires_name(outcome) and (not name or "@" not in email):
+        return jsonify({"error": "Please add your name and email. We record "
+                                 "who signed a graphic off."}), 400
+    updated = share_store.record_decision(token, outcome, name, email, body.get("note"))
+    decisions = (updated or {}).get("decisions", [])
+    resolved = review_spec.verdict(decisions)
+    row = _project_row(share["project_id"]) or {}
+    _log("review_answered", project=share["project_id"], client=row.get("client", ""),
+        detail=f"{review_spec.OUTCOME_LABELS.get(outcome, outcome)} — {name}")
+    return jsonify({"ok": True, "label": review_spec.OUTCOME_LABELS[outcome],
+                    "verdict": resolved, "decisions": decisions})

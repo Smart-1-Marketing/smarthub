@@ -35,13 +35,29 @@ And the wiring, because this repo's most expensive failure is a feature that
 is complete except for being reachable: the blueprint registered, the tile,
 the help keys, the crumb and the scheduled sweep.
 """
+import os
 import pathlib
 import re
 import sys
+import tempfile
 import types
 
 ROOT = pathlib.Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+
+# Set BEFORE the first `from hub import ...` below, and both of them, because
+# `jsonstore` caches its engine on the first `_init()` and `data_root()` is
+# read per call but the engine is not -- so a `DATABASE_URL` assigned after
+# the import is a **no-op**, and the mirror writes this file makes land in
+# whatever database the session already had. That reads as an isolated test
+# and is not one: measured, it left ~70 `abs:/tmp/adassets-*` rows in the
+# shared Postgres. It is also the shape `test_jsonstore.py`'s sweep exists to
+# catch -- own directory, inherited mirror -- and that sweep reads the
+# *assignment*, so assigning it too late exempts the file while changing
+# nothing. The same trap `test_ghl_forms.py` had to undo one module over.
+_TMP = tempfile.mkdtemp(prefix="adassets-")
+os.environ["HUB_DATA_DIR"] = os.path.join(_TMP, "root")
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "mirror.db")
 
 _passed = _failed = 0
 
@@ -286,6 +302,146 @@ check("and keeps the Drive original beside it",
       "Drive original" in _c360, True)
 check("the copy is attached to the creative rows it belongs to",
       "_attach_library" in (ROOT / "hub" / "knack_data.py").read_text(), True)
+
+
+# ---------------------------------------------------------------------------
+# 8. Where the two stores live, and what the old spelling cost
+# ---------------------------------------------------------------------------
+print("\nWhere the stores live")
+
+import ast
+import threading
+
+# The data root and the mirror were isolated at the top of this file, before
+# the hub imports, for the reason given there. What is left to do here is the
+# working directory: the old paths were resolved against it, so the check has
+# to run from somewhere that is not the data root to mean anything.
+_cwd = os.getcwd()
+os.makedirs(os.path.join(_TMP, "cwd"), exist_ok=True)
+os.chdir(os.path.join(_TMP, "cwd"))
+
+try:
+    from hub import ad_assets, jsonstore
+
+    _root = os.path.abspath(jsonstore.data_root())
+
+    def _under_root(path):
+        a = os.path.abspath(path)
+        return a == _root or a.startswith(_root + os.sep)
+
+    check("the run log resolves under the data root",
+          _under_root(ad_assets._runs_path()), True)
+    check("so does the applied-proposals record",
+          _under_root(ad_assets._proposals_path()), True)
+
+    # An `abs:` key is what a path outside the root produces, and it defeats
+    # the one property key_for()'s docstring names: a production blob
+    # restoring into a development checkout.
+    check("the mirror key is root-relative, not an absolute one",
+          jsonstore.key_for(ad_assets._runs_path()), "ad_assets/runs.json")
+
+    # The half that was actually lost. sweep() walks the data root, so a save
+    # made while the mirror was unavailable was never picked up afterwards --
+    # and the next redeploy took the file with it.
+    import unittest.mock as _mock
+    with _mock.patch.object(jsonstore, "_init", return_value=False):
+        ad_assets._record_run({"client": "Mirror Down", "counts": {}}, "t")
+    _swept = jsonstore.sweep()
+    check("a save made while the mirror was down is swept up afterwards",
+          _swept.get("mirrored", 0) >= 1, True)
+    os.remove(ad_assets._runs_path())
+    _back = jsonstore.read_json(ad_assets._runs_path(), default=None)
+    check("and it comes back after the disk is recreated",
+          bool(_back and _back.get("runs")), True)
+
+    # Eight concurrent records measured 1 of 8 kept before this. The scheduled
+    # catch-up sweep and a rep pressing Migrate overlap by design.
+    jsonstore.write_json(ad_assets._runs_path(), {"runs": []})
+    _ts = [threading.Thread(target=ad_assets._record_run,
+                            args=({"client": f"c{i}", "counts": {}}, "t"))
+           for i in range(8)]
+    for _t in _ts:
+        _t.start()
+    for _t in _ts:
+        _t.join()
+    check("eight concurrent runs all reach the log",
+          len(jsonstore.read_json(ad_assets._runs_path(),
+                                  default={"runs": []})["runs"]), 8)
+
+    # Nothing already recorded is orphaned by the move.
+    jsonstore.delete_json(ad_assets._proposals_path())
+    jsonstore.write_json(ad_assets.LEGACY_PROPOSALS_PATH,
+                         {"applied": [{"key": "k1", "client": "Acme"}]})
+    _old = ad_assets._read_store(ad_assets._proposals_path(),
+                                 ad_assets.LEGACY_PROPOSALS_PATH,
+                                 {"applied": []})
+    check("rows written before the move are still read",
+          [a["key"] for a in _old["applied"]], ["k1"])
+
+    # ...and once the rooted file holds something, the old location stops
+    # being consulted, or removing a row would resurrect it.
+    jsonstore.write_json(ad_assets._proposals_path(),
+                         {"applied": [{"key": "k2"}]})
+    _now = ad_assets._read_store(ad_assets._proposals_path(),
+                                 ad_assets.LEGACY_PROPOSALS_PATH,
+                                 {"applied": []})
+    check("and the old location is not consulted past that",
+          [a["key"] for a in _now["applied"]], ["k2"])
+
+    # `read_json` writes a restored blob back to disk, and a `default=`
+    # argument is evaluated whether or not it is needed -- so reading the old
+    # location eagerly re-created the file this move exists to abandon, on
+    # every single run, for ever.
+    #
+    # It only reproduces where the mirror still holds the pre-move key, which
+    # is the live deployment's state and not a fresh directory's: seeded here
+    # rather than assumed, or this passes whatever the code does.
+    jsonstore.write_json(ad_assets.LEGACY_RUNS_PATH, {"runs": [{"client": "old"}]})
+    _legacy_disk = os.path.abspath(ad_assets.LEGACY_RUNS_PATH)
+    check("the pre-move key really is in the mirror",
+          jsonstore.key_for(_legacy_disk).startswith("abs:"), True)
+    jsonstore.write_json(ad_assets._runs_path(), {"runs": [{"client": "moved"}]})
+    os.remove(_legacy_disk)          # as a redeploy leaves it
+
+    ad_assets._record_run({"client": "After The Move", "counts": {}}, "t")
+    check("and the pre-move file is not written back on every run",
+          os.path.exists(_legacy_disk), False)
+finally:
+    os.chdir(_cwd)
+
+
+# A test naming the module we fixed proves nothing about the next store
+# somebody adds. A path handed to jsonstore as a bare relative string literal
+# is unambiguously resolved against the process working directory -- so that
+# is the shape swept for, across hub/ and modules/. A path built from a call
+# or a name is *not determinable* here and is deliberately not reported: a
+# check with false positives is one somebody switches off, and switching this
+# one off costs the real finding.
+print("\nNo store writes outside the data root")
+
+_STORE_FNS = {"read_json", "write_json", "update_json", "delete_json"}
+_relative = []
+for _py in sorted(list((ROOT / "hub").rglob("*.py"))
+                  + list((ROOT / "modules").rglob("*.py"))):
+    if "_attic" in _py.parts or _py.name == "jsonstore.py":
+        continue
+    try:
+        _tree = ast.parse(_py.read_text(errors="ignore"))
+    except SyntaxError:
+        continue
+    for _n in ast.walk(_tree):
+        if not isinstance(_n, ast.Call) or not _n.args:
+            continue
+        _f = _n.func
+        _name = _f.attr if isinstance(_f, ast.Attribute) else getattr(_f, "id", "")
+        if _name not in _STORE_FNS:
+            continue
+        _a = _n.args[0]
+        if (isinstance(_a, ast.Constant) and isinstance(_a.value, str)
+                and not _a.value.startswith("/")):
+            _relative.append(f"{_py.relative_to(ROOT)}:{_n.lineno}")
+
+check("no jsonstore call site is handed a bare relative path", _relative, [])
 
 
 print(f"\n{_passed} passed, {_failed} failed")

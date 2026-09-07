@@ -17,15 +17,23 @@ answers in that shape for anything that wants it, but it is *derived*. Two
 records of one fact is how an object comes to be a logo in one of them and a
 headline in the other, with nothing on any screen saying which is right.
 
-**A project does not carry its own copy of the client's brand.** The build
-plan asked for a `brand_profile_ref` FK, held as a placeholder "pending the
-BrandTemplate decision". The decision is that there is nothing to point at
-that the project's own `client` field does not already say: `brand_for()`
-resolves `hub.brand_template.get()` from that name on every read, the way
-`hub/suite_accounts.location_for()` resolves a client's Suite sub-account —
-derived rather than stored, so a template a rep confirms after the project
-was created is seen the next time the project is opened, and a client
-renamed later re-joins instead of leaving a stale reference behind.
+**A project does not carry its own copy of the client's brand — `brand_profile_ref`
+is a record of what was pulled in, never a pointer to it.** The build plan
+asked for a `brand_profile_ref` FK, held as a placeholder "pending the
+BrandTemplate decision". That decision turned out not to need a new table at
+all: there is nothing to point at that the project's own `client` field does
+not already say. `brand_for()` resolves `hub.brand_template.get()` from that
+name on every read, the way `hub/suite_accounts.location_for()` resolves a
+client's Suite sub-account — derived rather than stored, so a pick a rep
+confirms after the project was created is seen the next time the project is
+opened, and a client renamed later re-joins instead of leaving a stale
+reference behind. `brand_profile_ref` itself is a different, smaller fact:
+`apply_brand()` (below) sets it to the domain a design's Logo/Background
+objects were actually pulled from, so a project that has had a brand pulled
+in says which one — an audit trail, not a foreign key, and empty until
+`apply_brand()` first succeeds. The two rarely disagree, because
+`client_brand.brand_kit()` promotes a rep's confirmed pick to position zero,
+which is what `apply_brand()`'s own domain lookup reads.
 
 ## What a source edit propagates to
 
@@ -54,7 +62,10 @@ import threading
 from hub import jsonstore
 
 from . import engine
+from . import roles as R
 from . import sizes as S
+
+_HEX_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
 
 _lock = threading.Lock()
 
@@ -155,6 +166,10 @@ def create(*, name: str, client: str = "", source: dict,
         "created": _now(),
         "created_by": created_by or "",
         "bundle": bundle,
+        # Not the BrandTemplate FK the build plan asked for -- see the module
+        # docstring. Set by `apply_brand()` once a brand has actually been
+        # pulled into this design; empty until then.
+        "brand_profile_ref": "",
         "source": _clean_source(source),
         "frames": {},
     }
@@ -195,6 +210,117 @@ def brand_for(project: dict) -> dict:
     except Exception:                                   # noqa: BLE001
         return {"client": client, "logo_url": "", "logo_theme": "", "colors": {},
                 "picked": False, "updated_at": "", "updated_by": ""}
+
+
+# --------------------------------------------------------------------------
+# A client's brand, pulled into the source design
+# --------------------------------------------------------------------------
+#
+# Which entry in a client's kit is *the* brand is answered now, in
+# `client_brand.brand_kit()` (`hub/brand_template.py`'s rep-confirmed pick,
+# promoted to position zero) — this file reads whichever kit that call
+# returns and never re-decides it. What is answered here is smaller: the
+# same colors and logo `hub/client_brand.py` already resolves for every
+# other client-facing tool, applied to the two roles a resize actually has
+# room to vary — `roles.LOGO` and `roles.BACKGROUND` — and nowhere else,
+# because a headline or a disclaimer recolored out from under whoever wrote
+# it is not a brand pull-in, it is an unannounced edit.
+
+def brand_preview(project: dict, domain: str) -> dict:
+    """What a client's brand kit holds, without changing the design.
+
+    A domain is required and never guessed from the client name — the
+    `hub/ad_builder_link.py`/`hub/brand_lookup.py` rule: a wrong logo on a
+    client-facing design is worse than none, because nobody proof-reads the
+    thing they recognise.
+    """
+    from hub import client_brand
+    domain = (domain or "").strip()
+    if not domain:
+        return {"found": False, "has_brand": False,
+                "note": "A website is needed to look a brand up by."}
+    return client_brand.brand_kit(project.get("client", ""), domain)
+
+
+def apply_brand(project: dict, *, domain: str, logo: bool = True,
+                 color_hex: str = "", kit: dict | None = None) -> dict:
+    """Pull a resolved brand's logo and/or background color into the source.
+
+    `kit` is injectable so a test can hand this a brand kit directly rather
+    than reaching a real lookup — the `recompose.propose(frame, ask=...)`
+    pattern, kept for the same reason: this file must not need a network
+    stub to be tested.
+
+    Nothing is guessed. A color is one the caller chose off the kit's own
+    palette, never "the primary" applied on its own authority — the
+    `hub/ad_builder/src/palette.ts` rule, that a proposal is not the same as
+    an application. And nothing is silently skipped: a request that changed
+    nothing says why, naming which half (logo, color, or both) had no role
+    to land on.
+    """
+    domain = (domain or "").strip()
+    if not domain:
+        return {"applied": False, "reason": "A website is needed to look a "
+                "brand up by — nothing is guessed from the client's name."}
+    color_hex = (color_hex or "").strip()
+    if color_hex and not _HEX_RE.fullmatch(color_hex):
+        return {"applied": False,
+                "reason": f"'{color_hex}' is not a 6-digit hex color."}
+    if color_hex and not color_hex.startswith("#"):
+        color_hex = "#" + color_hex
+
+    if kit is None:
+        kit = brand_preview(project, domain)
+    if not kit.get("has_brand"):
+        return {"applied": False,
+                "reason": kit.get("note") or "No brand data found for that "
+                "domain."}
+
+    logo_url = ""
+    if logo:
+        tiles = kit.get("logo_tiles") or kit.get("logos") or []
+        logo_url = tiles[0]["url"] if tiles else ""
+
+    objects = (project.get("source") or {}).get("objects") or []
+    touched: list[str] = []
+    logo_reason = ""
+    color_reason = ""
+
+    if logo:
+        if not logo_url:
+            logo_reason = "This client's brand kit has no logo on file."
+        else:
+            targets = [o for o in objects
+                      if o.get("role") == R.LOGO and o.get("kind") == "image"]
+            if not targets:
+                logo_reason = ("No object on this design is tagged Logo — "
+                              "set a role above, then apply again.")
+            for obj in targets:
+                obj.setdefault("fabric", {})["src"] = logo_url
+                touched.append(obj.get("id", ""))
+
+    if color_hex:
+        targets = [o for o in objects if o.get("role") == R.BACKGROUND]
+        if not targets:
+            color_reason = ("No object on this design is tagged Background "
+                            "— set a role above, then apply again.")
+        for obj in targets:
+            obj["fill"] = color_hex
+            obj.setdefault("fabric", {})["fill"] = color_hex
+            touched.append(obj.get("id", ""))
+
+    if not touched:
+        reason = " ".join(r for r in (logo_reason, color_reason) if r) \
+            or "Nothing on this design carries a role a brand can be applied to."
+        return {"applied": False, "reason": reason}
+
+    project["brand_profile_ref"] = domain
+    report = generate(project)
+    return {"applied": True, "touched": touched, "domain": domain,
+            "logo_url": logo_url if logo and not logo_reason else "",
+            "logo_reason": logo_reason,
+            "color": color_hex if color_hex and not color_reason else "",
+            "color_reason": color_reason, "report": report}
 
 
 # --------------------------------------------------------------------------

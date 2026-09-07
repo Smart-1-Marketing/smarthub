@@ -56,7 +56,7 @@ from __future__ import annotations
 import os
 
 from hub import social_content
-from hub.suite_accounts import SCOPE_READ, publishing, token_for
+from hub.suite_accounts import SCOPE_PUBLISH, SCOPE_READ, publishing, token_for
 
 # Suite's API host, shared with the rest of the Hub's HighLevel calls so a
 # staging host is one variable for all of them.
@@ -195,6 +195,16 @@ def push(batch: dict, slot: dict, client: str, url: str = "") -> dict:
                      "nothing was scheduled — retry it from the queue.",
                      blocked_by="network", unmapped=unmapped)
 
+    if response.status_code in (401, 403):
+        # Never echoes the body: HighLevel errors have included token
+        # fragments, and this reaches a screen. A granted-but-wrong-scope
+        # token and a bad one both land here looking identical, which is why
+        # the message names the scope rather than guessing at the cause.
+        return _fail(f"Smart 1 Suite rejected the request "
+                     f"({response.status_code}). The token is missing "
+                     f"{SCOPE_PUBLISH}, or it was revoked after being granted.",
+                     blocked_by="suite", status=response.status_code,
+                     unmapped=unmapped)
     try:
         data = response.json() if response.text else {}
     except ValueError:
@@ -241,6 +251,10 @@ def fetch(post_id: str, client: str, url: str = "") -> dict:
         data = response.json() if response.text else {}
     except Exception as exc:                              # noqa: BLE001
         return _fail(f"Smart 1 Suite could not be reached ({type(exc).__name__}).")
+    if response.status_code in (401, 403):
+        return _fail(f"Smart 1 Suite rejected the request "
+                     f"({response.status_code}). The token is missing "
+                     f"{SCOPE_READ}, or it was revoked after being granted.")
     if not response.ok:
         return _fail(f"Smart 1 Suite would not answer for that post "
                      f"(HTTP {response.status_code}).")
@@ -283,6 +297,12 @@ def performance(client: str, url: str = "", *, limit: int = 100) -> dict:
         return {"ok": False, "measured": False, "rows": [],
                 "error": f"Smart 1 Suite could not be reached "
                          f"({type(exc).__name__})."}
+    if response.status_code in (401, 403):
+        return {"ok": False, "measured": False, "rows": [],
+                "error": f"Smart 1 Suite rejected the request "
+                         f"({response.status_code}). The token is missing "
+                         f"{SCOPE_READ}, or it was revoked after being "
+                         "granted."}
     if not response.ok:
         return {"ok": False, "measured": False, "rows": [],
                 "error": f"Smart 1 Suite would not answer (HTTP "

@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 from hub import jsonstore
+from hub import radio_share
 
 from .catalog import normalize_slots
 
@@ -133,6 +134,16 @@ def create(fields: dict) -> dict:
         "spots": [],
         "banner": None,
         "versions": [],
+        # The client's approval link. One implementation with Fan Radio's,
+        # in hub/radio_share.py: a share is a dict, not a row, and there is
+        # no round history here for the same reason there is none there.
+        "share": radio_share.new_share(),
+        # Keyed by slot rather than held in a list — this project's client-
+        # facing units are the lengths it writes, not a list of spots with
+        # ids of their own. record_decision() writes status/decided_at/
+        # decided_by onto whichever of these it is handed.
+        "decisions": {},
+        "feedback": [],
     }
 
     def _insert(rows):
@@ -146,6 +157,17 @@ def create(fields: dict) -> dict:
 def get(project_id: str) -> dict | None:
     for row in _read():
         if row.get("id") == project_id:
+            return row
+    return None
+
+
+def find_by_token(token: str) -> dict | None:
+    """Linear scan, same shape as Fan Radio's — fine at this scale, and it
+    keeps the token out of any filename."""
+    if not radio_share.is_token(token):
+        return None
+    for row in _read():
+        if (row.get("share") or {}).get("token") == token:
             return row
     return None
 

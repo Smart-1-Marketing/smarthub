@@ -130,6 +130,8 @@ PUBLIC: dict[str, str] = {
     # --- shared front-end assets, served at the root by hub/help_routes.py ---
     "/hub-*": "the chrome's own scripts and stylesheet, injected into every "
               "page including the twenty mounted modules",
+    "/fabric.min.js": "the shared Fabric.js editing library, so a second "
+                      "Fabric-based tool needs no static folder of its own",
     "/ad-copy.js": "the Ad Copy request drawer, loaded by three templates",
     "/knack-form.js": "the shared Knack form renderer",
     "/web-ticket.js": "the web ticket drawer",
@@ -329,12 +331,22 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                        "smart1marketing.com",
     "/tools/commercial-builder/review/<token>": "the cut a client watches and "
                                                 "signs off",
+    "/tools/image-creator/review/<token>": "the graphic a client watches and "
+                                           "signs off, ported from Commercial "
+                                           "Builder's review link",
     "/tools/fan-radio/r/<token>": "the radio spot a rep mails a client to "
                                   "approve",
     "/tools/fan-radio/api/public/<token>": "that page reading its own spot",
     "/tools/fan-radio/audio/<name>": "the audio element on it, which is "
                                      "fetched by the browser and would 404 "
                                      "behind the login while the page loaded",
+    "/tools/radio-promo/r/<token>": "the same approval page as Fan Radio's, "
+                                    "reading hub/radio_share.py instead of a "
+                                    "second implementation",
+    "/tools/radio-promo/api/public/<token>": "that page reading its own spot",
+    "/tools/radio-promo/file/<path:name>": "the local-disk audio fallback the "
+                                           "page's <audio> element plays when "
+                                           "Cloudinary is not configured",
     "/tools/image-picker/pick/<token>": "the page a client uploads their own "
                                         "photographs through",
     "/tools/social/c/*": "the four pages a client swipes ideas and approves "
@@ -396,8 +408,19 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                                                        "or no",
     "/tools/commercial-builder/review/<token>/comment": "a timecoded note "
                                                         "against the cut",
+    "/tools/image-creator/review/<token>/decide": "the client's approve, "
+                                                  "approve-with-changes or "
+                                                  "changes-required",
+    "/tools/image-creator/review/<token>/comment": "a note against the "
+                                                   "graphic, kept apart from "
+                                                   "the decision",
     "/tools/fan-radio/api/public/<token>/feedback": "the client answering on "
                                                     "the radio spot",
+    "/tools/radio-promo/api/public/<token>/feedback": "the same answer on "
+                                                       "Radio Promo's spot, "
+                                                       "through the same "
+                                                       "hub/radio_share.py "
+                                                       "validation",
     "/tools/social/c/*": "the client approving a post, answering an idea, "
                          "saving their preferences, submitting a request and "
                          "sending us a photograph. All five are the client "

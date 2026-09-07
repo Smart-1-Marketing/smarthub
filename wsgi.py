@@ -118,6 +118,7 @@ _MOUNT_ACTIVE = {
     "/tools/google-access": "google_access",
     "/tools/image-picker": "image_picker",
     "/tools/page-images": "page_image_optimizer",
+    "/tools/check-reconciliation": "tools",
     # Its own sidebar entry rather than "tools": this one operates a
     # client's live Google Ads account, and a page that can enable
     # spend should say where it is in the nav.
@@ -508,6 +509,19 @@ except Exception as _smartforecast_exc:  # noqa: BLE001
         "SmartForecast Dynamic Website", str(_smartforecast_exc))
 
 try:
+    # Owner-only QuickBooks check reconciliation. The module carries its own
+    # second gate (an email allowlist over a real account session) on top of
+    # the AuthGuard the mount already provides.
+    import importlib as _il_checkrec
+    checkrec = _il_checkrec.import_module("modules.check_reconciliation.app")
+    checkrec_fb = None
+except Exception as _checkrec_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    checkrec, checkrec_fb = None, _fallback_app(
+        "Check Reconciliation", str(_checkrec_exc))
+
+try:
     import importlib as _il_social
     social = _il_social.import_module("modules.social_planner.app")
     social_fb = None
@@ -749,9 +763,26 @@ _SOCIAL_PUBLIC = tuple(getattr(social, "PUBLIC_PREFIXES", ("/c/",))) \
 _FANRAD_PUBLIC = tuple(getattr(fanrad, "PUBLIC_PREFIXES",
                                ("/r/", "/api/public/", "/audio/"))) \
     if fanrad else ("/r/", "/api/public/", "/audio/")
+
+# Radio Promo's own client approval link, added alongside Fan Radio's and
+# reading hub/radio_share.py for the same token/feedback rules — the two
+# tools' approval flow is one implementation now, not two that happened to
+# start out looking alike. /file/ is its local-disk audio fallback, the
+# module's own equivalent of Fan Radio's /audio/.
+_RADIOP_PUBLIC = tuple(getattr(radiop, "PUBLIC_PREFIXES",
+                               ("/r/", "/api/public/", "/file/"))) \
+    if radiop else ("/r/", "/api/public/", "/file/")
 _SMARTFORECAST_PUBLIC = tuple(getattr(
     smartforecast, "PUBLIC_PREFIXES", ("/embed/", "/api/public/"))) \
     if smartforecast else ("/embed/", "/api/public/")
+
+# And for Image Creator: /tools/image-creator/review/<token> is the client
+# review link a rep sends for a graphic, and a client has no Hub login. Read
+# from the module so the mount and the module cannot drift, and handed to
+# both AuthGuard (reachable) and HubBar (no sidebar, help layer or feedback
+# tab on a page a client reads).
+_IMGCREATOR_PUBLIC = tuple(getattr(imgcreator, "PUBLIC_PREFIXES", ("/review/",))) \
+    if imgcreator else ("/review/",)
 
 application = DispatcherMiddleware(hub_app, {
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
@@ -766,7 +797,8 @@ application = DispatcherMiddleware(hub_app, {
                              public_prefixes=_SALESB_PUBLIC) if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
     "/tools/seo-images": _mount(seoimg.app, "/tools/seo-images") if seoimg else seoimg_fb,
-    "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator") if imgcreator else imgcreator_fb,
+    "/tools/image-creator": _mount(imgcreator.app, "/tools/image-creator",
+                                   public_prefixes=_IMGCREATOR_PUBLIC) if imgcreator else imgcreator_fb,
     # Not /tools/display-ads: that prefix is the Display Ad Builder's, and
     # DispatcherMiddleware routes purely by prefix, so a second module under
     # it never receives a request.
@@ -831,10 +863,16 @@ application = DispatcherMiddleware(hub_app, {
                     if hvac_app else hvac_fb),
     "/land/legal": (AuthGuard(legal_app.app, "/land/legal", public_prefixes=("/",))
                     if legal_app else legal_fb),
-    "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo") if radiop else radiop_fb,
+    "/tools/radio-promo": _mount(radiop.app, "/tools/radio-promo",
+                                 public_prefixes=_RADIOP_PUBLIC) if radiop else radiop_fb,
     "/tools/landing-ads": _mount(landads.app, "/tools/landing-ads") if landads else landads_fb,
     "/tools/fan-radio": _mount(fanrad.app, "/tools/fan-radio",
                                public_prefixes=_FANRAD_PUBLIC) if fanrad else fanrad_fb,
+    # Nothing on it is public: every route reads or writes the owner's
+    # QuickBooks book, and the module refuses even a signed-in account whose
+    # email is not on its allowlist.
+    "/tools/check-reconciliation": _mount(checkrec.app, "/tools/check-reconciliation")
+                                   if checkrec else checkrec_fb,
 })
 from hub import errors as _errors
 application = _errors.ErrorMirror(application)

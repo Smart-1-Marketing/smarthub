@@ -125,6 +125,33 @@ _ready = False
 _init_error = ""
 _init_done = False
 _init_retry_at = 0.0
+# Which database URL `_engine` was opened against. `_init_done` latches, so
+# without this the first read or write in a process decides where the mirror
+# goes for the life of it -- and `DATABASE_URL` set after that point is a
+# setting that reads as applied and is not. `extensions.engine_for()` already
+# re-resolves per call and keys its pool on the URL; this is the one latch in
+# front of it.
+_engine_url = ""
+# Every switch this process made, oldest first, so `status()` can say it
+# happened. Bounded because it is read into a page.
+_switches: list[tuple[str, str]] = []
+MAX_SWITCHES_REPORTED = 5
+
+
+def _database_url() -> str:
+    """The database URL as it is set *now*, or "" if it cannot be resolved.
+
+    Never raises: this is reached from `_init()`, which is on the write path,
+    and a mirror that cannot name its own database must still let the disk
+    write succeed. Answering "" means "do not re-resolve", which leaves the
+    engine exactly where it was -- the safe direction to be wrong in.
+    """
+    try:
+        from . import extensions
+        return extensions.database_url() or ""
+    except Exception:                                   # noqa: BLE001
+        return ""
+
 
 # A failed connection is retried after this long rather than never. Render's
 # Postgres can be asleep when the first write of a boot lands, and caching that
@@ -199,7 +226,32 @@ def _init() -> bool:
     moment to find out than the first import.
     """
     global _engine, _table, _ready, _init_error, _init_done, _init_retry_at
+    global _engine_url
     with _lock:
+        # Which database this process is mirroring into is a *setting*, and
+        # `_init_done` latches on the first read or write -- so a
+        # `DATABASE_URL` that changes after that point was being read as
+        # applied while every row went on landing in the database the first
+        # call happened to see. Re-resolved here for the same reason
+        # `config.public_base_origin()` is read at call time: this is the one
+        # variable somebody corrects after finding out where the rows went.
+        #
+        # In production it never changes, so `wanted` equals `_engine_url` and
+        # this costs one environment read and nothing else. It is not free of
+        # consequence where it does change -- rows already written are in the
+        # old database and are not moved -- so the switch is reported by
+        # `status()` rather than made silently.
+        wanted = _database_url()
+        if _init_done and wanted and wanted != _engine_url:
+            _init_done = False
+            _ready = False
+            _init_retry_at = 0.0
+            if _engine_url and (_engine_url, wanted) not in _switches:
+                # Capped: a process that somehow flapped between two URLs must
+                # not grow this without bound, and the pair is what a reader
+                # needs rather than one row per occurrence.
+                _switches.append((_engine_url, wanted))
+                del _switches[:-MAX_SWITCHES_REPORTED]
         if _init_done:
             if _ready or time.time() < _init_retry_at:
                 return _ready
@@ -212,6 +264,11 @@ def _init() -> bool:
         try:
             from . import extensions
             _engine = extensions.engine_for()
+            # `wanted` *is* `_database_url()`, taken a few lines up under this
+            # same lock: where it came back empty a second call answers empty
+            # too, so an empty here means "we could not name the URL this
+            # engine is for" rather than a reading nobody took.
+            _engine_url = wanted
             meta = MetaData()
             _table = Table(
                 "hub_json_blobs", meta,
@@ -781,6 +838,13 @@ def status() -> dict:
         "error": _init_error or _last_error,
         "lock_error": _lock_error,
         "breaker_open": _breaker_open(),
+        # Named rather than left silent: rows written before a switch are in
+        # the previous database and are not moved, so a mirror that looks
+        # complete may be missing everything written before it. No credential
+        # reaches this -- a URL carries a password, and `status()` is rendered
+        # into /diagnostics and pasted into chats, which is the rule
+        # `services/provider_check.py` states.
+        "database_switched": len(_switches),
         "root": data_root(),
         "declared_caches": sorted(_declared_caches),
         "same_disk": ready and mirror_is_on_the_same_disk(),

@@ -131,6 +131,10 @@ class Scan(Base):
     error_message = Column(String(600), default="")
     # the entire raw Insites audit payload, as JSON text
     raw_report = Column(Text, nullable=True)
+    # Insites' own LLM-optimised narrative for the same report_id -- a
+    # second representation of an audit already paid for, not a second
+    # audit. Left NULL rather than guessed at when Insites has none ready.
+    llm_narrative = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -174,7 +178,7 @@ class LinkCheck(Base):
     finished_at = Column(DateTime, nullable=True)
 
 
-# Columns added to the widget tables after they first shipped. `create_all()`
+# Columns added to existing tables after they first shipped. `create_all()`
 # creates missing tables and never adds a column to an existing one, so on the
 # live Postgres these would be silently absent while every local test passed --
 # the trap CLAUDE.md names at length. Asked-then-added rather than fired
@@ -184,10 +188,11 @@ class LinkCheck(Base):
 # is how a log stops being one anybody finds the real error in. The inspector
 # answers the same on SQLite and Postgres, which `ADD COLUMN IF NOT EXISTS`
 # does not.
-_LATE_WIDGET_COLUMNS = [
+_LATE_COLUMNS = [
     ("scan_widgets", "kind", "VARCHAR(16)"),
     ("scan_widget_runs", "kind", "VARCHAR(16)"),
     ("scan_widget_runs", "intake_json", "TEXT"),
+    ("scans", "llm_narrative", "TEXT"),
 ]
 
 
@@ -195,7 +200,7 @@ def _add_missing_columns() -> None:
     from sqlalchemy import inspect as _inspect, text as _text
     engine = shared_engine()
     inspector = _inspect(engine)
-    for table, column, coltype in _LATE_WIDGET_COLUMNS:
+    for table, column, coltype in _LATE_COLUMNS:
         try:
             have = {c["name"] for c in inspector.get_columns(table)}
         except Exception:                               # noqa: BLE001
@@ -411,6 +416,32 @@ def _apply_report(s: Scan, report: dict):
     except (TypeError, ValueError):
         s.raw_report = json.dumps({"unserialisable": True})
     s.completed_at = _now()
+    _fetch_llm_narrative(s)
+
+
+def _fetch_llm_narrative(s: Scan) -> None:
+    """Best-effort: Insites' own LLM-optimised narrative for the report that
+    just completed.
+
+    This is the same report_id already paid for, fetched a second way, not a
+    second audit -- so it rides along with the main report rather than its
+    own polling loop. Insites answering 'running' (its narrative pass has
+    not finished) or 'not_found' leaves the column exactly as it was: a
+    later refresh of this scan calls _apply_report() again and gets another
+    try, and nothing here invents a narrative Insites has not produced.
+    """
+    if not s.insites_report_id:
+        return
+    from . import insites_client
+    try:
+        status, payload = insites_client.fetch_llm_report(s.insites_report_id)
+    except InsitesError:
+        return
+    if status == "complete" and payload:
+        try:
+            s.llm_narrative = json.dumps(payload)
+        except (TypeError, ValueError):
+            pass  # an unserialisable payload costs only the narrative, not the scan
 
 
 # =====================================================================
@@ -472,7 +503,10 @@ def scan_detail(public_id):
                                    "pages": s.pages_analysed,
                                },
                                insites_report_id=s.insites_report_id,
-                               raw_json=json.dumps(raw, indent=2) if raw else "")
+                               raw_json=json.dumps(raw, indent=2) if raw else "",
+                               llm_narrative_json=(
+                                   json.dumps(json.loads(s.llm_narrative), indent=2)
+                                   if s.llm_narrative else ""))
     finally:
         db.close()
 

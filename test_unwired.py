@@ -94,10 +94,6 @@ ALLOW = {
     "modules/sites_admin/simvoly_client.py:activate_project_for_period":
         "Simvoly API surface",
     "modules/sites_admin/simvoly_client.py:set_addon": "Simvoly API surface",
-    "modules/scans/insites_client.py:fetch_llm_report":
-        "Insites API surface -- the narrative payload, for a caller that does "
-        "not exist yet",
-
     # --- a named reading of a table this module owns ------------------------
     # Each is one expression over a constant in the same file. Kept because
     # the alternative is the next screen reading the table with a literal, and
@@ -145,10 +141,6 @@ ALLOW = {
         "builder renders",
     "modules/tickets/reports.py:summary_counts":
         "one line per ticket report; the /qa index draws its own counts",
-    "hub/quickbooks.py:link_status":
-        "how much of the invoice cache has a public link -- written for a "
-        "Diagnostics row that has not been added",
-
     # --- a half that is deliberately switched off ---------------------------
     # Google sign-in stays off until the OAuth consent screen clears review
     # (CLAUDE.md says so at the end of the accounts section). Both routes

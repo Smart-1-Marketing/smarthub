@@ -1112,16 +1112,7 @@ def s_contrast(p: dict) -> dict:
     sec = _sec(p, "colour_scheme")
     if not sec:
         return _missing("colour_scheme", "Color contrast")
-    def _lum(hexs: str):
-        h = (hexs or "").lstrip("#")
-        if len(h) != 6:
-            return None
-        try:
-            r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
-        except ValueError:
-            return None
-        f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+    from hub.contrast import contrast_ratio
 
     pairs = [("Body text on background", _s(sec, "primary_text_colour"),
               _s(sec, "primary_background_colour")),
@@ -1130,10 +1121,9 @@ def s_contrast(p: dict) -> dict:
               _s(sec, "secondary_background_colour"))]
     checks, rows = [], []
     for label, fg, bg in pairs:
-        lf, lb = _lum(fg), _lum(bg)
-        if lf is None or lb is None:
+        ratio = contrast_ratio(fg, bg)
+        if ratio is None:
             continue
-        ratio = (max(lf, lb) + 0.05) / (min(lf, lb) + 0.05)
         state = _OK if ratio >= 4.5 else (_WARN if ratio >= 3 else _BAD)
         checks.append(chk(label, state,
                           f"Contrast ratio {ratio:.1f}:1. WCAG AA asks for 4.5:1 "

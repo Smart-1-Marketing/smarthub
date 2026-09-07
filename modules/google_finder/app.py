@@ -18,6 +18,7 @@ from flask_session import Session
 from cryptography.fernet import Fernet, InvalidToken
 from werkzeug.middleware.proxy_fix import ProxyFix
 from hub.webargs import clamp_int
+from hub.analytics_ask import range_index
 
 # Activity logging — so this tool's output appears on the client's
 # 360 record. This module reads client Google properties, and work that isn't logged is work
@@ -1630,33 +1631,64 @@ def api_ga4_anomalies():
     try:
         access_token = refresh_access_token(google_login, account["refresh_token"])
         url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
-        
+
+        metric_names = ["sessions", "keyEvents"]
+        date_ranges = [
+            {"startDate": "7daysAgo", "endDate": "yesterday", "name": "recent"},
+            {"startDate": "14daysAgo", "endDate": "8daysAgo", "name": "prior"},
+        ]
         req_body = {
-            "dateRanges": [
-                {"startDate": "7daysAgo", "endDate": "yesterday"},
-                {"startDate": "14daysAgo", "endDate": "8daysAgo"}
-            ],
-            "metrics": [{"name": "sessions"}, {"name": "keyEvents"}]
+            "dateRanges": date_ranges,
+            "metrics": [{"name": m} for m in metric_names],
         }
         report = google_post(access_token, url, req_body)
         rows = report.get("rows", [])
-        
+
         if not rows:
             return jsonify({"anomalies": []})
 
-        recent_sess = int(rows[0]["metricValues"][0]["value"])
-        prior_sess = int(rows[0]["metricValues"][1]["value"]) if len(rows[0]["metricValues"]) > 1 else 0
+        # GA4 returns a comparison as extra ROWS carrying a dateRange
+        # dimension, not as extra columns on one row -- the read
+        # hub/analytics_ask.py's range_index() exists to undo. Reading
+        # rows[0]["metricValues"][1] as "the prior period's sessions" is
+        # actually this row's own keyEvents value, whichever period this
+        # row happens to be: comparing this week's sessions against this
+        # week's conversions rather than last week's sessions.
+        by_period: dict[int, dict] = {}
+        for row in rows:
+            dvals = [d.get("value", "") for d in row.get("dimensionValues", [])]
+            idx = range_index(dvals[-1], date_ranges) if dvals else None
+            if idx is not None:
+                by_period[idx] = row
+
+        recent_row, prior_row = by_period.get(0), by_period.get(1)
+        if recent_row is None or prior_row is None:
+            # A row GA4 could not be placed into a period is not silently
+            # folded into either one -- the same rule shape() applies to a
+            # comparison it cannot place.
+            return jsonify({"anomalies": [], "measured": False,
+                            "reason": "GA4 did not return both comparison periods."})
+
+        def _metric(row, name):
+            i = metric_names.index(name)
+            vals = row.get("metricValues", [])
+            return int(vals[i]["value"]) if i < len(vals) else 0
 
         anomalies = []
-        if prior_sess > 0:
-            diff_pct = ((recent_sess - prior_sess) / prior_sess) * 100
+        labels = {"sessions": "Sessions", "keyEvents": "Key Events"}
+        for name in metric_names:
+            recent, prior = _metric(recent_row, name), _metric(prior_row, name)
+            if prior <= 0:
+                continue
+            diff_pct = ((recent - prior) / prior) * 100
             if abs(diff_pct) >= 20.0:
                 flag_type = "SPIKE" if diff_pct > 0 else "DROP"
                 anomalies.append({
-                    "metric": "Sessions",
+                    "metric": labels[name],
                     "type": flag_type,
                     "change_pct": round(diff_pct, 1),
-                    "message": f"Traffic {flag_type.lower()} of {diff_pct:+.1f}% detected over the last 7 days ({recent_sess:,} vs {prior_sess:,} sessions)."
+                    "message": f"{labels[name]} {flag_type.lower()} of {diff_pct:+.1f}% "
+                               f"over the last 7 days ({recent:,} vs {prior:,})."
                 })
 
         return jsonify({"anomalies": anomalies})

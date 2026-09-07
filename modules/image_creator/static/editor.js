@@ -28,6 +28,16 @@ const FONTS    = CFG.fonts || [];
 const PREFILL_CLIENT = CFG.prefillClient || '';
 const OPEN_PROJECT   = CFG.openProject || '';
 const PROXY = u => 'api/photos/proxy?url=' + encodeURIComponent(u);
+// Matches the ENTRANCES tuple in modules/image_creator/animation.py -- the
+// server reads the same four spellings when it computes the timeline for
+// the animation-duration QC check and for the animated GIF export.
+const ENTRANCES = [
+  {key:'none', label:'None'},
+  {key:'fade-in', label:'Fade in'},
+  {key:'slide-in-left', label:'Slide in from left'},
+  {key:'slide-in-right', label:'Slide in from right'},
+  {key:'slide-up', label:'Slide up'},
+];
 
 let canvas, zoom = 1, projectId = '', chosenClient = null;
 let history = [], histIndex = -1, histLock = false;
@@ -117,7 +127,7 @@ window.addEventListener('resize', () => { if(canvas) fitZoom(); });
 /* ---------------- history ---------------- */
 function pushHistory(){
   if(!canvas || histLock) return;
-  const json = JSON.stringify(canvas.toJSON(['name','s1kind','s1meta']));
+  const json = JSON.stringify(canvas.toJSON(['name','s1kind','s1meta','s1anim']));
   if(history[histIndex] === json) return;
   history = history.slice(0, histIndex+1);
   history.push(json);
@@ -730,12 +740,12 @@ async function addLogo(l){
   if((l.format||'').toLowerCase() === 'svg'){
     try{
       const txt = await fetch(PROXY(l.url)).then(r => r.text());
-      if(txt.trim().startsWith('<svg')) return addSVGString(txt, l.label || 'Logo');
+      if(txt.trim().startsWith('<svg')) return addSVGString(txt, l.label || 'Logo', {source:'brandfetch', role:'logo'});
     }catch(e){ /* fall through to raster */ }
   }
-  placeImage(l.url, {name:l.label||'Logo', source:'brandfetch'}, false);
+  placeImage(l.url, {name:l.label||'Logo', source:'brandfetch', role:'logo'}, false);
 }
-function addSVGString(svgText, name){
+function addSVGString(svgText, name, meta){
   fabric.loadSVGFromString(svgText, (objects, options) => {
     if(!objects || !objects.length) return alert('That SVG could not be parsed.');
     const obj = fabric.util.groupSVGElements(objects, options);
@@ -743,6 +753,7 @@ function addSVGString(svgText, name){
     if(obj.width) obj.scaleToWidth(max);
     obj.set({left:(canvas.getWidth()-obj.getScaledWidth())/2,
              top:(canvas.getHeight()-obj.getScaledHeight())/2});
+    obj.s1meta = meta || null;
     addObject(obj, 'svg', name || 'Vector');
   });
 }
@@ -763,12 +774,12 @@ function showLogoUploadOptions(dataUrl, name){
       <button class="btn sec sm" id="loRemoveWhite" style="width:100%">Remove white background</button>
       <div class="hint" id="loPendingMsg"></div>
     </div>`;
-  $('loAddAsIs').onclick = () => { placeImage(dataUrl, {name, source:'upload'}, false); box.innerHTML=''; };
+  $('loAddAsIs').onclick = () => { placeImage(dataUrl, {name, source:'upload', role:'logo'}, false); box.innerHTML=''; };
   $('loRemoveWhite').onclick = async () => {
     $('loPendingMsg').textContent = 'Removing white background…';
     try{
       const out = await removeWhiteBackground(dataUrl);
-      placeImage(out, {name, source:'upload'}, false);
+      placeImage(out, {name, source:'upload', role:'logo'}, false);
       box.innerHTML = '';
     }catch(e){ $('loPendingMsg').textContent = 'That failed — try "Add as-is" instead.'; }
   };
@@ -780,7 +791,7 @@ function showLogoUploadOptions(dataUrl, name){
         headers:{'Content-Type':'application/json'}, body: JSON.stringify({image:dataUrl})}).then(r=>r.json());
       $('loRemoveBg').disabled = false;
       if(d.error){ $('loPendingMsg').textContent = d.error; return; }
-      placeImage(d.image, {name, source:'upload'}, false);
+      placeImage(d.image, {name, source:'upload', role:'logo'}, false);
       box.innerHTML = '';
     }catch(e){ $('loRemoveBg').disabled=false; $('loPendingMsg').textContent = 'That failed — try "Add as-is" instead.'; }
   };
@@ -1128,6 +1139,22 @@ function syncProps(){
       <label class="f">Opacity ${Math.round((o.opacity??1)*100)}%</label>
       <input type="range" id="pOpacity" min="0" max="100" value="${Math.round((o.opacity??1)*100)}">
     </div>
+    <div class="pgroup">
+      <div class="t">Brand &amp; motion</div>
+      <label style="font-size:12.5px;display:block;margin-bottom:9px">
+        <input type="checkbox" id="pIsLogo" ${(o.s1meta && o.s1meta.role==='logo')?'checked':''}>
+        This is the client's logo</label>
+      <label class="f">Entrance <span style="font-weight:400;color:var(--muted)">— for an animated GIF export</span></label>
+      <select id="pAnimType">
+        ${ENTRANCES.map(a => `<option value="${a.key}" ${((o.s1anim&&o.s1anim.type)||'none')===a.key?'selected':''}>${esc(a.label)}</option>`).join('')}
+      </select>
+      <div class="row" id="pAnimTiming" style="margin-top:6px;display:${((o.s1anim&&o.s1anim.type)||'none')==='none'?'none':'flex'}">
+        <div><label class="f">Delay (ms)</label><input type="number" id="pAnimDelay" min="0" step="50"
+          value="${(o.s1anim&&o.s1anim.delayMs)||0}"></div>
+        <div><label class="f">Duration (ms)</label><input type="number" id="pAnimDur" min="50" step="50"
+          value="${(o.s1anim&&o.s1anim.durationMs)||600}"></div>
+      </div>
+    </div>
     ${isText ? `<div class="pgroup">
       <div class="t">Text</div>
       <textarea id="pText" rows="2">${esc(o.text||'')}</textarea>
@@ -1217,6 +1244,26 @@ function syncProps(){
   ['pX','pY','pW','pH','pAngle','pOpacity','pFill','pStroke','pSW','pFS'].forEach(id => {
     const el = $(id); if(el) el.onchange = () => pushHistory();
   });
+
+  // Tagged rather than inferred -- the same rule modules/magic_resize/roles.py
+  // states for its own required-roles QC check: a wrong guess at "this is the
+  // logo" is silently wrong on the one ad where it matters.
+  $('pIsLogo').onchange = () => {
+    o.s1meta = Object.assign({}, o.s1meta, {role: $('pIsLogo').checked ? 'logo' : ''});
+    pushHistory();
+  };
+  $('pAnimType').onchange = () => {
+    const type = $('pAnimType').value;
+    o.s1anim = type === 'none' ? {type:'none'} : Object.assign({delayMs:0, durationMs:600}, o.s1anim, {type});
+    $('pAnimTiming').style.display = type === 'none' ? 'none' : 'flex';
+    pushHistory();
+  };
+  const bindAnim = id => { const el = $(id); if(el) el.onchange = () => {
+    o.s1anim = Object.assign({type:'fade-in', delayMs:0, durationMs:600}, o.s1anim,
+      {delayMs: Math.max(0, +$('pAnimDelay').value||0), durationMs: Math.max(50, +$('pAnimDur').value||600)});
+    pushHistory();
+  }; };
+  bindAnim('pAnimDelay'); bindAnim('pAnimDur');
 
   if(isRectShape){
     $('pRadius').oninput = () => { o.set({rx:+$('pRadius').value, ry:+$('pRadius').value}); canvas.renderAll(); };
@@ -1690,9 +1737,15 @@ document.querySelectorAll('.modal').forEach(m => m.onclick = e => {
 let dlFmt='png', dlScale=1;
 $('btnDownload').onclick = () => {
   $('dlModal').classList.add('open');
+  $('dlFmtGif').style.opacity = hasAnyAnimation() ? '1' : '.45';
   updateDlUi();
 };
 $('dlFormat').querySelectorAll('.chip').forEach(c => c.onclick = () => {
+  if(c.dataset.f === 'gif' && !hasAnyAnimation()){
+    $('dlSize').textContent = 'Give at least one object an entrance in Properties '
+      + '("Brand & motion") before exporting a GIF.';
+    return;
+  }
   dlFmt = c.dataset.f;
   $('dlFormat').querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x===c));
   updateDlUi();
@@ -1707,10 +1760,20 @@ function hasBackground(){
   return !!canvas.backgroundColor || canvas.getObjects().some(o => o.s1kind==='background');
 }
 function updateDlUi(){
-  $('dlQualityWrap').style.display = dlFmt==='png' ? 'none' : 'block';
-  const canTrans = dlFmt!=='jpeg' && !hasBackground();
+  const isGif = dlFmt === 'gif';
+  $('dlQualityWrap').style.display = (dlFmt==='png' || isGif) ? 'none' : 'block';
+  $('dlTransWrap').style.display = isGif ? 'none' : 'block';
+  const canTrans = !isGif && dlFmt!=='jpeg' && !hasBackground();
   $('dlTransparent').disabled = !canTrans;
   if(!canTrans) $('dlTransparent').checked = false;
+  if(isGif){
+    // Frames are captured at the canvas's own resolution -- the scale chips
+    // are for the still formats and do not apply here.
+    $('dlSize').textContent = hasAnyAnimation()
+      ? 'Animated GIF · ' + canvas.getWidth() + ' × ' + canvas.getHeight() + ' px'
+      : 'Give at least one object an entrance first.';
+    return;
+  }
   $('dlSize').textContent = 'Output: ' + (canvas.getWidth()*dlScale) + ' × ' + (canvas.getHeight()*dlScale) + ' px'
     + (canTrans ? '' : (dlFmt==='jpeg' ? ' · JPG has no transparency' : ' · a background layer is set'));
 }
@@ -1727,6 +1790,33 @@ function exportDataURL(){
 }
 $('dlGo').onclick = async () => {
   $('dlGo').disabled = true;
+  if(dlFmt === 'gif'){
+    try{
+      $('dlMsg').textContent = 'Rendering frames…';
+      const cap = captureAnimationFrames();
+      if(!cap){
+        $('dlMsg').textContent = 'Nothing is animated — give an object an entrance first.';
+        $('dlGo').disabled = false; return;
+      }
+      $('dlMsg').textContent = 'Assembling GIF…';
+      const d = await fetch('api/export/animated', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          frames: cap.frames, frameMs: cap.frameMs, preset: currentPresetKey(),
+          canvas: canvas.toJSON(['name','s1kind','s1meta','s1anim']),
+          name: $('projName').value.trim() || 'image',
+          client: chosenClient ? chosenClient.name : ''})}).then(r => r.json());
+      if(d.error){ $('dlMsg').textContent = d.error; $('dlGo').disabled = false; return; }
+      const a = document.createElement('a');
+      a.href = d.image;
+      a.download = ($('projName').value.trim() || 'image').replace(/[^\w -]/g,'').trim() + '.gif';
+      a.click();
+      const blocks = ((d.qc && d.qc.findings) || []).filter(f => f.level === 'fail').length;
+      $('dlMsg').textContent = 'Downloaded ✓' + (blocks
+        ? ' — QC found ' + blocks + ' issue(s); see "✓ Check ad".' : '');
+    }catch(e){ $('dlMsg').textContent = 'Animation export failed: '+e.message; }
+    $('dlGo').disabled = false;
+    return;
+  }
   try{
     let url = exportDataURL();
     // Best-effort server-side optimization pass — a real compress/strip-
@@ -1811,7 +1901,7 @@ $('svGo').onclick = async () => {
     const d = await fetch('api/projects', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         id: projectId, name, preview,
-        canvas: canvas.toJSON(['name','s1kind','s1meta']),
+        canvas: canvas.toJSON(['name','s1kind','s1meta','s1anim']),
         client: chosenClient ? chosenClient.name : $('svClient').value.trim(),
         client_slug: chosenClient ? chosenClient.slug : '',
         tags: $('svTags').value, width: canvas.getWidth(), height: canvas.getHeight()
@@ -1824,6 +1914,162 @@ $('svGo').onclick = async () => {
     $('saveMsg').textContent = 'Saved ' + d.project.updated;
     setTimeout(() => $('saveModal').classList.remove('open'), 800);
   }catch(e){ $('svGo').disabled=false; $('svMsg').textContent='Save failed: '+e; }
+};
+
+/* ---------------- QC ---------------- */
+// The canvas tracks no "which preset is this" state of its own once a size
+// has been applied -- the server resolves the same way, from the exact
+// width/height, when no preset key is sent. Sent anyway here so a Custom
+// canvas that happens to match a preset's numbers is still judged as itself.
+function currentPresetKey(){
+  const w = canvas.getWidth(), h = canvas.getHeight();
+  const hit = PRESETS.find(p => p.key !== 'custom' && p.w === w && p.h === h);
+  return hit ? hit.key : 'custom';
+}
+$('btnQC').onclick = async () => {
+  $('qcModal').classList.add('open');
+  $('qcSummary').textContent = 'Checking…';
+  $('qcList').innerHTML = '';
+  let sizeBytes = 0;
+  try{
+    const url = canvas.toDataURL({format:'png'});
+    sizeBytes = Math.round((url.length - url.indexOf(',') - 1) * 0.75);
+  }catch(e){ /* the size simply won't be judged */ }
+  try{
+    const d = await fetch('api/qc/check', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({preset: currentPresetKey(),
+        canvas: canvas.toJSON(['name','s1kind','s1meta','s1anim']),
+        size_bytes: sizeBytes, format: 'png'})}).then(r => r.json());
+    renderQC(d);
+  }catch(e){ $('qcSummary').textContent = 'Could not run QC: '+e.message; }
+};
+function renderQC(d){
+  const findings = d.findings || [];
+  const blocks = findings.filter(f => f.level === 'fail').length;
+  const warns = findings.filter(f => f.level === 'warn').length;
+  $('qcSummary').innerHTML = findings.length
+    ? '<b style="color:'+(blocks?'var(--bad)':'#d97706')+'">'+blocks+' block'+(blocks===1?'':'s')
+      +', '+warns+' advisory</b>'
+    : '<span class="qcclean">Nothing found — this ad is ready to go.</span>';
+  $('qcList').innerHTML = findings.map(f => `
+    <div class="qcrow">
+      <span class="qcmark ${f.level}">${f.level==='fail' ? '!' : 'i'}</span>
+      <div class="qcmsg">${esc(f.message)}${f.source && f.source !== 'house'
+        ? `<span class="qcsource">Source: ${esc(f.source)}</span>` : ''}</div>
+    </div>`).join('');
+}
+
+/* ---------------- animated GIF export ----------------
+   The browser interpolates each object's own entrance and rasterises one
+   frame per timestamp with Fabric's own renderer -- the only place this
+   canvas (fonts, groups, crops) actually exists. The server only assembles
+   the finished sequence into a GIF; see modules/image_creator/animation.py
+   and its ENTRANCES tuple, which this mirrors. */
+const ANIM_FRAME_MS = 100;
+function hasAnyAnimation(){
+  return canvas.getObjects().some(o => o.s1anim && o.s1anim.type && o.s1anim.type !== 'none');
+}
+function timelineDurationMs(){
+  let total = 0, found = false;
+  canvas.getObjects().forEach(o => {
+    const a = o.s1anim;
+    if(!a || !a.type || a.type === 'none') return;
+    found = true;
+    total = Math.max(total, Math.max(0, a.delayMs||0) + Math.max(0, a.durationMs||0));
+  });
+  return found ? total : null;
+}
+function captureAnimationFrames(){
+  const totalMs = timelineDurationMs();
+  if(totalMs === null) return null;
+  const objs = canvas.getObjects().filter(o => o.s1anim && o.s1anim.type && o.s1anim.type !== 'none');
+  const originals = objs.map(o => ({o, left:o.left, top:o.top, opacity: o.opacity==null?1:o.opacity}));
+  const n = Math.max(1, Math.floor(totalMs/ANIM_FRAME_MS) + 1);
+  const frames = [];
+  for(let i=0; i<n; i++){
+    const t = Math.min(i*ANIM_FRAME_MS, totalMs);
+    objs.forEach(o => {
+      const orig = originals.find(x => x.o === o);
+      const a = o.s1anim;
+      const delay = Math.max(0, a.delayMs||0), dur = Math.max(50, a.durationMs||600);
+      const p = Math.max(0, Math.min(1, (t-delay)/dur));
+      if(a.type === 'fade-in'){ o.set({opacity: orig.opacity*p, left:orig.left, top:orig.top}); }
+      else if(a.type === 'slide-in-left'){ o.set({opacity:orig.opacity, left:orig.left-(1-p)*80, top:orig.top}); }
+      else if(a.type === 'slide-in-right'){ o.set({opacity:orig.opacity, left:orig.left+(1-p)*80, top:orig.top}); }
+      else if(a.type === 'slide-up'){ o.set({opacity:orig.opacity, left:orig.left, top:orig.top+(1-p)*60}); }
+    });
+    canvas.renderAll();
+    frames.push(canvas.toDataURL({format:'png'}));
+  }
+  // Put every animated object back exactly where it was -- the canvas must
+  // not be left mid-animation just because a GIF was exported from it.
+  originals.forEach(x => x.o.set({left:x.left, top:x.top, opacity:x.opacity}));
+  canvas.renderAll();
+  return {frames, frameMs: ANIM_FRAME_MS};
+}
+
+/* ---------------- client review link ----------------
+   Ported from Commercial Builder's review link -- a rep mints a token, a
+   client answers with no Hub login. See modules/image_creator/review_spec.py
+   and share_store.py. */
+$('btnReview').onclick = async () => {
+  if(!projectId){
+    alert('Save the project first — a review link needs something saved to point at.');
+    return;
+  }
+  $('reviewModal').classList.add('open');
+  $('rvMsg').textContent = '';
+  await loadReviews();
+};
+async function loadReviews(){
+  $('rvHistory').innerHTML = '<div class="hint">Loading…</div>';
+  try{
+    const d = await fetch('api/projects/'+encodeURIComponent(projectId)+'/reviews').then(r => r.json());
+    renderReviews(d);
+  }catch(e){ $('rvHistory').innerHTML = '<div class="hint">Could not load past rounds.</div>'; }
+}
+function renderReviews(d){
+  const reviews = d.reviews || [];
+  $('rvFoot').textContent = d.next_round ? 'Next round would be ' + d.next_round.label : '';
+  if(!reviews.length){ $('rvHistory').innerHTML = '<div class="hint">Nothing sent yet.</div>'; return; }
+  $('rvHistory').innerHTML = reviews.map(r => {
+    const v = r.verdict || {};
+    const pill = v.outcome
+      ? `<span class="rvpill ${esc(v.color)}">${esc(v.note)}</span>`
+      : '<span class="rvpill gray">No answer yet</span>';
+    return `<div class="rvround">
+      <div class="top"><b>${esc(r.round_state.label)}</b>${pill}</div>
+      <div class="hint" style="margin:6px 0 4px">${r.revoked ? 'Revoked' : 'Live'} · opened
+        ${r.opened_count} time${r.opened_count===1?'':'s'}</div>
+      ${r.revoked ? '' : `<div class="rvlink">${esc(r.url)}</div>
+        <button class="btn sec sm" data-copy="${esc(r.url)}" style="margin-top:6px">Copy link</button>
+        <button class="btn sec sm" data-revoke="${r.id}" style="margin-top:6px">Revoke</button>`}
+    </div>`;
+  }).join('');
+  $('rvHistory').querySelectorAll('[data-copy]').forEach(b => b.onclick = () => {
+    if(navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(() => {
+      b.textContent = 'Copied ✓'; setTimeout(() => b.textContent = 'Copy link', 1200);
+    });
+  });
+  $('rvHistory').querySelectorAll('[data-revoke]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    await fetch('api/projects/'+encodeURIComponent(projectId)+'/reviews/'+b.dataset.revoke+'/revoke',
+      {method:'POST'});
+    loadReviews();
+  });
+}
+$('rvSend').onclick = async () => {
+  $('rvSend').disabled = true; $('rvMsg').textContent = 'Sending…';
+  try{
+    const d = await fetch('api/projects/'+encodeURIComponent(projectId)+'/reviews', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message: $('rvMessage').value.trim()})}).then(r => r.json());
+    $('rvSend').disabled = false;
+    if(d.error){ $('rvMsg').textContent = d.error; return; }
+    $('rvMsg').textContent = 'Sent ✓';
+    $('rvMessage').value = '';
+    loadReviews();
+  }catch(e){ $('rvSend').disabled = false; $('rvMsg').textContent = 'That failed to send.'; }
 };
 
 /* ---------------- boot ---------------- */

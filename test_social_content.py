@@ -400,6 +400,107 @@ check("a channel with no mapping is named rather than silently dropped",
 
 
 # ---------------------------------------------------------------------------
+print("\nThe HTTP call itself, once the scope and the sub-account are both there")
+# ---------------------------------------------------------------------------
+# Everything above exercises preflight/apply_push_result/platforms_for --
+# the logic around the actual request. Nothing mocks requests.post/get and
+# drives push()/fetch()/performance() through a real response, which is the
+# one thing that was never asserted.
+
+import requests as _requests_mod                                  # noqa: E402
+
+
+class _FakeResponse:
+    def __init__(self, status_code, body=None, text=None):
+        self.status_code = status_code
+        self.ok = 200 <= status_code < 300
+        self._body = body if body is not None else {}
+        self.text = text if text is not None else "{}"
+
+    def json(self):
+        return self._body
+
+
+def _stub_ready(readback=True):
+    suite_client.publishing = lambda: {
+        "ready": True, "known": True, "scope": "socialplanner/post.write",
+        "readback": readback, "detail": "Posts can be pushed."}
+    suite_client.token_for = lambda client, url="": {
+        "state": "connected", "token": "s3cr3t-token-value",
+        "location_id": "loc_riverstone", "detail": ""}
+
+
+_orig_publishing = suite_client.publishing
+_orig_token_for = suite_client.token_for
+_orig_post = _requests_mod.post
+_orig_get = _requests_mod.get
+try:
+    _stub_ready()
+    batch = {"month": "2026-09"}
+    slot = {"channels": ["facebook"], "image_url": "", "date": "2026-09-10",
+           "time": "09:00"}
+
+    _requests_mod.post = lambda *a, **k: _FakeResponse(
+        200, {"post": {"id": "p-live-1"}})
+    result = suite_client.push(batch, dict(slot), CLIENT, CLIENT_URL)
+    check("a 200 with an id is a real success",
+          result["ok"] and result["ghl_post_id"] == "p-live-1", result)
+
+    _requests_mod.post = lambda *a, **k: _FakeResponse(
+        401, {"message": "invalid_token s3cr3t-token-value"})
+    result = suite_client.push(batch, dict(slot), CLIENT, CLIENT_URL)
+    check("a 401 is refused, not raised", result["ok"] is False)
+    check("blocked_by names the scope gate", result["blocked_by"] == "suite")
+    check("the scope itself is named in the message",
+          "socialplanner/post.write" in result["error"], result["error"])
+    check("the token value never reaches the message",
+          "s3cr3t-token-value" not in result["error"], result["error"])
+
+    def _boom(*a, **k):
+        raise ConnectionError("no route to host")
+    _requests_mod.post = _boom
+    result = suite_client.push(batch, dict(slot), CLIENT, CLIENT_URL)
+    check("a network failure is caught and named",
+          result["ok"] is False and result["blocked_by"] == "network")
+    check("and it says the post is still approved, not lost",
+          "still approved" in result["error"], result["error"])
+
+    _requests_mod.post = lambda *a, **k: _FakeResponse(200, {})
+    result = suite_client.push(batch, dict(slot), CLIENT, CLIENT_URL)
+    check("a 200 with no id is refused rather than tracked blind",
+          result["ok"] is False and result["blocked_by"] == "no_id")
+
+    _requests_mod.get = lambda *a, **k: _FakeResponse(
+        200, {"post": {"status": "published"}})
+    result = suite_client.fetch("p-live-1", CLIENT, CLIENT_URL)
+    check("a fetch turns Suite's own status into the Hub's vocabulary",
+          result["ok"] and result["status"] == "published", result)
+
+    _requests_mod.get = lambda *a, **k: _FakeResponse(403, {"message": "x"})
+    result = suite_client.fetch("p-live-1", CLIENT, CLIENT_URL)
+    check("fetch's 403 names the read scope",
+          "socialplanner/post.readonly" in result["error"], result["error"])
+
+    _requests_mod.get = lambda *a, **k: _FakeResponse(
+        200, {"posts": [{"id": "p-live-1", "reach": 40}]})
+    result = suite_client.performance(CLIENT, CLIENT_URL)
+    check("performance reads back what Suite actually returned",
+          result["ok"] and result["measured"] and len(result["rows"]) == 1,
+          result)
+
+    _stub_ready(readback=False)
+    result = suite_client.performance(CLIENT, CLIENT_URL)
+    check("performance refuses to read back without the read scope granted",
+          result["ok"] is False and result["measured"] is False)
+    check("and nothing was invented in its place", result["rows"] == [])
+finally:
+    suite_client.publishing = _orig_publishing
+    suite_client.token_for = _orig_token_for
+    _requests_mod.post = _orig_post
+    _requests_mod.get = _orig_get
+
+
+# ---------------------------------------------------------------------------
 print("\nOne link per client, derived rather than stored")
 # ---------------------------------------------------------------------------
 token = links.token_for(CLIENT, CLIENT_URL)

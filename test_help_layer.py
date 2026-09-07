@@ -766,6 +766,64 @@ check("no key is registered twice", _dupes, [])
 check("every registered entry survives into the payload",
       len(help_registry.as_json()["help"]), len(help_registry.REGISTRY))
 
+
+# ---------------------------------------------------------------------------
+# The launcher has to be reachable, and it was behind the sidebar
+# ---------------------------------------------------------------------------
+import pathlib                                                    # noqa: E402
+print("\nA walkthrough nobody can start is 28 scenarios nobody can reach")
+
+# demo_targets() is at zero and every scenario drives every step it names --
+# and the button that starts one was underneath the nav. `.s1-demo-fab` is
+# `position:fixed` at the bottom left with z-index 1150; the injected sidebar
+# is fixed at left:0 with z-index 99990, so the sidebar won wherever the two
+# overlapped. Measured in a browser at 1440x900, signed in:
+#
+#   /qa, /tools/utm/          sidebar 224px   launcher 100% covered
+#   /client360, /tools/seo-images/, the Commercial Builder's own screens
+#                             sidebar  56px   launcher  19% covered, and the
+#                                             visible left edge -- the play
+#                                             glyph -- was a nav link, so
+#                                             pressing it went to /status
+#
+# Nothing could report it: the button renders, every selector it drives is
+# anchored, and every check in this file was green. It is the failure this
+# file exists for, one layer earlier than the layer it watches.
+_side_css = pathlib.Path("hub/sidebar.py").read_text(errors="ignore")
+_help_css = pathlib.Path("hub/static/hub-help.css").read_text(errors="ignore")
+
+# The variable is published on EVERY body, not only the ones that also get
+# margin-left. Those are different questions: the Hub's own pages offset
+# their own .main and must not be offset twice, and a fixed element on those
+# pages still has to clear the same 224px. Tying the two together is what
+# left it unset on exactly the pages where the launcher was worst covered.
+check("the rail's width is published on every body",
+      bool(re.search(r"^\s*body\s*\{[^}]*--s1hub-offset:\s*224px",
+                     _side_css, re.M)), True)
+check("...and the collapsed rail publishes its own width",
+      bool(re.search(r"^\s*body\.s1hub-collapsed\s*\{[^}]*--s1hub-offset:\s*56px",
+                     _side_css, re.M)), True)
+check("margin-left stays guarded, so a hub page is not offset twice",
+      bool(re.search(r"body:not\(:has\(\.shell > \.main\)\)\s*\{\s*margin-left:\s*224px;\s*\}",
+                     _side_css)), True)
+
+# Positioned from the variable rather than from a literal. A literal is what
+# it had, and a literal cannot know how wide the rail is on the page it is
+# sitting on -- which is the whole of the defect.
+_fab = re.search(r"\.s1-demo-fab\{[^}]*\}", _help_css, re.S)
+check("the launcher is positioned from the rail's own width",
+      bool(_fab and "var(--s1hub-offset" in _fab.group(0)), True)
+check("...and no longer from a bare left:1rem",
+      bool(_fab and not re.search(r"left:\s*1rem", _fab.group(0))), True)
+
+# The narrow-screen override is the same rule at a smaller inset, not an
+# exemption from it: below 950px the sidebar is a drawer and the variable is
+# unset, so the calc falls back to 0 and the inset is all that is left.
+_fab_sm = re.search(r"@media \(max-width:640px\)\{\.s1-demo-fab\{[^}]*\}",
+                    _help_css, re.S)
+check("the narrow-screen launcher clears it too",
+      bool(_fab_sm and "var(--s1hub-offset" in _fab_sm.group(0)), True)
+
 import shutil as _shutil                                          # noqa: E402
 _shutil.rmtree(_T, ignore_errors=True)
 

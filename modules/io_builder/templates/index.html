@@ -687,7 +687,7 @@ const state={
  // The geoType/geoOrigin/... fields below describe the area being entered
  // right now and are committed into targetAreas when the rep says there are
  // no more. geo stays the single combined string every downstream reader --
- // the IO PDF, the Suite webhook's geographic_target -- has always taken.
+ // the IO PDF, the Suite note's geographic_target line -- has always taken.
  targetAreas:[],targetAreaName:"",
  geoType:"",zipMode:"",geoOrigin:"",geoRadius:"",geoDMA:"",geoState:"",geoOther:"",geoZipcodes:"",geo:"",industry:"",descriptionMode:"",description:"",
  sameDates:null,start:"",end:"",dayparting:"",objectives:[],kpis:[],creativeSource:"",gender:"",ages:[],income:[],audiences:[],audienceNotes:"",
@@ -2166,7 +2166,7 @@ function clearWorkingArea(){
  state.geoDMA="";state.geoState="";state.geoOther="";state.geoZipcodes="";
 }
 /* geo is the one-string form. Every reader that predates multi-area
-   targeting -- the IO PDF, the Suite webhook -- keeps getting one string,
+   targeting -- the IO PDF, the Suite note -- keeps getting one string,
    and now it holds every area instead of the first. */
 function refreshCombinedGeo(){
  const rows=state.targetAreas||[];
@@ -3142,7 +3142,7 @@ function internalRequirementSections(){
 // The one reading of what goes on a generated PDF, for both the buttons a
 // rep presses by hand and the copy Submit Finished IO builds on the way to
 // Suite. Two readers of one payload is how the submitted PDF came to carry
-// none of this: ensurePdfForWebhook() used to post the bare state object,
+// none of this: ensurePdfForSuite() used to post the bare state object,
 // so the "What We Need From You" and "Internal Product Requirements"
 // sections -- and the formatted spend figures -- were empty on every IO
 // that was ever actually submitted, even though the manual download button
@@ -3223,7 +3223,7 @@ document.getElementById("importJson")?.addEventListener("change",e=>{const f=e.t
 async function emailClientPDF(){
  let url=(state.documents&&state.documents.client_pdf_url)||"";
  if(!url){
-  try{addMsg("Preparing the Customer PDF link…");url=await ensurePdfForWebhook("client");}
+  try{addMsg("Preparing the Customer PDF link…");url=await ensurePdfForSuite("client");}
   catch(e){alert("Couldn't create the Customer PDF link: "+(e.message||e));return;}
  }
  const clean=s=>(s&&!/^none$/i.test(String(s).trim()))?String(s).trim():"";
@@ -4153,7 +4153,7 @@ function startWireClientSearch(){
 })();
 
 
-async function ensurePdfForWebhook(kind){
+async function ensurePdfForSuite(kind){
   // Reuse an existing Cloudinary document URL when available.
   state.documents = state.documents || {};
   const key = kind === "client" ? "client_pdf_url" : "internal_pdf_url";
@@ -4234,9 +4234,9 @@ async function submitCompletedIO(){
        and reported on its own now, so a real Cloudinary problem is at least
        a clear, actionable message rather than a silent stall. */
     let clientUrl="",internalUrl="",pdfError="";
-    try{clientUrl=await ensurePdfForWebhook("client");}
+    try{clientUrl=await ensurePdfForSuite("client");}
     catch(e){pdfError+=`Customer PDF could not be created: ${e.message||e}. `;}
-    try{internalUrl=await ensurePdfForWebhook("internal");}
+    try{internalUrl=await ensurePdfForSuite("internal");}
     catch(e){pdfError+=`Internal PDF could not be created: ${e.message||e}.`;}
     if(pdfError){throw new Error(pdfError.trim());}
 
@@ -4259,7 +4259,7 @@ async function submitCompletedIO(){
     });
     const result=await response.json().catch(()=>({}));
     if(!response.ok || !result.ok){
-      throw new Error(result.error || "The Smart 1 Suite webhook did not accept the IO.");
+      throw new Error(result.error || "Smart 1 Suite did not accept the IO.");
     }
 
     state.submission={
@@ -4270,8 +4270,14 @@ async function submitCompletedIO(){
       deliveredToSuite:result.delivered_to_suite!==false
     };
     if(result.delivered_to_suite===false){
-      setStatus("Order recorded. Smart 1 Suite delivery is turned off for testing — nothing was sent to Suite.","ok");
-      addMsg(result.message||"Order recorded. Smart 1 Suite delivery is turned off while this tool is being tested, so nothing was sent to Suite or GoHighLevel.","bot");
+      // The backend names the actual reason (not configured, or no email/phone
+      // for the contact) in result.message, already worded "Order recorded.
+      // ..." -- a hardcoded "turned off for testing" here would say the same
+      // thing regardless of which of those it was, hiding the one piece of
+      // information a rep could act on.
+      const notSentMsg=result.message||"Order recorded. Nothing was sent to Smart 1 Suite.";
+      setStatus(notSentMsg,"ok");
+      addMsg(notSentMsg,"bot");
     }else{
       setStatus("Completed IO sent to Smart 1 Suite successfully.","ok");
       addMsg("The finished IO, including both Cloudinary PDF links, was sent to Smart 1 Suite.","bot");

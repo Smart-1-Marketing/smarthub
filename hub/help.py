@@ -643,6 +643,15 @@ REGISTRY: list[Help] = [
        "1x is right for the web. 2x when it'll be viewed on a high-density "
        "screen or printed. Transparent background only works on PNG and WebP.",
        step=6, selector="[data-tour='export']"),
+    _h("image_creator.qc.check", "One QC panel, every creative tool",
+       "Checks the export against the S1M spec kit for the size you picked — "
+       "dimensions, file weight, an animation over 30 seconds — plus advisory "
+       "notes on the logo, the safe margin and contrast. Blocks stop a clean "
+       "export; advisory notes do not."),
+    _h("image_creator.review.send", "A client answers with no Hub login",
+       "Mints a link the client opens to approve, approve with changes, or "
+       "ask for changes required. Save the project first — the link points at "
+       "what's saved, not what's on screen."),
 
     # ---------------- Magic Resize ----------------
     # No `step=` and no `selector=` on any of these, and no `data-screen` on
@@ -682,6 +691,17 @@ REGISTRY: list[Help] = [
        "all mark a frame for review. The type-size floor only warns: no "
        "platform publishes a minimum for display, so a hard failure there "
        "would be our opinion wearing a platform's name."),
+    _h("magic_resize.brand", "Pulled from the same brand kit as Client 360",
+       "A website is required and never guessed from the client's name — a "
+       "wrong logo on a design is worse than none. It only touches whatever "
+       "on this design is tagged Logo or Background; a headline or "
+       "disclaimer is never recolored out from under whoever wrote it, and "
+       "a hand-tuned frame is never rebuilt by it."),
+    _h("magic_resize.frame_edit", "Drag, resize and retext with Fabric",
+       "This is the same editing engine Image Creator uses. Nothing you move "
+       "here is deleted from the design — it is a per-frame adjustment, and "
+       "saving marks this one size Hand-tuned so a rebuild of the set leaves "
+       "it exactly as you left it."),
 
     # ---------------- Background Remover ----------------
     _h("bg_remover.upload.credits", "This one costs money",

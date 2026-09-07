@@ -23,13 +23,16 @@ empty, and image assignment only fills slots with no image.
 
 ## What this deliberately does not do
 
-**It does not post.** Phase 1 ends at a CSV, which Social Planner ingests under
-Bulk Upload. Pushing through the Social Planner API needs
-`socialplanner/post.write` on the marketplace app, and adding a scope to
-`hub/ghl_oauth.py` requires re-consent at the agency — a one-time manual step
-that has to happen before any code depending on it is worth writing. Ending at
-the CSV means the whole drafting pipeline is in production and earning its keep
-while that is pending, and if the scope never lands the tool still works.
+**Pushing straight into Suite is real, and off by default.** `suite_client.py`
+implements it — `push()`, `fetch()`, `performance()` — but it needs
+`socialplanner/post.write` on the marketplace app, and HighLevel grants what
+it recognises at consent and says nothing about the rest: a Suite connection
+that reports Connected can still be missing this scope entirely. So every
+screen asks `hub/suite_accounts.publishing()` first and offers the push button
+only once that answers ready — never a button that fails at the moment
+somebody is waiting on it. Until an agency re-consents, the CSV under Bulk
+Upload is the route that works, and the whole drafting pipeline earns its keep
+either way.
 
 **It does not generate images.** The client's gallery usually already has what
 a post needs, and Image Creator is a better tool than a button here would be.

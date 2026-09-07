@@ -228,8 +228,10 @@ one_off = mr_store.create(name="Spring banners", client="", source={
     "width": 300, "height": 250, "objects": []})
 check("a one-off project has no client to resolve",
       mr_store.brand_for(one_off)["picked"], False)
-check("and the field the build plan asked for is gone, not left empty",
-      "brand_profile_ref" in one_off, False)
+check("the FK the build plan asked for was never the answer -- "
+      "brand_profile_ref is apply_brand()'s own audit field, empty until "
+      "a brand has actually been pulled in",
+      one_off["brand_profile_ref"], "")
 
 # Restore the confirmed logo pick, and start a project for that client.
 brand_template.save("Acme Plumbing", "acmeplumbing.com", "logo",

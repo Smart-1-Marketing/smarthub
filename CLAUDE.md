@@ -4274,6 +4274,104 @@ same set.
 the disk is recreated. Page Image Optimizer and Tickets both had it, which is
 where their saved jobs and field map were going. Use `jsonstore.data_dir()`.
 
+**And a bare relative path is the same trap with the deploy wipe hidden.**
+`hub/ad_assets.py` handed `jsonstore.write_json` the literal
+`"ad_assets/runs.json"`, and `_atomic_write` resolves a path against the
+**process working directory** — so on Render both of that module's stores
+landed at `/app/ad_assets/*.json`, inside the container image, and `key_for()`
+saw a path outside the root and keyed the mirror `abs:/app/…` rather than
+root-relative. What made it survive review is that nothing was lost on the
+ordinary path: the mirror is written at save time, `read_json` restores by
+key, and `WORKDIR` is stable, so a redeploy really did come back with the data.
+
+**What was lost is the repair.** `sweep()` walks the data root, so it never
+scanned either file — measured, `scanned: 1` over a rooted store and this one
+side by side — and that sweep is precisely what picks up a save made while the
+mirror was unavailable. For every other store in the Hub it does; for these two
+the gap stood until somebody saved again, and the next redeploy took the file
+with it. Reproduced end to end: written with the mirror down, swept, disk
+recreated, and the rooted store came back while this one read `None`. The
+`abs:` key defeats the other half of `key_for()`'s own docstring too — a
+production blob restoring into a development checkout.
+
+**Both of that module's stores were also read-modify-write of a whole
+collection**, the class `update_json` exists for, and it is not theoretical
+here: the scheduled catch-up sweep and a rep pressing Migrate overlap by
+design, there are two workers, and **eight concurrent records kept 1 of 8**.
+What that drops is the only account of who moved which client's creative and
+when. `apply_proposals` does its Knack writes *before* it touches the store,
+deliberately — `update_json` holds a lock across both workers, and a network
+call inside it would hold the other worker off for as long as Knack takes to
+answer.
+
+**The old spellings are still read**, so nothing already recorded is orphaned
+— the `audit.LOG_NAMES` rule — and only while the rooted file is empty, or
+removing a row would resurrect it from the old location. Each store moves
+itself the first time it is written.
+
+**And that fallback re-created the file it exists to abandon.** `read_json`
+writes a restored blob back to disk, and a `default=` argument is evaluated
+whether or not it is needed — so passing the legacy read as `update_json`'s
+default did the old read on **every** run and rewrote the pre-move file every
+time, for ever. The fallback belongs *inside* the mutate, which runs under the
+lock and only where the rooted store is empty: once. The check written for it
+first could not fail — it ran in a fresh directory where the mirror holds no
+pre-move key, so there was nothing to restore and nothing to rewrite, and the
+defect passed it. It seeds that key now, which is the live deployment's state
+and not a fresh directory's. `test_ad_assets.py` asserts all of it and
+sweeps `hub/` and `modules/` for the shape: a **string literal** handed to a
+store function is unambiguously CWD-relative and is a finding, while a path
+built from a call or a name is *not determinable* and is deliberately not
+reported — a check with false positives is one somebody switches off, and
+switching this one off costs the real finding. It started green, which is the
+only way it was worth adding.
+
+**And the reason first given for the test half of that was wrong.** Its commit
+says `jsonstore` caches its engine on the first `_init()`, so a `DATABASE_URL`
+assigned after `from hub import …` is a no-op. Measured, that is not what
+happens: importing `jsonstore`, importing `hub` and importing `ad_assets` all
+leave `_engine` at `None`, and a late assignment takes effect perfectly well.
+The engine is opened by the first **read or write**, and in that file it was
+`ad_assets.migrate()` in section 3 — a hundred lines above the assignment in
+section 8 — so the engine was opened against the session's Postgres and ~70
+`abs:/tmp/adassets-*` rows accumulated there, two per run. Moving the
+assignment above the imports was the right fix for the wrong stated reason:
+what makes it right is that after the first hub import *any* call may be the
+first write, not that the import itself latches anything.
+
+**A rule nothing enforces is one the next file gets wrong the same way**, and
+the obvious enforcement does not work: a static check on where the assignment
+sits reports `test_ad_copy.py` and `test_help_layer.py`, both of which assign
+after their first hub import and **neither of which leaks a row**, because
+neither writes anything durable first. That is the false-positive shape this
+file names a dozen times over.
+
+So the latch is gone instead. `_init()` re-resolves the URL and re-opens when
+it has changed — `extensions.engine_for()` already re-resolves per call and
+keys its pool on the URL, so that latch was the only thing freezing it. In
+production the variable never changes, `wanted` equals `_engine_url`, and it
+costs one environment read: measured, 300 writes in 0.45s against one engine
+object with no switch reported. Three rules on it. **It never raises** —
+`_database_url()` answers `""` where it cannot resolve, and `""` means *do not
+re-resolve*, which leaves the engine exactly where it was; `_init()` is on the
+write path, and a mirror that cannot name its own database must still let the
+disk write succeed. **The switch is reported rather than made silently**,
+because rows already written are in the previous database and are **not
+moved** — a mirror that looks complete may be missing everything written
+before it — and `status()` carries the count and **never a URL**, since a URL
+carries a password and that dict is rendered into `/diagnostics` and pasted
+into chats. And **a failure cached against one database is not a verdict about
+another**: the retry cooldown is cleared on a change of URL, or a healthy
+database would be held down for the rest of a window recorded about something
+else.
+
+That last one is what `test_jsonstore.py`'s section 10 had been quietly
+asserting the opposite of. It simulated the database *waking* by swapping
+`database_url()` and then required the cached failure to still hold — which
+conflates two different things, because on Render a database wakes at the
+**same** address and a URL that changes is a different target entirely. Both
+halves are asserted separately now.
+
 ---
 
 ## Data sources, and which are stale
@@ -10793,27 +10891,48 @@ without a second round trip. A rep confirms a tile or a swatch right there,
 through `POST /api/client/brand-template`; clearing always succeeds, because
 taking a pick back can never be "not offered".
 
-Magic Resize resolves it the way `hub/suite_accounts.location_for()` resolves
-a client's Suite sub-account: derived from the project's `client` name on
-every read (`store.brand_for()`), never stored. `brand_profile_ref` is gone
-rather than wired, because storing a second, derived key beside a name
-already on the record is the exact mistake `hub/client_key.py` spends a
-section refusing — a client renamed later would leave the stored reference
-pointing at nobody, where deriving it re-joins on the next request. The
-project page and the new-project form both show the client's confirmed brand
-live, including a pick made *after* the project was created.
+Magic Resize resolves *which brand this client's is* the way
+`hub/suite_accounts.location_for()` resolves a client's Suite sub-account:
+derived from the project's `client` name on every read (`store.brand_for()`),
+never stored. Storing a second, derived key beside a name already on the
+record is the exact mistake `hub/client_key.py` spends a section refusing —
+a client renamed later would leave a stored reference pointing at nobody,
+where deriving it re-joins on the next request. The project page and the
+new-project form both show the client's confirmed brand live, including a
+pick made *after* the project was created.
 
-**What this deliberately does not do.** It does not reach a provider — a pick
-costs nothing at Brandfetch, the same distinction `hub/brand_lookup.py` draws
-between a page load and a button. And it does not yet let a pick built from an
-*observed*-only tile (no Brandfetch record, only what the last scan saw) reach
-`brand_guide_payload()`'s Suite push, which still gates on `kit["found"]`
-specifically — the pick shows on Client 360 and on a Magic Resize project
-either way, but widening what "there is brand data to push" means is a real
-next step and a separate change, since it is also the Suite button's own
-error message. `test_brand_template.py` asserts the refusal, the promotion,
-the stale-pick case, and that Magic Resize's reference resolves live rather
-than from a stored key.
+**`brand_profile_ref` is a different, smaller fact, and it survives.** It is
+not the FK the build plan asked for and it is not a pointer to a brand at
+all — it is the domain a design's own Logo- and Background-tagged objects
+were last pulled a logo and a colour *from*, set by `store.apply_brand()`
+once a rep has actually pressed "Apply to design" on the project's own
+"Client brand" card. That card runs a fresh `brand_kit(client, domain)` and
+writes the resolved logo onto every `Logo`-role object and a chosen colour
+onto every `Background`-role one — refusing rather than guessing where the
+client has no brand on file, no domain was given, or the design carries
+neither role — and nothing else on the design is touched, because a headline
+or a disclaimer recoloured out from under whoever wrote it would be an
+unannounced edit, not a brand pull-in. It rarely has to guess which colour or
+logo counts: `apply_brand()` reads position zero of the same `brand_kit()`
+call `brand_for()` reads the confirmed pick out of, so once a rep has
+confirmed one on Client 360, applying "the client's brand" onto a design and
+seeing "the client's confirmed brand" in the project header are answering
+from the same promoted row.
+
+**What this deliberately does not do.** It does not reach a provider merely to
+show the confirmed pick — that costs nothing at Brandfetch, the same
+distinction `hub/brand_lookup.py` draws between a page load and a button; only
+pressing "Look up" or "Apply to design" on the card spends one. And it does
+not yet let a pick built from an *observed*-only tile (no Brandfetch record,
+only what the last scan saw) reach `brand_guide_payload()`'s Suite push, which
+still gates on `kit["found"]` specifically — the pick shows on Client 360 and
+on a Magic Resize project either way, but widening what "there is brand data
+to push" means is a real next step and a separate change, since it is also the
+Suite button's own error message. `test_brand_template.py` asserts the
+refusal, the promotion, the stale-pick case, and that Magic Resize's
+*confirmed-brand* reference resolves live rather than from a stored key;
+`test_magic_resize.py` asserts `apply_brand()` and the domain it leaves behind
+in `brand_profile_ref`.
 
 ## The one module that is not Python
 
@@ -12634,7 +12753,9 @@ python tools/linkcheck.py          # every internal URL resolves, every url_for 
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
-python3 test_jsonstore.py          # the mirror restores, and one answer on who is outside it
+python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
+                                   #   it, and which database it mirrors into being a
+                                   #   setting rather than a latch on the first write
 python3 test_db_boot.py            # a database blip at boot is not a verdict for
                                    #   the life of the worker, and sign-in says
                                    #   so in words rather than answering 500
@@ -13089,64 +13210,51 @@ started happening, quietly, on the side nobody was watching.** This section
 used to say Render had never once deployed smart1-hub by itself: every deploy
 in its history was trigger `manual` or `api`, and no service in the workspace
 had a single `new_commit` in it. The diagnosis was the repo path — the service
-was still pointed at the pre-transfer `smart1marketing/smarthub` rather than
-`Smart-1-Marketing/smarthub` — and the fix named was reconnecting the
-repository under the org with Render's GitHub App installed there.
+was still pointed at the pre-transfer `smart1marketing/smarthub` — and the fix
+named was reconnecting the repository under the org.
 
-That reconnect happened at some point since, and nobody updated this file to
-say so. Checked directly against Render on 2026-09-04: the service now reads
-`autoDeployTrigger: commit`, not `checksPass`, and its deploy history is nine
-deploys deep of nothing but `trigger: new_commit` — one per push to `main`,
-each going `live` the moment it finishes building and `deactivated` the moment
-the next one supersedes it, exactly as an auto-deploying service should. A
-merge landing at 22:07 was live by 22:08; three more merges landed in the next
-eighteen minutes and each one deployed in turn. The failure this section spent
-a page describing is gone, and the only reason it took a direct API check to
-notice is the same one the section already names: a working auto-deploy and a
-broken one look identical from the GitHub side, because neither one is
-watched from there.
+That reconnect happened, and Render's own auto-deploy has shipped every push
+to `main` since: `autoDeployTrigger: commit`, deploy history nothing but
+`trigger: new_commit`, each one live within a minute of the merge. The failure
+this section spent a page describing is gone, and the only reason it took a
+direct API check to notice is that a working auto-deploy and a broken one look
+identical from the GitHub side, because neither is watched from there.
 
-**Which is what makes the other half's silence worth reading twice.** The
-`deploy` job in `checks.yml` below still runs on every push to `main`, still
-posts to `RENDER_DEPLOY_HOOK_URL`, and has been failing every single time —
-refusing by design, per its own comment, because `RENDER_DEPLOY_HOOK_URL` was
-never actually set as a repository secret. It was built as the route around a
-broken webhook; the webhook fixed itself and the route around it did not, and
-a job whose entire job is redundancy insurance can fail for a very long time
-before anyone notices, because the thing it insures keeps working without it.
-Nothing here is currently at risk *because* of that — Render's own auto-deploy
-is the one actually shipping code — but it means this repo is one webhook away
-from silently having no deploy path at all again, with a CI job that has been
-printing "Refusing rather than passing" into a log nobody reads for as long as
-the secret has been unset. Setting `RENDER_DEPLOY_HOOK_URL` under Settings →
-Secrets and variables → Actions, from the smart1-hub service's own Settings →
-Deploy Hook on Render, is what closes it — after which this job stops being
-insurance nobody has checked works and starts being insurance that does.
+**The route around it outlived the thing it routed around.** A `deploy` job
+was added to `checks.yml` while the webhook was dead — it posted to
+`RENDER_DEPLOY_HOOK_URL`, pinned to the commit's own sha rather than a bare
+hook, and refused rather than passing when the secret was unset. Every part of
+that reasoning was right. What made it worth removing is that the secret was
+**never set**, so the job had never once deployed anything: it was a second
+deploy path that had only ever refused, insuring a webhook that had since
+started working. And the refusal was the **sole reason main read red on every
+merge** — the test job passed 171 of 171 while the run showed a red X, which
+is the permanently-red gate this file names as the check people learn to skip
+past. Insurance nobody has checked works is not insurance; insurance that
+makes the alarm ring every day is worse than none, because it trains everyone
+to ignore the alarm.
 
-The job is otherwise unchanged, and its own reasoning still holds: it deploys
-the commit whose checks just went green rather than a bare hook, because main
-takes a merge every few minutes here and "check main is green, then trigger a
-deploy" is not atomic — a deploy triggered that way could pick up a commit
-that landed in the intervening seconds. It is the workflow's one exception to
-*no secrets*, and it is a separate job for exactly that reason: it never runs
-on a pull request, so a fork's run and a contributor's branch still have no
-credential and no path to production.
+**What that leaves is a deploy that does not wait for the tests, and that is
+worth knowing rather than discovering.** Render's trigger is `commit`, not
+`checksPass`: a merge ships the moment it builds. Measured on one afternoon,
+`ebb8f0c` went live at 22:08 and its CI finished at 22:19 — production had the
+commit eleven minutes before the tests were done — and the merge after it was
+live twenty-three seconds after the push, before CI had started at all. Both
+happened to pass. **"Main is green" no longer protects production**, because
+production does not wait for it; what green main protects now is the next
+person to branch off it. Switching the service to *After CI checks pass*
+restores the guard at the cost of a build's wait per deploy, and is a trade to
+make deliberately rather than by leaving the setting where a reconnect put it.
 
-Three rules on it. It deploys **`ref=<sha>` and never a bare hook**, for the
-race named above. A **missing secret is a refusal**, not a skip, because a
-green tick over a deploy that did not happen is the confident wrong answer
-this file spends its length undoing — which is exactly the state it has been
-sitting in. And **the hook URL is never echoed**: the whole URL is the
-credential, anyone holding it can deploy, and the `services/provider_check.py`
-rule about never carrying a key into something a person reads applies to a CI
-log as much as to a page.
-
-`test_ci_gate.py` asserts all of it. Its first draft could not fail on the
-refusal: the window it searched for an `exit 1` after the guard was wide enough
-to reach the *other* `exit 1` further down the step, so a branch changed to
-echo and carry on still passed — the assertion that cannot fail, in the file
-written about checks that cannot fail. It is scoped to the branch now, and all
-five were confirmed red against the defect each guards.
+`test_ci_gate.py` asserts what is true now instead of what the job used to
+promise: **this workflow holds no credential at all** — no stored secret, and
+no second job carrying one. Everything the gate runs, a contributor runs on a
+fresh checkout. Adding a secret-holding job back is then a decision somebody
+makes rather than a drift nobody notices, because it turns that check red. Its
+own first draft, back when it asserted the deploy job's refusal, could not fail
+— the window it searched for an `exit 1` reached a second one further down the
+step, so a branch changed to echo and carry on still passed. The assertion that
+cannot fail, in the file written about checks that cannot fail.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path — and every

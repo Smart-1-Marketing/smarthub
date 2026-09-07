@@ -170,7 +170,11 @@ HUB_PAGES = [
 NO_CHROME_PREFIXES = ("/land/", "/msa", "/tools/ads-grader")
 
 # Mount roots that redirect or need an argument rather than serving a page.
-SKIP_MOUNTS = ()
+# Check Reconciliation refuses every session except its allowlisted owner — a
+# named Admin account whose email is in CHECK_RECONCILIATION_ALLOWED_EMAILS —
+# so the 403 at its root is the gate working, not a page defect: there is no
+# session this checker can hold that the gate should accept.
+SKIP_MOUNTS = ("/tools/check-reconciliation",)
 
 # A <script> with one of these types holds data or a client-side template,
 # not JavaScript. Same list as tools/jscheck.py, kept as a literal rather
