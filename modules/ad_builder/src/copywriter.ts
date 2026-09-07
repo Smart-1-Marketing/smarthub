@@ -197,6 +197,28 @@ const BANNED_CUT = new RegExp(
   'gi',
 );
 
+/**
+ * Whether text carries a banned phrase, and which one -- for a caller that
+ * only wants to report it rather than cut it out. `sanitise()` below is the
+ * only thing that ever ran this test, and it only ever saw copy this file
+ * generated: text an operator types directly into the build screen never
+ * passes through it, so it could ship pressure language with nothing
+ * catching it. qa.ts reads this rather than keeping its own copy of
+ * `PRESSURE_PHRASES`, or the two lists come to disagree about what pressure
+ * language is exactly the way `BANNED` and `BANNED_CUT` are one list so they
+ * cannot.
+ */
+export function bannedPressurePhrase(text: string | null | undefined): string | undefined {
+  if (!text) return undefined;
+  // "don't" in the list is a plain ' -- and this function's whole job is
+  // text that was typed rather than generated, which is exactly where a
+  // curly one (pasted from a word processor, or a phone's own smart
+  // punctuation) shows up. Normalised before the test, never in what is
+  // reported, since the match is only ever read back for display.
+  const normalised = String(text).replace(/[\u2018\u2019\u02bc]/g, "'");
+  return normalised.match(BANNED)?.[0];
+}
+
 function sanitise(text: string | null | undefined, max: number, warnings: string[], where: string): string | undefined {
   if (!text) return undefined;
   let t = String(text).replace(/\s+/g, ' ').trim().replace(/!+/g, '');
