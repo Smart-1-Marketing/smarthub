@@ -472,8 +472,8 @@ try:
 finally:
     hub_ai.chat, _ctx_mod.tool_context = _real_chat, _real_tool_ctx
 
-maker2 = open(os.path.join("hub", "templates", "landing_maker.html"),
-              encoding="utf-8").read()
+maker2 = (ROOT / "hub" / "templates" / "landing_maker.html").read_text(
+    encoding="utf-8")
 check("the maker carries the concept panel", 'id="snapBtn"' in maker2, True)
 from hub import help as hub_help                                # noqa: E402
 check("and its help key resolves",
