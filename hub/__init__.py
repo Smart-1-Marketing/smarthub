@@ -2788,6 +2788,57 @@ def create_hub_app() -> Flask:
         # /api/seo/detail had to be fixed for.
         return jsonify(result), 400 if result.get("measured") is None else 502
 
+    @app.route("/api/landing/snap-concept", methods=["POST"])
+    def api_landing_snap_concept():
+        """Draft a Smart 1 Snap concept — the harvested Pickaxe, as an idea.
+
+        The Snap positioning language lives in that prompt and nowhere else
+        in writing (hub/prompts_harvested.SNAP_CONCEPT). This drafts the
+        concept a rep talks through — five pages of content, how it gets
+        marketed — and builds nothing: the maker's own Build button is what
+        makes a page. Website and industry are filled from the client's
+        record where the form left them blank, never invented. A POST behind
+        a button, because the call is billed.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"ok": False,
+                            "error": "Name the business first."}), 400
+        website = (body.get("website") or "").strip()
+        industry = (body.get("industry") or "").strip()
+        if not website or not industry:
+            try:
+                from .client_context import tool_context
+                ctx = tool_context(client, website, gallery=False)
+                website = website or ctx.get("url") or ctx.get("domain") or ""
+                industry = industry or ctx.get("industry") or ""
+            except Exception:                          # noqa: BLE001
+                pass
+        from . import ai as hub_ai
+        from .prompts_harvested import SNAP_CONCEPT
+        prompt = SNAP_CONCEPT["prompt"].format(
+            client=client,
+            website=website or "not provided",
+            industry=industry or "not recorded",
+            location=(body.get("location") or "").strip() or "not recorded",
+            extra=(body.get("extra") or "").strip() or "none",
+            snap_type=(body.get("snap_type") or "").strip() or "general")
+        try:
+            text = hub_ai.chat(
+                [{"role": "user", "content": prompt}],
+                module="landing_maker", purpose=SNAP_CONCEPT["purpose"],
+                temperature=SNAP_CONCEPT["temperature"], max_tokens=1800)
+        except hub_ai.AIUnavailable as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+        return jsonify({"ok": True, "concept": text.strip(),
+                        "note": "An idea to talk through — nothing was "
+                                "built or saved. The Build button is what "
+                                "makes a page."})
+
     @app.route("/api/landing/<page_id>/revise", methods=["POST"])
     def api_landing_revise(page_id):
         """Rewrite a built page against an instruction, keeping the old one."""

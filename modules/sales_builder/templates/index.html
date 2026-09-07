@@ -3766,7 +3766,8 @@ const STEPS=[
      ? '<div class="cards c3" style="margin-top:14px">'+[[1750,"$1k–2.5k","Entry / very local"],[3500,"$2.5k–5k","Testing a market"],[8000,"$5k–10k","Steady local growth"],[15000,"$10k–20k","Aggressive share gain"],[28000,"$20k–40k","Multi-market push"],[50000,"$40k+","Regional dominance"]].map(b=>card("💰",b[1],b[2],S.budget===b[0],`setBudget(${b[0]})`)).join('')+'</div>'
      : `<div class="fld" style="margin-top:14px"><label>Exact monthly budget ($)</label><input type="number" value="${S.budget}" oninput="setBudget(+this.value)" placeholder="e.g. 6500" style="max-width:260px"></div>`)+
    `<div class="fld"><label>Campaign length (months)</label><input type="number" min="1" value="${S.months}" oninput="S.months=Math.max(1,+this.value);S.configured=false;saveSoon()" style="max-width:200px"></div>`
-   +budgetDriftNote(),
+   +budgetDriftNote()
+   +spendDemoPanel(),
    valid:()=>S.budget>0}),
 
  ()=>{ if(S.items.length===0)recommendItems(); return{eyebrow:"The Media Mix",title:"Products & pricing",help:"sales_builder.mix.rates",sub:"From your goals, using real catalog products & rates. Edit the monthly $ per product, add or remove products — guardrails recheck as you go.",
@@ -3929,6 +3930,29 @@ function creativeCard(r){
  if((r.medium==="audio"||r.medium==="video")&&(r.answer==="client"||r.answer==="comp")){
   html+=`<div style="margin-top:12px" id="spotBox-${r.medium}">${spotDraftHtml(r.medium)}</div>`;}
  return html+`</div>`;}
+/* The Spend & Demo briefing on the Budget step: what a business like this
+   typically spends and who lives in the target areas, from the model's
+   general knowledge — labeled as exactly that, stored beside the quote as
+   internal notes (S.marketBriefing), and on neither the proposal nor the IO.
+   A billed call, so a button and never part of drawing the step. */
+function spendDemoPanel(){
+ const d=S.marketBriefing;
+ let h='<div class="bpanel" id="briefBox"><div class="ttl">🧭 Market briefing (internal)</div>';
+ if(d&&d.text){
+  h+=`<div style="white-space:pre-wrap;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#F7F9FC;font-size:13px;max-height:280px;overflow:auto;margin-top:8px">${esc(d.text)}</div>
+   <div class="note" style="margin-top:6px">${esc(d.note||'')}</div>`;}
+ h+=`<div style="margin-top:8px"><button class="btn btn-line" onclick="draftBriefing()">${d&&d.text?"Re-brief":"✨ Brief me: typical spend, and who lives there (AI)"}</button>
+  <span class="note" id="briefMsg"></span></div></div>`;
+ return h;}
+async function draftBriefing(){
+ const msg=document.getElementById('briefMsg');
+ if(msg)msg.innerHTML='<span class="spin" data-s1-think="ai"></span> Writing the briefing…';
+ try{
+  const d=await api('/sales/builder/api/spend-demo',{method:'POST',
+    body:JSON.stringify({data:S})});
+  S.marketBriefing=d.briefing;saveSoon();renderStep();
+ }catch(e){
+  if(msg)msg.innerHTML='Nothing was written — '+esc(e.message);}}
 function spotDraftHtml(medium){
  const d=(S.draftSpots||{})[medium];
  const what=medium==="audio"?"a :30 radio spot":"a set of TV scripts";

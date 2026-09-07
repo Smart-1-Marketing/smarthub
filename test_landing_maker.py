@@ -409,6 +409,77 @@ check("no other module's button class is borrowed",
       "um-btn" in maker, False)
 
 
+# ------------------------------------------------------- the Snap concept
+section("the Snap concept is an idea, never a build")
+# The harvested SNAP_CONCEPT prompt: the positioning language lives in it and
+# nowhere else in writing, so what is worth asserting is that the draft
+# builds and saves nothing, that the form's blanks are filled from the
+# client's record rather than invented, and that the route refuses politely.
+
+from hub import ai as hub_ai                                    # noqa: E402
+import hub.client_context as _ctx_mod                           # noqa: E402
+
+_real_chat, _real_tool_ctx = hub_ai.chat, _ctx_mod.tool_context
+_snap_calls = []
+
+
+def _fake_chat(messages, **kw):
+    _snap_calls.append((messages[0]["content"], kw))
+    return "The Riverstone Snap: five pages..."
+
+
+def _fake_tool_ctx(name, url="", *, gallery=True):
+    return {"client": name, "url": "https://riverstonedental.com",
+            "domain": "riverstonedental.com", "industry": "Dental"}
+
+
+r = anon.post("/api/landing/snap-concept", json={"client": "X"},
+              headers={"Accept": "application/json"})
+check("an anonymous press is refused", r.status_code in (302, 401), True)
+
+try:
+    hub_ai.chat = _fake_chat
+    _ctx_mod.tool_context = _fake_tool_ctx
+    r = client.post("/api/landing/snap-concept", json={})
+    check("a concept for nobody is refused", r.status_code, 400)
+    check("and the model was never asked", _snap_calls, [])
+
+    before = len(lm._load())
+    r = client.post("/api/landing/snap-concept",
+                    json={"client": "Riverstone Dental",
+                          "snap_type": "event",
+                          "extra": "June 14 open house"})
+    check("a named business gets the concept", r.status_code, 200)
+    d = r.get_json()
+    prompt = _snap_calls[-1][0]
+    check("the snap type reaches the prompt", "event" in prompt, True)
+    check("and the rep's own detail", "June 14 open house" in prompt, True)
+    check("a blank website is filled from the record, not invented",
+          "riverstonedental.com" in prompt, True)
+    check("at the harvested prompt's own temperature",
+          _snap_calls[-1][1].get("temperature"), 0.8)
+    check("billed under the maker's own module",
+          _snap_calls[-1][1].get("module"), "landing_maker")
+    check("nothing was built or saved", len(lm._load()), before)
+    check("and the answer says so",
+          "The Build button is what makes a page" in d["note"], True)
+
+    def _chat_down(messages, **kw):
+        raise hub_ai.AIUnavailable("down")
+    hub_ai.chat = _chat_down
+    r = client.post("/api/landing/snap-concept", json={"client": "X"})
+    check("a dead model is a 502, not a quiet 200", r.status_code, 502)
+finally:
+    hub_ai.chat, _ctx_mod.tool_context = _real_chat, _real_tool_ctx
+
+maker2 = open(os.path.join("hub", "templates", "landing_maker.html"),
+              encoding="utf-8").read()
+check("the maker carries the concept panel", 'id="snapBtn"' in maker2, True)
+from hub import help as hub_help                                # noqa: E402
+check("and its help key resolves",
+      hub_help.get("landing_maker.snap.concept") is not None, True)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
