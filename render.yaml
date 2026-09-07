@@ -2,8 +2,29 @@ services:
   - type: web
     name: smart1-hub
     runtime: docker
-    plan: starter
+    # The live service runs 2c-4g. This said `starter` for long enough that a
+    # blueprint sync would have QUIETLY DOWNGRADED production to fix a
+    # one-line setting -- the shape this repo keeps undoing, where each half
+    # is internally consistent and only the join between them is wrong.
+    plan: 2c-4g
     healthCheckPath: /health
+    # Deploy when CI goes green, not when the commit lands. The live service
+    # reads `commit`, so a merge ships the moment it builds: measured,
+    # `ebb8f0c` was live eleven minutes before its own tests finished, and the
+    # merge after it twenty-three seconds after the push, before CI had
+    # started. Both happened to pass, which is the reason it went unnoticed --
+    # "main is green" protects the next person to branch off main rather than
+    # production.
+    #
+    # THIS LINE DOES NOT CHANGE THE LIVE SERVICE. smart1-hub was not created
+    # from this blueprint and takes its settings from the dashboard -- the
+    # OUTPUT_DIR note at the foot of this file is the same caveat, learned the
+    # same way. It is set here so a service created FROM this file gets the
+    # guard by default, and so the intended setting is written down somewhere
+    # a reader can find it. Changing the live one is Settings -> Build &
+    # Deploy -> Auto-Deploy -> After CI Checks Pass, and it costs a full CI
+    # run (~15-18 min) of latency per deploy.
+    autoDeployTrigger: checksPass
     disk:
       name: hub-data
       mountPath: /var/data
