@@ -714,6 +714,129 @@ check("a lead whose report is an audit page counts as having a report",
       leads.listing(days=7)["with_report"], before + 1)
 
 
+# =====================================================================
+section("The CTA review judges a page somebody measured")
+# =====================================================================
+
+# hub/cta_review.py: the Pickaxe CTA Analyzer, grounded. The page is fetched
+# and measured by landing_page.observe() before the model sees anything, an
+# unreadable page is refused as not measured rather than reviewed anyway, and
+# the spend is attributed to an allowlisted screen — a module name a browser
+# supplies would file usage under anything.
+
+from hub import ai as hub_ai                                  # noqa: E402
+from hub import cta_review                                     # noqa: E402
+from modules.ads_builder import landing_page as _lp            # noqa: E402
+
+bad = cta_review.review("nope", url="https://acme.com")
+check("an unknown screen is refused", bad["ok"], False)
+check("by name, without billing anything", "Unknown screen" in bad["error"], True)
+check("no URL is refused", cta_review.review("seo", url="")["ok"], False)
+
+real_observe, real_chat = _lp.observe, hub_ai.chat
+calls = {}
+
+
+def fake_observe_dead(url, fetched=None):
+    return {"measured": False, "status": 503, "error": "connection refused",
+            "url": url, "conversion_points": [], "text": ""}
+
+
+def fake_observe_ok(url, fetched=None):
+    return {"measured": True, "status": 200, "redirected": False, "url": url,
+            "title": "Acme Plumbing",
+            "headings": [{"level": "h1", "text": "Plumbing done right"}],
+            "conversion_points": [
+                {"kind": "calls", "label": "Click-to-call link",
+                 "evidence": "(317) 555-0142"}],
+            "text": "Call us today. Serving Carmel since 1998."}
+
+
+def fake_chat(messages, **kw):
+    calls["prompt"] = messages[0]["content"]
+    calls["kw"] = kw
+    return "The single CTA is the phone link; add a form above the fold."
+
+
+try:
+    _lp.observe, hub_ai.chat = fake_observe_dead, fake_chat
+    dead = cta_review.review("seo", url="https://dead.example")
+    check("an unreadable page is refused, not reviewed anyway",
+          dead["ok"], False)
+    check("as not measured", dead["measured"], False)
+    check("with the fetch's own reason carried",
+          "connection refused" in dead["error"], True)
+    check("and the model was never asked", "prompt" in calls, False)
+
+    _lp.observe = fake_observe_ok
+    good = cta_review.review("website_audit", url="https://acme.com",
+                             client="Acme Plumbing", industry="Plumbing")
+    check("a measured page is reviewed", good["ok"], True)
+    check("the prompt carries the page's own copy",
+          "Serving Carmel since 1998" in calls["prompt"], True)
+    check("and the measured evidence, not just a count",
+          "(317) 555-0142" in calls["prompt"], True)
+    check("and the client", "Acme Plumbing" in calls["prompt"], True)
+    check("the spend is filed under the screen's own module",
+          calls["kw"]["module"], "website_audit")
+    from hub import prompts_harvested as hp                    # noqa: E402
+    check("at the harvested prompt's own temperature",
+          calls["kw"]["temperature"], hp.CTA_ANALYZER["temperature"])
+    check("the observation travels beside the judgment",
+          good["observed"]["conversion_points"][0]["evidence"],
+          "(317) 555-0142")
+    check("and the answer says it judged copy, not a rendered view",
+          "not a rendered view" in good["note"], True)
+
+    def chat_down(messages, **kw):
+        raise hub_ai.AIUnavailable("OPENAI_API_KEY is not set.")
+    hub_ai.chat = chat_down
+    down = cta_review.review("website_audit", url="https://acme.com")
+    check("a dead model costs the review, never reads as an unreadable page",
+          (down["ok"], down["measured"]), (False, True))
+
+    # The three doors. Anonymous first, then signed in with the stubs live.
+    hub_ai.chat = fake_chat
+    r = anon.post("/api/website-audit/cta-review", json={"domain": "acme.com"},
+                  headers={"Accept": "application/json"})
+    check("the audit tool's route refuses an anonymous press",
+          r.status_code, 401)
+    r = c.post("/api/website-audit/cta-review", json={})
+    check("and a press with no website", r.status_code, 400)
+    r = c.post("/api/website-audit/cta-review", json={"domain": "acme.com"})
+    check("signed in, it answers", r.status_code, 200)
+    check("with the review", bool(r.get_json()["review"]), True)
+
+    r = anon.post("/api/seo/cta-review", json={"client": "Acme", "url": "x"},
+                  headers={"Accept": "application/json"})
+    check("the SEO route refuses an anonymous press",
+          r.status_code in (302, 401), True)
+    r = c.post("/api/seo/cta-review", json={"url": "https://acme.com"})
+    check("and one naming no client", r.status_code, 400)
+    r = c.post("/api/seo/cta-review",
+               json={"client": "Acme", "url": "https://acme.com"})
+    check("signed in with a client, it answers", r.status_code, 200)
+
+    r = c.post("/api/landing/cta-review", json={})
+    check("the landing maker's route refuses a press with no URL",
+          r.status_code, 400)
+    _lp.observe = fake_observe_dead
+    r = c.post("/api/landing/cta-review", json={"url": "https://dead.example"})
+    check("and answers 502 for an unreadable page, so .catch() sees it",
+          r.status_code, 502)
+finally:
+    _lp.observe, hub_ai.chat = real_observe, real_chat
+
+# The card on the audit tool: placed, with a registered key behind it — a
+# bubble whose key is missing is removed client-side, so the template reads
+# as helped and the screen shows nothing.
+audit_html = (ROOT / "hub" / "templates" / "website_audit.html").read_text()
+check("the audit page carries the button", 'id="btnCta"' in audit_html, True)
+from hub import help as hub_help                               # noqa: E402
+check("and its help key resolves",
+      hub_help.get("hub.website_audit.cta_review") is not None, True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

@@ -50,9 +50,15 @@ AD_EXTENSIONS are wired (modules/ads_builder/copy_ideas.py); RADIO_SCRIPT and
 TV_SCRIPTS are wired into the Proposal Builder's creative gate
 (/sales/builder/api/draft-spot) — the two radio builders and the Commercial
 Builder keep their own budget-aware writers, so the gate is where a drafted
-spot was actually missing. The rest land with the module each names, in the
-order docs/pickaxe-integration.md gives, so the two-year-old wording travels
-here once rather than being re-harvested per PR.
+spot was actually missing. CTA_ANALYZER is wired through hub/cta_review.py
+(the SEO client record, the Website Audit tool and the Landing Page Maker,
+each on a measured fetch); SOCIAL_PAGES_REVIEW and CONTENT_CALENDAR are wired
+into the Social Planner (/api/pages-review and /api/calendar-draft — the
+review reads what the last site audit measured, and the calendar draft
+creates nothing, because the month builder is what makes posts). The rest
+land with the module each names, in the order docs/pickaxe-integration.md
+gives, so the two-year-old wording travels here once rather than being
+re-harvested per PR.
 """
 from __future__ import annotations
 

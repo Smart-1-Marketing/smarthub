@@ -163,6 +163,23 @@
     </div>
   </div>
 
+  <div class="card" id="ctaCard" style="display:none">
+    <h2>What the page asks visitors to do {{ help_dot('hub.website_audit.cta_review') if help_dot is defined else '' }}</h2>
+    <p class="small muted" style="margin:2px 0 12px">The home page is fetched and
+      its calls to action measured, then reviewed. Reviewed from the page's copy,
+      not a rendered view — and it is a billed AI call, so it runs only when
+      pressed.</p>
+    <div class="flow">
+      <button class="btn" id="btnCta">Review the CTAs</button>
+      <span class="small" id="ctaMsg"></span>
+    </div>
+    <div id="ctaOut" style="display:none;margin-top:12px">
+      <div class="small muted" id="ctaObserved"></div>
+      <div class="small" id="ctaReview" style="white-space:pre-wrap;margin-top:10px"></div>
+      <div class="small muted" id="ctaNote" style="margin-top:8px"></div>
+    </div>
+  </div>
+
   <div class="card" id="nextCard" style="display:none">
     <h2>Turn this into a proposal {{ help_dot('hub.website_audit.proposal') if help_dot is defined else '' }}</h2>
     <p class="small muted" id="nextNote" style="margin:2px 0 12px"></p>
@@ -494,6 +511,7 @@
     $('leadCard').style.display='block';
     if(!$('lCompany').value) $('lCompany').value=CLIENT||'';
     var dom=(d&&d.domain)||domain();
+    $('ctaCard').style.display='block';
     if(d&&d.found){
       $('nextCard').style.display='block';
       $('btnProposal').href='/sales/builder/?audit='+encodeURIComponent(dom)
@@ -605,6 +623,43 @@
         btn.disabled=false;
         msg.className='small err';
         msg.textContent='That could not be filed.';
+      });
+  });
+
+  $('btnCta').addEventListener('click',function(){
+    var dom=domain();
+    if(!dom){ $('ctaMsg').className='small err';
+      $('ctaMsg').textContent='Pick a website first.'; return; }
+    var btn=$('btnCta'); btn.disabled=true;
+    $('ctaMsg').className='small muted';
+    /* .spin upgrades to the shared wait glyph where hub-thinking.js loaded;
+       without it, the words still say what is happening. */
+    $('ctaMsg').innerHTML='<span class="spin"></span> Reading the page, then reviewing…';
+    fetch('/api/website-audit/cta-review',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({domain:dom,client:CLIENT||''})})
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+      .then(function(res){
+        btn.disabled=false; $('ctaMsg').textContent='';
+        var d=res.d||{};
+        if(!res.ok||!d.ok){
+          $('ctaMsg').className='small err';
+          $('ctaMsg').textContent=d.error||'The review could not be written.';
+          return;
+        }
+        var points=(d.observed&&d.observed.conversion_points)||[];
+        $('ctaObserved').textContent=points.length
+          ? 'Measured on the page: '+points.map(function(p){
+              return p.label+(p.evidence?' ('+p.evidence+')':''); }).join(' · ')
+          : 'Measured on the page: no conversion points were found.';
+        $('ctaReview').textContent=d.review||'';
+        $('ctaNote').textContent=d.note||'';
+        $('ctaOut').style.display='block';
+      })
+      .catch(function(){
+        btn.disabled=false;
+        $('ctaMsg').className='small err';
+        $('ctaMsg').textContent='The review could not be written.';
       });
   });
 

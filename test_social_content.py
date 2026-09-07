@@ -958,6 +958,168 @@ check("and reads the shared read-change-write",
       "jsonstore.update_json(" in _intake_src)
 
 # ---------------------------------------------------------------------------
+print("\nThe two page analyzers: measured pages, and a brainstorm that "
+      "creates nothing")
+# ---------------------------------------------------------------------------
+# /api/pages-review is fed what the last site audit measured, says "no data
+# could be retrieved" per platform, and refuses a client with nothing
+# measured rather than billing for a page of "not reviewed".
+# /api/calendar-draft writes ideas and deliberately no slots — the month
+# builder is what makes posts.
+
+from hub import ai as hub_ai                                      # noqa: E402
+from hub import scan_facts as _sf                                 # noqa: E402
+
+_real_snapshot, _real_chat = _sf.social_snapshot, hub_ai.chat
+_real_ctx = mod._client_context
+_an_calls = {}
+
+
+def _fake_ctx(client, url=""):
+    return {"client": client, "url": "https://riverstoneheating.com",
+            "domain": "riverstoneheating.com", "industry": "HVAC",
+            "products": [], "gallery": []}
+
+
+def _fake_chat(messages, **kw):
+    _an_calls["prompt"] = messages[0]["content"]
+    _an_calls["kw"] = kw
+    return "A review." if kw.get("purpose") == "pages_review" else "Ideas."
+
+
+def _snapshot_empty(domain):
+    return {"found": True, "error": "", "platforms": [
+        {"platform": "Facebook", "name": "", "link": "", "found": None,
+         "measured": False, "details": []}], "gbp": {}}
+
+
+def _snapshot_full(domain):
+    return {"found": True, "error": "", "scanned_at": "2026-08-30 09:00",
+            "scan_url": "/scans/scan/abc123",
+            "platforms": [
+                {"platform": "Facebook", "name": "Riverstone Heating",
+                 "link": "https://facebook.com/riverstone", "found": True,
+                 "measured": True,
+                 "details": ["followers: 412", "days since last post: 60"]},
+                {"platform": "Instagram", "name": "", "link": "",
+                 "found": False, "measured": True, "details": []},
+                {"platform": "TikTok", "name": "", "link": "", "found": None,
+                 "measured": False, "details": []}],
+            "gbp": {"measured": True, "found": True, "claimed": False,
+                    "rating": 4.2, "reviews": 37}}
+
+
+# The real snapshot reader, against a report shaped like the payload the
+# Social presence group already draws — one reading of those fields, as data.
+_real_latest = _sf.latest_report
+try:
+    _sf.latest_report = lambda d: (
+        {"facebook_page": {"page_name": "Riverstone Heating",
+                           "page_link": "https://facebook.com/riverstone",
+                           "page_follows": 412, "found": True},
+         "instagram_account": {"has_instagram": False},
+         "google_business_profile": {"is_listing_found": True,
+                                     "is_listing_claimed": False,
+                                     "rating": 4.2, "review_count": 37}},
+        {"scanned_at": "2026-08-30 09:00", "scan_url": "/scans/scan/abc"},
+        "")
+    snap = _sf.social_snapshot("riverstoneheating.com")
+    fb = next(p for p in snap["platforms"] if p["platform"] == "Facebook")
+    ig = next(p for p in snap["platforms"] if p["platform"] == "Instagram")
+    tk = next(p for p in snap["platforms"] if p["platform"] == "TikTok")
+    check("a measured page carries its numbers",
+          fb["measured"] and "followers: 412" in fb["details"], fb)
+    check("a platform the scan affirmed absent is measured False-found",
+          ig["measured"] and ig["found"] is False, ig)
+    check("one the scan never spoke to is not measured — never a No",
+          not tk["measured"] and tk["found"] is None, tk)
+    check("the unclaimed listing is an answer, kept",
+          snap["gbp"]["claimed"] is False and snap["gbp"]["reviews"] == 37)
+    _sf.latest_report = lambda d: ({}, {}, "scans table refused")
+    snap = _sf.social_snapshot("riverstoneheating.com")
+    check("a table that refused is found False with the error named",
+          snap["found"] is False and "refused" in snap["error"], snap)
+finally:
+    _sf.latest_report = _real_latest
+
+_an = mod.app.test_client()
+try:
+    mod._client_context, hub_ai.chat = _fake_ctx, _fake_chat
+    _sf.social_snapshot = _snapshot_empty
+
+    r = _an.post("/api/pages-review", json={})
+    check("the pages review refuses a press naming no client",
+          r.status_code == 400, r.status_code)
+    r = _an.post("/api/pages-review", json={"client": CLIENT})
+    check("a client with nothing measured is refused, not billed",
+          r.status_code == 400, r.get_data(as_text=True)[:120])
+    check("with the reason named",
+          "Nothing measured" in (r.get_json() or {}).get("error", ""))
+    check("and the model was never asked", "prompt" not in _an_calls)
+
+    _sf.social_snapshot = _snapshot_full
+    r = _an.post("/api/pages-review", json={"client": CLIENT})
+    check("a measured presence is reviewed", r.status_code == 200,
+          r.get_data(as_text=True)[:200])
+    d = r.get_json()
+    check("the prompt carries the measured numbers",
+          "followers: 412" in _an_calls["prompt"])
+    check("a platform the audit found absent is said, not guessed about",
+          "found no page" in _an_calls["prompt"])
+    check("a platform with nothing measured is handed the load-bearing line",
+          "no data could be retrieved" in _an_calls["prompt"])
+    check("the unclaimed listing reaches the model in capitals",
+          "UNCLAIMED" in _an_calls["prompt"])
+    check("the data's own date rides in the block",
+          "2026-08-30" in _an_calls["prompt"])
+    check("the spend is filed under the planner",
+          _an_calls["kw"]["module"] == "social_planner")
+    check("and the answer says where the data came from",
+          "not from opening the pages live" in d.get("note", ""))
+
+    _an_calls.clear()
+    before = len(mod._read_index())
+    r = _an.post("/api/calendar-draft", json={})
+    check("the brainstorm refuses a press naming no client",
+          r.status_code == 400, r.status_code)
+    r = _an.post("/api/calendar-draft",
+                 json={"client": CLIENT, "month": "2026-10"})
+    check("and one picking no channel", r.status_code == 400,
+          r.get_data(as_text=True)[:120])
+    r = _an.post("/api/calendar-draft",
+                 json={"client": CLIENT, "month": "not-a-month",
+                       "channels": ["facebook"]})
+    check("and a month that is not one", r.status_code == 400)
+    r = _an.post("/api/calendar-draft",
+                 json={"client": CLIENT, "month": "2026-10",
+                       "channels": ["facebook"], "focus": "fall tune-ups"})
+    check("a full ask is drafted", r.status_code == 200,
+          r.get_data(as_text=True)[:200])
+    d = r.get_json()
+    check("the focus reaches the prompt",
+          "fall tune-ups" in _an_calls["prompt"])
+    check("and the industry from the client context",
+          "HVAC" in _an_calls["prompt"])
+    check("the answer says it is a brainstorm and nothing is scheduled",
+          "not a plan" in d.get("note", "")
+          and "Build the month" in d.get("note", ""))
+    check("and it wrote no batch — the month builder is what makes posts",
+          len(mod._read_index()) == before, len(mod._read_index()))
+
+    def _chat_down(messages, **kw):
+        raise hub_ai.AIUnavailable("down")
+    hub_ai.chat = _chat_down
+    r = _an.post("/api/calendar-draft",
+                 json={"client": CLIENT, "month": "2026-10",
+                       "channels": ["facebook"]})
+    check("a dead model is a 502, not a quiet 200",
+          r.status_code == 502, r.status_code)
+finally:
+    _sf.social_snapshot, hub_ai.chat = _real_snapshot, _real_chat
+    mod._client_context = _real_ctx
+
+
+# ---------------------------------------------------------------------------
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

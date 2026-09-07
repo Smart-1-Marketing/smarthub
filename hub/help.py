@@ -495,6 +495,14 @@ REGISTRY: list[Help] = [
        "is what a rep gets argued with over. A check the plan did not run "
        "raises nothing at all — absent is never a clean bill.",
        step=4, selector="[data-block='opportunities']"),
+    _h("hub.website_audit.cta_review", "What the page asks visitors to do",
+       "The home page is fetched and its calls to action are measured off "
+       "the markup first — the buttons with the words they actually say, the "
+       "phone links, the forms — and only then does a model judge them, so "
+       "the review is about a page somebody looked at rather than one it "
+       "imagined. A page that could not be read is refused as not measured, "
+       "never reviewed anyway. It is a billed AI call, which is why it is a "
+       "button and not part of loading the audit."),
     _h("hub.website_audit.lead", "Every audit is a lead",
        "Somebody typed a business and a website into this Hub, which makes "
        "them a prospect whatever else they are. The row goes to the one lead "
