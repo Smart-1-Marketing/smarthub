@@ -42,6 +42,15 @@
           Needed for a prospect — it is where the brand, the services and the
           photography come from. Without it there is nothing to build from but
           the name.</p>
+        <p style="margin:8px 0 0">
+          <button type="button" class="btn-ghost" id="lpCtaBtn" onclick="lpCtaReview()">Review that page's CTAs first</button>
+          <span class="muted" id="lpCtaMsg" style="font-size:12px;margin-left:8px"></span>
+        </p>
+        <div id="lpCtaOut" hidden style="margin-top:8px;font-size:13px">
+          <div class="muted" id="lpCtaObserved" style="font-size:12px"></div>
+          <div id="lpCtaReview" style="white-space:pre-wrap;margin-top:6px"></div>
+          <div class="muted" id="lpCtaNote" style="font-size:12px;margin-top:6px"></div>
+        </div>
       </div>
 
       <div id="lpProposalRow">
@@ -153,6 +162,44 @@ function $(id){ return document.getElementById(id); }
 /* --- client or prospect ---------------------------------------------- */
 
 function lpKind(){ return $('lpKind').value; }
+
+/* Review the prospect's current page before building one — the measured CTA
+   reading through /api/landing/cta-review. Billed, so a button and never a
+   page load; an unreadable page comes back as "not measured", never as a
+   review of nothing. */
+function lpCtaReview(){
+  var url = $('lpSite').value.trim();
+  var msg = $('lpCtaMsg');
+  if(!url){ msg.textContent = 'Type their website first.'; return; }
+  if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  var btn = $('lpCtaBtn'); btn.disabled = true;
+  /* .spin upgrades to the shared wait glyph where hub-thinking.js loaded. */
+  msg.innerHTML = '<span class="spin"></span> Reading the page, then reviewing…';
+  fetch('/api/landing/cta-review', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url:url, client:$('lpClient').value.trim()})})
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+    .then(function(res){
+      btn.disabled = false; msg.textContent = '';
+      var d = res.d || {};
+      if(!res.ok || !d.ok){
+        msg.textContent = d.error || 'The review could not be written.';
+        return;
+      }
+      var points = (d.observed && d.observed.conversion_points) || [];
+      $('lpCtaObserved').textContent = points.length
+        ? 'Measured on the page: ' + points.map(function(p){
+            return p.label + (p.evidence ? ' (' + p.evidence + ')' : ''); }).join(' · ')
+        : 'Measured on the page: no conversion points were found.';
+      $('lpCtaReview').textContent = d.review || '';
+      $('lpCtaNote').textContent = d.note || '';
+      $('lpCtaOut').hidden = false;
+    })
+    .catch(function(){
+      btn.disabled = false;
+      msg.textContent = 'The review could not be written.';
+    });
+}
 
 function lpKindChanged(){
   var prospect = lpKind() === 'prospect';

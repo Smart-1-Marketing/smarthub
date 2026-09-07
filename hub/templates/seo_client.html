@@ -131,6 +131,17 @@
     </div>
   </div>
 
+  <div class="seoc-lc" id="ctaReviewBlock" style="display:none">
+    <div class="seoc-lc-head">
+      <div><b>What the page asks visitors to do</b>
+        <div class="seoc-muted">Fetches the home page, measures its calls to
+          action, and reviews them &mdash; from the page&rsquo;s copy, not a
+          rendered view. A billed AI call, so it runs only when pressed.</div></div>
+      <button class="seoc-btn seoc-small" id="ctaRun">Review the CTAs</button>
+    </div>
+    <div id="ctaRevOut"></div>
+  </div>
+
   <div id="auditReports" style="display:none;margin-top:18px">
     <div class="seoc-tablehead">
       <b>Reports</b>
@@ -3360,11 +3371,53 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   // offers to run one rather than showing an error.
   var AUDIT = null, lcTimer = null;
 
+  /* The measured CTA reading, through /api/seo/cta-review. It needs only a
+     reachable page, not a completed scan, so it is shown whenever the client
+     has a website — and it is billed, so nothing runs until the press. */
+  function initCtaReview(dom){
+    if(!dom) return;
+    $('ctaReviewBlock').style.display='block';
+    $('ctaRun').onclick=function(){
+      var btn=$('ctaRun'); btn.disabled=true;
+      $('ctaRevOut').innerHTML='<div class="seoc-muted"><span class="spin"></span> '
+        +'Reading the page, then reviewing…</div>';
+      fetch('/api/seo/cta-review',{method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:CLIENT,url:'https://'+dom})})
+        .then(function(r){return r.json().then(function(j){return {ok:r.ok,d:j};});})
+        .then(function(res){
+          btn.disabled=false;
+          var d=res.d||{};
+          if(!res.ok||!d.ok){
+            $('ctaRevOut').innerHTML='<span class="seoc-warn">'
+              +esc(d.error||'The review could not be written.')+'</span>';
+            return;
+          }
+          var points=(d.observed&&d.observed.conversion_points)||[];
+          $('ctaRevOut').innerHTML=
+            '<div class="seoc-muted" style="margin-top:8px">'
+            +(points.length
+              ? 'Measured on the page: '+esc(points.map(function(p){
+                  return p.label+(p.evidence?' ('+p.evidence+')':'');}).join(' · '))
+              : 'Measured on the page: no conversion points were found.')
+            +'</div>'
+            +'<div style="white-space:pre-wrap;margin-top:8px">'+esc(d.review||'')+'</div>'
+            +'<div class="seoc-muted" style="margin-top:6px">'+esc(d.note||'')+'</div>';
+        })
+        .catch(function(){
+          btn.disabled=false;
+          $('ctaRevOut').innerHTML='<span class="seoc-warn">The review could '
+            +'not be written.</span>';
+        });
+    };
+  }
+
   function initAudits(d){
     var w=(d.websites||[])[0]||{};
     var dom=String(w.domain||siteUrl||'').replace(/^https?:\/\/(www\.)?/,'')
               .replace(/\/.*$/,'').trim();
     var scansHref='/scans/'+(dom?'?q='+encodeURIComponent(dom):'');
+    safe('cta review', function(){ initCtaReview(dom); });
     if(!dom){
       $('auditBody').innerHTML='<span class="seoc-warn">No website on file for this '
         +'client, so there\'s nothing to match a scan against.</span> '

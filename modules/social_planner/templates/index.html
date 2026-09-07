@@ -193,6 +193,17 @@
       <button class="btn" id="build">Build the month</button>
       <span class="msg" id="buildmsg"></span>
     </div>
+    <div style="margin-top:10px">
+      <button class="btn sec" id="ideasDraft">Brainstorm a month of ideas</button>
+      <button class="btn sec" id="pagesReview">Review their social pages</button>
+      <span class="msg" id="analyzerMsg"></span>
+    </div>
+  </div>
+
+  <div class="card" id="analyzerCard" hidden>
+    <h2 id="analyzerTitle"></h2>
+    <div class="hint" id="analyzerNote"></div>
+    <div id="analyzerOut" style="white-space:pre-wrap;margin-top:10px"></div>
   </div>
 
   <div class="card" id="planCard" hidden>
@@ -445,6 +456,49 @@ $("build").addEventListener("click", function(){
     showPlan();
     loadSaved();
   });
+});
+
+// ------------------------------------------------- the two page analyzers
+// Both are billed model calls, so both are buttons and neither runs on a
+// page load. The brainstorm deliberately creates nothing: "Build the month"
+// is what makes posts, with the copy checks on them, and the answer's own
+// note says so — a second route that created slots would be a second
+// description of what a post is.
+function analyzerShow(title, note, text){
+  $("analyzerTitle").textContent = title;
+  $("analyzerNote").textContent = note || "";
+  $("analyzerOut").textContent = text || "";
+  $("analyzerCard").hidden = false;
+}
+$("ideasDraft").addEventListener("click", function(){
+  if (!state.client) { say("analyzerMsg", "Pick a client first.", "err"); return; }
+  if (!$("month").value) { say("analyzerMsg", "Pick a month.", "err"); return; }
+  if (!state.channels.length) { say("analyzerMsg", "Pick at least one channel.", "err"); return; }
+  $("ideasDraft").disabled = true;
+  say("analyzerMsg", "Drafting ideas…", "ai");
+  post("calendar-draft", {client: state.client, month: $("month").value,
+                          channels: state.channels,
+                          focus: $("promote").value.trim()})
+    .then(function(d){
+      $("ideasDraft").disabled = false;
+      if (!d.ok) { say("analyzerMsg", d.error, "err"); return; }
+      say("analyzerMsg", "", "ok");
+      analyzerShow("A month of ideas — a brainstorm, not a plan",
+                   d.note, d.draft);
+    });
+});
+$("pagesReview").addEventListener("click", function(){
+  if (!state.client) { say("analyzerMsg", "Pick a client first.", "err"); return; }
+  $("pagesReview").disabled = true;
+  say("analyzerMsg", "Reading what the last audit measured…", "ai");
+  post("pages-review", {client: state.client})
+    .then(function(d){
+      $("pagesReview").disabled = false;
+      if (!d.ok) { say("analyzerMsg", d.error, "err"); return; }
+      say("analyzerMsg", "", "ok");
+      analyzerShow("Their social pages, reviewed from what was measured",
+                   d.note, d.review);
+    });
 });
 
 function showPlan(){

@@ -2800,6 +2800,32 @@ def create_hub_app() -> Flask:
         return jsonify({"state": state, "reason": reason,
                         "usable": state == landing_spec.READ})
 
+    @app.route("/api/landing/cta-review", methods=["POST"])
+    def api_landing_cta_review():
+        """Review the CTAs on the client's *current* page before building one.
+
+        The Pickaxe CTA Analyzer through `hub/cta_review.py`: the page is
+        fetched and measured first, and a page that could not be read is
+        refused as not measured rather than reviewed anyway. A POST behind a
+        button, because the call is billed and a page load must not spend one.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import cta_review
+        body = request.get_json(silent=True) or {}
+        result = cta_review.review("landing_maker",
+                                   url=str(body.get("url") or ""),
+                                   client=str(body.get("client") or ""),
+                                   industry=str(body.get("industry") or ""))
+        if result.get("ok"):
+            return jsonify(result)
+        # No URL is the caller's mistake; an unreadable page or an
+        # unavailable model is upstream's, and 502 is what keeps the page's
+        # .catch() honest — a 200 carrying an error is the silence
+        # /api/seo/detail had to be fixed for.
+        return jsonify(result), 400 if result.get("measured") is None else 502
+
     @app.route("/api/landing/<page_id>/revise", methods=["POST"])
     def api_landing_revise(page_id):
         """Rewrite a built page against an instruction, keeping the old one."""
@@ -3619,6 +3645,32 @@ def create_hub_app() -> Flask:
         return jsonify({"ok": True,
                         "status": seo.client_status(store,
                                                     seo.sells_blogs(client))})
+
+    @app.route("/api/seo/cta-review", methods=["POST"])
+    def api_seo_cta_review():
+        """Review a page's CTAs from the SEO client record.
+
+        The Pickaxe CTA Analyzer through `hub/cta_review.py` — the page is
+        measured before the model judges it, and an unreadable page is
+        refused as not measured rather than reviewed anyway. A POST behind a
+        button: the call is billed, and it answers non-200 on failure so the
+        page's `.catch()` sees it — the silence `/api/seo/detail` had to be
+        fixed for.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import cta_review
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"ok": False, "error": "client is required."}), 400
+        result = cta_review.review("seo", url=str(body.get("url") or ""),
+                                   client=client,
+                                   industry=str(body.get("industry") or ""))
+        if result.get("ok"):
+            return jsonify(result)
+        return jsonify(result), 400 if result.get("measured") is None else 502
 
     @app.route("/api/client/social")
     def api_client_social():

@@ -233,6 +233,31 @@ def api_audit():
     return jsonify(payload)
 
 
+@bp.route("/api/website-audit/cta-review", methods=["POST"])
+def api_cta_review():
+    """Review the home page's CTAs — the audit's judgment half.
+
+    The audit above measures what the page *has*; this asks the Pickaxe CTA
+    Analyzer (through `hub/cta_review.py`) what to do about it. The page is
+    fetched and measured first and an unreadable one is refused as not
+    measured, never reviewed anyway. A POST behind a button, because the
+    call is billed and a page load must not spend one; it answers non-200 on
+    failure so the page's `.catch()` sees it.
+    """
+    from hub import cta_review
+    body = request.get_json(silent=True) or {}
+    domain = str(body.get("domain") or "").strip()
+    if not domain:
+        return jsonify({"ok": False, "error": "A website is required."}), 400
+    url = domain if domain.startswith(("http://", "https://")) else "https://" + domain
+    result = cta_review.review("website_audit", url=url,
+                               client=str(body.get("client") or ""),
+                               industry=str(body.get("industry") or ""))
+    if result.get("ok"):
+        return jsonify(result)
+    return jsonify(result), 400 if result.get("measured") is None else 502
+
+
 @bp.route("/api/website-audit/intake", methods=["POST"])
 def api_intake():
     body = request.get_json(silent=True) or {}

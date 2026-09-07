@@ -44,18 +44,28 @@ wired into Fan Radio, Radio Promo or the Commercial Builder — each already
 has its own budget-aware writer, and a second writer beside one is the
 two-proposal-builders failure.
 
+**Page analyzers** — `CTA_ANALYZER` is `hub/cta_review.py`, one reading for
+three screens (the SEO client record's Site Audits card, the Website Audit
+tool, the Landing Page Maker's prospect row): the page is fetched and
+measured by `modules/ads_builder/landing_page.observe()` first, an
+unreadable page is refused as *not measured* rather than reviewed anyway,
+and the observation travels beside the review so no screen has to take the
+model's word for what is on the page. `SOCIAL_PAGES_REVIEW` and
+`CONTENT_CALENDAR` are the Social Planner's `/api/pages-review` and
+`/api/calendar-draft` — the review is fed what the last site audit measured
+(`scan_facts.social_snapshot`) plus the record's saved profile URLs, with
+"no data could be retrieved" said per platform and a client with nothing
+measured refused rather than billed for a page of "not reviewed"; the
+calendar draft is a brainstorm that creates no slots, because the month
+builder is what makes posts.
+
 ## Still to wire (in this order)
 
-1. **Page analyzers** — `CTA_ANALYZER` as a shared helper (Landing Page
-   Maker, SEO client page, Homepage review); `SOCIAL_PAGES_REVIEW` +
-   `CONTENT_CALENDAR` into the social planner. The analyzers need real page
-   text: `{page_text}` / `{pages_block}` is the fetched page, and absent data
-   is labeled "no data could be retrieved", never invented.
-2. **Proposal last** — `SPEND_AND_DEMO` on the Executive Summary step (not
+1. **Proposal last** — `SPEND_AND_DEMO` on the Executive Summary step (not
    the Cover — the cover is visual and carries no copy). Touches the document
    clients sign, so it goes after everything else has been read by a person.
-   `SNAP_CONCEPT` → Landing Page Maker rides along here or with step 2.
-3. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
+   `SNAP_CONCEPT` → Landing Page Maker rides along here.
+2. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
    `hub/audience_spec.py`, the rep-confirmation gate, the IO and proposal
    reads, the client page. Its registry entry is already in
    `hub/pickaxe_registry.py` so both live-call tools share one file.

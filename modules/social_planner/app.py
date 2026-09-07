@@ -279,6 +279,156 @@ def api_context():
                                                _str(request.args.get("url", ""), 300))})
 
 
+@app.route("/api/pages-review", methods=["POST"])
+def api_pages_review():
+    """Review the client's social pages — from what was measured, only.
+
+    The harvested Pickaxe prompt's rubric, fed the per-platform data the
+    Hub actually holds: the last site audit's social section
+    (`scan_facts.social_snapshot`) and the profile URLs saved on the client
+    record. The original Pickaxe listed four URLs and told the model to
+    analyze them — pages a model can neither open nor, for Facebook, even
+    fetch reliably from a server — so it invented reviews of pages it never
+    saw. Here a platform with nothing measured is handed the line "no data
+    could be retrieved" and the prompt tells the model to say it was not
+    reviewed; a client with nothing measured on any platform is refused
+    rather than billed for a page of "not reviewed".
+
+    A POST behind a button: the call is billed, and a page load must not
+    spend one.
+    """
+    data = request.get_json(silent=True) or {}
+    client = _str(data.get("client"), 200).strip()
+    if not client:
+        return _fail("Pick a client first.")
+    ctx = _client_context(client)
+    domain = ctx.get("domain") or ""
+
+    from hub import scan_facts
+    snapshot = scan_facts.social_snapshot(domain) if domain else \
+        {"found": False, "error": "", "platforms": [], "gbp": {}}
+    saved = {}
+    try:
+        from hub import seo as hub_seo
+        saved = hub_seo.get_social(client, domain) or {}
+    except Exception:                                  # noqa: BLE001
+        saved = {}
+
+    lines, any_measured = [], False
+    for row in snapshot.get("platforms") or []:
+        label = row["platform"]
+        saved_url = saved.pop(label.lower(), "")
+        if row.get("name") or row.get("link"):
+            any_measured = True
+            bits = [f"{label}: {row.get('name') or row.get('link')}"]
+            if row.get("link") and row.get("name"):
+                bits.append(row["link"])
+            bits.extend(row.get("details") or [])
+            lines.append(" — ".join(bits))
+        elif row.get("found") is False:
+            any_measured = True
+            lines.append(f"{label}: the last site audit found no page.")
+        elif saved_url:
+            lines.append(f"{label}: {saved_url} — no data could be retrieved.")
+        else:
+            lines.append(f"{label}: no data could be retrieved.")
+    # Platforms only the client record knows (Pinterest, a custom link):
+    # a URL with nothing measured behind it.
+    for key, url in saved.items():
+        lines.append(f"{key.title()}: {url} — no data could be retrieved.")
+
+    gbp = snapshot.get("gbp") or {}
+    if gbp.get("measured"):
+        any_measured = True
+        gbp_bits = []
+        if gbp.get("found") is False:
+            gbp_bits.append("no listing was found")
+        else:
+            if gbp.get("claimed") is False:
+                gbp_bits.append("the listing is UNCLAIMED")
+            if gbp.get("rating") is not None:
+                gbp_bits.append(f"rating {gbp['rating']}")
+            if gbp.get("reviews") is not None:
+                gbp_bits.append(f"{gbp['reviews']} Google reviews")
+        lines.append("Google Business Profile: "
+                     + (", ".join(gbp_bits) or "found, nothing more measured"))
+
+    if not any_measured:
+        reason = snapshot.get("error") or (
+            "no completed site audit holds social data for this client"
+            if domain else "the client has no website on file to audit")
+        return _fail("Nothing measured to review — " + reason + ". "
+                     "Run a site audit first; a review of bare URLs is a "
+                     "review of pages nobody looked at.")
+
+    if snapshot.get("scanned_at"):
+        lines.append(f"\n(Data from the site audit of {snapshot['scanned_at']}.)")
+
+    from hub import ai as hub_ai, prompts_harvested as hp
+    spec = hp.SOCIAL_PAGES_REVIEW
+    prompt = spec["prompt"].format(client=client, pages_block="\n".join(lines))
+    try:
+        text = hub_ai.chat([{"role": "user", "content": prompt}],
+                           module="social_planner", purpose=spec["purpose"],
+                           temperature=spec["temperature"], max_tokens=1600)
+    except hub_ai.AIUnavailable as exc:
+        return _fail(f"The pages were read but the review could not be "
+                     f"written: {exc}", 502)
+    return jsonify({"ok": True, "review": text.strip(),
+                    "pages_block": "\n".join(lines),
+                    "scan_url": snapshot.get("scan_url", ""),
+                    "note": "Reviewed from the last site audit's measurements "
+                            "and the client record — not from opening the "
+                            "pages live."})
+
+
+@app.route("/api/calendar-draft", methods=["POST"])
+def api_calendar_draft():
+    """A month of content ideas as a brainstorm — never a plan.
+
+    The month *builder* above is what creates posts: slots, copy checks,
+    the client's tone and never-mention list, approval and the push. This
+    is the step before it — a table of ideas a strategist reads while
+    deciding what the month should even be — and it deliberately writes
+    nothing: a second route that created slots would be a second
+    description of what a post is, which is the two-proposal-builders
+    failure. The note on the answer says so in words.
+
+    A POST behind a button, because the call is billed.
+    """
+    data = request.get_json(silent=True) or {}
+    client = _str(data.get("client"), 200).strip()
+    if not client:
+        return _fail("Pick a client first.")
+    month = _str(data.get("month"), 10).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", month or ""):
+        return _fail("Pick a month first.")
+    channels = [c for c in (data.get("channels") or [])
+                if c in social_plan.CHANNELS]
+    if not channels:
+        return _fail("Pick at least one channel.")
+    focus = _str(data.get("focus"), 300).strip() or \
+        "nothing specific was named — keep the mix balanced"
+    ctx = _client_context(client)
+
+    from hub import ai as hub_ai, prompts_harvested as hp
+    spec = hp.CONTENT_CALENDAR
+    prompt = spec["prompt"].format(
+        client=client,
+        industry=ctx.get("industry") or "not recorded",
+        month=month, focus=focus, channels=", ".join(channels))
+    try:
+        text = hub_ai.chat([{"role": "user", "content": prompt}],
+                           module="social_planner", purpose=spec["purpose"],
+                           temperature=spec["temperature"], max_tokens=2200)
+    except hub_ai.AIUnavailable as exc:
+        return _fail(f"The ideas could not be written: {exc}", 502)
+    return jsonify({"ok": True, "draft": text.strip(),
+                    "note": "A brainstorm, not a plan — nothing here is "
+                            "scheduled or saved. Build the month to create "
+                            "real posts, with the copy checks on them."})
+
+
 # =====================================================================
 # Batches
 # =====================================================================
