@@ -217,8 +217,13 @@ check("and the line says so rather than staying silent",
 section("Nothing here may raise, and nothing here writes")
 
 class Exploding:
-    def __getattr__(self, _name):
-        raise RuntimeError("boom")
+    # AttributeError rather than RuntimeError: it is what `__getattr__` is
+    # specified to raise, and it is the harder case, because it is the one
+    # exception Python routinely swallows on its own -- `hasattr()` and a
+    # `getattr(x, 'y', default)` both absorb it, so a reader that reached the
+    # store that way would degrade silently rather than report not measured.
+    def __getattr__(self, name):
+        raise AttributeError(name)
 
 
 exploded = _board(Exploding())
@@ -356,7 +361,6 @@ check("and respects the window",
 # The panel the counts link into has to keep answering when the Hub half does
 # not import: losing the filter is better than losing the one panel that still
 # has something to say when Google is down.
-_real = monitoring._panel_filters
 check("the panel's filter block never raises",
       isinstance(monitoring._panel_filters(), dict))
 panel = monitoring.account_panel(limit=5)
