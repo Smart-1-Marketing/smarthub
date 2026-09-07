@@ -11,17 +11,6 @@
 # credentials. Anything that needs a live third party belongs in /status and
 # /api/integrity on the deployment, not here — a gate that fails because
 # someone else's API is down teaches people to ignore it.
-#
-# The `deploy` job below is the one exception, and it is a separate job for
-# exactly that reason: it never runs on a pull request, so a fork's run and a
-# contributor's branch still have no secret and no way to reach production.
-# It exists because Render's own "deploy after CI checks pass" has never
-# fired on this account — every deploy smart1-hub has ever had, back past its
-# hundredth, is trigger `manual` or `api`, and no service in the workspace has
-# a single `new_commit` in its history. The service is configured correctly
-# (autoDeploy yes, autoDeployTrigger checksPass, branch main) and the checks
-# it is waiting on do pass, so what is missing is the webhook rather than the
-# setting. Deploying from here needs no webhook.
 name: checks
 
 on:
@@ -2240,80 +2229,3 @@ jobs:
       # visible without presenting a scraped asset as client-approved.
       - name: Brand elements found by the InSites scan
         run: python3 test_scan_brand.py
-
-  # Render's own auto-deploy (trigger: commit) has been shipping every push to
-  # main on its own since the repo was reconnected under the org -- confirmed
-  # directly against Render's API on 2026-09-06, nine deploys deep of nothing
-  # but new_commit, each one live within a minute of the merge. This job is
-  # redundancy insurance for the day that stops being true, not the thing
-  # currently shipping code.
-  #
-  # It has never actually run: RENDER_DEPLOY_HOOK_URL has never been set as a
-  # repository secret, so every run of this job fails at the first step, on
-  # purpose (see the refusal below). That is harmless today because Render's
-  # own trigger is doing the real work, and it is also why nobody noticed --
-  # a job whose only purpose is insurance can fail for months in silence,
-  # because the thing it insures keeps working without it. Setting the secret
-  # under Settings -> Secrets and variables -> Actions (copy the value from
-  # the smart1-hub service's own Settings -> Deploy Hook on Render) is what
-  # turns this from insurance nobody has checked works into insurance that
-  # does. Nobody has done that yet.
-  #
-  # It is `ref=<sha>` and never a bare hook, which fixes a race the webhook
-  # never had: main takes a merge every few minutes here, so "check main is
-  # green, then trigger a deploy" is not atomic -- a deploy triggered that way
-  # picked up a commit that had landed in the intervening seconds. Naming the
-  # sha deploys what was tested.
-  deploy:
-    name: deploy main to smart1.agency
-    needs: checks
-    # Never on a pull request. A fork's run and a contributor's branch have no
-    # secret and no path to production; only a commit already on main does.
-    if: >-
-      github.repository == 'Smart-1-Marketing/smarthub'
-      && github.ref == 'refs/heads/main'
-      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    concurrency:
-      # Deploys queue rather than cancel: canceling this job would not stop a
-      # deploy Render had already accepted, it would only lose the record of it.
-      group: deploy-smart1-hub
-      cancel-in-progress: false
-    steps:
-      - name: Ask Render to deploy this commit
-        env:
-          # The whole URL is the credential -- anyone holding it can deploy --
-          # so it is never echoed, and no failure path prints it either.
-          # Settings -> Deploy Hook on the smart1-hub service.
-          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          if [ -z "${HOOK}" ]; then
-            echo "RENDER_DEPLOY_HOOK_URL is not set, so this commit was not deployed." >&2
-            echo "Set it under Settings -> Secrets and variables -> Actions, from" >&2
-            echo "the smart1-hub service's Settings -> Deploy Hook on Render." >&2
-            echo "Refusing rather than passing: a green tick over a deploy that" >&2
-            echo "did not happen is the confident wrong answer." >&2
-            exit 1
-          fi
-          # The hook already carries ?key=, but a URL pasted without a query
-          # string would silently lose the ref and deploy whatever main is by
-          # then -- which is the race this job exists to close.
-          case "${HOOK}" in
-            *\?*) url="${HOOK}&ref=${SHA}" ;;
-            *)    url="${HOOK}?ref=${SHA}" ;;
-          esac
-          body="$(mktemp)"
-          status="$(curl -sS -o "${body}" -w '%{http_code}' -X POST "${url}")"
-          echo "Render answered ${status} for ${SHA}."
-          # The body is Render's own, and carries no key. Printing it is what
-          # makes the deploy id findable from the commit that caused it.
-          cat "${body}"
-          echo
-          case "${status}" in
-            2*) ;;
-            *)  echo "Render refused the deploy. The commit is on main and is not live." >&2
-                exit 1 ;;
-          esac
