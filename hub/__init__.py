@@ -1955,7 +1955,23 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"links": [], "error": f"{type(exc).__name__}"}), 200
         rows.sort(key=lambda r: str(r.get("created") or ""), reverse=True)
-        return jsonify({"client": name, "count": len(rows), "links": rows[:40]})
+
+        # The other place a tracked link lives: a click-thru typed onto an
+        # insertion order in Knack. Those are tracked links too, and reading
+        # only the builder's store made a client whose links all arrived that
+        # way read as a client with none. Its own key rather than merged into
+        # `links`: one was built here and one was typed on an IO, and a card
+        # that cannot say which sends somebody to the wrong screen to fix a
+        # wrong one. A failure costs the Knack half and never the builder's.
+        knack: dict = {"links": [], "count": 0}
+        try:
+            from . import knack_products as KP
+            knack = KP.tagged_links(name)
+        except Exception as exc:  # noqa: BLE001
+            knack = {"links": [], "count": 0,
+                     "error": f"{type(exc).__name__}"}
+        return jsonify({"client": name, "count": len(rows),
+                        "links": rows[:40], "knack": knack})
 
     @app.route("/api/seo/blogs/image", methods=["POST"])
     def api_blog_image():

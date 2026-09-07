@@ -73,6 +73,8 @@ F_CREATIVE_URLS    = [f.strip() for f in (
     os.environ.get("KNACK_CREATIVE_FIELDS")
     or "field_3422,field_3425,field_3426,field_3427").split(",") if f.strip()]
 F_DISPLAY_CLICK    = "field_2414"   # Display Click Thru URL
+F_IO_CLICK         = "field_2415"   # IO Click Thru URL (text formula)
+F_SOCIAL_URL       = "field_2380"   # Social Media Url
 F_GEO              = "field_2546"   # Geographic Target
 
 # --- What the campaign is still waiting on --------------------------------
@@ -100,7 +102,7 @@ DEFAULT_TTL_MINUTES = 180
 # outstanding", which is the confidently wrong zero this codebase keeps having
 # to undo. An older cache is therefore stale by definition, however recently
 # it was written, and rows() refetches rather than serving it.
-FIELDS_VERSION = 2
+FIELDS_VERSION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +215,15 @@ def _row(rec: dict) -> dict:
         ) if u],
         "display_url": (_href(rec.get(F_DISPLAY_CLICK))
                         or _text(rec.get(F_DISPLAY_CLICK))),
+        # The other two places a click-thru lives. `io_url` is a text formula
+        # rolled up from the insertion order, so on most products it repeats
+        # `url` — carried anyway, because on a product whose own field is
+        # blank it is the only tagged link there is, and tagged_links() dedupes
+        # on the URL rather than on which field held it.
+        "io_url": (_href(rec.get(F_IO_CLICK))
+                   or _text(rec.get(F_IO_CLICK))),
+        "social_url": (_href(rec.get(F_SOCIAL_URL))
+                       or _text(rec.get(F_SOCIAL_URL))),
         "geo": _text(rec.get(F_GEO)),
         # Both are carried raw. Whether the "additional assets" text counts
         # as an ask is gated on the tickbox, and that gate lives in one place
@@ -424,6 +435,102 @@ def for_client(client: str) -> dict:
         "monthly": round(sum(r.get("monthly", 0) for r in live), 2),
         "campaigns": sorted({r["campaign"] for r in mine if r.get("campaign")}),
         "source": data["source"], "age_minutes": data["age_minutes"],
+        "note": data.get("note", ""),
+    }
+
+
+# --- Tagged links on the products -----------------------------------------
+# Four fields on object_135 hold a click-thru URL, and where one of them
+# carries UTM parameters it is a tracked link exactly as much as one built in
+# the UTM Builder is — it was simply typed onto an insertion order instead.
+# Client 360's Tracked links card read the builder's own store and nothing
+# else, so a client whose only tagged links came in on their IOs read as a
+# client with no tracked links at all.
+
+# Which field a link came from is on the row, because the four are not
+# interchangeable to whoever is reading: a display click-thru is what the
+# banner points at and a social URL is what the paid social post points at,
+# and "this one is wrong" is a different conversation for each.
+LINK_FIELDS = (
+    ("url",         "Click-thru",         F_CLICK_THRU),
+    ("display_url", "Display click-thru", F_DISPLAY_CLICK),
+    ("io_url",      "IO click-thru",      F_IO_CLICK),
+    ("social_url",  "Social",             F_SOCIAL_URL),
+)
+
+_UTM_RE = re.compile(r"[?&]utm_[a-z_]+=", re.I)
+
+
+def _utm_params(url: str) -> dict:
+    """The utm_* parameters on a URL, in the order they appear."""
+    try:
+        from urllib.parse import parse_qsl, urlsplit
+        q = urlsplit(url).query
+    except Exception:  # noqa: BLE001
+        return {}
+    out = {}
+    for k, v in parse_qsl(q, keep_blank_values=True):
+        if k.lower().startswith("utm_") and k not in out:
+            out[k] = v
+    return out
+
+
+def is_tagged(url: str) -> bool:
+    """Does this URL carry a UTM parameter at all?
+
+    Matched on `utm_<name>=` in the query rather than on the bare string
+    `utm`, or a path containing the word — /autumn-sale, /outmaneuver — reads
+    as a tracked link and the card fills with URLs nobody tagged.
+    """
+    return bool(url) and bool(_UTM_RE.search(url))
+
+
+def tagged_links(client: str) -> dict:
+    """Every UTM-tagged click-thru URL Knack holds for one client.
+
+    Deduped on the URL, because the same tagged link is typed onto every
+    product line of an insertion order — one client's link repeated eleven
+    times is not eleven tracked links, and a card that shows it that way is
+    one nobody reads twice. The row keeps the campaigns and the products it
+    was found on, so nothing is lost by the dedupe.
+
+    A source that could not be read is named rather than counted as nothing:
+    "this client has no tagged links" and "we could not reach Knack" send
+    somebody to different places, and only the first means there is nothing
+    to look at.
+    """
+    data = for_client(client)
+    seen: dict[str, dict] = {}
+    for r in data.get("products") or []:
+        for key, label, _fid in LINK_FIELDS:
+            url = str(r.get(key) or "").strip()
+            if not is_tagged(url):
+                continue
+            row = seen.get(url)
+            if row is None:
+                row = seen[url] = {
+                    "url": url,
+                    "utm": _utm_params(url),
+                    "fields": [],
+                    "campaigns": [],
+                    "products": [],
+                    "count": 0,
+                }
+            row["count"] += 1
+            for bucket, value in (("fields", label),
+                                  ("campaigns", r.get("campaign")),
+                                  ("products", r.get("product"))):
+                value = str(value or "").strip()
+                if value and value not in row[bucket]:
+                    row[bucket].append(value)
+
+    links = sorted(seen.values(), key=lambda x: (-x["count"], x["url"]))
+    return {
+        "client": client,
+        "links": links,
+        "count": len(links),
+        "source": data.get("source", ""),
+        "age_minutes": data.get("age_minutes"),
         "note": data.get("note", ""),
     }
 

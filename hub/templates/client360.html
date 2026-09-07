@@ -2912,23 +2912,89 @@ function renderAnalyticsIds(d){
 }
 
 
+/* Tracked links comes from two places and says which. `links` are built in
+   the UTM Builder; `knack.links` are click-thru URLs carrying UTM parameters
+   typed onto an insertion order (object_135 — the click-thru, display
+   click-thru, IO click-thru and social fields). Reading only the first made a
+   client whose tagged links all arrived on their IOs read as a client with
+   none. They are drawn apart rather than merged, because "this one is wrong"
+   is fixed on a different screen for each. */
+function utmRow(label, sub, url){
+  return '<tr><td style="padding:5px 6px;border-bottom:1px solid #f4f7fa">'+
+    '<b>'+esc(label||'—')+'</b>'+
+    (sub?'<div class="muted" style="font-size:11.5px">'+esc(sub)+'</div>':'')+
+    '</td>'+
+    '<td style="padding:5px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
+    '<button class="gbtn" data-utm-url="'+esc(url||'')+'">Copy</button></td></tr>';
+}
+
+function utmTag(l){
+  /* What the link is tagged as, in the order somebody reads it. Built from
+     whatever utm_* parameters are actually on the URL rather than from a
+     fixed source/medium/campaign triple: half of these carry utm_id and
+     utm_content as well, and the ones that do not must not draw empty slots. */
+  var u=l.utm||{}, bits=[];
+  ['utm_campaign','utm_source','utm_medium','utm_content','utm_id'].forEach(function(k){
+    if(u[k]) bits.push(u[k]);
+  });
+  Object.keys(u).forEach(function(k){
+    if(['utm_campaign','utm_source','utm_medium','utm_content','utm_id'].indexOf(k)<0 && u[k])
+      bits.push(u[k]);
+  });
+  return bits.join(' / ');
+}
+
 function renderUtm(d){
   var el=document.getElementById('c-utm'); if(!el) return;
-  if(!d || !d.count){
-    el.innerHTML='<div class="empty">No tracked links yet. '+
+  d=d||{};
+  var kn=d.knack||{}, kl=(kn.links||[]);
+  var built=(d.links||[]);
+  if(!built.length && !kl.length){
+    /* Four kinds of nothing, and only two of them mean there is nothing to
+       do. A Knack that would not answer must not read as a client with no
+       tracked links. */
+    var why = d.error ? 'The UTM Builder\'s links could not be read ('+esc(d.error)+').'
+            : kn.error ? 'Knack could not be read ('+esc(kn.error)+'), so only '+
+                         'links built here are shown — and there are none yet.'
+            : 'No tracked links yet, here or on this client\'s insertion orders.';
+    el.innerHTML='<div class="empty">'+why+' '+
       '<a href="/tools/utm/" target="_blank">Build some &rarr;</a></div>'; return;
   }
-  el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
-    d.links.slice(0,12).map(function(l){
-      return '<tr><td style="padding:5px 6px;border-bottom:1px solid #f4f7fa">'+
-        '<b>'+esc(l.campaign||l.label||'—')+'</b>'+
-        '<div class="muted" style="font-size:11.5px">'+esc(l.source||'')+
-        (l.medium?' / '+esc(l.medium):'')+'</div></td>'+
-        '<td style="padding:5px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
-        '<button class="gbtn" data-utm-url="'+esc(l.url||'')+'">Copy</button></td></tr>';
-    }).join('')+'</table>'+
-    (d.count>12?'<div class="muted" style="font-size:11.5px;margin-top:6px">'+
-      (d.count-12)+' more in the UTM Builder.</div>':'');
+
+  var html='';
+  if(built.length){
+    html+='<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      built.slice(0,12).map(function(l){
+        return utmRow(l.campaign||l.label, (l.source||'')+(l.medium?' / '+l.medium:''), l.url);
+      }).join('')+'</table>'+
+      (d.count>12?'<div class="muted" style="font-size:11.5px;margin-top:6px">'+
+        (d.count-12)+' more in the UTM Builder.</div>':'');
+  }
+
+  if(kl.length){
+    html+='<div style="margin-top:'+(built.length?'12px':'0')+'">'+
+      '<div class="muted" style="font-size:11.5px;margin-bottom:4px">'+
+      'Tagged on their insertion orders'+
+      (kn.source?' — '+esc(kn.source):'')+'</div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+      kl.slice(0,12).map(function(l){
+        /* The same link is typed onto every product line of an IO, so it is
+           deduped on the URL and the count says how many lines carry it —
+           eleven rows of one link is not eleven tracked links. */
+        var sub=[utmTag(l), (l.fields||[]).join(', ')].filter(Boolean).join(' · ');
+        if(l.count>1) sub+=' · on '+l.count+' product lines';
+        return utmRow((l.campaigns||[])[0]||l.url, sub, l.url);
+      }).join('')+'</table>'+
+      (kn.count>12?'<div class="muted" style="font-size:11.5px;margin-top:6px">'+
+        (kn.count-12)+' more on this client\'s insertion orders.</div>':'');
+    html+='</div>';
+  } else if(kn.error){
+    html+='<div class="muted" style="font-size:11.5px;margin-top:10px">'+
+      'Links tagged on their insertion orders could not be read ('+esc(kn.error)+'), '+
+      'so any of those are missing from this card rather than absent.</div>';
+  }
+
+  el.innerHTML=html;
   el.querySelectorAll('button[data-utm-url]').forEach(function(b){
     b.onclick=function(){ copyToClipboard(b.getAttribute('data-utm-url'), b); };
   });
