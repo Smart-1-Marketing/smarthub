@@ -91,53 +91,36 @@ check("every exemption says why", all(str(v).strip() for v in EXEMPT.values()),
 stale = sorted(f for f in EXEMPT if f not in here)
 check("and no exemption outlives the file it exempted", stale == [], stale)
 
-# The gate also deploys, and that job is the one thing here that holds a
-# secret. Render's own "deploy after CI checks pass" has never fired on this
-# account -- every deploy smart1-hub has had is trigger `manual` or `api` --
-# so the promise is made here instead. Four properties, each of which is a way
-# a deploy job goes quietly wrong.
-print("\nand the deploy job keeps its promises")
+# ---------------------------------------------------------------- no secrets
+#
+# The gate used to carry a `deploy` job -- the one thing in this workflow that
+# held a secret. It was built as the route around a Render webhook that had
+# never fired, and it never fired either: RENDER_DEPLOY_HOOK_URL was never set
+# as a repository secret, so every run of it refused at the first step, by
+# design. Meanwhile the webhook was reconnected under the org and Render's own
+# auto-deploy (trigger: commit) has been shipping every push to main on its
+# own. So the job was a second deploy path that had never once run, and its
+# refusal was the sole reason main read red on every merge -- a permanently
+# red gate, which is the check people learn to skip past.
+#
+# It is gone, and what is asserted in its place is the property that made it
+# an exception in the first place: this workflow reaches no third party and
+# holds no credential. Everything it runs, a contributor runs on a fresh
+# checkout. A job that needs a secret can be added back deliberately -- and
+# this check is what makes that a decision somebody makes rather than a drift
+# nobody notices, because adding one turns this red.
+print("\nand the gate holds no credential")
 print("-" * 46)
 
-_deploy = src.split("\n  deploy:", 1)[-1] if "\n  deploy:" in src else ""
-
-check("there is a deploy job", bool(_deploy.strip()),
-      "no `deploy:` job in checks.yml")
-
-# A pull request from a fork must not be able to reach production, and neither
-# must a branch. Only a commit already on main deploys.
-check("it runs on main and never on a pull request",
-      "github.ref == 'refs/heads/main'" in _deploy
-      and "github.event_name == 'push'" in _deploy
-      and "pull_request" not in _deploy,
-      "the `if:` guard does not pin main and the push event")
-
-# main takes a merge every few minutes here, so a bare hook deploys whatever
-# main is by the time Render picks it up rather than the commit that was
-# tested -- a race that has already put an unintended commit into production.
-check("it deploys the commit whose checks passed, not whatever main is by then",
-      "ref=${SHA}" in _deploy and "github.sha" in _deploy,
-      "the deploy hook is not pinned to github.sha")
-
-# A green tick over a deploy that did not happen is the confident wrong answer
-# this repo keeps having to undo.
-# Scoped to that branch and not to the step: there is an `exit 1` further
-# down for a refusal from Render, and a window wide enough to reach it made
-# this assertion pass against a branch that had been changed to echo and carry
-# on -- the check that cannot fail, in the file written about checks that
-# cannot fail.
-_guard = re.search(r'if \[ -z "\$\{HOOK\}" \][\s\S]*?\n\s*fi\n', _deploy)
-check("a missing secret is a refusal rather than a pass",
-      _guard is not None and "exit 1" in _guard.group(0),
-      "an unset RENDER_DEPLOY_HOOK_URL does not fail the job")
-
-# The whole hook URL is the credential: anyone holding it can deploy. GitHub
-# masks a secret it knows, and a job that prints it anyway is one line away
-# from a log that does not.
-_echoes_hook = re.search(r'(echo|printf)[^\n]*\$\{?HOOK', _deploy)
-check("and the hook URL is never echoed", _echoes_hook is None,
-      _echoes_hook.group(0) if _echoes_hook else "")
-
+_secrets = sorted(set(re.findall(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", src)))
+# GITHUB_TOKEN is issued to every workflow run by GitHub itself rather than
+# stored by anybody, so it is not a credential this repo holds.
+_held = [n for n in _secrets if n != "GITHUB_TOKEN"]
+check("the workflow reads no stored secret", _held == [],
+      "reads " + ", ".join(_held))
+check("and there is no second job holding one",
+      "\n  deploy:" not in src and "RENDER_DEPLOY_HOOK_URL" not in src,
+      "the deploy job is back without this check being reconsidered")
 
 # The check has to be able to go red, or it is furniture.
 print("\n...and the check bites")

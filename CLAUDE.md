@@ -13131,64 +13131,51 @@ started happening, quietly, on the side nobody was watching.** This section
 used to say Render had never once deployed smart1-hub by itself: every deploy
 in its history was trigger `manual` or `api`, and no service in the workspace
 had a single `new_commit` in it. The diagnosis was the repo path — the service
-was still pointed at the pre-transfer `smart1marketing/smarthub` rather than
-`Smart-1-Marketing/smarthub` — and the fix named was reconnecting the
-repository under the org with Render's GitHub App installed there.
+was still pointed at the pre-transfer `smart1marketing/smarthub` — and the fix
+named was reconnecting the repository under the org.
 
-That reconnect happened at some point since, and nobody updated this file to
-say so. Checked directly against Render on 2026-09-04: the service now reads
-`autoDeployTrigger: commit`, not `checksPass`, and its deploy history is nine
-deploys deep of nothing but `trigger: new_commit` — one per push to `main`,
-each going `live` the moment it finishes building and `deactivated` the moment
-the next one supersedes it, exactly as an auto-deploying service should. A
-merge landing at 22:07 was live by 22:08; three more merges landed in the next
-eighteen minutes and each one deployed in turn. The failure this section spent
-a page describing is gone, and the only reason it took a direct API check to
-notice is the same one the section already names: a working auto-deploy and a
-broken one look identical from the GitHub side, because neither one is
-watched from there.
+That reconnect happened, and Render's own auto-deploy has shipped every push
+to `main` since: `autoDeployTrigger: commit`, deploy history nothing but
+`trigger: new_commit`, each one live within a minute of the merge. The failure
+this section spent a page describing is gone, and the only reason it took a
+direct API check to notice is that a working auto-deploy and a broken one look
+identical from the GitHub side, because neither is watched from there.
 
-**Which is what makes the other half's silence worth reading twice.** The
-`deploy` job in `checks.yml` below still runs on every push to `main`, still
-posts to `RENDER_DEPLOY_HOOK_URL`, and has been failing every single time —
-refusing by design, per its own comment, because `RENDER_DEPLOY_HOOK_URL` was
-never actually set as a repository secret. It was built as the route around a
-broken webhook; the webhook fixed itself and the route around it did not, and
-a job whose entire job is redundancy insurance can fail for a very long time
-before anyone notices, because the thing it insures keeps working without it.
-Nothing here is currently at risk *because* of that — Render's own auto-deploy
-is the one actually shipping code — but it means this repo is one webhook away
-from silently having no deploy path at all again, with a CI job that has been
-printing "Refusing rather than passing" into a log nobody reads for as long as
-the secret has been unset. Setting `RENDER_DEPLOY_HOOK_URL` under Settings →
-Secrets and variables → Actions, from the smart1-hub service's own Settings →
-Deploy Hook on Render, is what closes it — after which this job stops being
-insurance nobody has checked works and starts being insurance that does.
+**The route around it outlived the thing it routed around.** A `deploy` job
+was added to `checks.yml` while the webhook was dead — it posted to
+`RENDER_DEPLOY_HOOK_URL`, pinned to the commit's own sha rather than a bare
+hook, and refused rather than passing when the secret was unset. Every part of
+that reasoning was right. What made it worth removing is that the secret was
+**never set**, so the job had never once deployed anything: it was a second
+deploy path that had only ever refused, insuring a webhook that had since
+started working. And the refusal was the **sole reason main read red on every
+merge** — the test job passed 171 of 171 while the run showed a red X, which
+is the permanently-red gate this file names as the check people learn to skip
+past. Insurance nobody has checked works is not insurance; insurance that
+makes the alarm ring every day is worse than none, because it trains everyone
+to ignore the alarm.
 
-The job is otherwise unchanged, and its own reasoning still holds: it deploys
-the commit whose checks just went green rather than a bare hook, because main
-takes a merge every few minutes here and "check main is green, then trigger a
-deploy" is not atomic — a deploy triggered that way could pick up a commit
-that landed in the intervening seconds. It is the workflow's one exception to
-*no secrets*, and it is a separate job for exactly that reason: it never runs
-on a pull request, so a fork's run and a contributor's branch still have no
-credential and no path to production.
+**What that leaves is a deploy that does not wait for the tests, and that is
+worth knowing rather than discovering.** Render's trigger is `commit`, not
+`checksPass`: a merge ships the moment it builds. Measured on one afternoon,
+`ebb8f0c` went live at 22:08 and its CI finished at 22:19 — production had the
+commit eleven minutes before the tests were done — and the merge after it was
+live twenty-three seconds after the push, before CI had started at all. Both
+happened to pass. **"Main is green" no longer protects production**, because
+production does not wait for it; what green main protects now is the next
+person to branch off it. Switching the service to *After CI checks pass*
+restores the guard at the cost of a build's wait per deploy, and is a trade to
+make deliberately rather than by leaving the setting where a reconnect put it.
 
-Three rules on it. It deploys **`ref=<sha>` and never a bare hook**, for the
-race named above. A **missing secret is a refusal**, not a skip, because a
-green tick over a deploy that did not happen is the confident wrong answer
-this file spends its length undoing — which is exactly the state it has been
-sitting in. And **the hook URL is never echoed**: the whole URL is the
-credential, anyone holding it can deploy, and the `services/provider_check.py`
-rule about never carrying a key into something a person reads applies to a CI
-log as much as to a page.
-
-`test_ci_gate.py` asserts all of it. Its first draft could not fail on the
-refusal: the window it searched for an `exit 1` after the guard was wide enough
-to reach the *other* `exit 1` further down the step, so a branch changed to
-echo and carry on still passed — the assertion that cannot fail, in the file
-written about checks that cannot fail. It is scoped to the branch now, and all
-five were confirmed red against the defect each guards.
+`test_ci_gate.py` asserts what is true now instead of what the job used to
+promise: **this workflow holds no credential at all** — no stored secret, and
+no second job carrying one. Everything the gate runs, a contributor runs on a
+fresh checkout. Adding a secret-holding job back is then a decision somebody
+makes rather than a drift nobody notices, because it turns that check red. Its
+own first draft, back when it asserted the deploy job's refusal, could not fail
+— the window it searched for an `exit 1` reached a second one further down the
+step, so a branch changed to echo and carry on still passed. The assertion that
+cannot fail, in the file written about checks that cannot fail.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
 literal against the route table of whichever app owns that path — and every
