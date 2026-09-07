@@ -13167,6 +13167,19 @@ person to branch off it. Switching the service to *After CI checks pass*
 restores the guard at the cost of a build's wait per deploy, and is a trade to
 make deliberately rather than by leaving the setting where a reconnect put it.
 
+**`render.yaml` declares `autoDeployTrigger: checksPass`, and that does not
+make it so.** smart1-hub was not created from that blueprint and takes its
+settings from the dashboard, which the `OUTPUT_DIR` note at the foot of that
+file already records having learned the hard way -- an entry that "never
+reached it" while the boot log read the wrong path for weeks. So the key is
+there for a service created *from* the file, and as somewhere the intended
+setting is written down; the live one is still a dashboard switch. Alongside
+it, `plan:` said `starter` while the service ran `2c-4g`, so a sync performed
+to apply that one-line guard would have **quietly downgraded production** --
+each half internally consistent, only the join between them wrong, which is
+the shape this file counts a dozen of. Both are corrected together, because
+correcting either alone is what makes the other dangerous.
+
 `test_ci_gate.py` asserts what is true now instead of what the job used to
 promise: **this workflow holds no credential at all** — no stored secret, and
 no second job carrying one. Everything the gate runs, a contributor runs on a
