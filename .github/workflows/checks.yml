@@ -894,6 +894,31 @@ jobs:
             echo "test_proposal_targeting.py not on this branch — nothing to run."
           fi
 
+      # hub/openai_responses.py is the one OpenAI Responses reader for the IO
+      # Builder, the Proposal Builder and Magic Resize's layout proposal --
+      # this drives its own branching (the hosted-tool refusal, a truncated
+      # answer, and the "completed but empty" gap this pass closed) directly,
+      # rather than only through whichever caller happens to stub it.
+      - name: The shared OpenAI Responses reader — every way it fails, named
+        run: |
+          if [ -f test_openai_responses.py ]; then
+            python test_openai_responses.py
+          else
+            echo "test_openai_responses.py not on this branch — nothing to run."
+          fi
+
+      # test_io_builder.py drives IO Builder's four AI buttons through a
+      # stubbed model; nothing had done the same for the Proposal Builder's
+      # three, and reading /api/ai/rewrite closely for this pass is what
+      # found the empty-answer-reads-as-success gap above.
+      - name: Proposal Builder AI buttons — refusal, cut-short, and an empty answer
+        run: |
+          if [ -f test_proposal_ai.py ]; then
+            python test_proposal_ai.py
+          else
+            echo "test_proposal_ai.py not on this branch — nothing to run."
+          fi
+
       - name: Social content planner tests
         # Guarded like the steps above so this workflow stays mergeable on a
         # branch that predates the file. Safe to run after the others despite
