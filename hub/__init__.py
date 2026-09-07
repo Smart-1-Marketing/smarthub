@@ -306,6 +306,26 @@ def create_hub_app() -> Flask:
         from . import diagnostics
         return jsonify(diagnostics.run_all())
 
+    @app.route("/api/throttle")
+    def api_throttle():
+        """What the login throttle is currently holding.
+
+        `hub.auth.throttle_status()`'s own docstring says this is "for the
+        diagnostics page" and had no caller at all — the escalating-lockout
+        and credential-stuffing detection CLAUDE.md documents at length had
+        no visibility anywhere in the app, so telling a rate-limit lockout
+        from a stuffing attack meant grepping the raw activity log for
+        `stuffing_blocked` events by hand.
+
+        Counts only, never an address: the dict is hashed already, and this
+        route exists precisely so a page can show it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import auth
+        return jsonify(auth.throttle_status())
+
     @app.route("/api/quotas")
     def api_quotas():
         """Monthly usage against allowances, and every provider cost estimate.

@@ -698,6 +698,25 @@ for _ in range(auth.LOGIN_MAX_ATTEMPTS + 2):
 check("the sign-in page itself locks out, not just the helper",
       _last.status_code, 429)
 
+# throttle_status()'s own docstring said "for the diagnostics page" and had
+# no caller anywhere — the escalating-lockout and credential-stuffing
+# detection above had no visibility in the app itself, short of grepping the
+# raw activity log for stuffing_blocked events one at a time.
+check("/api/throttle is a Utilities path, gated with the rest of Diagnostics",
+      access.is_utility("/api/throttle"), True)
+check("an anonymous request is refused",
+      Client(application).get("/api/throttle").status_code, 401)
+check("General is refused", _general.get("/api/throttle").status_code, 403)
+_throttle_resp = _admin_client.get("/api/throttle")
+check("...and Admin still reaches it", _throttle_resp.status_code, 200)
+check("carrying the same counts-only shape, nothing address-shaped added",
+      sorted(_throttle_resp.get_json()), sorted(
+          ["tracked_ips", "locked_out", "stuffing_suspects", "window_seconds",
+           "max_attempts", "ladder_seconds", "shared_across_workers"]))
+_elsewhere = [str(_f) for _f in (ROOT / "hub" / "templates").rglob("*.html")
+              if _f.name != "diagnostics.html" and "api/throttle" in _f.read_text(errors="ignore")]
+check("only the Diagnostics page fetches it", _elsewhere, [])
+
 
 # --------------------------------------------------------- crawlers
 section("No search engine and no AI crawler reads this Hub")

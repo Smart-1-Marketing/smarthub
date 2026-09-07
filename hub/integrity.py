@@ -307,6 +307,96 @@ def check_silent_modules() -> list[dict]:
     return out
 
 
+def check_write_route_attribution() -> list[dict]:
+    """A module that has triaged its writes, and one that has slipped since.
+
+    check_silent_modules() asks whether a module logs **at all**, and one call
+    site satisfies it — so a module can be loudly attributable about a quarter
+    of its work and pass. `hub.audit.write_route_attribution()` is the same
+    question asked one level finer, per write route rather than per module,
+    and until now it was exercised only by `test_write_attribution.py`: a
+    regression in one of the modules that already declared
+    `HOUSEKEEPING_ROUTES`, or a fifth module built the same way, was invisible
+    to this continuous sweep unless somebody remembered to run that script by
+    hand.
+
+    Scoped to modules that have opted in by declaring `HOUSEKEEPING_ROUTES` —
+    never a repo-wide gate. The same walk over every module that logs finds
+    about 229 silent write routes across 34 files, most of them genuinely
+    housekeeping (autosaves, drafts, previews), and a check landing with 229
+    findings nobody can act on is the one people learn to skip. A module that
+    has not declared the table is not asked the finer question here at all —
+    `stale_work_exemptions()`'s rule, one check up: declaring the table,
+    however small, is what asks to be held to it.
+    """
+    try:
+        from . import audit
+    except Exception:                               # noqa: BLE001
+        return []
+
+    by_module: dict[str, list[tuple[str, str]]] = {}
+    for rel, src in _sources():
+        if not rel.startswith("modules/"):
+            continue
+        mod = _module_of(rel)
+        if mod.endswith(".py"):        # modules/__init__.py is not a module
+            continue
+        by_module.setdefault(mod, []).append((rel, src))
+
+    out = []
+    for mod, files in sorted(by_module.items()):
+        declared: dict[str, str] = {}
+        logs: set[str] = set()
+        silent: set[str] = set()
+        for _rel, src in files:
+            try:
+                walk = audit.write_route_attribution(src)
+            except SyntaxError:
+                continue
+            declared.update(walk["declared"])
+            logs.update(walk["logs"])
+            silent.update(walk["silent"])
+        if not declared:
+            continue  # not triaged — the backlog this check deliberately skips
+
+        for fn in sorted(silent - declared.keys()):
+            out.append({
+                "file": f"modules/{mod}/", "module": mod,
+                "detail": f"{fn}() writes and records nothing, and is not in "
+                          f"{mod}'s own HOUSEKEEPING_ROUTES.",
+                "fix": "Log who did it, or add the route to "
+                       "HOUSEKEEPING_ROUTES with the reason it needs none.",
+            })
+
+        known = logs | silent
+        for fn, reason in sorted(declared.items()):
+            if not str(reason).strip():
+                out.append({
+                    "file": f"modules/{mod}/", "module": mod,
+                    "detail": f"HOUSEKEEPING_ROUTES declares {fn!r} with no "
+                              "reason.",
+                    "fix": f"Say why {fn!r} needs no attribution, or drop it.",
+                })
+            elif fn not in known:
+                out.append({
+                    "file": f"modules/{mod}/", "module": mod,
+                    "detail": f"HOUSEKEEPING_ROUTES declares {fn!r}, and no "
+                              "such write route exists any more.",
+                    "fix": f"Drop {fn!r} from HOUSEKEEPING_ROUTES — left "
+                           "there it goes on exempting whatever is written "
+                           "at that name next.",
+                })
+            elif fn in logs:
+                out.append({
+                    "file": f"modules/{mod}/", "module": mod,
+                    "detail": f"HOUSEKEEPING_ROUTES declares {fn!r} as "
+                              "housekeeping, and it now logs who did it.",
+                    "fix": f"Drop {fn!r} from HOUSEKEEPING_ROUTES — the "
+                           "declaration has outlived the reason it existed.",
+                })
+    return out
+
+
 def _reads_request_value(node) -> bool:
     """Does this expression reach request.args / .values / .form?"""
     for sub in ast.walk(node):
@@ -1157,6 +1247,9 @@ CHECKS = [
     ("untracked_provider_usage", "ElevenLabs, Cloudinary or Google usage not recorded",
      "medium", check_untracked_provider_usage),
     ("silent_modules", "Modules that never log", "medium", check_silent_modules),
+    ("write_route_attribution",
+     "A triaged module's write route logs nothing", "medium",
+     check_write_route_attribution),
     ("unclamped_limits", "Unclamped query limits", "medium", check_unclamped_limits),
     ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),
     ("template_collisions", "Two blueprints, one template name", "high",

@@ -669,7 +669,7 @@ function toggle(a,v){const i=a.indexOf(v);if(i>=0)a.splice(i,1);else a.push(v);}
 let _toastT=null;
 function toast(m){const t=document.getElementById('toastEl');t.textContent=m;t.style.display='block';clearTimeout(_toastT);_toastT=setTimeout(()=>t.style.display='none',5200);}
 function ago(iso){if(!iso)return"";const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return"Today";if(d<2)return"Yesterday";if(d<7)return Math.floor(d)+"d ago";return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
-async function api(path,opts){const r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts));const d=await r.json().catch(()=>({}));if(!r.ok&&d&&d.error)throw new Error(d.error+(d.detail?": "+d.detail:""));if(!r.ok)throw new Error("HTTP "+r.status);return d;}
+async function api(path,opts){const r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts));const d=await r.json().catch(()=>({}));if(!r.ok&&d&&d.error){const e=new Error(d.error+(d.detail?": "+d.detail:""));e.body=d;throw e;}if(!r.ok){const e=new Error("HTTP "+r.status);e.body=d;throw e;}return d;}
 /* How many steps the wizard has. The list is drawn in an earlier script
    block than STEPS, so it cannot read STEPS.length -- test_drafts.py holds
    the two in step rather than memory, the arrangement test_thinking.py uses
@@ -4858,7 +4858,14 @@ async function deliverProposal(contact){
   else if(su.needs_contact)toast("Saved and filed — Smart 1 Suite needs the contact's details.");
   else toast("Saved and filed. "+(su.reason||""));
   refreshLists();
- }catch(e){out.innerHTML='<div class="warnbox">Delivery failed: '+esc(e.message)+'</div>';}
+ }catch(e){
+  const unresolved=(e.body||{}).consulting_unresolved;
+  out.innerHTML=(unresolved&&unresolved.length)
+   ?'<div class="warnbox"><b>✎ '+esc(e.message)+'</b><br>'
+    +unresolved.map(u=>"&bull; "+esc(u.label)+" — "+esc(u.question)).join("<br>")
+    +'<br><button class="btn btn-line" style="margin-top:8px" '
+    +'onclick="gotoStep(9)">Go to Media Mix</button></div>'
+   :'<div class="warnbox">Delivery failed: '+esc(e.message)+'</div>';}
  finally{const bb=document.getElementById('deliverBtn');if(bb){bb.disabled=false;bb.textContent='📤 Send to client & file in Smart 1 Suite';}}}
 function contactAskHtml(sug){
  return `<div class="bpanel" style="margin-top:10px"><div class="ttl">Who is the contact at ${esc(S.client||'this client')}?</div>

@@ -399,6 +399,44 @@ check("the plan step warns about a line left undescribed",
 check("and the control says which of the two consulting products this is not",
       "retainer quoted on the Investment step" in wiz)
 
+# ---------------------------------------------------------------------------
+section("Delivery is refused server-side, not just warned about in the browser")
+# ---------------------------------------------------------------------------
+# consulting_unresolved() answered the question and had no caller: the only
+# thing standing between a vague engagement and a client was a non-blocking
+# JS warnbox on the plan step, which a rep can dismiss, three steps before
+# Send, or which a direct request bypasses entirely.
+
+client = sb.app.test_client()
+
+vague_quote = client.post("/api/quotes", json={
+    "data": {"client": "Vague Co", "months": 6,
+             "items": [line(description="")]}}).get_json()["quote"]
+resp = client.post(f"/api/quotes/{vague_quote['id']}/deliver", json={})
+check("a proposal with an undescribed engagement is refused",
+      resp.status_code, 409)
+body = resp.get_json()
+check("carrying the same shape consulting_unresolved() already returns",
+      len(body.get("consulting_unresolved") or []), 1)
+check("naming the line and the question, not just a generic refusal",
+      "question" in (body["consulting_unresolved"] or [{}])[0],
+      body.get("consulting_unresolved"))
+
+described_quote = client.post("/api/quotes", json={
+    "data": {"client": "Described Co", "months": 6,
+             "items": [line()]}}).get_json()["quote"]
+resp2 = client.post(f"/api/quotes/{described_quote['id']}/deliver", json={})
+check("the same delivery succeeds once the line is described",
+      resp2.status_code, 200)
+check("and nothing about the refusal rides along on a clean delivery",
+      "consulting_unresolved" not in (resp2.get_json() or {}))
+
+no_consulting_quote = client.post("/api/quotes", json={
+    "data": {"client": "No Strategy Co", "months": 6, "items": []}}).get_json()["quote"]
+check("a plan with no consulting line at all is never asked",
+      client.post(f"/api/quotes/{no_consulting_quote['id']}/deliver",
+                 json={}).status_code, 200)
+
 print("\n" + "=" * 62)
 print("%d passed, %d failed" % (PASS, FAIL))
 shutil.rmtree(_TMP, ignore_errors=True)
