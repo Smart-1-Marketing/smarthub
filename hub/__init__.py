@@ -3826,6 +3826,30 @@ def create_hub_app() -> Flask:
         from . import sales_status
         return jsonify(sales_status.scoreboard())
 
+    @app.route("/api/ads/scoreboard")
+    def api_ads_scoreboard():
+        """What the twice-daily Google Ads sweep found, for the dashboard.
+
+        `modules/ads_builder/monitoring.py` has swept every deployed account
+        twice a day since it was built, and nothing told anybody a reading had
+        arrived: a finding sat in a table until somebody happened to open that
+        one tool and pick that one account. There is no mailer here, so this
+        is the honest alerting channel -- the number where people already
+        look, the shape `hub/social_status.py` and `hub/sales_status.py`
+        already use.
+
+        Not behind `access.UTILITY_PREFIXES`, for the reason the two
+        scoreboards above give: this is the work of the people reading the
+        dashboard, and a figure everybody sees that is served by a path most
+        accounts are refused renders a confident nothing for eleven of the
+        fourteen.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ads_status
+        return jsonify(ads_status.scoreboard())
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
