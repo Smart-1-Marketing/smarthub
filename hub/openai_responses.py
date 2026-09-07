@@ -36,6 +36,16 @@ returned no description", "No ZIP Codes were returned"), and two of them in
 the IO Builder read as **success**: an empty landing-page review printed onto
 the internal trafficking document, and a media-mix recommendation with every
 field blank under a warning blaming the model for answering in prose.
+
+**Empty is never an answer, whatever the reported status.** The guard above
+only fired when the API's own ``status`` was ``"incomplete"`` -- and a
+``"completed"`` response with nothing in its output is a real shape, not a
+hypothetical one. Read that way, the Proposal Builder's AI rewrite returned
+``{"ok": true, "text": ""}``: a client-facing section silently blanked and
+reported a success, which is the exact failure this module exists to name
+rather than let happen twice. ``ask()`` now raises on any empty text, naming
+the status when one came back, so every caller's existing failure handling
+catches this the same way it already catches a truncated one.
 """
 import os
 
@@ -118,11 +128,21 @@ def ask(prompt, *, module, purpose="", max_output_tokens=6000, search=False,
         pass
 
     text = text_of(data)
-    if not text and data.get("status") == "incomplete":
-        why = ((data.get("incomplete_details") or {}).get("reason") or "").replace("_", " ")
-        raise RuntimeError("The model stopped before it answered"
-                           + (f" ({why})" if why else "")
-                           + ". Nothing was returned to show.")
+    if not text:
+        # Empty is never a real answer, whatever the reported status: a
+        # caller reading it as one is how a rewrite comes back blank and
+        # reports itself a success. "incomplete" gets the API's own reason
+        # named; anything else -- a "completed" response with nothing in
+        # it, which does happen -- still refuses rather than returning "".
+        status = data.get("status") or ""
+        if status == "incomplete":
+            why = ((data.get("incomplete_details") or {}).get("reason") or "").replace("_", " ")
+            raise RuntimeError("The model stopped before it answered"
+                               + (f" ({why})" if why else "")
+                               + ". Nothing was returned to show.")
+        raise RuntimeError("The model returned no text"
+                           + (f" (status: {status})" if status else "")
+                           + ".")
     return text
 
 

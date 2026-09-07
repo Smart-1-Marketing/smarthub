@@ -757,6 +757,28 @@ def create_hub_app() -> Flask:
             pass
         return jsonify(kit)
 
+    @app.route("/api/client/brand-template", methods=["POST"])
+    def api_brand_template_set():
+        """Confirm — or clear — which tile or swatch is actually the brand.
+
+        `hub/brand_template.py` refuses anything `brand_kit()` is not
+        currently offering for this client, so the value has to be one the
+        card the rep is looking at already shows.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .brand_template import save as save_pick
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "").strip()
+        if not client:
+            return jsonify({"ok": False, "error": "No client named."}), 400
+        res = save_pick(client, str(body.get("domain") or "").strip(),
+                        str(body.get("field") or "").strip(),
+                        str(body.get("value") or ""),
+                        actor=current_user() or "")
+        return jsonify(res), (200 if res.get("ok") else 400)
+
     @app.route("/api/client/logos", methods=["POST"])
     def api_client_logos():
         """File every logo we already hold for this client into their gallery.
@@ -1955,7 +1977,23 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"links": [], "error": f"{type(exc).__name__}"}), 200
         rows.sort(key=lambda r: str(r.get("created") or ""), reverse=True)
-        return jsonify({"client": name, "count": len(rows), "links": rows[:40]})
+
+        # The other place a tracked link lives: a click-thru typed onto an
+        # insertion order in Knack. Those are tracked links too, and reading
+        # only the builder's store made a client whose links all arrived that
+        # way read as a client with none. Its own key rather than merged into
+        # `links`: one was built here and one was typed on an IO, and a card
+        # that cannot say which sends somebody to the wrong screen to fix a
+        # wrong one. A failure costs the Knack half and never the builder's.
+        knack: dict = {"links": [], "count": 0}
+        try:
+            from . import knack_products as KP
+            knack = KP.tagged_links(name)
+        except Exception as exc:  # noqa: BLE001
+            knack = {"links": [], "count": 0,
+                     "error": f"{type(exc).__name__}"}
+        return jsonify({"client": name, "count": len(rows),
+                        "links": rows[:40], "knack": knack})
 
     @app.route("/api/seo/blogs/image", methods=["POST"])
     def api_blog_image():
@@ -3861,6 +3899,30 @@ def create_hub_app() -> Flask:
             return gate
         from . import sales_status
         return jsonify(sales_status.scoreboard())
+
+    @app.route("/api/ads/scoreboard")
+    def api_ads_scoreboard():
+        """What the twice-daily Google Ads sweep found, for the dashboard.
+
+        `modules/ads_builder/monitoring.py` has swept every deployed account
+        twice a day since it was built, and nothing told anybody a reading had
+        arrived: a finding sat in a table until somebody happened to open that
+        one tool and pick that one account. There is no mailer here, so this
+        is the honest alerting channel -- the number where people already
+        look, the shape `hub/social_status.py` and `hub/sales_status.py`
+        already use.
+
+        Not behind `access.UTILITY_PREFIXES`, for the reason the two
+        scoreboards above give: this is the work of the people reading the
+        dashboard, and a figure everybody sees that is served by a path most
+        accounts are refused renders a confident nothing for eleven of the
+        fourteen.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ads_status
+        return jsonify(ads_status.scoreboard())
 
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")

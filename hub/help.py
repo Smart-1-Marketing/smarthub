@@ -362,6 +362,16 @@ REGISTRY: list[Help] = [
        "Every action across every tool, attributed to whoever did it. Useful "
        "when something changed and nobody remembers changing it.", step=3,
        selector="[data-tour='activity']"),
+    _h("hub.dashboard.ads", "What the Google Ads sweep found",
+       "Every account we deployed a campaign into is scanned twice a day on "
+       "the Hub scheduler, and this is the last reading. Four of the five "
+       "figures mean different things: Need attention is a finding in the "
+       "client's account, Could not scan is Google refusing us and is fixed "
+       "in Settings, and Never swept and Out of date are our own coverage "
+       "rather than anything wrong with the client. An account nobody has "
+       "swept is not the same as an account with nothing to act on. Findings "
+       "are counted rather than costed — the money behind them is on the "
+       "optimization page, which has the whole scan open anyway."),
     _h("hub.dashboard.version", "Which build is live",
        "The version in the footer is read from the running code, not from a "
        "config file. If it doesn't match what you last deployed, the deploy "

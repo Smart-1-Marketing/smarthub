@@ -340,6 +340,24 @@ def report_sweep(actor: str = "scheduler", limit: int = MAX_ACCOUNTS_PER_RUN) ->
             "failures": failures[:10]}
 
 
+def _panel_filters() -> dict:
+    """The overdue threshold and filter names, read from the Hub's own half.
+
+    Nothing here may raise: this panel is the one thing on the optimization
+    page that still answers when Google will not, and losing it over a Hub
+    import is a worse outcome than losing the filter.
+    """
+    try:
+        from hub import ads_status
+        minutes, measured = ads_status.overdue_after_minutes()
+        return {"overdue_after_hours": round(minutes / 60.0, 1),
+                "overdue_measured": measured,
+                "filters": list(ads_status.FILTERS)}
+    except Exception:                                    # noqa: BLE001
+        return {"overdue_after_hours": None, "overdue_measured": False,
+                "filters": []}
+
+
 def account_panel(limit: int = 100) -> dict:
     """What the optimization page says before anybody presses Scan.
 
@@ -357,6 +375,16 @@ def account_panel(limit: int = 100) -> dict:
     return {
         "accounts": rows,
         "measured": True,
+        # How old a reading may be before this panel calls it out of date, and
+        # the filters the dashboard card's counts link into. Both are read from
+        # hub/ads_status.py rather than decided again here: the tile counting
+        # four accounts as out of date while the page it opens shows three is
+        # the two-readings-of-one-question failure this repo names most often,
+        # and a filter the page does not know is a link that silently opens
+        # everything. Absent where the Hub half will not import -- the panel
+        # then draws every account and says the filter could not be applied,
+        # rather than quietly showing all of them under a narrowed heading.
+        **_panel_filters(),
         # Served rather than restated in the page: a screen offering a category
         # the write refuses is a control that reports a clean save and changes
         # nothing.

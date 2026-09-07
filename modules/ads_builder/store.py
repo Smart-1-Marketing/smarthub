@@ -12,7 +12,7 @@ import logging
 import secrets
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, select
+from sqlalchemy import Column, DateTime, Integer, String, Text, func, select
 from sqlalchemy.orm import declarative_base
 
 from hub.extensions import create_all_metadata, session_factory, shared_engine
@@ -939,3 +939,21 @@ def list_events(limit=250) -> list:
             select(Event).order_by(Event.created_at.desc()).limit(limit)
         ).all()
         return [r.as_dict() for r in rows]
+
+
+def count_events(action, *, since=None) -> int:
+    """How many of one kind of event, counted rather than fetched.
+
+    ``list_events()`` answers *what happened lately* and is what the module's
+    own Activity page reads. This answers *how many of these*, which is a
+    different question and must not be answered by pulling the rows and
+    measuring the list -- the failure ``google_links.orphans()`` names, where
+    a page reporting its own length as the total is how somebody concludes
+    there are 25 orphans. Both columns it filters on are indexed, so this
+    stays a counted read on a dashboard that loads on every visit.
+    """
+    stmt = select(func.count(Event.id)).where(Event.action == str(action or ""))
+    if since is not None:
+        stmt = stmt.where(Event.created_at >= since)
+    with SessionLocal() as s:
+        return int(s.scalar(stmt) or 0)

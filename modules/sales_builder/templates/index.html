@@ -4785,6 +4785,10 @@ async function aiRewrite(i){
  toast("✨ Rewriting…");
  try{const d=await api('/sales/builder/api/ai/rewrite',{method:'POST',
    body:JSON.stringify({text,instruction:ins,section:S.sections[i].id,data:S})});
+  // d.text empty (or ok:false answered as 200) must not blank a section
+  // that already had real copy in it -- the shape hub/openai_responses.py
+  // exists to stop, and the one rewriteSecById() already guards against.
+  if(!d.ok||!d.text){toast("The AI returned nothing to rewrite with — your text is unchanged.");return;}
   S.sections[i].body=d.text;saveSoon();drawSections();
   toast((d.warnings&&d.warnings.length)?("Rewritten, but: "+d.warnings.join(" ")):"✨ Rewritten — edit further as needed.");}
  catch(e){toast("AI rewrite failed: "+e.message);}}

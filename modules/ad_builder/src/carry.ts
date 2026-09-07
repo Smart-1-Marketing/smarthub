@@ -88,7 +88,7 @@
 
 import type { SizeKey, TemplateSpec } from './types';
 import type { BlockStyle, LogoStyle, SizeStyle, StyleOverrides } from './block-style';
-import { MAX_TYPE, MIN_TYPE, STYLEABLE } from './block-style';
+import { MIN_TYPE, STYLEABLE } from './block-style';
 
 export interface Frame { w: number; h: number }
 
@@ -184,7 +184,19 @@ function carryBlock(
       out.size = want;
       // The clamp in applyBlockStyles is silent, so the strain is recorded here
       // while the number it would refuse is still in hand.
-      if (want < MIN_TYPE || want > MAX_TYPE) strained = true;
+      //
+      // The FLOOR only, and that asymmetry is the whole of it. Under MIN_TYPE
+      // the departure has collapsed the type and the ad on screen is not the
+      // one that was asked for -- a real thing to look at. MAX_TYPE is a global
+      // sanity cap rather than this canvas refusing anything: a tenth over a
+      // 1200x1200's own 102px ceiling is 113, which is trimmed to 96 and looks
+      // exactly right. Measured -- flagging that put a review mark on the
+      // cleanest ad in an eleven-size set, whose every other check passed,
+      // which is the crying wolf QR_CODE_RULES already cost this repo once. A
+      // headline genuinely too big for its canvas is what `legibility`,
+      // `hierarchy` and `text-coverage` are for, and they are measured on the
+      // rendered pixels rather than guessed at from a ceiling.
+      if (want < MIN_TYPE) strained = true;
       moved = true;
     } else {
       delete out.size;

@@ -301,6 +301,11 @@ function renderOverview(loading=false) {
 }
 
 let monitor = null;
+/* Read here rather than in boot(): loadMonitor() is deliberately started
+   outside boot()'s try, so the sweep panel still answers when Google will
+   not — and a filter set inside boot() would arrive after the first render
+   on exactly the load where this panel is the only thing on screen. */
+let monitorFilter = (new URLSearchParams(window.location.search).get('filter') || '').trim();
 
 function monitorAgeLabel(iso) {
   if (!iso) return '';
@@ -332,15 +337,88 @@ function renderMonitor() {
   const needing = scanned.filter(r => r.last_run.high_severity_count > 0);
   const never = rows.filter(r => !r.last_run);
   const failed = rows.filter(r => r.last_run && r.last_run.error);
+  const stale = rows.filter(monitorIsStale);
   note.textContent = monitor.note || '';
+
+  // The dashboard card's counts arrive as ?filter=, and every one of them has
+  // to land on the rows it counted — a figure that opens a page the reader
+  // then has to narrow themselves is the signpost this panel was built to
+  // stop being. A filter this build does not know narrows nothing and says so,
+  // rather than silently showing everything under a narrowed heading.
+  const known = monitor.filters || [];
+  const wanted = known.indexOf(monitorFilter) >= 0 ? monitorFilter : '';
+  const shown = wanted ? rows.filter(r => monitorStates(r).indexOf(wanted) >= 0) : rows;
+  let filterLine = '';
+  if (monitorFilter && !wanted) {
+    filterLine = '<div class="hint" style="margin-top:10px">This build does not know the filter '
+      + '“' + esc(monitorFilter) + '”, so every account is shown.</div>';
+  } else if (wanted) {
+    // "N of M shown" rather than leaving somebody to read the short list as
+    // the whole book, and one press back to all of it: the All chip and a
+    // manual URL edit each undo only half.
+    filterLine = '<div class="hint" style="margin-top:10px">Showing <b>' + shown.length
+      + '</b> of ' + rows.length + ' — ' + esc(MONITOR_FILTER_LABELS[wanted] || wanted)
+      + '. <a href="#" onclick="clearMonitorFilter();return false">Show every account</a></div>';
+  }
+
   body.innerHTML =
     '<div class="s1d-tiles">' +
       statTile('Accounts swept', scanned.length + ' of ' + rows.length, 'On the Hub scheduler') +
       statTile('Need attention', needing.length, needing.length ? 'At least one high-severity finding' : 'No high-severity finding in the last sweep') +
       statTile('Never swept', never.length, never.length ? 'Not scanned yet — not the same as clean' : 'Every account has a reading') +
       statTile('Could not be read', failed.length, failed.length ? 'Google refused the last scan' : 'No scan failed') +
-    '</div>' +
-    '<div class="opt-monitor-rows" style="margin-top:10px">' + rows.map(monitorRow).join('') + '</div>';
+      statTile('Out of date', monitor.overdue_after_hours === null ? '–' : stale.length,
+               monitor.overdue_after_hours === null
+                 ? 'Not measured — the sweep’s own cadence could not be read'
+                 : 'Last swept over ' + monitor.overdue_after_hours + ' hours ago') +
+    '</div>' + filterLine +
+    '<div class="opt-monitor-rows" style="margin-top:10px">' +
+      (shown.length ? shown.map(monitorRow).join('')
+                    : '<div class="hint" style="padding:8px 0">No account is in that state.</div>') +
+    '</div>';
+}
+
+/* Out of date is the sweep having stopped reaching an account, not a finding
+   about the client — so it is judged against the scheduler's own interval,
+   which the server reads and sends. Unknowable rather than false where that
+   could not be read: a confident "not overdue" about a cadence nobody could
+   look up is the answer `scheduler._overdue()` refuses to give. */
+function monitorIsStale(r) {
+  const hours = monitor && monitor.overdue_after_hours;
+  if (hours === null || hours === undefined) return false;
+  if (!r.last_run || r.last_run.error || !r.last_run.scanned_at) return false;
+  const then = Date.parse(r.last_run.scanned_at);
+  if (!then) return false;
+  return (Date.now() - then) / 3600000 > hours;
+}
+
+/* An account can be in more than one of these at once — a stale reading that
+   also flagged something is both, and dropping either would take it off one
+   of the two lists somebody opened. */
+function monitorStates(r) {
+  const out = [];
+  if (!r.last_run) out.push('never');
+  else if (r.last_run.error) out.push('failed');
+  else if (r.last_run.high_severity_count > 0) out.push('attention');
+  if (monitorIsStale(r)) out.push('stale');
+  return out;
+}
+
+const MONITOR_FILTER_LABELS = {
+  attention: 'accounts with a high-severity finding',
+  failed: 'accounts whose last scan could not be read',
+  never: 'accounts that have never been swept',
+  stale: 'accounts on an out-of-date reading',
+};
+
+function clearMonitorFilter() {
+  monitorFilter = '';
+  // The address bar follows, or a reload puts the filter back and the press
+  // reads as having done nothing.
+  const url = new URL(window.location.href);
+  url.searchParams.delete('filter');
+  window.history.replaceState({}, '', url);
+  renderMonitor();
 }
 
 function monitorRow(r) {
