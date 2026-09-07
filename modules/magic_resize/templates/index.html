@@ -18,6 +18,7 @@
            placeholder="Cool Air spring banners"></label>
     <label>Client<input name="client" maxlength="160"
            placeholder="Leave blank for a one-off"></label>
+    <p class="mr-src" id="mr-brand-preview"></p>
     <label>Image Creator project id
       {{ help_dot('magic_resize.source') if help_dot is defined else '' }}
       <input name="from_image_creator"
@@ -96,6 +97,34 @@
   var form = document.getElementById('mr-new');
   var msg  = document.getElementById('mr-new-msg');
   if(!form) return;
+
+  // A read, not an action: never fires until the field is left, and it never
+  // reaches Brandfetch -- only the pick a rep already confirmed on Client
+  // 360 (hub/brand_template.py). Nothing here is billed.
+  var clientField = form.querySelector('input[name="client"]');
+  var preview = document.getElementById('mr-brand-preview');
+  if(clientField && preview) clientField.addEventListener('change', function(){
+    var name = clientField.value.trim();
+    if(!name){ preview.textContent = ''; return; }
+    preview.textContent = 'Checking for a confirmed brand…';
+    fetch('api/brand?client=' + encodeURIComponent(name))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d.picked){
+          preview.textContent = 'No confirmed brand on file for ' + name +
+            ' yet — pick one on their Client 360 record any time.';
+          return;
+        }
+        var bits = [];
+        if(d.logo_url) bits.push('a logo');
+        Object.keys(d.colors || {}).forEach(function(role){
+          if(d.colors[role]) bits.push(role + ' ' + d.colors[role]);
+        });
+        preview.textContent = 'Confirmed brand on file for ' + name + ': ' +
+          bits.join(', ') + '.';
+      })
+      .catch(function(){ preview.textContent = ''; });
+  });
   form.addEventListener('submit', function(ev){
     ev.preventDefault();
     var wait = (window.S1Think && window.S1Think.attach)

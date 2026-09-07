@@ -10752,10 +10752,68 @@ file already makes about a big-bang rewrite of working modules. Until it
 lands, a frame is produced, judged and reviewed here and hand-tuning one goes
 through `POST .../frames/<size>` with objects the editor supplies; `Adjust
 Variant` and the browser-side render behind the export button are the half
-that needs it. `brand_profile_ref` on a project is a **placeholder read by
-nothing**, pending the separate BrandTemplate decision — carried as a
-reference precisely so it cannot quietly become a working integration nobody
-signed off, which is the declared-but-unwired failure this file counts six of.
+that needs it.
+
+## The BrandTemplate decision, resolved: a pick, not a table
+
+`brand_profile_ref` sat on a Magic Resize project as a placeholder FK, "pending
+the BrandTemplate decision" — deliberately unread, so it could not quietly
+become a working integration nobody signed off. The decision is that there is
+nothing to point at that the project's own `client` field does not already
+say, and no new table of curated brand fields is needed either. What was
+actually missing sat one layer down, in `hub/client_brand.brand_kit()` itself:
+it has merged several logos and several colours into one card since v1.6 and
+never answered which one is *the* brand. Brandfetch says so about itself — the
+Display Ad Builder's own `/site-brand` route notes that it "frequently does
+not say which entry is the brand colour" — so `brand_guide_payload()` has
+always guessed `kit["colors"][0]`, whatever position the API happened to
+answer first, and `hub/client_context.py` has always taken `kit["logos"][0]`
+the same way. Two guesses, in two files, standing in for a decision nobody had
+actually made.
+
+`hub/brand_template.py` is the pick that replaces the guess, and it is
+deliberately thin: one logo URL and up to three colour roles (primary,
+secondary, accent) per client, stored through `jsonstore` and keyed on
+`hub.client_key.name_slug()` — the same normalisation 32 other files already
+join a client on, so "Riverside HVAC" and "Riverside HVAC, LLC" cannot end up
+with two brand picks. **Nothing is invented**: a pick is checked against a
+fresh `brand_kit()` call at save time, so the exact logo URL or the exact hex
+has to be one the merge is offering *right now*, and a stale pick — confirmed
+against a Brandfetch answer that has since changed — is simply not found on
+the next read rather than raising or being silently kept.
+
+**Read by nothing until it is used, which is how a placeholder stays a
+placeholder.** `brand_kit()` reads the pick on every call and promotes it to
+position zero in `logos` and `colors` — so `brand_guide_payload()` and
+`client_context.py`, which have always trusted position zero, get the
+confirmed answer with **no caller-side change at all**. `logo_tiles` and
+`palette` — the sets Client 360's card actually draws — are tagged
+`confirmed` (and, for a colour, which `role`) so the card can show the pick
+without a second round trip. A rep confirms a tile or a swatch right there,
+through `POST /api/client/brand-template`; clearing always succeeds, because
+taking a pick back can never be "not offered".
+
+Magic Resize resolves it the way `hub/suite_accounts.location_for()` resolves
+a client's Suite sub-account: derived from the project's `client` name on
+every read (`store.brand_for()`), never stored. `brand_profile_ref` is gone
+rather than wired, because storing a second, derived key beside a name
+already on the record is the exact mistake `hub/client_key.py` spends a
+section refusing — a client renamed later would leave the stored reference
+pointing at nobody, where deriving it re-joins on the next request. The
+project page and the new-project form both show the client's confirmed brand
+live, including a pick made *after* the project was created.
+
+**What this deliberately does not do.** It does not reach a provider — a pick
+costs nothing at Brandfetch, the same distinction `hub/brand_lookup.py` draws
+between a page load and a button. And it does not yet let a pick built from an
+*observed*-only tile (no Brandfetch record, only what the last scan saw) reach
+`brand_guide_payload()`'s Suite push, which still gates on `kit["found"]`
+specifically — the pick shows on Client 360 and on a Magic Resize project
+either way, but widening what "there is brand data to push" means is a real
+next step and a separate change, since it is also the Suite button's own
+error message. `test_brand_template.py` asserts the refusal, the promotion,
+the stale-pick case, and that Magic Resize's reference resolves live rather
+than from a stored key.
 
 ## The one module that is not Python
 

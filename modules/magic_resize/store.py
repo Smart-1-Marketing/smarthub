@@ -17,6 +17,16 @@ answers in that shape for anything that wants it, but it is *derived*. Two
 records of one fact is how an object comes to be a logo in one of them and a
 headline in the other, with nothing on any screen saying which is right.
 
+**A project does not carry its own copy of the client's brand.** The build
+plan asked for a `brand_profile_ref` FK, held as a placeholder "pending the
+BrandTemplate decision". The decision is that there is nothing to point at
+that the project's own `client` field does not already say: `brand_for()`
+resolves `hub.brand_template.get()` from that name on every read, the way
+`hub/suite_accounts.location_for()` resolves a client's Suite sub-account —
+derived rather than stored, so a template a rep confirms after the project
+was created is seen the next time the project is opened, and a client
+renamed later re-joins instead of leaving a stale reference behind.
+
 ## What a source edit propagates to
 
 This is the whole of §6 and both halves are load-bearing in opposite
@@ -145,10 +155,6 @@ def create(*, name: str, client: str = "", source: dict,
         "created": _now(),
         "created_by": created_by or "",
         "bundle": bundle,
-        # Placeholder for the BrandTemplate decision that is still open (§9,
-        # step 6). Carried as a reference and read by nothing yet, so it
-        # cannot quietly become a working integration nobody signed off.
-        "brand_profile_ref": "",
         "source": _clean_source(source),
         "frames": {},
     }
@@ -170,6 +176,25 @@ def role_map(project: dict) -> dict[str, str]:
     return {o.get("id", ""): o.get("role", "")
             for o in (project.get("source") or {}).get("objects") or []
             if o.get("id")}
+
+
+def brand_for(project: dict) -> dict:
+    """The client's rep-confirmed brand pick, for a project with no logo yet.
+
+    A shell with `picked: False` for a one-off project (no client) or on any
+    failure — this must never cost the project page for a reason that has
+    nothing to do with the design itself.
+    """
+    client = str(project.get("client") or "").strip()
+    if not client:
+        return {"client": "", "logo_url": "", "logo_theme": "", "colors": {},
+                "picked": False, "updated_at": "", "updated_by": ""}
+    try:
+        from hub import brand_template
+        return brand_template.get(client)
+    except Exception:                                   # noqa: BLE001
+        return {"client": client, "logo_url": "", "logo_theme": "", "colors": {},
+                "picked": False, "updated_at": "", "updated_by": ""}
 
 
 # --------------------------------------------------------------------------

@@ -1821,6 +1821,16 @@ jobs:
       - name: One design, the whole size set
         run: python3 test_magic_resize.py
 
+      # The BrandTemplate decision the build plan left open: a rep's
+      # confirmed pick of which logo and which color are the brand, read by
+      # brand_kit() so every existing caller that takes position zero -- the
+      # Suite push, client_context.py, Magic Resize's project reference --
+      # gets the confirmed answer with no caller-side change. Also holds the
+      # refusal: a pick has to be one of the tiles brand_kit() is offering
+      # right now, never an invented URL or hex.
+      - name: A rep's brand pick, not every tool's guess
+        run: python3 test_brand_template.py
+
       # The primitives four screens of one product share. It also walks the
       # rendered HTML to assert the page wrapper still contains the page: one
       # stray closing tag ends it early, after which every rule scoped to it

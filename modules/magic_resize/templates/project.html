@@ -13,6 +13,19 @@
     <div><span class="s1d-l">Client</span><span class="s1d-v">{{ project.client or 'Not filed against a client' }}</span></div>
     <div><span class="s1d-l">Design</span><span class="s1d-v">{{ project.source.width }}&times;{{ project.source.height }}, {{ project.source.objects|length }} objects</span></div>
     <div><span class="s1d-l">Bundle</span><span class="s1d-v">{{ bundles[project.bundle].label if project.bundle in bundles else project.bundle }}</span></div>
+    {% if project.client %}
+    <div><span class="s1d-l">Brand</span><span class="s1d-v">
+      {% if brand.picked %}
+        {% if brand.logo_url %}<img src="{{ brand.logo_url }}" alt="" class="mr-brand-logo">{% endif %}
+        {% for role, hex in brand.colors.items() %}{% if hex %}<span class="mr-swatch" style="background:{{ hex }}" title="{{ role }} — {{ hex }}"></span>{% endif %}{% endfor %}
+        <span class="mr-src">confirmed on Client 360</span>
+      {% else %}
+        <span class="mr-src">No confirmed brand on file for {{ project.client }} —
+          pick a logo and colors on their Client 360 record and this reads
+          them from there.</span>
+      {% endif %}
+    </span></div>
+    {% endif %}
   </div>
   <p class="mr-src" id="mr-msg"></p>
 </div>

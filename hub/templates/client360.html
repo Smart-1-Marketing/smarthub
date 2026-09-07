@@ -2734,21 +2734,38 @@ function renderBrand(d){
      us and a logo seen on their home page are different claims, and only the
      first belongs on a document a client reads. */
   const originText = o => o==='site' ? 'Seen on their website' : 'On file';
+  /* A swatch or a tile can be *confirmed* now -- a rep's pick of which of
+     several is actually the brand, rather than every reader guessing at
+     position zero (hub/brand_template.py). The pick/clear links are read
+     back off data attributes after the innerHTML assignment below, never
+     inline onclick with an embedded URL: a logo URL can carry characters
+     that would break out of a quoted JS string, where a data attribute only
+     has to survive esc()'s ordinary HTML escaping. */
   const swatches = (d.palette||[]).map(c=>
     `<span title="${esc(c.hex)}${c.type?' — '+esc(c.type):''} · ${esc(originText(c.origin))}"
-      style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;margin:0 8px 8px 0">
+      style="display:inline-flex;flex-direction:column;align-items:center;gap:3px;margin:0 8px 8px 0">
       <span style="width:38px;height:38px;border-radius:8px;background:${esc(c.hex)};
-        border:1px solid rgba(0,0,0,.12);display:block${c.origin==='site'?';box-shadow:inset 0 0 0 2px #fff':''}"></span>
-      <code style="font-size:10.5px;color:#64748b">${esc(c.hex)}</code></span>`).join('');
+        border:1px solid ${c.confirmed?'var(--brand)':'rgba(0,0,0,.12)'};display:block${c.origin==='site'?';box-shadow:inset 0 0 0 2px #fff':''}"></span>
+      <code style="font-size:10.5px;color:#64748b">${esc(c.hex)}</code>
+      ${c.confirmed
+        ? `<span style="font-size:9.5px;color:#166534">${esc(c.role)} <a href="#" data-clear-color="${esc(c.role)}">clear</a></span>`
+        : `<span style="font-size:9.5px">
+             <a href="#" data-set-color="primary" data-hex="${esc(c.hex)}">primary</a> ·
+             <a href="#" data-set-color="secondary" data-hex="${esc(c.hex)}">secondary</a> ·
+             <a href="#" data-set-color="accent" data-hex="${esc(c.hex)}">accent</a></span>`}
+      </span>`).join('');
 
   const tiles = (d.logo_tiles||[]).slice(0,6).map(l=>
     `<div style="display:inline-block;margin:0 8px 8px 0;vertical-align:top">
       <a href="${esc(l.url)}" target="_blank" rel="noopener"
-         style="display:block;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff">
+         style="display:block;padding:8px;border:1px solid ${l.confirmed?'var(--brand)':'var(--line)'};border-radius:8px;background:#fff">
         <img src="${esc(l.url)}" alt="${esc(l.origin==='site'?'Logo on their website':'Logo on file')}"
              loading="lazy" style="max-width:120px;max-height:52px;display:block"></a>
       <div class="muted" style="font-size:10.5px;margin-top:3px;text-align:center">
-        ${esc(l.label||originText(l.origin))}${l.format?' · '+esc(l.format.toUpperCase()):''}</div></div>`).join('');
+        ${esc(l.label||originText(l.origin))}${l.format?' · '+esc(l.format.toUpperCase()):''}</div>
+      <div style="text-align:center;margin-top:2px;font-size:9.5px">${l.confirmed
+        ? `<span style="color:#166534">Brand logo</span> · <a href="#" data-pick-logo="">clear</a>`
+        : `<a href="#" data-pick-logo="${esc(l.url)}">set as brand logo</a>`}</div></div>`).join('');
 
   const fonts = (d.fonts||[]).map(f=>
     `<a href="${esc(f.google)}" target="_blank" rel="noopener"
@@ -2766,6 +2783,27 @@ function renderBrand(d){
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
     (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'')+
     gap + unread;
+
+  // Read off data attributes rather than an inline onclick carrying the
+  // value itself -- a logo URL or a hex is data, not a JS literal to embed.
+  Array.prototype.forEach.call(el.querySelectorAll('[data-pick-logo]'), function(a){
+    a.addEventListener('click', function(ev){
+      ev.preventDefault();
+      setBrandPick('logo', a.getAttribute('data-pick-logo') || '');
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-set-color]'), function(a){
+    a.addEventListener('click', function(ev){
+      ev.preventDefault();
+      setBrandPick(a.getAttribute('data-set-color'), a.getAttribute('data-hex') || '');
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-clear-color]'), function(a){
+    a.addEventListener('click', function(ev){
+      ev.preventDefault();
+      setBrandPick(a.getAttribute('data-clear-color'), '');
+    });
+  });
 
   /* Once the guide is in Suite the button is a trap: pressing it again just
      overwrites what's there. Show the state instead. The push carries the
@@ -2809,6 +2847,20 @@ function saveLogosToGallery(){
       alert('The logo could not be saved to the gallery.');
       loadBrand(window.CURRENT_CLIENT||'');
     });
+}
+
+/* Confirm (or clear) which tile or swatch is actually the brand --
+   hub/brand_template.py. A pick costs nothing at any provider: it names a
+   tile or a hex the card is already showing, never a fetch. */
+function setBrandPick(field, value){
+  fetch('/api/client/brand-template',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||'',
+                         field:field, value:value})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ alert(d.error||'That could not be confirmed.'); return; }
+      loadBrand(window.CURRENT_CLIENT||'');
+    }).catch(function(){ alert('That could not be confirmed.'); });
 }
 
 function pushBrand(){
