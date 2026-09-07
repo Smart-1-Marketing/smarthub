@@ -209,6 +209,19 @@
       </div>
     </div>
 
+    {# Google Ads, from the twice-daily sweep. The scan has always been able to
+       say what is wrong with a live account and nothing told anybody a reading
+       had arrived — there is no mailer here, so the number goes where people
+       already look. Beside Proposals and Social content rather than as its own
+       partial: it is the same shape of question, and drawing it in the same
+       card as those two is what stops it reading as a separate product. #}
+    <div class="card">
+      <div class="card-h"><h3>Google Ads accounts {{ help_dot('hub.dashboard.ads') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/tools/ads/optimization">Open the sweep →</a></div></div>
+      <div class="card-b">
+        <div id="adsboard"><span class="muted">Reading the last sweep… <span class="spin"></span></span></div>
+      </div>
+    </div>
+
     {# Stale Creative, above System status for the reason the birthdays block
        is: a key that is set is housekeeping and a client we have made nothing
        for is work. The partial brings its own styles, loads its own data and
@@ -606,6 +619,75 @@ fetch('/api/sales/scoreboard').then(r=>r.json()).then(d=>{
 }).catch(()=>{
   const box=document.getElementById('salesboard');
   if(box) box.innerHTML='<span class="muted">The proposals could not be read.</span>';
+});
+
+/* Google Ads. The sweep has run twice a day since it was built and nothing
+   told anybody a reading had arrived, which is the half `monitoring.py` could
+   not close by itself.
+
+   Its five signals are kept apart for the reason the pipeline's are: a finding
+   in the account, a scan Google refused, an account nobody has swept and a
+   reading that has gone out of date are four different places to go, and one
+   "needs attention" number covering them is one nobody can act on. Only the
+   first two are drawn red — never-swept and out-of-date are our own coverage
+   rather than something wrong in a client's account, and a page of red is a
+   page people scroll past. */
+fetch('/api/ads/scoreboard').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('adsboard');
+  if(!box) return;
+  if(!d || d.measured===false){
+    box.innerHTML='<span class="muted">'+esc((d&&d.error)||'Not measured.')+'</span>';
+    return;
+  }
+  const stat=(label,value,href,warn)=>{
+    const color=warn&&value?'#dc2626':'var(--navy,#1a2e58)';
+    const inner='<div style="font-size:24px;font-weight:700;line-height:1.15;color:'
+      +color+'">'+value+'</div><div class="muted" style="font-size:11.5px">'
+      +esc(label)+'</div>';
+    return href?'<a href="'+esc(href)+'" style="text-decoration:none;display:block">'
+      +inner+'</a>':'<div>'+inner+'</div>';
+  };
+  const c=d.counts||{},u=d.urls||{};
+  /* No deployed proposal carries a Google customer id, so there is nothing to
+     sweep. Four noughts here would be true and would read as a clean book —
+     the distinction every empty on this page has to draw. */
+  if(d.empty==='no_accounts'){
+    box.innerHTML='<span class="muted">'+esc(d.line||'')+'</span>';
+    return;
+  }
+  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+    + stat('Need attention',c.attention||0,u.attention,true)
+    + stat('Could not scan',c.failed||0,u.failed,true)
+    + stat('Never swept',c.never||0,u.never)
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px">'
+    + stat('Out of date',c.stale||0,u.stale)
+    + stat('Clean',c.clean||0,u.all)
+    + stat('Live accounts',d.accounts||0,u.all)
+    + '</div>';
+  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
+  if((d.rows||[]).length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px">';
+    d.rows.forEach(r=>{
+      /* The finding count leads where there is one, because that is what the
+         reader is deciding on; the state carries the rest. A row with neither
+         is not drawn at all — `scoreboard()` only lists accounts in a state. */
+      const why=r.high
+        ? '<b style="color:#dc2626">'+r.high+' high severity</b>'
+        : esc(r.state||'');
+      h+='<tr><td style="padding:5px 8px 5px 0"><a href="'+esc(r.url)+'">'
+        +esc(r.client||r.customer_id||'(no client)')+'</a></td>'
+        +'<td style="padding:5px 0;text-align:right" class="muted">'+why+'</td></tr>';
+    });
+    h+='</table>';
+    if(d.more) h+='<div class="muted" style="font-size:11.5px;margin-top:6px">'
+      +'and '+d.more+' more — <a href="'+esc(u.all)+'">every account</a></div>';
+  }
+  box.innerHTML=h;
+}).catch(()=>{
+  const box=document.getElementById('adsboard');
+  if(box) box.innerHTML='<span class="muted">The Google Ads sweep could not be '
+    +'read — not measured rather than every account clean.</span>';
 });
 
 /* The scoreboard. Three rules it shares with every other count on this page:
