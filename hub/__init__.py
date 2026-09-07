@@ -757,6 +757,28 @@ def create_hub_app() -> Flask:
             pass
         return jsonify(kit)
 
+    @app.route("/api/client/brand-template", methods=["POST"])
+    def api_brand_template_set():
+        """Confirm — or clear — which tile or swatch is actually the brand.
+
+        `hub/brand_template.py` refuses anything `brand_kit()` is not
+        currently offering for this client, so the value has to be one the
+        card the rep is looking at already shows.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .brand_template import save as save_pick
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("name") or "").strip()
+        if not client:
+            return jsonify({"ok": False, "error": "No client named."}), 400
+        res = save_pick(client, str(body.get("domain") or "").strip(),
+                        str(body.get("field") or "").strip(),
+                        str(body.get("value") or ""),
+                        actor=current_user() or "")
+        return jsonify(res), (200 if res.get("ok") else 400)
+
     @app.route("/api/client/logos", methods=["POST"])
     def api_client_logos():
         """File every logo we already hold for this client into their gallery.
