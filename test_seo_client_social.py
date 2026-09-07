@@ -28,7 +28,6 @@ guards is specific to this page:
 """
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
