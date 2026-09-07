@@ -108,6 +108,7 @@
       <button class="s1d-btn ghost mr-recompose" data-size="{{ sid }}">Recompose with AI</button>
       <span class="mr-src mr-recompose-msg" data-size="{{ sid }}"></span>
     {% endif %}
+    <a class="s1d-btn ghost" href="{{ request.script_root }}/p/{{ project.id }}/frames/{{ sid }}/edit">Hand-tune</a>
   </div>
 {% else %}
   <p>No frames yet. Press <strong>Resize all</strong>.</p>

@@ -415,5 +415,106 @@ check("...the same way a revoked one would be",
 
 
 # =====================================================================
+section("Insites' own narrative rides along with the main report, best-effort")
+# =====================================================================
+# fetch_llm_report() is a second read of a report already paid for, not a
+# second audit -- so it rides along inside _apply_report() rather than its
+# own polling loop, and a status of anything but "complete" must leave the
+# column exactly as it was rather than inventing a narrative Insites has not
+# produced.
+
+_real_fetch_llm = scans_app.insites_client.fetch_llm_report
+
+
+def _make_scan(report_id="insites-narrative-1"):
+    db = Session()
+    try:
+        s = scans_app.Scan(public_id="scantest-" + report_id, domain_key="acme.com",
+                           insites_report_id=report_id)
+        db.add(s)
+        db.commit()
+        db.refresh(s)
+        return s.id
+    finally:
+        db.close()
+
+
+def _apply_and_reload(scan_id, report):
+    db = Session()
+    try:
+        s = db.get(scans_app.Scan, scan_id)
+        scans_app._apply_report(s, report)
+        db.commit()
+        db.refresh(s)
+        return s.llm_narrative
+    finally:
+        db.close()
+
+
+try:
+    scans_app.insites_client.fetch_llm_report = lambda rid: (
+        "complete", {"summary": "Traffic is solid; conversions lag."})
+    narrative = _apply_and_reload(_make_scan("rid-complete"),
+                                  {"reportId": "rid-complete"})
+    check("a complete narrative is stored", narrative is not None, True)
+    check("...as the payload Insites actually returned",
+          json.loads(narrative), {"summary": "Traffic is solid; conversions lag."})
+
+    scans_app.insites_client.fetch_llm_report = lambda rid: ("running", None)
+    narrative = _apply_and_reload(_make_scan("rid-running"),
+                                  {"reportId": "rid-running"})
+    check("a narrative still running is left empty, not invented", narrative, None)
+
+    scans_app.insites_client.fetch_llm_report = lambda rid: ("not_found", None)
+    narrative = _apply_and_reload(_make_scan("rid-missing"),
+                                  {"reportId": "rid-missing"})
+    check("one Insites has nothing for is left empty too", narrative, None)
+
+    def _raise(rid):
+        raise scans_app.InsitesError("could not reach Insites")
+    scans_app.insites_client.fetch_llm_report = _raise
+    completed_scan_id = _make_scan("rid-error")
+    narrative = _apply_and_reload(completed_scan_id, {"reportId": "rid-error"})
+    check("a fetch that raises costs only the narrative, not the scan", narrative, None)
+    db = Session()
+    try:
+        s = db.get(scans_app.Scan, completed_scan_id)
+        check("...and the scan itself still completed", s.status, "complete")
+    finally:
+        db.close()
+finally:
+    scans_app.insites_client.fetch_llm_report = _real_fetch_llm
+
+section("...and it is drawn on the scan detail page, labeled as Insites' own")
+narrative_scan_id = _make_scan("rid-shown")
+db = Session()
+try:
+    s = db.get(scans_app.Scan, narrative_scan_id)
+    s.llm_narrative = json.dumps({"summary": "A written-for-an-LLM summary."})
+    s.status = "complete"
+    db.commit()
+    public_id = s.public_id
+finally:
+    db.close()
+page = client.get(f"/scan/{public_id}").get_data(as_text=True)
+check("the narrative reaches the served page", "written-for-an-LLM summary" in page, True)
+check("...labeled as Insites' own, not Smart 1's",
+      "Insites&#39; Own Narrative" in page or "Insites' Own Narrative" in page, True)
+
+no_narrative_id = _make_scan("rid-none")
+db = Session()
+try:
+    s = db.get(scans_app.Scan, no_narrative_id)
+    s.status = "complete"
+    db.commit()
+    public_id2 = s.public_id
+finally:
+    db.close()
+page2 = client.get(f"/scan/{public_id2}").get_data(as_text=True)
+check("a scan with no narrative draws no narrative card",
+      "Insites' Own Narrative" in page2 or "Insites&#39; Own Narrative" in page2, False)
+
+
+# =====================================================================
 print(f"\n{'=' * 60}\n{_passed} passed, {_failed} failed\n{'=' * 60}")
 sys.exit(1 if _failed else 0)

@@ -758,6 +758,16 @@ jobs:
             echo "test_google_index.py not on this branch — nothing to run."
           fi
 
+      - name: Diagnostics — the QuickBooks check
+        # link_status() and health() each had no reader; both now answer
+        # through one row on the panel every other provider reports on.
+        run: |
+          if [ -f test_diagnostics.py ]; then
+            python test_diagnostics.py
+          else
+            echo "test_diagnostics.py not on this branch — nothing to run."
+          fi
+
       - name: Proposal specification and creative gate tests
         run: |
           if [ -f test_proposal_spec.py ]; then
