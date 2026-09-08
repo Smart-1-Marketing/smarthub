@@ -199,7 +199,8 @@ check("the browser's own recurring total excludes one-time lines",
       "function planRecurring" in tpl and '!=="one_time"' in
       tpl.split("function planRecurring")[1][:220])
 check("the recommended package IS the plan rather than the plan rounded to "
-      "the nearest $250", "t.mult===1?(planRecurring()" in tpl)
+      "the nearest $250", "t.mult===1?planRecurring()" in tpl
+      and "t.mult===1?recurring.map(i=>+i.dollars||0)" in tpl)
 check("what the client asked for is recorded and never overwritten",
       "S.budgetAsked=+v||0" in tpl and "budgetAsked" in
       tpl.split("function syncBudgetToPlan")[1][:600])
