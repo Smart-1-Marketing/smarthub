@@ -53,7 +53,7 @@ class VoiceCaptureRequest(db.Model):
     cloudinary_public_id = db.Column(db.String(500), default="")
     consent = db.Column(db.Boolean, default=False, nullable=False)
 
-    def is_available(self, now=None):
+    def still_open(self, now=None):
         now = now or datetime.utcnow()
         if self.revoked or self.status != "pending":
             return False
