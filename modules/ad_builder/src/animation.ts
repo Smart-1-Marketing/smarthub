@@ -321,7 +321,13 @@ export function planAnimation(spec: AnimationSpec, ctx: PlanContext = {}): Anima
     frames.push({ ms, slide: 1, tag: 'slide 1', label: 'Slide 1 — the ad as built' });
 
     const asked = slidesFor(spec, ctx.size);
-    const usable = asked.filter((s) => !copyIsEmpty(s));
+    // slideNo is the number the operator actually typed against (asked[0] is
+    // always "slide 2", whatever else got filtered out around it), tracked
+    // alongside the patch because an empty slide mixed in with an over-the-
+    // limit request shifts a filtered index away from the real slide number.
+    const usable = asked
+      .map((patch, i) => ({ patch, slideNo: i + 2 }))
+      .filter((s) => !copyIsEmpty(s.patch));
     if (usable.length < asked.length) {
       adjustments.push(
         `${asked.length - usable.length} slide(s) had nothing typed on them and were left out.`,
@@ -329,16 +335,23 @@ export function planAnimation(spec: AnimationSpec, ctx: PlanContext = {}): Anima
     }
     const extra = ANIMATION_RULES.maxSlides - 1;
     const kept = usable.slice(0, extra);
-    if (usable.length > extra) {
+    const dropped = usable.slice(extra);
+    if (dropped.length) {
+      const nums = dropped.map((s) => s.slideNo);
+      const named = nums.length === 1
+        ? String(nums[0])
+        : `${nums.slice(0, -1).join(', ')} and ${nums[nums.length - 1]}`;
       adjustments.push(
-        `${usable.length + 1} slides were asked for; ${ANIMATION_RULES.maxSlides} is the most a banner carries here, ` +
-        `so slide${usable.length - extra > 1 ? 's' : ''} ${kept.length + 2}` +
-        `${usable.length - extra > 1 ? ` to ${usable.length + 1}` : ''} ${usable.length - extra > 1 ? 'were' : 'was'} left out.`,
+        // The total counts every slot asked for, blank ones included -- the
+        // blank ones were already reported above, and leaving them out here
+        // would undercount how many slides the operator actually filled in.
+        `${asked.length + 1} slides were asked for; ${ANIMATION_RULES.maxSlides} is the most a banner carries here, ` +
+        `so slide${nums.length > 1 ? 's' : ''} ${named} ${nums.length > 1 ? 'were' : 'was'} left out.`,
       );
     }
-    kept.forEach((patch, i) => {
+    kept.forEach((s, i) => {
       frames.push({
-        copy: patch,
+        copy: s.patch,
         ms,
         slide: i + 2,
         tag: `slide ${i + 2}`,
@@ -389,6 +402,13 @@ export function planAnimation(spec: AnimationSpec, ctx: PlanContext = {}): Anima
     if (Number(spec.frames) > ANIMATION_RULES.maxFrames) {
       adjustments.push(
         `${spec.frames} frames were asked for; ${ANIMATION_RULES.maxFrames} is the most used here.`,
+      );
+    } else if (Number(spec.frames) > 0 && Number(spec.frames) < 3) {
+      // The other silent clamp this function's own docstring says not to
+      // have: a pulse below 3 frames has nowhere to put the peak, so it is
+      // held to 3, and that has to be said the same way the too-many case is.
+      adjustments.push(
+        `${spec.frames} frame(s) were asked for; a pulse needs at least 3 to rise and fall, so it runs at 3.`,
       );
     }
 
