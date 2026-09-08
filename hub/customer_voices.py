@@ -141,6 +141,12 @@ def create():
         record_id = str(uuid.UUID(record_id))
     except ValueError:
         raise LibraryError("Reload the page before submitting this voice.") from None
+    recovery_confirmation = form.get("recovery_confirmation", "")
+    if recovery_confirmation:
+        try:
+            recovery_confirmation = str(uuid.UUID(recovery_confirmation))
+        except ValueError:
+            raise LibraryError("Confirm that the voice was not created before retrying.") from None
     existing_id = form.get("voice_id", "").strip()
     if existing_id and not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", existing_id):
         raise LibraryError("Enter a valid ElevenLabs voice ID.")
@@ -180,12 +186,17 @@ def create():
     def reserve(rows):
         if record_id in rows:
             old = rows[record_id]
-            if old.get("status") != "failed" or old.get("fingerprint") != fingerprint:
+            confirmed_absent = (old.get("status") == "needs_review" and not old.get("voice_id")
+                                and recovery_confirmation and recovery_confirmation not in old.get("recovery_confirmations", []))
+            if (old.get("status") != "failed" and not confirmed_absent) or old.get("fingerprint") != fingerprint:
                 prior.append(old)
                 return None
+            row["recovery_confirmations"] = list(old.get("recovery_confirmations", []))
+            if confirmed_absent:
+                row["recovery_confirmations"].append(recovery_confirmation)
             # A retry still checks other tabs for an accepted or in-flight clone.
         if not existing_id:
-            matching = next((r for r in rows.values() if r.get("fingerprint") == fingerprint and r.get("status") != "failed"), None)
+            matching = next((r for r in rows.values() if r.get("id") != record_id and r.get("fingerprint") == fingerprint and r.get("status") != "failed"), None)
             if matching:
                 prior.append(matching)
                 return None

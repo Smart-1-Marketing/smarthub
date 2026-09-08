@@ -3,7 +3,7 @@
   const form = document.getElementById('cv-form');
   const get = id => document.getElementById(id);
   const states = {ready:'Ready to use', verification_required:'Verification required', creating:'Awaiting confirmation', needs_review:'Confirmation needed', failed:'Not saved — retry after correction'};
-  let requestId = crypto.randomUUID();
+  let requestId = crypto.randomUUID(), recoveryConfirmation = null;
   async function api(url, options) {
     const res = await fetch(url, options); let data;
     try { data = await res.json(); } catch (_) { throw new Error('The server did not confirm this request. Refresh the library before trying again.'); }
@@ -27,10 +27,20 @@
           button.onclick = async () => { button.disabled = true; try { await api(`/api/customer-voices/${encodeURIComponent(v.id)}/refresh`, {method:'POST'}); await load(); } catch(e) { status.textContent = e.message; button.disabled = false; } };
           row.append(button);
         }
+        if (v.status === 'needs_review' && !v.voice_id) {
+          const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry upload after checking ElevenLabs';
+          retry.onclick = () => {
+            if (!window.confirm('Have you checked the connected ElevenLabs account and confirmed this voice was NOT created? Continuing allows a new cloning attempt.')) return;
+            requestId = v.id; recoveryConfirmation = crypto.randomUUID(); form.reset(); get('cv-mode').value = 'upload'; get('cv-mode').onchange();
+            get('cv-name').value = v.name || ''; get('cv-client').value = v.client || ''; get('cv-description').value = v.description || '';
+            get('cv-submit').disabled = false; get('cv-message').textContent = 'Select the same recordings, confirm permission, then create the voice again.'; get('cv-files').focus();
+          };
+          row.append(retry);
+        }
         if (v.status === 'needs_review' || v.status === 'failed') {
           const recover = document.createElement('button'); recover.type = 'button'; recover.textContent = 'Use existing ElevenLabs voice ID';
           recover.onclick = () => {
-            requestId = crypto.randomUUID(); form.reset(); get('cv-mode').value = 'existing'; get('cv-mode').onchange();
+            requestId = crypto.randomUUID(); recoveryConfirmation = null; form.reset(); get('cv-mode').value = 'existing'; get('cv-mode').onchange();
             get('cv-name').value = v.name || ''; get('cv-client').value = v.client || ''; get('cv-id').value = v.voice_id || '';
             get('cv-submit').disabled = false; get('cv-message').textContent = 'Paste the voice ID from ElevenLabs to save the existing voice without creating another clone.';
             get('cv-id').focus();
@@ -74,6 +84,8 @@
     if (files.length > 5 || files.some(f => !f.size || f.size > 25*1024*1024) || files.reduce((n,f) => n+f.size,0) > 50*1024*1024) { message.textContent = 'Use 1–5 nonempty recordings, at most 25 MB each and 50 MB total.'; return; }
     button.disabled = true; message.textContent = 'Saving voice… This can take a few minutes.';
     const body = new FormData(form); body.set('authorized', 'true'); body.set('request_id', requestId);
+    if (recoveryConfirmation) body.set('recovery_confirmation', recoveryConfirmation);
+    recoveryConfirmation = null;
     try {
       const {voice} = await api('/api/customer-voices', {method:'POST', body});
       message.textContent = voice.status === 'ready' ? 'Saved. This voice is now available in all speech creators.' : 'Saved. Complete verification in ElevenLabs, then refresh its status.';
@@ -81,7 +93,7 @@
     } catch(e) { message.textContent = e.message; button.disabled = false; get('cv-new').hidden = false; }
     await load();
   };
-  get('cv-new').onclick = () => { requestId = crypto.randomUUID(); form.reset(); get('cv-mode').onchange(); get('cv-submit').disabled = false; get('cv-new').hidden = true; get('cv-message').textContent = ''; };
+  get('cv-new').onclick = () => { requestId = crypto.randomUUID(); recoveryConfirmation = null; form.reset(); get('cv-mode').onchange(); get('cv-submit').disabled = false; get('cv-new').hidden = true; get('cv-message').textContent = ''; };
   get('cv-reload').onclick = load;
   load();
 })();

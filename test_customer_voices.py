@@ -172,6 +172,21 @@ class CustomerVoiceTests(unittest.TestCase):
         self.assertEqual(self.submit(key).status_code, 201)
         self.assertEqual(self.provider.call_count, 2)
 
+    def test_confirmed_absent_recovery_is_explicit_and_single_use(self):
+        key = str(uuid.uuid4())
+        self.provider.side_effect = voices.VoiceError("Timeout")
+        self.assertEqual(self.submit(key).status_code, 502)
+        self.assertEqual(self.submit(key).status_code, 409)
+        confirmation = str(uuid.uuid4())
+        self.assertEqual(self.submit(key, recovery_confirmation=confirmation).status_code, 502)
+        self.assertEqual(self.submit(key, recovery_confirmation=confirmation).status_code, 409)
+        self.assertEqual(self.provider.call_count, 2)
+        self.assertEqual(self.submit(key, recovery_confirmation=str(uuid.uuid4())).status_code, 502)
+        self.assertEqual(self.submit(key, recovery_confirmation=confirmation).status_code, 409)
+        self.provider.side_effect = None
+        self.assertEqual(self.submit(key, recovery_confirmation=str(uuid.uuid4())).status_code, 201)
+        self.assertEqual(self.provider.call_count, 4)
+
     def test_original_failed_tab_cannot_reclone_after_another_tab_succeeds(self):
         key = str(uuid.uuid4())
         self.provider.side_effect = voices.VoiceRequestRejected("Rejected")
