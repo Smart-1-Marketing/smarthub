@@ -534,13 +534,23 @@ def export_state() -> dict:
     Diagnostics row disagree about whether the export is current, with nothing
     on either screen saying which to believe.
 
+    `present` is kept apart from `period` because they are different absences.
+    Knack is read live; `products.json` is only the optional fallback for when
+    it cannot be reached, so **no file at all** is the ordinary state of most
+    deployments and not something an admin owes a fix for — `_knack_export()`
+    reads this flag to stay quiet about it. A file that exists and simply
+    names no month is the rarer, genuinely malformed case that flag leaves
+    standing.
+
     `_load` is cached on the file's mtime, so this is a dictionary lookup on
     every call after the first.
     """
     raw = _load("products.json")
-    period = str(raw.get("thisMonth") or "") if isinstance(raw, dict) else ""
+    present = isinstance(raw, dict)
+    period = str(raw.get("thisMonth") or "") if present else ""
     current = _current_period()
     return {
+        "present": present,
         "period": period,
         "label": _period_label(period),
         "current": current,

@@ -183,15 +183,34 @@ def _knack_export() -> list[Finding]:
     private fallback snapshot, refreshed out of band, which four cards on the
     dashboard are still measured in — and the dashboard says so in small grey
     text under the number, to a reader who cannot regenerate it.
+
+    Knack is read live, so the fallback file simply not existing is the
+    ordinary state of most deployments — nobody owes an admin a fix for a
+    file that was never meant to be there, and the dashboard already labels
+    the scorecard from the clock rather than from it. Flagging that as an
+    "error" with "nothing to fill in" is a permanent, unactionable red on a
+    panel whose whole job is to say what to go and do — the crying-wolf
+    failure this Hub keeps having to undo. Only a fallback file that
+    genuinely exists and names no month — a malformed export, not an absent
+    one — is worth a row here.
     """
     from . import knack_data
     state = knack_data.export_state()
+    if not state.get("present"):
+        return []
     if not state.get("period"):
-        # No month in the file at all. That is not a stale export and not a
-        # fresh one, and guessing either way is the confident wrong answer.
-        return [_not_measured("knack_export", EXPORT_PAGE, EXPORT_PATH,
-                              "the products export names no month",
-                              "no thisMonth in the private products fallback")]
+        # A real export file, with no month in it. That is not a stale
+        # export and not a fresh one, and guessing either way is the
+        # confident wrong answer — but unlike an absent file, this one is
+        # an admin's to fix: the file is there and was written wrong.
+        return [Finding(
+            key="knack_export", page=EXPORT_PAGE, page_path=EXPORT_PATH,
+            issue="The private products export exists but names no month "
+                  "(no thisMonth in it), so the scorecard cannot say whether "
+                  "it is current — the new, lost, up and down counts fall "
+                  "back to this month with nothing to compare against.",
+            fix="Refresh products.json in the private CLIENTS_DATA_DIR mount.",
+            count=1, level="warn")]
     if not state.get("stale"):
         return []
     return [Finding(

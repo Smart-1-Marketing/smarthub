@@ -44,21 +44,58 @@ wired into Fan Radio, Radio Promo or the Commercial Builder — each already
 has its own budget-aware writer, and a second writer beside one is the
 two-proposal-builders failure.
 
-## Still to wire (in this order)
+**Page analyzers** — `CTA_ANALYZER` is `hub/cta_review.py`, one reading for
+three screens (the SEO client record's Site Audits card, the Website Audit
+tool, the Landing Page Maker's prospect row): the page is fetched and
+measured by `modules/ads_builder/landing_page.observe()` first, an
+unreadable page is refused as *not measured* rather than reviewed anyway,
+and the observation travels beside the review so no screen has to take the
+model's word for what is on the page. `SOCIAL_PAGES_REVIEW` and
+`CONTENT_CALENDAR` are the Social Planner's `/api/pages-review` and
+`/api/calendar-draft` — the review is fed what the last site audit measured
+(`scan_facts.social_snapshot`) plus the record's saved profile URLs, with
+"no data could be retrieved" said per platform and a client with nothing
+measured refused rather than billed for a page of "not reviewed"; the
+calendar draft is a brainstorm that creates no slots, because the month
+builder is what makes posts.
 
-1. **Page analyzers** — `CTA_ANALYZER` as a shared helper (Landing Page
-   Maker, SEO client page, Homepage review); `SOCIAL_PAGES_REVIEW` +
-   `CONTENT_CALENDAR` into the social planner. The analyzers need real page
-   text: `{page_text}` / `{pages_block}` is the fetched page, and absent data
-   is labeled "no data could be retrieved", never invented.
-2. **Proposal last** — `SPEND_AND_DEMO` on the Executive Summary step (not
-   the Cover — the cover is visual and carries no copy). Touches the document
-   clients sign, so it goes after everything else has been read by a person.
-   `SNAP_CONCEPT` → Landing Page Maker rides along here or with step 2.
-3. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
-   `hub/audience_spec.py`, the rep-confirmation gate, the IO and proposal
-   reads, the client page. Its registry entry is already in
-   `hub/pickaxe_registry.py` so both live-call tools share one file.
+**Proposal briefing and the Snap** — `SPEND_AND_DEMO` is the Proposal
+Builder's `/api/spend-demo`, a *Market briefing (internal)* panel on the
+**Budget step** rather than the Executive Summary the roadmap first named:
+that step's own question ("what's the working budget?") is the question the
+briefing answers, and the summary here is a document section rather than a
+step. It is the one harvested prompt whose whole job is the model's general
+knowledge, so it is labeled a briefing rather than dressed as a reading,
+stored beside the quote as internal notes (`S.marketBriefing`), and reaches
+neither the proposal nor the IO — anything a rep carries into a section
+passes through `clean_ai_text()` like any other edit. The prompt's own
+"Hmm, I am not sure." hallucination brake is kept. `SNAP_CONCEPT` is the
+Landing Page Maker's `/api/landing/snap-concept`: the Snap positioning
+language lives in that prompt and nowhere else in writing, the draft is an
+idea to talk through, and it builds and saves nothing — the Build button is
+what makes a page.
+
+**Audience Finder** — the second live-call tool, wired at two grains. Per
+campaign: the Proposal Builder's `/api/find-audiences` asks the agency's
+audience catalog and tick-gates what comes back into the campaign. Per
+client — the "One Audience, Four Readers" build — `hub/audience_spec.py`
+holds one confirmed audience per client: the Client 360 **Target audience**
+card proposes (a billed button, the same Pickaxe with the Hub's own AI as
+the labeled fallback), a rep ticks and keeps, and the confirmation is read
+by the Proposal Builder's audience step (offered as one-press adds), the IO
+Builder's audiences question (its segments join the options, with a line
+saying where they came from) and `AD_COPY`'s `{audience}` prefill
+(`for_prompt()` — a value typed on the campaign always wins). Nothing is
+written by proposing, a failed read is never "no audience", and clearing is
+its own verb. The reply parser and candidate shaping are shared with the
+proposal route so the two callers cannot drift.
+
+## Still to wire
+
+Nothing. Every tool harvested from the package is absorbed or wired; the
+only excluded one (ROI for Digital Products) is excluded at the owner's
+direction, and Overcome Objections still awaits its prompt-frame export
+before it can be harvested at all.
 
 Rules that hold for every step: the prompts are near-verbatim from Pickaxes
 that produced accepted output for two years — do not rewrite them in the same

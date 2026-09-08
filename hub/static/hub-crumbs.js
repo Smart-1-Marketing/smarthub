@@ -67,6 +67,7 @@
     // the noun that says what the tool does.
     "dead-air": "Dead Air Cutter", "vertical-reframe": "Vertical Reframe",
     "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
+    "radio-scripts": "Radio Scripts",
     // Tools
     "website-audit": "Website Audit", "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
@@ -95,7 +96,8 @@
     "client-owners": "Assign Clients", "my-clients": "My Clients",
     // Named rather than left to the slug: title-casing gives "Qa Tasks".
     "qa-tasks": "QA Tasks",
-    "users": "Users"
+    "users": "Users",
+    "weather-setup": "Weather Trigger Setup"
   };
 
   // A mount that holds several tools: its second segment names the tool, so
@@ -147,7 +149,7 @@
   // their tool is no longer listed on. Display Ad Builder and Stock Photo
   // Search joined them later and were missed for the same reason.
   var CREATIVE = ["seo-images", "image-creator", "magic-resize", "bg-remover", "image",
-                  "image-picker", "radio-promo", "fan-radio", "landing-ads",
+                  "image-picker", "radio-promo", "fan-radio", "radio-scripts", "landing-ads",
                   "page-images", "commercial-builder", "display-ads",
                   "stock-photos", "video-backgrounds", "dead-air",
                   "vertical-reframe", "paint-animation",

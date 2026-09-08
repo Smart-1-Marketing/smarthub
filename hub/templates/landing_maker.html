@@ -42,6 +42,15 @@
           Needed for a prospect — it is where the brand, the services and the
           photography come from. Without it there is nothing to build from but
           the name.</p>
+        <p style="margin:8px 0 0">
+          <button type="button" class="btn-ghost" id="lpCtaBtn" onclick="lpCtaReview()">Review that page's CTAs first</button>
+          <span class="muted" id="lpCtaMsg" style="font-size:12px;margin-left:8px"></span>
+        </p>
+        <div id="lpCtaOut" hidden style="margin-top:8px;font-size:13px">
+          <div class="muted" id="lpCtaObserved" style="font-size:12px"></div>
+          <div id="lpCtaReview" style="white-space:pre-wrap;margin-top:6px"></div>
+          <div class="muted" id="lpCtaNote" style="font-size:12px;margin-top:6px"></div>
+        </div>
       </div>
 
       <div id="lpProposalRow">
@@ -118,6 +127,40 @@
 </div>
 
 <div class="card">
+  <div class="card-h"><h3>Draft a Smart 1 Snap concept {{ help_dot('landing_maker.snap.concept') if help_dot is defined else '' }}</h3></div>
+  <div class="card-b">
+    <p class="muted" style="font-size:13px;margin:0 0 10px">An idea to talk
+      through — five pages of content and how the Snap gets marketed, written
+      from the business above. Nothing is built or saved; the Build button is
+      what makes a page. A billed AI call, so it runs only when pressed.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label class="lp-l" for="snapType">What kind of Snap</label>
+        <select id="snapType" class="lp-i">
+          <option value="general">General / brand</option>
+          <option value="event">Event</option>
+          <option value="promotion">Promotion or offer</option>
+          <option value="lead capture">Lead capture</option>
+          <option value="menu or catalog">Menu / catalog</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:220px">
+        <label class="lp-l" for="snapExtra">Anything else worth knowing <span class="muted">&mdash; optional</span></label>
+        <input id="snapExtra" class="lp-i" placeholder="The event is a June 14 open house; they want bookings">
+      </div>
+      <div>
+        <button type="button" class="btn-ghost" id="snapBtn" onclick="lpSnapConcept()">Draft the concept</button>
+      </div>
+    </div>
+    <span class="muted" id="snapMsg" style="font-size:12px"></span>
+    <div id="snapOut" hidden style="margin-top:10px;font-size:13px">
+      <div id="snapConcept" style="white-space:pre-wrap"></div>
+      <div class="muted" id="snapNote" style="font-size:12px;margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
   <div class="card-h"><h3>Pages built {{ help_dot('landing_maker.pages.built') if help_dot is defined else '' }}</h3>
     <div class="right">
       <input id="lpSearch" placeholder="Search client, campaign or headline…"
@@ -153,6 +196,76 @@ function $(id){ return document.getElementById(id); }
 /* --- client or prospect ---------------------------------------------- */
 
 function lpKind(){ return $('lpKind').value; }
+
+/* Draft a Smart 1 Snap concept — an idea, never a build. The route fills
+   website/industry from the client's record where the form is blank, and
+   the panel says nothing was saved. Billed, so a button. */
+function lpSnapConcept(){
+  var client = $('lpClient').value.trim();
+  var msg = $('snapMsg');
+  if(!client){ msg.textContent = 'Name the business first.'; return; }
+  var btn = $('snapBtn'); btn.disabled = true;
+  msg.innerHTML = '<span class="spin"></span> Drafting the concept…';
+  fetch('/api/landing/snap-concept', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({client:client, website:$('lpSite').value.trim(),
+                            snap_type:$('snapType').value,
+                            extra:$('snapExtra').value.trim()})})
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+    .then(function(res){
+      btn.disabled = false; msg.textContent = '';
+      var d = res.d || {};
+      if(!res.ok || !d.ok){
+        msg.textContent = d.error || 'Nothing was drafted.';
+        return;
+      }
+      $('snapConcept').textContent = d.concept || '';
+      $('snapNote').textContent = d.note || '';
+      $('snapOut').hidden = false;
+    })
+    .catch(function(){
+      btn.disabled = false;
+      msg.textContent = 'Nothing was drafted.';
+    });
+}
+
+/* Review the prospect's current page before building one — the measured CTA
+   reading through /api/landing/cta-review. Billed, so a button and never a
+   page load; an unreadable page comes back as "not measured", never as a
+   review of nothing. */
+function lpCtaReview(){
+  var url = $('lpSite').value.trim();
+  var msg = $('lpCtaMsg');
+  if(!url){ msg.textContent = 'Type their website first.'; return; }
+  if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  var btn = $('lpCtaBtn'); btn.disabled = true;
+  /* .spin upgrades to the shared wait glyph where hub-thinking.js loaded. */
+  msg.innerHTML = '<span class="spin"></span> Reading the page, then reviewing…';
+  fetch('/api/landing/cta-review', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url:url, client:$('lpClient').value.trim()})})
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+    .then(function(res){
+      btn.disabled = false; msg.textContent = '';
+      var d = res.d || {};
+      if(!res.ok || !d.ok){
+        msg.textContent = d.error || 'The review could not be written.';
+        return;
+      }
+      var points = (d.observed && d.observed.conversion_points) || [];
+      $('lpCtaObserved').textContent = points.length
+        ? 'Measured on the page: ' + points.map(function(p){
+            return p.label + (p.evidence ? ' (' + p.evidence + ')' : ''); }).join(' · ')
+        : 'Measured on the page: no conversion points were found.';
+      $('lpCtaReview').textContent = d.review || '';
+      $('lpCtaNote').textContent = d.note || '';
+      $('lpCtaOut').hidden = false;
+    })
+    .catch(function(){
+      btn.disabled = false;
+      msg.textContent = 'The review could not be written.';
+    });
+}
 
 function lpKindChanged(){
   var prospect = lpKind() === 'prospect';

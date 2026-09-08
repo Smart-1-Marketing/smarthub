@@ -3862,6 +3862,67 @@ def api_draft_spot():
     }})
 
 
+@app.post("/api/spend-demo")
+def api_spend_demo():
+    """An internal market briefing for the budget conversation.
+
+    The harvested Spend and Demo Pickaxe (hub/prompts_harvested.py): what a
+    business like this typically puts into digital, and who lives where the
+    campaign runs — from the model's general knowledge, which is exactly what
+    it is sold as. The roadmap filed this under the summary/objectives
+    intake; it lives on the **Budget step**, because that step's own question
+    ("what's the working budget?") is the question the briefing answers, and
+    the Executive Summary here is a document section rather than a step.
+
+    Three rules. **Nothing in it is measured by the Hub**, and the note on
+    the answer says so — this is the one harvested prompt whose whole job is
+    the model's own knowledge, so it is labeled a briefing rather than
+    dressed as a reading. **It reaches the rep and never the document**: the
+    browser stores it beside the quote as internal notes, and anything a rep
+    carries into a section passes through clean_ai_text() like any other
+    edit. And the prompt's own "Hmm, I am not sure." hallucination brake is
+    kept — an answer that is only that sentence is the honest answer and is
+    returned as-is.
+    """
+    body = request.get_json(force=True) or {}
+    state = body.get("data") or {}
+    client = str(state.get("client") or "").strip()
+    if not client:
+        return jsonify({"ok": False, "error":
+                        "Name the client first — a briefing about nobody is "
+                        "a page of averages."}), 400
+
+    areas = campaign_areas(state)
+    locations = hub_areas.summary(areas, limit=4) if areas else ""
+    from hub import ai as hub_ai
+    from hub.prompts_harvested import SPEND_AND_DEMO
+    prompt = SPEND_AND_DEMO["prompt"].format(
+        client=client,
+        website=_spot_given(state.get("url"), "not provided"),
+        industry=_spot_given(state.get("industry"), "not recorded"),
+        locations=_spot_given(locations,
+                              "no target areas picked yet — say so rather "
+                              "than inventing a market"))
+    try:
+        text = hub_ai.chat(
+            [{"role": "user", "content": prompt}],
+            module="sales_builder", purpose=SPEND_AND_DEMO["purpose"],
+            temperature=SPEND_AND_DEMO["temperature"], max_tokens=1600)
+    except hub_ai.AIUnavailable as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    if not (text or "").strip():
+        return jsonify({"ok": False, "error": "The model returned nothing."}), 502
+    return jsonify({"ok": True, "briefing": {
+        "text": text.strip(),
+        "locations": locations,
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "note": "An internal briefing from the model's general knowledge — "
+                "the Hub measured none of it. It reaches neither the "
+                "proposal nor the insertion order; anything carried into a "
+                "section goes through the copy cleaner like any other edit.",
+    }})
+
+
 @app.get("/api/proposal-spec")
 def api_proposal_spec():
     """The Smart 1 proposal specification the wizard builds against."""
@@ -4354,25 +4415,13 @@ def api_find_targets():
     })
 
 
-def _parse_audience_reply(reply: str) -> list:
-    """A Pickaxe chat reply, split into one audience candidate per line.
-
-    The reply is prose from a chat agent, not JSON -- `hub/pickaxe.py`'s own
-    VERIFY note says the response shape is transcribed from Pickaxe's
-    published examples rather than exercised, so this reads defensively:
-    one candidate per line, a leading bullet, dash or number stripped, and
-    a line that reads like a heading or a whole sentence rather than a
-    short name is left out rather than offered as an audience nobody could
-    act on.
-    """
-    out = []
-    for raw in str(reply or "").split("\n"):
-        line = re.sub(r"^[-•*]\s*", "", raw.strip())
-        line = re.sub(r"^\d+[.)]\s*", "", line).strip()
-        if not line or line.endswith(":") or len(line) > 120:
-            continue
-        out.append(line)
-    return out
+# One reading of "a Pickaxe reply, split into audience candidates" and of
+# the tick-gated candidate shaping: both moved to hub/audience_spec.py the
+# day the Client 360 card became their second caller, so the next fix to
+# either lands once — the opportunistic-migration rule. The local name
+# stays so the route below reads unchanged.
+from hub.audience_spec import candidates as _audience_candidates
+from hub.audience_spec import parse_reply as _parse_audience_reply
 
 
 @app.post("/api/find-audiences")
@@ -4436,16 +4485,7 @@ def api_find_audiences():
             return jsonify({"ok": False, "error": "The audience research did not run",
                             "detail": str(exc2)}), 502
 
-    seen = {n.lower() for n in existing if n}
-    out = []
-    for name in names:
-        name = str(name).strip()[:120]
-        if not name or name.lower() in seen:
-            continue
-        seen.add(name.lower())
-        out.append({"name": name, "accepted": False})
-        if len(out) >= 20:
-            break
+    out = _audience_candidates(names, existing)
     return jsonify({
         "ok": True, "audiences": out, "source": source,
         "note": ("Nothing came back for this campaign. That is an answer — it "
@@ -5083,6 +5123,26 @@ def deliver_quote(qid):
             return jsonify({"ok": False, "error": "Quote not found"}), 404
         state = json.loads(q.data or "{}")
         ensure_sections(state)
+
+        # consulting_unresolved()'s own docstring calls this a question rather
+        # than a refusal, meant to be answered "afterwards" -- and delivery is
+        # the last moment "afterwards" can still mean anything. Every
+        # consulting line quotes the same product string, so a client who
+        # receives one with no description reads "Consulting & Strategic
+        # Services -- $5,000" and trafficking gets a line it cannot action.
+        # Checked before any of the work below, which is billed (a PDF) or
+        # writes to somebody else's system (Suite) -- there is nothing to
+        # undo by catching this first.
+        unresolved = consulting_unresolved(state)
+        if unresolved:
+            return jsonify({
+                "ok": False,
+                "error": (f"{len(unresolved)} strategy engagement"
+                          f"{'s have' if len(unresolved) != 1 else ' has'} "
+                          "nothing said about what it covers, and every one "
+                          "quotes the same product name on the document."),
+                "consulting_unresolved": unresolved,
+            }), 409
 
         pdf_bytes, title = build_proposal_pdf(q, state)
         q.pdf_blob = pdf_bytes

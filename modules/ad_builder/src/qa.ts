@@ -18,6 +18,7 @@ import type {
 } from './types';
 import type { ComposeOutput } from './svg';
 import { inkOverBackground, resolveColor } from './svg';
+import { bannedPressurePhrase } from './copywriter';
 import sharp from 'sharp';
 import { flatBackdrop, type FlatBackdrop } from './logo-tools';
 import { contrastRatio, hexLuminance, regionLuminance, relativeLuminance, type RasterResult } from './raster';
@@ -645,6 +646,32 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     } else {
       pass('text-coverage', `text covers roughly ${shown} of the canvas`);
     }
+  }
+
+  /* ------------------------------------------------------ pressure language
+     copywriter.ts's sanitise() is the only gate on pressure language anywhere
+     in this renderer, and it only ever runs on copy that step generated --
+     an operator typing "Hurry" straight into the build screen bypasses it
+     entirely, with nothing downstream reading the words at all. This is the
+     read this file was missing: it cannot cut the phrase out (an operator's
+     own typed copy is not this check's to rewrite), but it can refuse to let
+     it through silently. Read `bannedPressurePhrase()` from copywriter.ts
+     rather than keeping a second copy of `PRESSURE_PHRASES` here, or the two
+     lists come to disagree about what pressure language is. */
+  for (const role of [...TEXT_ROLES, 'cta'] as const) {
+    const text = copy[role];
+    const phrase = bannedPressurePhrase(text);
+    if (phrase) {
+      fail(
+        'pressure-language',
+        `${role} carries banned pressure language ("${phrase}" in "${text}"). This wording is ` +
+        `refused on every platform this renderer builds for, not only Amazon -- remove it ` +
+        `rather than shortening around it.`,
+      );
+    }
+  }
+  if (!findings.some((f) => f.check === 'pressure-language')) {
+    pass('pressure-language', 'no pressure language in the copy');
   }
 
   return findings;

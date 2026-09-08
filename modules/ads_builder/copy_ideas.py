@@ -61,6 +61,22 @@ _NO_INVENTED_CLAIMS = ("not provided — do not invent specific claims, awards, 
                        "prices or offers; keep claims generic to the industry")
 
 
+def _confirmed_audience(client: str) -> str:
+    """The audience confirmed on the client's record, or "".
+
+    hub/audience_spec.py — the Client 360 card. It only ever fills a blank:
+    a value typed on the campaign wins, because the rep on this campaign is
+    a better source than a confirmation made about the client in general —
+    the overlay rule hub/client_urls.py works to. Guarded so a standalone
+    run without the hub package costs the prefill and never the button.
+    """
+    try:
+        from hub import audience_spec
+        return audience_spec.for_prompt(str(client or "").strip())
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
 def prefill_ad_copy(campaign: dict) -> dict:
     intake = campaign.get("intake") or {}
     return {
@@ -69,7 +85,8 @@ def prefill_ad_copy(campaign: dict) -> dict:
         "industry": _given(campaign.get("sector"), "not provided"),
         "objective": _given(campaign.get("objective"), "not provided"),
         "audience": _given(campaign.get("targetAudience")
-                           or intake.get("audienceType"),
+                           or intake.get("audienceType")
+                           or _confirmed_audience(campaign.get("businessName")),
                            "not provided — write for the general local buyer"),
         "products": _given(intake.get("productOrService"), "not provided"),
         # The one USP-shaped fact the intake actually captures. Tri-state on

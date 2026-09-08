@@ -596,6 +596,42 @@ check("the card names no provider to the rep reading it",
 
 
 # =====================================================================
+section("A tile or a swatch can be confirmed as the brand, not just offered")
+# =====================================================================
+#
+# hub/brand_template.py is the pick that replaces the guess every reader of
+# brand_kit()'s position zero has always made. The route is a POST, and it
+# refuses on the same rule as everywhere a client's own record is written:
+# nothing this Hub has not itself already shown for that client.
+
+check("the route is a POST", 'route("/api/client/brand-template", methods=["POST"])' in HUB, True)
+check("and it writes through brand_template.save, never its own logic",
+      "from .brand_template import save as save_pick" in HUB, True)
+
+check("a tile can be picked without leaving the card",
+      "data-pick-logo" in C360, True)
+check("and cleared the same way", "data-clear-color" in C360, True)
+check("a swatch offers all three roles", "data-set-color=\"secondary\"" in C360, True)
+check("read off data attributes, never an inline onclick carrying the URL",
+      'onclick="setBrandPick(' in C360, False)
+check("the pick is posted through the one function", "function setBrandPick(" in C360, True)
+check("and it reloads the card rather than assuming the write landed",
+      "loadBrand(window.CURRENT_CLIENT" in C360, True)
+
+from hub import brand_template as _bt                          # noqa: E402
+
+confirmed = client_brand.brand_kit("Icon Solar", "iconsolar.com")
+res = _bt.save("Icon Solar", "iconsolar.com", "logo",
+               confirmed["logo_tiles"][0]["url"], actor="test-rep")
+check("a real tile is accepted through the same function the route calls",
+      res["ok"], True)
+check("and shows as confirmed on the next read",
+      client_brand.brand_kit("Icon Solar", "iconsolar.com")["logo_tiles"][0]["confirmed"],
+      True)
+_bt.save("Icon Solar", "iconsolar.com", "logo", "")   # leave the fixture as found
+
+
+# =====================================================================
 section("Contact details are offered into the strip that had none")
 # =====================================================================
 #

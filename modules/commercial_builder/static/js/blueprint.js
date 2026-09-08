@@ -149,15 +149,25 @@
                    "Runway animates the still you made — it does not invent one. "
                    + "A clip takes a few minutes; you can leave this page and come back.")
       + "</div>";
+    let data;
     try {
-      await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/generate-video`,
-                   { method: "POST", body: {} });
+      data = await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/generate-video`,
+                          { method: "POST", body: {} });
     } catch (e) {
       picker.innerHTML = "";
       return;                            // CB.api has already surfaced the reason
     }
     picker.innerHTML = "";
-    CB.toast("AI video generating — this takes a few minutes.");
+    // Runway's own mock mode reports the job "completed" immediately -- there
+    // is no clip to poll for -- so runwayPending() below never sees
+    // "processing" and watchVideo() never starts, which means the toast that
+    // would otherwise say so (in watchVideo's own tick) never fires either.
+    // Checked from the response the way openSpokespersonPicker already checks
+    // its own `live`, rather than left to noteMock's page-wide note alone: a
+    // rep who just pressed the button reads the toast, not a box further up
+    // the page.
+    CB.toast(data.live ? "AI video generating — this takes a few minutes."
+                       : "Mock mode — no video was produced (no Runway key set).", !data.live);
     await loadScenes();                  // re-render starts the poll
   }
 

@@ -62,6 +62,7 @@ WORK_KINDS = {
     # tool that made it is on the row; splitting the table by it would put two
     # lines on the record for what a person did in one sitting.
     "video_tools":          ("Video edit", "Video Tools"),
+    "radio_scripts":        ("Radio scripts", "Radio Scripts"),
     # Keyed on `utm`, which is the name the module actually logs under --
     # `modules/utm_builder/app.py` does `hub_audit.log("utm", …)`. This table
     # said `utm_builder`, work_log() drops a module it cannot name, and so
@@ -136,6 +137,10 @@ WORK_KINDS = {
     # or a Coverr/Pexels/Pixabay clip. Creative picked for a client is work,
     # the same reasoning `stock_photos` above is already here for.
     "video_backgrounds":    ("Video saved", "Video Search"),
+    # A client approving weather-triggered ad copy and a work order being
+    # cut against their account is a deliverable filed against them, the
+    # same reasoning `io_builder` and `landing_maker` above are here for.
+    "weather_trigger_setup": ("Weather triggers approved", "Weather Trigger Setup"),
 }
 
 # The other side of the same question, written down rather than left as an
@@ -508,6 +513,52 @@ def _norm(name: str) -> str:
 # Brand kit
 # ---------------------------------------------------------------------------
 
+def _template_for(client: str) -> dict:
+    """The rep-confirmed pick, or the same empty shell `brand_template.get`
+    would return on any failure — this card must never break because that
+    module could not be imported."""
+    try:
+        from hub import brand_template
+        return brand_template.get(client)
+    except Exception:                                   # noqa: BLE001
+        return {"client": client, "logo_url": "", "logo_theme": "",
+                "colors": {}, "picked": False,
+                "updated_at": "", "updated_by": ""}
+
+
+def _promote(items: list[dict], key: str, value: str) -> list[dict]:
+    """Move the confirmed pick to the front, in place of the raw guess.
+
+    Leaves the order untouched when the value is not there to find — a stale
+    pick, from a Brandfetch answer that has changed since it was confirmed,
+    must not raise and must not invent a row that is not in the list.
+    """
+    if not value:
+        return items
+    for i, it in enumerate(items):
+        if it.get(key) == value:
+            return [it] + items[:i] + items[i + 1:]
+    return items
+
+
+def _tag_confirmed(tiles: list[dict], palette: list[dict], tmpl: dict) -> None:
+    """Mark which tile and which swatches are the rep-confirmed pick.
+
+    In place, on the two lists `_merge()` just built for this call alone. A
+    tile or swatch the template names but that no longer appears — the
+    Brandfetch answer moved on — is simply left untagged: the pick still
+    shows through `template` itself, and nothing here invents a tile to hang
+    it on.
+    """
+    logo_url = tmpl.get("logo_url") or ""
+    for t in tiles:
+        t["confirmed"] = bool(logo_url) and t.get("url") == logo_url
+    colors = tmpl.get("colors") or {}
+    for c in palette:
+        roles = [role for role, hx in colors.items() if hx and hx == c.get("hex")]
+        c["confirmed"] = bool(roles)
+        c["role"] = roles[0] if roles else ""
+
 def _hex(value: str) -> str:
     v = str(value or "").strip()
     if not v:
@@ -626,6 +677,8 @@ def brand_kit(client: str, domain: str = "") -> dict:
         else:
             note = f"No brand data on file yet. Look it up from {dom}."
         tiles, palette = _merge([], [], observed)
+        tmpl = _template_for(client)
+        _tag_confirmed(tiles, palette, tmpl)
         return {"found": False, "client": client, "domain": domain,
                 "logos": [], "colors": [], "fonts": [],
                 "can_lookup": bool(dom and ready),
@@ -638,6 +691,11 @@ def brand_kit(client: str, domain: str = "") -> dict:
                 # there anything to draw", which is what the card asks.
                 "logo_tiles": tiles, "palette": palette,
                 "has_brand": bool(tiles or palette),
+                # The rep's confirmed pick, even with nothing found at
+                # Brandfetch — an observed-only tile can still be confirmed.
+                # See hub/brand_template.py for what does not yet follow from
+                # that: brand_guide_payload() still gates on `found` below.
+                "template": tmpl,
                 "note": note}
 
     logos = []
@@ -676,8 +734,17 @@ def brand_kit(client: str, domain: str = "") -> dict:
                           "usage": (f.get("type") if isinstance(f, dict) else "") or "",
                           "google": f"https://fonts.google.com/?query={name}"})
 
+    tmpl = _template_for(client)
+    # Position zero is what every caller here has always trusted as "the"
+    # logo and "the" colour — client_context.py and brand_guide_payload()
+    # both take [0] outright. Promoting the confirmed pick there means
+    # neither has to change to start reading it.
+    logos = _promote(logos, "url", tmpl.get("logo_url") or "")
+    colors = _promote(colors, "hex", (tmpl.get("colors") or {}).get("primary") or "")
+
     observed = _observed(domain or payload.get("domain") or "")
     tiles, palette = _merge(logos[:8], colors[:10], observed)
+    _tag_confirmed(tiles, palette, tmpl)
 
     return {
         "found": True, "client": client,
@@ -704,6 +771,9 @@ def brand_kit(client: str, domain: str = "") -> dict:
         # swatch saying which it came from. See `_merge`.
         "logo_tiles": tiles, "palette": palette,
         "has_brand": bool(tiles or palette or fonts),
+        # The rep's confirmed pick. `logos[0]` and `colors[0]` already carry
+        # it where one exists — this is what a screen reads to say so.
+        "template": tmpl,
     }
 
 

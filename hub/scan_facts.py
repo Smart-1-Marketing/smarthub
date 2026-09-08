@@ -526,3 +526,71 @@ def facts(domain: str) -> dict:
                  "None of these sections came back for this website — that is "
                  "a plan or a site that could not be read, not a clean bill."),
     }
+
+
+# ------------------------------------------------------------- social pages
+SOCIAL_PLATFORMS = [
+    # (label, name field, link field, found-boolean field, extra details)
+    ("Facebook", "facebook_page.page_name", "facebook_page.page_link",
+     "facebook_page.found",
+     [("followers", "facebook_page.page_follows"),
+      ("days since last post", "facebook_page.days_since_last_post")]),
+    ("Instagram", "instagram_account.instagram_username",
+     "instagram_account.instagram_link", "instagram_account.has_instagram", []),
+    ("LinkedIn", "", "linkedin.linkedin_profile_url", "linkedin.has_linkedin", []),
+    ("X", "x_(formerly_twitter).account_name",
+     "x_(formerly_twitter).account_link", "x_(formerly_twitter).found", []),
+    ("YouTube", "", "youtube.youtube_link", "youtube.has_youtube", []),
+    ("TikTok", "", "tiktok_account.tiktok_url", "tiktok_account.has_tiktok", []),
+]
+
+
+def social_snapshot(domain: str) -> dict:
+    """The social presence the last audit measured, one platform per row.
+
+    The reader for the Social Planner's pages review: the same
+    ``facebook_page.* / instagram_account.* / google_business_profile.*``
+    fields the *Social presence* and *Google Business Profile* groups above
+    already draw, returned as data rather than as rendered rows — a second
+    dotted-path walk of the same payload in the planner would be the drift
+    those groups exist to stop. A platform the scan found nothing for comes
+    back with ``measured: False`` rather than being dropped, because "no
+    data could be retrieved" is a sentence the review has to be handed, or
+    the model invents an analysis of a page it never saw. A domain with no
+    completed scan, or a table that would not answer, is the same shape one
+    level up: ``found: False`` with the error named.
+    """
+    report, meta, err = latest_report(domain)
+    if err:
+        return {"found": False, "error": err, "platforms": [], "gbp": {}}
+    if not report:
+        return {"found": False, "error": "", "platforms": [], "gbp": {}}
+
+    platforms = []
+    for label, name_path, link_path, found_path, extras in SOCIAL_PLATFORMS:
+        name = _s(_get(report, name_path)) if name_path else ""
+        link = _s(_get(report, link_path))
+        found = _b(_get(report, found_path))
+        # A platform the scan affirmed but returned no page for is still a
+        # measurement — "they have one, nothing more could be read" — and a
+        # False is an answer and is kept apart from "not measured".
+        row = {"platform": label, "name": name, "link": link, "found": found,
+               "measured": bool(name or link) or found is not None,
+               "details": []}
+        for detail_label, path in extras:
+            value = _n(_get(report, path))
+            if value is not None:
+                row["details"].append(f"{detail_label}: {value}")
+        platforms.append(row)
+
+    rating = _n(_get(report, "google_business_profile.rating"))
+    gbp = {
+        "measured": _get(report, "google_business_profile.is_listing_found") is not None,
+        "found": _b(_get(report, "google_business_profile.is_listing_found")),
+        "claimed": _b(_get(report, "google_business_profile.is_listing_claimed")),
+        "rating": rating,
+        "reviews": _n(_get(report, "google_business_profile.review_count")),
+    }
+    return {"found": True, "error": "", "scanned_at": meta.get("scanned_at", ""),
+            "scan_url": meta.get("scan_url", ""), "platforms": platforms,
+            "gbp": gbp}

@@ -50,9 +50,20 @@ AD_EXTENSIONS are wired (modules/ads_builder/copy_ideas.py); RADIO_SCRIPT and
 TV_SCRIPTS are wired into the Proposal Builder's creative gate
 (/sales/builder/api/draft-spot) — the two radio builders and the Commercial
 Builder keep their own budget-aware writers, so the gate is where a drafted
-spot was actually missing. The rest land with the module each names, in the
-order docs/pickaxe-integration.md gives, so the two-year-old wording travels
-here once rather than being re-harvested per PR.
+spot was actually missing. CTA_ANALYZER is wired through hub/cta_review.py
+(the SEO client record, the Website Audit tool and the Landing Page Maker,
+each on a measured fetch); SOCIAL_PAGES_REVIEW and CONTENT_CALENDAR are wired
+into the Social Planner (/api/pages-review and /api/calendar-draft — the
+review reads what the last site audit measured, and the calendar draft
+creates nothing, because the month builder is what makes posts).
+SPEND_AND_DEMO is the Proposal Builder's /api/spend-demo (an internal
+market briefing on the Budget step, never on the document) and SNAP_CONCEPT
+is the Landing Page Maker's /api/landing/snap-concept (an idea; the Build
+button is what makes a page). The Audience Finder — the second live-call
+tool — is wired twice: per campaign through the Proposal Builder's
+/api/find-audiences, and per client through hub/audience_spec.py (the
+Client 360 card, read by the proposal, the IO and AD_COPY's audience
+prefill). Nothing harvested from the package remains unwired.
 """
 from __future__ import annotations
 
@@ -150,8 +161,9 @@ AD_COPY = {
         "industry":     "client record",
         "objective":    "campaign — one or more of: Drive Sales, Leads, "
                         "Sign Ups, Increase total traffic",
-        "audience":     "audience_spec.for_prompt() once the Audience "
-                        "Finder integration lands; typed until then",
+        "audience":     "typed on the campaign; else the audience confirmed "
+                        "on Client 360 (audience_spec.for_prompt()); else "
+                        "'not provided'",
         "products":     "client record / campaign",
         "usp":          "client record (business description)",
         "cta":          "campaign",

@@ -81,7 +81,7 @@
 <div class="card seoc-card" id="cardSocial">
   <div class="seoc-cardhead"><h3>Social Media</h3>
     <button class="seoc-btn seoc-small" id="btnSocialSave">Save socials</button></div>
-  <div id="socialBody" class="seoc-socialgrid">Loading&hellip;</div>
+  <div id="socialBody">Loading&hellip;</div>
 </div>
 </section>
 
@@ -129,6 +129,17 @@
       </div>
       <div id="lcOut"></div>
     </div>
+  </div>
+
+  <div class="seoc-lc" id="ctaReviewBlock" style="display:none">
+    <div class="seoc-lc-head">
+      <div><b>What the page asks visitors to do</b>
+        <div class="seoc-muted">Fetches the home page, measures its calls to
+          action, and reviews them &mdash; from the page&rsquo;s copy, not a
+          rendered view. A billed AI call, so it runs only when pressed.</div></div>
+      <button class="seoc-btn seoc-small" id="ctaRun">Review the CTAs</button>
+    </div>
+    <div id="ctaRevOut"></div>
   </div>
 
   <div id="auditReports" style="display:none;margin-top:18px">
@@ -822,10 +833,15 @@ table.seoc-blogt input[type=checkbox]{width:auto}
 .seoc-dot.none{background:#d97706}
 .seoc-dot.not_sold{background:#cbd5e1}
 .seoc-socialgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
-.seoc-socialgrid .srow{display:flex;gap:6px;align-items:center}
-.seoc-socialgrid .srow b{width:76px;font-size:12px;color:#475569;text-transform:capitalize;flex:none}
-.seoc-socialgrid .srow input{flex:1;padding:7px 9px;border:1px solid #e2e8f0;border-radius:8px;font:12.5px 'Segoe UI',system-ui,sans-serif;min-width:0}
-.seoc-socialgrid .srow a{flex:none;color:#2563eb;text-decoration:none;font-size:13px}
+.seoc-socialgrid .s-row{display:flex;gap:6px;align-items:center}
+.seoc-socialgrid .s-row b{width:76px;font-size:12px;color:#475569;text-transform:capitalize;flex:none}
+.seoc-socialgrid .s-row input{flex:1;padding:7px 9px;border:1px solid #e2e8f0;border-radius:8px;font:12.5px 'Segoe UI',system-ui,sans-serif;min-width:0}
+.seoc-socialgrid .s-row input.s-label{flex:none;width:84px;color:#475569}
+.seoc-socialgrid .s-row a{flex:none;color:#2563eb;text-decoration:none;font-size:13px}
+.seoc-socialgrid .s-row .s-del{flex:none;border:0;background:none;cursor:pointer;color:#94a3b8;font-size:16px;line-height:1;padding:0 2px}
+.seoc-socialgrid .s-row .s-del:hover{color:#dc2626}
+.seoc-socialadd{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.seoc-socialadd select{padding:6px 9px;border:1px solid #e2e8f0;border-radius:8px;font:12.5px 'Segoe UI',system-ui,sans-serif;max-width:280px;flex:1}
 /* Traffic cards: a number with no direction is not a report.
    Tiles carry the change against the comparison period, tinted by direction,
    so the answer to "is this good?" is on the tile rather than in someone's
@@ -1365,7 +1381,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     safe('biz',     function(){ renderBiz(d); });
     safe('checks',  function(){ renderChecks(d.status); });
     safe('health',  function(){ renderHealth(d.health); });
-    safe('social',  function(){ renderSocial(d.social); });
+    safe('social',  function(){ loadSocial(); });
     /* Traffic is NOT loaded here any more: it is the expensive read (the
        Google index search plus the GA4 report), and it fires when the
        Traffic section is first opened. `loadTraffic()` is still called
@@ -1610,23 +1626,167 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   });
 
   // ---------------- social media urls ----------------
-  var SOCIAL_KEYS=['facebook','instagram','linkedin','twitter','youtube','tiktok','pinterest','yelp','gbp'];
-  function renderSocial(social){
-    social=social||{};
-    $('socialBody').innerHTML=SOCIAL_KEYS.map(function(k){
-      var v=social[k]||'';
-      return '<div class="srow"><b>'+(k==='gbp'?'Google Biz':k)+'</b>'
-        +'<input data-sk="'+k+'" value="'+esc(v)+'" placeholder="https://&hellip;">'
-        +(v?'<a href="'+esc(v)+'" target="_blank" rel="noopener">&#8599;</a>':'')
-        +'</div>';
+  // The same catalog-driven treatment as Client 360's Social & links card:
+  // only links that have a value render, and everything else -- the nine
+  // this used to hard-code plus the thirty-odd listing sites it never
+  // offered -- is one press away in the add menu. The catalog and the keys
+  // the server accepts both come from /api/client/social, so this page and
+  // the record can't drift apart the way a restated platform list would.
+  var SOCIAL_CATALOG=[], SOCIAL_LABELS={}, socialLoaded=[];
+
+  function socialLabelFor(k){
+    if(SOCIAL_LABELS[k]) return SOCIAL_LABELS[k];
+    var hit=SOCIAL_CATALOG.filter(function(c){return c.key===k;})[0];
+    return hit ? hit.label : k.replace(/^c_/,'').replace(/-/g,' ');
+  }
+  function socialCustomKey(label){
+    var slug=String(label||'').toLowerCase().replace(/[^a-z0-9]+/g,'-')
+      .replace(/^-+|-+$/g,'').slice(0,38);
+    if(!slug) return '';
+    var k='c_'+slug;
+    return SOCIAL_CATALOG.some(function(c){return c.key===k;}) ? '' : k;
+  }
+  function safeExternalUrl(value){
+    try{
+      var url=new URL(String(value||''));
+      return (url.protocol==='https:'||url.protocol==='http:')&&url.hostname?url.href:'';
+    }catch(e){ return ''; }
+  }
+  function socialRow(k,v,custom){
+    var head=custom
+      ? '<input class="s-label" value="'+esc(socialLabelFor(k))+'" placeholder="Name">'
+      : '<b>'+esc(socialLabelFor(k))+'</b>';
+    return '<div class="s-row" data-sk="'+esc(k)+'" data-custom="'+(custom?'1':'0')+'">'+head
+      +'<input class="s-url" value="'+esc(v||'')+'" placeholder="https://&hellip;">'
+      +(safeExternalUrl(v)?'<a href="'+esc(safeExternalUrl(v))+'" target="_blank" rel="noopener" title="Open">&#8599;</a>':'')
+      +'<button type="button" class="s-del" title="Remove this link">&times;</button></div>';
+  }
+  function socialUsedKeys(){
+    var used={};
+    document.querySelectorAll('#socialBody .s-row').forEach(function(r){
+      if(r.dataset.sk) used[r.dataset.sk]=1;});
+    return used;
+  }
+  function socialAddMenu(used){
+    // Only what isn't already on the record -- the caller passes what is
+    // used rather than the menu reading the page, so the rows it was built
+    // beside and the menu can't disagree.
+    used=used||{};
+    var groups=[], byGroup={};
+    SOCIAL_CATALOG.forEach(function(c){
+      if(used[c.key]) return;
+      if(!byGroup[c.group]){byGroup[c.group]=[];groups.push(c.group);}
+      byGroup[c.group].push(c);
+    });
+    var opts=groups.map(function(g){
+      return '<optgroup label="'+esc(g)+'">'+byGroup[g].map(function(c){
+        return '<option value="'+esc(c.key)+'">'+esc(c.label)+'</option>';
+      }).join('')+'</optgroup>';
     }).join('');
+    return '<div class="seoc-socialadd">'
+      +'<select id="socialAdd"><option value="">+ Add a link&hellip;</option>'+opts
+      +'<optgroup label="Anything else"><option value="__custom">Custom link&hellip;</option></optgroup></select>'
+      +'<span class="seoc-muted" style="font-size:11.5px">Pick a platform, paste the URL, then Save.</span>'
+      +'</div>';
+  }
+  function renderSocial(social,fromScan){
+    social=social||{};
+    var order=SOCIAL_CATALOG.map(function(c){return c.key;});
+    var keys=Object.keys(social).filter(function(k){return String(social[k]||'').trim();});
+    keys.sort(function(a,b){
+      var ia=order.indexOf(a), ib=order.indexOf(b);
+      if(ia<0) ia=999; if(ib<0) ib=999;
+      return ia-ib || a.localeCompare(b);
+    });
+    var rows=keys.map(function(k){return socialRow(k,social[k],order.indexOf(k)<0);}).join('');
+    $('socialBody').innerHTML=
+      '<div id="socialRows" class="seoc-socialgrid">'+rows+'</div>'
+      + (rows ? '' : '<div class="seoc-socialempty seoc-muted" style="padding:6px 0">'
+        +'No links saved for this client yet.</div>')
+      + ((fromScan&&fromScan.length)
+          ? '<div class="seoc-muted" style="font-size:11.5px;margin-top:8px">'
+            + fromScan.length + ' found on their own website ('
+            + fromScan.map(socialLabelFor).join(', ') + ') &mdash; the brand lookup didn&rsquo;t have '
+            + (fromScan.length>1?'them':'it') + '. Save to keep.</div>'
+          : '')
+      + socialAddMenu(keys.reduce(function(a,k){a[k]=1;return a;},{}));
+    wireSocial();
+  }
+  function wireSocial(){
+    var add=document.getElementById('socialAdd');
+    if(add) add.onchange=function(){
+      var k=add.value; add.value='';
+      if(!k) return;
+      var host=document.getElementById('socialRows');
+      if(!host) return;
+      var empty=$('socialBody').querySelector('.seoc-socialempty'); if(empty) empty.remove();
+      host.insertAdjacentHTML('beforeend',
+        k==='__custom' ? socialRow('','',true) : socialRow(k,'',false));
+      var row=host.lastElementChild;
+      wireSocialRows();
+      var f=row.querySelector(k==='__custom'?'.s-label':'.s-url'); if(f) f.focus();
+      // The menu must not keep offering what was just added.
+      var menu=document.getElementById('socialAdd');
+      if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
+      wireSocial();
+    };
+    wireSocialRows();
+  }
+  function wireSocialRows(){
+    document.querySelectorAll('#socialBody .s-del').forEach(function(b){
+      b.onclick=function(){
+        var row=b.closest('.s-row'); if(!row) return;
+        // Blank it rather than only dropping it from the page: the save
+        // below posts every key it started with, and an empty value is what
+        // tells the server to delete the link.
+        var u=row.querySelector('.s-url'); if(u) u.value='';
+        row.remove();
+        var menu=document.getElementById('socialAdd');
+        if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
+        wireSocial();
+      };
+    });
+  }
+  function socialFormState(){
+    var social={}, labels={};
+    document.querySelectorAll('#socialBody .s-row').forEach(function(row){
+      var k=row.dataset.sk||'';
+      if(row.dataset.custom==='1'){
+        var li=row.querySelector('.s-label');
+        k=socialCustomKey(li?li.value:'');
+        if(k){ labels[k]=(li.value||'').trim(); SOCIAL_LABELS[k]=labels[k]; }
+      }
+      if(!k) return;
+      social[k]=(row.querySelector('.s-url')||{value:''}).value.trim();
+    });
+    return {social:social, labels:labels};
+  }
+  function loadSocial(){
+    var domain=(detail&&detail.websites&&detail.websites[0]&&detail.websites[0].domain)||'';
+    fetch('/api/client/social?name='+encodeURIComponent(CLIENT)
+          +(domain?'&domain='+encodeURIComponent(domain):''))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        var social=d.social||{};
+        SOCIAL_CATALOG=d.catalog||[]; SOCIAL_LABELS=d.labels||{};
+        socialLoaded=Object.keys(social);
+        renderSocial(social,d.from_scan);
+      })
+      .catch(function(err){
+        $('socialBody').innerHTML='<span class="seoc-bad">Social links unavailable &mdash; '
+          +esc(err&&err.message||err)+'</span>';
+      });
   }
   $('btnSocialSave').onclick=function(){
-    var social={};
-    document.querySelectorAll('#socialBody input').forEach(function(i){social[i.dataset.sk]=i.value.trim();});
-    post('/api/client/social',{client:CLIENT,social:social}).then(function(d){
+    var state=socialFormState();
+    // Everything that was on the record when the page loaded and is no
+    // longer on it goes back as empty -- that is the delete.
+    socialLoaded.forEach(function(k){ if(!(k in state.social)) state.social[k]=''; });
+    post('/api/client/social',{client:CLIENT,social:state.social,labels:state.labels}).then(function(d){
       if(d.error){alert(d.error);return;}
-      renderSocial(d.social);
+      SOCIAL_LABELS=d.labels||{};
+      socialLoaded=Object.keys(d.social||{});
+      renderSocial(d.social,null);
       $('btnSocialSave').textContent='Saved ✓';
       setTimeout(function(){$('btnSocialSave').innerHTML='Save socials';},1500);
     });
@@ -1690,9 +1850,9 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     }).catch(function(err){ reset(); $('bizMsg').textContent='Lookup failed: '+err; });
   };
   function currentSocial(){
-    var s={};
-    document.querySelectorAll('#socialBody input').forEach(function(i){ if(i.value.trim()) s[i.dataset.sk]=i.value.trim(); });
-    return s;
+    var s=socialFormState().social, out={};
+    Object.keys(s).forEach(function(k){ if(s[k]) out[k]=s[k]; });
+    return out;
   }
 
   // ------- Brandfetch: autofill forms, offer keep/change on conflicts -------
@@ -3360,11 +3520,53 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   // offers to run one rather than showing an error.
   var AUDIT = null, lcTimer = null;
 
+  /* The measured CTA reading, through /api/seo/cta-review. It needs only a
+     reachable page, not a completed scan, so it is shown whenever the client
+     has a website — and it is billed, so nothing runs until the press. */
+  function initCtaReview(dom){
+    if(!dom) return;
+    $('ctaReviewBlock').style.display='block';
+    $('ctaRun').onclick=function(){
+      var btn=$('ctaRun'); btn.disabled=true;
+      $('ctaRevOut').innerHTML='<div class="seoc-muted"><span class="spin"></span> '
+        +'Reading the page, then reviewing…</div>';
+      fetch('/api/seo/cta-review',{method:'POST',credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:CLIENT,url:'https://'+dom})})
+        .then(function(r){return r.json().then(function(j){return {ok:r.ok,d:j};});})
+        .then(function(res){
+          btn.disabled=false;
+          var d=res.d||{};
+          if(!res.ok||!d.ok){
+            $('ctaRevOut').innerHTML='<span class="seoc-warn">'
+              +esc(d.error||'The review could not be written.')+'</span>';
+            return;
+          }
+          var points=(d.observed&&d.observed.conversion_points)||[];
+          $('ctaRevOut').innerHTML=
+            '<div class="seoc-muted" style="margin-top:8px">'
+            +(points.length
+              ? 'Measured on the page: '+esc(points.map(function(p){
+                  return p.label+(p.evidence?' ('+p.evidence+')':'');}).join(' · '))
+              : 'Measured on the page: no conversion points were found.')
+            +'</div>'
+            +'<div style="white-space:pre-wrap;margin-top:8px">'+esc(d.review||'')+'</div>'
+            +'<div class="seoc-muted" style="margin-top:6px">'+esc(d.note||'')+'</div>';
+        })
+        .catch(function(){
+          btn.disabled=false;
+          $('ctaRevOut').innerHTML='<span class="seoc-warn">The review could '
+            +'not be written.</span>';
+        });
+    };
+  }
+
   function initAudits(d){
     var w=(d.websites||[])[0]||{};
     var dom=String(w.domain||siteUrl||'').replace(/^https?:\/\/(www\.)?/,'')
               .replace(/\/.*$/,'').trim();
     var scansHref='/scans/'+(dom?'?q='+encodeURIComponent(dom):'');
+    safe('cta review', function(){ initCtaReview(dom); });
     if(!dom){
       $('auditBody').innerHTML='<span class="seoc-warn">No website on file for this '
         +'client, so there\'s nothing to match a scan against.</span> '

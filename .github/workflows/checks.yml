@@ -376,6 +376,17 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder scene-asset routes (Runway, upload, client assets)
+        # The six routes on routes/assets.py that generate-ai and generate-paint's
+        # own test files never covered: choose-ai-option, upload, use-client-asset,
+        # asset-source-priority, and the Runway pair generate-video / .../status.
+        run: |
+          if [ -f test_commercial_assets.py ]; then
+            python test_commercial_assets.py
+          else
+            echo "test_commercial_assets.py not on this branch — nothing to run."
+          fi
+
       - name: Client 360 social & links tests
         # The card renders only links that exist and offers the rest from a
         # catalogue that ships from the server, so the menu and the keys the
@@ -386,6 +397,17 @@ jobs:
             python test_client360_social.py
           else
             echo "test_client360_social.py not on this branch — nothing to run."
+          fi
+
+      - name: SEO client page social & links tests
+        # The same catalog, read by the second screen that shows it -- a link
+        # saved on Client 360 used to be invisible here, behind a hard-coded
+        # nine-key grid reading the same store. Guarded like the step above.
+        run: |
+          if [ -f test_seo_client_social.py ]; then
+            python test_seo_client_social.py
+          else
+            echo "test_seo_client_social.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder dashboard layout tests
@@ -1300,6 +1322,20 @@ jobs:
             echo "test_video_tools.py not on this branch — nothing to run."
           fi
 
+      - name: Radio Scripts tests
+        # The standalone script-writing tool: the word-budget gate, the
+        # forced-empty legal line, coverage and copy checks, and the guarded
+        # blueprint. No network -- OpenAI is stubbed at the same transport
+        # seam hub/openai_responses.py was built with. Guarded like the
+        # steps above so the workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_radio_scripts.py ]; then
+            python test_radio_scripts.py
+          else
+            echo "test_radio_scripts.py not on this branch — nothing to run."
+          fi
+
       - name: Web ticket field tests
         # The pinned object_107 ids, the form built from them, and what a
         # write may and may not contain. Guarded like the steps above so this
@@ -1764,6 +1800,17 @@ jobs:
       - name: SmartForecast lifecycle, storage and embed tests
         run: python3 test_smartforecast.py
 
+      # Weather Trigger Setup's own vocabulary: the cap enforced server-side,
+      # the month ordering, and evaluate_trigger() answering "not measured"
+      # rather than a guessed verdict when a snapshot cannot answer a rule.
+      - name: Weather trigger vocabulary and evaluation
+        run: python3 test_weather_triggers.py
+
+      # The campaign store, the copy guardrails, work order numbering, and
+      # the two blueprints -- one gated, one the client's own unguessable link.
+      - name: Weather Trigger Setup campaigns, copy and the public wizard
+        run: python3 test_weather_setup.py
+
       # The two radio commercial builders. Neither had a test, and the
       # customer-facing half of Fan Radio was behind the staff login: the
       # module has said since it was written that /r/, /api/public/ and
@@ -1920,6 +1967,16 @@ jobs:
       # directions: copy must reach a hand-tuned frame and layout must not.
       - name: One design, the whole size set
         run: python3 test_magic_resize.py
+
+      # The BrandTemplate decision the build plan left open: a rep's
+      # confirmed pick of which logo and which color are the brand, read by
+      # brand_kit() so every existing caller that takes position zero -- the
+      # Suite push, client_context.py, Magic Resize's project reference --
+      # gets the confirmed answer with no caller-side change. Also holds the
+      # refusal: a pick has to be one of the tiles brand_kit() is offering
+      # right now, never an invented URL or hex.
+      - name: A rep's brand pick, not every tool's guess
+        run: python3 test_brand_template.py
 
       # The primitives four screens of one product share. It also walks the
       # rendered HTML to assert the page wrapper still contains the page: one
@@ -2239,6 +2296,18 @@ jobs:
             python3 test_check_reconciliation.py
           else
             echo "test_check_reconciliation.py not on this branch — nothing to run."
+          fi
+      # One confirmed audience per client (hub/audience_spec.py) and its four
+      # readers: the Client 360 card, the Proposal Builder's audience step,
+      # the IO Builder's audiences question and AD_COPY's {audience} prefill.
+      # The model proposes and a person ticks; confirm is the only write; a
+      # failed lookup is an error and never an empty audience.
+      - name: Audience Finder — one audience, four readers
+        run: |
+          if [ -f test_audience_finder.py ]; then
+            python3 test_audience_finder.py
+          else
+            echo "test_audience_finder.py not on this branch — nothing to run."
           fi
       # hub/landing_images.py picks the pictures on a page a prospect reads,
       # and its docstring ends "a page may be short, it may not lie".

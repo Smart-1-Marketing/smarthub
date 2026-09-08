@@ -134,6 +134,29 @@ REGISTRY: list[Help] = [
        "master, not a spot built vertical: sound-off legibility and a "
        "two-second hook are decisions, not a crop."),
 
+    _h("radio_scripts.overview", "One idea, three lengths",
+       "Each of the three concepts is ONE idea rendered at :60/:30/:15 — "
+       "the :30 is a genuine cutdown of the :60, not a fresh direction, so "
+       "picking a favorite means picking one row rather than three. The "
+       "market, the team and any local shows you name are facts the copy is "
+       "required to use, not detail it might reach for, and the page flags a "
+       "set where none of the three concepts actually say them."),
+    # Numbers match modules/radio_scripts/engine_spec.WORD_BUDGETS -- said in
+    # words here rather than imported, the way every other entry in this
+    # registry is a plain literal rather than a value read from a module.
+    _h("radio_scripts.budgets", "Word counts are a hard gate, not a suggestion",
+       "140-160 words for :60, 65-75 for :30, 35-40 for :15, counted by "
+       "splitting on whitespace. A script outside its budget gets one "
+       "targeted rewrite asking for exactly that length; still outside "
+       "after that, it is kept and flagged rather than trimmed — trimming a "
+       ":60 down to size cuts the end of a sentence, which reads as a "
+       "mistake rather than an edit."),
+    _h("radio_scripts.legal", "The legal line is never written by AI",
+       "This box is always empty when a set is generated, whatever the model "
+       "wrote. An AI-authored disclaimer on somebody's spot is a liability "
+       "question for a person, not a guess worth having a model make — "
+       "fill it in yourself, or ask the client for the wording they need."),
+
     # ---------------- Social content requests ----------------
     # This screen shipped with no explanation on it at all, which is exactly
     # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
@@ -423,6 +446,15 @@ REGISTRY: list[Help] = [
        "absent was not measured; it is never shown as a zero. The name, "
        "address and phone number here are offered into the client info strip "
        "at the top of this record, where one press keeps them."),
+    _h("hub.client360.audience", "Target audience",
+       "Who this client's advertising is for, confirmed once and read "
+       "everywhere a campaign for them is built: the Proposal Builder's "
+       "audience step and the IO Builder's audiences question both offer "
+       "these segments, and Smart 1 Ads' copy writer reads them when the "
+       "campaign typed nothing. Find asks the agency's own audience catalog "
+       "— a billed call, which is why it is a button — and everything that "
+       "comes back is a suggestion until you tick it and press Keep. A "
+       "value typed on a campaign always beats what is confirmed here."),
 
     # ---------------- Ad Assets ----------------
     _h("hub.ad_assets.intro", "Creative out of Drive, into their library",
@@ -505,6 +537,14 @@ REGISTRY: list[Help] = [
        "is what a rep gets argued with over. A check the plan did not run "
        "raises nothing at all — absent is never a clean bill.",
        step=4, selector="[data-block='opportunities']"),
+    _h("hub.website_audit.cta_review", "What the page asks visitors to do",
+       "The home page is fetched and its calls to action are measured off "
+       "the markup first — the buttons with the words they actually say, the "
+       "phone links, the forms — and only then does a model judge them, so "
+       "the review is about a page somebody looked at rather than one it "
+       "imagined. A page that could not be read is refused as not measured, "
+       "never reviewed anyway. It is a billed AI call, which is why it is a "
+       "button and not part of loading the audit."),
     _h("hub.website_audit.lead", "Every audit is a lead",
        "Somebody typed a business and a website into this Hub, which makes "
        "them a prospect whatever else they are. The row goes to the one lead "
@@ -1957,6 +1997,15 @@ REGISTRY: list[Help] = [
        "built to win them, and it captures leads exactly the way a "
        "client page does, so a sample you send can bring one in before "
        "anything is signed."),
+    _h("landing_maker.snap.concept", "An idea, never a build",
+       "The Smart 1 Snap positioning — a mobile-first microsite reached by a "
+       "QR code, a short link or a text — lives in this prompt and nowhere "
+       "else in writing, so drafting the concept is how a rep gets the pitch "
+       "without retyping it. Nothing is built or saved: the Build button is "
+       "what makes a page, and this is what to say before it exists. Website "
+       "and industry are filled from the client's record where the form left "
+       "them blank, never invented. It is a billed AI call, which is why it "
+       "is a button rather than part of loading the page."),
     _h("landing_maker.pages.built", "Open the link, not this list",
        "A built page is served without the staff sidebar, the help "
        "layer or the feedback tab — deliberately, since a client "

@@ -44,19 +44,39 @@ def _who() -> tuple[str, str, bool]:
         return "", "", True
 
 
-def _my_department() -> dict | None:
+def _my_departments() -> list[dict]:
+    """Every department this signed-in person is on, in display order —
+    reading `list_departments()` filtered to their assigned ids rather than
+    building a second sorted list, so the picker and the admin roster agree
+    on how departments are ordered."""
     email, _name, _admin = _who()
-    dept_id = dv.assignment_for(email)
-    return dv.get_department(dept_id) if dept_id else None
+    ids = set(dv.assignments_for(email))
+    if not ids:
+        return []
+    return [d for d in dv.list_departments() if d.get("id") in ids]
+
+
+def _selected(mine: list[dict], requested_id: str) -> dict | None:
+    """Which of a person's own departments to show. The request may name one
+    (the picker's own links do) — honoured only when it is actually one of
+    theirs, or a stale/tampered `?dept=` would show somebody a colleague's
+    view under the "My View" heading. Falls back to the first, alphabetically,
+    which is `mine`'s own order."""
+    if not mine:
+        return None
+    by_id = {d["id"]: d for d in mine}
+    return by_id.get(requested_id) or mine[0]
 
 
 # --------------------------------------------------------------------- pages
 @bp.route("/views")
 def page_my_view():
     _email, name, is_admin = _who()
-    dept = _my_department()
+    mine = _my_departments()
+    dept = _selected(mine, request.args.get("dept") or "")
     return render_template("department_view.html", user=name, active="deptviews",
-                           department=dept, is_admin=is_admin, is_mine=True)
+                           department=dept, is_admin=is_admin, is_mine=True,
+                           my_departments=mine)
 
 
 @bp.route("/views/manage")
@@ -72,19 +92,21 @@ def page_view_department(dept_id):
     if dept is None:
         return ("That department view could not be found.", 404)
     _email, name, is_admin = _who()
-    mine = _my_department()
+    mine = _my_departments()
+    is_mine = any(d.get("id") == dept.get("id") for d in mine)
     return render_template("department_view.html", user=name, active="deptviews",
                            department=dept, is_admin=is_admin,
-                           is_mine=bool(mine and mine.get("id") == dept.get("id")))
+                           is_mine=is_mine, my_departments=mine)
 
 
 # ---------------------------------------------------------------------- API
 @bp.route("/api/department-views/mine")
 def api_mine():
     email, _name, is_admin = _who()
-    dept = _my_department()
-    return jsonify({"ok": True, "department": dept, "is_admin": is_admin,
-                    "email": email})
+    mine = _my_departments()
+    dept = _selected(mine, request.args.get("dept") or "")
+    return jsonify({"ok": True, "departments": mine, "department": dept,
+                    "is_admin": is_admin, "email": email})
 
 
 @bp.route("/api/department-views/admin/list")
@@ -157,14 +179,20 @@ def api_admin_save_blocks(dept_id):
 
 @bp.route("/api/department-views/admin/assignments", methods=["POST"])
 def api_admin_assign():
+    """Put one person on one department's view, or take them off it —
+    `on` says which. This route (under `/api/department-views/admin`, so
+    `hub/access.py`'s Utilities gate covers it) is the only place an
+    assignment is ever written; My View's own picker only ever reads."""
     email, _name, _admin = _who()
     body = request.get_json(silent=True) or request.form or {}
+    on = body.get("on")
     try:
-        dv.set_assignment(str(body.get("email") or ""), body.get("department_id"),
-                          actor_email=email)
+        department_ids = dv.set_assignment(
+            str(body.get("email") or ""), str(body.get("department_id") or ""),
+            on=True if on is None else bool(on), actor_email=email)
     except dv.DepartmentViewError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "department_ids": department_ids})
 
 
 def register_department_views(app):
