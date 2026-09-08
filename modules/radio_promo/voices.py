@@ -40,6 +40,42 @@ class VoiceError(RuntimeError):
     """Safe to show a user."""
 
 
+class VoiceRequestRejected(VoiceError):
+    """The clone was not accepted; retrying after correction is safe."""
+
+
+def _voice_failure(response) -> str:
+    """Translate provider errors without echoing recordings, credentials or raw bodies."""
+    code = ""
+    try:
+        body = response.json()
+        detail = body.get("detail", body) if isinstance(body, dict) else {}
+        if isinstance(detail, dict):
+            code = detail.get("status") or detail.get("code") or ""
+    except ValueError:
+        pass
+    messages = {
+        "missing_permissions": "The Hub's ElevenLabs API key needs Voices write permission to create customer voices. Update its permissions in ElevenLabs, then retry.",
+        "invalid_api_key": "ElevenLabs did not accept the Hub's API key. Update the ElevenLabs connection, then retry.",
+        "voice_limit_reached": "The ElevenLabs account has reached its voice limit. Free a voice slot or change the plan, then retry.",
+        "voice_creation_limit_reached": "The ElevenLabs account has reached its voice creation limit. Check the account allowance before retrying.",
+        "subscription_required": "The ElevenLabs account needs a subscription that supports Instant Voice Cloning. Update the plan, then retry.",
+        "can_not_use_instant_voice_cloning": "Instant Voice Cloning is unavailable on this ElevenLabs account. Check its plan and access before retrying.",
+        "invalid_audio": "ElevenLabs could not read the recording. Upload a playable MP3 or WAV recording and retry.",
+        "voice_not_found": "That voice is not accessible with the Hub's ElevenLabs account. Check the voice ID and account access.",
+    }
+    if code in messages:
+        return messages[code]
+    if response.status_code in (401, 403):
+        return "ElevenLabs denied access. Check the Hub's API key, Voices permissions and account access, then retry."
+    if response.status_code == 422:
+        return "ElevenLabs rejected the voice details or recording. Check the voice ID or upload a playable MP3 or WAV recording, then retry."
+    if response.status_code == 429:
+        return "ElevenLabs is limiting requests. Wait briefly, then retry."
+    label = f" ({code})" if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,80}", code) else ""
+    return f"ElevenLabs refused the voice request (HTTP {response.status_code}){label}."
+
+
 def api_key() -> str:
     """The ElevenLabs key, under whichever name it is actually set.
 
@@ -131,7 +167,7 @@ def get_voice(voice_id: str) -> dict:
     if res.status_code == 404:
         raise VoiceError(f"No ElevenLabs voice with the ID {voice_id}.")
     if res.status_code >= 400:
-        raise VoiceError(f"ElevenLabs refused the request (HTTP {res.status_code}).")
+        raise VoiceError(_voice_failure(res))
     try:
         raw = res.json()
     except ValueError as exc:
@@ -151,7 +187,9 @@ def clone_voice(name: str, samples: list[tuple[str, bytes, str]],
     the configured ElevenLabs account and discarded when this request ends.
     """
     if not samples:
-        raise VoiceError("Upload at least one voice recording.")
+        raise VoiceRequestRejected("Upload at least one voice recording.")
+    if not ready():
+        raise VoiceRequestRejected("The Hub is not connected to ElevenLabs. Add its API key in the service settings, then retry.")
     files = [("files", (filename, data, mime or "audio/mpeg"))
              for filename, data, mime in samples]
     form = {"name": name, "description": description,
@@ -162,13 +200,12 @@ def clone_voice(name: str, samples: list[tuple[str, bytes, str]],
     except requests.RequestException as exc:
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
     if res.status_code >= 400:
-        try:
-            detail = res.json().get("detail") or res.json().get("message")
-        except ValueError:
-            detail = ""
-        raise VoiceError(f"ElevenLabs could not create that clone (HTTP {res.status_code})"
-                         + (f": {detail}" if detail else "."))
-    created = res.json()
+        error_type = VoiceRequestRejected if 400 <= res.status_code < 500 and res.status_code != 408 else VoiceError
+        raise error_type(_voice_failure(res))
+    try:
+        created = res.json()
+    except ValueError as exc:
+        raise VoiceError("ElevenLabs returned an unreadable clone response.") from exc
     if not isinstance(created, dict):
         raise VoiceError("ElevenLabs did not return a voice ID for the clone.")
     voice_id = created.get("voice_id")

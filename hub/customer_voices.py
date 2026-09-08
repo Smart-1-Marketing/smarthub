@@ -141,6 +141,12 @@ def create():
         record_id = str(uuid.UUID(record_id))
     except ValueError:
         raise LibraryError("Reload the page before submitting this voice.") from None
+    recovery_confirmation = form.get("recovery_confirmation", "")
+    if recovery_confirmation:
+        try:
+            recovery_confirmation = str(uuid.UUID(recovery_confirmation))
+        except ValueError:
+            raise LibraryError("Confirm that the voice was not created before retrying.") from None
     existing_id = form.get("voice_id", "").strip()
     if existing_id and not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", existing_id):
         raise LibraryError("Enter a valid ElevenLabs voice ID.")
@@ -179,15 +185,27 @@ def create():
 
     def reserve(rows):
         if record_id in rows:
-            prior.append(rows[record_id])
-            return None
+            old = rows[record_id]
+            confirmed_absent = (old.get("status") == "needs_review" and not old.get("voice_id")
+                                and recovery_confirmation and recovery_confirmation not in old.get("recovery_confirmations", []))
+            if (old.get("status") != "failed" and not confirmed_absent) or old.get("fingerprint") != fingerprint:
+                prior.append(old)
+                return None
+            row["recovery_confirmations"] = list(old.get("recovery_confirmations", []))
+            if confirmed_absent:
+                row["recovery_confirmations"].append(recovery_confirmation)
+            # A retry still checks other tabs for an accepted or in-flight clone.
         if not existing_id:
-            matching = next((r for r in rows.values() if r.get("fingerprint") == fingerprint), None)
+            matching = next((r for r in rows.values() if r.get("id") != record_id and r.get("fingerprint") == fingerprint and r.get("status") != "failed"), None)
             if matching:
                 prior.append(matching)
                 return None
-        if existing_id and any(r.get("voice_id") == existing_id for r in rows.values()):
+        if existing_id and any(r.get("voice_id") == existing_id and r.get("status") not in ("failed", "needs_review") for r in rows.values()):
             raise LibraryError("That voice is already saved in Customer Voices.")
+        if existing_id:
+            for key in list(rows):
+                if rows[key].get("voice_id") == existing_id and rows[key].get("status") in ("failed", "needs_review"):
+                    del rows[key]  # Replace a failed read-only import, preserving one guard per voice.
         rows[record_id] = row
         return rows
 
@@ -201,10 +219,12 @@ def create():
         return jsonify(ok=True, voice=public(old))
     try:
         voice = voices.get_voice(existing_id) if existing_id else voices.clone_voice(name, samples, description)
-    except (voices.VoiceError, ValueError):
-        # The provider may have accepted a request whose response was lost.
-        message = "Could not confirm the voice. Check ElevenLabs, then save its existing voice ID if it was created. Repeating this submission will not create another clone."
-        _save(record_id, dict(status="needs_review", error=message))
+    except (voices.VoiceError, ValueError) as exc:
+        safe_to_retry = bool(existing_id) or isinstance(exc, voices.VoiceRequestRejected)
+        message = str(exc) if isinstance(exc, voices.VoiceError) else "ElevenLabs returned an unreadable voice response."
+        if not safe_to_retry:
+            message += " The result is uncertain. Check ElevenLabs and use its existing voice ID if it was created; this submission will not create another clone."
+        _save(record_id, dict(status="failed" if safe_to_retry else "needs_review", error=message))
         return jsonify(ok=False, error=message), 502
     changes = dict(voice_id=voice["voice_id"], status=_status(voice), preview_url=voice.get("preview_url") or "", error=None)
     _save(record_id, changes)
