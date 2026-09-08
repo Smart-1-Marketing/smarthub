@@ -180,11 +180,10 @@ def create():
     def reserve(rows):
         if record_id in rows:
             old = rows[record_id]
-            if old.get("status") == "failed" and old.get("fingerprint") == fingerprint:
-                rows[record_id] = row
-                return rows
-            prior.append(old)
-            return None
+            if old.get("status") != "failed" or old.get("fingerprint") != fingerprint:
+                prior.append(old)
+                return None
+            # A retry still checks other tabs for an accepted or in-flight clone.
         if not existing_id:
             matching = next((r for r in rows.values() if r.get("fingerprint") == fingerprint and r.get("status") != "failed"), None)
             if matching:

@@ -172,6 +172,15 @@ class CustomerVoiceTests(unittest.TestCase):
         self.assertEqual(self.submit(key).status_code, 201)
         self.assertEqual(self.provider.call_count, 2)
 
+    def test_original_failed_tab_cannot_reclone_after_another_tab_succeeds(self):
+        key = str(uuid.uuid4())
+        self.provider.side_effect = voices.VoiceRequestRejected("Rejected")
+        self.assertEqual(self.submit(key).status_code, 502)
+        self.provider.side_effect = None
+        self.assertEqual(self.submit().status_code, 201)
+        self.assertEqual(self.submit(key).status_code, 200)
+        self.assertEqual(self.provider.call_count, 2)
+
     def test_failed_import_can_be_retried_and_does_not_block_recovered_voice(self):
         with patch.object(voices, "get_voice", side_effect=voices.VoiceError("No access")):
             self.assertEqual(self.submit(voice_id="existing").status_code, 502)
