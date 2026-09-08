@@ -1965,6 +1965,15 @@ REGISTRY: list[Help] = [
        "built to win them, and it captures leads exactly the way a "
        "client page does, so a sample you send can bring one in before "
        "anything is signed."),
+    _h("landing_maker.snap.concept", "An idea, never a build",
+       "The Smart 1 Snap positioning — a mobile-first microsite reached by a "
+       "QR code, a short link or a text — lives in this prompt and nowhere "
+       "else in writing, so drafting the concept is how a rep gets the pitch "
+       "without retyping it. Nothing is built or saved: the Build button is "
+       "what makes a page, and this is what to say before it exists. Website "
+       "and industry are filled from the client's record where the form left "
+       "them blank, never invented. It is a billed AI call, which is why it "
+       "is a button rather than part of loading the page."),
     _h("landing_maker.pages.built", "Open the link, not this list",
        "A built page is served without the staff sidebar, the help "
        "layer or the feedback tab — deliberately, since a client "

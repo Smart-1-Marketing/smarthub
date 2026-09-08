@@ -1624,6 +1624,64 @@ for _doc in ("client_proposal.html", "client_gone.html"):
         check(f"...and {_doc} never renders it",
               "draftSpots" not in _f.read(), True)
 
+# ---------------------------------------------------------------------------
+section("the Budget step can ask for a market briefing")
+# ---------------------------------------------------------------------------
+# The harvested Spend and Demo Pickaxe. It is the one prompt whose whole job
+# is the model's general knowledge, so what is worth asserting is the
+# labeling: the answer says it is a briefing the Hub measured none of, it
+# rides beside the quote as internal notes, and it reaches neither the IO
+# payload nor anything a client reads.
+_real_chat2, _brief_calls = hub_ai.chat, []
+
+
+def _fake_brief(messages, **kw):
+    _brief_calls.append((messages[0]["content"], kw))
+    return "Businesses like this typically spend..."
+
+
+hub_ai.chat = _fake_brief
+try:
+    refused = api("post", "/sales/builder/api/spend-demo", json={"data": {}})
+    check("a briefing about nobody is refused",
+          refused["ok"] is False and "Name the client" in refused["error"],
+          refused)
+    check("and the model was never asked", not _brief_calls, _brief_calls)
+
+    briefed = api("post", "/sales/builder/api/spend-demo",
+                  json={"data": quote_state})
+    check("a named client gets the briefing", briefed["ok"] is True, briefed)
+    _bp, _bkw = _brief_calls[-1]
+    check("...from a prompt carrying the quote's own answers",
+          "Riverstone Dental" in _bp and "legal" in _bp, _bp[:200])
+    check("...and the target areas as the locations",
+          "Carmel" in _bp, _bp[:300])
+    check("...at the harvested prompt's own temperature (0)",
+          _bkw.get("temperature") == 0, _bkw)
+    check("...with the hallucination brake still in the prompt",
+          "Hmm, I am not sure." in _bp, _bp[-200:])
+    check("the answer is labeled a briefing the Hub measured none of",
+          "measured none of it" in briefed["briefing"]["note"],
+          briefed["briefing"]["note"])
+
+    no_areas = api("post", "/sales/builder/api/spend-demo",
+                   json={"data": {"client": "Riverstone Dental"}})
+    check("no target areas is said, never an invented market",
+          no_areas["ok"] and "no target areas picked yet" in _brief_calls[-1][0],
+          _brief_calls[-1][0][:300])
+finally:
+    hub_ai.chat = _real_chat2
+
+check("the wizard stores the briefing under its own key",
+      "S.marketBriefing" in _wizard_src, True)
+check("...which the IO payload deliberately does not carry",
+      "marketBriefing" not in _io_body, True)
+for _doc in ("client_proposal.html", "client_gone.html"):
+    with open(os.path.join(ROOT, "modules/sales_builder/templates", _doc),
+              encoding="utf-8") as _f:
+        check(f"...and {_doc} never renders it",
+              "marketBriefing" not in _f.read(), True)
+
 answered = dict(quote_state)
 answered["creativePlan"] = {"video": {"answer": cn.HAS},
                             "audio": {"answer": cn.COMP, "confirmed": True,
