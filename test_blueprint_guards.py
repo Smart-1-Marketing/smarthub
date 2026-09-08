@@ -331,6 +331,13 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                        "smart1marketing.com",
     "/tools/commercial-builder/review/<token>": "the cut a client watches and "
                                                 "signs off",
+    "/tools/commercial-builder/review/voice/<token>": "the voice capture page "
+                                                       "a client records or "
+                                                       "uploads a sample "
+                                                       "through, below the "
+                                                       "same /review/ prefix "
+                                                       "the login guard "
+                                                       "already exempts",
     "/tools/image-creator/review/<token>": "the graphic a client watches and "
                                            "signs off, ported from Commercial "
                                            "Builder's review link",
@@ -412,6 +419,10 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                                                        "or no",
     "/tools/commercial-builder/review/<token>/comment": "a timecoded note "
                                                         "against the cut",
+    "/tools/commercial-builder/review/voice/<token>/submit": "the client's "
+                                                             "recorded or "
+                                                             "uploaded voice "
+                                                             "sample",
     "/tools/image-creator/review/<token>/decide": "the client's approve, "
                                                   "approve-with-changes or "
                                                   "changes-required",
