@@ -115,6 +115,11 @@ jobs:
             [ast.parse(p.read_text(errors='ignore'), str(p)) for p in files]; \
             print(f'parsed {len(files)} Python files')"
 
+      - name: Image tool orientation, compression and provider failures
+        run: |
+          python test_image_tools.py
+          node test_image_optimizer_ui.js
+
       - name: JavaScript syntax
         run: python tools/jscheck.py
 

@@ -287,13 +287,28 @@ def api_clients():
 # =====================================================================
 # AI
 # =====================================================================
+class ImageProviderError(RuntimeError):
+    """An actionable provider failure safe to display in the editor."""
+
+
+def _openai_error(status: int) -> str:
+    app.logger.warning("Image Creator OpenAI request failed (HTTP %s)", status)
+    if status in (401, 403):
+        return "The AI connection was rejected. Ask an administrator to check its credentials and model access."
+    if status == 429:
+        return "The AI service is busy or its usage limit has been reached. Try later or ask an administrator to check the limit."
+    if status == 400:
+        return "The AI service could not accept this request. Try a different prompt or ask an administrator to check the model settings."
+    return "The AI service is unavailable right now. Please try again later."
+
+
 def _openai_json(system: str, user: str, timeout: int = 60):
     import json as _json
 
     import requests as _rq
     key = _settings().openai_key
     if not key:
-        raise RuntimeError("OPENAI_API_KEY is not set.")
+        raise ImageProviderError("AI is not configured. Ask an administrator to connect it.")
     r = _rq.post("https://api.openai.com/v1/chat/completions",
                  headers={"Authorization": f"Bearer {key}",
                           "Content-Type": "application/json"},
@@ -304,7 +319,7 @@ def _openai_json(system: str, user: str, timeout: int = 60):
                                     {"role": "user", "content": user}]},
                  timeout=timeout)
     if not r.ok:
-        raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:160]}")
+        raise ImageProviderError(_openai_error(r.status_code))
     try:  # record spend so /diagnostics doesn't under-report
         from hub import ai as _hub_ai
         _hub_ai.note_usage("image_creator", r.json(), purpose="copy")
@@ -330,8 +345,11 @@ def api_ai_photo_queries():
         return jsonify({"error": "Describe the photo you're looking for."}), 400
     try:
         out = _openai_json(_SEARCH_PROMPT, prompt)
-    except Exception as exc:                          # noqa: BLE001
+    except ImageProviderError as exc:
         return jsonify({"error": str(exc)}), 502
+    except Exception as exc:                          # noqa: BLE001
+        app.logger.warning("AI photo query failed (%s)", type(exc).__name__)
+        return jsonify({"error": "Photo suggestions could not be generated. Please try again later."}), 502
     queries = [str(q).strip() for q in (out.get("queries") or []) if str(q).strip()][:5]
     return jsonify({"queries": queries})
 
@@ -360,8 +378,11 @@ def api_ai_copy():
     }.get(mode, "Rewrite it more persuasively.")
     try:
         out = _openai_json(_COPY_PROMPT, f"{instruction}\n\nText: {text}")
-    except Exception as exc:                          # noqa: BLE001
+    except ImageProviderError as exc:
         return jsonify({"error": str(exc)}), 502
+    except Exception as exc:                          # noqa: BLE001
+        app.logger.warning("AI copy request failed (%s)", type(exc).__name__)
+        return jsonify({"error": "Copy suggestions could not be generated. Please try again later."}), 502
     return jsonify({"options": [str(o) for o in (out.get("options") or [])][:3]})
 
 
@@ -429,13 +450,17 @@ def api_ai_image():
                      json=payload, timeout=180)
         if not r.ok:
             _note(False)
-            return jsonify({"error": f"OpenAI {r.status_code}: {r.text[:200]}"}), 502
+            return jsonify({"error": _openai_error(r.status_code)}), 502
         item = (r.json().get("data") or [{}])[0]
-        _note(True)
+        if not isinstance(item, dict) or not (item.get("b64_json") or item.get("url")):
+            _note(False)
+            return jsonify({"error": "No image came back. Please try again later."}), 502
     except Exception as exc:                          # noqa: BLE001
         _note(False)
-        return jsonify({"error": str(exc)}), 502
+        app.logger.warning("AI image request failed (%s)", type(exc).__name__)
+        return jsonify({"error": "The image request could not be completed. Please try again later."}), 502
 
+    _note(True)
     if item.get("b64_json"):
         return jsonify({"image": f"data:image/png;base64,{item['b64_json']}"})
     if item.get("url"):

@@ -231,7 +231,8 @@ $('go').onclick = async () => {
     results = d.results||[];
     $('msg').textContent = '';
     $('resultMeta').textContent = results.length+' done · '+(d.credits_used||0)+' credit'
-      +((d.credits_used||0)===1?'':'s')+' used';
+      +((d.credits_used||0)===1?'':'s')+' used'
+      +(d.preview_calls ? ' · '+d.preview_calls+' free preview'+(d.preview_calls===1?'':'s') : '');
     $('errors').innerHTML = (d.errors||[]).length
       ? '<div class="warn">'+d.errors.map(esc).join('<br>')+'</div>' : '';
     render();

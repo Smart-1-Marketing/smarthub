@@ -345,13 +345,13 @@ def call_remove_bg(data: bytes, size: str = "auto") -> bytes:
         raise RuntimeError(f"remove.bg {r.status_code}: {detail}")
     if not r.content.startswith(b"\x89PNG"):
         raise RuntimeError("remove.bg returned something that isn't a PNG.")
-    # Only a successful call spends a credit. Failures above raise before this,
-    # so a rejected key or an out-of-credits response is never counted as usage.
-    try:
-        from hub import quotas as _q
-        _q.record("removebg", module="bg_remover")
-    except Exception:                                 # noqa: BLE001
-        pass
+    # Preview calls use the free allowance, not paid cutout credits.
+    if size != "preview":
+        try:
+            from hub import quotas as _q
+            _q.record("removebg", module="bg_remover")
+        except Exception:                             # noqa: BLE001
+            pass
     return r.content
 
 
@@ -430,7 +430,7 @@ def api_remove():
         rb_size = "auto"
 
     _sweep()
-    results, errors, credits_used = [], [], 0
+    results, errors, credits_used, preview_calls = [], [], 0, 0
 
     for up in uploads:
         raw = up.read()
@@ -453,8 +453,9 @@ def api_remove():
         else:
             try:
                 png = call_remove_bg(sized, rb_size)
-                billed = True
-                credits_used += 1
+                billed = rb_size != "preview"
+                credits_used += int(billed)
+                preview_calls += int(not billed)
             except Exception as exc:                  # noqa: BLE001
                 errors.append(f"{up.filename}: {exc}")
                 continue
@@ -480,9 +481,10 @@ def api_remove():
     if not results:
         return jsonify({"error": "Nothing could be processed. " + " ".join(errors)}), 400
 
-    _log("backgrounds_removed", count=len(results), credits=credits_used)
+    _log("backgrounds_removed", count=len(results), credits=credits_used,
+         preview_calls=preview_calls)
     return jsonify({"ok": True, "results": results, "errors": errors,
-                    "credits_used": credits_used})
+                    "credits_used": credits_used, "preview_calls": preview_calls})
 
 
 @app.route("/api/save", methods=["POST"])
