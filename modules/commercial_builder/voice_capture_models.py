@@ -3,6 +3,10 @@
 Kept in its own model module so the feature can add a new table safely on
 existing SmartHub databases. The Hub's normal create_all pass creates missing
 tables; no existing Commercial Builder table needs a column migration.
+
+The request stores its client/context labels as well as optional Commercial
+Builder foreign keys so the same capture can be reused by Radio Promo and
+other SmartHub creative tools without needing another voice-upload system.
 """
 
 from datetime import datetime
@@ -15,8 +19,17 @@ class VoiceCaptureRequest(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     token = db.Column(db.String(96), unique=True, index=True, nullable=False)
-    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=False, index=True)
-    client_id = db.Column(db.Integer, db.ForeignKey("cb_clients.id"), nullable=False, index=True)
+
+    # Optional native Commercial Builder references. Shared tools such as
+    # Radio Promo can instead use source_module/source_ref plus the stored
+    # client identity below.
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id"), nullable=True, index=True)
+    client_id = db.Column(db.Integer, db.ForeignKey("cb_clients.id"), nullable=True, index=True)
+    source_module = db.Column(db.String(60), default="commercial_builder", nullable=False)
+    source_ref = db.Column(db.String(160), default="")
+    client_name = db.Column(db.String(240), default="")
+    client_slug = db.Column(db.String(240), default="")
+    context_label = db.Column(db.String(300), default="")
 
     script_text = db.Column(db.Text, nullable=False)
     created_by = db.Column(db.String(200), default="")
@@ -53,6 +66,11 @@ class VoiceCaptureRequest(db.Model):
             "id": self.id,
             "project_id": self.project_id,
             "client_id": self.client_id,
+            "source_module": self.source_module or "",
+            "source_ref": self.source_ref or "",
+            "client_name": self.client_name or "",
+            "client_slug": self.client_slug or "",
+            "context_label": self.context_label or "",
             "status": self.status,
             "revoked": bool(self.revoked),
             "created_by": self.created_by or "",
