@@ -2369,6 +2369,8 @@ jobs:
       # anything, however much of what was picked came from a stock library.
       - name: AI model review permissions, profiles and accounting
         run: python3 test_ai_model_review.py
+      - name: Google Access client connection flow
+        run: python3 test_google_access_flow.py
       - name: A picture is theirs, or it is not on the page as theirs
         run: python3 test_landing_images.py
       # hub/schema_questions.py refuses to let a schema be approved while any
