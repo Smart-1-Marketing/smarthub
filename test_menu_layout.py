@@ -101,7 +101,8 @@ IMAGES = [
 VIDEOS = [("Commercial Builder", "/tools/commercial-builder/"),
           ("Video Search", "/tools/video-backgrounds/")]
 AUDIO = [("Radio Ad Creator", "/tools/radio-promo/"),
-         ("Fan Radio", "/tools/fan-radio/")]
+         ("Fan Radio", "/tools/fan-radio/"),
+         ("Radio Scripts", "/tools/radio-scripts/")]
 
 for label, tiles in (("Images", IMAGES), ("Videos", VIDEOS), ("Audio", AUDIO)):
     span = group_span(CREATIVE, label)

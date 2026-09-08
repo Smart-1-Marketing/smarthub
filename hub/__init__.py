@@ -6831,6 +6831,19 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Radio Scripts ----------------
+    # Also a blueprint: /tools/radio-scripts is not a prefix wsgi.py mounts,
+    # so it belongs to the hub app and needs its own guard rather than
+    # AuthGuard's.
+    try:
+        from modules.radio_scripts import register_radio_scripts
+        register_radio_scripts(app)
+    except Exception as _rs_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _rs_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- User accounts ----------------
     # Registered after init_db (models bind to the shared instance) and before
     # the help layer, so /diagnostics/users exists by the time the sidebar

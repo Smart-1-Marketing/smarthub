@@ -134,6 +134,29 @@ REGISTRY: list[Help] = [
        "master, not a spot built vertical: sound-off legibility and a "
        "two-second hook are decisions, not a crop."),
 
+    _h("radio_scripts.overview", "One idea, three lengths",
+       "Each of the three concepts is ONE idea rendered at :60/:30/:15 — "
+       "the :30 is a genuine cutdown of the :60, not a fresh direction, so "
+       "picking a favorite means picking one row rather than three. The "
+       "market, the team and any local shows you name are facts the copy is "
+       "required to use, not detail it might reach for, and the page flags a "
+       "set where none of the three concepts actually say them."),
+    # Numbers match modules/radio_scripts/engine_spec.WORD_BUDGETS -- said in
+    # words here rather than imported, the way every other entry in this
+    # registry is a plain literal rather than a value read from a module.
+    _h("radio_scripts.budgets", "Word counts are a hard gate, not a suggestion",
+       "140-160 words for :60, 65-75 for :30, 35-40 for :15, counted by "
+       "splitting on whitespace. A script outside its budget gets one "
+       "targeted rewrite asking for exactly that length; still outside "
+       "after that, it is kept and flagged rather than trimmed — trimming a "
+       ":60 down to size cuts the end of a sentence, which reads as a "
+       "mistake rather than an edit."),
+    _h("radio_scripts.legal", "The legal line is never written by AI",
+       "This box is always empty when a set is generated, whatever the model "
+       "wrote. An AI-authored disclaimer on somebody's spot is a liability "
+       "question for a person, not a guess worth having a model make — "
+       "fill it in yourself, or ask the client for the wording they need."),
+
     # ---------------- Social content requests ----------------
     # This screen shipped with no explanation on it at all, which is exactly
     # how Smart 1 Ads shipped: hub/help.py, hub_help.js and the tour machinery
