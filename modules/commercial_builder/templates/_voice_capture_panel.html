@@ -1,0 +1,40 @@
+<div class="cb-card" id="client-voice-capture-root"
+     data-project-id="{{ project.id }}"
+     data-list-url="{{ url_for('commercial_builder.cb_voice_capture.list_voice_capture_requests', project_id=project.id) }}"
+     data-create-url="{{ url_for('commercial_builder.cb_voice_capture.create_voice_capture_request', project_id=project.id) }}">
+  <div class="cb-flex-between" style="gap:18px;align-items:flex-start;">
+    <div>
+      <h3 style="margin-bottom:6px;">Use the client's own voice</h3>
+      <p style="margin:0;max-width:720px;">Create a secure link the client can open without a SmartHub login. They can record directly in their browser while reading a teleprompter, or upload an existing audio file. The submitted sample comes back here for review.</p>
+    </div>
+    <span class="cb-badge" style="white-space:nowrap;">Client link</span>
+  </div>
+
+  <details id="voice-capture-create" style="margin-top:16px;">
+    <summary style="cursor:pointer;font-weight:700;">Create a recording link</summary>
+    <div style="margin-top:14px;">
+      <div class="cb-field">
+        <label class="cb-label" for="voice-capture-script">Teleprompter script</label>
+        <textarea id="voice-capture-script" rows="11" placeholder="Loading the recommended voice calibration script…"></textarea>
+        <p class="cb-hint">The recommended script is designed to capture natural conversation, promotional energy, numbers, a phone number, urgency and a calmer reassuring delivery.</p>
+      </div>
+      <div class="cb-flex-between" style="gap:12px;flex-wrap:wrap;">
+        <button type="button" class="cb-btn cb-btn-primary" id="voice-capture-create-btn">Create client recording link</button>
+        <span class="cb-hint" id="voice-capture-create-status"></span>
+      </div>
+      <div id="voice-capture-new-link" style="display:none;margin-top:14px;padding:14px;border:1px solid var(--cb-border);border-radius:10px;background:var(--cb-surface-2,#f7f8fa);">
+        <label class="cb-label" for="voice-capture-link-input">Send this link to the client</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input id="voice-capture-link-input" type="text" readonly style="flex:1;min-width:260px;">
+          <button type="button" class="cb-btn" id="voice-capture-copy-btn">Copy link</button>
+          <a class="cb-btn" id="voice-capture-open-btn" href="#" target="_blank" rel="noopener">Open</a>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <div style="margin-top:18px;border-top:1px solid var(--cb-border);padding-top:14px;">
+    <div class="cb-flex-between"><strong>Recent requests</strong><button type="button" class="cb-btn cb-btn-sm" id="voice-capture-refresh">Refresh</button></div>
+    <div id="voice-capture-list" style="margin-top:10px;"><span class="cb-hint">Loading…</span></div>
+  </div>
+</div>

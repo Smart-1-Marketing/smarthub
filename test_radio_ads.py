@@ -1019,9 +1019,8 @@ check("and the second write is what is actually there",
 
 # The Cloudinary branch cannot be driven here -- no credentials -- so it is
 # read structurally, from that function's own AST rather than from the file's
-# text: `store_audio()` and `save_music_track()` are deliberately
-# overwrite=False, because each one's public_id carries a random token and
-# can never collide.
+# text: `store_audio()` beside it is deliberately overwrite=False, because its
+# public_id carries a random token and can never collide.
 import ast as _ast                                              # noqa: E402
 _frs_tree = _ast.parse((ROOT / "modules" / "fan_radio" / "store.py").read_text())
 _overwrites = {}
@@ -1035,9 +1034,8 @@ for _fn in _frs_tree.body:
             for _kw in _node.keywords:
                 if _kw.arg == "overwrite":
                     _overwrites[_fn.name] = getattr(_kw.value, "value", None)
-check("the deterministic upload overwrites and the random ones do not",
-      _overwrites,
-      {"store_asset": True, "store_audio": False, "save_music_track": False})
+check("the deterministic upload overwrites and the random one does not",
+      _overwrites, {"store_asset": True, "store_audio": False, "save_music_track": False})
 
 # A WAV mix served off the local disk must not go out as audio/mpeg. Every file
 # here was an MP3 until the mix existed, so the type was hardcoded -- and a
