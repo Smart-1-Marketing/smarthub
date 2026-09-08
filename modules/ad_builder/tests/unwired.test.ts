@@ -35,17 +35,14 @@ const ROOT = path.resolve(__dirname, '..');
  * Empty on purpose. It is the only way this check was worth adding — one
  * that starts red is one somebody switches off, which is the note
  * tools/integritycheck.py already carries.
+ *
+ * `animatableSizes` was the one entry here, arrived with the animated-GIF
+ * work and reachable only from jobs.ts's own dead import. It is called now
+ * -- animation.test.ts drives it directly, proving it returns the right
+ * sizes -- so the entry is gone rather than left to describe a function
+ * that no longer fits it, the same rule this file's own second test states.
  */
-const ALLOWED: Record<string, string> = {
-  animatableSizes:
-    'Arrived with the animated-GIF work (#222) and nothing calls it yet. '
-    + 'jobs.ts imported it and never used it, which is what disguised it -- '
-    + 'that import is gone. countAnimated() asks animationSupport() per size '
-    + 'because it needs the reason a size was skipped, so it is not the caller '
-    + 'this was written for. Left in place rather than deleted: it is a new '
-    + 'API on a feature still being built, and this entry is here so whoever '
-    + 'finishes it sees the half that is not wired.',
-};
+const ALLOWED: Record<string, string> = {};
 
 /**
  * Source with its comments removed.
