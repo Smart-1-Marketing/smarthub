@@ -59,6 +59,7 @@ CREATIVE_PREFIXES = (
     # Audio
     "/tools/radio-promo",
     "/tools/fan-radio",
+    "/tools/radio-scripts",
 )
 
 

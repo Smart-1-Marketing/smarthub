@@ -62,6 +62,7 @@ WORK_KINDS = {
     # tool that made it is on the row; splitting the table by it would put two
     # lines on the record for what a person did in one sitting.
     "video_tools":          ("Video edit", "Video Tools"),
+    "radio_scripts":        ("Radio scripts", "Radio Scripts"),
     # Keyed on `utm`, which is the name the module actually logs under --
     # `modules/utm_builder/app.py` does `hub_audit.log("utm", …)`. This table
     # said `utm_builder`, work_log() drops a module it cannot name, and so

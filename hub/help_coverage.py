@@ -128,6 +128,7 @@ PREFIXES: dict[str, str] = {
     "/tools/vertical-reframe/": "video_tools",
     "/tools/radio-promo/": "radio_promo",
     "/tools/fan-radio/": "fan_radio",
+    "/tools/radio-scripts/": "radio_scripts",
     # Client tools
     # Two segments, because that is the screen the registry publishes. The
     # Website Audit tool's keys are filed under `hub.website_audit.*` -- it is

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Radio Scripts — Smart 1 Hub{% endblock %}
+{% block content %}
+{# A radio script tool a rep can open for any client on any day -- built
+   standalone first so seeding it from an inbound lead later is the same
+   engine called with a prefilled brief, not a second code path. See
+   modules/radio_scripts/__init__.py. #}
+<div class="page-head s1d-page">
+  <h2>Radio Scripts {{ help_dot('radio_scripts.overview') if help_dot is defined else '' }}</h2>
+  <p>Three creative concepts, each rendered at :60 / :30 / :15 off one idea.
+     Every script is a draft — the legal-line slot is always left empty for a
+     person to fill in {{ help_dot('radio_scripts.legal') if help_dot is defined else '' }}.</p>
+</div>
+
+<div class="s1d-page" style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start">
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0">Brief</h3>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <label>Client name<br><input type="text" id="rsClient" placeholder="Monogram Homes"></label>
+      <label>Market<br><input type="text" id="rsMarket" placeholder="Cincinnati, OH"></label>
+      <label>Team / sponsorship tie-in<br><input type="text" id="rsTeam" placeholder="Cincinnati Bengals"></label>
+      <label>Package<br><input type="text" id="rsPackage" placeholder="Stadium to Screen — Growth"></label>
+      <label>Local shows (comma-separated)<br>
+        <input type="text" id="rsShows" placeholder="The Bengals Beat, Locked On Bengals"></label>
+      <label>Offer (leave blank if none) <br><input type="text" id="rsOffer" placeholder="$500 off any new build"></label>
+      <label>Phone<br><input type="text" id="rsPhone" placeholder="(513) 555-0100"></label>
+      <label>Web address<br><input type="text" id="rsUrl" placeholder="monogramhomes.com"></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        <label>Fan homes<br><input type="text" id="rsFanHomes"></label>
+        <label>Reachable homes<br><input type="text" id="rsReachHomes"></label>
+        <label>Screens<br><input type="text" id="rsScreens"></label>
+      </div>
+      <div class="hint" style="color:#64748B;font-size:12px">
+        Word budgets {{ help_dot('radio_scripts.budgets') if help_dot is defined else '' }}:
+        :60 is 140-160 words, :30 is 65-75, :15 is 35-40.
+      </div>
+      <button class="btn btn-primary" id="rsGenBtn" onclick="rsGenerate()">Generate 3 concepts</button>
+      <div id="rsGenStatus"></div>
+    </div>
+
+    <h3>Recent</h3>
+    <div id="rsRecent">Loading…</div>
+  </div>
+
+  <div id="rsResult" class="card" style="padding:16px">
+    <p style="color:#64748B">Fill in the brief and generate to see three concepts here.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var BASE = "{{ request.script_root }}";
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function briefBody() {
+    var shows = document.getElementById("rsShows").value
+      .split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    return {
+      client_name: document.getElementById("rsClient").value,
+      market: document.getElementById("rsMarket").value,
+      team: document.getElementById("rsTeam").value,
+      package: document.getElementById("rsPackage").value,
+      local_shows: shows,
+      offer: document.getElementById("rsOffer").value,
+      phone: document.getElementById("rsPhone").value,
+      url: document.getElementById("rsUrl").value,
+      fan_homes: document.getElementById("rsFanHomes").value,
+      reachable_homes: document.getElementById("rsReachHomes").value,
+      screens: document.getElementById("rsScreens").value
+    };
+  }
+
+  function scriptBlock(length, text) {
+    if (!text) return "";
+    return '<div class="hint" style="font-weight:600;margin-top:8px">:' + length + '</div>' +
+      '<p style="white-space:pre-wrap">' + esc(text) + "</p>";
+  }
+
+  function flagLine(flag) {
+    var color = flag.level === "block" ? "#B42318" : "#8A5300";
+    var tag = flag.length ? "[:" + flag.length + "] " : "";
+    return '<div style="color:' + color + ';font-size:12.5px">⚠ ' + tag +
+      esc(flag.message) + "</div>";
+  }
+
+  function concept(c, i, setId) {
+    var scripts = c.scripts || {};
+    var tag = c.tag || {};
+    var flags = (c.flags || []).map(flagLine).join("");
+    return '<div class="card" style="padding:14px;margin-bottom:14px">' +
+      "<h4 style=\"margin:0 0 4px\">Concept " + (i + 1) + ": " + esc(c.idea || "(untitled)") + "</h4>" +
+      (c.talent_direction ? '<div class="hint">Talent direction</div><p>' + esc(c.talent_direction) + "</p>" : "") +
+      (c.sfx_notes ? '<div class="hint">SFX / bed notes</div><p>' + esc(c.sfx_notes) + "</p>" : "") +
+      scriptBlock("60", scripts["60"]) + scriptBlock("30", scripts["30"]) + scriptBlock("15", scripts["15"]) +
+      '<div class="hint" style="margin-top:8px">Tag</div>' +
+      "<p>" + esc(tag.name || "") + (tag.offer ? " — " + esc(tag.offer) : " — (no offer supplied)") +
+      ". " + esc(tag.cta || "") + " " + esc(tag.phone_spoken || "") + " " + esc(tag.url_spoken || "") + "</p>" +
+      '<div class="hint">Legal line</div><p style="font-style:italic;color:#64748B">' +
+      esc(c.legal_line_label || "Supplied by client") + "</p>" +
+      flags +
+      '<button class="btn" style="margin-top:8px" onclick="rsRegenerate(' + setId + ',' + i + ')">Regenerate this concept</button>' +
+      "</div>";
+  }
+
+  function renderSet(row) {
+    var el = document.getElementById("rsResult");
+    var topFlags = (row.flags || []).map(flagLine).join("");
+    var body = '<div style="display:flex;justify-content:space-between;align-items:center">' +
+      "<h3 style=\"margin:0\">" + esc(row.client_name || "(no client on file)") + "</h3>" +
+      '<a class="btn" href="' + BASE + "/api/sets/" + row.id + '/pdf">Download PDF</a></div>' +
+      topFlags + "<div style=\"margin-top:10px\">" +
+      (row.concepts || []).map(function (c, i) { return concept(c, i, row.id); }).join("") +
+      "</div>";
+    el.innerHTML = body;
+  }
+
+  window.rsGenerate = function () {
+    var btn = document.getElementById("rsGenBtn");
+    var status = document.getElementById("rsGenStatus");
+    btn.disabled = true;
+    status.innerHTML = '<span class="spin" data-s1-think="ai"></span> Writing three concepts…';
+    fetch(BASE + "/api/generate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(briefBody())
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        btn.disabled = false;
+        status.innerHTML = "";
+        if (!res.ok || !res.d.ok) {
+          status.innerHTML = '<span style="color:#B42318">' + esc((res.d && res.d.error) || "Generation failed.") + "</span>";
+          return;
+        }
+        renderSet(res.d.set);
+        rsLoadRecent();
+      }).catch(function () {
+        btn.disabled = false;
+        status.innerHTML = '<span style="color:#B42318">Could not reach the server.</span>';
+      });
+  };
+
+  window.rsRegenerate = function (setId, index) {
+    fetch(BASE + "/api/sets/" + setId + "/regenerate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ concept_index: index })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ok) renderSet(d.set);
+    });
+  };
+
+  window.rsOpenSet = function (setId) {
+    fetch(BASE + "/api/sets/" + setId).then(function (r) { return r.json(); })
+      .then(function (d) { if (d.ok) renderSet(d.set); });
+  };
+
+  window.rsLoadRecent = function () {
+    var el = document.getElementById("rsRecent");
+    fetch(BASE + "/api/sets?limit=15").then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok || !d.sets.length) {
+          el.innerHTML = '<p class="hint">Nothing generated yet.</p>';
+          return;
+        }
+        el.innerHTML = d.sets.map(function (s) {
+          return '<div style="padding:6px 0;border-bottom:1px solid #E2E8F0">' +
+            '<a href="#" onclick="rsOpenSet(' + s.id + ');return false">' +
+            esc(s.client_name || "(no client)") + "</a>" +
+            '<div class="hint">' + esc(s.market || "") + "</div></div>";
+        }).join("");
+      });
+  };
+
+  rsLoadRecent();
+})();
+</script>
+{% endblock %}

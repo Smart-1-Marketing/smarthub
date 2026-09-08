@@ -1290,6 +1290,20 @@ jobs:
             echo "test_video_tools.py not on this branch — nothing to run."
           fi
 
+      - name: Radio Scripts tests
+        # The standalone script-writing tool: the word-budget gate, the
+        # forced-empty legal line, coverage and copy checks, and the guarded
+        # blueprint. No network -- OpenAI is stubbed at the same transport
+        # seam hub/openai_responses.py was built with. Guarded like the
+        # steps above so the workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_radio_scripts.py ]; then
+            python test_radio_scripts.py
+          else
+            echo "test_radio_scripts.py not on this branch — nothing to run."
+          fi
+
       - name: Web ticket field tests
         # The pinned object_107 ids, the form built from them, and what a
         # write may and may not contain. Guarded like the steps above so this
