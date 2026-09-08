@@ -114,6 +114,39 @@ class ReliabilityTests(unittest.TestCase):
             self.assertEqual(self.start().status_code, 409)
         self.assertEqual(generate.call_count, 1)
 
+    def test_customer_voice_presenter_synthesizes_once_and_reuses_uploaded_audio(self):
+        from hub import customer_voices
+        from modules.radio_promo import voices as tts
+        with patch.object(customer_voices, "records", return_value=[{"voice_id":"customer-voice", "status":"ready"}]), \
+             patch.object(tts, "ready", return_value=True), \
+             patch.object(tts, "render_audio", return_value={"audio":b"audio"}) as synthesize, \
+             patch.object(heygen.cloudinary_service, "is_live", return_value=True), \
+             patch.object(heygen.cloudinary_service, "upload_asset", return_value={"secure_url":"https://example.test/customer.mp3"}), \
+             patch.object(heygen_service, "generate_spokesperson_clip", return_value={"status":"failed", "error":"Rejected"}) as generate:
+            self.assertEqual(self.start(voice_provider="customer", voice_id="customer-voice").status_code, 502)
+            self.assertEqual(self.start(voice_provider="customer", voice_id="customer-voice").status_code, 502)
+            synthesize.assert_called_once()
+            self.assertEqual(generate.call_args.kwargs["audio_url"], "https://example.test/customer.mp3")
+            self.assertIsNone(generate.call_args.args[2])
+
+    def test_failed_customer_speech_preserves_previous_clip_and_requires_explicit_retry(self):
+        from hub import customer_voices
+        from modules.radio_promo import voices as tts
+        self.ready()
+        old_url = self.scene.asset_url
+        with patch.object(customer_voices, "records", return_value=[{"voice_id":"customer-voice", "status":"ready"}]), \
+             patch.object(tts, "ready", return_value=True), \
+             patch.object(tts, "render_audio", side_effect=tts.VoiceError("Timeout")) as synthesize, \
+             patch.object(heygen.cloudinary_service, "is_live", return_value=True), \
+             patch.object(heygen_service, "generate_spokesperson_clip") as generate:
+            self.assertEqual(self.start(voice_provider="customer", voice_id="customer-voice").status_code, 502)
+            self.assertEqual(self.start(voice_provider="customer", voice_id="customer-voice").status_code, 409)
+            self.assertEqual(self.scene.asset_url, old_url)
+            self.assertEqual(self.scene.asset_meta["heygen_job"]["job_id"], "paid-job")
+            self.assertEqual(self.start(voice_provider="customer", voice_id="customer-voice", regenerate=True).status_code, 502)
+            self.assertEqual(synthesize.call_count, 2)
+            generate.assert_not_called()
+
     def test_rejected_retake_keeps_existing_asset(self):
         self.ready()
         old_url = self.scene.asset_url

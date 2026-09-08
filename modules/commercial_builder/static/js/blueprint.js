@@ -782,12 +782,13 @@
     const box = CB.el('<div class="cb-card cb-presenter-picker"></div>');
     const prior = (scene.asset_meta || {}).heygen_job || {};
     let selectedAvatar = null;
-    let selectedVoice = prior.voice_provider === "heygen" ? prior.voice_id : "";
+    let selectedProvider = prior.voice_provider === "customer" ? "customer" : "heygen";
+    let selectedVoice = prior.voice_id || "";
     let overFootage = false;
     const note = document.createElement("p");
     note.className = "cb-hint";
     note.textContent = data.live
-      ? `Choose an avatar and a HeyGen voice, then generate. This scene is ${(scene.end - scene.start).toFixed(1)} seconds. Generation uses your HeyGen account.`
+      ? `Choose an avatar and a HeyGen or customer voice, then generate. This scene is ${(scene.end - scene.start).toFixed(1)} seconds. Generation uses your HeyGen account.`
       : "Demo mode — no presenter video will be produced.";
     box.appendChild(note);
     const generate = CB.el('<button type="button" class="cb-btn cb-btn-primary" disabled>Generate presenter</button>');
@@ -832,7 +833,7 @@
     const previews = new Map();
     async function loadVoices(reset = false) {
       more.disabled = true;
-      if (reset) { nextToken = null; voices.replaceChildren(new Option("Choose a HeyGen voice", "")); previews.clear(); selectedVoice = ""; update(); }
+      if (reset) { nextToken = null; voices.replaceChildren(new Option("Choose a HeyGen voice", "")); previews.clear(); if (selectedProvider === "heygen") selectedVoice = ""; update(); }
       voiceNote.textContent = "Loading voices…";
       try {
         const result = await CB.api(`/api/heygen/voices?type=${library.value}${nextToken ? "&token=" + encodeURIComponent(nextToken) : ""}`);
@@ -842,7 +843,7 @@
           previews.set(v.voice_id, v.preview_audio_url || "");
         });
         if (selectedVoice && previews.has(selectedVoice)) voices.value = selectedVoice;
-        selectedVoice = voices.value;
+        if (selectedProvider === "heygen") selectedVoice = voices.value;
         nextToken = result.next_token;
         more.hidden = !nextToken; more.textContent = "Load more voices";
         voiceNote.textContent = previews.size ? "Preview a voice before generating." : "No voices in this library. Try the other library.";
@@ -853,25 +854,27 @@
     more.addEventListener("click", () => loadVoices());
     library.addEventListener("change", () => loadVoices(true));
     voices.addEventListener("change", () => {
-      selectedVoice = voices.value; audio.pause();
+      selectedProvider = "heygen"; selectedVoice = voices.value; audio.pause();
       const url = previews.get(selectedVoice); audio.hidden = !url;
       if (url) audio.src = url; else audio.removeAttribute("src");
       update();
     });
     box.appendChild(field);
+    const customerPicker = document.createElement("div"); box.appendChild(customerPicker);
+    CustomerVoicePicker.mount(customerPicker, {onSelect:v=>{ selectedProvider="customer"; selectedVoice=v.voice_id; voices.value=""; audio.pause(); audio.hidden=true; voiceNote.textContent=`Customer voice: ${v.name}. Uses ElevenLabs speech and HeyGen video.`; update(); }});
     if (scene.asset_url && scene.asset_type !== "spokesperson") {
       const layout = CB.el('<label class="cb-label">Presenter layout <select><option value="replace">Full-frame presenter</option><option value="over">Presenter over existing footage</option></select></label>');
       layout.querySelector("select").addEventListener("change", e => { overFootage = e.target.value === "over"; });
       box.appendChild(layout);
     }
-    if (prior.request_key) box.appendChild(newTake);
+    if (prior.request_key || (scene.asset_meta || {}).customer_voice_failure) box.appendChild(newTake);
     box.appendChild(generate);
     generate.addEventListener("click", async () => {
       generate.disabled = true; generate.textContent = "Submitting…";
       try {
         const result = await CB.api(`/api/projects/${projectId}/scenes/${scene.id}/spokesperson`, {
           method: "POST", body: { avatar_id: selectedAvatar, voice_id: selectedVoice,
-            voice_provider: "heygen", over_footage: overFootage, regenerate: newTake.querySelector("input").checked },
+            voice_provider: selectedProvider, over_footage: overFootage, regenerate: newTake.querySelector("input").checked },
         });
         CB.toast(result.reused ? "Using the saved presenter take." : (data.live ? "Presenter submitted. You can leave and return." : "Demo mode — no video was generated."));
         await loadScenes();
