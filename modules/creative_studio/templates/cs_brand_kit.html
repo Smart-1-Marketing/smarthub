@@ -14,7 +14,7 @@
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
       {% for t in kit.logo_tiles %}
       <div style="border:1px solid var(--line-soft,#E2E8F0);border-radius:8px;padding:10px;text-align:center;width:120px">
-        <img src="{{ t.url }}" alt="" style="max-width:100px;max-height:60px;object-fit:contain">
+        <img src="{{ t.preview }}" alt="" style="max-width:100px;max-height:60px;object-fit:contain">
         <div style="font-size:11px;color:var(--muted,#64748B);margin-top:4px">{{ t.label }}</div>
       </div>
       {% endfor %}

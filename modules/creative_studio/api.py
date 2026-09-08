@@ -165,6 +165,17 @@ def brand_kit_page(client):                                # noqa: ANN202
     except Exception:                                     # noqa: BLE001
         domain = ""
     kit = brand_ext.kit(client, domain)
+    # A grid of several logo tiles, never one logo shown once -- the shape
+    # hub/storage.preview_url() exists to cap rather than the _LOGO exemption
+    # test_image_download.py carries for a lone mark. It is a no-op on
+    # anything not ours (most of these are Brandfetch's own CDN), and caps
+    # the ones that are (a logo we stored from an observed sighting).
+    try:
+        from hub import storage
+        for tile in kit.get("logo_tiles") or []:
+            tile["preview"] = storage.preview_url(tile.get("url") or "")
+    except Exception:                                     # noqa: BLE001
+        pass
     return render_template("cs_brand_kit.html", title=f"Brand Kit — {client}",
                            client=client, domain=domain, kit=kit)
 
