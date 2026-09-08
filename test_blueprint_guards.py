@@ -364,6 +364,10 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                                      "because it is fetched "
                                                      "from the client's "
                                                      "domain rather than ours",
+    "/wx/<token>*": "the weather trigger setup wizard a prospect or client "
+                    "opens with a lead's unguessable token and no Hub "
+                    "account at all -- the page itself and its own read "
+                    "APIs (campaign state, stock search, their gallery)",
 }
 
 
@@ -429,6 +433,11 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
         "reporting that somebody looked at it. It runs on the client's own "
         "page, so there is no session to hold; the token is what scopes the "
         "engagement to one embed, and an unknown one is refused",
+    "/wx/<token>*": "the same wizard's writes: picking triggers, generating "
+                    "and choosing wording, uploading or generating an image, "
+                    "approving, and requesting a change. Every write is "
+                    "scoped to the token in the URL, the same shape "
+                    "/scans/api/w/<slug>/* already uses",
 }
 
 

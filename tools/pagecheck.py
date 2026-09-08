@@ -165,6 +165,15 @@ HUB_PAGES = [
     # chrome the hub app injects afterwards, the same shape as the two
     # HyperFrames tools above.
     "/tools/radio-scripts/",
+    # Weather Trigger Setup's staff screen: a hub blueprint under /tools, so no
+    # mount enumeration reaches it, and its recent-leads table is drawn from
+    # Jinja over a live read of hub/leads.py rather than a fetch -- the shape
+    # that failed silently in Sites Admin when a template variable went
+    # missing at render time. The public /wx/<token> wizard is not on this
+    # list: it needs a real, live campaign token this checker cannot
+    # manufacture, and a token nothing has ever heard of answers 404 by
+    # design (test_weather_setup.py covers that page instead).
+    "/tools/weather-setup/",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:
@@ -172,7 +181,7 @@ HUB_PAGES = [
 # signing page by a client, and the Google Ads Grader by a stranger who is not
 # a customer yet. Injecting staff navigation there is a bug of its own, which
 # is why they are asserted to have NONE.
-NO_CHROME_PREFIXES = ("/land/", "/msa", "/tools/ads-grader")
+NO_CHROME_PREFIXES = ("/land/", "/msa", "/tools/ads-grader", "/wx/")
 
 # Mount roots that redirect or need an argument rather than serving a page.
 # Check Reconciliation refuses every session except its allowlisted owner — a

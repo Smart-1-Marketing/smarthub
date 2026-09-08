@@ -96,6 +96,14 @@ SOURCES: dict[str, dict] = {
                 "(modules/commercial_builder/routes/review.py)",
         "workflow": None,   # to build: email the review link on this tag
     },
+    "weather_trigger_setup": {
+        "what": "a client approving weather-triggered ad copy from a lead "
+                "(modules/weather_setup)",
+        # To build: email the confirmation and the /wx/<token> link on this
+        # tag. Until it exists the confirmation screen says nothing about an
+        # email arriving -- backed() is what stops that page promising one.
+        "workflow": None,
+    },
 }
 
 # Sources that write a lead row and deliberately never deliver it, so they

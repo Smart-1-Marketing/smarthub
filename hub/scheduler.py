@@ -558,6 +558,57 @@ def job_smartforecast_weather(app) -> dict:
             "failures": errors[:10]}
 
 
+def job_weather_triggers(app) -> dict:
+    """Turn each approved weather campaign's picks on and off.
+
+    Reuses `modules/smartforecast/provider.py` for the weather read rather
+    than a second WeatherAPI client — one provider, one key, one place that
+    knows how to talk to it. Each campaign is isolated the way
+    `job_smartforecast_weather` isolates each site: one client's provider
+    error or missing field is recorded and does not cost the others their
+    check, and a trigger the snapshot cannot answer is written down as **not
+    measured** rather than guessed at either way.
+    """
+    with app.app_context():
+        try:
+            from modules.smartforecast import provider
+            from modules.weather_setup import store as weather_store
+            from hub.weather_triggers import evaluate_trigger
+        except Exception as exc:                          # noqa: BLE001
+            return {"skipped": f"unavailable ({type(exc).__name__})"}
+        if not provider.configured():
+            return {"skipped": "WEATHERAPI_KEY is not configured"}
+
+        campaigns = weather_store.approved_campaigns()
+        if not campaigns:
+            return {"campaigns": 0, "evaluated": 0, "errors": 0}
+
+        from datetime import datetime, timezone
+        now_hhmm = datetime.now(timezone.utc).strftime("%H:%M")
+        evaluated, errors = 0, []
+        for row in campaigns:
+            token, zip_code = row.get("token", ""), row.get("zip_code", "")
+            try:
+                snapshot = provider.fetch_weather(zip_code)
+            except Exception as exc:                       # noqa: BLE001
+                errors.append({"token": token[:8], "error": type(exc).__name__})
+                continue
+            for pick in row.get("picks") or []:
+                trig_id = pick.get("trigger_id")
+                if not trig_id:
+                    continue
+                result = evaluate_trigger(trig_id, snapshot,
+                                          pick.get("trigger_state") or {},
+                                          now_hhmm=now_hhmm)
+                weather_store.update_trigger_state(
+                    token, trig_id, active=result["active"],
+                    measured=result["measured"], detail=result["detail"],
+                    trigger_state=result["state"])
+                evaluated += 1
+        return {"campaigns": len(campaigns), "evaluated": evaluated,
+                "errors": len(errors), "failures": errors[:10]}
+
+
 def job_smartforecast_backup(app) -> dict:
     """Mirror the latest SmartForecast SQLite dump into managed Postgres."""
     try:
@@ -705,6 +756,8 @@ JOBS = {
                           "Copy new Drive campaign creative into client libraries."),
     "smartforecast_maintenance": (1440, job_smartforecast_maintenance,
                                   "Expire overrides and enforce SmartForecast retention."),
+    "weather_triggers":  (30, job_weather_triggers,
+                          "Turn each approved weather campaign's triggers on and off."),
 }
 
 

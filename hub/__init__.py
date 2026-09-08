@@ -6635,7 +6635,14 @@ def create_hub_app() -> Flask:
                   # login and not from the chrome is a client looking at our
                   # nav; the other way round is a login form in front of
                   # somebody with no account.
-                  "/tools/commercial-builder/review/") + PUBLIC_EMBED_PREFIXES
+                  "/tools/commercial-builder/review/",
+                  # The weather trigger setup wizard. A client opens this
+                  # with a token and no Hub account, so it must not arrive
+                  # wearing the staff sidebar, help layer or feedback tab --
+                  # the same reason as the two links above. The staff screen
+                  # that starts one, /tools/weather-setup, keeps its own
+                  # chrome because it is a different, longer prefix.
+                  "/wx/") + PUBLIC_EMBED_PREFIXES
 
     @app.after_request
     def _compress_response(resp):
@@ -6909,6 +6916,21 @@ def create_hub_app() -> Flask:
     except Exception as _rs_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _rs_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Weather Trigger Setup ----------------
+    # Two blueprints, one gated and one deliberately not: /tools/weather-setup
+    # is the staff screen that starts a campaign from a lead, and /wx/<token>
+    # is the client-facing link with no login at all, the same shape as
+    # modules/scans's /r/<token>. Neither prefix is one wsgi.py mounts, so
+    # both belong to the hub app.
+    try:
+        from modules.weather_setup import register_weather_setup
+        register_weather_setup(app)
+    except Exception as _wx_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _wx_exc)
         except Exception:  # noqa: BLE001
             pass
 
