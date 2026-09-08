@@ -683,6 +683,25 @@ check("and lists the attached one under client",
 
 
 # =====================================================================
+section("Saved radio libraries paginate and search all stored work")
+from unittest.mock import patch
+with patch.object(fan_store, "index", return_value=[
+    {"id":str(i), "company":f"Business {i}", "client":"Example", "created_by":"Dana" if i == 304 else "Other"} for i in range(305)
+]):
+    found = fan.get("/api/projects?q=dana&limit=12").get_json()
+    check("Fan Radio searches beyond the old 300-row page", [r["id"] for r in found["projects"]], ["304"])
+    page = fan.get("/api/projects?offset=300&limit=12").get_json()
+    check("Fan Radio can open its last page", len(page["projects"]), 5)
+    check("and does not promise another page", page["has_more"], False)
+with patch.object(promo_store, "library", return_value=[
+    {"id":str(i), "company":f"Business {i}", "updated_at":f"2026-09-{i+1:02}"} for i in range(15)
+]):
+    page = promo.get("/api/library?limit=12").get_json()
+    check("Radio Ad Creator shows most recently updated first", page["projects"][0]["id"], "14")
+    check("and counts the complete library", page["count"], 15)
+    check("and offers older projects", page["has_more"], True)
+    check("its next page contains the remaining items", len(promo.get("/api/library?offset=12&limit=12").get_json()["projects"]), 3)
+
 section("Radio Promo: the push refuses what it should")
 # =====================================================================
 # An opportunity for a business that has not asked for one pollutes the

@@ -323,7 +323,15 @@ def api_library():
                                    "spec", "client", "company", "project_name",
                                    "team_member", "tone_id")}
             | {"spots": len(r.get("spots") or [])} for r in rows]
-    return jsonify({"ok": True, "projects": slim, "count": len(slim)})
+    slim.sort(key=lambda row: (row.get("updated_at") or row.get("created_at") or "", row.get("id") or ""), reverse=True)
+    count = len(slim)
+    if "limit" in request.args:
+        from hub.webargs import clamp_int
+        limit = clamp_int(request.args.get("limit"), 12, low=1, high=100)
+        offset = clamp_int(request.args.get("offset"), 0, low=0, high=1000000)
+        slim = slim[offset:offset + limit]
+        return jsonify(ok=True, projects=slim, count=count, has_more=offset + len(slim) < count)
+    return jsonify({"ok": True, "projects": slim, "count": count})
 
 
 # -------------------------------------------------------------------- brief

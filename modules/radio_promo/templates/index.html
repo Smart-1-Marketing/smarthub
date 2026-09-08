@@ -75,6 +75,8 @@
   .flow button{border:0;font:650 12px inherit;color:var(--muted);padding:6px 9px;border-radius:15px;background:#e2e8f0;cursor:pointer}
   .flow button.active{background:var(--navy);color:#fff}.flow button:disabled{cursor:default;opacity:.65}.flow i{color:var(--muted);font-style:normal}
 </style>
+<link rel="stylesheet" href="/assets/radio-library.css">
+<script src="/assets/radio-library.js" defer></script>
 </head>
 <body data-module="radio_promo">
 <div class="wrap s1d-page">
@@ -83,6 +85,7 @@
   <p class="sub">Streaming-radio commercials written to the clock, cast and recorded.
      Write one on <b>spec</b> to win the business, or attach it to a client and it files
      under their name, shows on their record, and can be pushed to the Suite.</p>
+  <section data-radio-library="promo" aria-label="Saved radio projects"></section>
   <div class="flow" aria-label="Radio commercial workflow">
     <button class="active" onclick="goView('setup')">1. Start</button><i>›</i><button disabled onclick="goView('brief')">2. Brief</button><i>›</i><button disabled onclick="goView('copy')">3. Script</button><i>›</i><button disabled onclick="goView('cast')">4. Voice</button><i>›</i><button disabled onclick="goView('music')">5. Music</button><i>›</i><button disabled onclick="goView('booth')">6. Record</button><i>›</i><button disabled onclick="goView('mix')">7. Mix</button><i>›</i><button disabled onclick="goView('pack')">8. Package</button>
   </div>
@@ -296,6 +299,7 @@ async function api(path, opts){
   let data = {};
   try { data = await res.json(); } catch(e){}
   if(!res.ok || data.ok === false) throw new Error(data.error || ('Request failed ('+res.status+')'));
+  if ((opts?.method || 'GET').toUpperCase() !== 'GET') window.dispatchEvent(new Event('radio-library-changed'));
   return data;
 }
 
@@ -767,6 +771,7 @@ async function post(path, formData){
     const err = new Error(data.error || ('Request failed ('+res.status+')'));
     err.payload = data; throw err;
   }
+  window.dispatchEvent(new Event('radio-library-changed'));
   return data;
 }
 
