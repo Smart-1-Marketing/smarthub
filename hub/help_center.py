@@ -156,6 +156,38 @@ def ask():
     return jsonify(id=record['id'], answer=answer, sources=matches, status=status)
 
 
+def qa_notifications():
+    """Use the same account and personal queues as the QA Tasks screen."""
+    from hub.qa_tasks_routes import _who
+    from hub import qa_tasks
+    email, _name = _who()
+    if not email:
+        return [], 'Sign in with your own Hub account to see QA tasks.'
+    tasks = qa_tasks.for_person(email, limit=50)
+    if not tasks['measured']:
+        return [], 'QA task notifications could not be refreshed.'
+    items, ids = [], set()
+    for group in ('to_do', 'waiting_on_you', 'raised_by_you', 'done'):
+        for task in tasks[group]:
+            if task['id'] in ids or (group == 'done' and not task['unread']):
+                continue
+            ids.add(task['id'])
+            status = task['status_label']
+            if task['overdue']:
+                status += ' · overdue'
+            detail = task['target_label']
+            if group == 'waiting_on_you':
+                detail += ' · waiting for your reply'
+            if task['due_on']:
+                detail += ' · due ' + task['due_on']
+            items.append(dict(id='qa-' + str(task['id']), title='QA task',
+                              detail=detail, status=status,
+                              time=task['last_activity_at'],
+                              revision=task['last_activity_at'] + ':' + status,
+                              unread=task['unread'], url='/qa-tasks/' + str(task['id'])))
+    return items, ''
+
+
 @bp.get('/api/hub-inbox')
 @signed_in
 def inbox():
@@ -200,4 +232,7 @@ def inbox():
         items.append(item)
         if len(items) >= 30:
             break
-    return jsonify(user=who, items=items[:30])
+    qa_items, qa_error = qa_notifications()
+    items = items[:30] + qa_items
+    items.sort(key=lambda item: item.get('time') or '', reverse=True)
+    return jsonify(user=who, items=items, qa_error=qa_error)

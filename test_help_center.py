@@ -18,9 +18,12 @@ class HelpCenterTests(unittest.TestCase):
         self.identity = patch('hub.identity.user_from_environ', return_value=None)
         self.root = patch('hub.jsonstore.data_root', return_value=self.tmp.name)
         self.audit = patch('hub.audit.log')
+        self.qa = patch('hub.help_center.qa_notifications', return_value=([], ''))
+        self.qa.start()
         self.auth.start(); self.identity.start(); self.root.start(); self.audit.start()
 
     def tearDown(self):
+        self.qa.stop()
         self.auth.stop(); self.identity.stop(); self.root.stop(); self.audit.stop(); self.tmp.cleanup()
 
     def test_auth_required(self):
@@ -41,6 +44,37 @@ class HelpCenterTests(unittest.TestCase):
         with patch('hub.audit.tail', return_value=[dict(module='display_ads', type='ads_job_tracked', actor='Todd Smith', job='abc-123')]):
             row = self.client.get('/api/hub-inbox').get_json()['items'][0]
         self.assertEqual(row['poll'], '/tools/display-ads/api/render/abc-123')
+
+    def test_qa_notifications_use_personal_queues_and_activity_revision(self):
+        self.qa.stop()
+        task = dict(id=7, status_label='Open', overdue=True, target_label='Video Builder',
+                    due_on='2026-09-01', last_activity_at='2026-09-08T20:00:00Z', unread=True)
+        queues = dict(measured=True, to_do=[task], waiting_on_you=[], raised_by_you=[task], done=[])
+        with patch('hub.qa_tasks_routes._who', return_value=('todd@example.test','Todd')), patch('hub.qa_tasks.for_person', return_value=queues) as personal, patch('hub.audit.tail', return_value=[]):
+            data = self.client.get('/api/hub-inbox').get_json()
+        personal.assert_called_once_with('todd@example.test', limit=50)
+        self.assertEqual(len(data['items']), 1)
+        item = data['items'][0]
+        self.assertEqual(item['url'], '/qa-tasks/7')
+        self.assertIn('overdue', item['status'])
+        self.assertIn(task['last_activity_at'], item['revision'])
+        self.assertTrue(item['unread'])
+
+    def test_qa_shared_login_does_not_guess_a_person(self):
+        self.qa.stop()
+        with patch('hub.qa_tasks_routes._who', return_value=('', 'Todd')), patch('hub.qa_tasks.for_person') as personal, patch('hub.audit.tail', return_value=[]):
+            data = self.client.get('/api/hub-inbox').get_json()
+        personal.assert_not_called()
+        self.assertEqual(data['items'], [])
+        self.assertIn('own Hub account', data['qa_error'])
+
+    def test_qa_read_failure_keeps_media_notifications(self):
+        self.qa.stop()
+        event = dict(module='fan_radio', type='spot_recorded', actor='Todd Smith', time='2026-09-08T20:00:00Z')
+        with patch('hub.qa_tasks_routes._who', return_value=('todd@example.test', 'Todd')), patch('hub.qa_tasks.for_person', return_value={'measured':False}), patch('hub.audit.tail', return_value=[event]):
+            data = self.client.get('/api/hub-inbox').get_json()
+        self.assertEqual(data['items'][0]['title'], 'Radio')
+        self.assertIn('could not be refreshed', data['qa_error'])
 
     def test_radio_failure_is_not_completion(self):
         with patch('hub.audit.tail', return_value=[dict(module='radio_promo', type='render_failed', actor='Todd Smith')]):
@@ -117,7 +151,7 @@ class HelpCenterTests(unittest.TestCase):
         from pathlib import Path
         root = Path(__file__).parent
         for file in ['hub/templates/base.html', 'hub/__init__.py', 'wsgi.py']:
-            self.assertIn('data-hub-inbox src="/assets/hub-inbox.js?v=account-menu-1"', (root / file).read_text(encoding='utf-8'))
+            self.assertIn('data-hub-inbox src="/assets/hub-inbox.js?v=qa-inbox-1"', (root / file).read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':
