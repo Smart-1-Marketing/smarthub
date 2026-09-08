@@ -1141,6 +1141,9 @@ jobs:
             echo "test_google_links.py not on this branch — nothing to run."
           fi
 
+      - name: Google Access flow regression tests
+        run: python3 test_google_access_flow.py
+
       - name: Google Access tests
         # Google Ads is paused: the assertion is that no client-facing page
         # still offers or explains it, and that a request created before the
