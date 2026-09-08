@@ -15,7 +15,7 @@ strategist re-assemble it from memory every time.
 So the flow is: pick a client, and the plan arrives already knowing who they
 are. Everything after that is editing rather than authoring.
 
-    client  ->  grid  ->  draft  ->  images  ->  review  ->  export
+    client  ->  selected ideas  ->  brief  ->  photos  ->  review / export
 
 Each stage is separately re-runnable. Re-drafting one slot does not touch the
 other nineteen, and nothing is destructive: drafting only fills slots that are
@@ -34,9 +34,8 @@ somebody is waiting on it. Until an agency re-consents, the CSV under Bulk
 Upload is the route that works, and the whole drafting pipeline earns its keep
 either way.
 
-**It does not generate images.** The client's gallery usually already has what
-a post needs, and Image Creator is a better tool than a button here would be.
-Slots with no gallery match link straight into it.
+Photos can come from stock search, the client's gallery, a fresh upload, or
+explicitly requested AI generation. New images are previewed before selection.
 
 ## Storage
 
@@ -54,6 +53,7 @@ import re
 import threading
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -150,6 +150,10 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _planning_today():
+    return datetime.now(ZoneInfo("America/New_York")).date()
+
+
 def actor_name() -> str:
     return request.environ.get("s1hub.user") or "Unknown"
 
@@ -214,7 +218,7 @@ def index():
     # into JavaScript. That keeps the page's real script block free of {{ }},
     # so tools/jscheck.py can hand it to node --check — the strict parser —
     # instead of skipping it for checktemplates' balance check.
-    boot = {"spec": social_plan.spec_payload(),
+    boot = {"spec": social_plan.spec_payload(), "today": _planning_today().isoformat(),
             "client": request.args.get("client", "")[:200],
             "url": request.args.get("url", "")[:300]}
     return render_template("index.html", version=_version(), boot=boot)
@@ -262,7 +266,8 @@ def api_holidays():
             ctx = _client_context(client)
             industries = [ctx.get("industry", "")] if ctx.get("industry") else []
     try:
-        days = social_plan.holidays_for(month, industries)
+        days = [h for h in social_plan.holidays_for(month, industries)
+                if h["date"] >= _planning_today().isoformat()]
     except ValueError as exc:
         return _fail(str(exc))
     return jsonify({"ok": True, "holidays": days,
@@ -437,6 +442,85 @@ def api_batches():
     return jsonify({"ok": True, "batches": _read_index()[:120]})
 
 
+@app.route("/api/preview", methods=["POST"])
+def api_preview():
+    data = request.get_json(silent=True) or {}
+    try:
+        slots = social_plan.build_grid(_str(data.get("month"), 10),
+                                      per_week=int(data.get("per_week") or 3),
+                                      start_date=_planning_today())
+    except (TypeError, ValueError) as exc:
+        return _fail(str(exc))
+    return jsonify(ok=True, dates=[s["date"] for s in slots],
+                   today=_planning_today().isoformat())
+
+
+@app.route("/api/batches/<batch_id>/photos", methods=["POST"])
+def api_photos(batch_id):
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("Plan not found.", 404)
+    data = request.get_json(silent=True) or {}
+    slot = next((s for s in batch["slots"] if s["id"] == data.get("slot")), None)
+    if not slot:
+        return _fail("Choose a post first.")
+    from hub import stock_search
+    query = _str(data.get("query"), 200).strip() or _str(
+        slot.get("idea_title") or slot.get("holiday") or
+        " ".join(batch.get("brief", {}).get("promote", [])) or
+        batch.get("context", {}).get("industry") or batch["client"], 200)
+    found = stock_search.search([query], sources=["library", "pexels", "pixabay"], limit=3)
+    industry = _str(batch.get("context", {}).get("industry"), 100).strip()
+    if not found["results"] and not data.get("query") and industry and industry != query:
+        query = industry
+        found = stock_search.search([query], sources=["library", "pexels", "pixabay"], limit=3)
+    return jsonify(ok=True, query=query, **found)
+
+
+@app.route("/api/batches/<batch_id>/photo", methods=["POST"])
+def api_create_photo(batch_id):
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("Plan not found.", 404)
+    data = request.form if request.files else (request.get_json(silent=True) or {})
+    slot = next((s for s in batch["slots"] if s["id"] == data.get("slot")), None)
+    if not slot:
+        return _fail("Choose a post first.")
+    from hub import images, storage
+    upload = request.files.get("file")
+    source = "uploaded" if upload else "generated"
+    if upload:
+        raw = upload.read(12 * 1024 * 1024 + 1)
+        if len(raw) > 12 * 1024 * 1024:
+            return _fail("Choose an image under 12 MB.")
+    else:
+        prompt = _str(data.get("prompt"), 1000).strip()
+        if not prompt:
+            return _fail("Describe the photo to create.")
+        from hub import ai
+        try:
+            raw = ai.image("Create a social media photograph. No lettering or logos. " + prompt,
+                           module=MODULE, purpose="social:photo", size="1024x1024")
+        except Exception:
+            return _fail("Image generation is unavailable. Try again or choose another source.", 502)
+    try:
+        processed = images.optimise(raw, max_edge=2048, fmt="JPEG", quality=92)
+    except Exception:
+        return _fail("That image could not be read. Use a PNG, JPEG or WebP photo.")
+    filename = f"{batch_id}-{slot['id']}.jpg"
+    try:
+        asset = storage.put("social_requests", filename, processed.data,
+                            client=batch["client"], tags=["social-planner", source])
+    except Exception:
+        return _fail("The photo could not be stored. Please retry.", 502)
+    if not asset.url.startswith("https://"):
+        return _fail("Image hosting is unavailable. Please try again when storage is connected.", 503)
+    if source == "uploaded":
+        _file_into_gallery(batch["client"], asset, filename, "")
+    return jsonify(ok=True, image={"url": asset.url, "public_id": asset.public_id,
+                                   "source": source})
+
+
 @app.route("/api/batches", methods=["POST"])
 def api_create_batch():
     data = request.get_json(silent=True) or {}
@@ -460,12 +544,25 @@ def api_create_batch():
     try:
         slots = social_plan.build_grid(month, channels=channels,
                                        per_week=per_week, mix=mix,
-                                       blackout=blackout, holidays=holidays)
+                                       blackout=blackout, holidays=holidays,
+                                       start_date=_planning_today())
     except ValueError as exc:
         return _fail(str(exc))
     if not slots:
-        return _fail("That month has no posting days left once the blackout "
-                     "dates are removed.")
+        return _fail("No posting days remain from today onward. Choose a later month or a different posting frequency.")
+
+    selected = data.get("selected_ideas") or []
+    if not isinstance(selected, list):
+        return _fail("Choose ideas from the suggestions.")
+    selected = [s for s in selected if isinstance(s, dict) and s.get("title")]
+    available = [s for s in slots if not s.get("holiday")]
+    if len(selected) > len(available):
+        return _fail(f"There are {len(available)} open posting dates. Select fewer ideas or increase posts per week.")
+    for slot, idea in zip(available, selected):
+        slot["idea_title"] = _str(idea["title"], 300)
+        slot["origin"] = "staff_selected"
+        if idea.get("type") in social_plan.POST_TYPES:
+            slot["type"] = idea["type"]
 
     brief = data.get("brief") if isinstance(data.get("brief"), dict) else {}
     context = _client_context(client, _str(data.get("url"), 300))
@@ -561,7 +658,9 @@ def api_save_batch(batch_id: str):
         if "image_url" in edit:
             slot["image_url"] = _str(edit["image_url"], 700)
             slot["image_public_id"] = _str(edit.get("image_public_id"), 400)
-            slot["image_source"] = "gallery" if slot["image_url"] else ""
+            source = edit.get("image_source", "gallery")
+            slot["image_source"] = source if slot["image_url"] and source in ("gallery", "stock", "uploaded", "generated") else ""
+            slot["image_credit"] = _str(edit.get("image_credit"), 500) if slot["image_url"] else ""
         if edit.get("status") in social_plan.STATUSES:
             slot["status"] = edit["status"]
 

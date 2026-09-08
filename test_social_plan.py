@@ -36,6 +36,9 @@ import os
 import shutil
 import sys
 import tempfile
+from datetime import date
+from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -276,6 +279,7 @@ check("the review sheet carries the flag column",
 section("The module: storage, routes and the CSV endpoint")
 
 from modules.social_planner import app as mod                      # noqa: E402
+mod._planning_today = lambda: date(2026, 9, 1)
 
 mod._client_context = lambda client, url="": {                     # noqa: E731
     "client": client, "url": url, "domain": "example.com", "industry": "HVAC",
@@ -464,6 +468,66 @@ check("a service named in the promote list is not flagged as invented",
 
 
 # ---------------------------------------------------------------------------
+section("Guided planner: dates, chosen topics and photo services")
+with patch.object(mod, "_planning_today", return_value=date(2026, 9, 7)):
+    payload = {"client": "Riverstone Heating", "month": "2026-09",
+               "channels": ["facebook"], "per_week": 3,
+               "selected_ideas": [{"title": "How to change a furnace filter", "type": "educational"}],
+               "holidays": [{"date": "2026-09-01", "name": "Past holiday"},
+                            {"date": "2026-09-07", "name": "Labor Day"}]}
+    result = client.post("/api/batches", json=payload).get_json()
+    plan = result["batch"]
+    check("new plans include today and exclude earlier dates",
+          plan["slots"][0]["date"] == "2026-09-07" and
+          all(s["date"] >= "2026-09-07" for s in plan["slots"]))
+    check("past holidays cannot reintroduce past slots",
+          not any(s.get("holiday") == "Past holiday" for s in plan["slots"]))
+    topic = next(s for s in plan["slots"] if s.get("idea_title"))
+    check("selected ideas get their own non-holiday slots", topic["date"] == "2026-09-09")
+    prompt = sp.draft_messages(plan, topic, {})[-1]["content"]
+    check("selected topic reaches the writer", "How to change a furnace filter" in prompt)
+    preview = client.post("/api/preview", json=payload).get_json()
+    check("gap preview uses the same date cutoff", preview["dates"][0] == "2026-09-07")
+    check("past months are rejected", client.post("/api/batches", json={**payload, "month": "2026-08"}).status_code == 400)
+    too_many = [{"title": str(i)} for i in range(31)]
+    check("too many selected ideas are reported, not dropped",
+          client.post("/api/batches", json={**payload, "selected_ideas": too_many}).status_code == 400)
+    with patch("hub.stock_search.search", return_value={"results": [], "sources": {"pexels": "off"}}) as search:
+        photos = client.post(f"/api/batches/{plan['id']}/photos", json={"slot": topic["id"]}).get_json()
+        check("stock suggestions request three photos for the chosen topic",
+              search.call_args_list[0].kwargs["limit"] == 3 and "furnace filter" in search.call_args_list[0].args[0][0])
+        check("an unavailable library returns an honest empty result", photos["results"] == [])
+    photo_path = f"/api/batches/{plan['id']}/photo"
+    check("image generation requires a prompt", client.post(photo_path, json={"slot": topic["id"]}).status_code == 400)
+    check("uploads validate the actual image bytes",
+          client.post(photo_path, data={"slot": topic["id"], "file": (io.BytesIO(b"not an image"), "photo.jpg")}).status_code == 400)
+    with patch("hub.ai.image", side_effect=RuntimeError("provider failure")):
+        check("image provider failures leave the plan intact",
+              client.post(photo_path, json={"slot": topic["id"], "prompt": "a furnace"}).status_code == 502 and
+              mod.load_batch(plan["id"])["slots"] == plan["slots"])
+    from PIL import Image
+    photo_bytes = io.BytesIO()
+    Image.new("RGB", (40, 40), "blue").save(photo_bytes, format="PNG")
+    asset = SimpleNamespace(url="https://example.com/photo.jpg", public_id="photo-test")
+    with patch("hub.ai.image", return_value=photo_bytes.getvalue()), patch("hub.storage.put", return_value=asset):
+        generated = client.post(photo_path, json={"slot": topic["id"], "prompt": "a furnace"}).get_json()
+        check("generated photos return a preview before changing the post",
+              generated["image"]["source"] == "generated" and
+              not next(s for s in mod.load_batch(plan["id"])["slots"] if s["id"] == topic["id"])["image_url"])
+    attached = client.put(f"/api/batches/{plan['id']}", json={"slots": [{"id": topic["id"],
+        "image_url": asset.url, "image_source": "stock", "image_credit": "Pexels · Example photographer"}]}).get_json()
+    chosen = next(s for s in attached["batch"]["slots"] if s["id"] == topic["id"])
+    check("photo choice and source survive saving", chosen["image_url"] == asset.url and
+          chosen["image_source"] == "stock" and "photographer" in chosen["image_credit"])
+
+cutoff = date(2026, 9, 30)
+check("last-day planning includes the last day when scheduled",
+      sp.build_grid("2026-09", start_date=cutoff)[0]["date"] == "2026-09-30")
+check("future months retain the full calendar",
+      sp.build_grid("2026-10", start_date=cutoff) == sp.build_grid("2026-10"))
+check("invalid and out-of-month holidays are excluded",
+      not sp.build_grid("2026-09", start_date=date(2026, 10, 1), holidays=[
+          {"date": "2026-10-03", "name": "Wrong month"}, {"date": "bad", "name": "Invalid"}]))
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)

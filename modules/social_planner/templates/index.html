@@ -85,17 +85,34 @@
   .note{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:9px;
         padding:11px 13px;font-size:12.5px;line-height:1.55;margin-top:11px}
   .ver{color:var(--muted);font-size:11px;margin-top:26px}
+  [hidden]{display:none!important}
+  .steps{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}
+  .s1d-page #steps button,.s1d-page #photoSources button{background:white;color:var(--navy);border:1px solid var(--line)}
+  .s1d-page #steps button[aria-current=step]{background:var(--navy);color:white}
+  .s1d-page #channels .pick,.s1d-page #tones .pick{background:white;color:var(--navy);border:1px solid var(--line);padding:6px 12px;border-radius:20px}
+  .s1d-page #channels .pick.on,.s1d-page #tones .pick.on{background:var(--blue);color:white;border-color:var(--blue)}
+  .s1d-page #photoSources button[aria-pressed=true]{background:var(--navy);color:white}
+  .wizard-actions{display:flex;justify-content:space-between;gap:12px;margin:18px 0}
+  .suggestion{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:10px;padding:14px;margin:8px 0;cursor:pointer}
+  .suggestion:has(input:checked){border-color:var(--blue);background:#eff6ff}
+  .suggestion input{margin-top:4px;flex:none}
+  #ideaOptions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+  #ideaOptions .suggestion{margin:0}
+  #gapSummary{line-height:1.6}
+  .photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
+  .s1d-page #photoChoices button{background:white;border:1px solid var(--line);border-radius:10px;padding:8px;cursor:pointer;text-align:left;color:var(--navy)}
+  .photos img{width:100%;height:150px;object-fit:cover;border-radius:6px}
+  .photos button[aria-pressed=true]{outline:3px solid var(--blue)}
+  @media(max-width:600px){.photos,#ideaOptions{grid-template-columns:1fr}.steps button{flex:1}.wrap{padding:20px 14px}}
 </style>
 </head>
 <body>
 <div class="wrap s1d-page">
   <a class="back" href="/creative">&larr; Creative</a>
   <h1>Social Content Planner {{ help_dot('social.planner') if help_dot is defined else '' }}</h1>
-  <p class="sub">Build a client's month of organic posts in one pass, then export it for
-    Smart 1 Suite's Social Planner. The plan starts from what the Hub already knows about
-    the client &mdash; their services, their brand, their image gallery &mdash; so the work
-    is editing rather than authoring. Nothing publishes from here: the export is a CSV you
-    upload under Social Planner &rarr; Bulk Upload.</p>
+  <p class="sub">Choose ideas, add photos, and review your social plan &mdash; one step at a time.</p>
+  <nav class="steps" aria-label="Plan progress" id="steps"></nav>
+  <p id="wizardMsg" role="status" class="hint"></p>
 
   {# The queue is the other half of the same tool and it needs a way in from
      here: a page nobody can reach is a page nobody uses, which this repo has
@@ -107,7 +124,7 @@
     &nbsp;What the client's own locations have asked for, in one queue &mdash;
     plus their link, their ideas and whether posts can be pushed to Suite yet.</p>
 
-  <div class="card">
+  <div class="card" id="setupCard">
     <h2><span class="n">1</span> Client and month</h2>
     <div class="grid">
       <div>
@@ -134,14 +151,26 @@
       <div class="picks" id="channels"></div>
     </div>
     <div id="ctx"></div>
+    <label class="suggestion"><input type="checkbox" id="wantSuggestions" checked>
+      <span><strong>Help me with suggestions</strong><br>Choose ideas and find gaps before writing the plan.</span></label>
+    <p class="hint">For the current month, planning starts today. Earlier dates are excluded.</p>
   </div>
 
-  <div class="card">
-    <h2><span class="n">2</span> What they are allowed to say</h2>
-    <p class="hint" style="margin:0 0 12px">Everything below is a fact the writer may use.
-      A price, a discount, a phone number or a deadline that does not appear here is flagged
-      as a blocking problem before the plan can be approved &mdash; not because the model is
-      untrustworthy, but because it has no way to know what the client actually authorized.</p>
+  <div class="card" id="ideasCard" hidden>
+    <h2><span class="n">2</span> Choose ideas for the plan</h2>
+    <p class="hint">Check the topics you want to include. Each selected idea gets its own posting date.</p>
+    <button class="btn sec" id="suggestIdeas">Suggest ideas for this client</button>
+    <p id="ideaMsg" class="hint" role="status"></p>
+    <div id="ideaOptions"></div>
+    <div class="grid"><input id="customIdea" type="text" aria-label="Your own idea" placeholder="Add your own topic"><button class="btn sec" id="addIdea">Add topic</button></div>
+    <div class="ctx" id="gapSummary" role="status"></div>
+    <button class="btn sec sm" id="findGaps">Find topics to fill the gaps</button>
+    <p class="hint">Open posting dates receive a balanced mix of topics. You can choose specific gap suggestions above.</p>
+  </div>
+
+  <div class="card" id="briefCard" hidden>
+    <h2><span class="n">3</span> Add the details</h2>
+    <p class="hint" style="margin:0 0 12px">Add confirmed offers and useful details. Leave anything you do not have blank.</p>
     <div class="grid">
       <div>
         <label class="f" for="offers">Authorized offers <span class="opt">&mdash; leave empty and no post will mention one</span></label>
@@ -153,8 +182,7 @@
       </div>
     </div>
     <div style="margin-top:14px">
-      <label class="f">Tone <span class="opt">&mdash; pick as many as fit; each one carries
-        its own instruction to the writer</span></label>
+      <label class="f">Tone <span class="opt">&mdash; choose up to four</span></label>
       <div class="picks" id="tones"></div>
     </div>
     <div style="margin-top:14px">
@@ -163,9 +191,7 @@
         actually pushing</span></label>
       <textarea id="promote" rows="3"
         placeholder="Furnace tune-ups&#10;Duct cleaning&#10;The new financing option"></textarea>
-      <div class="hint">Without this the month spreads itself evenly across everything the
-        business does &mdash; which is how a plan ends up promoting the service they least
-        want more of. These are fed to the writer as the focus, not forced into every post.</div>
+      <div class="hint">List the services or products to focus on this month.</div>
     </div>
     <div style="margin-top:14px">
       <label class="f">Social media holidays <span class="opt">&mdash; dated hooks to fill
@@ -174,7 +200,7 @@
         in this month</label>
       <div id="holidayList" class="hint"></div>
     </div>
-    <div class="grid3" style="margin-top:13px">
+    <details style="margin-top:13px"><summary>More details (optional)</summary><div class="grid3" style="margin-top:13px">
       <div>
         <label class="f" for="tone">Anything else about the voice
           <span class="opt">&mdash; optional</span></label>
@@ -188,9 +214,9 @@
         <label class="f" for="avoid">Never mention <span class="opt">&mdash; optional</span></label>
         <input type="text" id="avoid" placeholder="Competitor names, a service they dropped">
       </div>
-    </div>
+    </div></details>
     <div style="margin-top:16px">
-      <button class="btn" id="build">Build the month</button>
+      <button class="btn" id="build">Create plan &amp; choose photos</button>
       <span class="msg" id="buildmsg"></span>
     </div>
     <div style="margin-top:10px">
@@ -206,8 +232,25 @@
     <div id="analyzerOut" style="white-space:pre-wrap;margin-top:10px"></div>
   </div>
 
+  <div class="card" id="photosCard" hidden>
+    <h2><span class="n">4</span> Choose photos</h2>
+    <label class="f" for="photoPost">Post</label><select id="photoPost"></select>
+    <p id="photoTopic" class="hint"></p>
+    <div class="picks" id="photoSources">
+      <button class="btn sec sm" data-source="stock">3 suggested stock photos</button>
+      <button class="btn sec sm" data-source="gallery">Client library</button>
+      <button class="btn sec sm" data-source="uploaded">Upload new</button>
+      <button class="btn sec sm" data-source="generated">Create AI photo</button>
+    </div>
+    <div id="photoTools"></div><p id="photoMsg" role="status" class="hint"></p>
+    <div id="photoChoices" class="photos"></div>
+    <div id="selectedPhoto"></div>
+    <button class="btn sec" id="nextPhoto">Next post</button>
+    <p class="hint">Photos are optional at this step. Missing images are flagged during review.</p>
+  </div>
+
   <div class="card" id="planCard" hidden>
-    <h2><span class="n">3</span> The month</h2>
+    <h2><span class="n">5</span> Write and review</h2>
     <div class="bar">
       <button class="btn" id="draftAll">Write every empty post</button>
       <button class="btn sec" id="fillImages">Fill images from the gallery</button>
@@ -218,15 +261,15 @@
     </div>
     <div class="count" id="counts"></div>
     <div class="msg" id="planmsg"></div>
-    <div class="note" id="csvnote">The Social Planner CSV uses the documented basic
-      column set. Before the first real import, compare its header row with the template
-      Social Planner offers under Bulk Upload &mdash; if HighLevel spells a column
-      differently, the fix is one constant, <code>PLANNER_COLUMNS</code> in
-      <code>hub/social_plan.py</code>.</div>
+    <div class="note" id="csvnote">Review the copy, photos, and flagged gaps before approving. Export the CSV for Smart 1 Suite's Social Planner when ready.</div>
+    <label class="f" for="reviewPost" style="margin-top:14px">Review a post</label>
+    <select id="reviewPost"></select>
     <div id="slots"></div>
+    <button class="btn sec" id="nextReview">Next post to review</button>
   </div>
 
-  <div class="card">
+  <div class="wizard-actions"><button class="btn sec" id="wizardBack">Back</button><button class="btn" id="wizardNext">Continue</button></div>
+  <div class="card" id="savedCard">
     <h2>Saved plans</h2>
     <div id="saved"><div class="empty">Nothing saved yet.</div></div>
   </div>
@@ -282,7 +325,7 @@ function say(el, text, kind){
 function api(path, opts){
   return fetch("api/" + path, opts).then(function(r){
     return r.json().catch(function(){ return {ok:false, error:"Server sent something unreadable."}; });
-  });
+  }).catch(function(){ return {ok:false,error:"Connection interrupted. Please try again."}; });
 }
 function post(path, body){
   return api(path, {method:"POST", headers:{"Content-Type":"application/json"},
@@ -293,7 +336,7 @@ function post(path, body){
 function renderChannels(){
   $("channels").innerHTML = SPEC.channels.map(function(c){
     var on = state.channels.indexOf(c.key) >= 0 ? " on" : "";
-    return '<span class="pick' + on + '" data-ch="' + esc(c.key) + '">' + esc(c.label) + "</span>";
+    return '<button type="button" aria-pressed="'+Boolean(on)+'" class="pick' + on + '" data-ch="' + esc(c.key) + '">' + esc(c.label) + "</button>";
   }).join("");
 }
 $("channels").addEventListener("click", function(ev){
@@ -312,8 +355,8 @@ renderTones();
 function renderTones(){
   $("tones").innerHTML = (SPEC.tones || []).map(function(t){
     var on = state.tones.indexOf(t.key) >= 0 ? " on" : "";
-    return '<span class="pick' + on + '" data-tone="' + esc(t.key) + '" title="' +
-           esc(t.guidance) + '">' + esc(t.label) + "</span>";
+    return '<button type="button" aria-pressed="'+Boolean(on)+'" class="pick' + on + '" data-tone="' + esc(t.key) + '" title="' +
+           esc(t.guidance) + '">' + esc(t.label) + "</button>";
   }).join("");
 }
 $("tones").addEventListener("click", function(ev){
@@ -331,24 +374,28 @@ $("tones").addEventListener("click", function(ev){
 // that teaches people to switch a feature off.
 function loadHolidays(){
   var month = $("month").value;
+  var client = state.client;
+  state.holidays = [];
   if (!month) { $("holidayList").textContent = "Pick a month first."; return; }
   $("holidayList").textContent = "Looking…";
   api("holidays?month=" + encodeURIComponent(month) +
       "&client=" + encodeURIComponent(state.client || "")).then(function(d){
     if (!d.ok) { $("holidayList").textContent = d.error || "None found."; state.holidays = []; return; }
+    if (month !== $("month").value || client !== state.client || !$("useHolidays").checked) return;
     state.holidays = d.holidays || [];
     if (!state.holidays.length) {
       $("holidayList").textContent = "No days on our list fall in that month.";
       return;
     }
     $("holidayList").innerHTML = '<div class="hol">' + state.holidays.map(function(h){
-      return "<span>" + esc(h.date.slice(8)) + " " + esc(h.name) + "</span>";
-    }).join("") + "</div><div style=\"margin-top:6px\">" + esc(d.source) + "</div>";
+      return '<label class="suggestion"><input type="checkbox" data-holiday="' + esc(h.date) + '" checked> ' + esc(h.date) + " " + esc(h.name) + "</label>";
+    }).join("") + "</div>";
+    updateGaps();
   });
 }
 $("useHolidays").addEventListener("change", function(){
   if (this.checked) { loadHolidays(); }
-  else { $("holidayList").textContent = ""; }
+  else { $("holidayList").textContent = ""; state.holidays = []; updateGaps(); }
 });
 $("month").addEventListener("change", function(){
   if ($("useHolidays").checked) { loadHolidays(); }
@@ -357,6 +404,7 @@ $("month").addEventListener("change", function(){
 // ---------------------------------------------------------------- client
 var timer = null;
 $("clientq").addEventListener("input", function(){
+  if(this.value !== state.client){state.client="";state.context=null;$("chosen").textContent="Choose a client from the results.";}
   clearTimeout(timer);
   timer = setTimeout(searchClients, 220);
 });
@@ -384,6 +432,8 @@ $("results").addEventListener("click", function(ev){
   choose(row.getAttribute("data-name"), row.getAttribute("data-url"));
 });
 function choose(name, url){
+  state.context = null;
+  state.holidays = []; suggestions = []; renderIdeas();
   state.client = name;
   state.url = url || "";
   $("clientq").value = name;
@@ -391,10 +441,12 @@ function choose(name, url){
   $("chosen").textContent = "Planning for " + name + ". Loading what we know about them…";
   api("context?client=" + encodeURIComponent(name) + "&url=" + encodeURIComponent(url || ""))
     .then(function(d){
+      if (state.client !== name) return;
       if (!d.ok) { $("chosen").textContent = d.error || "Context lookup failed."; return; }
       state.context = d.context;
       $("chosen").textContent = "Planning for " + name + ".";
       renderContext(d.context);
+      if ($("useHolidays").checked) loadHolidays();
     });
 }
 function renderContext(c){
@@ -436,13 +488,14 @@ $("build").addEventListener("click", function(){
   if (!$("month").value) { say("buildmsg", "Pick a month.", "err"); return; }
   if (!state.channels.length) { say("buildmsg", "Pick at least one channel.", "err"); return; }
   $("build").disabled = true;
-  say("buildmsg", "Building the month — the model is planning the mix…", "ai");
+  say("buildmsg", "Creating your plan…", "wait");
   var wantHolidays = $("useHolidays").checked;
   post("batches", {
     client: state.client, url: state.url, month: $("month").value,
     channels: state.channels, per_week: parseInt($("perweek").value, 10),
     use_holidays: wantHolidays,
-    holidays: wantHolidays ? state.holidays : [],
+    holidays: wantHolidays ? pickedHolidays() : [],
+    selected_ideas: suggestions.filter(function(s){return s.checked;}),
     brief: {tone: $("tone").value, tones: state.tones,
             promote: $("promote").value.split("\n").map(function(x){ return x.trim(); })
                        .filter(function(x){ return x.length > 0; }),
@@ -453,7 +506,7 @@ $("build").addEventListener("click", function(){
     if (!d.ok) { say("buildmsg", d.error, "err"); return; }
     state.batch = d.batch;
     say("buildmsg", d.batch.slots.length + " slots ready.", "ok");
-    showPlan();
+    showPlan(3);
     loadSaved();
   });
 });
@@ -501,13 +554,13 @@ $("pagesReview").addEventListener("click", function(){
     });
 });
 
-function showPlan(){
+function showPlan(step){
   $("planCard").hidden = false;
   var id = state.batch.id;
   $("expPlanner").href = "api/batches/" + id + "/export.csv?format=planner";
   $("expReview").href = "api/batches/" + id + "/export.csv?format=review";
   renderSlots();
-  $("planCard").scrollIntoView({behavior:"smooth", block:"start"});
+  showStep(typeof step === "number" ? step : 4);
 }
 
 // ---------------------------------------------------------------- slots
@@ -540,7 +593,10 @@ function imageOptions(selected){
 }
 function renderSlots(){
   var batch = state.batch;
-  var html = batch.slots.map(function(s){
+  var selected = $("reviewPost").value;
+  $("reviewPost").innerHTML = batch.slots.map(function(s){return '<option value="'+esc(s.id)+'">'+esc(s.date+' · '+(s.idea_title || s.holiday || typeLabel(s.type)))+'</option>';}).join('');
+  if(findSlot(selected)) $("reviewPost").value=selected;
+  var html = batch.slots.filter(function(s){return s.id === $("reviewPost").value;}).map(function(s){
     var blocked = (s.flags || []).some(function(f){ return f.level === "block"; });
     var cls = "slot" + (s.status === "approved" ? " approved" : (blocked ? " blocked" : ""));
     var tags = (s.channels || []).map(function(c){
@@ -562,6 +618,7 @@ function renderSlots(){
         '<button class="btn sec sm" data-act="approve">' +
           (s.status === "approved" ? "Unapprove" : "Approve") + "</button>" +
       "</div>" +
+      (s.idea_title ? '<p><strong>' + esc(s.idea_title) + '</strong></p>' : '') +
       '<textarea rows="4" data-field="copy" placeholder="Empty — nothing has been written for this slot yet.">' +
         esc(s.copy) + "</textarea>" +
       '<div class="grid" style="margin-top:8px">' +
@@ -616,6 +673,8 @@ $("slots").addEventListener("change", function(ev){
     var opt = ev.target.options[ev.target.selectedIndex];
     slot.image_url = ev.target.value;
     slot.image_public_id = opt ? (opt.getAttribute("data-pid") || "") : "";
+    slot.image_source = "gallery";
+    slot.image_credit = "";
   }
   save();
 });
@@ -629,8 +688,9 @@ function save(){
     body:JSON.stringify({slots: state.batch.slots})
   }).then(function(r){ return r.json(); }).then(function(d){
     if (d.ok) { state.batch = d.batch; renderSlots(); }
+    else { say("planmsg", d.error || "Could not save the changes.", "err"); }
     return d;
-  });
+  }).catch(function(){ return {ok:false,error:"Could not save. Check your connection and retry."}; });
 }
 
 function toggleApprove(id){
@@ -748,6 +808,14 @@ function openBatch(id){
     state.batch = d.batch;
     state.context = d.context;
     state.client = d.batch.client;
+    state.url = d.batch.url || "";
+    state.channels = d.batch.channels.slice();
+    state.tones = (d.batch.brief.tones || []).slice();
+    $("month").value = d.batch.month;
+    $("perweek").value = d.batch.per_week;
+    $("promote").value = (d.batch.brief.promote || []).join('\n');
+    suggestions = d.batch.slots.filter(function(s){return s.idea_title;}).map(function(s){return {title:s.idea_title,type:s.type,checked:true};});
+    renderChannels(); renderTones(); renderIdeas();
     $("clientq").value = d.batch.client;
     $("chosen").textContent = "Planning for " + d.batch.client + ".";
     if (d.context) { renderContext(d.context); }
@@ -761,12 +829,220 @@ function openBatch(id){
 }
 
 // ---------------------------------------------------------------- boot
+var stepIndex = 0, suggestions = [], previewDates = [], photoToken = 0;
+var stepCards = ["setupCard", "ideasCard", "briefCard", "photosCard", "planCard"];
+var stepNames = ["Client & month", "Choose ideas", "Details", "Photos", "Review"];
+function showStep(index){
+  stepIndex = index;
+  stepCards.forEach(function(id, i){ $(id).hidden = i !== index; });
+  $("savedCard").hidden = index !== 0;
+  $("steps").innerHTML = stepNames.map(function(name, i){
+    return '<button class="btn sec sm" data-step="'+i+'" '+(i === index ? 'aria-current="step" ' : '')+
+      (i > index ? 'disabled ' : '')+'>'+ (i+1)+'. '+esc(name)+'</button>';
+  }).join('');
+  $("wizardBack").hidden = index === 0;
+  $("wizardNext").hidden = index === 2 || index === 4;
+  $("wizardNext").textContent = index === 3 ? 'Continue to review' : 'Continue';
+  $("wizardMsg").textContent = 'Step '+(index+1)+' of 5 · '+stepNames[index];
+  if(index === 1) { refreshPreview(); if (!suggestions.length && $("wantSuggestions").checked) addGapIdeas(); }
+  if(index === 3) initPhotos();
+  $("steps").scrollIntoView({block:'start',behavior:'smooth'});
+}
+$("reviewPost").onchange = renderSlots;
+$("nextReview").onclick = function(){
+  var select=$("reviewPost");
+  if(select.selectedIndex<select.options.length-1){select.selectedIndex++;renderSlots();}
+  else say("planmsg","You have reached the last post. Check the plan counts before approving.");
+};
+$("steps").onclick = function(e){ if(e.target.dataset.step) showStep(Number(e.target.dataset.step)); };
+$("wizardBack").onclick = function(){ showStep(Math.max(0,stepIndex-1)); };
+$("wizardNext").onclick = function(){
+  if(stepIndex === 0 && (!state.client || !$("month").value || !state.channels.length)) {
+    $("wizardMsg").textContent = 'Choose a client, month, and at least one channel first.'; return;
+  }
+  if(stepIndex === 0 && $("month").value < BOOT.today.slice(0,7)) {
+    $("wizardMsg").textContent = 'Choose this month or a future month.'; return;
+  }
+  showStep(stepIndex+1);
+};
+function pickedHolidays(){
+  var selected = Array.from(document.querySelectorAll('[data-holiday]:checked')).map(function(n){return n.dataset.holiday;});
+  return state.holidays.filter(function(h){return selected.indexOf(h.date)>=0;});
+}
+$("ideasCard").appendChild($("useHolidays").parentElement.parentElement);
+var researchTools = document.createElement('details');
+researchTools.innerHTML = '<summary>More research tools</summary>';
+researchTools.appendChild($("ideasDraft").parentElement);
+researchTools.appendChild($("analyzerCard"));
+$("ideasCard").appendChild(researchTools);
+$("holidayList").addEventListener('change', updateGaps);
+function refreshPreview(){
+  var month = $("month").value, frequency = $("perweek").value;
+  post('preview',{month:month,per_week:frequency}).then(function(d){
+    if(month !== $("month").value || frequency !== $("perweek").value) return;
+    previewDates = d.ok ? d.dates : [];
+    if(!d.ok) $("ideaMsg").textContent = d.error;
+    updateGaps();
+  });
+}
+function updateGaps(){
+  var holidayDates = $("useHolidays").checked ? pickedHolidays().map(function(h){return h.date;}) : [];
+  var open = previewDates.filter(function(d){return holidayDates.indexOf(d)<0;});
+  var picked = suggestions.filter(function(s){return s.checked;});
+  var gaps = open.slice(picked.length);
+  $("gapSummary").textContent = picked.length+' topics selected · '+holidayDates.length+' holidays · '+
+    Math.max(0,open.length-picked.length)+' open posting dates.'+
+    (picked.length > open.length ? ' Too many topics: uncheck some ideas or increase posts per week.' :
+    gaps.length ? ' Gaps: '+gaps.join(', ')+'.' : ' All available posting dates are covered.');
+}
+function renderIdeas(){
+  $("ideaOptions").innerHTML = suggestions.map(function(s,i){return '<label class="suggestion"><input type="checkbox" data-idea="'+i+'" '+
+    (s.checked ? 'checked' : '')+'><span><strong>'+esc(s.title)+'</strong><br><span class="hint">'+esc(typeLabel(s.type || 'educational'))+'</span></span></label>';}).join('');
+  updateGaps();
+}
+$("ideaOptions").onchange = function(e){
+  if(e.target.dataset.idea !== undefined){ suggestions[Number(e.target.dataset.idea)].checked=e.target.checked; updateGaps(); }
+};
+function addGapIdeas(){
+  var covered = suggestions.filter(function(s){return s.checked;}).map(function(s){return s.type;});
+  var themes = {educational:'Share one useful tip customers can try today',faq:'Answer a common customer question',
+    service_spotlight:'Explain a service and who it helps',behind_the_scenes:'Show the people or process behind the work',
+    community:'Highlight a local connection',review_request:'Invite customers to share their feedback',seasonal:'Share a timely seasonal tip'};
+  Object.keys(themes).forEach(function(key){
+    if(covered.indexOf(key)<0 && !suggestions.some(function(s){return s.title===themes[key];}))
+      suggestions.push({title:themes[key],type:key,checked:false});
+  });
+  renderIdeas();
+  $("ideaMsg").textContent = 'Suggested topics for a balanced plan. Check the ones that fit this client.';
+}
+$("findGaps").onclick = addGapIdeas;
+$("addIdea").onclick = function(){
+  var title=$("customIdea").value.trim(); if(!title) return;
+  suggestions.push({title:title,type:'educational',checked:true}); $("customIdea").value=''; renderIdeas();
+};
+$("suggestIdeas").onclick = function(){
+  var client = state.client;
+  this.disabled=true; $("ideaMsg").textContent='Finding ideas for '+client+'…';
+  post('ideas/generate',{client:client,url:state.url}).then(function(d){
+    $("suggestIdeas").disabled=false;
+    if(client !== state.client) return;
+    if(!d.ok){ $("ideaMsg").textContent=d.error; return; }
+    (d.ideas || []).forEach(function(s){
+      if(!suggestions.some(function(x){return x.title===s.title;})) suggestions.push({title:s.title,type:s.idea_tag,checked:false});
+    });
+    renderIdeas(); $("ideaMsg").textContent=d.note || 'Choose the ideas you want to include.';
+  });
+};
+function activePhotoSlot(){return findSlot($("photoPost").value);}
+function initPhotos(){
+  var previous=$("photoPost").value;
+  $("photoPost").innerHTML=state.batch.slots.map(function(s){return '<option value="'+esc(s.id)+'">'+esc(s.date+' · '+(s.idea_title || s.holiday || typeLabel(s.type)))+'</option>';}).join('');
+  if(findSlot(previous)) $("photoPost").value=previous;
+  photoSource('stock');
+}
+function currentPhoto(){
+  var s=activePhotoSlot(); if(!s) return;
+  $("photoTopic").textContent=s.idea_title || s.holiday || typeLabel(s.type);
+  $("selectedPhoto").innerHTML=s.image_url ? '<p>Selected photo</p><img style="max-width:220px;max-height:180px;border-radius:8px" src="'+esc(s.image_url)+'" alt="Selected photo for this post">' : '<p class="hint">No photo selected yet.</p>';
+}
+function drawPhotos(pool, token){
+  if(token !== photoToken) return;
+  $("photoChoices").innerHTML=pool.map(function(p,i){return '<button data-photo="'+i+'" data-photo-url="'+esc(p.url)+'" aria-pressed="'+(activePhotoSlot().image_url===p.url)+'"><img src="'+esc(p.thumb || p.url)+'" alt="'+esc(p.label || 'Photo option '+(i+1))+'"><span>'+esc(p.label || 'Choose photo '+(i+1))+'</span></button>';}).join('');
+  $("photoChoices").onclick=function(e){
+    var button=e.target.closest('[data-photo]'); if(!button) return;
+    selectPhoto(pool[Number(button.dataset.photo)],token);
+  };
+}
+function selectPhoto(photo, token){
+  if(token !== photoToken) return;
+  var slot=activePhotoSlot(), old={image_url:slot.image_url,image_public_id:slot.image_public_id,image_source:slot.image_source,image_credit:slot.image_credit};
+  slot.image_url=photo.url; slot.image_public_id=photo.public_id || ''; slot.image_source=photo.source;
+  slot.image_credit=photo.credit || '';
+  setPhotoBusy(true);
+  save().then(function(d){
+    setPhotoBusy(false);
+    if(!d.ok) Object.assign(slot,old);
+    if(token !== photoToken) return;
+    $("photoMsg").textContent=d.ok ? 'Photo saved to this post.' : d.error;
+    currentPhoto();
+    document.querySelectorAll('[data-photo]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.photoUrl===activePhotoSlot().image_url));});
+  });
+}
+function setPhotoBusy(busy){
+  document.querySelectorAll('#photosCard button,#photosCard input,#photoPost,.wizard-actions button,#steps button').forEach(function(n){
+    if(busy){n.dataset.wasDisabled=n.disabled?'1':'0';n.disabled=true;}
+    else {n.disabled=n.dataset.wasDisabled==='1';}
+  });
+}
+function photoSource(source){
+  var token=++photoToken, slot=activePhotoSlot(); if(!slot) return;
+  currentPhoto(); $("photoTools").innerHTML=''; $("photoChoices").innerHTML=''; $("photoMsg").textContent='';
+  document.querySelectorAll('[data-source]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.source===source));});
+  if(source==='stock'){
+    $("photoTools").innerHTML='<label class="f" for="photoQuery">Search subject</label><input type="text" id="photoQuery" placeholder="Describe the photo"><button class="btn sec sm" id="searchPhotos">Find 3 photos</button>';
+    function search(){
+      var requestToken=++photoToken;
+      $("photoMsg").textContent='Finding three photos…';
+      post('batches/'+state.batch.id+'/photos',{slot:slot.id,query:$("photoQuery").value}).then(function(d){
+        if(requestToken!==photoToken) return;
+        if(!d.ok){$("photoMsg").textContent=d.error;return;}
+        $("photoQuery").value=d.query;
+        var pool=(d.results || []).map(function(p){return {url:p.full || p.preview,thumb:p.thumbnail,label:(p.alt || 'Stock photo')+' · '+p.provider+(p.author?' · '+p.author:''),source:'stock',credit:p.provider+(p.author?' · '+p.author:'')};});
+        $("photoMsg").textContent=pool.length ? 'Choose one of these '+pool.length+' photos.' :
+          Object.values(d.sources || {}).some(function(s){return s==='error';}) ? 'Photo search is temporarily unavailable. Retry or use another source.' :
+          Object.values(d.sources || {}).every(function(s){return s==='off' || s==='idle';}) ? 'Stock photo sources are not connected. Choose the client library, upload a photo, or create one.' :
+          'No photos found. Try another subject or choose from the client library.';
+        drawPhotos(pool,requestToken);
+      });
+    }
+    $("searchPhotos").onclick=search; search();
+  } else if(source==='gallery'){
+    var pool=((state.context && state.context.gallery)||[]).map(function(p){return Object.assign({},p,{source:'gallery'});});
+    $("photoMsg").textContent=pool.length ? 'Choose a photo from the client library.' : 'No photos in this client library yet. Upload a new one.';
+    drawPhotos(pool,token);
+  } else if(source==='uploaded'){
+    $("photoTools").innerHTML='<label class="f" for="photoUpload">Upload a photo (up to 12 MB)</label><input id="photoUpload" type="file" accept="image/png,image/jpeg,image/webp">';
+    $("photoUpload").onchange=function(){
+      if(!this.files[0]) return;
+      if(this.files[0].size>12*1024*1024){$("photoMsg").textContent='Choose a photo under 12 MB.';return;}
+      var body=new FormData(); body.append('file',this.files[0]);body.append('slot',slot.id);
+      createPhoto({method:'POST',body:body},token);
+    };
+  } else {
+    $("photoTools").innerHTML='<label class="f" for="photoPrompt">Describe your AI photo</label><textarea id="photoPrompt" rows="3"></textarea><button class="btn" id="generatePhoto">Create AI photo</button><p class="hint">Uses image generation credits. Preview the result before selecting it.</p>';
+    $("photoPrompt").value=slot.idea_title || slot.holiday || (state.batch.brief.promote || []).join(', ') || typeLabel(slot.type);
+    $("generatePhoto").onclick=function(){
+      var prompt=$("photoPrompt").value.trim();if(!prompt)return;
+      createPhoto({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slot:slot.id,prompt:prompt})},token);
+    };
+  }
+}
+function createPhoto(opts,token){
+  setPhotoBusy(true);$("photoMsg").textContent='Preparing your photo…';
+  api('batches/'+state.batch.id+'/photo',opts).then(function(d){
+    setPhotoBusy(false); if(token!==photoToken)return;
+    if(!d.ok){$("photoMsg").textContent=d.error;return;}
+    $("photoMsg").textContent='Preview your photo, then select it to add it to this post.';
+    if(d.image.source==='uploaded' && state.context) state.context.gallery.push(d.image);
+    drawPhotos([d.image],token);
+  });
+}
+$("photoSources").onclick=function(e){if(e.target.dataset.source)photoSource(e.target.dataset.source);};
+$("photoPost").onchange=function(){photoSource('stock');};
+$("nextPhoto").onclick=function(){
+  var select=$("photoPost");
+  if(select.selectedIndex<select.options.length-1){select.selectedIndex++;photoSource('stock');}
+  else showStep(4);
+};
 renderChannels();
+renderTones();
 (function(){
   var now = new Date();
   var next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   $("month").value = next.getFullYear() + "-" + ("0" + (next.getMonth() + 1)).slice(-2);
+  $("month").min=BOOT.today.slice(0,7);
 })();
+showStep(0);
 if (BOOT.client) { choose(BOOT.client, BOOT.url); }
 loadSaved();
 })();

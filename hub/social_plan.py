@@ -439,7 +439,7 @@ def parse_month(month: str) -> tuple[int, int]:
 
 
 def posting_dates(month: str, per_week: int = 3,
-                  blackout: tuple | list = ()) -> list[date]:
+                  blackout: tuple | list = (), start_date: date | None = None) -> list[date]:
     year, mon = parse_month(month)
     per_week = max(1, min(7, int(per_week or 3)))
     wanted = WEEKDAY_PATTERNS[per_week]
@@ -448,13 +448,14 @@ def posting_dates(month: str, per_week: int = 3,
     out = []
     for day in range(1, days + 1):
         when = date(year, mon, day)
-        if when.weekday() in wanted and when.isoformat() not in skip:
+        if (not start_date or when >= start_date) and when.weekday() in wanted and when.isoformat() not in skip:
             out.append(when)
     return out
 
 
 def build_grid(month: str, *, channels=(), per_week: int = 3,
-               mix: dict | None = None, blackout=(), holidays=()) -> list[dict]:
+               mix: dict | None = None, blackout=(), holidays=(),
+               start_date: date | None = None) -> list[dict]:
     """The month as a list of empty slots — dates, channels and post types.
 
     One slot per posting date, carrying every selected channel, because that is
@@ -470,7 +471,7 @@ def build_grid(month: str, *, channels=(), per_week: int = 3,
     picked = [c for c in (channels or DEFAULT_CHANNELS) if c in CHANNELS]
     if not picked:
         picked = list(DEFAULT_CHANNELS)
-    dates = posting_dates(month, per_week, blackout)
+    dates = posting_dates(month, per_week, blackout, start_date)
     types = type_sequence(len(dates), mix)
     skip = {str(d).strip() for d in (blackout or []) if str(d).strip()}
 
@@ -499,6 +500,12 @@ def build_grid(month: str, *, channels=(), per_week: int = 3,
         when = str(hol.get("date") or "").strip()
         name = str(hol.get("name") or "").strip()
         if not when or not name or when in skip:
+            continue
+        try:
+            holiday_date = date.fromisoformat(when)
+        except ValueError:
+            continue
+        if when[:7] != month or (start_date and holiday_date < start_date):
             continue
         existing = by_date.get(when)
         if existing:
@@ -778,6 +785,9 @@ def draft_messages(batch: dict, slot: dict, context: dict | None = None) -> list
     hook = str(slot.get("holiday") or "").strip()
     user = (
         f"Write one post for {slot.get('date')}.\n\n"
+        + (f"Selected topic: {slot['idea_title']}. This is a topic, not authorization "
+           "for prices, claims or events. Use only the facts below.\n\n"
+           if slot.get("idea_title") else "")
         + (f"This post marks {hook}. Tie it to what the business actually "
            "does — a day named in a post that has nothing to do with the "
            "business reads as filler, which is what it would be. Claim no "
