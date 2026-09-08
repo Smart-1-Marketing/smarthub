@@ -87,6 +87,7 @@ def collapses_by_default(path: str) -> bool:
 
 _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
+    ("help", "/help", "&#10067;", "Help Center"),
     ("c360", "/client360", "&#127919;", "Client 360"),
     # Directly under Client 360, and above the sections: that page answers
     # "what do we know about this client" and this one answers "which of them

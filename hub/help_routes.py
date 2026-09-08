@@ -417,6 +417,8 @@ def install_template_helpers(app) -> None:
 def register_help(app, current_user_fn=None) -> None:
     """Mount the blueprint and expose the template helpers."""
     app.register_blueprint(bp)
+    from .help_center import bp as center_bp
+    app.register_blueprint(center_bp)
 
     def _banner():
         user = None

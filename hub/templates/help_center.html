@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Help Center · Smart 1 Hub{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/assets/help-center.css">
+<div class="help-center">
+  <p class="help-eyebrow">SMART 1 HUB SUPPORT</p>
+  <h1>How can we help?</h1>
+  <p>Find an answer, learn a tool, or ask the team.</p>
+  <label for="help-search">Search help, walkthroughs and video tutorials</label>
+  <input id="help-search" type="search" placeholder="Try radio, video, display ads or client setup">
+  <p id="help-load-status" role="status">Loading help…</p>
+  <div class="help-columns">
+    <div><section><h2>Help articles</h2><div id="help-articles"></div></section>
+      <section><h2>Video tutorials</h2><p>Recorded product lessons from the Smart 1 Learning Library. For help using Hub tools, explore the guided walkthroughs below.</p><div id="help-videos"></div></section>
+      <section><h2>Guided walkthroughs</h2><div id="help-walkthroughs"></div></section></div>
+    <div><section><h2>Ask the Hub assistant</h2>
+      <p>Answers use the Hub’s help documentation. Questions and answers are saved for the team to improve the system. Please leave out passwords and sensitive client information.</p>
+      <form id="help-ask"><label for="help-question">Your question</label><textarea id="help-question" required minlength="3" maxlength="1500" rows="4" placeholder="How do I create a radio spot?"></textarea><button type="submit">Ask assistant</button></form>
+      <div id="help-answer" role="status" aria-live="polite"></div><div id="help-sources"></div>
+    </section><section><h2>Suggestions or problems?</h2><p>Send the team a question, an idea, or a problem you’ve encountered.</p>
+      <iframe title="Suggestions and problems support form" src="https://api.leadconnectorhq.com/widget/form/XOszuVj3bHvyOasIeGhw" loading="lazy" class="help-support-form"></iframe>
+    </section></div>
+  </div>
+</div>
+<script defer src="/assets/help-center.js"></script>
+{% endblock %}

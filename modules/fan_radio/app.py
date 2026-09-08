@@ -780,6 +780,8 @@ def api_record(pid, sid):
                                   voice.get("energy") or "energetic",
                                   voice.get("speed", 1.0))
     except voices.VoiceError as exc:
+        _log("render_failed", project=pid, spot=sid,
+             detail="Radio recording failed. Open the builder to retry.")
         return fail(str(exc), 503)
 
     stored = store.store_audio(project, spot, out["audio"])
