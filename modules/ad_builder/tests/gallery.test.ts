@@ -102,7 +102,7 @@ test('a folder that names nothing is refused rather than named gallery_.html', (
 test('--out wins, and is resolved so the page directory is knowable', () => {
   const file = galleryFile('smart1-ads/icon-solar/summer-solar', '/tmp/elsewhere/g.html', '/R');
 
-  assert.equal(file, '/tmp/elsewhere/g.html');
+  assert.equal(file, path.resolve('/tmp/elsewhere/g.html'));
   assert.ok(path.isAbsolute(file), 'the asset paths are computed against its directory');
 });
 
@@ -138,7 +138,7 @@ test('a simulated asset is drawn relative to where the page was written', () => 
   assert.equal(assets.length, 1);
   assert.equal(
     path.resolve('/tmp/elsewhere', assets[0].secureUrl),
-    '/srv/ads/out/google/concept-a/mr.png',
+    path.resolve('/srv/ads/out/google/concept-a/mr.png'),
     'the tile resolves to the file it is a picture of',
   );
 });
@@ -151,7 +151,7 @@ test('the same manifest written to the default directory resolves too', () => {
   assert.equal(assets[0].secureUrl, path.join('..', 'google', 'concept-a', 'mr.png'));
   assert.equal(
     path.resolve('/srv/ads/out/reports', assets[0].secureUrl),
-    '/srv/ads/out/google/concept-a/mr.png',
+    path.resolve('/srv/ads/out/google/concept-a/mr.png'),
   );
 });
 
