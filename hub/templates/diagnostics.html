@@ -5,6 +5,7 @@
   <div class="diag-head">
     <div>
       <h1>Diagnostics</h1>
+      <a href="/diagnostics/ai-models">AI Model Review</a>
       <p class="diag-sub">Live checks against every external API, monthly usage
         against your allowances, and an estimate of the OpenAI bill.</p>
     </div>
@@ -491,8 +492,8 @@ function renderOpenAI(o){
   const mods   = Object.entries(o.by_module||{});
   document.getElementById("diag-openai").innerHTML =
     '<div class="diag-cost">'+
-      '<div><span>Month to date</span><b>'+money(o.estimated_cost)+'</b></div>'+
-      '<div><span>Projected month end</span><b>'+money(o.projected_month_end)+'</b></div>'+
+      '<div><span>Month to date</span><b>'+(o.estimated_cost==null?'Incomplete':money(o.estimated_cost))+'</b></div>'+
+      '<div><span>Projected month end</span><b>'+(o.projected_month_end==null?'Unavailable':money(o.projected_month_end))+'</b></div>'+
       '<div><span>Calls</span><b>'+num(o.calls)+'</b></div>'+
       '<div><span>Tokens</span><b>'+num(o.tokens_in+o.tokens_out)+'</b></div>'+
       (o.errors?'<div><span>Failed calls</span><b>'+num(o.errors)+'</b></div>':'')+
@@ -502,19 +503,20 @@ function renderOpenAI(o){
       '<th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th></tr>'+
       models.map(([m,v])=>'<tr><td>'+esc(m)+'</td><td class="num">'+num(v.calls)+
         '</td><td class="num">'+num(v.tokens_in)+'</td><td class="num">'+num(v.tokens_out)+
-        '</td><td class="num">'+money(v.cost)+'</td></tr>').join("")+'</table>'
+        '</td><td class="num">'+(v.unpriced?'Unpriced':money(v.cost))+'</td></tr>').join("")+'</table>'
       :'<p class="diag-loading">No OpenAI calls logged this month yet.</p>')+
     (mods.length?
       '<table class="diag-tbl"><tr><th>Tool</th><th class="num">Calls</th>'+
       '<th class="num">Errors</th><th class="num">Cost</th></tr>'+
       mods.map(([m,v])=>'<tr><td>'+esc(m)+'</td><td class="num">'+num(v.calls)+
-        '</td><td class="num">'+num(v.errors)+'</td><td class="num">'+money(v.cost)+
+        '</td><td class="num">'+num(v.errors)+'</td><td class="num">'+(v.unpriced?'Partial: '+money(v.cost):money(v.cost))+
         '</td></tr>').join("")+'</table>':'')+
     (o.untracked_modules && o.untracked_modules.length?
       '<p class="diag-caveat"><b>Not counted above:</b> '+
       o.untracked_modules.map(esc).join(", ")+
       ' call OpenAI directly instead of through the shared client, so their '+
       'spend is invisible here. Migrating them onto hub/ai.py closes the gap.</p>':'')+
+    (o.unpriced_models && o.unpriced_models.length?'<p class="diag-caveat"><b>Pricing missing:</b> '+o.unpriced_models.map(esc).join(', ')+'. Known-cost subtotal: '+money(o.known_cost_subtotal)+'.</p>':'')+
     '<p class="diag-caveat">'+esc(o.caveat)+'</p>';
 }
 

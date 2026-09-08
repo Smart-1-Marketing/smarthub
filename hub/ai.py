@@ -51,8 +51,12 @@ def ready() -> bool:
     return settings.openai_ready
 
 
-def estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
-    rate_in, rate_out = _PRICING.get(model, _PRICING["gpt-4o-mini"])
+def estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float | None:
+    from hub.quotas import _price
+    price = _price(model)
+    if price is None:
+        return None
+    rate_in, rate_out = price["in"], price["out"]
     return round(tokens_in / 1e6 * rate_in + tokens_out / 1e6 * rate_out, 6)
 
 
@@ -72,11 +76,15 @@ def _record(module: str, purpose: str, model: str, usage: dict,
 
 
 def _post(path: str, payload: dict, timeout: int) -> dict:
-    resp = requests.post(
-        f"{API}{path}",
-        headers={"Authorization": f"Bearer {settings.openai_key}",
-                 "Content-Type": "application/json"},
-        json=payload, timeout=timeout)
+    for attempt in range(settings.openai_retries + 1):
+        resp = requests.post(
+            f"{API}{path}",
+            headers={"Authorization": f"Bearer {settings.openai_key}",
+                     "Content-Type": "application/json"},
+            json=payload, timeout=timeout)
+        if resp.status_code not in (429, 500, 502, 503, 504) or attempt == settings.openai_retries:
+            break
+        time.sleep(min(8, 2 ** attempt))
     if resp.status_code >= 400:
         # Deliberately does not include the response body: provider errors have
         # echoed back key prefixes before.

@@ -34,7 +34,8 @@ API_URL = "https://api.openai.com/v1/chat/completions"
 
 
 def model() -> str:
-    return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    from hub.ai_models import model as profile_model
+    return profile_model("fan_radio.text")
 
 
 def ready() -> bool:

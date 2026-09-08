@@ -465,13 +465,15 @@ PRICING = {
 IMAGE_PRICING = {"gpt-image-1": 0.04}   # per 1024x1024 standard image
 
 
-def _price(model: str) -> dict:
+def _price(model: str) -> dict | None:
     if model in PRICING:
         return PRICING[model]
-    for k in PRICING:                       # tolerate dated suffixes
-        if model.startswith(k):
+    for k in sorted(PRICING, key=len, reverse=True):
+        # Only dated snapshots inherit a rate, never another model family.
+        import re
+        if re.fullmatch(re.escape(k) + r"-\d{4}-\d{2}-\d{2}", model):
             return PRICING[k]
-    return PRICING["gpt-4o-mini"]
+    return None
 
 
 def openai_cost(month: str | None = None, lookback: int = 200000) -> dict:
@@ -486,6 +488,7 @@ def openai_cost(month: str | None = None, lookback: int = 200000) -> dict:
     by_module: dict[str, dict] = {}
     calls = errors = images = 0
     tin = tout = 0
+    unpriced_models = set()
 
     for row in audit.read(limit=lookback, module="ai"):
         ts = row.get("time", "")
@@ -503,21 +506,26 @@ def openai_cost(month: str | None = None, lookback: int = 200000) -> dict:
 
         if model in IMAGE_PRICING or model.startswith("gpt-image"):
             images += 1
-            cost = IMAGE_PRICING.get(model, 0.04)
+            cost = IMAGE_PRICING.get(model)
         else:
             p = _price(model)
-            cost = i / 1e6 * p["in"] + o / 1e6 * p["out"]
+            cost = i / 1e6 * p["in"] + o / 1e6 * p["out"] if p else None
+
+        if cost is None:
+            unpriced_models.add(model)
 
         m = by_model.setdefault(model, {"calls": 0, "tokens_in": 0,
                                         "tokens_out": 0, "cost": 0.0})
         m["calls"] += 1
         m["tokens_in"] += i
         m["tokens_out"] += o
-        m["cost"] += cost
+        m["cost"] += cost or 0
+        m["unpriced"] = m.get("unpriced", False) or cost is None
 
         d = by_module.setdefault(mod, {"calls": 0, "cost": 0.0, "errors": 0})
         d["calls"] += 1
-        d["cost"] += cost
+        d["cost"] += cost or 0
+        d["unpriced"] = d.get("unpriced", False) or cost is None
         if not row.get("ok"):
             d["errors"] += 1
 
@@ -533,7 +541,10 @@ def openai_cost(month: str | None = None, lookback: int = 200000) -> dict:
     return {
         "month": month, "calls": calls, "errors": errors, "images": images,
         "tokens_in": tin, "tokens_out": tout,
-        "estimated_cost": total, "projected_month_end": projected,
+        "estimated_cost": total if not unpriced_models else None,
+        "known_cost_subtotal": total,
+        "unpriced_models": sorted(unpriced_models),
+        "projected_month_end": projected if not unpriced_models else None,
         "by_model": dict(sorted(by_model.items(), key=lambda kv: -kv[1]["cost"])),
         "by_module": dict(sorted(by_module.items(), key=lambda kv: -kv[1]["cost"])),
         "untracked_modules": untracked_openai_modules(),
@@ -627,7 +638,16 @@ def untracked_openai_modules() -> list[str]:
     # capability "openai.text", diagnostics.py pings /v1/models to check the
     # key, and ai.py documents the URL in a docstring -- none of them spend
     # tokens. A detector that flags those trains you to ignore it.
-    for p in root.rglob("*.py"):
+    # Only deployed app code: sibling checkouts, virtualenvs and node_modules
+    # are not Hub tools and can turn this Diagnostics scan into minutes of IO.
+    import os
+    paths = []
+    for folder in (root / "hub", root / "modules"):
+        for current, directories, files in os.walk(folder):
+            directories[:] = [d for d in directories if d not in
+                              {"node_modules", "__pycache__", ".venv", "_attic"} and not d.startswith(".")]
+            paths.extend(pathlib.Path(current) / name for name in files if name.endswith(".py"))
+    for p in paths:
         if "_attic" in p.parts or "__pycache__" in p.parts:
             continue
         if p.name in {"ai.py", "quotas.py", "diagnostics.py"}:
