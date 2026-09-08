@@ -1,0 +1,75 @@
+/* The Hub adds its own sidebar and breadcrumbs. Size against available width. */
+body[data-module="sales_builder"] .shell{width:100%;max-width:1600px;padding:12px 18px 8px}
+.cols{grid-template-columns:minmax(0,1fr) minmax(240px,280px);gap:14px}
+.cols > *, .rail, .panel, .aiask input, .search, .two > *, .three > *{min-width:0}
+.headrow{gap:8px;margin-bottom:12px}
+.headrow .btn{padding:9px 12px}
+.stats{gap:10px;margin-bottom:12px}
+.stats .s1d-tile{padding:10px 12px}
+.stats .s1d-tile b{font-size:21px}
+.panel .phead{padding:10px 12px;gap:8px}
+.tabs{flex-wrap:wrap}
+.tabs span{padding:5px 8px}
+.search input{width:190px;max-width:100%}
+.sales-table{table-layout:fixed;width:100%}
+.sales-table th,.sales-table td{padding:8px;overflow-wrap:anywhere}
+.sales-table th{letter-spacing:.2px;font-size:10px}
+.sales-table td{font-size:12px}
+.sales-table .badge{white-space:normal;padding:3px 6px}
+.sales-table [hidden],.sales-client-list > [hidden]{display:none!important}
+.sales-table .rowact{flex-wrap:wrap;justify-content:flex-start;margin-top:8px}
+.sales-fold > summary,.sales-actions > summary,.sales-cell > summary{cursor:pointer;color:var(--navy);font-weight:700}
+.sales-fold > summary{padding:11px 14px;font-size:13px}
+.sales-fold[open] > summary{border-bottom:1px solid var(--line)}
+.sales-fold.bpanel{padding:0}
+.sales-fold.bpanel > :not(summary){margin-left:14px;margin-right:14px}
+.sales-fold.bpanel > :last-child{margin-bottom:14px}
+.sales-cell > div{margin-top:8px}
+.sales-cell > summary{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sales-cell[open] > summary{white-space:normal}
+#view-dashboard > .sales-fold{margin-bottom:12px}
+.stats .s1d-tile{min-height:0}
+summary:focus-visible,.sales-pager button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.sales-pager{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;font-size:12px;border-top:1px solid var(--line)}
+.sales-pager button{background:var(--sky);border:1px solid var(--line);border-radius:7px;padding:6px 10px;color:var(--navy);cursor:pointer}
+.sales-pager button:disabled{opacity:.45;cursor:default}
+.rail .panel{margin-bottom:10px}
+.rail .panel:last-child{margin-bottom:0}
+.rail .ai,.rail .quick{padding:12px}
+.rail .btn{white-space:normal}
+.sales-client-search{padding:10px;border:1px solid var(--line);border-radius:8px;max-width:100%}
+.sales-client-list .clientcard{margin:0 0 8px;padding:0}
+.sales-client-list .clientcard > :not(summary){margin:10px 14px}
+.sales-client-list .pill{white-space:normal}
+#view-io iframe.ioframe{height:calc(100dvh - 350px);min-height:240px}
+@media(min-width:1100px) and (min-height:650px){
+  body.wizard .shell{padding-bottom:14px}
+  .bshell{max-width:none;gap:18px;height:calc(100dvh - 190px)}
+  .bmain,.steprail{max-height:100%;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  .bmain{padding:0 8px 14px 0}
+  .bpanel{margin-top:12px;padding:14px}
+  .cards{margin-top:12px;gap:10px}
+  .choice{padding:12px}
+}
+@media(max-width:1099px){.cols{grid-template-columns:minmax(0,1fr)}.rail{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start}}
+@media(max-width:720px){
+  body[data-module="sales_builder"] .shell{padding:10px 12px 24px}
+  .rail{grid-template-columns:minmax(0,1fr)}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .headrow .grow{min-width:0;flex-basis:100%}
+  .search{margin-left:0;width:100%}.search input{width:100%}
+  .sales-table thead{display:none}
+  .sales-table,.sales-table tbody,.sales-table tr,.sales-table td{display:block;width:100%}
+  .sales-table tr{border-bottom:2px solid var(--line);padding:8px}
+  .sales-table td{border:0;padding:4px;display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px}
+  .sales-table td::before{content:attr(data-label);font-weight:700;color:var(--muted);font-size:11px}
+  .sales-table td[colspan]{display:block}
+  .sales-table td[colspan]::before{display:none}
+  .steprail{flex-wrap:wrap;overflow:visible}
+  .aiask input{width:0}.fld input,.fld select,.fld textarea{max-width:100%;min-width:0}
+}
+@media print{
+  .sales-table tr[hidden],.sales-client-list > [hidden]{display:revert!important}
+  .sales-pager{display:none}
+  .bshell{height:auto}.bmain,.steprail{max-height:none;overflow:visible}
+}
