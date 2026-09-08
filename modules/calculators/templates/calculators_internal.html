@@ -37,7 +37,9 @@ body{margin:0;font-family:Inter,-apple-system,Segoe UI,Arial,sans-serif;backgrou
 .s1-card{background:var(--white);border:1px solid var(--line);border-radius:18px;
          box-shadow:0 12px 35px rgba(15,39,71,.08);overflow:hidden}
 .s1-head{padding:24px 26px;background:linear-gradient(135deg,var(--navy),#183f73);color:#fff}
-.s1-head h1{margin:0 0 6px;font-size:clamp(21px,3vw,29px);line-height:1.1}
+/* theme.css's global `h1, h2 { color: var(--s1-navy) }` otherwise wins over
+   this header's inherited white, painting the title navy-on-navy. */
+.s1-head h1{margin:0 0 6px;font-size:clamp(21px,3vw,29px);line-height:1.1;color:#fff}
 .s1-head p{margin:0;opacity:.92;max-width:760px;font-size:14px}
 .internal-flag{display:inline-block;margin-top:12px;padding:5px 10px;border-radius:999px;
   background:rgba(255,255,255,.16);font-size:12px;font-weight:700;letter-spacing:.02em}
