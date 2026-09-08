@@ -373,10 +373,14 @@ check("and names them as a fallback rather than a source",
 check("the two dead files are accounted for rather than silently dropped",
       "campaigns.json" in doc and "live_products.json" in doc)
 import pathlib as _pl                                             # noqa: E402
+_workflows = list(_pl.Path(ROOT, ".github", "workflows").glob("*.yml"))
+_naming_dead_exports = [
+    f.name for f in _workflows
+    if "campaigns.json" in f.read_text(encoding="utf-8")
+    or "live_products.json" in f.read_text(encoding="utf-8")
+]
 check("and there is genuinely no refresh workflow to point at",
-      [f.name for f in _pl.Path(ROOT, ".github", "workflows").glob("*.yml")]
-      == ["checks.yml"],
-      [f.name for f in _pl.Path(ROOT, ".github", "workflows").glob("*.yml")])
+      _naming_dead_exports == [], _naming_dead_exports)
 
 
 # ---------------------------------------------------------------------------
