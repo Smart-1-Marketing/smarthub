@@ -45,6 +45,7 @@ import csv
 import io
 import re
 from datetime import date
+from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
 # Channels
@@ -691,6 +692,17 @@ def validate_slot(slot: dict, facts: dict | None = None) -> list[dict]:
         facts["notes"] = "\n".join(
             part for part in (str(facts.get("notes") or ""), supplied) if part)
     flags = validate_copy(slot.get("copy", ""), channels=channels, facts=facts)
+    for field, label in (("link", "Post link"), ("image_url", "Image URL")):
+        value = str(slot.get(field) or "").strip()
+        if not value:
+            continue
+        try:
+            parsed = urlparse(value)
+            valid = parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+        except ValueError:
+            valid = False
+        if not valid:
+            flags.append({"level": "block", "code": "url", "message": f"{label} needs a complete http:// or https:// address without embedded credentials."})
     if slot.get("copy", "").strip() and not slot.get("image_url"):
         for key in channels:
             if CHANNELS.get(key, {}).get("asset") == "required":

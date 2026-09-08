@@ -113,6 +113,8 @@
   <p class="sub">Choose ideas, add photos, and review your social plan &mdash; one step at a time.</p>
   <nav class="steps" aria-label="Plan progress" id="steps"></nav>
   <p id="wizardMsg" role="status" class="hint"></p>
+  <p id="saveNotice" role="status" class="hint"></p>
+  <button class="btn sec sm" id="retrySave" hidden>Retry saving this post</button>
 
   {# The queue is the other half of the same tool and it needs a way in from
      here: a page nobody can reach is a page nobody uses, which this repo has
@@ -286,6 +288,25 @@ var SPEC = BOOT.spec;
 var state = {client:"", url:"", batch:null, context:null,
              channels:SPEC.default_channels.slice(),
              tones:(SPEC.default_tones || []).slice(), holidays:[]};
+var uiBusy = 0, lockedControls = [], unsavedPost = null;
+function lockUI(busy){
+  uiBusy = Math.max(0, uiBusy + (busy ? 1 : -1));
+  if(uiBusy){
+    document.querySelectorAll('.wrap button,.wrap input,.wrap select,.wrap textarea').forEach(function(n){
+      if(!lockedControls.some(function(row){return row.node===n;})) lockedControls.push({node:n,disabled:n.disabled});
+      n.disabled=true;
+    });
+  } else {
+    lockedControls.forEach(function(row){if(row.node.isConnected)row.node.disabled=row.disabled;});
+    lockedControls=[];
+  }
+}
+document.querySelector('.wrap').addEventListener('click',function(e){
+  if(uiBusy){e.preventDefault();e.stopImmediatePropagation();}
+},true);
+window.addEventListener('beforeunload',function(e){
+  if(unsavedPost || uiBusy){e.preventDefault();e.returnValue='';}
+});
 
 function $(id){ return document.getElementById(id); }
 function esc(s){
@@ -488,6 +509,7 @@ $("build").addEventListener("click", function(){
   if (!$("month").value) { say("buildmsg", "Pick a month.", "err"); return; }
   if (!state.channels.length) { say("buildmsg", "Pick at least one channel.", "err"); return; }
   $("build").disabled = true;
+  lockUI(true);
   say("buildmsg", "Creating your plan…", "wait");
   var wantHolidays = $("useHolidays").checked;
   post("batches", {
@@ -502,6 +524,7 @@ $("build").addEventListener("click", function(){
             offers: $("offers").value, notes: $("notes").value,
             phone: $("phone").value, avoid: $("avoid").value}
   }).then(function(d){
+    lockUI(false);
     $("build").disabled = false;
     if (!d.ok) { say("buildmsg", d.error, "err"); return; }
     state.batch = d.batch;
@@ -555,6 +578,7 @@ $("pagesReview").addEventListener("click", function(){
 });
 
 function showPlan(step){
+  say("planmsg", "");
   $("planCard").hidden = false;
   var id = state.batch.id;
   $("expPlanner").href = "api/batches/" + id + "/export.csv?format=planner";
@@ -635,6 +659,7 @@ function renderSlots(){
     "</div>";
   }).join("");
   $("slots").innerHTML = html || '<div class="empty">No slots.</div>';
+  if(uiBusy){lockUI(true);lockUI(false);}
   renderCounts();
 }
 function renderCounts(){
@@ -676,32 +701,48 @@ $("slots").addEventListener("change", function(ev){
     slot.image_source = "gallery";
     slot.image_credit = "";
   }
-  save();
+  save(slot.id);
 });
 
 function findSlot(id){
   return state.batch.slots.filter(function(s){ return s.id === id; })[0];
 }
-function save(){
-  return fetch("api/batches/" + state.batch.id, {
+function save(slotId){
+  var batchId=state.batch.id;
+  unsavedPost=slotId;
+  $("saveNotice").textContent='Saving your changes…';
+  $("retrySave").hidden=true;
+  lockUI(true);
+  return api("batches/" + batchId, {
     method:"PUT", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({slots: state.batch.slots})
-  }).then(function(r){ return r.json(); }).then(function(d){
-    if (d.ok) { state.batch = d.batch; renderSlots(); }
-    else { say("planmsg", d.error || "Could not save the changes.", "err"); }
+    body:JSON.stringify({revision:state.batch.revision,slots:[findSlot(slotId)]})
+  }).then(function(d){
+    if (d.ok && state.batch.id===batchId) {
+      state.batch = d.batch; unsavedPost=null; renderSlots();
+      $("saveNotice").textContent='All changes saved.';
+      say('planmsg',state.batch.status==='review' ? 'Changes saved. This plan needs review again.' : '');
+    } else {
+      $("saveNotice").textContent=(d.error || 'Could not save.')+' Your edit remains on this screen. Copy it before reopening the saved plan.';
+      $("retrySave").hidden=false;
+    }
+    lockUI(false);
     return d;
-  }).catch(function(){ return {ok:false,error:"Could not save. Check your connection and retry."}; });
+  });
 }
+$("retrySave").onclick=function(){if(unsavedPost)save(unsavedPost);};
 
 function toggleApprove(id){
   var slot = findSlot(id);
   if (!slot.copy) { say("planmsg", "Nothing written in that slot yet.", "err"); return; }
   slot.status = slot.status === "approved" ? "edited" : "approved";
-  save();
+  save(id);
 }
 
 function draftOne(id, button){
+  if(unsavedPost){say('planmsg','Save or copy your pending edit before drafting.','err');return Promise.resolve(false);}
   var slot = findSlot(id);
+  var batchId=state.batch.id;
+  lockUI(true);
   // busy() keeps the button's own label to put back, so the restore cannot
   // disagree with what was there — the hand-written version above restored a
   // hard-coded "Write" on the failure path and would have relabelled any
@@ -710,13 +751,16 @@ function draftOne(id, button){
     ? window.S1Think.busy(button, {kind: "ai", label: "Writing…"})
     : {done: function(){ if (button) { button.disabled = false; } }};
   if (!window.S1Think && button) { button.disabled = true; }
-  return post("batches/" + state.batch.id + "/draft", {slot: id}).then(function(d){
+  return post("batches/" + batchId + "/draft", {slot: id,revision:state.batch.revision}).then(function(d){
+    lockUI(false);
     if (!d.ok) {
       say("planmsg", slot.date + ": " + d.error, "err");
       busy.done();
       return false;
     }
     busy.done();
+    if(state.batch.id!==batchId)return false;
+    if(d.batch)state.batch=d.batch;
     for (var i = 0; i < state.batch.slots.length; i++) {
       if (state.batch.slots[i].id === id) { state.batch.slots[i] = d.slot; }
     }
@@ -728,12 +772,15 @@ function draftOne(id, button){
 // One request per slot, in sequence, so the progress line can name the post
 // being written and one failure costs one post rather than the month.
 $("draftAll").addEventListener("click", function(){
+  if(unsavedPost){say('planmsg','Save your pending edit first.','err');return;}
   var pending = state.batch.slots.filter(function(s){ return !s.copy; });
   if (!pending.length) { say("planmsg", "Every slot already has copy.", "ok"); return; }
   $("draftAll").disabled = true;
+  lockUI(true);
   var done = 0, failed = 0;
   function next(){
     if (!pending.length) {
+      lockUI(false);
       $("draftAll").disabled = false;
       say("planmsg", done + " written" + (failed ? ", " + failed + " failed — retry those individually" : "."),
           failed ? "err" : "ok");
@@ -751,9 +798,12 @@ $("draftAll").addEventListener("click", function(){
 });
 
 $("fillImages").addEventListener("click", function(){
+  if(unsavedPost){say('planmsg','Save your pending edit first.','err');return;}
   $("fillImages").disabled = true;
+  lockUI(true);
   say("planmsg", "Looking through the gallery…", "scan");
-  post("batches/" + state.batch.id + "/images", {}).then(function(d){
+  post("batches/" + state.batch.id + "/images", {revision:state.batch.revision}).then(function(d){
+    lockUI(false);
     $("fillImages").disabled = false;
     if (!d.ok) { say("planmsg", d.error, "err"); return; }
     if (d.batch) { state.batch = d.batch; renderSlots(); }
@@ -763,7 +813,10 @@ $("fillImages").addEventListener("click", function(){
 });
 
 $("approve").addEventListener("click", function(){
-  post("batches/" + state.batch.id + "/status", {status:"approved"}).then(function(d){
+  if(unsavedPost){say('planmsg','Save your pending edit first.','err');return;}
+  lockUI(true);
+  post("batches/" + state.batch.id + "/status", {status:"approved",revision:state.batch.revision}).then(function(d){
+    lockUI(false);
     if (!d.ok) { say("planmsg", d.error, "err"); return; }
     state.batch = d.batch;
     renderSlots();
@@ -803,14 +856,21 @@ $("saved").addEventListener("click", function(ev){
   }
 });
 function openBatch(id){
+  if(unsavedPost && !confirm('Reopen the saved plan and discard the unsaved edit? Copy any text you want to keep first.'))return;
+  lockUI(true);
   api("batches/" + id).then(function(d){
+    lockUI(false);
     if (!d.ok) { say("planmsg", d.error, "err"); return; }
     state.batch = d.batch;
+    unsavedPost=null;$("retrySave").hidden=true;$("saveNotice").textContent='';
     state.context = d.context;
     state.client = d.batch.client;
     state.url = d.batch.url || "";
     state.channels = d.batch.channels.slice();
     state.tones = (d.batch.brief.tones || []).slice();
+    state.holidays=d.batch.slots.filter(function(s){return s.holiday;}).map(function(s){return {date:s.date,name:s.holiday};});
+    $("useHolidays").checked=Boolean((d.batch.brief || {}).use_holidays);
+    $("holidayList").innerHTML=state.holidays.map(function(h){return '<label class="suggestion"><input type="checkbox" data-holiday="'+esc(h.date)+'" checked> '+esc(h.date+' '+h.name)+'</label>';}).join('');
     $("month").value = d.batch.month;
     $("perweek").value = d.batch.per_week;
     $("promote").value = (d.batch.brief.promote || []).join('\n');
@@ -833,6 +893,7 @@ var stepIndex = 0, suggestions = [], previewDates = [], photoToken = 0;
 var stepCards = ["setupCard", "ideasCard", "briefCard", "photosCard", "planCard"];
 var stepNames = ["Client & month", "Choose ideas", "Details", "Photos", "Review"];
 function showStep(index){
+  if(unsavedPost){$("saveNotice").textContent='Save your pending edit before changing steps.';return;}
   stepIndex = index;
   stepCards.forEach(function(id, i){ $(id).hidden = i !== index; });
   $("savedCard").hidden = index !== 0;
@@ -848,8 +909,9 @@ function showStep(index){
   if(index === 3) initPhotos();
   $("steps").scrollIntoView({block:'start',behavior:'smooth'});
 }
-$("reviewPost").onchange = renderSlots;
+$("reviewPost").onchange = function(){if(unsavedPost){this.value=unsavedPost;return;}renderSlots();};
 $("nextReview").onclick = function(){
+  if(unsavedPost)return;
   var select=$("reviewPost");
   if(select.selectedIndex<select.options.length-1){select.selectedIndex++;renderSlots();}
   else say("planmsg","You have reached the last post. Check the plan counts before approving.");
@@ -955,13 +1017,13 @@ function drawPhotos(pool, token){
 }
 function selectPhoto(photo, token){
   if(token !== photoToken) return;
-  var slot=activePhotoSlot(), old={image_url:slot.image_url,image_public_id:slot.image_public_id,image_source:slot.image_source,image_credit:slot.image_credit};
+  var slot=activePhotoSlot();
   slot.image_url=photo.url; slot.image_public_id=photo.public_id || ''; slot.image_source=photo.source;
   slot.image_credit=photo.credit || '';
   setPhotoBusy(true);
-  save().then(function(d){
+  save(slot.id).then(function(d){
     setPhotoBusy(false);
-    if(!d.ok) Object.assign(slot,old);
+    if(!d.ok) currentPhoto();
     if(token !== photoToken) return;
     $("photoMsg").textContent=d.ok ? 'Photo saved to this post.' : d.error;
     currentPhoto();
@@ -969,12 +1031,10 @@ function selectPhoto(photo, token){
   });
 }
 function setPhotoBusy(busy){
-  document.querySelectorAll('#photosCard button,#photosCard input,#photoPost,.wizard-actions button,#steps button').forEach(function(n){
-    if(busy){n.dataset.wasDisabled=n.disabled?'1':'0';n.disabled=true;}
-    else {n.disabled=n.dataset.wasDisabled==='1';}
-  });
+  lockUI(busy);
 }
 function photoSource(source){
+  if(unsavedPost){$("photoMsg").textContent='Save the pending photo choice first.';return;}
   var token=++photoToken, slot=activePhotoSlot(); if(!slot) return;
   currentPhoto(); $("photoTools").innerHTML=''; $("photoChoices").innerHTML=''; $("photoMsg").textContent='';
   document.querySelectorAll('[data-source]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.source===source));});
@@ -1028,8 +1088,9 @@ function createPhoto(opts,token){
   });
 }
 $("photoSources").onclick=function(e){if(e.target.dataset.source)photoSource(e.target.dataset.source);};
-$("photoPost").onchange=function(){photoSource('stock');};
+$("photoPost").onchange=function(){if(unsavedPost){this.value=unsavedPost;return;}photoSource('stock');};
 $("nextPhoto").onclick=function(){
+  if(unsavedPost)return;
   var select=$("photoPost");
   if(select.selectedIndex<select.options.length-1){select.selectedIndex++;photoSource('stock');}
   else showStep(4);

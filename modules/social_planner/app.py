@@ -52,6 +52,9 @@ import os
 import re
 import threading
 import time
+import uuid
+import hashlib
+import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -67,6 +70,7 @@ except Exception:                                     # noqa: BLE001
 
 BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
+app.config["MAX_CONTENT_LENGTH"] = 13 * 1024 * 1024
 
 MODULE = "social_planner"
 MAX_BATCHES = 400
@@ -118,30 +122,90 @@ def load_batch(batch_id: str) -> dict | None:
     if not re.match(r"^[a-z0-9]{6,24}$", str(batch_id or "")):
         return None
     batch = jsonstore.read_json(_batch_path(batch_id), default=None)
-    return batch if isinstance(batch, dict) and batch.get("id") else None
+    if not isinstance(batch, dict) or not batch.get("id") or batch.get("_deleted"):
+        return None
+    batch.setdefault("revision", 0)
+    return batch
+
+
+class PlanConflict(Exception):
+    pass
+
+
+@app.errorhandler(PlanConflict)
+def plan_conflict(exc):
+    return _fail("This plan changed in another operation. Reopen it before retrying; your saved work has not been overwritten.", 409)
+
+
+@app.errorhandler(413)
+def oversized_upload(exc):
+    return _fail("Choose an image under 12 MB.", 413)
+
+
+@app.before_request
+def validate_json_body():
+    if request.is_json and not isinstance(request.get_json(silent=True), dict):
+        return _fail("Send a JSON object with the request fields.")
+    if request.is_json and request.path.startswith("/api/batches"):
+        data = request.get_json()
+        for obj in [data, data.get("brief", {})] + (data.get("slots", []) if isinstance(data.get("slots"), list) else []):
+            if not isinstance(obj, dict):
+                return _fail("Each post and brief must contain named fields.")
+            for key in ("channels", "blackout", "tones", "promote", "must_include", "hashtags"):
+                if key in obj and (not isinstance(obj[key], list) or any(not isinstance(x, str) for x in obj[key])):
+                    return _fail(f"{key} must be a list of text values.")
+        for key in ("slots", "holidays", "selected_ideas"):
+            if key in data and (not isinstance(data[key], list) or any(not isinstance(x, dict) for x in data[key])):
+                return _fail(f"{key} must be a list of objects.")
 
 
 def save_batch(batch: dict) -> dict:
-    batch["updated_at"] = _now()
-    social_plan.validate_batch(batch)
+    expected = batch.get("revision")
+    def replace(current):
+        if current and (current.get("_deleted") or current.get("revision", 0) != expected):
+            raise PlanConflict()
+        if not current and expected is not None:
+            raise PlanConflict()
+        old_slots = {s["id"]: s for s in (current or {}).get("slots", [])}
+        brief_changed = current and current.get("brief") != batch.get("brief")
+        changed = bool(brief_changed)
+        for slot in batch.get("slots", []):
+            old = old_slots.get(slot["id"])
+            edited = old and (brief_changed or any(old.get(k) != slot.get(k) for k in
+                       ("copy", "hashtags", "link", "image_url")))
+            if edited:
+                changed = True
+                if slot.get("status") == "approved":
+                    slot["status"] = "edited" if slot.get("copy", "").strip() else "empty"
+                if slot.get("client_state") == "approved":
+                    slot["client_state"] = "pending_client_approval"
+                    slot.pop("client_answered_at", None)
+        approval_revoked = any(old_slots.get(s["id"], {}).get("status") == "approved" and s.get("status") != "approved" for s in batch.get("slots", []))
+        if (changed or approval_revoked) and batch.get("status") == "approved":
+            batch["status"] = "review"
+        batch["revision"] = (expected or 0) + 1
+        batch["updated_at"] = _now()
+        social_plan.validate_batch(batch)
+        return batch
     with _lock:
-        jsonstore.write_json(_batch_path(batch["id"]), batch, indent=1)
-        rows = [r for r in _read_index() if r.get("id") != batch["id"]]
-        rows.insert(0, _summarise(batch))
-        _write_index(rows)
+        jsonstore.update_json(_batch_path(batch["id"]), replace, default=None, indent=1)
+        def index(rows):
+            latest = load_batch(batch["id"])
+            remaining = [r for r in (rows or []) if r.get("id") != batch["id"]]
+            return ([_summarise(latest)] + remaining)[:MAX_BATCHES] if latest else remaining
+        jsonstore.update_json(_index_path(), index, default=[], indent=1)
     return batch
 
 
 def delete_batch(batch_id: str) -> bool:
     with _lock:
-        rows = _read_index()
-        remaining = [r for r in rows if r.get("id") != batch_id]
-        if len(remaining) == len(rows):
+        if not load_batch(batch_id):
             return False
         # jsonstore.delete_json, never os.remove: removing only the file leaves
         # the database copy to be restored by the next read.
+        jsonstore.update_json(_batch_path(batch_id), lambda row: {"_deleted": True}, default=None)
         jsonstore.delete_json(_batch_path(batch_id))
-        _write_index(remaining)
+        jsonstore.update_json(_index_path(), lambda rows: [r for r in (rows or []) if r.get("id") != batch_id], default=[], indent=1)
     return True
 
 
@@ -497,6 +561,8 @@ def api_create_photo(batch_id):
         prompt = _str(data.get("prompt"), 1000).strip()
         if not prompt:
             return _fail("Describe the photo to create.")
+        if not storage.ready():
+            return _fail("Image hosting is not connected. Connect storage before creating a paid AI photo.", 503)
         from hub import ai
         try:
             raw = ai.image("Create a social media photograph. No lettering or logos. " + prompt,
@@ -507,7 +573,7 @@ def api_create_photo(batch_id):
         processed = images.optimise(raw, max_edge=2048, fmt="JPEG", quality=92)
     except Exception:
         return _fail("That image could not be read. Use a PNG, JPEG or WebP photo.")
-    filename = f"{batch_id}-{slot['id']}.jpg"
+    filename = f"{batch_id}-{slot['id']}-{uuid.uuid4().hex[:12]}.jpg"
     try:
         asset = storage.put("social_requests", filename, processed.data,
                             client=batch["client"], tags=["social-planner", source])
@@ -624,6 +690,8 @@ def api_save_batch(batch_id: str):
     if not batch:
         return _fail("That plan no longer exists.", 404)
     data = request.get_json(silent=True) or {}
+    if "revision" in data and data["revision"] != batch.get("revision"):
+        raise PlanConflict()
 
     if isinstance(data.get("brief"), dict):
         for key in ("tone", "offers", "notes", "phone", "avoid"):
@@ -643,6 +711,7 @@ def api_save_batch(batch_id: str):
         edit = incoming.get(slot["id"])
         if not edit:
             continue
+        before_edit = {k: slot.get(k) for k in ("copy", "hashtags", "link", "image_url")}
         # Only the fields a person can change on the review screen. The date,
         # the channels and the type come from the grid; changing them here
         # would let the calendar and the plan disagree silently.
@@ -663,6 +732,11 @@ def api_save_batch(batch_id: str):
             slot["image_credit"] = _str(edit.get("image_credit"), 500) if slot["image_url"] else ""
         if edit.get("status") in social_plan.STATUSES:
             slot["status"] = edit["status"]
+        if slot.get("status") == "approved" and ("brief" in data or any(slot.get(k) != v for k, v in before_edit.items())):
+            slot["status"] = "edited" if slot.get("copy", "").strip() else "empty"
+        if slot.get("status") == "approved" and (not slot.get("copy", "").strip() or
+                any(f["level"] == "block" for f in social_plan.validate_slot(slot, batch.get("brief")))):
+            return _fail("Write this post and resolve its blocking flags before approving it.")
 
     save_batch(batch)
     return jsonify({"ok": True, "batch": batch})
@@ -683,6 +757,9 @@ def api_batch_status(batch_id: str):
     if not batch:
         return _fail("That plan no longer exists.", 404)
     wanted = _str((request.get_json(silent=True) or {}).get("status"), 20)
+    data = request.get_json(silent=True) or {}
+    if "revision" in data and data["revision"] != batch["revision"]:
+        raise PlanConflict()
     if wanted not in ("draft", "review", "approved"):
         return _fail("Unknown status.")
     counts = social_plan.validate_batch(batch)
@@ -690,6 +767,12 @@ def api_batch_status(batch_id: str):
         return _fail(f"{counts['block']} post(s) still have a blocking flag. "
                      "Those are the ones that could publish something the "
                      "client never authorized.")
+    if wanted == "approved":
+        empty = sum(not s.get("copy", "").strip() for s in batch.get("slots", []))
+        if empty or not batch.get("slots"):
+            return _fail(f"{empty} post(s) still need copy. Finish the plan before approving it.")
+        for slot in batch["slots"]:
+            slot["status"] = "approved"
     batch["status"] = wanted
     save_batch(batch)
     _log("batch_" + wanted, client=batch.get("client", ""),
@@ -707,6 +790,9 @@ def api_draft(batch_id: str):
     batch = load_batch(batch_id)
     if not batch:
         return _fail("That plan no longer exists.", 404)
+    data = request.get_json(silent=True) or {}
+    if "revision" in data and data["revision"] != batch["revision"]:
+        raise PlanConflict()
     slot_id = _str((request.get_json(silent=True) or {}).get("slot"), 12)
     slot = next((s for s in batch["slots"] if s["id"] == slot_id), None)
     if not slot:
@@ -737,7 +823,7 @@ def api_draft(batch_id: str):
     slot["status"] = "drafted"
     slot["flags"] = social_plan.validate_slot(slot, batch.get("brief"))
     save_batch(batch)
-    return jsonify({"ok": True, "slot": slot})
+    return jsonify({"ok": True, "slot": slot, "batch": batch})
 
 
 # =====================================================================
@@ -755,6 +841,9 @@ def api_assign_images(batch_id: str):
     batch = load_batch(batch_id)
     if not batch:
         return _fail("That plan no longer exists.", 404)
+    data = request.get_json(silent=True) or {}
+    if "revision" in data and data["revision"] != batch["revision"]:
+        raise PlanConflict()
     from hub.client_context import gallery_images
     images, note = gallery_images(batch.get("client", ""))
     if not images:
@@ -789,12 +878,19 @@ def api_export(batch_id: str):
     batch = load_batch(batch_id)
     if not batch:
         return _fail("That plan no longer exists.", 404)
-    social_plan.validate_batch(batch)
+    counts = social_plan.validate_batch(batch)
     kind = _str(request.args.get("format", "planner"), 12)
     if kind == "review":
         body = social_plan.review_csv(batch)
         name = f"{batch.get('month', 'plan')}-review.csv"
     else:
+        written = [s for s in batch["slots"] if s.get("copy", "").strip()]
+        if not written:
+            return _fail("Write at least one post before exporting. The review sheet is available for unfinished plans.")
+        if counts["block"]:
+            return _fail("Resolve the blocking flags before exporting to Social Planner. Use the review sheet to see what needs attention.")
+        if any(s.get("date", "") < _planning_today().isoformat() for s in written):
+            return _fail("This plan contains past posting dates. Use the review sheet for historical content and create a current plan for publishing.")
         body = social_plan.planner_csv(batch)
         name = f"{batch.get('month', 'plan')}-social-planner.csv"
     slug = re.sub(r"[^a-z0-9]+", "-", batch.get("client", "client").lower()).strip("-")
@@ -1469,6 +1565,11 @@ def page_client_approve(token: str):
                            token=token, pages=links.PAGES)
 
 
+def _review_token(batch: dict, slot: dict) -> str:
+    content = {k: slot.get(k) for k in ("date", "time", "channels", "copy", "hashtags", "link", "image_url")}
+    return hashlib.sha256(json.dumps([content, batch.get("brief", {})], sort_keys=True).encode()).hexdigest()
+
+
 def _posts_for_client(client: str) -> list[dict]:
     """The posts actually put to this client, and only what they need to see.
 
@@ -1495,6 +1596,7 @@ def _posts_for_client(client: str) -> list[dict]:
                              for c in (slot.get("channels") or [])],
                 "copy": social_plan.post_text(slot),
                 "image_url": slot.get("image_url", ""),
+                "review_token": _review_token(batch, slot),
                 "state": slot.get("client_state", ""),
                 "note": slot.get("client_note", ""),
                 "from_request": bool(slot.get("source_request_id")),
@@ -1530,6 +1632,10 @@ def api_client_approve(token: str, batch_id: str, slot_id: str):
     decision = _str(data.get("decision"), 20)
     note = _str(data.get("note"), 2000).strip()
     if decision == "approved":
+        if data.get("review_token") != _review_token(batch, slot):
+            return _fail("This post needs a fresh review. Reload the page to see the latest version before approving.", 409)
+        if not slot.get("copy", "").strip() or any(f["level"] == "block" for f in social_plan.validate_slot(slot, batch.get("brief"))):
+            return _fail("This post needs corrections before it can be approved.", 409)
         slot["client_state"] = "approved"
         slot["client_note"] = ""
     elif decision == "changes_requested":

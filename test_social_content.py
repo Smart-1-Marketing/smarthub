@@ -135,7 +135,7 @@ invented = [f for f in sp.validate_copy("$300 off, this week only!",
             if f["level"] == "block"]
 check("a price nobody supplied is still blocked", invented)
 
-slot = {"channels": ["facebook"], "image_url": "x",
+slot = {"channels": ["facebook"], "image_url": "https://example.com/photo.jpg",
         "copy": "$50 off any tune-up through Friday.",
         "supplied": allowed}
 check("validate_slot reads the slot's own supplied text",
@@ -625,7 +625,8 @@ check("the note is kept", after["client_note"] == "Say furnaces, not HVAC.")
 check("and the approval is cleared, so it cannot be pushed under the request",
       after["status"] != "approved", after["status"])
 
-r = page.post(base + "s01", json={"decision": "approved"})
+reviewed = mod.load_batch(plan['id'])
+r = page.post(base + "s01", json={"decision": "approved", "review_token": mod._review_token(reviewed, mod._slot_of(reviewed, 's01'))})
 check("the client can then approve it", r.status_code == 200)
 check("which clears the note",
       mod._slot_of(mod.load_batch(plan["id"]), "s01")["client_note"] == "")
