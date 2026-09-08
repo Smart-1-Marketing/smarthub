@@ -117,6 +117,64 @@ ok("and the roster row links to the panel that fixes it",
 ok("which is the page the dashboard used to send everybody to",
    ROWS["roster_start_placeholder"]["page_path"] == "/")
 
+# --------------------------------- an absent export is normal, not a finding
+section("A private products export nobody mounted is not an admin's to-do")
+
+import json                                                        # noqa: E402
+from hub import knack_data                                         # noqa: E402
+
+ok("with no fallback file at all, knack_export reports clean",
+   "knack_export" in REPORT["clean"] and "knack_export" not in ROWS,
+   f"came back as {ROWS.get('knack_export')}")
+check("and the state it read from says so",
+      knack_data.export_state()["present"], False)
+check("with the scorecard still labeled from the clock",
+      knack_data.export_state()["current"], knack_data._current_period())
+
+# `BASE` is a module-level constant resolved from CLIENTS_DATA_DIR at import
+# time, which by now has already latched onto the real checkout's
+# clients_app/data — so it is patched directly for this test rather than
+# writing a fallback export into the repo itself.
+_real_base = knack_data.BASE
+CLIENTS_DIR = os.path.join(TMP, "clients_export")
+os.makedirs(CLIENTS_DIR, exist_ok=True)
+knack_data.BASE = CLIENTS_DIR
+_export_path = os.path.join(CLIENTS_DIR, "products.json")
+
+
+def _write_export(data):
+    with open(_export_path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    knack_data._cache.pop("products.json", None)
+
+
+try:
+    _write_export({"records": []})
+    _state = knack_data.export_state()
+    check("a file that exists is reported present", _state["present"], True)
+    check("and still names no month", _state["period"], "")
+    _rows = by_key(housekeeping.findings()["findings"])
+    ok("that IS an admin's to-do, because the file was written wrong",
+       "knack_export" in _rows)
+    ok("named as a real finding rather than an unreadable source",
+       _rows["knack_export"]["measured"] is True)
+    ok("with a fix somebody can actually do",
+       "Refresh products.json" in _rows["knack_export"]["fix"])
+
+    _write_export({"records": [], "thisMonth": knack_data._current_period()})
+    ok("a current export is clean",
+       "knack_export" in housekeeping.findings()["clean"])
+
+    _write_export({"records": [], "thisMonth": "202001"})
+    _stale_rows = by_key(housekeeping.findings()["findings"])
+    ok("a stale export is still flagged, unchanged",
+       "knack_export" in _stale_rows
+       and "202001" not in _stale_rows["knack_export"]["issue"]
+       and "Jan 2020" in _stale_rows["knack_export"]["issue"])
+finally:
+    knack_data.BASE = _real_base
+    knack_data._cache.pop("products.json", None)
+
 section("What was checked is named, so one row is not mistaken for one check")
 
 ok("every source is listed", set(REPORT["sources"]) ==
