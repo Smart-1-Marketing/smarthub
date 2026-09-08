@@ -290,7 +290,17 @@ class HubBar:
                     b'<script defer src="/hub-crumbs.js"></script>'
                     b'<script defer src="/hub-thinking.js"></script>'
                     b'<script defer src="/hub-autofill.js"></script>'
-                    b'<script defer src="/hub-accordion.js"></script>')
+                    b'<script defer src="/hub-accordion.js"></script>'
+                    # Unlike hub-cheers.js and hub-qa-nudge.js, which stay out
+                    # of this list on purpose ("one place that can raise an
+                    # interruption is enough to be sure it is raised once"),
+                    # this one belongs here: its whole point is telling
+                    # somebody their render finished on whatever tool they
+                    # wandered off to, and a mounted module is exactly
+                    # "wherever they wandered off to." It still marks each
+                    # job shown, in localStorage, so it cannot double-notify
+                    # for being loaded from two code paths.
+                    b'<script defer src="/hub-job-notify.js"></script>')
         # The LAST </body>, not the first. A module page that builds a printable
         # document in JavaScript carries a whole `<html>...</body></html>`
         # string inside its own script -- the IO Builder builds two of them --

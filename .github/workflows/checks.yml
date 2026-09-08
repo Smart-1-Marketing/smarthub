@@ -78,7 +78,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: modules/ad_builder/package-lock.json
+          cache-dependency-path: |
+            modules/ad_builder/package-lock.json
+            modules/hf_render_service/package-lock.json
 
       - name: Install dependencies
         run: |
@@ -202,6 +204,33 @@ jobs:
 
       - name: Display ad renderer — tests
         working-directory: modules/ad_builder
+        run: npm test
+
+      # hf-render-service runs Puppeteer (bundled Chromium) and shells out to
+      # ffmpeg — the same shared libraries the Dockerfile installs via the
+      # `chromium` apt package, purely for its dependency closure, since
+      # Puppeteer launches its own bundled build rather than that binary.
+      # ffmpeg itself is already on GitHub's ubuntu-latest runner image.
+      - name: Install Chromium's runtime libraries (hf-render-service)
+        run: sudo apt-get update -qq
+             && sudo apt-get install -y -qq --no-install-recommends chromium
+
+      - name: HyperFrames render service — install
+        working-directory: modules/hf_render_service
+        run: npm ci
+
+      - name: HyperFrames render service — typecheck
+        working-directory: modules/hf_render_service
+        run: npx tsc -p tsconfig.json --noEmit
+
+      # Includes a real end-to-end render of every paint style and every Vox
+      # beat treatment — a real headless Chromium capture and a real ffmpeg
+      # encode, verified with ffprobe. Deliberately not mocked: a mocked
+      # version of this test would have missed every one of the bugs it was
+      # written to catch, two of them a local variable named `text`/`pop`
+      # silently shadowing p5.js's own drawing functions.
+      - name: HyperFrames render service — tests
+        working-directory: modules/hf_render_service
         run: npm test
 
       - name: Display ad layout and build screen tests
@@ -354,6 +383,17 @@ jobs:
             python test_hyperframes.py
           else
             echo "test_hyperframes.py not on this branch — nothing to run."
+          fi
+
+      - name: Cross-Hub job-finished notification tests
+        # hub/job_notify.py — the pointer registry hub-job-notify.js polls
+        # from wherever somebody is, not only from the tool that started the
+        # render. Same skip-rather-than-fail shape as the tests around it.
+        run: |
+          if [ -f test_job_notify.py ]; then
+            python test_job_notify.py
+          else
+            echo "test_job_notify.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder wizard tests

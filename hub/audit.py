@@ -187,6 +187,18 @@ NO_ACTIVITY: dict[str, str] = {
         "of. The staff-facing internal calculator deliberately stores nothing "
         "at all, so there is nothing there to attribute either."
     ),
+    "hf_render_service": (
+        "Not the ad_builder shape -- this is not a renderer proxied through "
+        "to a browser with its own client-facing routes. It is a headless "
+        "render backend (modules/hf_render_service, Node/Puppeteer/ffmpeg) "
+        "reached only server-to-server, over loopback, by hub/hyperframes.py "
+        "-- it never sees a client name, a request, or anything to attribute "
+        "a row to. The client-facing half is entirely "
+        "modules/hyperframes_tools, which already logs every kept render "
+        "under 'paint_animation'/'vox_explainer' the moment a file actually "
+        "reaches a client's own gallery -- the LOG_NAMES dict inside that "
+        "module's app.py, read by _record()."
+    ),
 }
 
 

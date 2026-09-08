@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+.env
+
+# Vendored from node_modules/p5 by capture.ts on first render (dev/test) or
+# by scripts/copy-assets.mjs at build time (production) — never committed.
+render_templates/p5.min.js

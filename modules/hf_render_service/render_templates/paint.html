@@ -1,0 +1,277 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>paint-animation</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0b1220; }
+  canvas { display: block; }
+</style>
+<script src="p5.min.js"></script>
+</head>
+<body>
+<script>
+/**
+ * paint-animation — the three treatments `hub/hyperframes.PAINT_STYLES`
+ * names: handwriting, paint_on, living_painting.
+ *
+ * Deterministic and frame-driven, never real-time: the render service calls
+ * `window.__setFrame(t)` with t in [0, 1] for every frame it wants to
+ * capture and screenshots the canvas in between. Nothing here reads the
+ * wall clock — a slow machine and a fast one must produce byte-identical
+ * output for the same params, which is the whole argument `hub/hyperframes.py`
+ * makes for a pre-authored template over a model writing fresh HTML per
+ * request: "the same input always produces the same output."
+ *
+ * `window.__init(params)` returns a Promise that resolves once whatever the
+ * style needs (an image, a font) has actually loaded — signaling ready
+ * before that would capture blank frames at the start of the clip, which is
+ * a worse failure than a slow boot because nothing downstream can tell "no
+ * image" from "not loaded yet."
+ */
+
+let W = 1280, H = 720;
+let P = null;           // cleaned params, set by __init
+let sourceImage = null; // native HTMLImageElement, or null
+let paperTexture = [];  // pre-seeded noise dots for the painterly overlay
+
+const DEFAULT_PALETTE = ["#f5c542", "#e8e6df", "#2b6cb0"];
+const BG_DEFAULT = "#0b1220";
+
+function paletteColor(i) {
+  const colors = (P && P.brandColors && P.brandColors.length) ? P.brandColors : DEFAULT_PALETTE;
+  return colors[i % colors.length];
+}
+
+function loadHtmlImage(url) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(null); return; }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null); // a broken image reads as "no image"
+    // rather than stalling the render forever.
+    img.src = url;
+  });
+}
+
+function setup() {
+  const c = createCanvas(W, H);
+  c.parent(document.body);
+  noLoop();
+  pixelDensity(1); // one device pixel per canvas pixel — a render service
+  // capturing a fixed W×H must never silently upscale for a hi-DPI context.
+}
+
+// p5 calls setup() once WEBGL/2D globals exist; __init/__setFrame come after.
+window.__init = async function (params) {
+  P = params || {};
+  W = (params && params.width) || 1280;
+  H = (params && params.height) || 720;
+  resizeCanvas(W, H);
+
+  sourceImage = await loadHtmlImage(P.imageUrl);
+
+  paperTexture = [];
+  const rng = mulberry32(hashSeed(P.text + "|" + P.style));
+  for (let i = 0; i < 900; i++) {
+    paperTexture.push({ x: rng() * W, y: rng() * H, r: 1 + rng() * 2.4, a: 0.03 + rng() * 0.05 });
+  }
+};
+
+// A tiny deterministic PRNG so "random" texture is identical on every
+// render of the same params, never on every run of the same params.
+function hashSeed(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function draw() {
+  background(BG_DEFAULT);
+  if (!P) return;
+  const style = P.style || "handwriting";
+  if (style === "paint_on") drawPaintOn(currentT);
+  else if (style === "living_painting") drawLivingPainting(currentT);
+  else drawHandwriting(currentT);
+}
+
+// -- handwriting: copy writes itself on, stroke by stroke ------------------
+//
+// Wrapped by hand rather than through p5's own text(str, x, y, w, h) box —
+// that call vertically centers its own layout inside the box height in a
+// way this file cannot read back, so a paint-drop cue computed from "where
+// the text probably is" landed nowhere near the actual last character. Every
+// line here is placed at a y this function chose, so the tip is exact.
+function drawHandwriting(t) {
+  // Named copyText, never text — that is p5's own drawing function, and a
+  // local const of the same name shadows it for the rest of this scope, so
+  // a text(...) call in this scope would silently stop being a function
+  // call.
+  const copyText = P.text || "";
+  const revealFrac = constrain(t, 0, 1);
+  const shown = copyText.slice(0, Math.floor(copyText.length * revealFrac));
+
+  const size = Math.max(28, Math.min(W, H) * 0.09);
+  const lineHeight = size * 1.25;
+  textFont("Georgia, serif");
+  textSize(size);
+  textAlign(LEFT, TOP);
+
+  const marginX = W * 0.08;
+  const boxWidth = W - marginX * 2;
+  const lines = wrapLines(shown, boxWidth);
+  const startY = H / 2 - (lines.length * lineHeight) / 2;
+
+  fill(paletteColor(0));
+  noStroke();
+  for (let i = 0; i < lines.length; i++) {
+    text(lines[i], marginX, startY + i * lineHeight);
+  }
+
+  if (revealFrac < 1 && lines.length > 0) {
+    const lastLine = lines[lines.length - 1];
+    const tipX = marginX + textWidth(lastLine) + size * 0.12;
+    const tipY = startY + (lines.length - 1) * lineHeight + size * 0.4;
+    noStroke();
+    const c = color(paletteColor(0));
+    fill(red(c), green(c), blue(c), 200);
+    circle(tipX, tipY, size * 0.18);
+  }
+}
+
+// Greedy word-wrap against the canvas's own current font/size — must run
+// after textFont()/textSize() are set, since textWidth() reads them.
+function wrapLines(str, boxWidth) {
+  const words = str.split(" ").filter((w) => w.length > 0);
+  const lines = [];
+  let current = "";
+  for (const w of words) {
+    const test = current ? current + " " + w : w;
+    if (current && textWidth(test) > boxWidth) {
+      lines.push(current);
+      current = w;
+    } else {
+      current = test;
+    }
+  }
+  if (current || lines.length === 0) lines.push(current);
+  return lines;
+}
+
+// -- paint_on: a photograph or logo paints itself in ------------------------
+function drawPaintOn(t) {
+  const revealFrac = easeInOutCubic(constrain(t, 0, 1));
+  if (sourceImage) {
+    push();
+    const imgScale = coverScale(sourceImage.width, sourceImage.height, W, H);
+    const iw = sourceImage.width * imgScale, ih = sourceImage.height * imgScale;
+    const ix = (W - iw) / 2, iy = (H - ih) / 2;
+
+    drawingContext.save();
+    // A left-to-right wipe with a soft, uneven edge (drawn from the noise
+    // field) rather than a hard rectangle — "paints on" reads as a brush
+    // pass, not a window blind.
+    drawingContext.beginPath();
+    const edgeX = revealFrac * W;
+    for (let y = 0; y <= H; y += 6) {
+      const wobble = Math.sin(y * 0.05 + hashSeed(P.text) % 100) * 14;
+      drawingContext.lineTo(Math.max(0, edgeX + wobble), y);
+    }
+    drawingContext.lineTo(0, H);
+    drawingContext.lineTo(0, 0);
+    drawingContext.closePath();
+    drawingContext.clip();
+    drawingContext.drawImage(sourceImage, ix, iy, iw, ih);
+    drawingContext.restore();
+    pop();
+
+    // Paint texture over the revealed portion, so the edge itself carries a
+    // little grain rather than being a perfectly clean vector clip.
+    noStroke();
+    for (const p of paperTexture) {
+      if (p.x > edgeX) continue;
+      fill(255, 255, 255, p.a * 255);
+      circle(p.x, p.y, p.r);
+    }
+  } else {
+    // No image supplied — paint the brand mark's stand-in: the text itself,
+    // revealed the same way, so the style still produces something rather
+    // than a blank frame.
+    drawHandwriting(t);
+  }
+
+  if (P.text) {
+    const size = Math.max(20, Math.min(W, H) * 0.05);
+    textFont("Georgia, serif");
+    textSize(size);
+    textAlign(CENTER, BOTTOM);
+    fill(255, 255, 255, revealFrac > 0.7 ? 255 * ((revealFrac - 0.7) / 0.3) : 0);
+    text(P.text, W / 2, H * 0.94);
+  }
+}
+
+// -- living_painting: a still image gains continuous painterly motion -------
+function drawLivingPainting(t) {
+  const loopT = t; // 0..1 over the clip's own length; motion is continuous
+  // and non-repeating within that window rather than looping mid-clip.
+  if (sourceImage) {
+    push();
+    const zoom = 1.04 + 0.05 * loopT; // slow ken-burns push-in
+    const imgScale = coverScale(sourceImage.width, sourceImage.height, W, H) * zoom;
+    const iw = sourceImage.width * imgScale, ih = sourceImage.height * imgScale;
+    const driftX = Math.sin(loopT * Math.PI * 0.6) * W * 0.015;
+    const driftY = Math.cos(loopT * Math.PI * 0.5) * H * 0.012;
+    const ix = (W - iw) / 2 + driftX, iy = (H - ih) / 2 + driftY;
+    drawingContext.drawImage(sourceImage, ix, iy, iw, ih);
+    pop();
+  } else {
+    background(BG_DEFAULT);
+  }
+
+  // A drifting painterly grain overlay — deterministic per-frame noise
+  // rather than a shader, since this is captured frame by frame rather than
+  // played back live.
+  noStroke();
+  for (let i = 0; i < paperTexture.length; i++) {
+    const p = paperTexture[i];
+    const dx = Math.sin((loopT * 6.28) + i) * 6;
+    const dy = Math.cos((loopT * 6.28) + i * 1.3) * 6;
+    fill(255, 255, 255, p.a * 255 * 0.6);
+    circle(p.x + dx, p.y + dy, p.r * 1.5);
+  }
+
+  if (P.text) {
+    const size = Math.max(24, Math.min(W, H) * 0.06);
+    textFont("Georgia, serif");
+    textSize(size);
+    textAlign(LEFT, BOTTOM);
+    fill(255);
+    text(P.text, W * 0.08, H * 0.9);
+  }
+}
+
+function coverScale(iw, ih, w, h) {
+  return Math.max(w / iw, h / ih);
+}
+function easeInOutCubic(x) {
+  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+}
+
+let currentT = 0;
+window.__setFrame = function (t) {
+  currentT = t;
+  redraw();
+};
+window.__ready = true;
+</script>
+</body>
+</html>

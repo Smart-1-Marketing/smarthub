@@ -187,6 +187,27 @@ def _submit(*, tool, template, params, client, label):
                       client=client, label=label)
     if job.get("status") == "failed":
         return jsonify({"ok": False, "error": job.get("error"), "job": row}), 502
+    # A render here takes minutes and nobody sits on this page waiting --
+    # so the moment it is genuinely under way (not a mock, not refused at
+    # submit) it is also worth being able to tell somebody about wherever
+    # else in the Hub they end up. The pointer's own id is this row's id,
+    # so _poll() below can update it with no second lookup.
+    try:
+        from hub import job_notify
+        mount = PAINT_MOUNT if tool == "paint-animation" else VOX_MOUNT
+        tool_label = (hyperframes.TEMPLATES.get(template) or {}).get("label", tool)
+        job_notify.register(
+            id=row["id"], owner=_owner(), tool=tool,
+            label=f"{tool_label} — {label}" if label else tool_label,
+            return_url=mount + "/",
+            # Same route the tool's own page polls -- reusing it is what
+            # lets hub-job-notify.js advance this job from anywhere else in
+            # the Hub, not only from this tool's own tab.
+            poll_url=f"{mount}/api/render/{row['id']}",
+            status=row.get("status") or "queued")
+    except Exception:                                    # noqa: BLE001
+        pass  # a pointer that could not be written costs the nudge, never
+        # the render -- the tool's own list still shows it.
     return jsonify({"ok": True, "job": row})
 
 
@@ -209,6 +230,15 @@ def _poll(job_id, *, tool):
                       url=state.get("url") or row.get("url"),
                       error=state.get("error"),
                       duration_seconds=state.get("duration_seconds")) or row
+    # Mirrors whatever the poll above just learned onto the pointer
+    # hub-job-notify.js reads from wherever this person is now -- never a
+    # second poll of the render service, just the answer this route already
+    # has in hand.
+    try:
+        from hub import job_notify
+        job_notify.update(row["id"], status=row.get("status") or "")
+    except Exception:                                    # noqa: BLE001
+        pass
     return jsonify({"ok": state.get("status") != "failed", "job": row})
 
 

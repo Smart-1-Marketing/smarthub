@@ -1,0 +1,30 @@
+# Documentation only, not live configuration. Render reads render.yaml only
+# at the REPOSITORY ROOT of a Blueprint deployment — this file describes
+# what standing this service up on its own would look like, for the day
+# that split from the Hub's own container is worth making (see the README).
+# Until then it runs as a second process inside the Hub's own container,
+# started by /docker-start.sh, and nothing here is read by anything.
+services:
+  - type: web
+    name: hf-render-service
+    runtime: node
+    plan: standard   # Puppeteer + headless Chrome + ffmpeg want real CPU
+    # and real memory during a capture, not the free tier.
+    region: ohio      # same region as smart1-hub, so the Hub's calls to
+    # this service stay inside Render's own network rather than crossing
+    # regions for every submit/poll.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: HOST
+        value: "0.0.0.0"   # only correct once this is its own service —
+        # the in-container default is 127.0.0.1, deliberately.
+      - key: HF_RENDER_CONCURRENCY
+        value: "2"
+    disk:
+      name: hf-render-out
+      mountPath: /var/data
+      sizeGB: 10
