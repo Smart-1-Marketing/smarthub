@@ -495,7 +495,19 @@ check("the nightly check is a registered job",
 check("at twice a day rather than hourly",
       scheduler.JOBS["llms_verify"][0], 720)
 
-page = Path("hub/templates/seo_client.html").read_text()
+full_page = Path("hub/templates/seo_client.html").read_text()
+# Scoped to this feature's own card and script block rather than the whole
+# file: seo_client.html is a large page with plenty of its own reasons to
+# slugify a label client-side (the Social Media card's custom-link keys, for
+# one), and a substring check run over the entire template would fail the
+# day any of those happens to share this idiom. What actually matters is
+# that *this* feature's own code never builds the /llms/ address from a
+# client-side slug.
+_card_start = full_page.index('<div class="card seoc-card" id="card-llms">')
+_card_end = full_page.index("</section>", _card_start)
+_script_start = full_page.index("function llmsClient(){")
+_script_end = full_page.index("<script>\nvar SCHEMA_Q")
+page = full_page[_card_start:_card_end] + "\n" + full_page[_script_start:_script_end]
 check("the client screen draws the verdict", "llmsVerdict" in page, True)
 check("offers the check", "verifyLlms" in page, True)
 check("publishes deliberately, apart from saving",

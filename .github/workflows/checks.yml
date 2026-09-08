@@ -378,6 +378,17 @@ jobs:
             echo "test_client360_social.py not on this branch — nothing to run."
           fi
 
+      - name: SEO client page social & links tests
+        # The same catalog, read by the second screen that shows it -- a link
+        # saved on Client 360 used to be invisible here, behind a hard-coded
+        # nine-key grid reading the same store. Guarded like the step above.
+        run: |
+          if [ -f test_seo_client_social.py ]; then
+            python test_seo_client_social.py
+          else
+            echo "test_seo_client_social.py not on this branch — nothing to run."
+          fi
+
       - name: Commercial Builder dashboard layout tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
