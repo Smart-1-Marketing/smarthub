@@ -42,7 +42,8 @@
     get('cv-submit').textContent = existing ? 'Save customer voice' : 'Create customer voice';
     if (capture) {
       try {
-        const data = await api('/api/customer-voices/captures'); captureRows = data.captures || [];
+        const requestedCapture = new URLSearchParams(location.search).get('capture_id');
+        const data = await api('/api/customer-voices/captures' + (requestedCapture ? '?capture_id=' + encodeURIComponent(requestedCapture) : '')); captureRows = data.captures || [];
         const select = get('cv-capture-id'); select.replaceChildren(new Option('Choose a submitted recording', ''));
         captureRows.forEach(r => select.add(new Option(`${r.client} — ${r.name || r.filename}`, r.id)));
         get('cv-capture-note').textContent = captureRows.length ? 'Listen to the submitted recording before creating its reusable voice.' : 'No submitted recordings yet. Create a client recording link in Commercial Builder, or upload recordings here.';

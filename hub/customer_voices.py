@@ -76,7 +76,11 @@ def listing():
 
 def _capture_rows():
     from modules.commercial_builder.voice_capture_models import VoiceCaptureRequest
-    return VoiceCaptureRequest.query.filter_by(status="submitted", consent=True, revoked=False).order_by(VoiceCaptureRequest.id.desc()).limit(100).all()
+    query = VoiceCaptureRequest.query.filter_by(status="submitted", consent=True, revoked=False)
+    capture_id = request.args.get("capture_id", type=int)
+    if capture_id:
+        query = query.filter_by(id=capture_id)
+    return query.order_by(VoiceCaptureRequest.id.desc()).limit(100).all()
 
 
 @bp.get("/api/customer-voices/captures")
