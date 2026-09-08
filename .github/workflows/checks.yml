@@ -87,6 +87,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Google Access offline route and OAuth regression tests
+        run: python test_google_access_flow.py
+
       - name: IO template and media-mix validation
         run: |
           python test_io_template.py
