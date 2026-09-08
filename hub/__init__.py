@@ -1564,6 +1564,70 @@ def create_hub_app() -> Flask:
                              f"{'billed' if body.get('billed') else 'unbilled'}")
         return jsonify(out)
 
+    # /tools/short-links is a hub route under /tools, like /tools/domains —
+    # the mounts are all longer prefixes, so this one reaches the hub app.
+    @app.route("/tools/short-links")
+    def page_short_links():
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import short_links
+        return render_template("short_links.html", user=current_user(),
+                               active="short-links",
+                               domains=short_links.DOMAINS,
+                               default_domain=short_links.settings.short_io_domain
+                                              or short_links.CLIENT_FACING_DOMAIN,
+                               configured=short_links.configured(),
+                               why_not=short_links.why_not())
+
+    @app.route("/api/short-links")
+    def api_short_links_list():
+        """Every masked link, newest first — optionally narrowed to one client."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import short_links
+        return jsonify({"links": short_links.all_links(client=request.args.get("client", "")),
+                        "configured": short_links.configured(),
+                        "why_not": short_links.why_not()})
+
+    @app.route("/api/short-links", methods=["POST"])
+    def api_short_links_create():
+        """Mask one client-facing URL under our own domain.
+
+        Reuses an existing link for the same destination rather than minting
+        a second one, so pressing this twice for an unchanged URL is free.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import short_links
+        body = request.get_json(silent=True) or {}
+        out = short_links.mask(str(body.get("url") or ""),
+                               client=str(body.get("client") or ""),
+                               project=str(body.get("project") or ""),
+                               domain=str(body.get("domain") or ""),
+                               title=str(body.get("title") or ""),
+                               actor=current_user() or "")
+        return jsonify(out)
+
+    @app.route("/api/short-links/refresh", methods=["POST"])
+    def api_short_links_refresh():
+        """Re-read click counts from Short.io — a button, never a page load.
+
+        The call reaches a provider and this Hub is not the source of truth
+        for a click count, only a cache of it — the `hub/domain_purchase.py`
+        rule for anything a Refresh button pulls fresh.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import short_links
+        out = short_links.refresh_all()
+        audit.log("hub", "short_links_refresh", actor=current_user(),
+                  checked=out.get("checked"), failed=out.get("failed"))
+        return jsonify(out)
+
     @app.route("/api/db/urls")
     def api_db_urls():
         """Clients with no usable URL, and one domain filed under two names."""

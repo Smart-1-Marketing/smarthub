@@ -991,6 +991,20 @@ jobs:
             echo "test_proposal_share.py not on this branch — nothing to run."
           fi
 
+      - name: Short.io link masking — the slug, reuse, conflicts, opens
+        # hub/short_links.py masks a client-facing link under s1report.co and
+        # counts opens through Short.io. Nothing in it reaches the network:
+        # requests.post/get are stubbed, so a green run here means the same
+        # thing it means on somebody's laptop. Guarded like the steps
+        # around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_short_links.py ]; then
+            python test_short_links.py
+          else
+            echo "test_short_links.py not on this branch — nothing to run."
+          fi
+
       - name: Proposal targeting tests — the map, the pastes, the research
         # Guarded like the steps around it so this workflow stays mergeable on
         # a branch that predates the file. Nothing in it reaches a third party:

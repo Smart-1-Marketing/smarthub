@@ -1194,7 +1194,10 @@ async function drawShare(id){
  const opens=s.views||0;
  box.innerHTML=`
   <div class="fld" style="margin-top:0"><label>Send this to the client</label>
-   <input id="shareUrl" readonly value="${esc(s.url)}" onclick="this.select()"></div>
+   <input id="shareUrl" readonly value="${esc(s.masked_url||s.url)}" onclick="this.select()"></div>
+  ${s.masked_url?`<div class="note" style="margin-top:4px">Masked at <b>${esc(s.masked_domain)}</b> —
+     ${s.masked_clicks_measured?`<b>${s.masked_clicks_total||0}</b> open${(s.masked_clicks_total||0)===1?'':'s'} tracked by Short.io.`:'opens are tracked by Short.io; press Refresh opens on the <a href="/tools/short-links">Client Link Masking</a> page to see a count.'}
+   </div>`:''}
   <div class="addrow" style="margin-top:8px">
    <button class="btn btn-line" onclick="copyShare()">📋 Copy link</button>
    <button class="btn btn-ghost" onclick="window.open('${esc(s.url)}','_blank')">Open it yourself</button>

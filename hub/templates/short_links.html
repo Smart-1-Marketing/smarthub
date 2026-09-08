@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Client Link Masking — Smart 1 Hub{% endblock %}
+{% block content %}
+<div class="sl">
+  <p class="sl-crumb"><a href="/tools">Tools</a> / Client Link Masking</p>
+  <h1>Client Link Masking</h1>
+  <p class="sl-sub">
+    A link a client opens — a proposal, a preview, a review page — masked
+    under our own domain instead of the raw Hub address, with every open
+    counted by Short.io. The slug is <code>client/month/year/project</code>,
+    each part built from what is typed below; the client segment is the same
+    slug every other client join in this Hub already uses, so it stays
+    consistent with the rest of the record. Masking asks Short.io to keep the
+    address bar on our domain rather than redirecting to the real one — it
+    works for anything hosted here, and depends on the destination allowing
+    itself to be framed when it is not.
+  </p>
+  {% if not configured %}
+  <div class="sl-warn">{{ why_not }}</div>
+  {% endif %}
+
+  <div class="sl-card">
+    <h3>Mask a link</h3>
+    <div class="sl-form">
+      <div class="sl-fld"><label>Client</label>
+        <input id="slClient" placeholder="Riverside HVAC"></div>
+      <div class="sl-fld"><label>Project</label>
+        <input id="slProject" placeholder="September proposal"></div>
+      <div class="sl-fld sl-wide"><label>Destination URL</label>
+        <input id="slUrl" placeholder="https://smart1.agency/sales/builder/p/…"></div>
+      <div class="sl-fld"><label>Domain</label>
+        <select id="slDomain">
+          {% for d in domains %}
+          <option value="{{ d }}" {{ 'selected' if d == default_domain else '' }}>{{ d }}</option>
+          {% endfor %}
+        </select></div>
+      <div class="sl-fld"><label>Title (optional)</label>
+        <input id="slTitle" placeholder="Shown in the Short.io dashboard only"></div>
+    </div>
+    <div class="sl-bar">
+      <button class="sl-btn primary" id="slMake" onclick="makeLink()">Mask this link</button>
+      <span class="sl-note" id="slResult"></span>
+    </div>
+  </div>
+
+  <div class="sl-card">
+    <h3>Masked links <button class="sl-btn small" id="slRefresh" onclick="refreshClicks()">Refresh opens</button></h3>
+    <div class="sl-bar">
+      <input id="slFilter" class="sl-search" placeholder="Filter by client" oninput="renderRows()">
+    </div>
+    <div id="slOut"><p class="sl-muted">Reading the stored links…</p></div>
+  </div>
+</div>
+
+<style>
+.sl{max-width:1080px;margin:0 auto;font-family:system-ui,sans-serif;color:#1b2733}
+.sl-crumb{color:#94a3b8;font-size:12.5px;margin:0 0 8px}
+.sl-crumb a{color:#1769AA;text-decoration:none}
+.sl h1{margin:0 0 6px;font-size:25px;color:#0d2340}
+.sl-sub{color:#64748b;font-size:13.5px;line-height:1.6;margin:0 0 16px;max-width:78ch}
+.sl-sub code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:12.5px}
+.sl-warn{background:#fff4f2;border:1px solid #f3c6bd;color:#7a2e1f;border-radius:8px;
+  padding:10px 13px;font-size:13px;margin-bottom:16px}
+.sl-card{background:#fff;border:1px solid #e2e8f0;border-radius:11px;margin-bottom:14px;
+  padding:14px}
+.sl-card h3{margin:0 0 12px;font-size:14px;color:#0d2340;display:flex;
+  justify-content:space-between;align-items:center;gap:10px}
+.sl-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:11px}
+.sl-fld{display:flex;flex-direction:column;gap:4px}
+.sl-fld.sl-wide{grid-column:1/-1}
+.sl-fld label{font:600 11.5px system-ui;color:#64748b;text-transform:uppercase;
+  letter-spacing:.03em}
+.sl-fld input,.sl-fld select{padding:8px 10px;border:1px solid #d7dfe8;border-radius:8px;
+  font:13px system-ui}
+.sl-bar{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.sl-btn{border:1px solid #d7dfe8;background:#fff;border-radius:8px;padding:8px 14px;
+  font:600 13px system-ui;cursor:pointer}
+.sl-btn.primary{background:#1769AA;border-color:#1769AA;color:#fff}
+.sl-btn.small{padding:4px 9px;font-size:11.5px;font-weight:600}
+.sl-note{font-size:13px;color:#64748b}
+.sl-note.ok{color:#1c6b32}
+.sl-note.err{color:#a3291a}
+.sl-muted{color:#94a3b8;font-size:13px}
+.sl-search{flex:1;min-width:200px;padding:8px 11px;border:1px solid #d7dfe8;
+  border-radius:8px;font:13px system-ui}
+table.sl-t{width:100%;border-collapse:collapse;font-size:13px}
+.sl-t th{text-align:left;padding:9px 10px;border-bottom:1px solid #eef2f6;font-size:11px;
+  text-transform:uppercase;letter-spacing:.04em;color:#94a3b8}
+.sl-t td{padding:9px 10px;border-bottom:1px solid #f4f7fa;vertical-align:top}
+.sl-copy{border:1px solid #d7dfe8;background:#fff;border-radius:6px;padding:2px 8px;
+  font-size:11.5px;cursor:pointer;margin-left:6px}
+.sl-mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+</style>
+
+<script>
+let SL_LINKS=[];
+
+async function api(path,opts){
+ const r=await fetch(path,Object.assign({headers:{'Content-Type':'application/json'}},opts||{}));
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok&&!('ok' in d))throw new Error(d.error||('Request failed ('+r.status+')'));
+ return d;
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+async function loadLinks(){
+ try{
+  const d=await api('/api/short-links');
+  SL_LINKS=d.links||[];
+  renderRows();
+ }catch(e){
+  document.getElementById('slOut').innerHTML='<p class="sl-muted">Could not read the stored links ('+esc(e.message)+').</p>';
+ }
+}
+
+function renderRows(){
+ const filter=(document.getElementById('slFilter').value||'').trim().toLowerCase();
+ const rows=SL_LINKS.filter(r=>!filter||(r.client||'').toLowerCase().includes(filter));
+ const out=document.getElementById('slOut');
+ if(!rows.length){
+  out.innerHTML='<p class="sl-muted">'+(SL_LINKS.length?'No links match that filter.':'No links masked yet.')+'</p>';
+  return;
+ }
+ out.innerHTML='<div style="overflow:auto"><table class="sl-t"><thead><tr>'+
+  '<th>Client</th><th>Project</th><th>Masked link</th><th>Opens</th><th>Created</th>'+
+  '</tr></thead><tbody>'+rows.map(rowHtml).join('')+'</tbody></table></div>';
+}
+
+function rowHtml(r){
+ const opens=r.clicks_measured?
+   ('<b>'+(r.clicks_total==null?0:r.clicks_total)+'</b>'+(r.clicks_human!=null?' ('+r.clicks_human+' human)':'')):
+   ('<span class="sl-muted">'+(r.clicks_error?esc(r.clicks_error):'not checked yet')+'</span>');
+ return '<tr>'+
+  '<td>'+esc(r.client)+'</td>'+
+  '<td>'+esc(r.project)+'</td>'+
+  '<td class="sl-mono">'+esc(r.short_url)+
+   '<button class="sl-copy" onclick="copyText(\''+esc(r.short_url).replace(/'/g,"&#39;")+'\')">Copy</button></td>'+
+  '<td>'+opens+'</td>'+
+  '<td>'+(r.created_at?new Date(r.created_at).toLocaleDateString():'')+'</td>'+
+  '</tr>';
+}
+
+function copyText(text){
+ if(navigator.clipboard&&navigator.clipboard.writeText){
+  navigator.clipboard.writeText(text);
+ }
+}
+
+async function makeLink(){
+ const url=document.getElementById('slUrl').value.trim();
+ const client=document.getElementById('slClient').value.trim();
+ const project=document.getElementById('slProject').value.trim();
+ const domain=document.getElementById('slDomain').value;
+ const title=document.getElementById('slTitle').value.trim();
+ const result=document.getElementById('slResult');
+ result.className='sl-note';
+ result.textContent='Masking…';
+ try{
+  const d=await api('/api/short-links',{method:'POST',body:JSON.stringify({url,client,project,domain,title})});
+  if(d.ok){
+   result.className='sl-note ok';
+   result.innerHTML=(d.reused?'Already masked: ':'Masked: ')+esc(d.short_url)+
+     ' <button class="sl-copy" onclick="copyText(\''+esc(d.short_url).replace(/'/g,"&#39;")+'\')">Copy</button>';
+   loadLinks();
+  }else{
+   result.className='sl-note err';
+   result.textContent=d.error||'Could not mask that link.';
+  }
+ }catch(e){
+  result.className='sl-note err';
+  result.textContent=e.message;
+ }
+}
+
+async function refreshClicks(){
+ const btn=document.getElementById('slRefresh');
+ btn.disabled=true;btn.textContent='Refreshing…';
+ try{
+  await api('/api/short-links/refresh',{method:'POST'});
+  await loadLinks();
+ }catch(e){/* the row-level errors already say why */}
+ btn.disabled=false;btn.textContent='Refresh opens';
+}
+
+loadLinks();
+</script>
+{% endblock %}

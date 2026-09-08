@@ -89,6 +89,7 @@ from hub import product_intake as hub_intake
 from hub import proposal_spec as hub_spec
 from hub import quote_validity as hub_validity
 from hub import rate_card as hub_rate_card
+from hub import short_links as hub_short_links
 from hub import target_areas as hub_areas
 from hub import target_map as hub_map
 from hub import view_tracking as hub_views
@@ -4775,6 +4776,10 @@ def _share_state(db, q) -> dict:
     current = q.revision or 1
     live = next((a for a in accepts if (a.revision or 1) == current), None)
     superseded = next((a for a in accepts if (a.revision or 1) != current), None)
+    # A local lookup only -- no network -- so this GET (read on every open of
+    # the share panel) never itself costs a Short.io call. The mask is made
+    # once, in api_share_create() below, when the rep actually presses Send.
+    masked = hub_short_links.for_url(share_url(share.token)) or {}
 
     def _acc(row):
         if not row:
@@ -4788,6 +4793,15 @@ def _share_state(db, q) -> dict:
         "revoked": bool(share.revoked_at),
         "url": share_url(share.token),
         "token": share.token,
+        # The masked s1report.co copy of the same link, if one has been made
+        # -- "" until the rep presses Send. Opens counted here are Short.io's
+        # own click count on the masked address, separate from the "Opened"
+        # section below, which is view_tracking.py counting the raw page
+        # regardless of which address a browser reached it through.
+        "masked_url": masked.get("short_url", ""),
+        "masked_domain": masked.get("domain", ""),
+        "masked_clicks_measured": bool(masked.get("clicks_measured")),
+        "masked_clicks_total": masked.get("clicks_total"),
         "revision": current,
         "sent_revision": share.sent_revision or 1,
         # "You have edited it since you sent it" is the thing a rep cannot
@@ -4840,6 +4854,16 @@ def api_share_create(qid):
         # first-positional trap this file's own docstring names, one keyword on.
         _audit("quote_shared", client=q.client, quote=q.quote_number,
                sent_by=_signed_in_as(), revision=q.revision or 1)
+        # Best-effort: a masked s1report.co link is nice to send instead of
+        # the raw Hub URL, and it must never be what stands between a rep and
+        # sending the proposal. Idempotent -- re-sending an unchanged link
+        # costs a local lookup and no Short.io call.
+        try:
+            hub_short_links.mask(share_url(share.token), client=q.client,
+                                 project=q.quote_number or f"proposal-{q.id}",
+                                 actor=_signed_in_as())
+        except Exception:                               # noqa: BLE001
+            pass
         return jsonify({"ok": True, "share": _share_state(db, q)})
     finally:
         db.close()

@@ -324,6 +324,19 @@ class Settings:
     hf_render_service_url: str = field(default_factory=lambda: _s("HF_RENDER_SERVICE_URL"))
     hf_render_enabled: bool = field(default_factory=lambda: _b("HF_RENDER_ENABLED", True))
 
+    # ---- Short.io link masking ----
+    # A client-facing link (a proposal share, a preview, a review page) is
+    # masked under one of this account's own domains rather than sent as a
+    # raw smart1.agency URL. One spelling only, per the ALIASES note above:
+    # this is the exact name the key was created under and nothing here has
+    # ever drifted, so there is no second spelling for an alias to fix.
+    short_io_key: str = field(default_factory=lambda: _s("SHORT_IO_API_KEY"))
+    # The domain a client-facing link is masked under by default. The account
+    # holds four (s1dev.co, s1leads.co, s1report.co, s1snap.co) --
+    # hub/short_links.py's DOMAINS is the full, checked list; this is only the
+    # one nothing else names explicitly.
+    short_io_domain: str = field(default_factory=lambda: _s("SHORT_IO_DOMAIN", "s1report.co"))
+
     # ---- behaviour ----
     ai_usage_log: bool = field(default_factory=lambda: _b("HUB_AI_USAGE_LOG", True))
 
@@ -650,6 +663,10 @@ class Settings:
                 "Suite workflow emailing the report has no link to put in it; the "
                 "ids are read off /api/leads/ghl/preflight, never guessed."),
             row("Simvoly", bool(self.simvoly_key), False, f"{self.spellings('simvoly_key')} — Sites admin."),
+            row("Short.io link masking", bool(self.short_io_key), False,
+                "SHORT_IO_API_KEY — a client-facing link (a proposal share, a "
+                "preview) is sent as the plain Hub URL without it, rather than "
+                f"masked under {self.short_io_domain or 'a short.io domain'}."),
         ]
 
     def missing_required(self) -> list[str]:
