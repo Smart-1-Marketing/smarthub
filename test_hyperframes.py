@@ -849,6 +849,23 @@ try:
           finished["renderer"], "hyperframes")
 
     # A storyboard spot on the same deployment still goes to Creatomate.
+    # Supply actual media: a creative-warning override cannot render an empty spot.
+    from modules.commercial_builder.db import db as cb_db
+    from modules.commercial_builder.models import Scene
+    with hub_app.app_context():
+        other = cb_db.session.get(CommercialProject, opid)
+        footage = other.scenes.all()
+        if not footage:
+            shot = Scene(project_id=opid, order_index=0, start=0, end=other.length_seconds)
+            cb_db.session.add(shot)
+            footage = [shot]
+        for shot in footage:
+            shot.asset_type = "stock"
+            shot.asset_url = "https://example.test/fixture-stock.mp4"
+            shot.asset_meta = {}
+        cb_db.session.flush()
+        other.music = {"voice_track_url": "https://example.test/fixture-voice.mp3"}
+        cb_db.session.commit()
     other_render = client.post(f"{MOUNT}/api/projects/{opid}/render",
                                data=json.dumps({"formats": ["16:9"],
                                                 "force_despite_qc_failures": True}),
