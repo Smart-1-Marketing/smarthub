@@ -137,7 +137,7 @@ check("the target it was found against travels with it",
 check("for_prompt is the segments as one line",
       spec.for_prompt(CLIENT), "Homeowners, Recent Movers")
 
-r = spec.confirm(CLIENT, ["Pet Owners"], actor="todd@smart1marketing.com")
+spec.confirm(CLIENT, ["Pet Owners"], actor="todd@smart1marketing.com")
 check("a second confirm replaces rather than appends — the confirmed "
       "audience is the current answer",
       spec.get(CLIENT)["audiences"], ["Pet Owners"])
