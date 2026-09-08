@@ -33,6 +33,33 @@ RUN apt-get update \
     && apt-get purge -y gnupg && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
+# ---------------------------------------------------------------------------
+# ffmpeg + Chromium's runtime libraries, for hf-render-service (Paint
+# Animation, Vox Explainer).
+#
+# hub/hyperframes.py's own docstring is explicit that Puppeteer, Chromium and
+# FFmpeg do not belong in this image -- they were meant to run as their own
+# Render service. They are here anyway, as a second background process in
+# this same container (see docker-start.sh), because standing up and paying
+# for a whole second Render service is a bigger ask than the CPU headroom
+# this deployment now has. If that stops being true -- renders make the Hub
+# itself feel slow, or builds start timing out -- hf_render_service ships its
+# own render.yaml and README describing exactly that split; nothing about the
+# module's code has to change, only where HF_RENDER_SERVICE_URL points.
+#
+# THE COST, stated the way the Node block above states its own: this is
+# roughly 400-500 MB on the image (Chromium's own package plus its shared
+# libraries, and Puppeteer's bundled Chromium download during npm ci below)
+# and it is the heaviest single addition here. The `chromium` package itself
+# is never run directly -- Puppeteer launches its own bundled build -- it is
+# installed purely to pull in the shared libraries (libnss3, libatk,
+# libgbm1, and the rest of the well-known headless-Chrome dependency list)
+# that build needs to launch at all, without this Dockerfile hand-listing
+# thirty exact package names that drift between Debian releases.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt .
@@ -43,6 +70,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # and NODE_ENV=production would otherwise make npm skip them.
 COPY modules/ad_builder/package.json modules/ad_builder/package-lock.json ./modules/ad_builder/
 RUN cd modules/ad_builder && npm ci --include=dev --no-audit --no-fund
+
+COPY modules/hf_render_service/package.json modules/hf_render_service/package-lock.json ./modules/hf_render_service/
+RUN cd modules/hf_render_service && npm ci --include=dev --no-audit --no-fund
 
 COPY . .
 
@@ -55,10 +85,12 @@ RUN chmod +x /app/docker-start.sh
 # Compile the TypeScript once, at build time. Doing it at boot would make every
 # cold start pay for it and would put tsc on the critical path of a deploy.
 RUN cd modules/ad_builder && npm run build && npm prune --omit=dev
+RUN cd modules/hf_render_service && npm run build && npm prune --omit=dev
 
 ENV PYTHONUNBUFFERED=1 \
     NODE_ENV=production \
-    ADBUILDER_PORT=8791
+    ADBUILDER_PORT=8791 \
+    HF_RENDER_PORT=8792
 EXPOSE 8000
 
 # Both processes. See docker-start.sh for why this is a script rather than two

@@ -293,7 +293,18 @@ def check_silent_modules() -> list[dict]:
     # An exemption that outlives what it exempted goes on covering whatever is
     # written at that path next -- check_stale_json_exemptions()'s rule, and
     # the reason NO_ACTIVITY is a table rather than a habit.
+    # A module directory can be real and hold no .py file at all --
+    # modules/hf_render_service is a Node/TypeScript render backend, and
+    # `seen` above is built only from `_sources()`'s `*.py` glob. Reading
+    # `set(seen)` alone as "the modules that still exist" reported that one
+    # as stale the moment it was declared: a real, on-disk directory read as
+    # gone because nothing in it is Python. A directory is live if it is
+    # there, whatever language it is written in.
     live = set(seen)
+    modules_dir = ROOT / "modules"
+    if modules_dir.is_dir():
+        live.update(p.name for p in modules_dir.iterdir()
+                    if p.is_dir() and p.name not in SKIP_DIRS)
     for mod in sorted(NO_ACTIVITY):
         if mod in live:
             continue

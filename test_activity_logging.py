@@ -264,7 +264,11 @@ check("and the integrity check agrees, with nothing outstanding",
 section("The seven that were silent now write a row")
 # =====================================================================
 # calculators is the one that is declared instead, because what it produces
-# is a lead rather than client work.
+# is a lead rather than client work. hf_render_service is declared for a
+# different reason: it is reached only server-to-server, over loopback, by
+# hub/hyperframes.py, and never sees a client name or a request to attribute
+# a row to -- the client-facing half is modules/hyperframes_tools, which
+# already logs.
 
 for mod in WAS_SILENT:
     if mod in audit.NO_ACTIVITY:
@@ -273,8 +277,8 @@ for mod in WAS_SILENT:
     else:
         check(f"{mod} calls its logger", module_logs(mod), True)
 
-check("calculators is the only one declared rather than wired",
-      sorted(audit.NO_ACTIVITY), ["calculators"])
+check("calculators and hf_render_service are the ones declared rather than wired",
+      sorted(audit.NO_ACTIVITY), ["calculators", "hf_render_service"])
 
 # Its dangling binding is gone rather than wired. Asserted through the AST,
 # not the text -- the replacement comment explains the trap by quoting
