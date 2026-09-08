@@ -7039,6 +7039,9 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    from hub.customer_voices import bp as customer_voices_bp
+    app.register_blueprint(customer_voices_bp)
+
     # ---------------- Radio Scripts ----------------
     # Also a blueprint: /tools/radio-scripts is not a prefix wsgi.py mounts,
     # so it belongs to the hub app and needs its own guard rather than

@@ -199,6 +199,11 @@ def render_audio(voice_id: str, script: str,
         speed = min(1.2, max(0.7, float(speed)))
     except (TypeError, ValueError):
         speed = 1.0
+    from hub.customer_voices import ensure_usable, LibraryError
+    try:
+        ensure_usable(voice_id)
+    except LibraryError as exc:
+        raise VoiceError(str(exc)) from exc
     body = {
         "text": script,
         "model_id": MODEL,

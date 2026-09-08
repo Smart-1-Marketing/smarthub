@@ -126,6 +126,7 @@ PREFIXES: dict[str, str] = {
     "/tools/video-backgrounds/": "video_backgrounds",
     "/tools/dead-air/": "video_tools",
     "/tools/vertical-reframe/": "video_tools",
+    "/tools/customer-voices/": "customer_voices",
     "/tools/radio-promo/": "radio_promo",
     "/tools/fan-radio/": "fan_radio",
     "/tools/radio-scripts/": "radio_scripts",

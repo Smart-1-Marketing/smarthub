@@ -180,7 +180,7 @@ def public_functions():
                 continue
             if node.name.startswith("_") or node.decorator_list:
                 continue
-            out[node.name].append((str(rel), node.lineno))
+            out[node.name].append((rel.as_posix(), node.lineno))
     return out
 
 
