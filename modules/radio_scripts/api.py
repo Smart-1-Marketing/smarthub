@@ -110,10 +110,21 @@ def attach(bp):
     @bp.get("/api/sets")
     def api_sets():
         limit = clamp_int(request.args.get("limit"), 25, low=1, high=100)
-        rows = (RadioScriptSet.query.order_by(RadioScriptSet.created_at.desc())
-               .limit(limit).all())
-        return jsonify({"ok": True,
-                        "sets": [r.to_dict(full=False) for r in rows]})
+        offset = clamp_int(request.args.get("offset"), 0, low=0, high=1000000)
+        query = RadioScriptSet.query
+        search = (request.args.get("q") or "").strip()
+        if search:
+            from sqlalchemy import or_
+            # Escape LIKE wildcards so a user's percent or underscore is literal.
+            pattern = "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            query = query.filter(or_(*(column.ilike(pattern, escape="\\") for column in (
+                RadioScriptSet.client_name, RadioScriptSet.actor,
+                RadioScriptSet.brief_json, RadioScriptSet.concepts_json))))
+        count = query.count()
+        rows = (query.order_by(RadioScriptSet.updated_at.desc(), RadioScriptSet.id.desc())
+                .offset(offset).limit(limit).all())
+        return jsonify(ok=True, sets=[r.to_dict(full=False) for r in rows], count=count,
+                       has_more=offset + len(rows) < count)
 
     @bp.get("/api/sets/<int:set_id>")
     def api_set_detail(set_id: int):

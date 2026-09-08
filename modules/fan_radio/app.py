@@ -342,8 +342,12 @@ def api_list():
         rows = [r for r in rows if r.get("scope") == scope]
     if q:
         rows = [r for r in rows
-                if q in f"{r.get('company','')} {r.get('client','')}".lower()]
-    return jsonify({"ok": True, "count": len(rows), "projects": rows[:300]})
+                if q in f"{r.get('company','')} {r.get('client','')} {r.get('created_by','')}".lower()]
+    from hub.webargs import clamp_int
+    count = len(rows)
+    limit = clamp_int(request.args.get("limit"), 300, low=1, high=300)
+    offset = clamp_int(request.args.get("offset"), 0, low=0, high=1000000)
+    return jsonify(ok=True, count=count, projects=rows[offset:offset + limit], has_more=offset + limit < count)
 
 
 @app.route("/api/projects", methods=["POST"])

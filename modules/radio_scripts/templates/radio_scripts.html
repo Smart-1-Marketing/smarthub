@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Radio Scripts — Smart 1 Hub{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="/assets/radio-library.css">
+<script src="/assets/radio-library.js" defer></script>
 {# A radio script tool a rep can open for any client on any day -- built
    standalone first so seeding it from an inbound lead later is the same
    engine called with a prefilled brief, not a second code path. See
@@ -12,6 +14,7 @@
      person to fill in {{ help_dot('radio_scripts.legal') if help_dot is defined else '' }}.</p>
 </div>
 
+<section class="s1d-page" data-radio-library="scripts" aria-label="Saved radio scripts"></section>
 <div class="s1d-page" style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start">
   <div class="card" style="padding:16px">
     <h3 style="margin-top:0">Brief</h3>
@@ -38,8 +41,7 @@
       <div id="rsGenStatus"></div>
     </div>
 
-    <h3>Recent</h3>
-    <div id="rsRecent">Loading…</div>
+
   </div>
 
   <div id="rsResult" class="card" style="padding:16px">
@@ -50,7 +52,7 @@
 <script>
 (function () {
   "use strict";
-  var BASE = "{{ request.script_root }}";
+  var BASE = {{ url_for("radio_scripts.page")|tojson }}.replace(/\/$/, "");
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -136,7 +138,7 @@
           return;
         }
         renderSet(res.d.set);
-        rsLoadRecent();
+        window.dispatchEvent(new Event('radio-library-changed'));
       }).catch(function () {
         btn.disabled = false;
         status.innerHTML = '<span style="color:#B42318">Could not reach the server.</span>';
@@ -154,27 +156,15 @@
 
   window.rsOpenSet = function (setId) {
     fetch(BASE + "/api/sets/" + setId).then(function (r) { return r.json(); })
-      .then(function (d) { if (d.ok) renderSet(d.set); });
-  };
-
-  window.rsLoadRecent = function () {
-    var el = document.getElementById("rsRecent");
-    fetch(BASE + "/api/sets?limit=15").then(function (r) { return r.json(); })
       .then(function (d) {
-        if (!d.ok || !d.sets.length) {
-          el.innerHTML = '<p class="hint">Nothing generated yet.</p>';
-          return;
-        }
-        el.innerHTML = d.sets.map(function (s) {
-          return '<div style="padding:6px 0;border-bottom:1px solid #E2E8F0">' +
-            '<a href="#" onclick="rsOpenSet(' + s.id + ');return false">' +
-            esc(s.client_name || "(no client)") + "</a>" +
-            '<div class="hint">' + esc(s.market || "") + "</div></div>";
-        }).join("");
-      });
+        if (!d.ok) throw new Error(d.error || 'Could not open this script set.');
+        renderSet(d.set); history.replaceState(null, '', '#set=' + setId);
+        document.getElementById('rsResult').scrollIntoView({behavior:'smooth', block:'start'});
+      }).catch(function (error) { document.getElementById('rsResult').textContent = error.message; });
   };
 
-  rsLoadRecent();
+  const savedSet = /^#set=(\d+)$/.exec(location.hash);
+  if (savedSet) rsOpenSet(savedSet[1]);
 })();
 </script>
 {% endblock %}

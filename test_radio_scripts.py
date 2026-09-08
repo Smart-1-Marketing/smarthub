@@ -325,6 +325,19 @@ try:
     check("...and the set now appears in the list",
           listing.get_json()["sets"][0]["id"], row["id"])
 
+    for number in range(17):
+        client.post(MOUNT + "/api/generate", json={"client_name": f"New client {number}", "market":"Other market"})
+    recent = client.get(MOUNT + "/api/sets?limit=12").get_json()
+    check("the library counts older sets beyond its first page", recent["count"], 18)
+    check("and offers another page", recent["has_more"], True)
+    older = client.get(MOUNT + "/api/sets?limit=12&offset=12").get_json()
+    check("older work can be reached without a recent-item cutoff", len(older["sets"]), 6)
+    found = client.get(MOUNT + "/api/sets", query_string={"q":"cincinnati", "limit":12}).get_json()
+    check("search finds an older set by its brief", [r["id"] for r in found["sets"]], [row["id"]])
+    check("a percent sign is searched literally", client.get(MOUNT + "/api/sets", query_string={"q":"%"}).get_json()["count"], 0)
+    check("the creator includes a visible saved library", 'data-radio-library="scripts"' in body, True)
+    check("the script API is rooted at the registered blueprint", 'var BASE = "/tools/radio-scripts/"' in body, True)
+
     fetched = client.get(f"{MOUNT}/api/sets/{row['id']}")
     check("...and can be fetched by id", fetched.get_json()["set"]["id"], row["id"])
 
