@@ -10,13 +10,13 @@ and the duration falls back to an MP3 frame-header estimate.
 """
 from __future__ import annotations
 
-import base64
 import os
 import re
 import time
 from urllib.parse import quote
 
 import requests
+from hub.audio_response import timestamp_audio, plain_audio
 
 from hub import radio_spec, voice_casting
 
@@ -202,22 +202,13 @@ def render_audio(voice_id: str, script: str, energy: str = "conversational") -> 
                             headers=_headers({"Content-Type": "application/json"}),
                             json=payload, timeout=180)
         if res.status_code < 400:
-            # Characters are spent the moment ElevenLabs accepts the request,
-            # whether or not the alignment we wanted came back with it. Record
-            # here rather than at the return, or the fall-through below is a
-            # render nobody counted and a second one billed on top of it.
+            # Count accepted synthesis even when its response is malformed.
             _note_characters(script, voice_id)
-            body = res.json()
-            audio = base64.b64decode(body.get("audio_base64") or "")
-            align = body.get("normalized_alignment") or body.get("alignment") or {}
-            ends = align.get("character_end_times_seconds") or []
-            if audio and ends:
-                return {"audio": audio, "seconds": round(float(ends[-1]), 2),
-                        "measured": True}
-            if audio:
-                return {"audio": audio, "seconds": mp3_seconds(audio), "measured": False}
-    except (requests.RequestException, ValueError):
-        pass                                   # fall through to the plain endpoint
+            return timestamp_audio(res, mp3_seconds, VoiceError)
+        if res.status_code not in (404, 405, 501):
+            raise VoiceError(f"ElevenLabs render failed (HTTP {res.status_code}).")
+    except requests.RequestException as exc:
+        raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
 
     try:
         res = requests.post(url + query,
@@ -229,7 +220,7 @@ def render_audio(voice_id: str, script: str, energy: str = "conversational") -> 
     if res.status_code >= 400:
         raise VoiceError(f"ElevenLabs render failed (HTTP {res.status_code}).")
     _note_characters(script, voice_id)
-    return {"audio": res.content, "seconds": mp3_seconds(res.content), "measured": False}
+    return plain_audio(res, mp3_seconds, VoiceError)
 
 
 def account_check() -> dict:

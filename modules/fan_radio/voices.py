@@ -27,13 +27,13 @@ real one — on the number a rep reads to decide whether a read fits its slot.
 """
 from __future__ import annotations
 
-import base64
 import os
 import re
 import time
 from urllib.parse import quote
 
 import requests
+from hub.audio_response import timestamp_audio, plain_audio
 
 from hub import radio_spec, voice_casting
 
@@ -214,22 +214,11 @@ def render_audio(voice_id: str, script: str,
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).")
 
     if res.status_code == 200:
-        # Recorded on acceptance, not on a successful parse: the fall-through
-        # below re-renders, and both requests spend characters.
+        # Count accepted synthesis even when its response is malformed.
         _note_characters(script, voice_id)
-        try:
-            payload = res.json()
-            audio = base64.b64decode(payload["audio_base64"])
-            align = (payload.get("normalized_alignment")
-                     or payload.get("alignment") or {})
-            ends = align.get("character_end_times_seconds") or []
-            if ends:
-                return {"audio": audio, "seconds": round(float(ends[-1]), 2),
-                        "measured": True}
-            return {"audio": audio, "seconds": mp3_seconds(audio),
-                    "measured": False}
-        except (KeyError, ValueError):
-            pass
+        return timestamp_audio(res, mp3_seconds, VoiceError)
+    if res.status_code not in (404, 405, 501):
+        raise VoiceError(f"ElevenLabs returned {res.status_code} rendering audio.")
 
     # Plain endpoint, estimated duration, and said so.
     try:
@@ -241,8 +230,7 @@ def render_audio(voice_id: str, script: str,
     if res.status_code != 200:
         raise VoiceError(f"ElevenLabs returned {res.status_code} rendering audio.")
     _note_characters(script, voice_id)
-    audio = res.content
-    return {"audio": audio, "seconds": mp3_seconds(audio), "measured": False}
+    return plain_audio(res, mp3_seconds, VoiceError)
 
 
 def account_check() -> dict:

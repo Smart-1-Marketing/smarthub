@@ -1872,6 +1872,11 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      - name: Audio response and render regression tests
+        run: |
+          python3 test_audio_response.py
+          python3 test_audio_render.py
+
       # The Commercial Builder half of the builder-parity list. One reader for
       # "the copy has to actually say it": Radio Promo checked its scripts
       # literally and the Commercial Builder asked whether a field was set on
