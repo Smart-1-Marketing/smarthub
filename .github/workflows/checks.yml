@@ -87,6 +87,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Google Access offline route and OAuth regression tests
+        run: python test_google_access_flow.py
+
+      - name: IO template and media-mix validation
+        run: |
+          python test_io_template.py
+          python test_io_media_mix.py
+          node test_io_media_mix.js
+
       # The PDF Optimizer is a wrapper around these two, and they were in the
       # Dockerfile and nowhere else -- so the compression the tool exists for
       # ran in production and in no check anywhere. Same two packages the
@@ -1141,6 +1150,9 @@ jobs:
             echo "test_google_links.py not on this branch — nothing to run."
           fi
 
+      - name: Google Access OAuth flow tests
+        run: python test_google_access_flow.py
+
       - name: Google Access tests
         # Google Ads is paused: the assertion is that no client-facing page
         # still offers or explains it, and that a request created before the
@@ -1872,6 +1884,11 @@ jobs:
       - name: Radio builders — the client's page, the marks, and the clock
         run: python3 test_radio_builders.py
 
+      - name: Audio response and render regression tests
+        run: |
+          python3 test_audio_response.py
+          python3 test_audio_render.py
+
       # The Commercial Builder half of the builder-parity list. One reader for
       # "the copy has to actually say it": Radio Promo checked its scripts
       # literally and the Commercial Builder asked whether a field was set on
@@ -2367,6 +2384,10 @@ jobs:
       # the hero floor was skipped for the source this module prefers; and
       # `source` said "their site" whenever the site search returned
       # anything, however much of what was picked came from a stock library.
+      - name: AI model review permissions, profiles and accounting
+        run: python3 test_ai_model_review.py
+      - name: Google Access client connection flow
+        run: python3 test_google_access_flow.py
       - name: A picture is theirs, or it is not on the page as theirs
         run: python3 test_landing_images.py
       # hub/schema_questions.py refuses to let a schema be approved while any

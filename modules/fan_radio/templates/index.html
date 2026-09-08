@@ -75,6 +75,12 @@
   .fb .when{color:var(--muted);font-size:11.5px}
   .ver{color:var(--muted);font-size:11.5px}
   footer{color:var(--muted);font-size:11.5px;text-align:center;padding:22px}
+
+  [hidden]{display:none!important}
+  .steps{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}
+  .s1d-page #steps button[aria-current=step]{background:var(--navy);color:white}
+  .wizard-actions{display:flex;justify-content:space-between;gap:12px;margin:18px 0}
+  @media(max-width:600px){.steps button{flex:1}.wrap{padding:20px 14px}}
 </style>
 </head>
 <body data-module="fan_radio">
@@ -86,6 +92,8 @@
     club, bowl or fan trademark makes it to air, then sent to the client on one
     link where they listen, approve, or tell you what to change.
     <a class="link" href="/tools/fan-radio/library">Open the library →</a></p>
+
+  <nav class="steps" id="steps" aria-label="Builder progress"></nav><p class="hint" id="wizardMsg" role="status"></p>
 
   <!-- 1 ------------------------------------------------------------- -->
   <div class="card" id="setup">
@@ -181,13 +189,13 @@
 
   <!-- 4 ------------------------------------------------------------- -->
   <div class="card" id="spotscard" style="display:none">
-    <h2><span class="n">4</span> The spots</h2>
+    <h2><span class="n">5</span> Record the spots</h2>
     <div id="spots"></div>
   </div>
 
   <!-- 5 ------------------------------------------------------------- -->
   <div class="card" id="voicecard" style="display:none">
-    <h2><span class="n">5</span> The voice {{ help_dot('fan_radio.build.voice') if help_dot is defined else '' }}</h2>
+    <h2><span class="n">4</span> Choose the voice {{ help_dot('fan_radio.build.voice') if help_dot is defined else '' }}</h2>
 
     <!-- How this client's name is said. The field has been on every project
          row since this tool was written and nothing ever set it: every render
@@ -273,6 +281,7 @@
     <div id="feedback" style="margin-top:16px"></div>
   </div>
 
+  <div class="wizard-actions"><button class="btn sec" id="wizardBack" type="button" hidden>Back</button><button class="btn" id="wizardNext" type="button" hidden>Continue</button></div>
   <footer>{{ version }}</footer>
 </div>
 
@@ -320,6 +329,60 @@
         return j; });
     });
   }
+
+  // Keep draft fields mounted while moving through the builder.
+  var stepIndex = 0, moving = false;
+  var stepNames = ['Client', 'Brief', 'Write scripts', 'Voice', 'Record', 'Music & mix', 'Review & share'];
+  var stepCards = ['setup','briefcard','writecard','voicecard','spotscard','musiccard','sharecard'];
+  function canStep(i){ return i >= 0 && i < 7 && (i === 0 || !!P && (i < 3 || (P.spots || []).length > 0)); }
+  function showStep(i, focus){
+    stepIndex = i;
+    stepCards.forEach(function(id, n){ $(id).hidden = n !== i; $(id).style.display = ''; });
+    $('steps').innerHTML = stepNames.map(function(name, n){
+      return '<button type="button" class="btn sec" data-step="'+n+'"'+
+        (n === i ? ' aria-current="step"' : '')+(!canStep(n) ? ' disabled' : '')+'>'+(n+1)+'. '+esc(name)+'</button>';
+    }).join('');
+    $('wizardMsg').textContent = 'Step '+(i+1)+' of 7 · '+stepNames[i];
+    $('wizardBack').hidden = i === 0;
+    $('wizardNext').hidden = i === 6 || !canStep(i+1);
+    $('wizardNext').textContent = 'Continue to '+stepNames[i+1];
+    $('start').hidden = !!P;
+    if(focus){ var h = $(stepCards[i]).querySelector('h2'); h.tabIndex=-1; h.focus({preventScroll:true}); $('steps').scrollIntoView({block:'start',behavior:'smooth'}); }
+  }
+  async function saveDraft(){
+    if(!P) return;
+    if(!$('company').value.trim()) throw new Error('Enter the business name before continuing.');
+    var j = await api('/api/projects/'+P.id, {method:'POST', body:{
+      company:$('company').value.trim(), client:$('client').value.trim(), home_url:$('url').value.trim(),
+      scope:document.querySelector('input[name=scope]:checked').value,
+      promotion:$('promo').value, notes:$('notes').value, team_context:$('team').value, tone:$('tone').value,
+      brief:{summary:$('b_summary').value,audience:$('b_audience').value,offer:$('b_offer').value,
+        callToAction:$('b_cta').value,mustSay:lines($('b_must').value),avoid:lines($('b_avoid').value)}
+    }});
+    P = j.project; banned = j.banned || [];
+    for(var card of $('spots').querySelectorAll('.spot')){
+      var spot = (P.spots || []).find(function(x){return x.id === card.getAttribute('data-id');});
+      var script = card.querySelector('textarea.sc').value;
+      if(spot && script !== spot.script){
+        var saved = await api('/api/projects/'+P.id+'/spots/'+spot.id, {method:'POST',body:{script:script,hand_edited:true}});
+        P.spots = P.spots.map(function(x){return x.id === saved.spot.id ? saved.spot : x;});
+      }
+    }
+  }
+  async function goStep(i){
+    if(moving || i === stepIndex || !canStep(i)) return;
+    if(stepCards.some(function(id){return !!$(id).querySelector('button:disabled');})){
+      say('wizardMsg','Wait for the current action to finish before continuing.','wait'); return;
+    }
+    moving = true;
+    try{ await saveDraft(); drawSpots(); showStep(i, true); }
+    catch(e){ say('wizardMsg',e.message,'err'); }
+    finally{ moving = false; }
+  }
+  $('steps').onclick = function(e){var b=e.target.closest('button[data-step]');if(b) goStep(Number(b.dataset.step));};
+  $('wizardBack').onclick = function(){goStep(stepIndex-1);};
+  $('wizardNext').onclick = function(){goStep(stepIndex+1);};
+  showStep(0, false);
 
   /* ---------------------------------------------------- client picker */
   // Every keystroke fires a fetch and the answers land after later
@@ -444,14 +507,13 @@
       P = j.project; banned = j.banned || [];
       say("startmsg","Ready.","ok");
       location.hash = P.id;
-      fillBrief(); show();
+      fillBrief(); show(); showStep(1, true);
     }).catch(function(e){
       $("start").disabled = false; say("startmsg", e.message, "err"); });
   };
 
   function show(){
-    ["briefcard","writecard","spotscard","voicecard","musiccard","sharecard"]
-      .forEach(function(id){ $(id).style.display = "block"; });
+    showStep(P.share && P.share.enabled ? 6 : (P.spots || []).length ? 3 : 1, false);
     drawWant(); fillProns(); drawSpots(); drawShare();
     // The mix config is one cheap read and decides what the Music step can
     // even offer, so it is fetched once a project exists rather than on every
@@ -508,6 +570,7 @@
           j.warning ? "warn" : "ok");
       $("rewriteall").style.display = "inline-block";
       drawSpots();
+      showStep(!j.warning && (P.spots || []).length ? 3 : 2, true);
     }).catch(function(e){
       $("write").disabled = false; say("writemsg", e.message, "err"); });
   };
@@ -1247,8 +1310,9 @@
       $("client").value = P.client || ""; $("team").value = P.team_context || "";
       $("promo").value = P.promotion || ""; $("notes").value = P.notes || "";
       if(P.tone) $("tone").value = P.tone;
+      document.querySelector('input[name=scope][value="'+(P.scope === 'spec' ? 'spec' : 'client')+'"]').checked = true;
       fillBrief(); show();
-    }).catch(function(){});
+    }).catch(function(e){ say('wizardMsg',e.message,'err'); });
   });
 })();
 </script>

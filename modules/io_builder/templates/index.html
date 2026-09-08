@@ -40,6 +40,9 @@ button{font-family:inherit}
 .output-panel{overflow:auto;padding:20px 22px 80px}
 .toolbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;position:sticky;top:0;background:var(--bg);padding-bottom:9px;z-index:5}
 .toolbar button{background:var(--navy);color:#fff;font-size:10px;line-height:1.15;padding:6px 5px;min-height:31px}.toolbar .secondary{background:#fff;color:var(--navy);border:1px solid #aebed0}
+.toolbar-action{display:flex;align-items:center;gap:4px;min-width:0}
+.toolbar-action>button{flex:1;min-width:0}
+.toolbar-action .s1-help{flex:0 0 auto;margin-left:0}
 .report{max-width:1020px;margin:auto;background:#fff;box-shadow:0 4px 22px rgba(24,43,70,.09);padding:28px}
 .report-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:4px solid var(--navy);padding-bottom:13px}
 .brand{font-size:24px;font-weight:800;color:var(--navy)}.sub{font-size:14px;color:var(--muted);margin-top:3px}
@@ -69,7 +72,7 @@ td{padding:7px;border:1px solid var(--line);vertical-align:top}
 .start-screen h2{margin:0 0 4px;font-size:16px;color:var(--navy)}
 .start-screen .lede{margin:0 0 13px;font-size:13px;color:var(--muted);line-height:1.45}
 .start-options{display:grid;gap:9px;grid-template-columns:1fr}
-@media(min-width:760px){.start-options{grid-template-columns:1fr 1fr 1fr}}
+/* Intake is a narrow panel even on wide screens. Keep source choices readable. */
 .start-opt{text-align:left;border:1px solid var(--line);background:#fbfcfe;border-radius:8px;padding:11px 12px;cursor:pointer;font:inherit;color:var(--text)}
 .start-opt:hover{border-color:var(--blue);background:var(--sky)}
 .start-opt[aria-pressed="true"]{border-color:var(--blue);background:var(--sky)}
@@ -175,6 +178,15 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
 .traffic-grid code{white-space:normal;overflow-wrap:anywhere}
 @media(max-width:700px){.traffic-grid{grid-template-columns:1fr}.traffic-grid .wide{grid-column:auto}}
 
+
+button:disabled{opacity:.5;cursor:not-allowed}
+.export-menu{position:relative}
+.export-menu summary{cursor:pointer;border:1px solid #aebed0;border-radius:7px;background:#fff;color:var(--navy);padding:8px;font-size:11px;font-weight:700;text-align:center}
+.export-options{position:absolute;right:0;top:100%;min-width:230px;display:grid;gap:6px;padding:10px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #14284b22;z-index:10}
+.mobile-preview-link{display:none}
+#ioEmptyPreview h2{font-size:18px}
+@media(max-width:980px){.mobile-preview-link{display:inline-block;margin:8px 0;font-size:13px;color:var(--blue)}}
+@media print{ #ioReadiness,#ioEmptyPreview,.mobile-preview-link{display:none!important}}
 </style>
 </head>
 <!--
@@ -201,18 +213,17 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
 -->
 <body data-s1hub-collapse="1">
 <div class="app">
-<section class="chat-panel">
+<section class="chat-panel" id="io-intake">
  <div class="progress-wrap">
   <div class="progress-label"><span><span id="stepLabel">Client information</span> {{ help_dot('io_builder.chat.progress') if help_dot is defined else '' }}</span><span id="pct">0%</span></div>
   <div class="progress"><div id="bar"></div></div>
+  <a class="mobile-preview-link" href="#io-preview">Preview insertion order</a>
  </div>
  <div id="s1-totals" style="display:none;margin:0 0 6px;padding:6px 10px;background:#eef3f8;border:1px solid #d5dee9;border-radius:7px;font-size:12px;color:#14284b;font-weight:600"></div>
 <div id="startScreen" class="start-screen" hidden>
   <h2>Where does this campaign come from? {{ help_dot('io_builder.start.sources') if help_dot is defined else '' }}</h2>
   <p class="lede">Load what already exists instead of retyping it. Everything
-     loaded is shown to you and confirmed in the interview &mdash; a proposal
-     quotes a price, an insertion order bills it, so nothing reaches the IO
-     unchecked.</p>
+     loaded can be reviewed and confirmed before it becomes part of this IO.</p>
   <!-- Unfinished insertion orders. Hidden until there is one, because a
        permanently empty panel is furniture people stop reading. -->
   <div class="start-panel" id="startDraftsPanel" hidden style="margin-bottom:14px">
@@ -272,23 +283,31 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
     </div>
 </section>
 
-<section class="output-panel">
- <div class="toolbar">
+<section class="output-panel" id="io-preview">
+ <a class="mobile-preview-link" href="#io-intake">Back to campaign questions</a>
+ <div class="toolbar main-toolbar">
   <button class="secondary" onclick="openCreativeManager()">Creative</button>
-  <button class="secondary" onclick="openEditor()">Edit</button>
+  <button class="secondary" onclick="openEditor()">Edit answers</button>
+  <details class="export-menu">
+   <summary>Export / share</summary>
+   <div class="export-options">
+    <div class="toolbar-action"><button class="secondary" onclick="generateStoredPDF('internal')">Internal PDF</button>{{ help_dot('io_builder.pdf.two') if help_dot is defined else '' }}</div>
+    <button class="secondary" onclick="generateStoredPDF('client')">Client PDF</button>
+    <button class="secondary" onclick="copyCustomerRequirements()">Copy creative requirements</button>
+    <button class="secondary" onclick="emailClientPDF()">Email client PDF</button>
+    <button class="secondary" onclick="downloadJSON()">Export data (JSON)</button>
+    <button class="secondary" onclick="window.print()">Print IO</button>
+   </div>
+  </details>
+  <div class="toolbar-action"><button class="submit-io-btn" onclick="submitCompletedIO()" disabled aria-describedby="ioReadiness">Review and submit</button>{{ help_dot('io_builder.submit.finished') if help_dot is defined else '' }}</div>
+  <button class="secondary" onclick="document.getElementById('importJson').click()">Load / duplicate (JSON)</button>
   <button class="secondary" onclick="restart()">Reset</button>
-  <button class="secondary" onclick="generateStoredPDF('internal')">Internal PDF</button>{{ help_dot('io_builder.pdf.two') if help_dot is defined else '' }}
-  <button class="secondary" onclick="generateStoredPDF('client')">Customer PDF</button>
-  <button class="secondary" onclick="copyCustomerRequirements()">Copy Customer</button>
-  <button class="secondary" onclick="emailClientPDF()">Email Client PDF</button>
-  <button class="secondary" onclick="downloadJSON()">Data Export</button>
-  <button class="secondary" onclick="document.getElementById('importJson').click()">Load / Duplicate (JSON)</button>
   <input id="importJson" type="file" accept="application/json,.json" style="display:none">
-  <button class="submit-io-btn" onclick="submitCompletedIO()">Submit Finished IO</button>{{ help_dot('io_builder.submit.finished') if help_dot is defined else '' }}
-  <button onclick="window.print()">Print IO</button>
  </div>
+ <p id="ioReadiness" class="hint" aria-live="polite"></p>
+ <div id="ioEmptyPreview" class="start-screen"><h2>Your insertion order will appear here</h2><p class="lede">Choose a source and add the client and campaign details. Review the plan here before submitting.</p></div>
  <div id="submitStatus" class="submit-status"></div>
- <div class="report">
+ <div class="report" id="ioReport" hidden>
   <div class="report-head">
    <div><div class="brand">SMART1 MARKETING</div><div class="sub">Campaign Planning & Rate-Card Insertion Order Report</div></div>
    <div class="badge">Status: <strong id="status">Draft</strong></div>
@@ -429,11 +448,11 @@ input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:1}
   <div class="section">
    <div class="section-title">AI Media-Mix Recommendation</div>
    <div class="toolbar" style="margin-bottom:8px">
-    <button type="button" onclick="requestMediaMixRecommendation()">Generate Recommendation</button>
-    <button type="button" onclick="acceptMediaMix()">Accept Suggested Allocations</button>
+    <button type="button" id="generateMediaMix" onclick="requestMediaMixRecommendation()">Generate Recommendation</button>
+    <button type="button" id="acceptMediaMix" disabled onclick="acceptMediaMix()">Accept Suggested Allocations</button>
     <button type="button" onclick="keepMediaMix()">Keep Original Plan</button>
    </div>
-   <div id="mediaMixStatus" class="tiny"></div>
+   <div id="mediaMixStatus" class="tiny" role="status"></div>
    <div id="mediaMixRecommendation" class="strategy-list"><div class="empty">No recommendation generated.</div></div>
   </div>
   <div class="section">
@@ -1253,40 +1272,80 @@ function suggestedAudienceOptions(){
 }
 
 
-async function requestMediaMixRecommendation(){
- const status=document.getElementById("mediaMixStatus");
- if(status)status.textContent="Building recommendation…";
- const payload={
+let mediaMixBusy=false;
+function mediaMixPayload(){
+ return {
   client:state.client,goals:state.objectives,industry:state.industry,geography:state.geo,
-  monthly_budget:state.items.reduce((s,i)=>s+Number(i.budget||0),0),
+  management_fee:state.managementFee,creative_fee:state.creativeFee,
+  budget_basis:"Sum of selected IO line monthly budgets; do not infer whether separate fees are included.",
+  monthly_budget:Math.round(state.items.reduce((s,i)=>s+Number(i.budget||0),0)*100)/100,
   total_campaign_budget:state.items.reduce((s,i)=>s+Number(i.campaignBudget||0),0),
   campaign_duration:campaignLength(),audiences:state.audiences,
   creative_source:state.creativeSource,creative_assets:state.creativeAssets.map(a=>({product:a.productLabel||a.product,status:a.status,evergreen:a.evergreen,validation:a.validationStatus})),
   landing_page_reviews:state.landingPageReviews,
-  selected_products:state.items.map(i=>({product:(productConfig[i.product]||{}).product||i.product,monthly_budget:i.budget,rate:i.rate,start:i.start,end:i.end})),
-  available_products:Object.values(productConfig).map(p=>({product:p.product,category:p.category,listed_rate:p.listedRate}))
+  selected_products:state.items.map(i=>({product:(productConfig[i.product]||{}).product||i.product,monthly_budget:i.budget,rate:i.rate,start:i.start,end:i.end,budget_changes:i.budgetChanges||[]})),
+  available_products:Object.values(productConfig).map(p=>({product:p.product,category:p.category,listed_rate:p.listedRate,requirements:p.requirements,timeline:p.timeline}))
  };
+}
+async function requestMediaMixRecommendation(){
+ if(mediaMixBusy)return;
+ const status=document.getElementById("mediaMixStatus");
+ const payload=mediaMixPayload();
+ if(!payload.goals.length||!payload.geography||!payload.selected_products.length||!(payload.monthly_budget>0)||!(payload.campaign_duration.days>0)){
+  status.textContent="Add campaign goals, geography, valid dates, products and a positive monthly budget first.";return;
+ }
+ if(state.items.some(i=>(i.budgetChanges||[]).length)){status.textContent="This plan has scheduled budget changes. Review and edit allocations manually to preserve the schedule.";return;}
+ const signature=JSON.stringify(payload);
+ mediaMixBusy=true;
+ document.getElementById("generateMediaMix").disabled=true;
+ status.textContent="Building recommendation…";
  try{
   const res=await fetch("{{ request.script_root }}/api/media-mix-recommendation",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
   const data=await res.json().catch(()=>({}));
   if(!res.ok||!data.ok)throw new Error(data.error||"Recommendation failed");
+  if(JSON.stringify(mediaMixPayload())!==signature)throw new Error("The campaign changed. Generate a new recommendation.");
   state.mediaMixRecommendation=data.recommendation||{};
+  state.mediaMixSignature=signature;
   state.mediaMixDecision="";
   renderMediaMix();
   render();
+  status.textContent="Recommendation ready. Review the rationale and warnings before accepting.";
  }catch(err){
   if(status)status.textContent=`Unable to create recommendation: ${err.message}`;
+ }finally{
+  mediaMixBusy=false;document.getElementById("generateMediaMix").disabled=false;
  }
 }
-function acceptMediaMix(){
- const mix=state.mediaMixRecommendation||{};
- const allocations=mix.suggested_allocations||[];
- allocations.forEach(a=>{
-  const match=state.items.find(i=>((productConfig[i.product]||{}).product||i.product).toLowerCase()===String(a.product||"").toLowerCase());
-  if(match&&Number(a.monthly_budget)>0){match.budget=Number(a.monthly_budget);recalculateItem(match)}
+function mediaMixUpdates(){
+ if(!state.mediaMixSignature||state.mediaMixSignature!==JSON.stringify(mediaMixPayload()))throw new Error("The plan changed. Generate a new recommendation before accepting.");
+ if(state.items.some(i=>(i.budgetChanges||[]).length))throw new Error("Edit scheduled budget changes manually.");
+ const allocations=(state.mediaMixRecommendation||{}).suggested_allocations;
+ if(!Array.isArray(allocations)||!allocations.length||allocations.length!==state.items.length)throw new Error("The recommendation must cover every selected product.");
+ const seen=new Set();
+ const updates=allocations.map(a=>{
+  if(!a||typeof a.product!=="string"||seen.has(a.product))throw new Error("The recommendation contains invalid or repeated products.");
+  seen.add(a.product);
+  const matches=state.items.filter(i=>((productConfig[i.product]||{}).product||i.product)===a.product);
+  if(matches.length!==1)throw new Error("Each suggested product must match exactly one IO line. Edit repeated product lines manually.");
+  const amount=a.monthly_budget;
+  if(typeof amount!=="number"||!Number.isFinite(amount)||amount<0||Math.abs(amount*100-Math.round(amount*100))>0.00001)throw new Error("The recommendation contains an invalid budget.");
+  return {item:matches[0],amount};
  });
- state.mediaMixDecision="Accepted suggested allocations for matching selected products";
- calculateGuardrails();render();
+ const current=Math.round(mediaMixPayload().monthly_budget*100);
+ if(updates.reduce((sum,u)=>sum+Math.round(u.amount*100),0)!==current)throw new Error("Suggested budgets do not match the current monthly total.");
+ return updates;
+}
+function acceptMediaMix(){
+ try{
+  const updates=mediaMixUpdates();
+  const staged=updates.map(({item,amount})=>{const next={...item,budget:amount};recalculateItem(next);return {item,next}});
+  staged.forEach(({item,next})=>Object.assign(item,next));
+  state.documents={};state.generatedDocuments={};
+  state.mediaMixDecision="Accepted all suggested allocations";
+  state.mediaMixSignature="";
+  calculateGuardrails();render();
+  document.getElementById("mediaMixStatus").textContent="Allocations applied. Review campaign totals and any minimum-budget warnings before submitting.";
+ }catch(err){document.getElementById("mediaMixStatus").textContent=err.message;}
 }
 function keepMediaMix(){
  state.mediaMixDecision="Kept salesperson's original media plan";
@@ -1332,12 +1391,14 @@ function renderMediaMix(){
  const box=document.getElementById("mediaMixRecommendation");
  if(!box)return;
  const m=state.mediaMixRecommendation||{};
+ const accept=document.getElementById("acceptMediaMix");
+ if(accept){try{mediaMixUpdates();accept.disabled=false}catch(err){accept.disabled=true;accept.title=err.message}}
  if(!m.summary&&!m.primary_product){
   box.innerHTML='<div class="empty">Generate an AI recommendation after the products, budget, creative and landing pages are available.</div>';
   return;
  }
- const allocations=(m.suggested_allocations||[]).map(a=>`<li><strong>${esc(a.product||"")}</strong>: ${money(a.monthly_budget||0)} (${esc(a.percent||"")}%) — ${esc(a.reason||"")}</li>`).join("");
- box.innerHTML=`<p>${esc(m.summary||"")}</p><p><strong>Primary:</strong> ${esc(m.primary_product||"—")}</p><p><strong>Supporting:</strong> ${esc((m.supporting_products||[]).join(", ")||"—")}</p><p><strong>Do not include:</strong> ${esc((m.excluded_products||[]).join(", ")||"—")}</p><p><strong>Suggested test budget:</strong> ${esc(m.suggested_test_budget||"—")} &nbsp; <strong>Minimum run:</strong> ${esc(m.minimum_run_length||"—")}</p>${allocations?`<ul>${allocations}</ul>`:""}<p><strong>Decision:</strong> ${esc(state.mediaMixDecision||"Not selected")}</p>`;
+ const allocations=(Array.isArray(m.suggested_allocations)?m.suggested_allocations:[]).filter(a=>a&&typeof a==='object').map(a=>`<li><strong>${esc(a.product||"")}</strong>: ${money(a.monthly_budget||0)} (${esc(a.percent||"")}%) — ${esc(a.reason||"")}</li>`).join("");
+ box.innerHTML=`<p>${esc(m.summary||"")}</p><p><strong>Primary:</strong> ${esc(m.primary_product||"—")}</p><p><strong>Supporting:</strong> ${esc((Array.isArray(m.supporting_products)?m.supporting_products:[]).join(", ")||"—")}</p><p><strong>Do not include:</strong> ${esc((Array.isArray(m.excluded_products)?m.excluded_products:[]).join(", ")||"—")}</p><p><strong>Suggested test budget:</strong> ${esc(m.suggested_test_budget||"—")} &nbsp; <strong>Minimum run:</strong> ${esc(m.minimum_run_length||"—")}</p>${allocations?`<ul>${allocations}</ul>`:""}<p><strong>Rationale:</strong> ${esc(m.rationale||"—")}</p>${Array.isArray(m.warnings)&&m.warnings.length?`<div class="callout"><strong>Review before accepting</strong><ul>${m.warnings.map(w=>`<li>${esc(w)}</li>`).join("")}</ul></div>`:""}<p><strong>Decision:</strong> ${esc(state.mediaMixDecision||"Not selected")}</p>`;
 }
 
 async function allocateOrderNumber(){
@@ -2128,7 +2189,7 @@ async function submit(raw){
   index++;render();ask();return;
  }
 
- state[q.key]=val.toUpperCase()==="NONE"?"":val;
+ state[q.key]=val.toUpperCase()==="NONE"?(["managementFee","creativeFee"].includes(q.key)?"NONE":""):val;
  if(q.key==="targetAreaName"&&/^skip$/i.test(val.trim()))state.targetAreaName="";
  if(q.key==="url"){fetchBrandfetchData(state.url)}   // background — don't block input
  if(q.key==="landingUrl"){reviewLandingPage(state.landingUrl,"Shared campaign landing page")}
@@ -2268,7 +2329,7 @@ function geographyScale(){
  }
  return "custom";
 }
-function calculateGuardrails(){
+function calculateGuardrails(forSubmission=false){
  const warnings=[];
  const monthly=state.items.reduce((s,i)=>s+Number(i.budget||0),0);
  const geoScale=geographyScale();
@@ -2315,8 +2376,8 @@ function calculateGuardrails(){
  if(state.items.length>=4 && monthly/state.items.length<1000){
   warnings.push({type:"too_many_products",message:`The budget is split across ${state.items.length} products, averaging only ${money(monthly/state.items.length)} per product.`});
  }
- if(!state.managementFee||/^none$/i.test(state.managementFee)){
-  warnings.push({type:"management_fee_missing",message:"Management fee is missing or marked NONE. Confirm that this is intentional."});
+ if(((finished||forSubmission)&&!String(state.managementFee||"").trim())||/^none$/i.test(String(state.managementFee||"").trim())){
+  warnings.push({type:"management_fee_missing",message:state.managementFee?"Management fee is marked NONE. Confirm that the fee is intentionally waived.":"Management fee is unanswered. Enter an amount, percentage, INCLUDED, or NONE."});
  }
  if(state.creativeSource==="Smart 1 is building the creative"&&(!state.creativeFee||/^none$/i.test(state.creativeFee))){
   warnings.push({type:"creative_fee_missing",message:"Smart 1 is building creative, but no creative fee is listed."});
@@ -2482,7 +2543,22 @@ function updateProgress(){
  const k=(question()||{}).key;
  document.getElementById("stepLabel").textContent=index<5?"Campaign setup":index<12?"Client information":index<14?"Goals and KPIs":index<19?"Target audience":(k==="selected"||k==="productCategory"||k==="moreCategory")?"Media selection":"Product details"
 }
+function submissionMissing(){
+ const missing=[];
+ if(!String(state.client||"").trim())missing.push("client");
+ if(!state.items.length)missing.push("at least one product");
+ if(state.items.some(i=>!Number.isFinite(Number(i.budget))||Number(i.budget)<=0))missing.push("a positive budget for each product");
+ if(state.items.some(i=>!(lengthFor(i.start,i.end).days>0)))missing.push("valid product dates");
+ return missing;
+}
 function render(){
+ const hasClient=!!String(state.client||"").trim()||state.items.length>0;
+ document.getElementById("ioReport").hidden=!hasClient;
+ document.getElementById("ioEmptyPreview").hidden=hasClient;
+ const missing=submissionMissing();
+ const submit=document.querySelector(".submit-io-btn");
+ if(submit)submit.disabled=missing.length>0;
+ document.getElementById("ioReadiness").textContent=missing.length?"Before submitting, add: "+missing.join(", ")+".":"Review campaign details, fees and creative requirements before submitting.";
  if(typeof scheduleSave==="function")scheduleSave();
  state.items.forEach(recalculateItem);
  if(typeof updateLiveTotals==="function")updateLiveTotals();
@@ -4222,7 +4298,10 @@ async function submitCompletedIO(){
     status.textContent=message;
     status.className=`submit-status show ${type||""}`;
   };
-  if(_ioSubmitting){return;}                 // guard against double-submit
+  if(_ioSubmitting){return;}
+  const missing=submissionMissing();
+  if(missing.length){setStatus("Before submitting, add: "+missing.join(", ")+".","error");return;}
+  calculateGuardrails(true);                 // refresh final-review warnings
   if(state.submission&&state.submission.status==="submitted"){
     if(!window.confirm("This IO was already submitted to Smart 1 Suite. Submit it again?"))return;
   }

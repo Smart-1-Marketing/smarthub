@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}AI Model Review · Smart 1 Hub{% endblock %}
+{% block content %}
+<div style="max-width:1150px;margin:24px auto;padding:16px">
+  <a href="/diagnostics">← Diagnostics</a>
+  <h1>AI Model Review</h1>
+  <p>Review model upgrades for Commercial Builder and Radio. Saved decisions do not change production settings.</p>
+  <p><a href="{{ review.source }}" target="_blank" rel="noopener">Official model documentation</a> · Candidate guidance reviewed {{ review.reviewed }}.
+  Candidates need account, request-compatibility and output-quality testing before deployment.</p>
+  <button id="refresh-models" type="button">Check model availability</button>
+  <p>Checks the account’s model list without generating content or spending generation credits.
+  Last checked: {{ review.catalog.get('checked_at', 'Never') }}{% if review.stale %} · Unverified or older than 7 days{% endif %}.</p>
+  <p id="review-message" role="status" aria-live="polite"></p>
+  <div style="overflow-x:auto">
+  <table style="width:100%;text-align:left;border-collapse:collapse" cellpadding="12">
+    <caption style="text-align:left;font-weight:bold">Current settings and candidates</caption>
+    <thead><tr><th scope="col">Tool</th><th scope="col">Active model</th><th scope="col">Candidate</th><th scope="col">Review</th></tr></thead>
+    <tbody>{% for row in review.profiles %}<tr>
+      <th scope="row">{{ row.label }}</th>
+      <td>{{ row.model }}<br><small>From {{ row.source }}<br>Override: {{ row.setting }}</small></td>
+      <td>{{ row.candidate }}<br><small>Account: {{ row.availability }}</small></td>
+      <td>{{ row.status }}<br><small>{{ row.reason }}</small></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  <h2>Record a review</h2>
+  <p>Compare the same briefs. Check required wording, offer accuracy, actual voice duration, brand fidelity, errors, cost and speed. Include sample references and compatibility results. A model being listed is not proof that it works with a builder.</p>
+  <form id="model-review-form" style="display:grid;gap:12px;max-width:700px">
+    <label>Tool <select name="profile" required>{% for row in review.profiles %}<option value="{{ row.profile }}">{{ row.label }}</option>{% endfor %}</select></label>
+    <label>Candidate model ID <input name="candidate" maxlength="120" required placeholder="gpt-5.6-terra"></label>
+    <label>Decision <select name="decision"><option value="test">Needs testing</option><option value="keep">Keep current</option><option value="recommend">Recommend upgrade after review</option><option value="reject">Reject candidate</option></select></label>
+    <label>Evidence and reasoning <textarea name="evidence" minlength="20" maxlength="4000" required rows="5" style="width:100%"></textarea></label>
+    <button type="submit">Save review decision</button>
+  </form>
+  <details style="margin-top:24px"><summary>Other models visible to this account — not yet assessed</summary>
+    <p>Model names and dates do not establish quality or compatibility. Review the official documentation before proposing an upgrade.</p>
+    <ul>{% for model in review.discovered %}<li>{{ model }}</li>{% else %}<li>No discovery results saved.</li>{% endfor %}</ul>
+  </details>
+  <h2>Review history</h2>
+  {% for row in review.history %}<article style="padding:12px;border-bottom:1px solid #ccc">
+    <strong>{{ row.profile }} · {{ row.candidate }} · {{ row.decision }}</strong>
+    <p>{{ row.at }} · {{ row.actor }} · Active at review: {{ row.active_model }}</p>
+    <p style="white-space:pre-wrap">{{ row.evidence }}</p>
+  </article>{% else %}<p>No reviews recorded. No models have been changed by this tool.</p>{% endfor %}
+</div>
+<script src="/assets/ai-model-review.js" defer></script>
+{% endblock %}

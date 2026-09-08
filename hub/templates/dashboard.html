@@ -10,16 +10,15 @@
 
 /* Partner resources. These five are what a partner actually gets sent to, so
    they are one row of real buttons rather than links buried in a menu. */
-.partner-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+.partner-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));
   gap:12px;margin:0 0 22px}
-.partner-btn{display:flex;flex-direction:column;gap:5px;padding:15px 16px 14px;
+.partner-btn{display:flex;align-items:center;gap:8px;padding:11px 14px;
   border-radius:var(--radius);text-decoration:none;color:#fff;
   box-shadow:0 1px 3px rgba(15,23,42,.10);
   transition:transform .12s ease,box-shadow .12s ease}
 .partner-btn:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(15,23,42,.18)}
-.partner-btn .pb-ico{font-size:21px;line-height:1}
-.partner-btn .pb-name{font-weight:800;font-size:14.5px;letter-spacing:.01em}
-.partner-btn .pb-sub{font-size:11.5px;font-weight:500;opacity:.88;line-height:1.35}
+.partner-btn .pb-ico{flex:none;font-size:18px;line-height:1}
+.partner-btn .pb-name{font-weight:800;font-size:14.5px;letter-spacing:.01em;white-space:nowrap}
 .pb-rate{background:linear-gradient(135deg,#12335c,#1d5b96)}
 .pb-spec{background:linear-gradient(135deg,#0a6178,#0f92b0)}
 .pb-kit{background:linear-gradient(135deg,#166148,#1f9169)}
@@ -32,7 +31,7 @@
 /* Request buttons. Same shape as the partner row so the dashboard reads as one
    set of actions, warm instead of cool so "raise a request" is visibly a
    different kind of thing from "go and read a page". */
-.req-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+.req-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));
   gap:12px;margin:0 0 22px}
 .rb-copy{background:linear-gradient(135deg,#8a2f3f,#c04a5e)}
 .rb-change{background:linear-gradient(135deg,#9a4a10,#d1761c)}
@@ -99,11 +98,11 @@
     {% if t.available %}
   <a class="partner-btn {{ t.css }}" href="{{ t.href }}">
     <span class="pb-ico">{{ t.icon|safe }}</span><span class="pb-name">{{ t.title }}</span>
-    <span class="pb-sub">{{ t.blurb }}</span></a>
+  </a>
     {% else %}
   <span class="partner-btn {{ t.css }} pb-soon" title="This page is not in the Hub yet">
     <span class="pb-ico">{{ t.icon|safe }}</span><span class="pb-name">{{ t.title }}</span>
-    <span class="pb-sub">Page coming</span></span>
+  </span>
     {% endif %}
   {% endfor %}
 </div>
@@ -111,16 +110,16 @@
 <div class="req-row">
   <a class="partner-btn rb-web" id="rq-web" href="/tools/tickets/">
     <span class="pb-ico">&#127915;</span><span class="pb-name">Web Ticket</span>
-    <span class="pb-sub">Request website updates, fixes or support</span></a>
+  </a>
   <a class="partner-btn rb-copy" id="rq-adcopy">
     <span class="pb-ico">&#9997;</span><span class="pb-name">Ad Copy Request</span>
-    <span class="pb-sub">Look up a client — the campaign, IO and partner fill themselves in</span></a>
+  </a>
   <a class="partner-btn rb-change" id="rq-change">
     <span class="pb-ico">&#128260;</span><span class="pb-name">Campaign Change</span>
-    <span class="pb-sub">Budget, targeting, dates or creative</span></a>
+  </a>
   <a class="partner-btn rb-support" id="rq-support">
     <span class="pb-ico">&#128736;</span><span class="pb-name">Campaign Support</span>
-    <span class="pb-sub">A question or an issue on a live campaign</span></a>
+  </a>
 </div>
 
 <div class="kpi-row" id="kpis">
