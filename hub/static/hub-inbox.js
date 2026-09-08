@@ -1,6 +1,7 @@
 (function () {
   'use strict';
-  if (window.self !== window.top || document.getElementById('hub-account')) return;
+  if (window.self !== window.top || window.S1HubInboxLoaded || document.getElementById('hub-account')) return;
+  window.S1HubInboxLoaded = true;
   const css = document.createElement('link');
   css.rel = 'stylesheet'; css.href = '/assets/help-center.css'; document.head.appendChild(css);
   let data, control, panel, seen = {}, states = {}, busy = false;
