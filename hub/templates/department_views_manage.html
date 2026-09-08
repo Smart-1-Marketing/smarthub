@@ -35,8 +35,9 @@
 
 <div class="card">
   <h3>Who is on which view</h3>
-  <p class="s1d-muted">Only active accounts are listed. Nobody's access changes
-    by being put on or left off a view — this only decides what My View shows them.</p>
+  <p class="s1d-muted">Only active accounts are listed. Tick as many departments as apply —
+    somebody can be on more than one, and they get to switch between their own from My View.
+    Nobody's access changes by being put on or left off a view — this only decides what My View shows them.</p>
   <div id="dv-roster"><p class="s1d-muted">Loading&hellip;</p></div>
 </div>
 
@@ -62,6 +63,9 @@
   border-bottom: 1px solid var(--s1d-line, #e2e8f0); }
 .dv-roster-table .dv-role { color: var(--s1d-muted); font-size: 12px; }
 .dv-saved { color: var(--s1d-ok, #12794b); font-size: 12px; margin-left: 6px; }
+.dv-dept-check { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 4px 0;
+  font-size: 12.5px; font-weight: 400; }
+.dv-dept-check input { margin: 0; }
 </style>
 
 <script>
@@ -96,29 +100,47 @@
         el.innerHTML = '<p class="s1d-muted">No active accounts on file.</p>';
         return;
       }
-      var opts = '<option value="">— none —</option>' + data.departments.map(function (d) {
-        return '<option value="' + esc(d.id) + '">' + esc(d.name) + "</option>";
-      }).join("");
+      if (!data.departments.length) {
+        el.innerHTML = '<p class="s1d-muted">Add a department above before assigning anybody to one.</p>';
+        return;
+      }
+      // A person can be on more than one department's view, so this is a
+      // checkbox per department rather than a single select — the assignment
+      // endpoint takes one department at a time (on/off) for exactly this,
+      // rather than resending a whole row on every click.
       var rows = data.people.map(function (p) {
-        var sel = opts.replace('value="' + esc(p.department_id || "") + '"', 'value="' + esc(p.department_id || "") + '" selected');
+        var have = {};
+        (p.department_ids || []).forEach(function (id) { have[id] = true; });
+        var boxes = data.departments.map(function (d) {
+          var id = "dv-a-" + esc(p.email) + "-" + esc(d.id);
+          return '<label class="dv-dept-check"><input type="checkbox" id="' + id +
+            '" data-email="' + esc(p.email) + '" data-dept="' + esc(d.id) + '"' +
+            (have[d.id] ? " checked" : "") + "> " + esc(d.name) + "</label>";
+        }).join("");
         return "<tr><td>" + esc(p.name) + "<br><span class=\"dv-role\">" + esc(p.email) + "</span></td>" +
           "<td class=\"dv-role\">" + esc(p.role) + "</td>" +
-          '<td><select data-email="' + esc(p.email) + '">' + sel + "</select>" +
-          '<span class="dv-saved" hidden>Saved</span></td></tr>';
+          '<td>' + boxes + '<span class="dv-saved" hidden>Saved</span></td></tr>';
       }).join("");
-      el.innerHTML = '<table class="dv-roster-table"><thead><tr><th>Person</th><th>Role</th><th>Department view</th></tr></thead><tbody>' + rows + "</tbody></table>";
-      el.querySelectorAll("select[data-email]").forEach(function (sel) {
-        sel.addEventListener("change", function () {
-          var flash = sel.parentElement.querySelector(".dv-saved");
+      el.innerHTML = '<table class="dv-roster-table"><thead><tr><th>Person</th><th>Role</th><th>Department views</th></tr></thead><tbody>' + rows + "</tbody></table>";
+      el.querySelectorAll("input[type=checkbox][data-email]").forEach(function (box) {
+        box.addEventListener("change", function () {
+          var flash = box.closest("td").querySelector(".dv-saved");
+          box.disabled = true;
           api("/api/department-views/admin/assignments", {
             method: "POST",
-            body: JSON.stringify({ email: sel.getAttribute("data-email"), department_id: sel.value || null }),
+            body: JSON.stringify({
+              email: box.getAttribute("data-email"),
+              department_id: box.getAttribute("data-dept"),
+              on: box.checked,
+            }),
           }).then(function (res) {
+            box.disabled = false;
             if (res.ok) {
               flash.hidden = false;
               setTimeout(function () { flash.hidden = true; }, 1500);
               loadList(); // counts changed
             } else {
+              box.checked = !box.checked; // the write didn't take; put it back
               alert(res.error || "That could not be saved.");
             }
           });
