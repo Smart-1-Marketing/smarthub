@@ -1119,9 +1119,12 @@
         + '<div class="hint">Every bed must be at least ' + esc((s.seconds + 3) + "")
         + ' seconds for this ' + esc(s.seconds + "") + ' second commercial.</div>'
         + moodTiles(s)
-        + (bed.audio_url ? '<audio controls preload="none" style="margin-top:8px" '
+        + (bed.audio_url ? '<div class="row" style="margin-top:8px"><audio controls preload="none" '
             + 'src="' + BASE + '/api/projects/' + P.id + '/spots/' + esc(s.id)
-            + '/audio?ref=bed"></audio>' : "");
+            + '/audio?ref=bed"></audio><a class="btn sec sm" href="' + BASE
+            + '/api/projects/' + P.id + '/spots/' + esc(s.id)
+            + '/audio?ref=bed" download="' + esc(bed.filename || "fan-radio-bed.mp3")
+            + '">Download track</a></div>' : "");
 
       var madeBlock = "";
       if(made){
