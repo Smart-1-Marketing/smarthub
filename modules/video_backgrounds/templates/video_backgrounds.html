@@ -352,6 +352,7 @@
   var pixabayNote = document.getElementById("vb-pixabay-note");
   var pixabayResults = document.getElementById("vb-pixabay-results");
   var selected = [];
+  var searchRevision = 0;
 
   // Minimized until asked for -- see the note above the card in the template.
   // The summary line beside the toggle is rendered server-side from the same
@@ -370,13 +371,13 @@
 
   function note(text, bad) {
     msg.textContent = text || "";
-    msg.style.color = bad ? "#f87171" : "#94a3b8";
+    msg.style.color = bad ? "var(--danger,#dc2626)" : "var(--muted,#64748b)";
   }
 
   function esc(value) {
     var d = document.createElement("div");
     d.textContent = value == null ? "" : String(value);
-    return d.innerHTML;
+    return d.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   function copy(text, button) {
@@ -413,7 +414,7 @@
       return '<span class="vb-tag">' + esc(t) + "</span>";
     }).join("");
     el.innerHTML =
-      '<video muted loop playsinline preload="none" poster="' + esc(item.thumbnail) + '"' +
+      '<video controls muted loop playsinline preload="none" poster="' + esc(item.thumbnail) + '"' +
       ' src="' + esc(item.preview_url) + '"></video>' +
       '<div class="vb-card-b">' +
         "<h4>" + esc(item.public_id) + "</h4>" +
@@ -455,7 +456,7 @@
     var secs = item.duration ? (Math.round(item.duration * 10) / 10) + "s" : "length unknown";
     var dims = (item.width && item.height) ? item.width + "×" + item.height : "size unknown";
     el.innerHTML =
-      '<video muted loop playsinline preload="none" poster="' + esc(item.thumbnail) + '"' +
+      '<video controls muted loop playsinline preload="none" poster="' + esc(item.thumbnail) + '"' +
       ' src="' + esc(item.preview_url || item.full_url) + '"></video>' +
       '<div class="vb-card-b">' +
         "<h4>" + esc(item.author || fallbackName) + "</h4>" +
@@ -529,6 +530,7 @@
   }
 
   function search() {
+    var revision = ++searchRevision;
     var params = new URLSearchParams();
     params.set("q", document.getElementById("vb-q").value.trim());
     params.set("orientation", document.getElementById("vb-orientation").value);
@@ -540,12 +542,25 @@
 
     note("Searching…");
     fetch("/tools/video-backgrounds/api/search?" + params.toString())
-      .then(function (r) { return r.json(); })
-      .then(render)
-      .catch(function (err) { note("The search request failed: " + err, true); });
+      .then(function (r) {
+        if (!r.ok) { throw new Error("Search returned HTTP " + r.status); }
+        return r.json();
+      })
+      .then(function (payload) { if (revision === searchRevision) { render(payload); } })
+      .catch(function (err) {
+        if (revision === searchRevision) {
+          [results, coverrResults, pexelsResults, pixabayResults].forEach(function (shelf) {
+            if (shelf) { shelf.textContent = ""; }
+          });
+          note("The search request failed: " + err, true);
+        }
+      });
   }
 
   document.getElementById("vb-go").addEventListener("click", search);
+  ["vb-orientation", "vb-duration", "vb-bgready"].forEach(function (id) {
+    document.getElementById(id).addEventListener("change", search);
+  });
   document.getElementById("vb-q").addEventListener("keydown", function (e) {
     if (e.key === "Enter") { search(); }
   });
@@ -595,9 +610,7 @@
         .then(function (r) { return r.json(); })
         .then(function (data) {
           var waiting = (data.pending || []).length;
-          out.textContent = data.cutoff
-            ? waiting + " clip(s) uploaded since " + data.cutoff + " are waiting."
-            : "Indexing has not started. Nothing is waiting yet.";
+          out.textContent = waiting + " clip(s) waiting in this batch from the selected library folders.";
         })
         .catch(function (err) { out.textContent = "That check failed: " + err; });
     });
