@@ -60,7 +60,7 @@ function draw(){
   var html = [];
 
   waiting.forEach(function(p){
-    html.push('<div class="card" data-b="' + esc(p.batch) + '" data-s="' + esc(p.slot) + '">');
+    html.push('<div class="card" data-b="' + esc(p.batch) + '" data-s="' + esc(p.slot) + '" data-review="' + esc(p.review_token) + '">');
     html.push('<p class="hint">' + esc(p.date) + " &middot; " +
               esc((p.channels || []).join(", ")) +
               (p.from_request ? " &middot; from " + esc(p.location || "your request") : "") +
@@ -138,7 +138,7 @@ function send(card, decision, note){
   fetch("approve/" + encodeURIComponent(card.getAttribute("data-b")) + "/" +
         encodeURIComponent(card.getAttribute("data-s")),
         {method:"POST", headers:{"Content-Type":"application/json"},
-         body:JSON.stringify({decision:decision, note:note})})
+         body:JSON.stringify({decision:decision, note:note,review_token:card.getAttribute('data-review')})})
     .then(function(r){ return r.json(); })
     .then(function(d){
       w.done();

@@ -343,7 +343,7 @@ check("the refusal says how many are blocking",
 client.put("/api/batches/" + batch_id, json={"slots": [
     {"id": first, "copy": "Cooler mornings are here — book a furnace check."}]})
 r = client.post("/api/batches/" + batch_id + "/status", json={"status": "approved"})
-check("and can be approved once it is clean", r.status_code == 200,
+check("a clean but unfinished plan cannot be approved", r.status_code == 400,
       r.get_json())
 
 r = client.get("/api/batches/" + batch_id + "/export.csv")
@@ -501,7 +501,7 @@ with patch.object(mod, "_planning_today", return_value=date(2026, 9, 7)):
     check("image generation requires a prompt", client.post(photo_path, json={"slot": topic["id"]}).status_code == 400)
     check("uploads validate the actual image bytes",
           client.post(photo_path, data={"slot": topic["id"], "file": (io.BytesIO(b"not an image"), "photo.jpg")}).status_code == 400)
-    with patch("hub.ai.image", side_effect=RuntimeError("provider failure")):
+    with patch("hub.storage.ready", return_value=True), patch("hub.ai.image", side_effect=RuntimeError("provider failure")):
         check("image provider failures leave the plan intact",
               client.post(photo_path, json={"slot": topic["id"], "prompt": "a furnace"}).status_code == 502 and
               mod.load_batch(plan["id"])["slots"] == plan["slots"])
@@ -509,11 +509,17 @@ with patch.object(mod, "_planning_today", return_value=date(2026, 9, 7)):
     photo_bytes = io.BytesIO()
     Image.new("RGB", (40, 40), "blue").save(photo_bytes, format="PNG")
     asset = SimpleNamespace(url="https://example.com/photo.jpg", public_id="photo-test")
-    with patch("hub.ai.image", return_value=photo_bytes.getvalue()), patch("hub.storage.put", return_value=asset):
+    with patch("hub.storage.ready", return_value=True), patch("hub.ai.image", return_value=photo_bytes.getvalue()), patch("hub.storage.put", return_value=asset) as put_photo:
         generated = client.post(photo_path, json={"slot": topic["id"], "prompt": "a furnace"}).get_json()
         check("generated photos return a preview before changing the post",
               generated["image"]["source"] == "generated" and
               not next(s for s in mod.load_batch(plan["id"])["slots"] if s["id"] == topic["id"])["image_url"])
+        client.post(photo_path, json={"slot": topic["id"], "prompt": "another furnace"})
+        check("successive photo previews have different storage names",
+              put_photo.call_args_list[0].args[1] != put_photo.call_args_list[1].args[1])
+    with patch("hub.storage.ready", return_value=False), patch("hub.ai.image") as generate:
+        unavailable = client.post(photo_path, json={"slot": topic["id"], "prompt": "a furnace"})
+        check("missing storage is caught before a paid image call", unavailable.status_code == 503 and not generate.called)
     attached = client.put(f"/api/batches/{plan['id']}", json={"slots": [{"id": topic["id"],
         "image_url": asset.url, "image_source": "stock", "image_credit": "Pexels · Example photographer"}]}).get_json()
     chosen = next(s for s in attached["batch"]["slots"] if s["id"] == topic["id"])
@@ -528,6 +534,68 @@ check("future months retain the full calendar",
 check("invalid and out-of-month holidays are excluded",
       not sp.build_grid("2026-09", start_date=date(2026, 10, 1), holidays=[
           {"date": "2026-10-03", "name": "Wrong month"}, {"date": "bad", "name": "Invalid"}]))
+section("Reliability: stale writes, approval and export safeguards")
+check("array request bodies return 400 instead of crashing", client.post('/api/batches', json=[1]).status_code == 400)
+check("malformed channels return 400", client.post('/api/batches', json={'client':'Test','channels':[{}]}).status_code == 400)
+current = mod.load_batch(plan['id'])
+stale = mod.load_batch(plan['id'])
+current['slots'][0]['copy'] = 'A practical maintenance tip.'
+mod.save_batch(current)
+stale['slots'][1]['copy'] = 'This stale snapshot must not overwrite the new tip.'
+conflict = False
+try:
+    mod.save_batch(stale)
+except mod.PlanConflict:
+    conflict = True
+check("atomic save rejects a stale snapshot", conflict and mod.load_batch(plan['id'])['slots'][0]['copy'] == 'A practical maintenance tip.')
+response = client.put(f"/api/batches/{plan['id']}", json={'revision':stale['revision'],'slots':[{'id':topic['id'],'copy':'Stale edit'}]})
+check("stale browser revisions return a recoverable conflict", response.status_code == 409)
+current = mod.load_batch(plan['id'])
+for s in current['slots']:
+    s['copy']='Ask us about regular furnace maintenance.'
+    s['image_url']='https://example.com/photo.jpg'
+mod.save_batch(current)
+approved = client.post(f"/api/batches/{plan['id']}/status", json={'status':'approved'}).get_json()
+check("a complete valid plan can be approved", approved['ok'] and all(s['status']=='approved' for s in approved['batch']['slots']))
+current = mod.load_batch(plan['id'])
+current['slots'][0]['client_state']='approved'
+mod.save_batch(current)
+changed = client.put(f"/api/batches/{plan['id']}", json={'revision':current['revision'],'slots':[{'id':current['slots'][0]['id'],'image_url':'https://example.com/new.jpg','status':'approved'}]}).get_json()['batch']
+check("changing a photo invalidates staff and client approvals",
+      changed['status']=='review' and changed['slots'][0]['status']=='edited' and changed['slots'][0]['client_state']=='pending_client_approval')
+check("invalid URL schemes block approval", any(f['code']=='url' for f in sp.validate_slot({'copy':'A useful tip','link':'javascript:alert(1)'})))
+unsafe = client.put(f"/api/batches/{plan['id']}", json={'slots':[{'id':topic['id'],'copy':'Save $999 today only.'}]}).get_json()
+check("blocked content cannot be exported for publishing", client.get(f"/api/batches/{plan['id']}/export.csv").status_code == 400)
+check("the working review sheet remains available", client.get(f"/api/batches/{plan['id']}/export.csv?format=review").status_code == 200)
+current=mod.load_batch(plan['id'])
+def concurrent_edit(*args, **kwargs):
+    updated=mod.load_batch(plan['id'])
+    updated['slots'][0]['link']='https://example.com/newer'
+    mod.save_batch(updated)
+    return {'copy':'An AI response based on older plan details.', 'hashtags':[]}
+with patch('hub.ai.chat_json',side_effect=concurrent_edit):
+    response=client.post(f"/api/batches/{plan['id']}/draft",json={'slot':topic['id'],'revision':current['revision']})
+check("a slow AI draft cannot overwrite an intervening edit", response.status_code == 409 and mod.load_batch(plan['id'])['slots'][0]['link']=='https://example.com/newer')
+snapshot=mod.load_batch(plan['id'])
+review_slot=snapshot['slots'][0]
+review_token=mod._review_token(snapshot,review_slot)
+with patch.object(mod.links, 'client_for', return_value=(snapshot['client'], snapshot.get('url',''))):
+    approval_path=f"/c/test/approve/{plan['id']}/{review_slot['id']}"
+    check("client approval rejects a missing or stale review token", client.post(approval_path,json={'decision':'approved','review_token':'old'}).status_code == 409)
+    response=client.post(approval_path,json={'decision':'approved','review_token':review_token})
+    check("client approval accepts the content actually reviewed", response.status_code == 200)
+    changed_copy=mod.load_batch(plan['id'])
+    changed_copy['slots'][0]['copy']='A different maintenance tip.'
+    mod.save_batch(changed_copy)
+    check("an open client page cannot approve replacement copy", client.post(approval_path,json={'decision':'approved','review_token':review_token}).status_code == 409)
+snapshot=mod.load_batch(plan['id'])
+mod.delete_batch(plan['id'])
+conflict=False
+try:
+    mod.save_batch(snapshot)
+except mod.PlanConflict:
+    conflict=True
+check("an in-flight save cannot resurrect a deleted plan", conflict and mod.load_batch(plan['id']) is None)
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)
