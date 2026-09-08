@@ -115,7 +115,7 @@
     const submitBtn = $('submit-btn');
     const submitStatus = $('submit-status');
     let selectedBlob = null, selectedName = '', selectedType = 'recorded', durationSeconds = 0;
-    let recorder = null, chunks = [], stream = null, audioContext = null, analyser = null, meterRAF = 0;
+    let recorder = null, chunks = [], stream = null, audioContext = null, analyzer = null, meterRAF = 0;
     let timerStart = 0, timerCarry = 0, timerInterval = 0;
     let scrollRAF = 0, lastScroll = 0, scrolling = false;
 
@@ -156,9 +156,9 @@
       try{
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioContext.createMediaStreamSource(stream);
-        analyser = audioContext.createAnalyser(); analyser.fftSize=256; source.connect(analyser);
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const draw = () => { analyser.getByteFrequencyData(data); const avg=data.reduce((a,b)=>a+b,0)/data.length; $('meter-fill').style.width=Math.min(100,avg*1.7)+'%'; meterRAF=requestAnimationFrame(draw); };
+        analyzer = audioContext.createAnalyser(); analyzer.fftSize=256; source.connect(analyzer);
+        const data = new Uint8Array(analyzer.frequencyBinCount);
+        const draw = () => { analyzer.getByteFrequencyData(data); const avg=data.reduce((a,b)=>a+b,0)/data.length; $('meter-fill').style.width=Math.min(100,avg*1.7)+'%'; meterRAF=requestAnimationFrame(draw); };
         draw();
       }catch(_e){}
     }
