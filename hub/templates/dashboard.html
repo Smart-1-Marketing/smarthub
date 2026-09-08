@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Dashboard</h2><p>Live rollup across all modules</p></div>
+<div class="page-head"><h2>Dashboard</h2><p id="dashboard-source" role="status">Loading current data…</p></div>
 
 <style>
 /* The three cards below the numbers sit in one column, so a card added there
@@ -328,23 +328,30 @@ const fmt=n=>Number(n||0).toLocaleString();
    The monthly readings are still taken (see hub/knack_data._snapshot), so a
    comparison measured the same way at both ends can be added once there are
    two of them to compare. */
-fetch('/api/summary').then(r=>r.json()).then(s=>{
-  if(s.error){$('k-clients').textContent='—';return}
+fetch('/api/summary', {cache:'no-store'}).then(r=>r.json()).then(s=>{
+  if(s.error){$('k-clients').textContent='—';$('dashboard-source').textContent='Dashboard data could not be loaded.';return}
+  const liveSource=s.products_source==='knack'||s.products_source==='knack (stale)';
+  const age=s.products_age_minutes;
+  $('dashboard-source').textContent=(s.period||'')+' · '+(liveSource
+    ? ('Products from Knack'+(age==null?'':' · updated '+age+' min ago'))
+    : 'Products from saved export')+(s.products_note?' · '+s.products_note:'');
+  $('k-live-sub').textContent=liveSource?'Current Knack records':('Saved export · '+(s.this_period||'date unknown'));
+  $('k-hm-sub').textContent='active sites · saved website export';
+  $('k-total-sub').textContent='live budget + saved website H&M';
   $('k-clients').textContent=fmt(s.clients_live);
   $('k-clients-sub').textContent=fmt(s.clients_total)+' total in Smart 1 Team';
   $('k-live').textContent=fmt(s.live_products);
   $('k-budget').textContent='$'+fmt(s.live_budget_monthly);
   $('k-webs').textContent=fmt(s.websites_active);
-  $('k-webs-sub').textContent=fmt(s.websites_total)+' total';
+  $('k-webs-sub').textContent=fmt(s.websites_total)+' total · saved export';
   $('k-hm').textContent='$'+fmt(s.hm_monthly);
 
   // ---- second row: billing rollup + month-over-month movement ----
-  // These four come from the Knack export's own lastM/thisM flags, so they
-  // describe the export's month. When that is not this month they are history,
-  // and the card says which month rather than implying it is current.
+  // Live monthly movement uses IO terms for both months; saved exports
+  // retain their original month flags and labels.
   const vs=s.export_stale
     ? ('in the '+(s.this_period||'export')+' export')
-    : (s.last_period?('vs '+s.last_period):'vs last month');
+    : (s.this_period+' vs '+s.last_period+(liveSource?' · IO dates':''));
   $('k-total').textContent='$'+fmt(s.estimated_total_monthly);
   $('k-new').textContent=fmt(s.new_customers);
   $('k-new-sub').innerHTML=esc(vs)+(s.lost_customers?' · <span class="down" style="color:var(--danger);font-weight:600">'+fmt(s.lost_customers)+' lost</span>':'');
@@ -368,7 +375,11 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
     $('k-seo').textContent=fmt(s.seo_clients);
     $('k-seo-sub').textContent='$'+fmt(s.seo_billing_monthly)+'/mo SEO billing';
   }
-}).catch(()=>{$('k-clients').textContent='—'});
+  if(!s.products_available){
+    ['k-clients','k-live','k-budget','k-total','k-new','k-up','k-down'].forEach(id=>{$(id).textContent='—'});
+    $('dashboard-source').textContent='Product data unavailable · '+(s.products_note||'No live records or saved export.');
+  }
+}).catch(()=>{$('k-clients').textContent='—';$('dashboard-source').textContent='Dashboard data could not be loaded.'});
 
 /* Birthdays and work anniversaries, from the roster the Users panel already
    holds. What is still to come this month, today included — a day that has
