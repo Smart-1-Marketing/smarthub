@@ -79,6 +79,31 @@ def _brief_from(body: dict) -> dict:
     }
 
 
+def create_set(brief: dict, *, call=None, actor: str | None = None) -> RadioScriptSet:
+    """Generate and persist one script set. The one path both the button and
+    a lead-triggered scheduler job go through, so a set made automatically is
+    identical in every respect — including what it logs — to one a rep asked
+    for by hand. `actor` overrides the signed-in-user read: a scheduler job
+    has no request to read one from and must not read whichever request
+    happens to be current when it runs.
+    """
+    result = engine.generate(brief, call=call)
+    row = RadioScriptSet(
+        client_name=brief.get("client_name") or brief.get("company") or "",
+        lead_id=brief.get("lead_id") or "",
+        brief_json=json.dumps(brief),
+        concepts_json=json.dumps(result["concepts"]),
+        flags_json=json.dumps(result["flags"]),
+        actor=(actor if actor is not None else _actor()),
+    )
+    db.session.add(row)
+    db.session.commit()
+    _log("script_set_generated", client=row.client_name or None,
+        set_id=row.id, concepts=len(result["concepts"]),
+        lead_id=row.lead_id or None)
+    return row
+
+
 def attach(bp):
     """Hang this module's routes on the blueprint `__init__.py` builds."""
 
@@ -89,22 +114,9 @@ def attach(bp):
         if not brief["market"] and not brief["client_name"]:
             return _fail("Add at least a client name or a market before generating.")
         try:
-            result = engine.generate(brief)
+            row = create_set(brief)
         except RuntimeError as exc:
             return _fail(str(exc), 502)
-
-        row = RadioScriptSet(
-            client_name=brief["client_name"],
-            lead_id=brief["lead_id"],
-            brief_json=json.dumps(brief),
-            concepts_json=json.dumps(result["concepts"]),
-            flags_json=json.dumps(result["flags"]),
-            actor=_actor(),
-        )
-        db.session.add(row)
-        db.session.commit()
-        _log("script_set_generated", client=brief["client_name"] or None,
-            set_id=row.id, concepts=len(result["concepts"]))
         return jsonify({"ok": True, "set": row.to_dict()})
 
     @bp.get("/api/sets")

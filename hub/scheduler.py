@@ -719,6 +719,30 @@ def job_ad_assets_sweep(app) -> dict:
             "copied": res.get("copied", 0)}
 
 
+def job_creative_jobs_sweep(app) -> dict:
+    """Run one queued creative job — a lead-triggered radio script, today.
+
+    `hub/creative_jobs.py` is the queue, filled by `hub/leads.py`'s own
+    `capture_and_deliver()` the moment a lead from an autostarted source lands
+    — never inside that request, because an OpenAI call has no place on the
+    path that answers a prospect's form. This is the other end of it: every
+    minute, claim the oldest queued row and run it. One at a time,
+    deliberately, so a burst of leads spends a model call a minute rather than
+    a model call each on this one shared thread.
+
+    Safe to run late, skip and repeat: a job is claimed (moved to `running`
+    and committed) before any work starts, so a missed tick simply means the
+    queue is a job longer next time, never a job run twice by two ticks
+    landing close together.
+    """
+    try:
+        from hub import creative_jobs
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return creative_jobs.run_one()
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -758,6 +782,8 @@ JOBS = {
                                   "Expire overrides and enforce SmartForecast retention."),
     "weather_triggers":  (30, job_weather_triggers,
                           "Turn each approved weather campaign's triggers on and off."),
+    "creative_jobs":     (1, job_creative_jobs_sweep,
+                          "Run one queued lead-triggered creative job (radio scripts)."),
 }
 
 
