@@ -37,7 +37,6 @@ HeyGen bug was — but the toast a rep reads immediately after pressing the
 button said something that was never going to happen. Fixed to match its
 siblings, and asserted here rather than only in prose.
 """
-import json
 import os
 import sys
 import tempfile
