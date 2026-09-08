@@ -1,0 +1,650 @@
+[
+  {
+    "name": "Creative",
+    "description": "Create, source and prepare client creative.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Creative",
+        "href": "/creative",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client Image Uploads",
+        "href": "/tools/image-picker/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Stock Photo Search",
+        "href": "/tools/stock-photos/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Image Creator",
+        "href": "/tools/image-creator/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Display Ad Builder",
+        "href": "/tools/display-ads/_hub/start",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Magic Resize",
+        "href": "/tools/magic-resize/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Background Remover",
+        "href": "/tools/bg-remover/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Image Optimizer & Resizer",
+        "href": "/tools/image/",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Web Sites",
+    "description": "Build, maintain and check client websites.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Sites",
+        "href": "/sites/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Site Blocks",
+        "href": "/tools/site-blocks/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Landing Pages",
+        "href": "/sales/landing",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Website Audit",
+        "href": "/tools/website-audit",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Site Scans",
+        "href": "/scans/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Page Image Optimizer",
+        "href": "/tools/page-images/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Sites Billing Report",
+        "href": "/qa/sites-billing",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Sales",
+    "description": "Move prospects from discovery through proposals and orders.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Leads",
+        "href": "/sales/leads",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Website Audit",
+        "href": "/tools/website-audit",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Proposal Builder",
+        "href": "/sales/builder/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "IO Builder",
+        "href": "/tools/io/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Master Services Agreement",
+        "href": "/msa/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Landing Pages",
+        "href": "/sales/landing",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Salesperson Scorecard",
+        "href": "/qa/sales-scorecard",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Finance",
+    "description": "Review billing, invoices, renewals and order reconciliation.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Customer Billing Comparison",
+        "href": "/qa/billing-comparison",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Invoice Off Report",
+        "href": "/qa/invoice-off",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Sites Billing Report",
+        "href": "/qa/sites-billing",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Suite Billing This Month",
+        "href": "/qa/ghl-billing-this-month",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Accounting Requests",
+        "href": "/qa/accounting-requests",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Domain Renewals",
+        "href": "/tools/domains",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "IO Money Mismatch",
+        "href": "/qa/io-money-mismatch",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "IOs Not in Knack",
+        "href": "/qa/io-not-in-knack",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Suite",
+    "description": "Manage Suite accounts, billing and client content.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Suite",
+        "href": "/suite/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Social Content Planner",
+        "href": "/tools/social/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client Image Uploads",
+        "href": "/tools/image-picker/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Suite Billing This Month",
+        "href": "/qa/ghl-billing-this-month",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Suite Billing, No Active Product",
+        "href": "/qa/ghl-billing-no-products",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Uploads Not in Suite",
+        "href": "/qa/uploads-not-in-suite",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "SEO",
+    "description": "Review SEO clients, search visibility, tracking and page assets.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "SEO Clients",
+        "href": "/seo",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "SEO Webmaster Tools",
+        "href": "/seo/webmaster",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Site Scans",
+        "href": "/scans/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Website Audit",
+        "href": "/tools/website-audit",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Google",
+        "href": "/google/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "SEO Image Pipeline",
+        "href": "/tools/seo-images/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Page Image Optimizer",
+        "href": "/tools/page-images/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Missing Analytics",
+        "href": "/qa/no-analytics",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Missing GTM",
+        "href": "/qa/no-gtm",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Client Success",
+    "description": "Follow up on client needs, delivery and growth opportunities.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "My Clients",
+        "href": "/my-clients",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Active Clients",
+        "href": "/qa/active-clients",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "QA Tasks",
+        "href": "/qa-tasks",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Clients Without Dashboards",
+        "href": "/qa/no-dashboards",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Stale Creative",
+        "href": "/qa/stale-90",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client Growth Opportunities",
+        "href": "/qa/sell-to-clients",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Social Content Planner",
+        "href": "/tools/social/",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Video",
+    "description": "Find footage, build commercials and prepare video edits.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Commercial Builder",
+        "href": "/tools/commercial-builder/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Video Search",
+        "href": "/tools/video-backgrounds/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Paint Animation",
+        "href": "/tools/paint-animation/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Vox Explainer",
+        "href": "/tools/vox-explainer/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Dead Air Cutter",
+        "href": "/tools/dead-air/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Vertical Reframe",
+        "href": "/tools/vertical-reframe/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client Image Uploads",
+        "href": "/tools/image-picker/",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Ad builder",
+    "description": "Plan campaigns, draft copy and build ad assets.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Smart 1 Ads",
+        "href": "/tools/ads/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "GPT Ads Builder",
+        "href": "/tools/gpt-ads/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Ad Assets",
+        "href": "/tools/ad-assets",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Display Ad Builder",
+        "href": "/tools/display-ads/_hub/start",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Landing Page Ads",
+        "href": "/tools/landing-ads/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Commercial Builder",
+        "href": "/tools/commercial-builder/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "UTM Builder",
+        "href": "/tools/utm/",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Client Tools",
+    "description": "Quick access to everyday client delivery tools.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Client 360",
+        "href": "/client360",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client Tools",
+        "href": "/tools",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Client Image Uploads",
+        "href": "/tools/image-picker/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Social Content Planner",
+        "href": "/tools/social/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Landing Pages",
+        "href": "/sales/landing",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "PDF Optimizer",
+        "href": "/tools/pdf/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "UTM Builder",
+        "href": "/tools/utm/",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Google Access",
+        "href": "/tools/google-access/",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "QA",
+    "description": "Review quality checks, data gaps and assigned follow-up.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "QA Reports",
+        "href": "/qa",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "QA Tasks",
+        "href": "/qa-tasks",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Google Accounts & Mapping",
+        "href": "/qa/google-accounts",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Missing Analytics",
+        "href": "/qa/no-analytics",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Missing GTM",
+        "href": "/qa/no-gtm",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Clients Without Dashboards",
+        "href": "/qa/no-dashboards",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Stale Creative",
+        "href": "/qa/stale-90",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "IOs Not in Knack",
+        "href": "/qa/io-not-in-knack",
+        "icon": ""
+      }
+    ]
+  },
+  {
+    "name": "Diagnostics",
+    "description": "Check Hub health, investigate issues and review activity. Admin access is required for utility pages.",
+    "blocks": [
+      {
+        "type": "tile",
+        "label": "Diagnostics",
+        "href": "/diagnostics",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "System Status",
+        "href": "/status",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Activity Log",
+        "href": "/activity",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "QA Tasks",
+        "href": "/qa-tasks",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "QA Reports",
+        "href": "/qa",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Users",
+        "href": "/diagnostics/users",
+        "icon": ""
+      },
+      {
+        "type": "tile",
+        "label": "Department Views",
+        "href": "/views/manage",
+        "icon": ""
+      }
+    ]
+  }
+]
