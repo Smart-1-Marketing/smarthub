@@ -4,11 +4,20 @@
     const kind = root.dataset.radioLibrary;
     const base = '/tools/' + ({promo:'radio-promo', fan:'fan-radio', scripts:'radio-scripts'}[kind]);
     const endpoint = base + (kind === 'promo' ? '/api/library' : kind === 'fan' ? '/api/projects' : '/api/sets');
-    root.innerHTML = `<div class="radio-library-head"><h2>Saved ${kind === 'scripts' ? 'scripts' : 'radio projects'}</h2><button type="button" class="btn sec sm" data-reload>Refresh library</button></div>
+    root.innerHTML = `<details data-library-panel><summary><strong>Saved ${kind === 'scripts' ? 'scripts' : 'radio projects'}</strong><span data-library-toggle>Show library</span></summary><div class="radio-library-head"><h2>Saved ${kind === 'scripts' ? 'scripts' : 'radio projects'}</h2><button type="button" class="btn sec sm" data-reload>Refresh library</button></div>
       <label>Search saved work<input type="search" data-query placeholder="${kind === 'scripts' ? 'Client, market, concept or script text' : kind === 'promo' ? 'Client, business, project, promotion or team member' : 'Client, business or team member'}"></label>
-      <p data-message role="status" aria-live="polite">Loading saved work…</p><div class="radio-library-results" data-results></div><button class="btn sec sm" type="button" data-more hidden>Show more</button>`;
+      <p data-message role="status" aria-live="polite">Loading saved work…</p><div class="radio-library-results" data-results></div><button class="btn sec sm" type="button" data-more hidden>Show more</button></details>`;
     const query = root.querySelector('[data-query]'), message = root.querySelector('[data-message]');
     const results = root.querySelector('[data-results]'), more = root.querySelector('[data-more]');
+    const panel = root.querySelector('[data-library-panel]');
+    let currentProject = new URLSearchParams(location.search).get('project') || location.hash.replace(/^#(?:p=|set=)?/, '');
+    panel.open = !currentProject;
+    function panelLabel() { root.querySelector('[data-library-toggle]').textContent = panel.open ? 'Hide library' : 'Show library'; }
+    panel.addEventListener('toggle', panelLabel); panelLabel();
+    window.addEventListener('radio-project-opened', event => {
+      const id = String(event.detail?.id || '');
+      if (id && id !== currentProject) { currentProject = id; panel.open = false; panelLabel(); }
+    });
     let offset = 0, sequence = 0, timer, controller;
     async function load(append = false) {
       const ticket = ++sequence;
@@ -28,7 +37,15 @@
           const link = document.createElement('a');
           link.textContent = row.project_name ? `${row.company || row.client || 'Radio project'} — ${row.project_name}` : row.company || row.client_name || row.client || 'Untitled project';
           link.href = base + '/?project=' + encodeURIComponent(row.id) + (kind === 'promo' ? '#p=' : kind === 'fan' ? '#' : '#set=') + encodeURIComponent(row.id);
-          if (kind === 'scripts') link.onclick = event => { event.preventDefault(); window.rsOpenSet(row.id); };
+          link.onclick = event => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            panel.open = false; panelLabel();
+            if (kind === 'scripts') { event.preventDefault(); window.rsOpenSet(row.id); }
+            else if (String(row.id) === currentProject) {
+              event.preventDefault();
+              document.querySelector('#steps, .flow')?.scrollIntoView({block:'start', behavior:'smooth'});
+            }
+          };
           const detail = document.createElement('p');
           const date = row.updated_at || row.updated || row.created_at;
           const stamp = date && !Number.isNaN(Date.parse(date)) ? new Date(date).toLocaleDateString() : '';
