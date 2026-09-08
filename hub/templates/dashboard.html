@@ -37,6 +37,7 @@
 .rb-copy{background:linear-gradient(135deg,#8a2f3f,#c04a5e)}
 .rb-change{background:linear-gradient(135deg,#9a4a10,#d1761c)}
 .rb-support{background:linear-gradient(135deg,#1f4f66,#2f7fa3)}
+.rb-web{background:linear-gradient(135deg,#5c3286,#8a4fc4)}
 .req-row .partner-btn{cursor:pointer}
 
 /* The assigned-client scorecard has one more figure than the other queue
@@ -108,6 +109,9 @@
 </div>
 
 <div class="req-row">
+  <a class="partner-btn rb-web" id="rq-web" href="/tools/tickets/">
+    <span class="pb-ico">&#127915;</span><span class="pb-name">Web Ticket</span>
+    <span class="pb-sub">Request website updates, fixes or support</span></a>
   <a class="partner-btn rb-copy" id="rq-adcopy">
     <span class="pb-ico">&#9997;</span><span class="pb-name">Ad Copy Request</span>
     <span class="pb-sub">Look up a client — the campaign, IO and partner fill themselves in</span></a>
@@ -268,11 +272,18 @@
 
 {% block scripts %}
 <script src="/knack-form.js"></script>
+<script src="/web-ticket.js"></script>
 <script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
+const webTicket=$('rq-web');
+if(webTicket) webTicket.onclick=function(event){
+  if(!window.WebTicket || !window.KnackForm) return;
+  event.preventDefault();
+  window.WebTicket.pick({user:user_name});
+};
 
 /* The same forms Client 360 opens, from a dashboard that has no client on
    screen — so each one asks who it is for first.
