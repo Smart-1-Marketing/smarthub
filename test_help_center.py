@@ -1,0 +1,95 @@
+"""Help center contracts. No external services or paid AI calls."""
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+from flask import Flask
+from hub.help_center import bp
+from hub import ai
+
+
+class HelpCenterTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.app = Flask(__name__)
+        self.app.register_blueprint(bp)
+        self.client = self.app.test_client()
+        self.auth = patch('hub.current_user', return_value='Todd Smith')
+        self.identity = patch('hub.identity.user_from_environ', return_value=None)
+        self.root = patch('hub.jsonstore.data_root', return_value=self.tmp.name)
+        self.audit = patch('hub.audit.log')
+        self.auth.start(); self.identity.start(); self.root.start(); self.audit.start()
+
+    def tearDown(self):
+        self.auth.stop(); self.identity.stop(); self.root.stop(); self.audit.stop(); self.tmp.cleanup()
+
+    def test_auth_required(self):
+        with patch('hub.current_user', return_value=''):
+            for path in ('/help', '/api/hub-inbox', '/api/help-center/catalog'):
+                self.assertEqual(self.client.get(path).status_code, 401)
+            self.assertEqual(self.client.post('/api/help-center/ask', json={'question':'Help me'}).status_code, 401)
+
+    def test_personal_inbox(self):
+        rows = [dict(module='fan_radio', type='spot_recorded', actor=actor, time='2026-09-08T12:00:00Z') for actor in ('Todd Smith', 'Someone Else', '')]
+        with patch('hub.audit.tail', return_value=rows):
+            data = self.client.get('/api/hub-inbox').get_json()
+        self.assertEqual(data['user']['initials'], 'TS')
+        self.assertEqual(len(data['items']), 1)
+        self.assertEqual(data['items'][0]['status'], 'completed')
+
+    def test_display_poll_is_from_owned_event(self):
+        with patch('hub.audit.tail', return_value=[dict(module='display_ads', type='ads_job_tracked', actor='Todd Smith', job='abc-123')]):
+            row = self.client.get('/api/hub-inbox').get_json()['items'][0]
+        self.assertEqual(row['poll'], '/tools/display-ads/api/render/abc-123')
+
+    def test_radio_failure_is_not_completion(self):
+        with patch('hub.audit.tail', return_value=[dict(module='radio_promo', type='render_failed', actor='Todd Smith')]):
+            row = self.client.get('/api/hub-inbox').get_json()['items'][0]
+        self.assertEqual(row['status'], 'failed')
+
+    def test_catalog_uses_real_content(self):
+        with patch('hub.jsonstore.read_json', return_value=[]):
+            data = self.client.get('/api/help-center/catalog').get_json()
+        self.assertGreater(len(data['articles']), 50)
+        self.assertGreater(len(data['walkthroughs']), 5)
+        self.assertGreater(len(data['videos']), 10)
+        self.assertTrue(all(v['url'].startswith('https://www.youtube.com/watch?v=') for v in data['videos']))
+
+    def test_custom_tutorials_merge_without_duplicates(self):
+        from hub.help_center import learning_videos
+        video = learning_videos()[0]
+        custom = dict(video, title='Updated lesson title')
+        with patch('hub.jsonstore.read_json', return_value=[custom, {'title':'Unsafe', 'url':'javascript:alert(1)'}]):
+            data = self.client.get('/api/help-center/catalog').get_json()
+        self.assertEqual(len(data['videos']), len(learning_videos()))
+        self.assertEqual(data['videos'][0]['title'], 'Updated lesson title')
+
+    def test_invalid_question(self):
+        for data in (None, [], {'question': ['bad']}, {'question':'x'}, {'question':'x'*1501}):
+            self.assertEqual(self.client.post('/api/help-center/ask', json=data).status_code, 400)
+
+    def test_answer_is_logged_with_sources(self):
+        writes = []
+        with patch('hub.jsonstore.write_json', side_effect=lambda p,d: writes.append(dict(d)) or True), patch('hub.ai.chat', return_value='Use the radio library.') as chat:
+            r = self.client.post('/api/help-center/ask', json={'question':'How do I use radio?'}).get_json()
+        self.assertEqual(r['status'], 'answered')
+        self.assertTrue(r['sources'])
+        self.assertEqual(writes[0]['status'], 'pending')
+        self.assertEqual(writes[-1]['answer'], 'Use the radio library.')
+        self.assertIn('Documentation:', chat.call_args.args[0][0]['content'])
+
+    def test_ai_unavailable_is_honest(self):
+        with patch('hub.jsonstore.write_json', return_value=True), patch('hub.ai.chat', side_effect=ai.AIUnavailable('secret provider error')):
+            r = self.client.post('/api/help-center/ask', json={'question':'How do I use radio?'}).get_json()
+        self.assertEqual(r['status'], 'unavailable')
+        self.assertNotIn('secret provider error', str(r))
+
+    def test_logging_failure_does_not_spend(self):
+        with patch('hub.jsonstore.write_json', return_value=False), patch('hub.ai.chat') as chat:
+            r = self.client.post('/api/help-center/ask', json={'question':'How do I use radio?'})
+        self.assertEqual(r.status_code, 503)
+        chat.assert_not_called()
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -277,6 +277,12 @@
   /* ---------------- boot ---------------- */
 
   function init() {
+    if (!document.querySelector('script[data-hub-inbox]')) {
+      var inboxScript = document.createElement('script');
+      inboxScript.src = '/assets/hub-inbox.js';
+      inboxScript.dataset.hubInbox = '1';
+      document.head.appendChild(inboxScript);
+    }
     fetch("/api/help", { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {

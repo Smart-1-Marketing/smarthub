@@ -648,6 +648,8 @@ def api_render(pid):
                                   (row.get("voice_want") or {}).get("energy")
                                   or "conversational")
     except voices.VoiceError as exc:
+        log("render_failed", project=pid, slot=slot,
+            detail="Radio recording failed. Open the builder to retry.")
         return fail(str(exc), 502)
 
     seconds = (duration_by_key(slot) or {"seconds": 30})["seconds"]
