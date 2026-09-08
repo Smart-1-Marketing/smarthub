@@ -7056,6 +7056,19 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Creative Studio ----------------
+    # Also a blueprint: /creative is not a prefix wsgi.py mounts, so it
+    # belongs to the hub app and needs its own guard rather than AuthGuard's.
+    # See modules/creative_studio/__init__.py.
+    try:
+        from modules.creative_studio import register_creative_studio
+        register_creative_studio(app)
+    except Exception as _cs_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- Weather Trigger Setup ----------------
     # Two blueprints, one gated and one deliberately not: /tools/weather-setup
     # is the staff screen that starts a campaign from a lead, and /wx/<token>

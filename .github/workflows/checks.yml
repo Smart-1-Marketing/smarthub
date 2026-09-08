@@ -1421,6 +1421,20 @@ jobs:
             echo "test_radio_scripts.py not on this branch — nothing to run."
           fi
 
+      - name: Creative Studio tests
+        # WO-CS1: the front door, projects, the extended Brand Kit, the Media
+        # Library and the creative_jobs sweep. No network -- Cloudinary and
+        # Brandfetch are deliberately unset, so the backfill sweep and the
+        # lookup button are exercised in their "not configured" shape. Guarded
+        # like the steps above so the workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_creative_studio.py ]; then
+            python test_creative_studio.py
+          else
+            echo "test_creative_studio.py not on this branch — nothing to run."
+          fi
+
       - name: Web ticket field tests
         # The pinned object_107 ids, the form built from them, and what a
         # write may and may not contain. Guarded like the steps above so this

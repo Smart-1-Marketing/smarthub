@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>{{ project.name }} {{ help_dot('creative_studio.project_detail') if help_dot is defined else '' }}</h2>
+  <p>{{ project.client_name or 'Generic Smart 1 asset' }} &middot; {{ project.creative_type }}
+     &middot; <span class="pill {{ 'ok' if project.status == 'Approved' else 'info' }}">{{ project.status }}</span></p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <h3 style="margin-top:0">Details</h3>
+    <table>
+      <tr><td style="width:180px;color:var(--muted,#64748B)">Duration</td><td>{{ project.duration ~ 's' if project.duration else 'Not set' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Aspect ratio</td><td>{{ project.aspect_ratio or 'Not set' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Template</td><td>{{ project.template_id or 'None chosen yet — the gallery ships in WO-CS2.' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Created by</td><td>{{ project.created_by or '—' }} on {{ project.created_at[:10] if project.created_at else '' }}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Versions</h3>
+    {% if versions %}
+    <table>
+      <thead><tr><th>Version</th><th>Render</th><th>Created by</th><th>When</th></tr></thead>
+      <tbody>
+        {% for v in versions %}
+        <tr>
+          <td>V{{ v.version }}</td>
+          <td>{% if v.render_url %}<a href="{{ v.render_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td>
+          <td>{{ v.created_by or '—' }}</td>
+          <td>{{ v.created_at[:10] if v.created_at else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">No render yet. The editor and the queued
+       Creatomate render ship in WO-CS3 through WO-CS5 -- this record exists
+       now so nothing about the project is lost while those land.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

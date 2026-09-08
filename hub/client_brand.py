@@ -142,6 +142,11 @@ WORK_KINDS = {
     # cut against their account is a deliverable filed against them, the
     # same reasoning `io_builder` and `landing_maker` above are here for.
     "weather_trigger_setup": ("Weather triggers approved", "Weather Trigger Setup"),
+    # A project created, a brand kit saved or a file uploaded through
+    # Creative Studio -- keyed on the module's own log name so it does not
+    # join the list this file already counts of work filed and then dropped
+    # for naming a module the record cannot answer to.
+    "creative_studio":      ("Creative Studio", "Creative Studio"),
 }
 
 # The other side of the same question, written down rather than left as an

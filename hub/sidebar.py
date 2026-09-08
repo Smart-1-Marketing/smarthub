@@ -112,6 +112,21 @@ _ITEMS = [
     ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
+    # Creative Studio is the front door over the tools below it -- a client
+    # picker, a project record and a template layer, not a replacement for
+    # any one of them. It is its own section rather than folded into
+    # "Creative" (which stays the flat tile index) because the two answer
+    # different questions: that page is "which tool do I want", this one is
+    # "what am I making for this client, and where did I leave it".
+    ("_seccs", "", "", "Creative Studio"),
+    ("cs_dashboard", "/creative-studio/", "&#127912;", "Create"),
+    ("cs_projects", "/creative-studio/projects", "&#128196;", "Projects"),
+    ("cs_templates", "/creative-studio/templates", "&#128209;", "Templates"),
+    ("cs_ai_tools", "/creative-studio/ai-tools", "&#129302;", "AI Tools"),
+    ("cs_brand_kits", "/creative-studio/brand-kits", "&#127912;", "Brand Kits"),
+    ("cs_media", "/creative-studio/media", "&#128247;", "Media Library"),
+    ("cs_approvals", "/creative-studio/approvals", "&#9989;", "Approvals"),
+    ("cs_usage", "/creative-studio/usage", "&#128176;", "Usage & Costs"),
     ("_sec4", "", "", "Tools"),
     ("creative", "/creative", "&#127912;", "Creative"),
     # "Client Tools", not "Tools" -- a "Tools" item inside a "Tools" section

@@ -719,6 +719,22 @@ def job_ad_assets_sweep(app) -> dict:
             "copied": res.get("copied", 0)}
 
 
+def job_creative_studio_sweep(app) -> dict:
+    """Advance queued Creative Studio jobs one step -- house rule 4 for that
+    module, done here rather than in the request that enqueued the work. See
+    modules/creative_studio/jobs.py::sweep() for what a step means per kind;
+    today that is only the Media Library's Cloudinary backfill.
+    """
+    try:
+        from modules.creative_studio import jobs as cs_jobs
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        return cs_jobs.job_sweep(app)
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -758,6 +774,8 @@ JOBS = {
                                   "Expire overrides and enforce SmartForecast retention."),
     "weather_triggers":  (30, job_weather_triggers,
                           "Turn each approved weather campaign's triggers on and off."),
+    "creative_studio":   (5, job_creative_studio_sweep,
+                          "Advance queued Creative Studio jobs (Media Library backfill, etc.)."),
 }
 
 

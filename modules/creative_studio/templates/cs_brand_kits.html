@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Brand Kits — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Brand Kits {{ help_dot('creative_studio.brand_kits') if help_dot is defined else '' }}</h2>
+  <p>One brand record per client -- logos and colors from Brandfetch and the
+     last site scan, plus the business facts nothing else publishes.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <label>Client
+      <input type="text" id="bkClientInput" placeholder="Type a client name" list="bkClientList" autocomplete="off" style="max-width:420px">
+      <datalist id="bkClientList"></datalist>
+    </label>
+    <button class="btn btn-primary" id="bkGo" style="margin-left:8px">Open Brand Kit</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var input = document.getElementById('bkClientInput');
+  var list = document.getElementById('bkClientList');
+  var t;
+  function search(){
+    clearTimeout(t);
+    t = setTimeout(function(){
+      fetch('/creative-studio/api/clients/search?q=' + encodeURIComponent(input.value.trim()))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          list.innerHTML = '';
+          (d.clients || []).forEach(function(c){
+            var o = document.createElement('option');
+            o.value = c.name;
+            list.appendChild(o);
+          });
+        }).catch(function(){});
+    }, 200);
+  }
+  function go(){
+    var name = input.value.trim();
+    if (name) window.location = '/creative-studio/brand-kits/' + encodeURIComponent(name);
+  }
+  input.addEventListener('input', search);
+  document.getElementById('bkGo').addEventListener('click', go);
+  input.addEventListener('keydown', function(e){ if (e.key === 'Enter') go(); });
+})();
+</script>
+{% endblock %}

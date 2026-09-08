@@ -2174,6 +2174,39 @@ REGISTRY: list[Help] = [
        "reported separately and do not claim that weather messaging caused a "
        "lead or sale without a controlled comparison."),
 
+    # ---------------- Creative Studio (WO-CS1: foundation) ----------------
+    _h("creative_studio.dashboard", "One front door, not a new tool",
+       "Every card here opens a real tool -- the template gallery, Image "
+       "Creator, the Display Ad Builder, Radio Scripts. Picking a client "
+       "first carries it through, and the pill row says which Brand Kit "
+       "fields are missing before a template will render well."),
+    _h("creative_studio.projects", "Every project, one record",
+       "A project is created once, from the dashboard's Create New flow, "
+       "and stays here whether it is still a draft brief or has a finished "
+       "render on it. Status follows the vocabulary the whole pipeline uses: "
+       "Draft, Rendering, Internal Review, Client Review, Changes Requested, "
+       "Approved, Archived."),
+    _h("creative_studio.project_detail", "A record, not yet the editor",
+       "The scene-by-scene editor and the queued Creatomate render ship in "
+       "later work orders. This page exists now so nothing about a project "
+       "-- who started it, what it is for, which client it is filed under "
+       "-- is lost while those land."),
+    _h("creative_studio.brand_kits", "Find a client's brand record",
+       "Logos and colors come from Brandfetch and the client's last site "
+       "scan; the business facts below them -- services, promotions, "
+       "pronunciation -- are typed in once here and every template reads "
+       "them from then on."),
+    _h("creative_studio.brand_kit", "One brand record, not a third copy",
+       "Logos, colors and fonts are read from the same brand data Client "
+       "360 already shows -- editing them here would be a second answer to "
+       "one question. What is edited here is the half nothing else "
+       "publishes: services, promotions, disclaimers, the pronunciation "
+       "dictionary, and how this client's creative should look and sound."),
+    _h("creative_studio.media", "What is actually stored, not what was made",
+       "Storage stays Cloudinary; this is the index over it. \"Index "
+       "this client's assets\" queues a backfill job rather than "
+       "reaching Cloudinary on the page load -- the scan can take a moment, "
+       "so check back after it queues."),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

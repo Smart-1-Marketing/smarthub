@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Creative Studio — Smart 1 Hub{% endblock %}
+{% block content %}
+{# The front door: pick a client, pick what you're making, pick a template.
+   Every card below comes from config.CREATIVE_TYPES rather than being typed
+   out here -- adding a type is a data change, not a template edit. #}
+<div class="page-head s1d-page">
+  <h2>Creative Studio {{ help_dot('creative_studio.dashboard') if help_dot is defined else '' }}</h2>
+  <p>One front door over the tools that make things for clients: pick a
+     client, pick what you're making, and Creative Studio finds the right
+     template or opens the right tool.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card" id="csCreateCard">
+    <h3 style="margin-top:0">+ Create New</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:640px">
+      <label>Client
+        <input type="text" id="csClientInput" placeholder="Type a client name, or leave blank for a generic Smart 1 asset" list="csClientList" autocomplete="off">
+        <datalist id="csClientList"></datalist>
+      </label>
+      <div id="csCompleteness" style="font-size:12.5px;color:var(--muted,#64748B)"></div>
+    </div>
+  </div>
+
+  <div class="qa-group-label" style="margin-top:18px">What do you want to create?</div>
+  <div class="tool-tiles compact">
+    {% for t in creative_types %}
+    <a class="tool-tile" href="{{ t.route }}" data-ctype="{{ t.key }}">
+      <div class="t-ico">{{ t.icon }}</div>
+      <h3>{{ t.label }}</h3>
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="qa-group-label" style="margin-top:18px">Recent projects</div>
+  <div class="card">
+    {% if recent %}
+    <table>
+      <thead><tr><th>Project</th><th>Client</th><th>Type</th><th>Status</th><th>Updated</th><th>Created by</th></tr></thead>
+      <tbody>
+        {% for p in recent %}
+        <tr>
+          <td><a href="/creative-studio/projects/{{ p.id }}">{{ p.name }}</a></td>
+          <td>{{ p.client_name or '—' }}</td>
+          <td>{{ p.creative_type }}</td>
+          <td><span class="pill {{ 'ok' if p.status == 'Approved' else 'info' }}">{{ p.status }}</span></td>
+          <td>{{ p.updated_at[:10] if p.updated_at else '' }}</td>
+          <td>{{ p.created_by or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">No projects yet. Pick a creative type above to start one.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  var input = document.getElementById('csClientInput');
+  var list = document.getElementById('csClientList');
+  var comp = document.getElementById('csCompleteness');
+  var t;
+  function search(){
+    clearTimeout(t);
+    t = setTimeout(function(){
+      var q = input.value.trim();
+      fetch('/creative-studio/api/clients/search?q=' + encodeURIComponent(q))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          list.innerHTML = '';
+          (d.clients || []).forEach(function(c){
+            var o = document.createElement('option');
+            o.value = c.name;
+            list.appendChild(o);
+          });
+        }).catch(function(){});
+    }, 200);
+  }
+  function checkCompleteness(){
+    var name = input.value.trim();
+    comp.textContent = '';
+    if (!name) return;
+    fetch('/creative-studio/api/clients/' + encodeURIComponent(name) + '/completeness')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) return;
+        comp.innerHTML = (d.pills || []).map(function(p){
+          return '<span class="pill ' + (p.state === 'ok' ? 'ok' : 'warn') + '" style="margin-right:6px">' + p.label + '</span>';
+        }).join('');
+      }).catch(function(){});
+  }
+  if (input) {
+    input.addEventListener('input', search);
+    input.addEventListener('change', checkCompleteness);
+    input.addEventListener('blur', checkCompleteness);
+  }
+  // Carry the typed client through to whichever tool a card opens, the same
+  // way Client 360's own links prefill a picker downstream.
+  document.querySelectorAll('.tool-tile[data-ctype]').forEach(function(a){
+    a.addEventListener('click', function(){
+      var name = input && input.value.trim();
+      if (!name) return;
+      try {
+        var u = new URL(a.href, window.location.origin);
+        u.searchParams.set('client', name);
+        a.href = u.pathname + u.search;
+      } catch (e) {}
+    });
+  });
+})();
+</script>
+{% endblock %}
