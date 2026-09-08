@@ -122,7 +122,8 @@ AGENCY_SUPPORT_PHONE = _env("GOOGLE_ACCESS_SUPPORT_PHONE")
 # The Business Profile APIs require a separate allowlist application with
 # Google. Off until that is approved, otherwise every call 403s and the
 # client sees a failure that isn't their fault.
-GBP_ENABLED = _bool("GOOGLE_ACCESS_GBP_ENABLED", False)
+# Paused by product request. An old deployment flag must not re-enable it.
+GBP_ENABLED = False
 
 # --- Invite behaviour ------------------------------------------------------
 INVITE_TTL_DAYS = int(_env("GOOGLE_ACCESS_INVITE_TTL_DAYS", "14") or 14)
@@ -165,20 +166,6 @@ SERVICES = {
             "https://www.googleapis.com/auth/tagmanager.readonly",
         ],
     },
-    "gbp": {
-        "label": "Google Business Profile",
-        "detail": "Post updates, reply to reviews and keep your hours accurate.",
-        "note": (
-            "We are still waiting on Google to approve automated access here, "
-            "so this one is a short manual invite. Steps come next."
-        ),
-        "role_text": "Manager",
-        "role_code": "MANAGER",
-        "mode": "automated" if GBP_ENABLED else "manual",
-        "scopes": [
-            "https://www.googleapis.com/auth/business.manage",
-        ],
-    },
     "search_console": {
         "label": "Google Search Console",
         "detail": "Track which searches find you and catch indexing problems.",
@@ -195,14 +182,14 @@ SERVICES = {
     },
 }
 
-SERVICE_ORDER = ["ga4", "gtm", "gbp", "search_console"]
+SERVICE_ORDER = ["ga4", "gtm", "search_console"]
 
 AUTOMATED_SERVICES = [k for k in SERVICE_ORDER if SERVICES[k]["mode"] == "automated"]
 
 # Requests created before Ads was parked still carry it in their stored
 # service list. Reading one must not KeyError, and the row must not silently
 # vanish either -- `label_for` names it as retired instead.
-RETIRED_SERVICES = {"ads": "Google Ads (paused)"}
+RETIRED_SERVICES = {"ads": "Google Ads (paused)", "gbp": "Google Business Profile (paused)"}
 
 
 def label_for(key):

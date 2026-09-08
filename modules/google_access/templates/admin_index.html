@@ -20,16 +20,14 @@
     to give this tool its own app.
   </div>
 {% endif %}
-{% if not cfg.GBP_ENABLED %}
-  <div class="banner warn">
-    Business Profile is in manual mode. Google requires an allowlist application before
-    it can be automated; until then the client gets written instructions instead.
-  </div>
-{% endif %}
+<div class="banner warn">
+  Google Business Profile is paused. New requests and client links cannot request
+  Business Profile access. Existing records remain available for staff to review.
+</div>
 <div class="banner warn">
   Google Ads is paused. It needs an approved Google Ads developer token and our own
   manager-account refresh token, neither of which is set, so asking for it would have
-  failed at our end after the client had already consented. Everything else is unaffected.
+  failed at our end after the client had already consented.
 </div>
 
 <div class="card">

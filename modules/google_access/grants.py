@@ -65,6 +65,8 @@ def run_grants(request, token, selected_services):
     a `public` message that is safe to render; `error_detail` stays in the
     database for staff.
     """
+    # Also filter OAuth states created before a service was paused.
+    selected_services = [key for key in selected_services if key in config.SERVICES]
     results = []
     scopes = gc.granted_scopes(token)
 

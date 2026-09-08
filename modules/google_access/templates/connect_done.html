@@ -2,11 +2,10 @@
 {% block title %}Access confirmed{% endblock %}
 
 {% set all_done = req.status == 'granted' %}
-{% set needs_gbp = grants.get('gbp') and grants['gbp'].status == 'waiting' %}
 {% set needs_sc = grants.get('search_console') and grants['search_console'].status == 'waiting' %}
 {# Count the outstanding manual steps rather than naming them: "one thing" over
    two lists is the sentence a client reads before deciding they are finished. #}
-{% set outstanding = [needs_gbp, needs_sc]|select|list|length %}
+{% set outstanding = [needs_sc]|select|list|length %}
 
 {% block body %}
 {% if all_done %}
@@ -69,18 +68,6 @@
     </div>
   {% endfor %}
 </div>
-
-{% if needs_gbp %}
-<div class="steps">
-  <h2>Finish Business Profile</h2>
-  <p>A short manual invite while we wait on Google to approve automated access.</p>
-  <ol>
-    <li>Open <a href="https://business.google.com" target="_blank" rel="noopener">business.google.com</a> and pick your business.</li>
-    <li>Go to <strong>Settings</strong>, then <strong>People and access</strong>.</li>
-    <li>Choose <strong>Add</strong>, enter <code>{{ cfg.AGENCY_EMAIL }}</code>, set the role to <strong>Manager</strong>, and invite.</li>
-  </ol>
-</div>
-{% endif %}
 
 {% if needs_sc %}
 <div class="steps">
