@@ -6,6 +6,10 @@
     const details = document.createElement('details'), summary = document.createElement('summary'), body = document.createElement('p');
     summary.textContent = item.title; body.textContent = item.body;
     details.append(summary, body); target.appendChild(details);
+    if (item.link && (/^\/(?!\/)/.test(item.link) || /^https:\/\//.test(item.link))) {
+      const link = document.createElement('a'); link.href = item.link;
+      link.textContent = item.linkText || 'Open this tool'; details.appendChild(link);
+    }
   }
   function filter() {
     const words = el('help-search').value.toLowerCase().split(/\s+/).filter(Boolean);

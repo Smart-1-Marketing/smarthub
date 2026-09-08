@@ -90,6 +90,25 @@ class HelpCenterTests(unittest.TestCase):
         self.assertEqual(r.status_code, 503)
         chat.assert_not_called()
 
+    def test_broad_radio_question_finds_complete_walkthrough(self):
+        from hub.help_center import answer_sources
+        rows = answer_sources('How do I use the radio promo builder to record a spot?')
+        self.assertEqual(rows[0]['key'], 'walkthrough.radio_promo.first_spot')
+        self.assertIn('Pick a voice', rows[0]['body'])
+        self.assertIn('Save it to the library', rows[0]['body'])
+
+    def test_tool_name_prefers_the_requested_tool(self):
+        from hub.help_center import answer_sources
+        rows = answer_sources('How do I make a fan radio spot?')
+        self.assertEqual(rows[0]['key'], 'walkthrough.fan_radio.spot')
+        self.assertEqual(answer_sources('How do I?'), [])
+
+    def test_inbox_does_not_depend_on_cached_help_script(self):
+        from pathlib import Path
+        root = Path(__file__).parent
+        for file in ['hub/templates/base.html', 'hub/__init__.py', 'wsgi.py']:
+            self.assertIn('data-hub-inbox src="/assets/hub-inbox.js"', (root / file).read_text(encoding='utf-8'))
+
 
 if __name__ == '__main__':
     unittest.main()

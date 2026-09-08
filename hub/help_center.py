@@ -34,6 +34,38 @@ def learning_videos():
     return videos
 
 
+def answer_sources(question, limit=8):
+    """Rank tool names as well as prose, and include complete walkthroughs."""
+    stop = {'how', 'do', 'does', 'did', 'i', 'the', 'a', 'an', 'to', 'use', 'using',
+            'can', 'could', 'should', 'would', 'what', 'is', 'are', 'for', 'my',
+            'in', 'on', 'of', 'and', 'with', 'please', 'me', 'it', 'this', 'that'}
+    def words(text):
+        return set(re.findall(r'[a-z0-9]+', text.lower()))
+    query = words(question) - stop
+    if not query:
+        return []
+    modules = {s.module for s in demos.SCENARIOS if words(s.module) <= query}
+    documents = [(h.as_dict(), h.key.split('.')[0], False) for h in content.REGISTRY]
+    for scenario in demos.SCENARIOS:
+        body = scenario.goal + '\n' + '\n'.join(
+            f'{index}. {step.title}: {step.body} {step.notice}'
+            for index, step in enumerate(scenario.steps, 1))
+        documents.append((dict(key='walkthrough.' + scenario.key, title=scenario.title,
+                               body=body, link=scenario.path, linkText='Open this tool'),
+                          scenario.module, True))
+    ranked = []
+    for doc, module, walkthrough in documents:
+        score = (6 * len(query & words(doc['key'])) +
+                 4 * len(query & words(doc['title'])) +
+                 len(query & words(doc['body'])))
+        if module in modules:
+            score += 40 if walkthrough else 20
+        if score:
+            ranked.append((score, doc))
+    ranked.sort(key=lambda pair: -pair[0])
+    return [doc for _, doc in ranked[:limit]]
+
+
 def signed_in(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):
@@ -90,7 +122,7 @@ def ask():
     recent = [f for f in os.scandir(folder) if f.is_file() and now.timestamp() - f.stat().st_mtime < 60]
     if len(recent) >= 5:
         return jsonify(error='Please wait a minute before asking another question.'), 429
-    matches = content.search(' '.join(re.findall(r'\w+', question.lower())), limit=8)
+    matches = answer_sources(question)
     record = dict(id=uuid.uuid4().hex, time=now.isoformat(), user=who['name'],
                   question=question.strip(), sources=[h['key'] for h in matches], status='pending')
     path = os.path.join(folder, record['id'] + '.json')

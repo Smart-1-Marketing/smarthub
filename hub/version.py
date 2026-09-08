@@ -11,7 +11,7 @@ import subprocess
 
 VERSION = "1.75.1"
 BUILD_DATE = "2026-09-08"
-CODENAME = "Searchable Radio Libraries"
+CODENAME = "Help Walkthrough Answers"
 
 _sha_cache: str | None = None
 
