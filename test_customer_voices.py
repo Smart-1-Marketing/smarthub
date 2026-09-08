@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import uuid
 from unittest.mock import patch, Mock
+from types import SimpleNamespace
 
 from flask import Flask
 from hub import customer_voices as cv
@@ -31,7 +32,7 @@ class CustomerVoiceTests(unittest.TestCase):
         data = dict(name="Jane", client="Example Company", authorized="true",
                     request_id=request_id or str(uuid.uuid4()), files=(io.BytesIO(b"sample"), "voice.wav"))
         data.update(changes)
-        if data.get("voice_id"):
+        if data.get("voice_id") or data.get("capture_id"):
             data.pop("files", None)
         return self.client.post("/api/customer-voices", data=data)
 
@@ -111,6 +112,40 @@ class CustomerVoiceTests(unittest.TestCase):
         self.assertEqual(self.submit(key).status_code, 409)
         self.provider.assert_called_once()
         self.assertEqual(cv.records()[0]["status"], "needs_review")
+
+    def test_submitted_capture_can_be_cloned_without_reupload(self):
+        capture = SimpleNamespace(client_name="Capture customer")
+        with patch.object(cv, "_capture_sample", return_value=(capture, ("capture.webm", b"recording", "audio/webm"))):
+            response = self.submit(capture_id="7")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json["voice"]["client"], "Capture customer")
+        self.assertEqual(cv.records()[0]["capture_id"], "7")
+        self.assertEqual(self.provider.call_args.args[1][0][1], b"recording")
+
+    def test_capture_import_checks_consent_source_redirects_and_size(self):
+        import requests
+        from modules.commercial_builder import voice_capture_models
+        row = SimpleNamespace(status="submitted", consent=True, revoked=False,
+            audio_url="https://res.cloudinary.com/example/video/upload/sample.webm",
+            original_filename="sample.webm", mime_type="audio/webm")
+        model = SimpleNamespace(query=SimpleNamespace(get=lambda _: row))
+        response = Mock(status_code=200, iter_content=lambda _: iter([b"audio"]))
+        response.__enter__ = Mock(return_value=response); response.__exit__ = Mock(return_value=False)
+        with patch.object(voice_capture_models, "VoiceCaptureRequest", model), patch.object(requests, "get", return_value=response) as get:
+            self.assertEqual(cv._capture_sample(7)[1][1], b"audio")
+            self.assertFalse(get.call_args.kwargs["allow_redirects"])
+            with patch.object(cv, "MAX_FILE", 2), self.assertRaises(cv.LibraryError):
+                cv._capture_sample(7)
+            response.status_code = 302
+            with self.assertRaises(cv.LibraryError): cv._capture_sample(7)
+            get.reset_mock()
+            row.consent = False
+            with self.assertRaises(cv.LibraryError): cv._capture_sample(7)
+            row.consent = True; row.revoked = True
+            with self.assertRaises(cv.LibraryError): cv._capture_sample(7)
+            row.revoked = False; row.audio_url = "http://127.0.0.1/private"
+            with self.assertRaises(cv.LibraryError): cv._capture_sample(7)
+            get.assert_not_called()
 
     def test_existing_voice_is_not_recloned(self):
         with patch.object(voices, "get_voice", return_value={"voice_id":"existing", "requires_verification":False}):

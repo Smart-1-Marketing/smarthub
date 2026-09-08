@@ -6,6 +6,10 @@ Use 1–5 clear single-speaker MP3, WAV, M4A, AAC, OGG, or WebM recordings, idea
 
 If ElevenLabs requires verification, complete it in that account and press **Refresh voice status**. Only ready voices appear in the shared picker. Existing projects also refuse synthesis with a managed voice that is not ready.
 
+## Submitted client recordings
+
+The Commercial Builder recording-link panel includes **Create reusable customer voice** for submitted recordings. That opens this library with the recording selected for review and cloning, so it does not need to be uploaded again. These source recordings remain stored by the separate voice-capture feature; the reusable voice library only records their capture ID and voice metadata. Revoked captures and recordings without speaker consent cannot be imported.
+
 ## Choose the voice
 
 - **Radio Ad Creator:** choose a customer voice in Cast, then select the spot lengths it should read.

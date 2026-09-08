@@ -74,6 +74,43 @@ def listing():
     return jsonify(ok=True, voices=[public(r) for r in sorted(rows, key=lambda r: r.get("created_at", ""), reverse=True)])
 
 
+def _capture_rows():
+    from modules.commercial_builder.voice_capture_models import VoiceCaptureRequest
+    return VoiceCaptureRequest.query.filter_by(status="submitted", consent=True, revoked=False).order_by(VoiceCaptureRequest.id.desc()).limit(100).all()
+
+
+@bp.get("/api/customer-voices/captures")
+def captures():
+    return jsonify(ok=True, captures=[dict(id=r.id, client=r.client_name or (r.client.name if hasattr(r, "client") and r.client else ""),
+        name=r.submitter_name, filename=r.original_filename, audio_url=r.audio_url) for r in _capture_rows()])
+
+
+def _capture_sample(capture_id):
+    from urllib.parse import urlsplit
+    import requests
+    from modules.commercial_builder.voice_capture_models import VoiceCaptureRequest
+    row = VoiceCaptureRequest.query.get(capture_id)
+    if not row or row.status != "submitted" or not row.consent or row.revoked:
+        raise LibraryError("Choose a submitted recording with the speaker's permission.")
+    url = urlsplit(row.audio_url or "")
+    if url.scheme != "https" or url.hostname != "res.cloudinary.com" or url.username or url.password or url.port not in (None, 443):
+        raise LibraryError("This recording cannot be imported directly. Download it from the capture panel and upload it here.")
+    try:
+        with requests.get(row.audio_url, timeout=(10, 45), stream=True, allow_redirects=False) as response:
+            if response.status_code != 200:
+                raise LibraryError("Could not read the submitted recording. Try again later.")
+            data = bytearray()
+            for chunk in response.iter_content(64 * 1024):
+                data.extend(chunk)
+                if len(data) > MAX_FILE:
+                    raise LibraryError("Trim this recording to under 25 MB before uploading it here.")
+    except requests.RequestException as exc:
+        raise LibraryError("Could not read the submitted recording. Try again later.") from exc
+    if not data:
+        raise LibraryError("The submitted recording is empty.")
+    return row, (row.original_filename or "recording.webm", bytes(data), row.mime_type or "audio/webm")
+
+
 @bp.errorhandler(LibraryError)
 def invalid(exc):
     return jsonify(ok=False, error=str(exc)), 400
@@ -103,11 +140,18 @@ def create():
     existing_id = form.get("voice_id", "").strip()
     if existing_id and not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", existing_id):
         raise LibraryError("Enter a valid ElevenLabs voice ID.")
+    capture_id = form.get("capture_id", "").strip()
     samples = []
     uploads = request.files.getlist("files")
-    if existing_id and uploads:
+    if (existing_id and capture_id) or ((existing_id or capture_id) and uploads):
         raise LibraryError("Choose recordings or an existing voice ID.")
-    if not existing_id and not 1 <= len(uploads) <= 5:
+    if capture_id:
+        if not capture_id.isdigit():
+            raise LibraryError("Choose a submitted customer recording.")
+        capture, sample = _capture_sample(int(capture_id))
+        client = capture.client_name or client
+        samples.append(sample)
+    if not existing_id and not capture_id and not 1 <= len(uploads) <= 5:
         raise LibraryError("Upload between one and five recordings.")
     total = 0
     for upload in uploads:
@@ -125,7 +169,7 @@ def create():
     user = user_from_environ(request.environ) or {}
     row = dict(id=record_id, name=name, client=client, description=description, voice_id=existing_id or None,
                status="creating", created_at=datetime.now(timezone.utc).isoformat(),
-               fingerprint=fingerprint, permission_confirmed=True,
+               fingerprint=fingerprint, capture_id=capture_id or None, permission_confirmed=True,
                permission_by=str(user or "staff"))
     prior = []
 

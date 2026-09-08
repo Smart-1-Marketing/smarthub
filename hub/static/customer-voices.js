@@ -32,13 +32,31 @@
     } catch(e) { list.textContent = e.message; }
   }
   get('cv-client').value = new URLSearchParams(location.search).get('client') || '';
-  get('cv-mode').onchange = () => {
-    const existing = get('cv-mode').value === 'existing';
-    get('cv-upload').hidden = existing; get('cv-existing').hidden = !existing;
-    get('cv-files').disabled = existing; get('cv-files').required = !existing;
+  let captureRows = [];
+  get('cv-mode').onchange = async () => {
+    const mode = get('cv-mode').value, existing = mode === 'existing', capture = mode === 'capture';
+    get('cv-upload').hidden = existing || capture; get('cv-existing').hidden = !existing; get('cv-capture').hidden = !capture;
+    get('cv-files').disabled = existing || capture; get('cv-files').required = !existing && !capture;
     get('cv-id').disabled = !existing; get('cv-id').required = existing;
+    get('cv-capture-id').disabled = !capture; get('cv-capture-id').required = capture;
     get('cv-submit').textContent = existing ? 'Save customer voice' : 'Create customer voice';
+    if (capture) {
+      try {
+        const data = await api('/api/customer-voices/captures'); captureRows = data.captures || [];
+        const select = get('cv-capture-id'); select.replaceChildren(new Option('Choose a submitted recording', ''));
+        captureRows.forEach(r => select.add(new Option(`${r.client} — ${r.name || r.filename}`, r.id)));
+        get('cv-capture-note').textContent = captureRows.length ? 'Listen to the submitted recording before creating its reusable voice.' : 'No submitted recordings yet. Create a client recording link in Commercial Builder, or upload recordings here.';
+        const requested = new URLSearchParams(location.search).get('capture_id');
+        if (requested) { select.value = requested; select.onchange(); }
+      } catch(e) { get('cv-capture-note').textContent = e.message; }
+    }
   };
+  get('cv-capture-id').onchange = () => {
+    const row = captureRows.find(r => String(r.id) === get('cv-capture-id').value);
+    const audio = get('cv-capture-audio'); audio.pause(); audio.hidden = !row?.audio_url;
+    if (row) { get('cv-client').value = row.client || ''; get('cv-name').value = row.name || ''; if (row.audio_url) audio.src = row.audio_url; }
+  };
+  if (new URLSearchParams(location.search).has('capture_id')) { get('cv-mode').value = 'capture'; get('cv-mode').onchange(); }
   form.onsubmit = async e => {
     e.preventDefault(); const button = get('cv-submit'), message = get('cv-message');
     const files = get('cv-files').disabled ? [] : [...get('cv-files').files];
