@@ -146,6 +146,16 @@ jobs:
         # client's scan comes from.
         run: python test_ads_dashboard_card.py
 
+      - name: Narrowing the activity log
+        # The page read nothing from the URL and its module dropdown was three
+        # hand-typed names, so a figure elsewhere in the Hub could not link to
+        # the rows it counted. Asserts that both filters filter, that the list
+        # is served rather than typed, that a module named in the URL but not
+        # in the list is kept rather than dropped to All, and that all three
+        # routes stay refused to a stranger — this log names every member of
+        # staff and what they did.
+        run: python test_activity_filter.py
+
       - name: Auto-applied Google Ads changes
         # Nobody presses anything at the moment one of these happens, so what
         # this asserts is mostly the refusals: off by default, high severity

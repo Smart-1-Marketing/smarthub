@@ -665,7 +665,17 @@ fetch('/api/ads/scoreboard').then(r=>r.json()).then(d=>{
     + stat('Clean',c.clean||0,u.all)
     + stat('Live accounts',d.accounts||0,u.all)
     + '</div>';
-  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
+  /* The line is escaped and then one phrase in it is linked, rather than the
+     server sending markup: hub/ads_status.py builds a sentence, and a module
+     that starts emitting HTML for one caller is one every other reader then
+     has to trust. The link opens exactly the rows that were counted — module
+     and action both — which is what /activity had to learn ?module= and ?type=
+     for. */
+  let line=esc(d.line||'');
+  const ap=d.applied;
+  if(ap&&ap.count&&ap.url) line=line.replace('applied automatically',
+    '<a href="'+esc(ap.url)+'">applied automatically</a>');
+  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+line+'</div>';
   if((d.rows||[]).length){
     h+='<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px">';
     d.rows.forEach(r=>{

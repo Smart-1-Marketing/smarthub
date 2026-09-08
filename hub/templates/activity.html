@@ -5,28 +5,129 @@
 <div class="card">
   <div class="card-h"><h3>Suite-wide log</h3>
     <div class="right">
-      <select id="mod" onchange="load()" style="padding:7px;border:1px solid var(--line);border-radius:8px">
-        <option value="">All modules</option><option value="hub">Hub</option><option value="suite">Suite (GHL)</option>
+      <select id="mod" onchange="pick()" style="padding:7px;border:1px solid var(--line);border-radius:8px">
+        <option value="">All modules</option>
       </select>
       <button class="btn-ghost" onclick="exportCsv()">Export CSV</button>
     </div>
   </div>
-  <div class="card-b flush"><table id="log"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table></div>
+  <div class="card-b flush">
+    <div id="modnote" class="muted" style="font-size:12px;padding:8px 14px 0" hidden></div>
+    <table id="log"><tbody><tr><td class="empty">Loading… <span class="spin"></span></td></tr></tbody></table>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let entries=[];
+
+/* The filter is read from the URL, so a count elsewhere in the Hub can link
+   straight to the rows behind it. Before this the module lived only in the
+   <select>, so `/activity?module=ads_builder` opened the whole log unfiltered
+   — and a reader who had followed a figure concluded the figure was wrong
+   rather than the filter absent. Same rule the leads panel had to learn about
+   its own `page` and `days`. */
+function wanted(){
+  return (new URLSearchParams(window.location.search).get('module')||'').trim();
+}
+
+/* `?type=` has no control of its own on purpose. It exists so a figure can
+   link to exactly the rows it counted — "3 changes applied automatically"
+   opening every entry that module has ever written is the wider-list-than-it
+   -counted answer — and a dropdown of every action name in the Hub would be
+   hundreds of entries nobody scrolls. So it is applied, said out loud, and
+   one press clears it. */
+function wantedType(){
+  return (new URLSearchParams(window.location.search).get('type')||'').trim();
+}
+
+function clearType(){
+  const url=new URL(window.location.href);
+  url.searchParams.delete('type');
+  window.history.replaceState({},'',url);
+  loadModules().then(load);
+  return false;
+}
+
+/* The address bar follows the control, in both directions: a filter you cannot
+   link to or reload back into is a filter that reads as not having been
+   applied. replaceState rather than pushState — narrowing a log is not a
+   navigation, and stacking one history entry per change makes Back useless. */
+function pick(){
+  const m=document.getElementById('mod').value;
+  const url=new URL(window.location.href);
+  if(m) url.searchParams.set('module',m); else url.searchParams.delete('module');
+  window.history.replaceState({},'',url);
+  load();
+}
+
+/* The dropdown offered three hand-typed names — All, hub, suite — on a Hub
+   where dozens of modules log, so most of the log could not be narrowed to at
+   all. It is served now, and a module that has not logged yet is still
+   offered: "nothing filed under this" and "not a module" are different
+   answers and only the first is worth a row. */
+async function loadModules(){
+  const sel=document.getElementById('mod');
+  const note=document.getElementById('modnote');
+  const m=wanted();
+  let d=null;
+  try{ d=await fetch('/api/activity/modules',{credentials:'same-origin'}).then(r=>r.json()); }
+  catch(err){ d=null; }
+
+  const list=(d&&d.modules)||[];
+  const names=list.map(x=>x.name);
+  let html='<option value="">All modules</option>';
+  list.forEach(function(x){
+    /* Said on the row rather than left to be discovered by selecting it and
+       meeting an empty table. */
+    const label=x.seen?x.name:(x.name+' — nothing recorded yet');
+    html+='<option value="'+esc(x.name)+'"'+(x.name===m?' selected':'')+'>'+esc(label)+'</option>';
+  });
+
+  /* A module named in the URL that the list does not carry is kept and
+     selected rather than silently falling back to All — the log genuinely
+     holds its rows, and a page showing a narrowed table above a control
+     reading "All modules" is the panel contradicting itself. */
+  if(m && names.indexOf(m)<0){
+    html+='<option value="'+esc(m)+'" selected>'+esc(m)+' — not in the recent log</option>';
+  }
+  sel.innerHTML=html;
+
+  const bits=[];
+  const t=wantedType();
+  if(t) bits.push('Showing only <b>'+esc(t)+'</b> — <a href="#" onclick="return clearType()">every action</a>.');
+  if(!d) bits.push('The module list could not be read, so this offers only what the address bar named — every module still filters by URL.');
+  else if(d.window_measured===false) bits.push('The activity log could not be scanned, so this lists only the modules that have registered a logger in this worker.');
+  /* The `&& d` here is load-bearing and the one inside the sentence was not.
+     With no list at all, `names` is empty and every module looks absent from
+     it — so without this guard the page would claim nothing had been recorded
+     under a module in a window it never managed to read. `d.window` is then
+     safe to read directly. */
+  if(m && names.indexOf(m)<0 && d)
+    bits.push('Nothing under “'+esc(m)+'” in the last '+(d.window||0)+' entries, so it is not on the list above — the filter is still applied.');
+  note.innerHTML=bits.join(' ');
+  note.hidden=!bits.length;
+}
+
 async function load(){
   const m=document.getElementById('mod').value;
-  const d=await fetch('/api/activity?limit=500'+(m?'&module='+m:'')).then(r=>r.json());
+  const t=wantedType();
+  const d=await fetch('/api/activity?limit=500'
+    +(m?'&module='+encodeURIComponent(m):'')
+    +(t?'&type='+encodeURIComponent(t):'')).then(r=>r.json());
   entries=d.entries||[];
   const rows=entries.map(e=>{
     const extra=Object.entries(e).filter(([k])=>!['time','module','type','actor','ip'].includes(k)).map(([k,v])=>k+': '+v).join(' · ');
     return `<tr><td style="width:150px" class="muted">${esc((e.time||'').replace('T',' ').slice(0,16))}</td><td style="width:110px"><b>${esc(e.actor||'—')}</b></td><td style="width:90px"><span class="pill info">${esc(e.module||'')}</span></td><td>${esc(e.type||'')}${extra?' — <span class="muted">'+esc(extra)+'</span>':''}</td></tr>`;
   }).join('');
-  document.getElementById('log').innerHTML='<thead><tr><th>When</th><th>Who</th><th>Module</th><th>Action</th></tr></thead><tbody>'+(rows||'<tr><td class="empty" colspan="4">No activity recorded yet.</td></tr>')+'</tbody>';
+  /* An empty result says which filter produced it, or a narrowed log reads as
+     a Hub where nothing has happened. */
+  const empty=(m||t)
+    ? ('No activity recorded'+(m?' under “'+esc(m)+'”':'')
+       +(t?' for “'+esc(t)+'”':'')+'.')
+    : 'No activity recorded yet.';
+  document.getElementById('log').innerHTML='<thead><tr><th>When</th><th>Who</th><th>Module</th><th>Action</th></tr></thead><tbody>'+(rows||'<tr><td class="empty" colspan="4">'+empty+'</td></tr>')+'</tbody>';
 }
 function exportCsv(){
   const head=['time','actor','module','type','detail'];
@@ -36,8 +137,17 @@ function exportCsv(){
   }));
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));
-  a.download='hub-activity.csv';a.click();
+  /* The file says what is in it: a filtered export downloading under the same
+     name as the whole log is how two different spreadsheets end up in one
+     folder claiming to be the same thing. */
+  const m=document.getElementById('mod').value;
+  a.download=m?('hub-activity-'+m.replace(/[^A-Za-z0-9_-]/g,'')+'.csv'):'hub-activity.csv';
+  a.click();
 }
-load();
+
+/* The list first, so the control is showing the module the URL asked for by
+   the time the rows land under it — and awaited, because `load()` reads the
+   select's value and would otherwise fetch every module on a filtered URL. */
+loadModules().then(load);
 </script>
 {% endblock %}

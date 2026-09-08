@@ -61,7 +61,15 @@ def log(module: str, type_: str, actor: str | None = None, **extra) -> None:
         pass  # best-effort — never break the action because logging failed
 
 
-def read(limit: int = 300, module: str | None = None) -> list[dict]:
+def read(limit: int = 300, module: str | None = None,
+         type_: str | None = None) -> list[dict]:
+    """The newest entries, narrowed to one module and/or one action.
+
+    `type_` mirrors `tail()`'s, and it is what lets a figure elsewhere in the
+    Hub link to *the rows it counted* rather than to everything one module has
+    ever written -- a count that opens a wider list than it counted is the
+    "Showing 1 of 7" answer, one page over.
+    """
     try:
         with open(_path(), encoding="utf-8") as fh:
             lines = [ln for ln in fh.read().splitlines() if ln.strip()]
@@ -74,6 +82,8 @@ def read(limit: int = 300, module: str | None = None) -> list[dict]:
         except ValueError:
             continue
         if module and e.get("module") != module:
+            continue
+        if type_ and e.get("type") != type_:
             continue
         out.append(e)
         if len(out) >= limit:
@@ -192,6 +202,77 @@ NO_ACTIVITY: dict[str, str] = {
 
 def registered_modules() -> list[str]:
     return sorted(_REGISTERED)
+
+
+# How far back the module list looks. A window rather than the whole log,
+# because that file reaches millions of rows and this answers a dropdown.
+KNOWN_MODULES_WINDOW = 4000
+
+
+def known_modules(window: int = KNOWN_MODULES_WINDOW) -> dict:
+    """The names `/activity` can be narrowed to, and where each one came from.
+
+    The activity page offered a hand-typed three-entry list -- All, `hub`,
+    `suite` -- on a Hub where dozens of modules log. So most of the log could
+    not be filtered to at all, and `?module=ads_builder` had nothing to select
+    even once the page learned to read it.
+
+    Two sources, unioned, because either alone is wrong:
+
+    **Declared** is `_REGISTERED` (every module that bound a logger through
+    `for_module()`), the `LOG_NAMES` aliases, and `client_brand`'s two tables.
+    A module that has not logged yet must still be offerable, or a quiet
+    module reads as one that does not exist.
+
+    Those two tables are the load-bearing half. `_REGISTERED` only holds
+    modules that bound a logger *in this worker*, and several of the busiest
+    write through a direct `log("name", ...)` instead -- `ads_builder` is one,
+    which is exactly the module the dashboard card links here for, and it was
+    therefore offerable only once it had already logged. `WORK_KINDS` and
+    `NOT_WORK` are keyed on the name each module **actually logs under**
+    (`display_ads`, `utm`, `ads_builder`) rather than on its directory, and
+    `/api/integrity`'s `check_work_kinds()` fails on a call site in neither --
+    so it is the one list in this Hub already held true against the call
+    sites, which makes it the honest thing to read rather than a fourth copy.
+    Imported inside the function because `client_brand` imports this module,
+    and guarded because a dropdown must not be what breaks the log.
+
+    **Observed** is what the recent log actually carries, which is the half
+    that catches a module logging through a direct `log("name", ...)` rather
+    than through a bound logger -- `hub` itself does exactly that, which is why
+    it was one of the three somebody typed in.
+
+    A name is returned with `seen: False` rather than dropped when it is
+    declared and not in the window: *nothing has been filed under this yet* and
+    *this is not a module* are different answers, and only the first is worth
+    offering. And `window_measured` says whether the log could be read at all,
+    because a file that would not open must not come back as a Hub where only
+    the declared modules exist.
+    """
+    declared = set(_REGISTERED) | set(LOG_NAMES.values())
+    try:
+        from hub import client_brand
+        declared |= set(client_brand.WORK_KINDS) | set(client_brand.NOT_WORK)
+    except Exception:                                    # noqa: BLE001
+        pass
+    observed: set[str] = set()
+    measured = True
+    try:
+        for entry in tail(limit=max(1, int(window))):
+            name = str(entry.get("module") or "").strip()
+            if name:
+                observed.add(name)
+    except Exception:                                    # noqa: BLE001
+        measured = False
+
+    names = sorted(declared | observed)
+    return {
+        "modules": [{"name": n,
+                     "seen": n in observed,
+                     "declared": n in declared} for n in names],
+        "window": int(window),
+        "window_measured": measured,
+    }
 
 
 def silent_modules(expected: list[str]) -> list[str]:

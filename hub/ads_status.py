@@ -90,6 +90,13 @@ APPLIED_WINDOW_DAYS = 7
 
 AUTO_APPLIED_EVENT = "OPTIMIZATION_AUTO_APPLIED"
 
+# The Hub activity log, narrowed to those rows. `store.log_event()` mirrors
+# under the module `ads_builder` with the action lower-cased, so the type is
+# derived from the event name here rather than typed a second time: two
+# spellings of one string is a link that quietly matches nothing.
+APPLIED_URL = ("/activity?module=ads_builder"
+               f"&type={AUTO_APPLIED_EVENT.lower()}")
+
 # The worst few accounts, by findings. A card is not a report.
 ROW_LIMIT = 4
 
@@ -295,18 +302,25 @@ def _applied(store) -> dict | None:
     thing on this card that must not read as "none happened" when what
     actually happened is that we could not ask.
 
-    It is deliberately a **sentence and not a linked figure**. Every applied
-    change is mirrored into the Hub activity log, and `/activity` filters by a
-    hand-typed three-entry module list that has no `ads_builder` in it -- so a
-    link there opens the whole log unfiltered and the reader concludes the
-    count was wrong rather than the filter absent, which is the failure this
-    card's own `_urls()` rule exists to refuse. Pointing it somewhere means
-    teaching that page to read `?module=` from the URL first.
+    It carries the address of **exactly the rows it counted**, which needed
+    `/activity` to learn two things first: to read `?module=` from the URL at
+    all (its dropdown was three hand-typed names with no `ads_builder` among
+    them), and to read `?type=`. Module alone would open everything Smart 1
+    Ads has ever written, which is the wider-list-than-it-counted answer this
+    card's own `_urls()` rule refuses.
+
+    What the link deliberately does *not* carry is the window. The count is
+    the last seven days and the list is every automatic change in the log, so
+    the two can differ -- and the page says which filter it is showing rather
+    than implying it is the same set. A date bound in a URL that the log
+    cannot filter on would be the worse half: a link claiming a window it does
+    not apply.
     """
     try:
         since = datetime.now(timezone.utc) - timedelta(days=APPLIED_WINDOW_DAYS)
         return {"count": store.count_events(AUTO_APPLIED_EVENT, since=since),
-                "days": APPLIED_WINDOW_DAYS}
+                "days": APPLIED_WINDOW_DAYS,
+                "url": APPLIED_URL}
     except Exception:                                    # noqa: BLE001
         return None
 
