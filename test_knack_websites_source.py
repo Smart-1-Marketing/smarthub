@@ -252,7 +252,7 @@ check("and it is compared against the calendar, not a file timestamp",
 import hub as _hub                                                # noqa: E402
 import inspect as _inspect                                        # noqa: E402
 hub_src = _inspect.getsource(_hub.create_hub_app)
-row = hub_src[hub_src.index("--- Knack data ---"):][:2000]
+row = hub_src[hub_src.index("--- Knack data ---"):][:3200]
 check("the status row reads export_state()", "export_state()" in row)
 check("and no longer prints the file age as a refresh time",
       "Refreshed {age" not in row and "Last refreshed" not in row, row[:200])
@@ -278,6 +278,80 @@ if signed:
           signed["message"])
     check("without claiming a refresh time it cannot know",
           "Refreshed" not in signed["message"], signed["message"])
+    # In this test environment KNACK_APP_ID/KNACK_API_KEY are unset and the
+    # fallback fixture's own month has passed, so this is the "Knack cannot
+    # be reached and the fallback is stale" branch — a warning, never the
+    # bare "error" the row used to give every deployment with no live Knack
+    # pull and no fallback file. That distinction is asserted directly below.
+    check("Knack not answering with a usable fallback on hand warns rather than errors",
+          signed.get("status") == "warn", signed)
+
+
+# ---------------------------------------------------------------------------
+print("\nThe status row asks whether Knack itself is live before blaming the "
+      "optional fallback file")
+# ---------------------------------------------------------------------------
+# hub/knack_data.py's own docstring says the fallback "may fall back to
+# products.json ... when Knack cannot be reached" — it is read only then, so
+# a deployment where the live pull answers every time has no reason to carry
+# one. The row used to judge only the fallback's own freshness, so an
+# unconfigured, entirely optional CLIENTS_DATA_DIR read as a flat "error" on
+# a Hub whose live Knack connection was working perfectly.
+import hub.knack_products as _kp                                  # noqa: E402
+
+_real_kp_rows = _kp.rows
+
+
+def _status_row():
+    app = _hub.create_hub_app()
+    cli = app.test_client()
+    cli.post("/login", data={"password": os.environ["PANEL_PASSWORD"]},
+             follow_redirects=True)
+    rows = (cli.get("/api/status").get_json() or {}).get("checks") or []
+    return next((r for r in rows if "Smart 1 Team data" in r.get("name", "")), None)
+
+
+_kp.rows = lambda *a, **k: {"rows": [{"client": "Acme"}], "source": "knack",
+                            "age_minutes": 4, "count": 1, "fields_version": 3}
+row = _status_row()
+check("a live Knack pull reads ok, whatever the fallback file's own state is",
+      row and row.get("status") == "ok", row)
+check("and the message says it came from Knack, not the fallback",
+      row and "Live from Knack" in row.get("message", ""), row)
+_kp.rows = _real_kp_rows
+
+_no_source_dir = tempfile.mkdtemp(prefix="s1-no-fallback-")
+_real_base = kd.BASE
+_real_products_cache = dict(kd._cache)                            # noqa: SLF001
+kd.BASE = _no_source_dir
+kd._cache.clear()                                                 # noqa: SLF001
+row = _status_row()
+check("Knack unreachable with no fallback on disk at all is a real error",
+      row and row.get("status") == "error", row)
+check("and it says there is no source at all, not merely that a file is missing",
+      row and "no source for client products" in row.get("message", ""), row)
+kd.BASE = _real_base
+kd._cache.clear()                                                 # noqa: SLF001
+kd._cache.update(_real_products_cache)                            # noqa: SLF001
+shutil.rmtree(_no_source_dir, ignore_errors=True)
+
+_current_dir = tempfile.mkdtemp(prefix="s1-current-fallback-")
+with open(os.path.join(_current_dir, "products.json"), "w", encoding="utf-8") as fh:
+    import json as _json
+    _json.dump({"thisMonth": kd._current_period(),                # noqa: SLF001
+                "records": [{"client": "Acme"}]}, fh)
+kd.BASE = _current_dir
+kd._cache.clear()                                                 # noqa: SLF001
+row = _status_row()
+check("Knack unreachable but a current fallback on hand is still a warning, "
+      "not a silent ok",
+      row and row.get("status") == "warn", row)
+check("and it says Knack is the thing that could not be reached",
+      row and "Knack could not be reached" in row.get("message", ""), row)
+kd.BASE = _real_base
+kd._cache.clear()                                                 # noqa: SLF001
+kd._cache.update(_real_products_cache)                            # noqa: SLF001
+shutil.rmtree(_current_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
