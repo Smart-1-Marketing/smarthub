@@ -59,8 +59,11 @@ creates nothing, because the month builder is what makes posts).
 SPEND_AND_DEMO is the Proposal Builder's /api/spend-demo (an internal
 market briefing on the Budget step, never on the document) and SNAP_CONCEPT
 is the Landing Page Maker's /api/landing/snap-concept (an idea; the Build
-button is what makes a page). Audience Finder is the remaining live-call
-tool, spec'd in docs/pickaxe-integration.md.
+button is what makes a page). The Audience Finder — the second live-call
+tool — is wired twice: per campaign through the Proposal Builder's
+/api/find-audiences, and per client through hub/audience_spec.py (the
+Client 360 card, read by the proposal, the IO and AD_COPY's audience
+prefill). Nothing harvested from the package remains unwired.
 """
 from __future__ import annotations
 
@@ -158,8 +161,9 @@ AD_COPY = {
         "industry":     "client record",
         "objective":    "campaign — one or more of: Drive Sales, Leads, "
                         "Sign Ups, Increase total traffic",
-        "audience":     "audience_spec.for_prompt() once the Audience "
-                        "Finder integration lands; typed until then",
+        "audience":     "typed on the campaign; else the audience confirmed "
+                        "on Client 360 (audience_spec.for_prompt()); else "
+                        "'not provided'",
         "products":     "client record / campaign",
         "usp":          "client record (business description)",
         "cta":          "campaign",

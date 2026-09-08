@@ -75,12 +75,27 @@ language lives in that prompt and nowhere else in writing, the draft is an
 idea to talk through, and it builds and saves nothing — the Build button is
 what makes a page.
 
+**Audience Finder** — the second live-call tool, wired at two grains. Per
+campaign: the Proposal Builder's `/api/find-audiences` asks the agency's
+audience catalog and tick-gates what comes back into the campaign. Per
+client — the "One Audience, Four Readers" build — `hub/audience_spec.py`
+holds one confirmed audience per client: the Client 360 **Target audience**
+card proposes (a billed button, the same Pickaxe with the Hub's own AI as
+the labeled fallback), a rep ticks and keeps, and the confirmation is read
+by the Proposal Builder's audience step (offered as one-press adds), the IO
+Builder's audiences question (its segments join the options, with a line
+saying where they came from) and `AD_COPY`'s `{audience}` prefill
+(`for_prompt()` — a value typed on the campaign always wins). Nothing is
+written by proposing, a failed read is never "no audience", and clearing is
+its own verb. The reply parser and candidate shaping are shared with the
+proposal route so the two callers cannot drift.
+
 ## Still to wire
 
-1. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
-   `hub/audience_spec.py`, the rep-confirmation gate, the IO and proposal
-   reads, the client page. Its registry entry is already in
-   `hub/pickaxe_registry.py` so both live-call tools share one file.
+Nothing. Every tool harvested from the package is absorbed or wired; the
+only excluded one (ROI for Digital Products) is excluded at the owner's
+direction, and Overcome Objections still awaits its prompt-frame export
+before it can be harvested at all.
 
 Rules that hold for every step: the prompts are near-verbatim from Pickaxes
 that produced accepted output for two years — do not rewrite them in the same

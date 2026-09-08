@@ -799,6 +799,74 @@ def create_hub_app() -> Flask:
                         actor=current_user() or "")
         return jsonify(res), (200 if res.get("ok") else 400)
 
+    @app.route("/api/client/audience")
+    def api_client_audience():
+        """The confirmed audience on a client's record — a jsonstore read.
+
+        Costs nothing, which is what lets the Client 360 card, the Proposal
+        Builder's audience step and the IO Builder's audiences question all
+        ask on every render. An empty name is refused rather than answered:
+        the slug fallback would file every nameless read under one key,
+        which is the ""-matches-everybody failure one field over.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        name = str(request.args.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "No client named."}), 400
+        from .audience_spec import get as get_audience
+        return jsonify(get_audience(name))
+
+    @app.route("/api/client/audience/find", methods=["POST"])
+    def api_client_audience_find():
+        """Propose an audience — the Audience Finder Pickaxe, or the Hub's AI.
+
+        A POST behind a button, never a page load: the Pickaxe bills per use,
+        the /tools/domains rule. Nothing comes back accepted and nothing is
+        written by proposing — confirming is its own POST, a person's press.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .audience_spec import propose
+        body = request.get_json(silent=True) or {}
+        res = propose(str(body.get("name") or "").strip(),
+                      sells=str(body.get("sells") or ""),
+                      user=current_user() or "")
+        if not res.get("ok"):
+            code = 400 if res.get("error", "").startswith("No client") else 502
+            return jsonify(res), code
+        return jsonify(res)
+
+    @app.route("/api/client/audience", methods=["POST"])
+    def api_client_audience_set():
+        """Confirm — or, with clear:true, take back — the client's audience.
+
+        Confirm replaces the stored set with the list the card shows, so
+        removing one segment is the same call as adding one. An empty list
+        without the clear flag is refused by name rather than read as a
+        clear: "save what is ticked" and "take this off the record" are
+        different statements and one call answering both cannot say which
+        it did.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from .audience_spec import clear as clear_audience
+        from .audience_spec import confirm as confirm_audience
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        actor = current_user() or ""
+        if body.get("clear"):
+            res = clear_audience(name, actor=actor)
+        else:
+            res = confirm_audience(name, body.get("audiences") or [],
+                                   target=str(body.get("target") or ""),
+                                   source=str(body.get("source") or ""),
+                                   actor=actor)
+        return jsonify(res), (200 if res.get("ok") else 400)
+
     @app.route("/api/client/logos", methods=["POST"])
     def api_client_logos():
         """File every logo we already hold for this client into their gallery.

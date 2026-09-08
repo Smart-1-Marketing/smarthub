@@ -219,7 +219,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','smart 1 suite','proposals','client notes']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','smart 1 suite','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -588,6 +588,17 @@ function render(g,q){
     <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Brand</span><h3>Brand &amp; logos</h3>
     <div class="right" id="c-brand-acts"></div></div>
     <div class="card-b" id="c-brand"><div class="empty">Loading brand…</div></div></div>`;
+
+  /* ---------- Target audience: one confirmed answer, four readers ----------
+     Who this client's advertising is for, confirmed once (hub/audience_spec)
+     and read by the Proposal Builder's audience step, the IO Builder's
+     audiences question and Smart 1 Ads' copy writer. Find is a billed
+     Pickaxe call, which is why it is a button; everything it returns is a
+     suggestion until a person ticks it and presses Keep. */
+  html+=`<div class="card"><div class="card-h">
+    <span class="src-tag src-web" style="background:#fce7f3;color:#9d174d">Audience</span><h3>Target audience {{ help_dot('hub.client360.audience') if help_dot is defined else '' }}</h3>
+    <div class="right" id="c-audience-acts"></div></div>
+    <div class="card-b" id="c-audience"><div class="empty">Loading audience…</div></div></div>`;
 
   // ---------- Everything the Hub has made for this client ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
@@ -3559,6 +3570,138 @@ function grpRender(info){
   document.getElementById('grpQ').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
 }
 
+/* ------------------------------------------------------ audience card
+   One confirmed audience per client (hub/audience_spec.py), read by the
+   Proposal Builder's audience step, the IO Builder's audiences question
+   and the ad-copy prompt. The model proposes and a person ticks — nothing
+   below writes anything until Keep is pressed, and Find is a billed call,
+   which is why it is a button and never part of loading the card. */
+let AUD360={rows:null,busy:false,note:'',target:'',source:'',error:'',sells:''};
+function loadAudience(name){
+  AUD360={rows:null,busy:false,note:'',target:'',source:'',error:'',sells:''};
+  fetch('/api/client/audience?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){renderAudience(d);})
+    .catch(function(){
+      var el=document.getElementById('c-audience');
+      /* "We could not look" is never drawn as "there is nothing" — the
+         scan_facts rule, one card over. */
+      if(el)el.innerHTML='<div class="empty">The audience record could not be '
+        +'read — which is not the same as no audience being confirmed.</div>';
+    });
+}
+function renderAudience(d){
+  var el=document.getElementById('c-audience'); if(!el) return;
+  var acts=document.getElementById('c-audience-acts');
+  window.__aud360=d||{};
+  if(d&&d.error){ el.innerHTML='<div class="empty">'+esc(d.error)+'</div>'; return; }
+  var h='';
+  if(d&&d.picked){
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
+      +(d.audiences||[]).map(function(a,i){return '<span class="pill neutral" '
+        +'style="display:inline-flex;align-items:center;gap:6px">'+esc(a)
+        +' <a href="#" title="Remove this segment from the confirmed audience" '
+        +'onclick="dropAudience360('+i+');return false" '
+        +'style="text-decoration:none">&times;</a></span>';}).join('')+'</div>';
+    if(d.target)h+='<div class="muted" style="font-size:11.5px">Found against: '+esc(d.target)+'</div>';
+    h+='<div class="muted" style="font-size:11.5px;margin-top:4px">Confirmed'
+      +(d.updated_by?' by '+esc(d.updated_by):'')
+      +(d.updated_at?' on '+esc(String(d.updated_at).slice(0,10)):'')
+      +'. The Proposal Builder, the IO Builder and the ad-copy writer read '
+      +'this — a value typed on a campaign still wins.</div>';
+  }else{
+    h+='<div class="empty">No audience confirmed for this client yet. Find asks '
+      +'the agency\'s own audience catalog; nothing is saved until you keep '
+      +'what fits.</div>';
+  }
+  h+='<div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap">'
+    +'<input id="audSells" value="'+esc(AUD360.sells||'')+'" placeholder="Who should this reach / what do they sell? (optional)" '
+    +'style="flex:1;min-width:200px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit">'
+    +'<a class="gbtn" href="#" onclick="findAudience360();return false" '
+    +'title="Asks the Audience Finder — the agency\'s own audience catalog — about this client. This call is billed, which is why it is a button.">'
+    +(AUD360.busy?'<span class="spin" data-s1-think="ai"></span>Searching…':'&#128269; Find an audience')+'</a></div>';
+  if(AUD360.error)h+='<div class="muted" style="color:#b91c1c;font-size:12px;margin-top:8px">'+esc(AUD360.error)+'</div>';
+  if(AUD360.rows){
+    if(!AUD360.rows.length){
+      h+='<div class="muted" style="font-size:12px;margin-top:8px">'
+        +esc(AUD360.note||'Nothing came back for this client.')+'</div>';
+    }else{
+      h+='<div class="muted" style="font-size:12px;margin:8px 0 6px">'+esc(AUD360.note||'')+'</div>'
+        +AUD360.rows.map(function(r,i){return '<label style="display:block;padding:4px 2px;'
+          +'border-bottom:1px dashed var(--line);cursor:pointer">'
+          +'<input type="checkbox" '+(r.accepted?'checked':'')
+          +' onchange="AUD360.rows['+i+'].accepted=this.checked" style="margin-right:7px">'
+          +esc(r.name)+'</label>';}).join('')
+        +'<div style="margin-top:8px;display:flex;gap:8px">'
+        +'<a class="gbtn" href="#" onclick="keepAudience360();return false">Keep ticked</a>'
+        +'<a class="gbtn" href="#" onclick="AUD360.rows=null;renderAudience(window.__aud360);return false">Dismiss</a></div>';
+    }
+  }
+  el.innerHTML=h;
+  if(acts)acts.innerHTML=(d&&d.picked)
+    ?'<a class="gbtn" href="#" onclick="clearAudience360();return false" '
+     +'title="Takes the confirmed audience off this record.">Clear</a>':'';
+}
+function findAudience360(){
+  if(AUD360.busy)return;
+  var inp=document.getElementById('audSells');
+  AUD360.sells=inp?inp.value.trim():'';
+  AUD360.busy=true;AUD360.error='';AUD360.rows=null;
+  renderAudience(window.__aud360);
+  fetch('/api/client/audience/find',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:window.CURRENT_CLIENT||'',sells:AUD360.sells||''})})
+   .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+   .then(function(x){
+     AUD360.busy=false;
+     if(!x.ok||!(x.d&&x.d.ok)){
+       AUD360.error=((x.d&&x.d.error)||'The audience research did not run')
+         +' — nothing has been changed on this record.';
+       AUD360.rows=null;
+     }else{
+       AUD360.rows=x.d.audiences||[];AUD360.note=x.d.note||'';
+       AUD360.target=x.d.target||'';AUD360.source=x.d.source||'';
+     }
+     renderAudience(window.__aud360);
+   })
+   .catch(function(){
+     AUD360.busy=false;
+     AUD360.error='The audience research did not run — nothing has been changed on this record.';
+     renderAudience(window.__aud360);
+   });
+}
+function keepAudience360(){
+  var ticked=(AUD360.rows||[]).filter(function(r){return r.accepted;})
+    .map(function(r){return r.name;});
+  if(!ticked.length){alert('Tick the segments that fit first — nothing was saved.');return;}
+  var current=((window.__aud360||{}).audiences)||[];
+  postAudience360({name:window.CURRENT_CLIENT||'',audiences:current.concat(ticked),
+                   target:AUD360.target||'',source:AUD360.source||''});
+}
+function dropAudience360(i){
+  var d=window.__aud360||{};
+  var rest=(d.audiences||[]).filter(function(_,j){return j!==i;});
+  if(!rest.length){clearAudience360();return;}
+  postAudience360({name:window.CURRENT_CLIENT||'',audiences:rest,
+                   target:d.target||'',source:d.source||''});
+}
+function clearAudience360(){
+  if(!confirm('Take the confirmed audience off this record? The Proposal '
+              +'Builder, the IO Builder and the ad-copy writer will stop '
+              +'offering it.'))return;
+  postAudience360({name:window.CURRENT_CLIENT||'',clear:true});
+}
+function postAudience360(body){
+  fetch('/api/client/audience',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+   .then(function(r){return r.json();})
+   .then(function(d){
+     if(d&&d.ok){AUD360.rows=null;if(d.note)alert(d.note);renderAudience(d.audience);}
+     else alert((d&&d.error)||'The save did not happen.');
+   })
+   .catch(function(){alert('The save did not happen — the Hub could not be reached.');});
+}
+
 function loadBrand(name){
   var dom = window.__c360domain || '';
   fetch('/api/client/brand?name='+encodeURIComponent(name)
@@ -3610,6 +3753,7 @@ function loadBrandAndWork(name){
      ever run landed in the second one, so asking by name alone is why this
      card read "no brand data yet" for clients whose logo was plainly on file. */
   loadBrand(name);
+  loadAudience(name);
   fetch('/api/client/work?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(r=>r.json()).then(renderWork).catch(()=>{});
   loadClientLinks(name);

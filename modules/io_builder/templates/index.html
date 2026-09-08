@@ -955,6 +955,23 @@ function loadExistingIOs(client){
   .catch(err=>{REPLACE.checked=true;REPLACE.ios=[];REPLACE.error=String(err&&err.message||err);});
 }
 
+/* The audience confirmed on the client's record (hub/audience_spec.py — the
+   Client 360 card), looked up the same way the existing IOs are: a hub
+   route, root-absolute on purpose. Its segments join the audiences
+   question's options, with a line saying where they came from; ticking is
+   still the person's press. A read that failed offers nothing rather than
+   inventing an audience — the options simply do not gain the on-file rows. */
+let AUDFILE={client:""};
+function loadConfirmedAudience(client){
+ if(!client||AUDFILE.client===client)return Promise.resolve();
+ AUDFILE.client=client;
+ return fetch("/api/client/audience?name="+encodeURIComponent(client),
+       {credentials:"same-origin"})
+  .then(r=>r.json())
+  .then(d=>{state.confirmedAudience=(d&&d.picked)?(d.audiences||[]):[];})
+  .catch(()=>{state.confirmedAudience=state.confirmedAudience||[];});
+}
+
 /* ============================================================
    PROPOSAL PRODUCT INTAKE
    Every product the reader pulled out of a proposal, asked about one at a
@@ -1227,7 +1244,12 @@ function suggestedAudienceOptions(){
   "Recent Movers","High-Income Households","In-Market Buyers","Website Visitors","Customer Lookalikes",
   "Competitor Visitors","Past Customers","Local Residents"
  ];
- return [AUDIENCE_NONE,...new Set([...(base.behavioral||[]),...(base.contextual||[]),...extras])];
+ /* The audience confirmed on the client's own record leads the options
+    (hub/audience_spec.py — the Client 360 card). Offered, never pre-ticked:
+    the question above says where these came from, and ticking is still the
+    person's press. */
+ return [AUDIENCE_NONE,...new Set([...(state.confirmedAudience||[]),
+   ...(base.behavioral||[]),...(base.contextual||[]),...extras])];
 }
 
 
@@ -1670,6 +1692,13 @@ function ask(){
   const rec=recommendedKPIs();
   if(rec.length)text=`SMART1 recommends: ${rec.join(", ")}.\n${text}`;
  }
+ if(q.key==="audiences"&&(state.confirmedAudience||[]).length){
+  /* Where these options came from matters: a segment confirmed on the
+     client's record and a library suggestion are different confidences,
+     and mixed unlabeled the provenance is lost. Ticking is still the
+     person's press — nothing is pre-ticked. */
+  text=`On file from Client 360 — the audience confirmed on ${state.client||"this client"}'s record: ${state.confirmedAudience.join(", ")}. They are in the options below.\n${text}`;
+ }
  addMsg(text);
  const opts=q.dynamicOptions?q.dynamicOptions():q.options;
  const inputRow=document.getElementById("inputRow");
@@ -1884,12 +1913,17 @@ async function submit(raw){
       and a lookup still in flight when it comes round means the question is
       silently skipped for a client who does have orders. */
    if(state.client)try{await loadExistingIOs(state.client)}catch(err){}
+   /* Fired off, not awaited: the audiences question is far enough away that
+      the answer is here long before it is asked, and a slow read must not
+      hold the interview. */
+   if(state.client)loadConfirmedAudience(state.client);
   }
   index++;render();ask();return
  }
  if(q.key==="client"){
   state.client=val;
   if(state.ioType==="New IO")try{await loadExistingIOs(val)}catch(err){}
+  loadConfirmedAudience(val);
   index++;render();ask();return
  }
  if(q.key==="replacesIo"){
@@ -3710,6 +3744,7 @@ function applyReadPayload(d,client){
       reaches "New IO or Revised IO?" the answer is here or it is not, and a
       question with no options is never asked. */
    if(state.client)loadExistingIOs(state.client);
+   if(state.client)loadConfirmedAudience(state.client);
    ask();
 }
 
