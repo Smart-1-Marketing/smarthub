@@ -80,19 +80,23 @@
   .pill{font-size:11.5px;border-radius:20px;padding:2px 9px;background:#eef2ff;color:#3730a3}
   .checklist li{margin-bottom:6px;font-size:13px;line-height:1.5}
   code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:12px}
+  [hidden]{display:none!important}
+  .steps{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}
+  .s1d-page #steps button[aria-current=step]{background:var(--navy);color:white}
+  .wizard-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0}
+  @media(max-width:600px){.steps button{flex:1}.wrap{padding:20px 14px}}
 </style>
 </head>
 <body>
 <div class="wrap s1d-page">
   <a class="back" href="/creative">&larr; Creative</a>
   <h1>GPT Ads Builder</h1>
-  <p class="sub">Everything ad operations asks for in one file: the 1:1 square image, headline,
-    body and call-to-action options, the destination URL checked live, the brand requirements and
-    the offer in the client's own words. Pick a client and the pack starts with what the Hub already
-    knows about them. The image is measured rather than described, and the landing page is fetched
-    rather than ticked &mdash; a pack is only called ready when nothing is outstanding.</p>
+  <p class="sub">Build your client's ad pack one step at a time: confirm the offer and brand,
+    write the copy, add an image, check the landing page, and review the handoff.</p>
+  <nav class="steps" aria-label="Ad pack progress" id="steps"></nav>
+  <p id="wizardMsg" role="status" class="hint"></p>
 
-  <div class="card">
+  <div class="card" id="clientCard">
     <h2><span class="n">1</span> Client {{ help_dot('gpt_ads.pack.client') if help_dot is defined else '' }}</h2>
     <div class="grid">
       <div>
@@ -113,8 +117,8 @@
   </div>
 
   <div id="packArea" hidden>
-    <div class="card">
-      <h2>Readiness {{ help_dot('gpt_ads.pack.readiness') if help_dot is defined else '' }} <span class="state" id="readyState">&nbsp;</span></h2>
+    <div class="card" id="reviewCard" hidden>
+      <h2><span class="n">6</span> Review and download {{ help_dot('gpt_ads.pack.readiness') if help_dot is defined else '' }} <span class="state" id="readyState">&nbsp;</span></h2>
       <p class="req" id="readySummary"></p>
       <ul class="checklist" id="readyList"></ul>
       <div class="bar" style="margin-top:6px">
@@ -136,7 +140,7 @@
         printed at the top of the brief rather than left for ad ops to notice.</p>
     </div>
 
-    <div class="card">
+    <div class="card" id="copyCard" hidden>
       <h2><span class="n">3</span> Ad copy options {{ help_dot('gpt_ads.pack.copy') if help_dot is defined else '' }} <span class="state" id="stCopy">&nbsp;</span></h2>
       <p class="req" id="reqCopy"></p>
       <div class="bar">
@@ -149,8 +153,8 @@
       <p class="hint" id="limitNote"></p>
     </div>
 
-    <div class="card">
-      <h2><span class="n">1</span> Static square image <span class="state" id="stImage">&nbsp;</span></h2>
+    <div class="card" id="imageCard" hidden>
+      <h2><span class="n">4</span> Static square image <span class="state" id="stImage">&nbsp;</span></h2>
       <p class="req" id="reqImage"></p>
       <div class="imgrow">
         <img class="thumb" id="thumb" alt="" hidden>
@@ -182,8 +186,8 @@
       <span class="msg" id="imgmsg"></span>
     </div>
 
-    <div class="card">
-      <h2><span class="n">3</span> Landing page <span class="state" id="stLanding">&nbsp;</span></h2>
+    <div class="card" id="landingCard" hidden>
+      <h2><span class="n">5</span> Landing page <span class="state" id="stLanding">&nbsp;</span></h2>
       <p class="req" id="reqLanding"></p>
       <div class="grid">
         <div>
@@ -202,8 +206,8 @@
       <div class="ctx" id="landingResult" hidden></div>
     </div>
 
-    <div class="card">
-      <h2><span class="n">5</span> Offer details <span class="state" id="stOffer">&nbsp;</span></h2>
+    <div class="card" id="offerCard" hidden>
+      <h2><span class="n">2</span> Offer details <span class="state" id="stOffer">&nbsp;</span></h2>
       <p class="req" id="reqOffer"></p>
       <div class="grid">
         <div>
@@ -239,8 +243,8 @@
         expiry date already in the past stops the pack.</p>
     </div>
 
-    <div class="card">
-      <h2><span class="n">4</span> Brand requirements <span class="state" id="stBrand">&nbsp;</span></h2>
+    <div class="card" id="brandCard" hidden>
+      <h2><span class="n">2</span> Brand requirements <span class="state" id="stBrand">&nbsp;</span></h2>
       <p class="req" id="reqBrand"></p>
       <div class="grid">
         <div>
@@ -279,14 +283,19 @@
         <label class="f" for="notes">Notes for ad operations <span class="opt">&mdash; optional</span></label>
         <textarea id="notes" rows="2" placeholder="Anything the trafficker needs to know"></textarea>
       </div>
-      <div class="bar" style="margin-top:14px">
-        <button class="btn" id="save">Save pack</button>
-        <span class="msg" id="savemsg"></span>
-      </div>
+
     </div>
   </div>
 
-  <div class="card">
+  <div class="wizard-actions">
+    <button class="btn sec" id="wizardBack" hidden>Back</button>
+    <div id="saveActions" hidden><button class="btn sec" id="save">Save pack</button>
+      <span class="msg" id="savemsg" role="status"></span></div>
+    <button class="btn" id="wizardNext" hidden>Continue</button>
+    <button class="btn sec" id="newPack" hidden>Start another pack</button>
+  </div>
+
+  <div class="card" id="savedCard">
     <h2>Saved packs</h2>
     <div id="saved"><div class="empty">Nothing saved yet.</div></div>
   </div>
@@ -303,6 +312,47 @@ var SPEC = BOOT.spec;
 var state = {client:"", url:"", pack:null, context:null};
 
 function $(id){ return document.getElementById(id); }
+var stepIndex = 0;
+var stepNames = ['Client', 'Offer & brand', 'Copy', 'Image', 'Landing page', 'Review'];
+var stepCards = [['clientCard'], ['offerCard', 'brandCard'], ['copyCard'],
+                 ['imageCard'], ['landingCard'], ['reviewCard']];
+function showStep(index, focus){
+  stepIndex = index;
+  stepCards.forEach(function(ids, i){
+    ids.forEach(function(id){ $(id).hidden = i !== index; });
+  });
+  $('steps').innerHTML = stepNames.map(function(name, i){
+    return '<button type="button" class="btn sec" data-step="'+i+'"'+
+      (i === index ? ' aria-current="step"' : '')+
+      (!state.pack && i > 0 ? ' disabled' : '')+'>'+(i+1)+'. '+esc(name)+'</button>';
+  }).join('');
+  $('wizardMsg').textContent = 'Step '+(index+1)+' of 6 · '+stepNames[index];
+  $('wizardBack').hidden = index === 0;
+  $('wizardNext').hidden = !state.pack || index === 5;
+  $('wizardNext').textContent = index === 4 ? 'Continue to review' : 'Continue';
+  $('saveActions').hidden = !state.pack;
+  $('savedCard').hidden = index !== 0;
+  $('start').hidden = !!state.pack;
+  $('newPack').hidden = !state.pack || (index !== 0 && index !== 5);
+  $('clientq').disabled = !!state.pack;
+  if (focus) {
+    var heading = $(stepCards[index][0]).querySelector('h2');
+    heading.tabIndex = -1;
+    heading.focus({preventScroll:true});
+    $('steps').scrollIntoView({block:'start',behavior:'smooth'});
+  }
+}
+function goStep(index){
+  if (index === stepIndex || (!state.pack && index > 0)) return;
+  if (state.pack) save(function(){ showStep(index, true); });
+  else showStep(index, true);
+}
+$('steps').addEventListener('click', function(e){
+  var button = e.target.closest('button[data-step]');
+  if (button) goStep(Number(button.dataset.step));
+});
+$('wizardBack').addEventListener('click', function(){ goStep(stepIndex-1); });
+$('wizardNext').addEventListener('click', function(){ goStep(stepIndex+1); });
 function esc(s){
   return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
@@ -436,12 +486,12 @@ $("start").addEventListener("click", function(){
     .then(function(d){
       if (!d.ok) { say("startmsg", d.error, "err"); return; }
       say("startmsg", "");
-      adopt(d);
+      adopt(d, 1);
       loadSaved();
     });
 });
 
-function adopt(d){
+function adopt(d, step){
   state.pack = d.ad;
   if (d.context) { state.context = d.context; renderContext(); }
   $("packArea").hidden = false;
@@ -453,6 +503,7 @@ function adopt(d){
   renderImage();
   renderLanding();
   renderGallery();
+  showStep(step == null ? 5 : step, true);
 }
 
 function fillForm(){
@@ -506,10 +557,13 @@ function formPayload(){
   });
 }
 
+var saving = false;
 function save(then){
-  if (!state.pack) return;
+  if (!state.pack || saving) return;
+  saving = true;
   say("savemsg", "Saving…");
   post("/tools/gpt-ads/api/ads/save", formPayload()).then(function(d){
+    saving = false;
     if (!d.ok) { say("savemsg", d.error, "err"); return; }
     say("savemsg", "Saved.", "ok");
     state.pack = d.ad;
@@ -518,6 +572,9 @@ function save(then){
     renderLanding();
     loadSaved();
     if (then) { then(); }
+  }).catch(function(){
+    saving = false;
+    say("savemsg", "Could not save. Please try again before continuing.", "err");
   });
 }
 $("save").addEventListener("click", function(){ save(null); });
@@ -529,6 +586,7 @@ $("deletePack").addEventListener("click", function(){
     if (!d.ok) { say("readymsg", d.error, "err"); return; }
     state.pack = null;
     $("packArea").hidden = true;
+    showStep(0, true);
     loadSaved();
   });
 });
@@ -867,7 +925,17 @@ $("saved").addEventListener("click", function(ev){
   });
 });
 
+$('newPack').addEventListener('click', function(){
+  save(function(){
+    state.pack = null;
+    $('packArea').hidden = true;
+    $('campaign').value = '';
+    say('savemsg', '');
+    showStep(0, true);
+  });
+});
 // ---------------------------------------------------------------- boot
+showStep(0, false);
 if (BOOT.client) { pickClient(BOOT.client, BOOT.url || ""); }
 if (BOOT.open) {
   post("/tools/gpt-ads/api/ads/load", {id: BOOT.open}).then(function(d){
