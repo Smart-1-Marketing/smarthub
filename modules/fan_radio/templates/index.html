@@ -165,6 +165,8 @@
   <div class="card" id="writecard" style="display:none">
     <h2><span class="n">3</span> Write the spots {{ help_dot('fan_radio.build.spots') if help_dot is defined else '' }}</h2>
     <div id="slots" class="grid3"></div>
+    <div class="bank" id="lenkey" style="margin-top:12px"></div>
+    <div id="lenwarn" style="margin-top:10px"></div>
     <div style="margin-top:13px">
       <label class="f" for="steer">Steer this batch <span class="opt">— optional</span></label>
       <input id="steer" type="text" placeholder="Lean on the tailgate angle. Mention the drive-thru.">
@@ -185,17 +187,64 @@
 
   <!-- 5 ------------------------------------------------------------- -->
   <div class="card" id="voicecard" style="display:none">
-    <h2><span class="n">5</span> The voice</h2>
-    <div class="row">
-      <button class="btn sec sm" id="cast">Suggest voices</button>
+    <h2><span class="n">5</span> The voice {{ help_dot('fan_radio.build.voice') if help_dot is defined else '' }}</h2>
+
+    <!-- How this client's name is said. The field has been on every project
+         row since this tool was written and nothing ever set it: every render
+         went out with whatever ElevenLabs made of the business name. -->
+    <label class="f">How to say it <span class="opt">— one per line, as
+      <code>what's written = how to say it</code></span></label>
+    <textarea id="prons" style="min-height:56px"
+      placeholder="Boehm = Beam&#10;Cirilla's = suh-RILL-uhs"></textarea>
+    <div class="row" style="margin-top:9px">
+      <button class="btn sec sm" id="savepron">Save &amp; apply to every spot</button>
+      <button class="btn sec sm" id="hearit">Show me what the voice reads</button>
+      <span class="msg" id="pronmsg"></span>
+    </div>
+    <div id="spoken" class="bank" style="margin-top:10px;display:none"></div>
+
+    <!-- The casting question. Five rows from hub/voice_casting, each printing
+         the words that answer actually matches on — "Announcer" is a search
+         for announcer/commercial/broadcast/promo in what ElevenLabs publishes
+         about a voice, and a picker that says so lets somebody pick again
+         before listening to three wrong ones. -->
+    <label class="f" style="margin-top:15px">What the read should sound like</label>
+    <div id="want" class="grid3"></div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="btn sec sm" id="cast">Suggest voices from the brief</button>
+      <button class="btn sec sm" id="rematch">Rank on what I picked</button>
+      <button class="btn sec sm" id="allowance">Characters left this month</button>
       <span class="msg" id="castmsg"></span>
     </div>
+    <div class="row" style="margin-top:10px">
+      <input id="voiceid" type="text" placeholder="…or paste an ElevenLabs voice ID"
+             style="max-width:340px">
+      <button class="btn sec sm" id="byid">Use that one</button>
+    </div>
+    <div class="hint">A voice cloned on the account carries no labels for the
+      ranking to score, so it is reached by ID rather than hunted for in a
+      shortlist that cannot rank it. Cloning itself lives in the Radio Ad
+      Creator — it makes a voice out of somebody's recordings, which is a
+      consent question, and one place to answer it is the right number.</div>
     <div id="voices" style="margin-top:12px"></div>
   </div>
 
   <!-- 6 ------------------------------------------------------------- -->
+  <div class="card" id="musiccard" style="display:none">
+    <h2><span class="n">6</span> Background music &amp; the mix {{ help_dot('fan_radio.build.music') if help_dot is defined else '' }}</h2>
+    <p class="hint" style="margin-top:0">A bed is composed at each spot's own
+      length, so nothing is trimmed to fit, and the mix is rendered in your
+      browser — which is what lets its length be measured off the finished file
+      rather than reported by this page. A spot with no bed is a straight read,
+      which is an ordinary radio spot and passes the checks as one.</p>
+    <div id="mixcfg"></div>
+    <div id="music"></div>
+  </div>
+
+  <!-- 6 ------------------------------------------------------------- -->
   <div class="card" id="sharecard" style="display:none">
-    <h2><span class="n">6</span> Send it to the client {{ help_dot('fan_radio.build.share') if help_dot is defined else '' }}</h2>
+    <h2><span class="n">7</span> Send it to the client {{ help_dot('fan_radio.build.share') if help_dot is defined else '' }}</h2>
     <div class="grid">
       <div><label class="f">Page headline <span class="opt">— optional</span></label>
         <input id="s_head" type="text" placeholder="Your fall radio spots"></div>
@@ -244,8 +293,12 @@
   // hub-thinking.js is injected into every mounted module by HubBar, so
   // nothing is loaded here; it is still guarded, because a mark that takes
   // the message down with it is worse than no mark.
+  // Takes an element id, or a CSS selector for the rows this page draws from
+  // a template — a per-spot message line has no id of its own, and a message
+  // that silently goes nowhere is worse than no message.
   function say(id, text, kind){
-    var n = $(id); if(!n) return;
+    var n = /[\[\.\#]/.test(id) ? document.querySelector(id) : $(id);
+    if(!n) return;
     if(n._s1think){ n._s1think.done(); n._s1think = null; }
     n.className = "msg" + (kind ? " " + kind : "");
     if(["ai","scan","wait"].indexOf(kind) >= 0 && window.S1Think){
@@ -319,9 +372,15 @@
       html += '<div><label class="f">' + esc(d.label) + '</label>'
         + '<div class="hint" style="margin:0 0 6px">' + esc(d.when) + '</div>'
         + '<div class="picks">';
+      // Only the pair is ticked. The :10 and the :60 are one click away and
+      // deliberately off: each is a billed model call per daypart, so ticking
+      // all four across three dayparts is twelve writes on a job that usually
+      // wants six. `default_lengths` is the server's answer, not this page's.
       CAT.lengths.forEach(function(L){
-        html += '<span class="pick on" data-d="' + d.id + '" data-s="' + L.seconds
-             + '" data-o="neutral">' + esc(L.label) + '</span>';
+        var on = (CAT.default_lengths || []).indexOf(L.seconds) >= 0;
+        html += '<span class="pick' + (on ? " on" : "") + '" data-d="' + d.id
+             + '" data-s="' + L.seconds + '" data-o="neutral" title="'
+             + esc(L.name + " — " + L.note) + '">' + esc(L.label) + '</span>';
       });
       if(d.id === "postgame"){
         html += '<span class="pick" data-d="postgame" data-s="30" data-o="win">'
@@ -335,6 +394,25 @@
     $("slots").querySelectorAll(".pick").forEach(function(p){
       p.onclick = function(){ p.classList.toggle("on"); };
     });
+    // What each length is FOR, said once rather than once per chip. It was in
+    // a title attribute first, which is the quiet control this codebase keeps
+    // having to undo — a rep choosing between a :10 and a :60 should not have
+    // to hover to find out that one cannot carry a phone number and the other
+    // has room for a story.
+    $("lenkey").innerHTML = CAT.lengths.map(function(L){
+      return '<b>' + esc(L.label) + '</b> ' + esc(L.name) + ' — ' + esc(L.note)
+           + (L.min_seconds
+              ? ' Must run at least ' + L.min_seconds + ' seconds.' : '');
+    }).join("<br>");
+
+    // Only the :60 warns. A note on every length is a note nobody reads, and
+    // then the one that mattered goes past unread too — so this is drawn from
+    // the shared table's own `warning`, which only that length carries.
+    var warned = CAT.lengths.filter(function(L){ return L.warning; });
+    $("lenwarn").innerHTML = warned.map(function(L){
+      return '<div class="why warn"><b>' + esc(L.label) + '</b> — '
+           + esc(L.warning) + '</div>'; }).join("");
+
     $("bank").innerHTML = "<b>Safe football language the writer picks from:</b> "
       + Object.keys(CAT.safe_phrases).map(function(k){
           return CAT.safe_phrases[k].slice(0,6).map(esc).join(" · ");
@@ -372,9 +450,15 @@
   };
 
   function show(){
-    ["briefcard","writecard","spotscard","voicecard","sharecard"]
+    ["briefcard","writecard","spotscard","voicecard","musiccard","sharecard"]
       .forEach(function(id){ $(id).style.display = "block"; });
-    drawSpots(); drawShare();
+    drawWant(); fillProns(); drawSpots(); drawShare();
+    // The mix config is one cheap read and decides what the Music step can
+    // even offer, so it is fetched once a project exists rather than on every
+    // draw. A failure costs the panel and never the page.
+    loadMixConfig().then(function(){ drawMixConfig(); return loadQc(); })
+      .then(drawMusic)
+      .catch(function(){ drawMusic(); });
   }
 
   function fillBrief(){
@@ -498,7 +582,10 @@
       var ta = card.querySelector("textarea.sc");
       function done(j){ P.spots = P.spots.map(function(x){
           return x.id === (j.spot||{}).id ? j.spot : x; });
-        drawSpots(); }
+        // The Music step reads the same spots. Redrawing one screen and not
+        // the other is how a mix that has just been retired goes on being
+        // offered on the panel below.
+        drawSpots(); drawMusic(); }
       card.querySelectorAll("button").forEach(function(b){
         b.onclick = function(){
           var a = b.getAttribute("data-a");
@@ -530,33 +617,568 @@
   }
 
   /* ------------------------------------------------------------ voice */
+  // The casting question, drawn from the shared table the server sends. Five
+  // rows, each printing the words its answers match on, because "Announcer" is
+  // not a mood -- it is a search in what ElevenLabs publishes about a voice.
+  function drawWant(){
+    var rows = (CAT && CAT.voice_characteristics) || [];
+    if(!rows.length){ $("want").innerHTML = ""; return; }
+    var have = (P && P.voice_want) || {};
+    $("want").innerHTML = rows.map(function(row){
+      return '<div><label class="f">' + esc(row.label) + '</label>'
+        + '<select data-want="' + esc(row.id) + '">'
+        + row.options.map(function(o){
+            return '<option value="' + esc(o.id) + '"'
+                 + (have[row.id] === o.id ? " selected" : "") + '>'
+                 + esc(o.label) + '</option>'; }).join("")
+        + '</select><div class="hint">' + esc(
+            (row.options.filter(function(o){ return (o.matches||[]).length; })
+                .length
+              ? "Matched on " + row.scored_on + "."
+              : "Read off " + row.scored_on + "."))
+        + '</div></div>';
+    }).join("");
+  }
+  function wantNow(){
+    var out = {};
+    $("want").querySelectorAll("select[data-want]").forEach(function(sel){
+      out[sel.getAttribute("data-want")] = sel.value; });
+    return out;
+  }
+
+  function drawVoices(list, quality){
+    if(quality) say("castmsg", quality, "ok");
+    $("voices").innerHTML = (list || []).map(function(v){
+      return '<div class="spot"><div class="shead"><b>' + esc(v.name) + '</b>'
+        + '<span class="ver">' + esc([v.gender,v.age,v.accent].filter(Boolean).join(" · "))
+        + '</span><span class="tag info">score ' + esc(v.score) + '</span>'
+        + (v.custom ? '<span class="tag warn">named by ID</span>' : '') + '</div>'
+        + (v.preview_url ? '<audio controls preload="none" src="'
+            + esc(v.preview_url) + '"></audio>' : '')
+        + '<div class="sfoot"><button class="btn sec sm" data-v="' + esc(v.voice_id)
+        + '" data-n="' + esc(v.name) + '">Use this voice</button>'
+        + '<span class="ver">' + esc((v.match_reasons||[]).join(", ")
+            || "nothing to rank on — preview it") + '</span>'
+        + '</div></div>'; }).join("");
+    $("voices").querySelectorAll("button[data-v]").forEach(function(b){
+      b.onclick = function(){
+        api("/api/projects/"+P.id+"/voice", {method:"POST",
+          body:{voice_id:b.getAttribute("data-v"), name:b.getAttribute("data-n"),
+                energy: (wantNow().energy || "energetic")}})
+          .then(function(j){ P.voice = j.voice;
+            say("castmsg","Cast: " + b.getAttribute("data-n")
+              + ". Record each spot from section 4.","ok"); })
+          .catch(function(e){ say("castmsg", e.message, "err"); });
+      };
+    });
+  }
+
   $("cast").onclick = function(){
     this.disabled = true; say("castmsg","Casting the read…","ai");
     api("/api/projects/"+P.id+"/cast", {method:"POST", body:{tone:$("tone").value}})
       .then(function(j){
-        $("cast").disabled = false; say("castmsg", (j.profile||{}).why || "", "ok");
-        $("voices").innerHTML = j.voices.map(function(v){
-          return '<div class="spot"><div class="shead"><b>' + esc(v.name) + '</b>'
-            + '<span class="ver">' + esc([v.gender,v.age,v.accent].filter(Boolean).join(" · "))
-            + '</span><span class="tag info">score ' + esc(v.score) + '</span></div>'
-            + (v.preview_url ? '<audio controls preload="none" src="'
-                + esc(v.preview_url) + '"></audio>' : '')
-            + '<div class="sfoot"><button class="btn sec sm" data-v="' + esc(v.voice_id)
-            + '" data-n="' + esc(v.name) + '">Use this voice</button>'
-            + '<span class="ver">' + esc((v.match_reasons||[]).join(", ")) + '</span>'
-            + '</div></div>'; }).join("");
-        $("voices").querySelectorAll("button[data-v]").forEach(function(b){
-          b.onclick = function(){
-            api("/api/projects/"+P.id+"/voice", {method:"POST",
-              body:{voice_id:b.getAttribute("data-v"), name:b.getAttribute("data-n")}})
-              .then(function(){ say("castmsg","Cast: " + b.getAttribute("data-n")
-                + ". Record each spot from section 4.","ok"); })
-              .catch(function(e){ say("castmsg", e.message, "err"); });
-          };
+        $("cast").disabled = false;
+        // The model's recommendation lands in the pickers rather than only in
+        // a shortlist, so the next press is a rep disagreeing with it rather
+        // than starting the question again.
+        var rec = (j.profile||{}).recommendation || {};
+        $("want").querySelectorAll("select[data-want]").forEach(function(sel){
+          var v = rec[sel.getAttribute("data-want")];
+          if(v) sel.value = v;
         });
+        say("castmsg", (j.profile||{}).why || "", "ok");
+        drawVoices(j.voices);
       }).catch(function(e){ $("cast").disabled = false;
         say("castmsg", e.message, "err"); });
   };
+
+  $("rematch").onclick = function(){
+    this.disabled = true; say("castmsg","Ranking the account…","wait");
+    api("/api/voices/match", {method:"POST", body:{want:wantNow(), count:5}})
+      .then(function(j){ $("rematch").disabled = false;
+        drawVoices(j.voices, j.quality); })
+      .catch(function(e){ $("rematch").disabled = false;
+        say("castmsg", e.message, "err"); });
+  };
+
+  $("byid").onclick = function(){
+    var id = $("voiceid").value.trim();
+    if(!id){ say("castmsg","Paste a voice ID first.","err"); return; }
+    say("castmsg","Looking it up…","wait");
+    api("/api/voices/by-id", {method:"POST", body:{voice_id:id}})
+      .then(function(j){ drawVoices([j.voice], "Named by ID rather than ranked."); })
+      .catch(function(e){ say("castmsg", e.message, "err"); });
+  };
+
+  $("allowance").onclick = function(){
+    say("castmsg","Asking ElevenLabs…","wait");
+    api("/api/voices/account").then(function(j){
+      say("castmsg", (j.remaining||0).toLocaleString() + " characters left of "
+        + (j.character_limit||0).toLocaleString() + " on the "
+        + (j.tier || "current") + " plan. A :60 is about twice a :30 of it, "
+        + "every time it is re-recorded.", "ok");
+    }).catch(function(e){ say("castmsg", e.message, "err"); });
+  };
+
+  /* ------------------------------------------------- pronunciations */
+  function pronLines(){
+    return lines($("prons").value).map(function(l){
+      var i = l.indexOf("=");
+      if(i < 0) return null;
+      return {from: l.slice(0,i).trim(), to: l.slice(i+1).trim()};
+    }).filter(function(r){ return r && r.from && r.to; });
+  }
+  function fillProns(){
+    $("prons").value = ((P && P.pronunciation) || []).map(function(r){
+      return r.from + " = " + r.to; }).join("\n");
+  }
+  $("savepron").onclick = function(){
+    api("/api/projects/"+P.id+"/pronunciations",
+        {method:"POST", body:{pronunciation: pronLines()}})
+      .then(function(j){ P = j.project;
+        say("pronmsg","Saved and applied to every spot.","ok");
+        drawSpots(); drawMusic(); })
+      .catch(function(e){ say("pronmsg", e.message, "err"); });
+  };
+  // What the voice is actually handed. Until this existed, a pronunciation
+  // that was not taking looked identical to one that was, and the only way to
+  // find out was to spend a render.
+  $("hearit").onclick = function(){
+    var spot = ((P && P.spots) || [])[0];
+    if(!spot || !spot.script){
+      say("pronmsg","Write a spot first — this shows what the voice reads.","err");
+      return; }
+    api("/api/speech/preview", {method:"POST",
+      body:{script: spot.script, pronunciation: pronLines()}})
+      .then(function(j){
+        $("spoken").style.display = "block";
+        $("spoken").innerHTML = "<b>What ElevenLabs is handed for the first "
+          + "spot:</b><br>" + esc(j.spoken)
+          + ((j.changes||[]).length
+              ? "<br><br><b>Changed:</b> " + j.changes.map(function(ch){
+                  return esc(ch.from) + " → " + esc(ch.to); }).join(" · ")
+              : "<br><br>Nothing was changed — it is read exactly as typed.");
+        say("pronmsg","", "");
+      }).catch(function(e){ say("pronmsg", e.message, "err"); });
+  };
+
+  /* ---------------------------------------------- music, and the mix
+     The mix is rendered here rather than on the server, and that is a
+     constraint rather than a preference: there is no ffmpeg, ffprobe, pydub or
+     numpy in the Hub's runtime. The browser already has a complete audio
+     pipeline, so it decodes both tracks, ducks the bed under the read and
+     hands back a WAV — whose header states its own length, which is what lets
+     the server measure what it filed rather than believe this page.
+
+     Nothing about the sound is decided here. The dB pair, the fades, the duck
+     timings and the sample rate all come from /api/mix/config, which reads the
+     Commercial Builder's one music table — so a radio spot and a video spot
+     duck their beds by the same amount, and the level this panel shows is the
+     level that renders. */
+  var MIXCFG = null, QCC = {}, RENDERED = {};
+
+  function loadMixConfig(){
+    return api("/api/mix/config").then(function(j){ MIXCFG = j; return j; });
+  }
+  function loadQc(){
+    return api("/api/projects/"+P.id+"/qc").then(function(j){
+      QCC = j.reports || {}; })
+      .catch(function(){ /* the panel says so; a failed check must not take
+                            the step down with it */ });
+  }
+
+  function dbGain(db){ return Math.pow(10, (Number(db)||0) / 20); }
+
+  function decodeRef(sid, role, ctx){
+    return fetch(BASE+"/api/projects/"+P.id+"/spots/"+sid+"/audio?ref="+role)
+      .then(function(res){
+        if(!res.ok) throw new Error("Could not read the " + role
+          + " back to mix it.");
+        return res.arrayBuffer(); })
+      .then(function(buf){ return ctx.decodeAudioData(buf); });
+  }
+
+  function buildMix(spot){
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if(!OAC) return Promise.reject(new Error("This browser cannot render audio "
+      + "offline, so the mix cannot be made here. Chrome, Edge, Firefox and "
+      + "Safari all can."));
+    var M = (MIXCFG && MIXCFG.mix) || {};
+    var rate = M.sample_rate || 44100, chans = M.channels || 2;
+    var probe = new OAC(1, 1024, rate);
+    var hasBed = !!(spot.bed && spot.bed.audio_url);
+    return decodeRef(spot.id, "vo", probe).then(function(vo){
+      return (hasBed ? decodeRef(spot.id, "bed", probe)
+                     : Promise.resolve(null))
+        .then(function(bed){
+          // The bed gets a moment at the top before the read starts, which is
+          // what makes it read as a bed rather than as noise that began
+          // mid-word.
+          var lead = bed ? (M.lead_in_ms||0)/1000 : 0;
+          // NEVER shorter than the read. Rendering to exactly the slot length
+          // would cut the end off a long one — and it is the phone number that
+          // lives there. A read that overruns comes back measured and over,
+          // which is what the length check is for.
+          var total = Math.max(spot.seconds || 30, lead + vo.duration);
+          var ctx = new OAC(chans, Math.max(1, Math.round(total*rate)), rate);
+          var voSrc = ctx.createBufferSource();
+          voSrc.buffer = vo; voSrc.connect(ctx.destination); voSrc.start(lead);
+
+          var note = "";
+          if(bed){
+            var bedG = dbGain(M.bed_db), duckG = dbGain(M.ducked_db);
+            var atk = (M.duck_attack_ms||0)/1000, rel = (M.duck_release_ms||0)/1000;
+            var voEnd = Math.min(total, lead + vo.duration);
+            var duck = ctx.createGain(), fade = ctx.createGain();
+            var src = ctx.createBufferSource(); src.buffer = bed;
+            src.connect(duck); duck.connect(fade); fade.connect(ctx.destination);
+
+            duck.gain.setValueAtTime(bedG, 0);
+            duck.gain.setValueAtTime(bedG, Math.max(0, lead - atk));
+            duck.gain.linearRampToValueAtTime(duckG, Math.max(0.001, lead));
+            duck.gain.setValueAtTime(duckG, voEnd);
+            duck.gain.linearRampToValueAtTime(bedG, Math.min(total, voEnd + rel));
+
+            var fi = Math.min((M.fade_in_ms||0)/1000, total);
+            var fo = (M.fade_out_ms||0)/1000;
+            fade.gain.setValueAtTime(0, 0);
+            fade.gain.linearRampToValueAtTime(1, Math.max(0.001, fi));
+            fade.gain.setValueAtTime(1, Math.max(fi, total - fo));
+            fade.gain.linearRampToValueAtTime(0, total);
+            src.start(0);
+
+            // A bed shorter than the spot is REPORTED, never looped. A loop
+            // puts an audible seam in the middle of a client's commercial;
+            // saying the last few seconds carry no music is something somebody
+            // can act on.
+            var shortBy = total - bed.duration;
+            if(shortBy > 0.25){
+              note = "The bed is " + bed.duration.toFixed(1) + "s and the spot "
+                + "runs " + total.toFixed(1) + "s, so the last "
+                + shortBy.toFixed(1) + "s has no music under it. Compose it "
+                + "again at this length, or accept the tail.";
+            }
+          }
+          return ctx.startRendering().then(function(out){
+            return {buffer: out, note: note}; });
+        });
+    });
+  }
+
+  /* Peak, measured off the very buffer that is about to be encoded. Reported
+     as a browser reading and deliberately not sent as a fact: the server
+     records what it measured from the bytes it stored, and the clarity check
+     stays not-measured there because loudness needs a decoder it has not got. */
+  function peakDbfs(buf){
+    var peak = 0;
+    for(var c=0;c<buf.numberOfChannels;c++){
+      var d = buf.getChannelData(c);
+      for(var i=0;i<d.length;i++){ var v = Math.abs(d[i]); if(v>peak) peak = v; }
+    }
+    return peak > 0 ? 20*Math.log10(peak) : -Infinity;
+  }
+
+  function toWav(buf){
+    var ch = buf.numberOfChannels, len = buf.length, rate = buf.sampleRate;
+    var bytes = len*ch*2, ab = new ArrayBuffer(44+bytes), v = new DataView(ab);
+    function w(o,str){ for(var i=0;i<str.length;i++) v.setUint8(o+i, str.charCodeAt(i)); }
+    w(0,"RIFF"); v.setUint32(4, 36+bytes, true); w(8,"WAVE");
+    w(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true);
+    v.setUint16(22,ch,true); v.setUint32(24,rate,true);
+    v.setUint32(28,rate*ch*2,true); v.setUint16(32,ch*2,true); v.setUint16(34,16,true);
+    w(36,"data"); v.setUint32(40,bytes,true);
+    var data = []; for(var c=0;c<ch;c++) data.push(buf.getChannelData(c));
+    var o = 44;
+    for(var i=0;i<len;i++) for(var c2=0;c2<ch;c2++){
+      var x = Math.max(-1, Math.min(1, data[c2][i]));
+      v.setInt16(o, x < 0 ? x*0x8000 : x*0x7FFF, true); o += 2;
+    }
+    return new Blob([ab], {type:"audio/wav"});
+  }
+
+  /* A multipart POST. `api()` sets a JSON content type, which a FormData body
+     must not carry — the browser writes its own boundary. */
+  function postForm(path, formData){
+    return fetch(BASE + path, {method:"POST", body: formData})
+      .then(function(res){
+        return res.json().catch(function(){ return {}; })
+          .then(function(data){
+            if(!res.ok || data.ok === false){
+              var err = new Error(data.error || ("Request failed ("+res.status+")"));
+              err.payload = data; throw err;
+            }
+            return data; });
+      });
+  }
+
+  function spotById(sid){
+    return ((P && P.spots) || []).filter(function(x){ return x.id === sid; })[0];
+  }
+  function putSpot(spot){
+    P.spots = (P.spots||[]).map(function(x){ return x.id === spot.id ? spot : x; });
+  }
+  function spotName(spot){
+    var dp = (CAT.dayparts.filter(function(d){ return d.id === spot.daypart; })[0]
+              || {}).label || spot.daypart;
+    var L = (CAT.lengths.filter(function(l){ return l.seconds === spot.seconds; })[0]
+             || {}).label || (spot.seconds + "s");
+    return dp + " " + L
+      + (spot.outcome && spot.outcome !== "neutral"
+         ? (spot.outcome === "win" ? " (if it went well)" : " (if it didn't)") : "");
+  }
+
+  var QC_PILL = {pass:"ok", warn:"warn", block:"bad", not_measured:""};
+  function qcRows(sid){
+    var r = QCC[sid];
+    if(!r) return '<div class="hint">Checks have not been run yet.</div>';
+    if(r.available === false)
+      return '<div class="why">' + esc(r.error || "Checks are not available.") + '</div>';
+    return '<div class="hint" style="margin-top:8px">'
+      + (r.checks||[]).map(function(c){
+          var word = {pass:"Pass", warn:"Worth a look", block:"Stops filing",
+                      not_measured:"Not measured"}[c.level] || c.level;
+          return '<div style="margin:4px 0"><span class="tag '
+            + (QC_PILL[c.level]||"info") + '">' + esc(word) + '</span> <b>'
+            + esc(c.label) + '</b> — ' + esc(c.detail) + '</div>'; }).join("")
+      + '</div>';
+  }
+
+  function drawMixConfig(){
+    if(!MIXCFG) return;
+    var bits = [];
+    if(MIXCFG.error) bits.push('<div class="why">' + esc(MIXCFG.error) + '</div>');
+    if(MIXCFG.compose_note)
+      bits.push('<div class="why warn">' + esc(MIXCFG.compose_note) + '</div>');
+    var levels = MIXCFG.levels || [], ref = MIXCFG.level_reference || "";
+    if(levels.length){
+      bits.push('<div class="row" style="margin-bottom:12px">'
+        + '<label class="f" style="margin:0">Bed level</label>'
+        + '<select id="mixLevel" style="max-width:420px">'
+        + levels.map(function(l){
+            return '<option value="' + esc(l.label) + '"'
+              + (l.label === ref ? " selected" : "") + '>' + esc(l.label)
+              + ' — bed at ' + l.bed_db + ' dB, ducked to ' + l.ducked_db
+              + ' dB under the read</option>'; }).join("")
+        + '</select></div>');
+    }
+    $("mixcfg").innerHTML = bits.join("");
+  }
+
+  function drawMusic(){
+    var spots = (P && P.spots) || [];
+    if(!spots.length){
+      $("music").innerHTML = '<p class="empty">Nothing written yet.</p>'; return; }
+    $("music").innerHTML = spots.map(function(s){
+      var bed = s.bed || {}, mix = s.mix || {}, made = RENDERED[s.id];
+      var r = QCC[s.id];
+      var bedLine = bed.audio_url
+        ? (bed.kind === "upload" ? "your own track" : "composed")
+          + (bed.measured ? " · " + bed.seconds + "s measured"
+                          : " · length not measured")
+        : "no bed — straight read";
+      var head = '<div class="shead"><b>' + esc(spotName(s)) + '</b>'
+        + '<span class="ver">' + esc(bedLine) + '</span>'
+        + (r ? '<span class="tag ' + (r.status === "blocked" ? "bad"
+              : (r.status === "warn" ? "warn" : "ok")) + '">'
+              + (r.status === "blocked" ? "Findings stop filing"
+                 : (r.status === "warn" ? "Worth a look" : "Checks pass"))
+              + '</span>' : '')
+        + '</div>';
+
+      if(!s.audio_url){
+        return '<div class="spot">' + head + '<div class="hint">No read '
+          + 'recorded for this spot yet — record it in section 4, or upload '
+          + 'one below.</div>' + ownVo(s) + '</div>';
+      }
+
+      var bedBlock = '<div class="sfoot">'
+        + '<input type="text" data-prompt="' + esc(s.id) + '" placeholder="'
+        + 'Describe the bed, or pick a mood below" style="max-width:420px" '
+        + 'value="' + esc(bed.prompt || "") + '">'
+        + (MIXCFG && MIXCFG.can_compose
+           ? '<button class="btn sec sm" data-a="compose" data-s="' + esc(s.id)
+             + '">Compose the bed</button>' : "")
+        + '<label class="btn sec sm" style="cursor:pointer">Upload a track'
+        + '<input type="file" accept="audio/*" data-a="bedup" data-s="'
+        + esc(s.id) + '" style="display:none"></label>'
+        + (bed.audio_url ? '<button class="btn danger sm" data-a="bedclear" '
+            + 'data-s="' + esc(s.id) + '">No bed</button>' : "")
+        + '<span class="msg" data-m="bed-' + esc(s.id) + '"></span></div>'
+        + moodTiles(s)
+        + (bed.audio_url ? '<audio controls preload="none" style="margin-top:8px" '
+            + 'src="' + BASE + '/api/projects/' + P.id + '/spots/' + esc(s.id)
+            + '/audio?ref=bed"></audio>' : "");
+
+      var madeBlock = "";
+      if(made){
+        var clip = made.peak > -0.1;
+        madeBlock = '<div class="hint" style="margin-top:8px">Rendered here: '
+          + made.seconds.toFixed(2) + 's · peak '
+          + (made.peak === -Infinity ? "silent" : made.peak.toFixed(1) + " dBFS")
+          + (clip ? ' <b style="color:var(--bad)">— clipping. Re-record the '
+                  + 'read quieter.</b>' : "")
+          + ' <span class="opt">measured in your browser, not on the server</span>'
+          + '</div>'
+          + (made.note ? '<div class="why warn">' + esc(made.note) + '</div>' : "")
+          + '<audio controls src="' + made.url + '" style="margin-top:6px"></audio>';
+      }
+      var filedBlock = "";
+      if(mix.audio_url){
+        filedBlock = '<div class="hint" style="margin-top:8px"><b>Filed</b> at '
+          + mix.seconds + 's, measured from the file · ' + esc(mix.level || "")
+          + ' (' + mix.bed_db + ' / ' + mix.ducked_db + ' dB)'
+          + (mix.override ? ' <b style="color:var(--bad)">· filed over findings by '
+              + esc(mix.override_by) + ': “' + esc(mix.override_reason) + '”</b>' : "")
+          + ' — this is what the client hears.</div>'
+          + '<audio controls preload="none" style="margin-top:6px" src="' + BASE
+          + '/api/projects/' + P.id + '/spots/' + esc(s.id) + '/audio?ref=mix"></audio>';
+      } else if(s.mix_note){
+        filedBlock = '<div class="why warn">' + esc(s.mix_note) + '</div>';
+      }
+      var blocked = r && (r.blocking||[]).length;
+
+      return '<div class="spot">' + head + bedBlock
+        + (s.audio_stale ? '<div class="why warn">The read on this spot is of '
+            + 'the previous wording — re-record it before mixing.</div>' : "")
+        + filedBlock + madeBlock
+        + '<div class="sfoot">'
+        + '<button class="btn sec sm" data-a="render" data-s="' + esc(s.id) + '">'
+        + (made ? "Render again" : "Render the mix") + '</button>'
+        + (made ? '<button class="btn ' + (blocked ? "sec" : "") + ' sm" '
+            + 'data-a="file" data-s="' + esc(s.id) + '">'
+            + (blocked ? "File it anyway, with a reason" : "File this mix")
+            + '</button>' : "")
+        + (made ? '<a class="btn sec sm" href="' + made.url + '" download="mix-'
+            + esc(s.id) + '.wav">Download</a>' : "")
+        + '<span class="msg" data-m="mix-' + esc(s.id) + '"></span></div>'
+        + qcRows(s.id) + ownVo(s) + '</div>';
+    }).join("");
+    wireMusic();
+  }
+
+  // Somebody's own talent. Neither platform this was specced against forces a
+  // synthetic voice, and a client who has a recording wants it used.
+  function ownVo(s){
+    return '<div class="sfoot"><label class="link" style="cursor:pointer">'
+      + 'Use a read you recorded yourself instead'
+      + '<input type="file" accept="audio/*" data-a="voup" data-s="' + esc(s.id)
+      + '" style="display:none"></label>'
+      + '<span class="msg" data-m="vo-' + esc(s.id) + '"></span></div>';
+  }
+
+  function moodTiles(s){
+    var moods = (MIXCFG && MIXCFG.moods) || [];
+    if(!moods.length) return "";
+    return '<div class="picks">' + moods.map(function(m){
+      return '<span class="pick" data-mood="' + esc(m.id) + '" data-s="'
+        + esc(s.id) + '" title="' + esc(m.prompt) + '">' + esc(m.label)
+        + '</span>'; }).join("") + '</div>';
+  }
+
+  function wireMusic(){
+    $("music").querySelectorAll("[data-mood]").forEach(function(tile){
+      tile.onclick = function(){
+        // The tile fills the box with the words it will actually send, rather
+        // than composing straight away: what is sent should be visible and
+        // editable before a generation is billed.
+        var sid = tile.getAttribute("data-s");
+        var moods = (MIXCFG && MIXCFG.moods) || [];
+        var found = moods.filter(function(m){
+          return m.id === tile.getAttribute("data-mood"); })[0];
+        var box = $("music").querySelector('[data-prompt="' + sid + '"]');
+        if(found && box) box.value = found.prompt;
+      };
+    });
+    $("music").querySelectorAll("input[type=file][data-a]").forEach(function(input){
+      input.onchange = function(){
+        var sid = input.getAttribute("data-s");
+        var file = input.files && input.files[0];
+        if(!file) return;
+        var which = input.getAttribute("data-a") === "bedup" ? "bed" : "vo";
+        var path = input.getAttribute("data-a") === "bedup"
+          ? "/api/projects/"+P.id+"/spots/"+sid+"/bed/upload"
+          : "/api/projects/"+P.id+"/spots/"+sid+"/voice-upload";
+        var fd = new FormData(); fd.append("file", file);
+        say("[data-m='" + which + "-" + sid + "']", "Uploading…", "wait");
+        postForm(path, fd).then(function(j){
+          putSpot(j.spot); delete RENDERED[sid];
+          return loadQc().then(function(){ drawMusic(); drawSpots(); });
+        }).catch(function(e){
+          say("[data-m='" + which + "-" + sid + "']", e.message, "err"); });
+        input.value = "";
+      };
+    });
+    $("music").querySelectorAll("button[data-a]").forEach(function(b){
+      b.onclick = function(){
+        var sid = b.getAttribute("data-s"), a = b.getAttribute("data-a");
+        var msgSel = "[data-m='" + (a === "compose" || a === "bedclear"
+                                    ? "bed-" : "mix-") + sid + "']";
+        if(a === "compose"){
+          var box = $("music").querySelector('[data-prompt="' + sid + '"]');
+          b.disabled = true;
+          say(msgSel, "Composing the bed…", "ai");
+          api("/api/projects/"+P.id+"/spots/"+sid+"/bed/compose",
+              {method:"POST", body:{prompt: box ? box.value.trim() : ""}})
+            .then(function(j){ putSpot(j.spot); delete RENDERED[sid];
+              return loadQc().then(function(){ drawMusic(); }); })
+            .catch(function(e){ b.disabled = false; say(msgSel, e.message, "err"); });
+        } else if(a === "bedclear"){
+          api("/api/projects/"+P.id+"/spots/"+sid+"/bed/clear", {method:"POST", body:{}})
+            .then(function(j){ putSpot(j.spot); delete RENDERED[sid];
+              return loadQc().then(function(){ drawMusic(); }); })
+            .catch(function(e){ say(msgSel, e.message, "err"); });
+        } else if(a === "render"){
+          makeMix(sid);
+        } else if(a === "file"){
+          fileMix(sid, !!(QCC[sid] && (QCC[sid].blocking||[]).length));
+        }
+      };
+    });
+  }
+
+  function makeMix(sid){
+    var spot = spotById(sid);
+    if(!spot) return;
+    var sel = "[data-m='mix-" + sid + "']";
+    say(sel, "Rendering the mix…", "wait");
+    buildMix(spot).then(function(out){
+      var blob = toWav(out.buffer);
+      if(RENDERED[sid] && RENDERED[sid].url) URL.revokeObjectURL(RENDERED[sid].url);
+      RENDERED[sid] = {blob: blob, url: URL.createObjectURL(blob),
+                       seconds: out.buffer.duration,
+                       peak: peakDbfs(out.buffer), note: out.note};
+      drawMusic();
+      say(sel, "Rendered. Listen to it, then file it.", "ok");
+    }).catch(function(e){ say(sel, e.message, "err"); });
+  }
+
+  function fileMix(sid, blocked){
+    var made = RENDERED[sid];
+    var sel = "[data-m='mix-" + sid + "']";
+    if(!made){ say(sel, "Render the mix first.", "err"); return; }
+    var level = ($("mixLevel") && $("mixLevel").value) || "";
+    var fd = new FormData();
+    fd.append("level", level);
+    fd.append("file", made.blob, "mix-" + sid + ".wav");
+    if(blocked){
+      var why = prompt("This mix has findings that stop it being filed. Why is "
+        + "it going out anyway? This is recorded against your name.");
+      if(!why) return;
+      fd.append("override", "1"); fd.append("override_reason", why);
+    }
+    say(sel, "Filing the mix…", "wait");
+    postForm("/api/projects/"+P.id+"/spots/"+sid+"/mix", fd).then(function(j){
+      putSpot(j.spot); QCC[sid] = j.qc;
+      drawMusic();
+      say(sel, "Filed. Measured at " + j.mix.seconds + "s — this is what the "
+        + "client hears now.", "ok");
+    }).catch(function(e){
+      var payload = e.payload || {};
+      if(payload.blocked){ QCC[sid] = payload.qc; drawMusic();
+        say(sel, payload.error, "err"); return; }
+      say(sel, e.message, "err");
+    });
+  }
 
   /* ------------------------------------------------------------ share */
   function drawShare(){

@@ -1,16 +1,30 @@
 """Fan Radio — what a project can be made of.
 
-Word budgets are the same clock Radio Promo and the Commercial Builder use,
-so a script written here drops straight into either without re-timing:
+The dayparts, the tones and the result-neutral rule are this tool's own. The
+**lengths** are not: they are `hub/radio_spec.DURATIONS`, the same table the
+Radio Ad Creator writes to, read rather than restated.
 
-    :15  →  30–38 words
-    :30  →  65–75 words
+That is a fix rather than a tidy-up. This file used to carry its own two-entry
+copy, and the docstring above it claimed the budgets were "the same clock Radio
+Promo and the Commercial Builder use, so a script written here drops straight
+into either without re-timing". They were not the same: a :15 was 30-38 words
+here and 35-42 there, a :30 was 65-75 here and 65-85 there. So a script that
+read as *on the clock* in one tool read as short or long in the other, each
+screen internally consistent, with the README promising they agreed. Nothing
+errored, and the only way to notice was to open both.
 
-They are budgets, not limits. A long read is flagged with the number of
-words to cut and re-tightened — never truncated, because trimming clips a
-word off the end of the phone number.
+Reading the shared table also brings the two lengths this tool could not build
+at all: the **:10** sponsorship tag every station sells against a live read,
+and the **:60**, the one radio length with room for a story rather than an
+offer.
+
+They are budgets, not limits. A long read is flagged with the number of words
+to cut and re-tightened — never truncated, because trimming clips a word off
+the end of the phone number.
 """
 from __future__ import annotations
+
+from hub import radio_spec
 
 DAYPARTS = [
     {
@@ -43,11 +57,24 @@ DAYPARTS = [
 ]
 DAYPART_IDS = [d["id"] for d in DAYPARTS]
 
-LENGTHS = {
-    15: {"min": 30, "max": 38, "label": ":15"},
-    30: {"min": 65, "max": 75, "label": ":30"},
-}
-LENGTH_IDS = [15, 30]
+# The length menu, from the one shared table. Keyed on seconds because that is
+# what a Fan Radio spot carries on its own row -- `radio_spec.duration_by_seconds()`
+# is the lookup written for exactly this, so one table answers both builders
+# without either storing the other's key.
+LENGTHS = {d["seconds"]: {"min": d["low"], "max": d["high"], "label": d["label"],
+                          "key": d["key"], "name": d["name"], "note": d["note"],
+                          "cost": d["cost"], "word_target": d["word_target"],
+                          "min_seconds": d.get("min_seconds"),
+                          "warning": d.get("warning", "")}
+           for d in radio_spec.DURATIONS}
+LENGTH_IDS = [d["seconds"] for d in radio_spec.DURATIONS]
+
+# The pair every project has written since this tool existed, and still the
+# default. The :10 and the :60 are opt-in for the reason the shared table gives:
+# each is a model call and a slot nobody asked for, and here it is that per
+# daypart -- ticking all four across three dayparts is twelve billed writes for
+# a job that usually wants six.
+DEFAULT_LENGTH_IDS = [15, 30]
 
 # Post-game only. A spot booked for after the whistle is voiced days before
 # it airs, so 'neutral' is the default and the alternates are opt-in extras
@@ -119,20 +146,33 @@ def budget(seconds: int) -> dict:
 
 
 def grade(script: str, seconds: int) -> dict:
-    """Word count against the budget for that length."""
-    words = len([w for w in str(script or "").split() if w.strip()])
-    b = budget(seconds)
-    if words > b["max"]:
-        return {"words": words, "state": "long", "delta": words - b["max"],
-                "note": f"{words - b['max']} word(s) over a {b['label']} read."}
-    if words < b["min"]:
-        return {"words": words, "state": "short", "delta": b["min"] - words,
-                "note": f"{b['min'] - words} word(s) short — there's room."}
-    return {"words": words, "state": "ok", "delta": 0,
-            "note": f"On the clock for a {b['label']}."}
+    """Word count against the budget for that length.
+
+    One line, because the verdict is `radio_spec.grade_words()` -- the same
+    reading the Radio Ad Creator colours its counts against. Two functions
+    answering *does this script fit* is how the two tools came to disagree
+    about a :15 in the first place.
+    """
+    return radio_spec.grade_words(script, seconds)
+
+
+def length_warning(seconds: int) -> str:
+    """The warning for a length, or empty where there is none.
+
+    Empty rather than a reassurance: a note on every length is a note nobody
+    reads, and then the one that mattered goes past unread too. Only the :60
+    carries one, because only the :60 costs twice a :30 every time it is
+    re-recorded.
+    """
+    return (LENGTHS.get(int(seconds or 0)) or {}).get("warning", "")
 
 
 def default_slots() -> list[dict]:
-    """Six spots: three dayparts, two lengths each."""
+    """Six spots: three dayparts, the :15/:30 pair each.
+
+    Deliberately not every length the menu now offers. The :10 and the :60 are
+    on the picker and are a tick away; defaulted on, they would be twelve
+    billed writes on a job that asked for six.
+    """
     return [{"daypart": d, "seconds": s, "outcome": "neutral"}
-            for d in DAYPART_IDS for s in LENGTH_IDS]
+            for d in DAYPART_IDS for s in DEFAULT_LENGTH_IDS]

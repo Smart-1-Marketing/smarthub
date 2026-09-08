@@ -786,8 +786,287 @@ check("and reads the shared read-change-write",
       "jsonstore.update_json(" in _store_src, True)
 
 
+# =====================================================================
+section("Fan Radio has the same second half, from the same modules")
+# =====================================================================
+# The ask was that Fan Radio carry "all the tools of the radio creator --
+# speeds, voices, background music". What makes that true is not that it was
+# built to resemble this one: it reads the same modules. So what is asserted
+# here is the reading rather than the resemblance -- a copy with today's
+# numbers in it would pass every behavioural check below and fail the identity
+# ones, which is exactly the state the two tools were already in.
+from modules.fan_radio import app as fr_app                     # noqa: E402
+from modules.fan_radio import catalog as fr_catalog             # noqa: E402
+from modules.fan_radio import store as fr_store                 # noqa: E402
+from modules.fan_radio import voices as fr_voices               # noqa: E402
+from hub import voice_casting as _casting                       # noqa: E402
+
+fr = fr_app.app.test_client()
+FR_SRC = (ROOT / "modules" / "fan_radio" / "app.py").read_text()
+
+# --- speeds -------------------------------------------------------------
+check("Fan Radio sells every length the Radio Ad Creator does",
+      fr_catalog.LENGTH_IDS, [d["seconds"] for d in radio_spec.DURATIONS])
+check("...from the one table, not a copy that agrees today",
+      fr_catalog.LENGTHS[30]["max"], radio_spec.duration_by_key("thirty")["high"])
+check("and the pair is still what a default job costs",
+      len(fr_catalog.default_slots()), 6)
+# The :60 warning is the only one, and it is drawn where the length is picked.
+check("only the :60 warns about what it costs",
+      [s for s in fr_catalog.LENGTH_IDS if fr_catalog.length_warning(s)], [60])
+_cat = fr.get("/api/catalog").get_json()
+_page = fr.get("/").get_data(as_text=True)
+check("the picker draws all four lengths from the server's own table",
+      all(d["label"] in _page for d in radio_spec.DURATIONS), True)
+# What each length is FOR is on the page rather than in a title attribute. A
+# rep choosing between a :10 and a :60 should not have to hover to find out
+# that one cannot carry a phone number and the other has room for a story --
+# the quiet control this repo keeps having to undo.
+check("and says what each one is for, from the table rather than the markup",
+      ("L.name" in _page and "L.note" in _page and 'id="lenkey"' in _page), True)
+check("the names and notes are the shared table's",
+      [d["name"] for d in _cat["lengths"]],
+      [d["name"] for d in radio_spec.DURATIONS])
+
+# --- voices -------------------------------------------------------------
+# The five characteristics, the accent aliases and the scoring were a local
+# copy that had drifted: no `neutral` voice type and no `transatlantic` accent,
+# so the model could recommend -- and a rep could pick -- two answers the
+# matcher had never heard of.
+check("the casting question is the shared one",
+      fr_voices.CHARACTERISTICS is _casting.CHARACTERISTICS, True)
+check("and so is the style value sent on the render",
+      fr_voices.STYLE_BY_ENERGY is _casting.STYLE_BY_ENERGY, True)
+_vsrc = (ROOT / "modules" / "fan_radio" / "voices.py").read_text()
+check("with no scoring pass left here to drift",
+      ("def match_voices" in _vsrc and "score += " in _vsrc), False)
+check("the picker is served the words each answer matches on",
+      sorted(r["id"] for r in _cat["voice_characteristics"]),
+      sorted(_casting.CHARACTERISTIC_IDS))
+check("including the two answers the local copy had never heard of",
+      all(w in str(_cat["voice_characteristics"])
+          for w in ("neutral", "transatlantic")), True)
+
+# The MP3 estimate. Fan Radio's own copy advanced four bytes per candidate sync
+# word rather than by the frame's own length, so it counted sync patterns
+# INSIDE frame data as frames -- on the number a rep reads to decide whether a
+# read fits its slot. Driven rather than asserted about, because "there is one
+# copy" and "the copy is right" are different claims.
+check("the MP3 estimate is the shared one",
+      fr_voices.mp3_seconds is radio_spec.mp3_seconds, True)
+# 26 real frames of 128kbps/44.1kHz: 26 * 1152 / 44100 = 0.68s.
+#
+# The frame BODY carries a byte pair that looks like a sync word, which real
+# MP3 audio data routinely does -- and that is the whole point of the fixture.
+# A reader that jumps by the frame's own length never examines those bytes; one
+# that steps a fixed four counts them as frames and reports a multiple of the
+# real duration. Padding the body with zeros instead makes the two readers
+# agree, which is a fixture hiding the defect it was written for.
+_head = b"\xff\xfb\x90\x00"
+_body = (b"\x11" * 8 + _head + b"\x22" * (int(144000 * 128 / 44100) - 16))
+_frame = _head + _body
+check("and it advances by the frame's own length",
+      radio_spec.mp3_seconds(_frame * 26), round(26 * 1152 / 44100.0, 2))
+check("a file with no frames in it is not measured, never zero",
+      radio_spec.mp3_seconds(b"not audio at all"), None)
+
+# --- background music ---------------------------------------------------
+_p = fr.post("/api/projects", json={"company": "Northgate Tire", "scope": "spec",
+                                    "tone": "warm"}).get_json()["project"]
+FRID = _p["id"]
+_proj = fr_store.load(FRID)
+_spot = fr_store.upsert_spot(_proj, {
+    "daypart": "gameday", "seconds": 30, "outcome": "neutral",
+    "script": ("Game day and Northgate Tire is open. Alignment and full tire "
+               "check, fifty-nine dollars, out before kickoff. Northgate Tire, "
+               "on Northgate Road. Call 555-123-4567 today, that's Northgate "
+               "Tire on Northgate Road, 555-123-4567.")})
+fr_app.decorate(_proj, _spot)
+fr_store.save(_proj)
+SID = _spot["id"]
+
+_cfg = fr.get("/api/mix/config").get_json()
+check("the mix config comes from the shared table", _cfg["available"], True)
+check("and carries the dB pair the render will actually use",
+      (_cfg["mix"]["bed_db"], _cfg["mix"]["ducked_db"]),
+      (radio_spec.ducked_db(_cfg["level_reference"])["bed"],
+       radio_spec.ducked_db(_cfg["level_reference"])["ducked"]))
+check("the browser is handed the fades and the rate rather than choosing them",
+      all(k in _cfg["mix"] for k in ("fade_in_ms", "fade_out_ms", "lead_in_ms",
+                                     "duck_attack_ms", "duck_release_ms",
+                                     "sample_rate", "channels")), True)
+
+# No bed is a real answer -- a sponsor mention and a news-style read both ship
+# without music -- so it passes rather than reading as a gap.
+_qc = fr.get(f"/api/projects/{FRID}/qc").get_json()["reports"][SID]
+_levels = {c["id"]: c["level"] for c in _qc["checks"]}
+check("a straight read passes the bed check", _levels["bed_source"], "pass")
+check("and the length check has not passed, it has not been taken",
+      _levels["length_match"], "not_measured")
+check("which is never folded into a pass", _qc["measured"], False)
+
+# The mix. What arrives is a WAV and the length is read off its own header, so
+# what is filed was measured here rather than reported by the page.
+_proj = fr_store.load(FRID)
+_sp = fr_store.get_spot(_proj, SID)
+_sp["audio_url"] = "audio/whatever.mp3"
+_sp["audio_seconds"] = 29.4
+fr_store.save(_proj)
+
+
+def _file_mix(seconds, **extra):
+    return fr.post(f"/api/projects/{FRID}/spots/{SID}/mix",
+                   data={"level": "Medium",
+                         "file": (io.BytesIO(wav(seconds)), "mix.wav"), **extra},
+                   content_type="multipart/form-data")
+
+
+_ok = _file_mix(30.0)
+check("a mix on the clock files", _ok.status_code, 200)
+check("and its length is measured off the file we stored",
+      _ok.get_json()["mix"]["seconds"], 30.0)
+check("with the level's own dB pair recorded against it",
+      _ok.get_json()["mix"]["level_known"], True)
+_long = _file_mix(38.0)
+check("a mix outside the slot answers 409 with the report rather than filing",
+      (_long.status_code, _long.get_json()["blocked"]), (409, True))
+check("...and the previous mix is untouched",
+      (fr_store.get_spot(fr_store.load(FRID), SID)["mix"]["seconds"]), 30.0)
+check("an override with no reason is refused",
+      _file_mix(38.0, override="1").status_code, 400)
+_over = _file_mix(38.0, override="1", override_reason="station accepted it")
+check("an override with one is recorded against a name",
+      (_over.status_code, _over.get_json()["mix"]["override"],
+       _over.get_json()["mix"]["override_reason"]),
+      (200, True, "station accepted it"))
+check("nothing refused the RENDER -- only the filing",
+      "This mix has findings" in (_long.get_json().get("error") or ""), True)
+
+# A file that is not a WAV cannot be measured, so it is refused rather than
+# filed with a length nobody took.
+check("a file whose length cannot be read is refused",
+      fr.post(f"/api/projects/{FRID}/spots/{SID}/mix",
+              data={"file": (io.BytesIO(b"ID3 not a wav"), "mix.wav")},
+              content_type="multipart/form-data").status_code, 400)
+
+# The client hears the mix, and the page says which of the two it is playing.
+_view = fr_app.public_view(fr_store.load(FRID))
+check("the client is played the finished mix, not the raw read",
+      (_view["spots"][0]["audio_is_mix"], _view["spots"][0]["audio_seconds"]),
+      (True, 38.0))
+
+# A mix must not outlive what went into it. It plays perfectly well while being
+# of the wrong script, which is what makes it worth dropping rather than
+# flagging -- and the rule lives in decorate(), which all four routes that can
+# change a script already pass through.
+fr.post(f"/api/projects/{FRID}/spots/{SID}",
+        json={"script": "Entirely different words now. Call 555-000-1111.",
+              "hand_edited": True})
+_sp = fr_store.get_spot(fr_store.load(FRID), SID)
+check("an edited script retires the mix made from the old one",
+      _sp.get("mix"), None)
+check("and says so rather than the player quietly vanishing",
+      "script changed" in (_sp.get("mix_note") or ""), True)
+check("the read is marked stale rather than deleted -- it cost money",
+      _sp.get("audio_stale"), True)
+
+# The bed. A described-only bed is refused at the door rather than saved and
+# blocked later: it would file a spot that is silent under the voice.
+check("a bed with no prompt and no mood is refused",
+      fr.post(f"/api/projects/{FRID}/spots/{SID}/bed/compose",
+              json={}).status_code in (400, 503), True)
+check("clearing the bed is a deliberate press that succeeds",
+      fr.post(f"/api/projects/{FRID}/spots/{SID}/bed/clear").status_code, 200)
+
+# Same-origin read-back, allowlisted by the spot's own row. Nothing takes a URL
+# from the caller -- the rule the ad builder had to be given after a path in a
+# POST body could lift any readable file into a web-served folder.
+# A row naming a local file that is not there answers 404 rather than 500 --
+# a disk recreated under a project is the ordinary way that happens.
+check("a recorded URL whose file is gone is a 404, not a crash",
+      fr.get(f"/api/projects/{FRID}/spots/{SID}/audio?ref=vo").status_code, 404)
+_real = pathlib.Path(fr_store.data_dir()) / "audio" / "readback.mp3"
+_real.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 400)
+_proj = fr_store.load(FRID)
+fr_store.get_spot(_proj, SID)["audio_url"] = "audio/readback.mp3"
+fr_store.save(_proj)
+for _ref, _want in (("vo", 200), ("bed", 404), ("mix", 404),
+                    ("nope", 404), ("", 404)):
+    check(f"reading back {_ref!r}",
+          fr.get(f"/api/projects/{FRID}/spots/{SID}/audio?ref={_ref}").status_code,
+          _want)
+check("the route takes no URL from the caller at all",
+      'request.args.get("url"' in FR_SRC, False)
+check("and a stranger cannot read a project back either",
+      fr.get(f"/api/projects/fr_nosuch/spots/{SID}/audio?ref=vo").status_code, 404)
+
+# Every asset named for a spot and a role replaces its predecessor. With
+# overwrite off, Cloudinary keeps the old bytes while the store records the new
+# measured length, so the file a client is sent and the duration filed against
+# it disagree.
+#
+# The first version of this check compared two expressions over the same source
+# text and could not fail -- reverting the call to overwrite=False left it
+# green, which is the assertion-that-cannot-fail this file exists to catch one
+# layer down. Both halves are driven or read structurally now.
+_asset_one = fr_store.store_asset(_proj, {"id": "swept"}, "bed", b"first", "mp3")
+_asset_two = fr_store.store_asset(_proj, {"id": "swept"}, "bed", b"second", "mp3")
+check("a role-named asset lands on one name rather than accumulating",
+      _asset_one["url"], _asset_two["url"])
+check("and the second write is what is actually there",
+      (pathlib.Path(fr_store.data_dir()) / "audio"
+       / _asset_two["url"].split("/")[-1]).read_bytes(), b"second")
+
+# The Cloudinary branch cannot be driven here -- no credentials -- so it is
+# read structurally, from that function's own AST rather than from the file's
+# text: `store_audio()` beside it is deliberately overwrite=False, because its
+# public_id carries a random token and can never collide.
+import ast as _ast                                              # noqa: E402
+_frs_tree = _ast.parse((ROOT / "modules" / "fan_radio" / "store.py").read_text())
+_overwrites = {}
+for _fn in _frs_tree.body:
+    if not isinstance(_fn, _ast.FunctionDef):
+        continue
+    for _node in _ast.walk(_fn):
+        if (isinstance(_node, _ast.Call)
+                and isinstance(_node.func, _ast.Attribute)
+                and _node.func.attr == "put"):
+            for _kw in _node.keywords:
+                if _kw.arg == "overwrite":
+                    _overwrites[_fn.name] = getattr(_kw.value, "value", None)
+check("the deterministic upload overwrites and the random one does not",
+      _overwrites, {"store_asset": True, "store_audio": False})
+
+# A WAV mix served off the local disk must not go out as audio/mpeg. Every file
+# here was an MP3 until the mix existed, so the type was hardcoded -- and a
+# browser handed a WAV under that type may decline to play it, silently, on the
+# customer's own page.
+check("the local server names the type from the extension",
+      (fr_app._AUDIO_MIME["wav"], fr_app._AUDIO_MIME["mp3"]),
+      ("audio/wav", "audio/mpeg"))
+check("and the store will serve a wav back at all",
+      "wav" in fr_store.AUDIO_EXTS, True)
+
+# The trademark scan runs before a mix is filed as well as before a render is
+# paid for -- a script can be hand-edited after a read was recorded, and the
+# mix is the file a client is actually sent. It is not overridable: an override
+# is for a judgement about length, not for shipping somebody's mark.
+_proj = fr_store.load(FRID)
+_sp2 = fr_store.get_spot(_proj, SID)
+_sp2["script"] = "Go Bengals, and call Northgate Tire on 555-123-4567."
+_sp2["audio_url"] = "audio/whatever.mp3"
+fr_app.decorate(_proj, _sp2)
+fr_store.save(_proj)
+_tm = _file_mix(30.0, override="1", override_reason="ship it")
+check("a mark in the script stops the mix being filed, override or not",
+      _tm.status_code, 422)
+check("and the refusal names the word",
+      "Bengals" in (_tm.get_json().get("error") or ""), True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 if _failed:
     sys.exit(1)
 print("beds are composed rather than described, the mix is measured off the file, "
-      "and a variation carries the choices without the audio")
+      "a variation carries the choices without the audio, and Fan Radio reads "
+      "the same tables rather than resembling them")

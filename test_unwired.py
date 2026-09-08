@@ -100,7 +100,6 @@ ALLOW = {
     # a literal is what drifts; deleting them buys nothing and loses the name.
     "hub/audit.py:registered_modules": "names _REGISTERED rather than exposing it",
     "hub/social_content.py:post_status_label": "names POST_STATUSES' label",
-    "hub/voice_casting.py:style_for": "names STYLE_BY_ENERGY's default",
     "hub/target_areas.py:density_table":
         "the density assumption itself, for the wizard's mirror and the help text",
     "hub/stock_search.py:any_source_configured": "names configured_sources()'s any()",

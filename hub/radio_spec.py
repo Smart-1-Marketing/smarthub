@@ -1,10 +1,20 @@
 """Smart 1 Hub — the radio spot's rules, as data.
 
-`modules/radio_promo` writes, casts and records radio commercials; this is the
-half of that job that is not about any one tool. It carries the bed
-vocabulary, the mix levels, the length arithmetic, the QC checks and the one
-honest way to measure a finished file, so `modules/fan_radio` can read the
-same rules later without a second copy of them being written first.
+`modules/radio_promo` and `modules/fan_radio` write, cast and record radio
+commercials; this is the half of that job that is not about either tool. It
+carries the **length menu and its word budgets**, the bed vocabulary, the mix
+levels, the length arithmetic, the QC checks and the two honest ways to measure
+a finished file.
+
+It was written so Fan Radio "can read the same rules later without a second
+copy of them being written first", and that is what it now does. The lengths
+arrived here from `modules/radio_promo/catalog.py` when it did, because the
+second copy already existed and had already drifted: Fan Radio's :15 was 30-38
+words against 35-42 here and its :30 was 65-75 against 65-85, so a script that
+read as on the clock in one tool read as short or long in the other -- while
+Fan Radio's own README promised the two agreed. `modules/radio_promo/catalog.py`
+re-exports what moved under its old names, so one table answers both and no
+call site had to change.
 
 ## The music table is Commercial Builder's, read rather than restated
 
@@ -44,6 +54,14 @@ server. What comes back from that mix is a **WAV**, and a WAV states its own
 sample rate, channel count and data length in its header: `wav_seconds()` is
 arithmetic on those, so the length of the file we filed is genuinely
 measured, by us, from the bytes we stored.
+
+`mp3_seconds()` beside it is the weaker reading and every caller labels it
+*estimated*: exact for a constant-bitrate file, an estimate for a variable one.
+It is here because both builders had a copy of it and one of them was **wrong**
+-- Fan Radio's advanced four bytes per candidate sync word rather than by the
+frame's own length, so it counted sync patterns inside frame data as frames and
+reported a multiple of the real duration, on the number a rep reads to decide
+whether a read fits its slot.
 
 An uploaded MP3 is the opposite case and says so. `cbr_seconds` in the audio
 service is only valid at a bitrate we asked for, and an MP3 somebody uploads
@@ -114,6 +132,268 @@ def available() -> dict:
     audio, audio_error = _cb_audio()
     return {"levels": bool(cfg), "compose": bool(audio and cfg),
             "error": cfg_error or audio_error}
+
+
+# ---------------------------------------------------------------------------
+# The lengths a radio spot is sold in.
+#
+# This table was `modules/radio_promo/catalog.DURATIONS` and is here because a
+# second builder now reads it. `modules/fan_radio` shipped its own copy of the
+# :15 and :30 budgets -- and its own catalog docstring claimed they were "the
+# same clock Radio Promo and the Commercial Builder use, so a script written
+# here drops straight into either without re-timing". They were not: a :15 was
+# 30-38 words there against 35-42 here, and a :30 was 65-75 against 65-85. So a
+# script that read as on the clock in one tool read as short or long in the
+# other, both screens internally consistent, with the README promising the
+# opposite. That is the drift `hub/storage.py` exists to stop, wearing a word
+# budget, and there is one table now.
+#
+# The studio shipped the :15/:30 pair -- written together so they share a hook
+# -- and that is still the default, because it is what most streaming buys are
+# sold as. The :60 arrived with the mix work; the :10 is the sponsorship tag
+# every station sells against a live read.
+#
+# Word budgets are the studio's, measured at the natural 2.6 words/second read
+# `speech.WORDS_PER_SECOND` holds. Every other reader of these numbers reads
+# them from here: the AI system prompts state them, both builders color the
+# word count against them and `qc()` below judges the script on them, and each
+# of those was a hand-typed second copy of the table before now.
+#
+# THE :60 IS 140-170, NOT the 150-180 the build spec asked for. At this pace
+# 180 words is a 69-second read, so a :60 written to the top of that range
+# cannot be recorded inside its own slot -- it comes back over, gets tightened,
+# and the budget that sent it there was ours. 170 words is 65 seconds, which is
+# the same deliberate overshoot the :15 and :30 carry: `grade_duration()` flags
+# a render more than 0.4s long, so the top of a budget is allowed to be a
+# little over the clock and the measured read is what actually decides it.
+#
+# `min_seconds` is the ONE read floor, and it is deliberately set on the long
+# slots only. A :30 or a :60 is bought and billed by the second, so a read that
+# lands well under it is dead air somebody paid for. A :10 or a :15 is a tag:
+# it is naturally tight, and a floor there would refuse correct copy, which is
+# the crying wolf that gets a check switched off.
+#
+# Two labels, because two things want naming. `label` is the clock (":30") and
+# is what the prompts and the pickers print; `name` is what the unit is for.
+# ---------------------------------------------------------------------------
+DURATIONS = [
+    {"seconds": 10, "key": "ten", "label": ":10",
+     "word_target": "22-28 words", "low": 22, "high": 28, "min_seconds": None,
+     "name": "Sponsorship tag",
+     "note": "One idea and the brand. No offer, no phone number -- ten seconds "
+             "cannot carry a response somebody acts on.",
+     "cost": "Cheapest read on the menu -- roughly a third of a :30 in "
+             "voiceover characters."},
+    {"seconds": 15, "key": "fifteen", "label": ":15",
+     "word_target": "35-42 words", "low": 35, "high": 42, "min_seconds": None,
+     "name": "Standard short",
+     "note": "One message, one call to action. The brand said at least once, "
+             "the address last.",
+     "cost": "Low -- about half a :30 in voiceover characters."},
+    # A :30 is never a short tag. At the normal 2.6 words/second read this
+    # floor is just over 25 seconds, leaving room for natural pauses.
+    {"seconds": 30, "key": "thirty", "label": ":30",
+     "word_target": "65-85 words (25+ second read)", "low": 65, "high": 85,
+     "min_seconds": 25,
+     "name": "The workhorse",
+     "note": "The unit most streaming audio is sold in. Hook, value, close, "
+             "with the brand said at least twice.",
+     "cost": "Moderate -- the length every other read here is priced against."},
+    {"seconds": 60, "key": "sixty", "label": ":60",
+     "word_target": "140-170 words (54+ second read)", "low": 140, "high": 170,
+     "min_seconds": 54,
+     "name": "Long form",
+     "note": "Room for a story, a testimonial or a real explanation rather "
+             "than an offer. Worth it where the listener is already yours.",
+     "cost": "Roughly twice a :30 in voiceover characters.",
+     "warning": "A :60 is about twice a :30 in voiceover characters, and "
+                "ElevenLabs bills the character -- so every re-record of it "
+                "costs twice as much too. Build one where the air is bought "
+                "for it, and cut a :30 or :15 alongside for everywhere else."},
+]
+
+# The pair every project has always produced. The :10 and the :60 are opt-in
+# rather than two more scripts on every job: each is a model call and a slot
+# nobody asked for, and a project saved before this existed carries no slot
+# list at all -- `normalize_slots()` reads that as the pair rather than
+# migrating rows nobody has re-opened.
+DEFAULT_SLOTS = ("fifteen", "thirty")
+
+SLOT_KEYS = tuple(d["key"] for d in DURATIONS)
+SLOT_SECONDS = tuple(d["seconds"] for d in DURATIONS)
+
+
+def duration_by_key(key: str) -> dict | None:
+    for slot in DURATIONS:
+        if slot["key"] == key:
+            return slot
+    return None
+
+
+def duration_by_seconds(seconds) -> dict | None:
+    """The slot a length in seconds names, or None.
+
+    The other way of asking `duration_by_key()`, because the two builders key
+    the same table differently: Radio Promo stores a slot key on the project
+    and Fan Radio stores the integer seconds on each spot. One table, two
+    lookups -- rather than a second table keyed the other way, which is how
+    they came to disagree about a :15 in the first place.
+    """
+    try:
+        want = int(seconds)
+    except (TypeError, ValueError):
+        return None
+    for slot in DURATIONS:
+        if slot["seconds"] == want:
+            return slot
+    return None
+
+
+def normalize_slots(keys) -> tuple[str, ...]:
+    """The slots to write, in clock order, deduped, never empty.
+
+    Ordered by length rather than by the order somebody ticked them, so a :60
+    and a :15 come back the same way round however they were picked. An
+    unknown key is dropped rather than carried: a slot this table cannot
+    describe would reach the writer as a length with no budget behind it, and
+    nothing downstream could price or grade it.
+    """
+    asked = {str(k or "").strip() for k in (keys or ())}
+    keys_out = tuple(k for k in SLOT_KEYS if k in asked)
+    return keys_out or tuple(DEFAULT_SLOTS)
+
+
+def budget_line() -> str:
+    """The word budgets as one sentence, for a writer's system prompt.
+
+    Derived rather than typed, because the prompt is what the model is
+    actually held to and a stale copy of it there is a script written to a
+    budget the checker no longer uses. The floor is `min_seconds` -- the same
+    number the checks refuse against -- rather than one re-derived here, and a
+    slot with no floor says nothing rather than inventing one.
+    """
+    parts = []
+    for slot in DURATIONS:
+        line = f'a {slot["label"]} runs {slot["low"]}-{slot["high"]} words'
+        floor = slot.get("min_seconds")
+        if floor:
+            line += f" and at least {floor:g} seconds"
+        parts.append(line)
+    return "; ".join(parts)
+
+
+def slot_budget_line(slot_key: str) -> str:
+    """The one slot's budget, for a picker and a copy screen.
+
+    `budget_line()` answers for the whole menu because that is what a system
+    prompt needs; this answers for the slot somebody is looking at.
+    """
+    slot = duration_by_key(slot_key) or {}
+    words = slot.get("word_target") or ""
+    floor = slot.get("min_seconds")
+    if not floor or "second read" in words:
+        return words
+    return f"{words}, and at least {floor:g} seconds at a natural read pace"
+
+
+def length_warning(slot_key: str) -> str:
+    """The warning for a slot, or empty where there is none.
+
+    Empty rather than a cheerful reassurance: a note on every length is a note
+    nobody reads, and then the one that mattered goes past unread too.
+    """
+    return (duration_by_key(slot_key) or {}).get("warning", "")
+
+
+def grade_words(script: str, seconds) -> dict:
+    """Word count against the budget for that length, in one shape.
+
+    Both builders drew this and neither drew it the same way: Radio Promo
+    colored a count against `low`/`high` and Fan Radio returned its own
+    `{state, delta, note}`. The numbers are the same table now, so the verdict
+    is one function rather than two readings that can disagree about whether a
+    script fits.
+    """
+    words = len([w for w in str(script or "").split() if w.strip()])
+    slot = duration_by_seconds(seconds)
+    if not slot:
+        return {"words": words, "state": "not_measured", "delta": 0,
+                "note": "No word budget is on file for that length."}
+    if words > slot["high"]:
+        over = words - slot["high"]
+        return {"words": words, "state": "long", "delta": over,
+                "note": f"{over} word(s) over a {slot['label']} read."}
+    if words < slot["low"]:
+        under = slot["low"] - words
+        return {"words": words, "state": "short", "delta": under,
+                "note": f"{under} word(s) short — there's room."}
+    return {"words": words, "state": "ok", "delta": 0,
+            "note": f"On the clock for a {slot['label']}."}
+
+
+# ---------------------------------------------------------------------------
+# The beats a read is built on.
+#
+# The Commercial Builder has shown its structure above the storyboard since it
+# was written (config.STRUCTURE_TEMPLATES) and radio had none — so the shape of
+# a read lived in the prompt, where a rep could not see it and could not tell a
+# script that had wandered from one that was written to a plan.
+#
+# Same shape as the Commercial Builder's, deliberately, so somebody moving
+# between the tools is reading one idea. The guidance is radio's own: there is
+# no picture, so every beat has to earn its seconds in words.
+# ---------------------------------------------------------------------------
+STRUCTURE_TEMPLATES = {
+    "ten": [
+        {"label": "Brand + one line", "start_pct": 0, "end_pct": 100,
+         "guidance": "Name the business and say one thing about it. No offer, "
+                     "no phone number, no second idea — this is recall, and "
+                     "ten seconds is gone before anybody can act on it."},
+    ],
+    "fifteen": [
+        {"label": "Hook", "start_pct": 0, "end_pct": 27,
+         "guidance": "One line that makes somebody stop scrolling past the "
+                     "audio. A question, a pain point, or the offer itself."},
+        {"label": "Offer", "start_pct": 27, "end_pct": 73,
+         "guidance": "What they get and why it is worth hearing out. One "
+                     "benefit, not three — a :15 has room for exactly one."},
+        {"label": "Call", "start_pct": 73, "end_pct": 100,
+         "guidance": "The brand and the address, last, said clean and "
+                     "unhurried. The last thing heard is the thing recalled."},
+    ],
+    "thirty": [
+        {"label": "Hook", "start_pct": 0, "end_pct": 20,
+         "guidance": "Open on the listener's problem or the moment the offer "
+                     "solves. Do not open on the company name."},
+        {"label": "Value", "start_pct": 20, "end_pct": 70,
+         "guidance": "The offer and the proof behind it. This is where the "
+                     "brand name is said the first of its two times."},
+        {"label": "Call", "start_pct": 70, "end_pct": 100,
+         "guidance": "Brand, address, and any disclaimer word for word before "
+                     "it. Leave the last beat unhurried — a rushed URL is a "
+                     "URL nobody caught."},
+    ],
+    "sixty": [
+        {"label": "Open", "start_pct": 0, "end_pct": 15,
+         "guidance": "Set a scene or a moment. A :60 is the one radio length "
+                     "with room to earn attention rather than grab it."},
+        {"label": "Story", "start_pct": 15, "end_pct": 55,
+         "guidance": "The narrative, the testimonial or the real explanation. "
+                     "This is the beat that does not exist in any shorter cut "
+                     "and the only reason to buy this length."},
+        {"label": "Offer", "start_pct": 55, "end_pct": 82,
+         "guidance": "Land the offer and the proof. By here the listener has "
+                     "given you forty seconds — say something specific."},
+        {"label": "Call", "start_pct": 82, "end_pct": 100,
+         "guidance": "Brand, address, disclaimer word for word. Say the "
+                     "address twice if it is hard to spell."},
+    ],
+}
+
+
+def structure_for(slot_key: str) -> list:
+    """The beats for a slot, or the :30's where a slot has none of its own."""
+    return STRUCTURE_TEMPLATES.get(slot_key, STRUCTURE_TEMPLATES["thirty"])
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +583,50 @@ def wav_seconds(data: bytes) -> float | None:
         if byte_rate <= 0:
             return None
         return round(data_size / float(byte_rate), 2)
+    except Exception:                                          # noqa: BLE001
+        return None
+
+
+# An MP3's length, off its own frame headers.
+#
+# This is the labelled fallback, never a measurement in the sense `wav_seconds`
+# is: it is exact for a constant-bitrate file and an estimate for a variable
+# one, which is why every caller reports it as "estimated" rather than
+# "measured". It is here because both builders had a copy and one of them was
+# wrong -- `modules/fan_radio` advanced four bytes per candidate sync word
+# instead of by the frame's own length, so it counted sync patterns inside
+# frame data as frames and reported durations several times the real one, on
+# the number a rep reads to decide whether a read fits its slot.
+_MP3_BITRATES = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256,
+                 320, 0]
+_MP3_RATES = [44100, 48000, 32000, 0]
+
+
+def mp3_seconds(data: bytes) -> float | None:
+    """Duration from MP3 frame headers, or ``None``. Never raises."""
+    try:
+        i, total, frames = 0, 0.0, 0
+        n = len(data or b"")
+        if data[:3] == b"ID3":
+            size = struct.unpack(">4B", data[6:10])
+            i = 10 + (size[0] << 21 | size[1] << 14 | size[2] << 7 | size[3])
+        while i + 4 <= n and frames < 200000:
+            if data[i] != 0xFF or (data[i + 1] & 0xE0) != 0xE0:
+                i += 1
+                continue
+            bitrate = _MP3_BITRATES[(data[i + 2] & 0xF0) >> 4]
+            rate = _MP3_RATES[(data[i + 2] & 0x0C) >> 2]
+            if not bitrate or not rate:
+                i += 1
+                continue
+            padding = (data[i + 2] & 0x02) >> 1
+            length = int(144000 * bitrate / rate) + padding
+            total += 1152 / rate
+            frames += 1
+            # By the frame's own length. Advancing a fixed step is what made
+            # the copy this replaces count the same audio many times over.
+            i += max(length, 1)
+        return round(total, 2) if frames else None
     except Exception:                                          # noqa: BLE001
         return None
 

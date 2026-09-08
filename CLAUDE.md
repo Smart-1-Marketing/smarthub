@@ -2978,6 +2978,119 @@ slot — matched on **balanced parens**, because the regex the first draft used
 stopped early on the multi-line calls and passed "every one of them" against
 three of five, which is the sweep that quietly stops sweeping.
 
+**And Fan Radio had none of that second half, while its own README said it
+did.** That module opens by saying it is "built to the same shape as Radio
+Promo: same tone list, same word budgets, same pronunciation pass, same
+ElevenLabs casting and measured runtime, so a script can move between the two
+tools without re-timing." Four of those five were a **local copy**, and three
+had drifted — silently, because each screen was internally consistent and the
+only way to notice was to open both tools on one client.
+
+**The word budgets were the sentence's own subject and were not the same.** A
+:15 was 30–38 words in Fan Radio against 35–42 in the Radio Ad Creator, and a
+:30 was 65–75 against 65–85. So a script that read *on the clock* in one tool
+read as short or long in the other, on the number a rep writes to. And the two
+lengths either side of the pair — the :10 sponsorship tag and the :60, the one
+radio length with room for a story rather than an offer — were **unbuildable
+here at all**, which is the finding `test_radio_parity.py` already records
+about the Radio Ad Creator, one tool later. `hub/radio_spec.DURATIONS` is the
+one table now and `modules/radio_promo/catalog.py` re-exports it under its old
+names, the arrangement `voices.py` already used over `hub/voice_casting.py`:
+one table, and no call site had to change.
+
+**The pair is still the default, and that is where the old reasoning actually
+belonged.** `test_radio_builders.py` used to argue that Fan Radio need not sell
+a :60 because "a :60 is not a unit anybody buys" on a football daypart — a
+judgement about the buy, made by the tool, in the one place it could not be
+argued with. The menu offers all four and `DEFAULT_LENGTH_IDS` is the pair,
+because ticking four lengths across three dayparts is **twelve billed model
+calls on a job that wants six**.
+
+**The casting question was five tables deep and missing two of its own
+answers.** `modules/fan_radio/voices.py` carried its own `CHARACTERISTICS`,
+`ACCENT_ALIASES`, `ENERGY_WORDS`, `DELIVERY_WORDS` and scoring pass — with no
+`neutral` voice type and no `transatlantic` accent, so the model could
+recommend, and a rep could pick, two answers the matcher had never heard of.
+Same client, same ElevenLabs account, two shortlists with two sets of reasons
+under them and nothing saying which to believe. It reads `hub/voice_casting.py`
+now, and the AI prompt's own vocabulary is **derived from that table** rather
+than typed beside it, which is how it drifted in the first place.
+
+**And the duration estimate behind every render was wrong.** Fan Radio's
+`_mp3_seconds` advanced **four bytes** per candidate sync word rather than by
+the frame's own length, so it counted sync patterns *inside* frame data as
+frames and reported a multiple of the real duration — on the number a rep reads
+to decide whether a read fits its slot. `hub/radio_spec.mp3_seconds` is the one
+reading, and `test_radio_ads.py` drives it against a fixture whose frame body
+deliberately contains a byte pair that looks like a sync word: padded with
+zeros instead, the broken reader and the correct one agree, which is a fixture
+hiding the defect it was written for. That one passed a first version of the
+check.
+
+**`pronunciation` was on every project row since the day it was written and no
+route ever set it.** `decorate()` reads it on every spot and it could only ever
+be empty, so every render went out with whatever ElevenLabs made of the
+business name. The declared-and-never-wired failure this file counts six of, on
+the one thing a client notices immediately when it is wrong. It is saved and
+**applied to every spot** rather than only the ones written afterwards — a
+pronunciation added halfway through a job would otherwise apply to half of them
+with nothing on screen saying which — and it is stored `{"from", "to"}`, which
+is the shape `speech.normalize_for_speech()` has always read: `{"word", "say"}`
+would have been the identical failure one level on. *Show me what the voice
+reads* prints the copy ElevenLabs is actually handed, because until that line
+existed a pronunciation that was not taking looked identical to one that was
+and the other way to find out was to spend a render.
+
+**The music half is `hub/radio_spec.py`'s, which is what that module was
+written for.** Its opening paragraph says so in as many words — the bed
+vocabulary, the mix levels, the length arithmetic, the QC checks and the one
+honest way to measure a finished file live there "so `modules/fan_radio` can
+read the same rules later without a second copy of them being written first."
+So a bed is composed by ElevenLabs at the spot's own length, the mix is
+rendered in the browser and measured off its own WAV header on the way in, the
+dB pair comes from the Commercial Builder's one music table, and a blocking
+finding answers **409 with the report** rather than filing quietly.
+
+**The unit is the spot, not the length, and that is the one thing that could
+not be copied.** The Radio Ad Creator keys its beds and mixes on a slot because
+a project there writes one script per length. A Fan Radio project writes
+several spots that share a length and differ by daypart and outcome, so a bed
+keyed on ":30" would be the same music under the pre-game and the post-game
+read. They live on the spot's own row.
+
+**A mix must not outlive what went into it**, and the rule is in `decorate()`
+rather than at the four routes that can change a script — an edit, a rewrite, a
+tighten and a pronunciation save — because a rule three of four call sites
+remember is not a rule, and that is the one function all four already pass
+through. The **read is marked stale and never deleted**: it cost money, it is
+still the right voice, and a player that vanishes reads as a fault. The **mix
+is dropped**, because it plays perfectly well while being of the wrong script,
+which is exactly what makes it worth removing rather than flagging.
+
+**The trademark scan runs before a mix is filed as well as before a render is
+paid for, and it is the one finding an override cannot clear.** A script can be
+hand-edited after a read was recorded, and the mix is the file a client is
+actually sent. An override is a judgement about a length; shipping somebody's
+mark is not a judgement anybody here gets to make.
+
+**And the customer hears the mix.** `public_view()` prefers it over the raw
+read, falls back to the read while a bed is being composed, and says **which of
+the two is playing** — a player that switches between them silently reads as
+the file having changed under the client. Two fields were added to that
+allowlist and nothing else: no URL, no level, no override reason.
+
+**Two things are deliberately not carried across, each with its reason.**
+**Voice cloning** stays in the Radio Ad Creator: it creates a voice on the
+shared ElevenLabs account out of somebody's recordings, which is a consent
+question rather than a button, and one place to answer it is the right number —
+a voice cloned there reaches this tool through `/api/voices/by-id`, which is
+also how a cloned voice is reachable at all, since it carries no labels for the
+ranking to score. And **the script QC panel** (`modules/radio_promo/qc.py`)
+stays there too: Fan Radio's copy screen already runs a scan of its own — the
+trademark verdict, the result-neutral rule, the football language detected —
+and a second named panel beside it would be two readings of *is this script
+ready* on one screen, which is the trap this file counts a dozen of.
+
 **The tile is the Radio Ad Creator; everything underneath it is still
 `radio_promo`.** The mount, the help keys, the log name and the Cloudinary
 folder do not move — renaming the mount breaks every link in a rep's history,
@@ -13177,7 +13290,10 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   not-measured never folded into pass, an
                                    #   override that needs a reason and a name,
                                    #   and a variation that carries the scripts
-                                   #   without the audio
+                                   #   without the audio -- and Fan Radio's
+                                   #   half of the same list, asserted as one
+                                   #   table read twice rather than two that
+                                   #   agree today
 python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   and the :60 that were unbuildable, the
                                    #   cost note said at pick time rather than
