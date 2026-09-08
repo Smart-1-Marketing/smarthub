@@ -325,7 +325,7 @@ def api(method, path, **kw):
 quote_state = {
     "client": "Riverstone Dental", "url": "riverstonedental.com",
     "industry": "legal", "objectives": ["Lead Generation"], "months": 6,
-    "budget": 8000, "items": [], "selectedPackage": {"name": "Recommended",
+    "budget": 8000, "items": [{"product": "Pay Per Click", "category": "SEARCH ENGINE MARKETING / PAY PER CLICK", "dollars": 8000}], "selectedPackage": {"name": "Recommended",
                                                      "monthly": 8000, "total": 48000},
     "targetAreas": FIXTURES[:3],
 }
