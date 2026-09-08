@@ -19,6 +19,13 @@
     .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field label{display:block;font-size:13px;font-weight:750;margin-bottom:6px}.field input{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff}.consent{display:flex;gap:10px;align-items:flex-start;margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--soft)}.consent input{margin-top:4px}.consent span{font-size:13px;color:#49566c}.submit-row{display:flex;gap:12px;align-items:center}.status{font-size:14px;color:var(--muted)}.status.error{color:var(--danger)}.success{text-align:center;padding:38px 16px}.success-icon{width:64px;height:64px;border-radius:50%;background:#e8f8ef;color:var(--ok);display:grid;place-items:center;font-size:34px;margin:0 auto 16px}.success h2{margin:0 0 8px}.success p{color:var(--muted);margin:0}
     @media(max-width:700px){.shell{padding:16px 12px 40px}.hero,.card{border-radius:15px;padding:17px}.steps,.tips,.form-grid{grid-template-columns:1fr}.prompter{height:300px;padding:115px 7% 130px;font-size:24px}.tabs{width:100%}.tab{flex:1;padding-inline:8px}.secure{display:none}.meter{order:6;flex-basis:100%;max-width:none}.submit-row{align-items:stretch;flex-direction:column}.submit-row .btn{width:100%}}
   </style>
+{# The mark that says something is running. This page is under the same
+   /tools/commercial-builder/review/ prefix CHROMELESS already exempts, so
+   hub-thinking.js does not ride in with the chrome here either -- without
+   this the submit button would gray out and say nothing while the recording
+   uploads. Guarded, so a Jinja environment without the global loses the
+   mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
 </head>
 <body>
   <main class="shell" id="app" data-submit-url="{{ url_for('commercial_builder.cb_voice_capture.submit_client_voice_capture', token=capture.token) }}">
@@ -212,13 +219,16 @@
       const name=$('submitter-name').value.trim();
       if(!name){ submitStatus.textContent='Please enter your name.'; submitStatus.classList.add('error'); $('submitter-name').focus(); return; }
       if(!$('consent').checked){ submitStatus.textContent='Please confirm the voice-use permission.'; submitStatus.classList.add('error'); $('consent').focus(); return; }
-      submitBtn.disabled=true; submitStatus.textContent='Sending your voice sample…'; submitStatus.classList.remove('error');
+      submitStatus.textContent='Sending your voice sample…'; submitStatus.classList.remove('error');
+      const w = window.S1Wait ? S1Wait.busy(submitBtn, {kind:'wait', label:'Sending your voice sample…'}) : {done:function(){}};
+      if(!window.S1Wait){ submitBtn.disabled=true; }
       const fd=new FormData(); fd.append('audio',selectedBlob,selectedName); fd.append('source_type',selectedType); fd.append('submitter_name',name); fd.append('submitter_email',$('submitter-email').value.trim()); fd.append('duration_seconds',String(durationSeconds||0)); fd.append('consent','true');
       try{
         const res=await fetch(app.dataset.submitUrl,{method:'POST',body:fd}); const data=await res.json().catch(()=>({}));
         if(!res.ok || !data.ok) throw new Error(data.error || 'We could not send the recording.');
+        w.done();
         $('capture-card').hidden=true; $('submit-card').innerHTML='<div class="success"><div class="success-icon">✓</div><h2>Voice sample received</h2><p>Thank you. Your recording has been securely sent to Smart 1 Marketing.</p></div>';
-      }catch(e){ submitBtn.disabled=false; submitStatus.textContent=e.message || 'We could not send the recording.'; submitStatus.classList.add('error'); }
+      }catch(e){ w.done(); submitBtn.disabled=false; submitStatus.textContent=e.message || 'We could not send the recording.'; submitStatus.classList.add('error'); }
     });
 
     window.addEventListener('beforeunload',()=>{ stopStream(); if(audioPreview.src) URL.revokeObjectURL(audioPreview.src); });
