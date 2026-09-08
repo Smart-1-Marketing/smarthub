@@ -579,14 +579,20 @@
 
   @media (max-width: 1100px) {
     .bench { grid-template-columns: 280px 1fr; }
-    .col.right { display: none; }
+    .bench, body.s1hub-collapsed .bench {
+      grid-template-rows: minmax(160px, 35%) minmax(260px, 1fr);
+    }
+    /* QA and approvals remain reachable when there is no room for a third column. */
+    .col.right { grid-column: 1 / -1; grid-row: 1; border-left: 0; border-bottom: 1px solid var(--line); }
     body.s1hub-collapsed .bench { grid-template-columns: 300px minmax(0, 1fr); }
   }
   @media (max-width: 720px) {
     body { height: auto; min-height: 100vh; overflow: auto; }
-    .bench, body.s1hub-collapsed .bench { grid-template-columns: 1fr; }
-    .col.left { border-right: 0; border-bottom: 1px solid var(--line); max-height: none; }
-    .stage { min-height: 440px; }
+    .bar select { max-width: 100%; min-width: 0; }
+    .bench, body.s1hub-collapsed .bench { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+    .col.right { max-height: 45vh; }
+    .col.left { grid-row: 3; border-right: 0; border-bottom: 1px solid var(--line); max-height: none; }
+    .stage { grid-row: 2; min-height: 320px; }
   }
 </style>
 </head>
