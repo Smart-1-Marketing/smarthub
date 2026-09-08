@@ -248,9 +248,36 @@ check("and an unparseable one is neither stale nor a crash",
             "measured": True}]))["counts"]["stale"] == 0)
 
 _SRC = pathlib.Path(ROOT, "hub", "ads_status.py").read_text(encoding="utf-8")
+
+# Read as a CALL, through the AST, and not as text. This started as a
+# substring sweep and reported itself the moment a comment in that file
+# explained where the auto-apply rows are mirrored from -- naming
+# `store.log_event()` in prose to say what the applied link points at. Prose
+# is not a call site, which is the rule `hub/config.py`'s drift check and
+# `client_brand.check_work_kinds()` both give, and a check that reports the
+# explanation of a decision as the defect is one somebody switches off.
+import ast                                                 # noqa: E402
+
+
+def _called_names(source: str) -> set:
+    out = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if isinstance(fn, ast.Name):
+            out.add(fn.id)
+        elif isinstance(fn, ast.Attribute):
+            out.add(fn.attr)
+    return out
+
+
+_CALLS = _called_names(_SRC)
+check("the call sweep found calls at all, rather than sweeping nothing",
+      len(_CALLS) > 5, repr(sorted(_CALLS)))
 for _writer in ("record_optimization_run", "set_auto_apply", "log_event",
                 "apply_action", "scan_account", "set_report_schedule"):
-    check(f"it never calls {_writer}()", f"{_writer}(" not in _SRC)
+    check(f"it never calls {_writer}()", _writer not in _CALLS)
 
 
 # ---------------------------------------------------------------------------

@@ -6021,7 +6021,27 @@ def create_hub_app() -> Flask:
             return gate
         limit = clamp_int(request.args.get("limit"), 300, 1, 1000)
         module = request.args.get("module") or None
-        return jsonify({"entries": audit.read(limit=limit, module=module)})
+        type_ = request.args.get("type") or None
+        return jsonify({"entries": audit.read(limit=limit, module=module,
+                                              type_=type_)})
+
+    @app.route("/api/activity/modules")
+    def api_activity_modules():
+        """The names the activity log can be narrowed to.
+
+        Its own route rather than a key on `/api/activity`, because the two
+        change on different clocks: the entries are re-fetched on every change
+        of the filter, and this answers a dropdown. Folded into that response
+        it would cost a windowed scan of the log per keystroke of filtering.
+
+        Gated by the `/api/activity` prefix, which `path_matches()` reads
+        segment-wise -- `/activity` is a Utilities page, and gating the page
+        while its data stays readable is a gate in name only.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        return jsonify(audit.known_modules())
 
     @app.route("/api/status")
     def api_status():
