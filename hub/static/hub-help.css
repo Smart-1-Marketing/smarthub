@@ -2,25 +2,23 @@
    Neutral tokens so this drops onto any existing page without a restyle. */
 
 .s1-help{position:relative;display:inline-flex;vertical-align:middle;margin-left:.35em}
-.s1-help-dot{width:1.15em;height:1.15em;min-width:1.15em;border-radius:50%;border:0;
-  background:#1769AA;color:#fff;font:600 .72em/1.15em system-ui,sans-serif;
+.s1-help .s1-help-dot{width:20px;height:20px;min-width:20px;min-height:20px;flex:0 0 20px;border-radius:50%;border:0;
+  background:#1769AA;color:#fff;font:600 12px/20px system-ui,sans-serif;
   cursor:pointer;padding:0;text-align:center;opacity:.85;transition:opacity .12s}
 .s1-help-dot:hover,.s1-help-dot:focus-visible{opacity:1}
 .s1-help-dot:focus-visible{outline:2px solid #1769AA;outline-offset:2px}
 
-.s1-help-pop{position:absolute;top:calc(100% + 8px);left:-8px;z-index:900;width:min(21rem,78vw);
+.s1-help-pop{position:fixed;top:0;left:0;z-index:1300;width:min(23rem,calc(100vw - 24px));box-sizing:border-box;
   display:flex;flex-direction:column;gap:.4em;padding:.75rem .85rem;
   background:#fff;color:#1b2733;border:1px solid #dfe6ee;border-radius:10px;
   box-shadow:0 10px 30px rgba(16,32,52,.16);font:400 .82rem/1.5 system-ui,sans-serif;
-  text-align:left;white-space:normal}
+  text-align:left;white-space:normal;text-transform:none;letter-spacing:normal;
+  max-height:calc(100dvh - 24px);overflow:auto;overflow-wrap:anywhere}
 .s1-help-pop[hidden]{display:none}
-.s1-help-pop.s1-flip{left:auto;right:-8px}
 .s1-help-pop strong{font-size:.85rem;color:#0d2340}
 .s1-help-pop a{color:#1769AA;font-weight:600;text-decoration:none}
 .s1-help-pop a:hover{text-decoration:underline}
-.s1-help-pop::before{content:"";position:absolute;top:-5px;left:14px;width:9px;height:9px;
-  background:#fff;border-left:1px solid #dfe6ee;border-top:1px solid #dfe6ee;transform:rotate(45deg)}
-.s1-help-pop.s1-flip::before{left:auto;right:14px}
+@media print{.s1-help,.s1-help-pop{display:none!important}}
 
 /* ---- tour ---- */
 body.s1-tour-open{overflow:hidden}

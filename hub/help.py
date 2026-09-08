@@ -1958,16 +1958,10 @@ REGISTRY: list[Help] = [
        "chrome, because what they open is theirs to read."),
 
     # ---------------- IO Builder ----------------
-    _h("io_builder.start.sources", "Load what exists, and mind the drafts",
-       "A delivered proposal, a client's record, an uploaded document "
-       "or a fresh start — whatever is loaded is shown and "
-       "confirmed in the interview, because a proposal quotes a price "
-       "and an insertion order bills it. Unfinished IOs are listed here "
-       "too, a colleague's included and marked whose: an interruption "
-       "on one machine resumes on another, and a half-built order "
-       "hidden away is how the same IO gets built twice. Discarding a "
-       "draft is its own deliberate press, with the name in the "
-       "confirmation."),
+    _h("io_builder.start.sources", "Start with existing campaign details",
+       "Load a client record, proposal, or previous IO. Review imported "
+       "details before using them. Saved drafts show their owner and can "
+       "be resumed across devices. Choose Start from scratch for a new campaign."),
     _h("io_builder.chat.progress", "Your place is kept, on the server",
        "The interview asks one thing at a time and the order on the "
        "right builds as you answer. Everything autosaves to the server "
