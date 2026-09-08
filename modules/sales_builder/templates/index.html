@@ -344,6 +344,8 @@
   .progress{height:9px;background:#e8edf3;border-radius:20px;overflow:hidden}
   .progress .bar{height:100%;background:var(--blue);border-radius:20px;transition:width .3s ease}
 </style>
+<link rel="stylesheet" href="/sales/builder/static/viewport.css">
+<script src="/sales/builder/static/viewport.js"></script>
 </head>
 <body data-module="sales_builder" data-s1hub-collapse="1">
 <!--
@@ -684,6 +686,7 @@ function drawRep(){document.getElementById('repName').textContent=REP_NAME||"Set
    ============================================================ */
 const VIEWS=["dashboard","proposals","builder","io","clients","leads"];
 function nav(v){VIEWS.forEach(x=>{document.getElementById('view-'+x).style.display=(x===v)?'':'none';});
+ VIEWS.filter(x=>x!==v&&x!=='builder').forEach(x=>document.getElementById('view-'+x).replaceChildren());
  document.querySelectorAll('#topnav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v||(v==='builder'&&a.dataset.v==='proposals')));
  document.getElementById('bnav').style.display=(v==='builder')?'block':'none';
  document.body.classList.toggle('wizard',v==='builder');
@@ -802,6 +805,7 @@ async function drawDashboard(){
   </div></div>`;
  drawRows();
  drawIoRows();
+ salesDashboardLayout(host);
 }
 function ioRowHtml(x){
  return `<tr class="rowlink" onclick="openDrawer(${x.id})">
@@ -823,6 +827,7 @@ function drawIoRows(){
  const rows=LIST.filter(x=>x.status==='Converted'&&x.io_number)
   .filter(x=>!q||["io #"+x.io_number,x.io_number,x.client,x.website,x.quote_number,x.products_summary].join(" ").toLowerCase().includes(q));
  tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:22px">No IOs yet — convert an approved proposal above, or click <b>＋ New IO</b> to build one directly in the IO builder.</td></tr>`;
+ salesTable(tb,q);
 }
 function setTab(el,t){listTab=t;document.querySelectorAll('#tabs span').forEach(s=>s.classList.remove('on'));el.classList.add('on');drawRows();}
 /* Who made this one. Built here and uploaded are different acts and the
@@ -976,6 +981,7 @@ function drawRows(){
  document.querySelectorAll('.focusBanner').forEach(el=>{el.innerHTML=note;});
  const tb=document.getElementById('rows');if(!tb)return;
  tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
+ salesTable(tb,[q,listTab,FOCUS?.key].join('|'));
 }
 function quickConvert(){
  const approved=LIST.filter(x=>x.status==='Approved');
@@ -1043,6 +1049,7 @@ async function drawClients(){
    return `<div class="clientcard"><h3>${esc(n)}</h3><div class="meta">${esc(qs[0].website||"")} · ${qs.length} quote${qs.length===1?"":"s"}${conv.length?` · ${conv.length} IO${conv.length===1?"":"s"} (${conv.map(c=>"#"+esc(c.io_number)).join(", ")})`:""}</div>
    <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">${qs.map(x=>`<span class="pill" style="margin:0" onclick="openDrawer(${x.id})">${esc(x.quote_number)} · ${x.status}</span>`).join("")}</div></div>`;}).join("")
   :'<div class="empty">No clients yet — they appear automatically as quotes are saved.</div>');
+ salesClients(host);
 }
 
 /* ============================================================
@@ -1074,6 +1081,7 @@ async function drawLeads(){
    return `<div class="clientcard"><h3>${esc(n)}</h3><div class="meta">${esc(qs[0].website||"")}${qs[0].website?" · ":""}${qs.length} quote${qs.length===1?"":"s"}</div>
    <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">${qs.map(x=>`<span class="pill" style="margin:0" onclick="openDrawer(${x.id})">${esc(x.quote_number)} · ${x.status}${x.client?"":" · by "+esc(x.created_by||"Unknown")}</span>`).join("")}</div></div>`;}).join("")
   :'<div class="empty">No open leads — every saved proposal already belongs to a client, or nothing has been started yet.</div>');
+ salesClients(host, 'Find a lead');
 }
 
 /* ============================================================
@@ -1097,6 +1105,7 @@ async function drawIO(){
   </div>`;
  if(!LIST.length){try{const l=await api('/sales/builder/api/quotes?limit=300');LIST=l.quotes||[];}catch(e){}}
  drawIoLookup();
+ salesFold(host.querySelector('.panel'), 'IO lookup', false);
 }
 function drawIoLookup(){
  const tb=document.getElementById('ioRows2');if(!tb)return;
@@ -1104,6 +1113,7 @@ function drawIoLookup(){
  const rows=LIST.filter(x=>x.status==='Converted'&&x.io_number)
   .filter(x=>!q||["io #"+x.io_number,x.io_number,x.client,x.website,x.quote_number,x.products_summary].join(" ").toLowerCase().includes(q));
  tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No converted IOs yet. IOs built directly in the IO builder below live in the IO system (client gallery / Smart 1 Suite); IOs converted from proposals show up here automatically.</td></tr>`;
+ salesTable(tb,q);
 }
 function setIoUrl(){const v=prompt("IO builder URL:",CFG.io_app_url);if(v!==null&&v.trim()){CFG.io_app_url=v.trim();lsSet("s1_io_app_url",CFG.io_app_url);drawIO();}}
 
@@ -3894,6 +3904,7 @@ function renderStep(){
  document.getElementById('backBtn').style.visibility=(step===0&&!d.onBack)?'hidden':'visible';
  document.getElementById('nextBtn').textContent=d.nextLabel||(d.isLast?'Finish & back to dashboard':'Continue →');
  if(d.after)d.after();window._valid=d.valid;syncNext();
+ salesStep(st,step,window._entering);
  /* Only when the wizard actually moved. renderStep() is also how a step
     redraws after an answer -- picking a goal, answering a discovery
     question, toggling a card -- and scrolling to the top on every one of
