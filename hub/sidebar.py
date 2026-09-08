@@ -57,6 +57,7 @@ CREATIVE_PREFIXES = (
     "/tools/dead-air",
     "/tools/vertical-reframe",
     # Audio
+    "/tools/customer-voices",
     "/tools/radio-promo",
     "/tools/fan-radio",
     "/tools/radio-scripts",

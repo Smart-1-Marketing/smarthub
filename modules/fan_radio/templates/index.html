@@ -241,7 +241,8 @@
       shortlist that cannot rank it. Cloning itself lives in the Radio Ad
       Creator — it makes a voice out of somebody's recordings, which is a
       consent question, and one place to answer it is the right number.</div>
-    <div id="voices" style="margin-top:12px"></div>
+    <div id="customer-voice-picker" style="margin:16px 0"></div>
+<div id="voices" style="margin-top:12px"></div>
   </div>
 
   <!-- 6 ------------------------------------------------------------- -->
@@ -292,6 +293,7 @@
   <footer>{{ version }}</footer>
 </div>
 
+<script src="/assets/customer-voice-picker.js"></script>
 <script>
 (function(){
   var BASE = "/tools/fan-radio";
@@ -520,6 +522,10 @@
   };
 
   function show(){
+    CustomerVoicePicker.mount($("customer-voice-picker"), {client:P.client||P.company||"", onSelect:async function(v){
+      const j = await api("/api/projects/"+P.id+"/voice", {method:"POST", body:{voice_id:v.voice_id, name:v.name, energy:wantNow().energy||"energetic", speed:Number($("voiceSpeed").value||1)}});
+      P.voice=j.voice; say("castmsg", "Cast: "+v.name+". Record each spot from section 4.", "ok");
+    }});
     showStep(P.share && P.share.enabled ? 6 : (P.spots || []).length ? 3 : 1, false);
     drawWant(); fillProns(); drawSpots(); drawShare();
     var speed = Number((P.voice || {}).speed || 1);

@@ -204,21 +204,22 @@
   }
 
   async function selectVoice(voiceId, name) {
+    await CB.api(`/api/clients/${clientId}`, {
+      method: "PUT", body: { preferred_voiceover_id: voiceId },
+    });
     selectedVoiceId = voiceId;
     document.querySelectorAll(".cb-voice-card").forEach((r) =>
       r.classList.toggle("selected", r.dataset.voiceId === voiceId));
     const select = document.getElementById("voice-select");
-    if (select) select.value = voiceId;
+    if (select) {
+      if (![...select.options].some(o => o.value === voiceId)) select.add(new Option(name || "Customer voice", voiceId));
+      select.value = voiceId;
+    }
 
     // Saved onto the client rather than held in this tab. A voice cast and
     // then lost to a page reload is a decision taken twice, and the second
     // time it will be a different voice.
-    try {
-      await CB.api(`/api/clients/${clientId}`, {
-        method: "PUT", body: { preferred_voiceover_id: voiceId },
-      });
-      CB.toast(`Cast ${name || "this voice"}.`);
-    } catch (e) { /* CB.api has surfaced it */ }
+    CB.toast(`Cast ${name || "this voice"}.`);
   }
 
   document.getElementById("cast-btn").addEventListener("click", cast);
@@ -230,10 +231,9 @@
     try {
       data = await CB.api("/api/voices");
     } catch (e) { return; }
-    select.innerHTML = '<option value="">— Choose a voice —</option>'
-      + data.voices.map((v) =>
-          `<option value="${v.voice_id}">${v.name}${v.style ? " — " + v.style : ""}</option>`
-        ).join("");
+    select.replaceChildren(new Option('— Choose a voice —', ''));
+    data.voices.forEach(v => select.add(new Option(`${v.name}${v.style ? " — " + v.style : ""}`, v.voice_id)));
+    if (selectedVoiceId) select.value = selectedVoiceId;
     select.addEventListener("change", () => {
       if (select.value) {
         selectVoice(select.value, select.options[select.selectedIndex].text);
@@ -257,8 +257,12 @@
 
   async function loadClient() {
     const { client } = await CB.api(`/api/clients/${clientId}`);
+    CustomerVoicePicker.mount(document.getElementById("customer-voice-picker"), {client:client.name||"", onSelect:v=>selectVoice(v.voice_id,v.name)});
     clientPronunciation = client.pronunciation_dict || {};
-    if (client.preferred_voiceover_id) selectedVoiceId = client.preferred_voiceover_id;
+    if (client.preferred_voiceover_id) {
+      selectedVoiceId = client.preferred_voiceover_id;
+      document.getElementById("voice-select").value = selectedVoiceId;
+    }
     renderPronRows();
   }
 
