@@ -346,6 +346,7 @@
 </style>
 <link rel="stylesheet" href="/sales/builder/static/viewport.css">
 <script src="/sales/builder/static/viewport.js"></script>
+<script src="/sales/builder/static/proposal-integrity.js"></script>
 </head>
 <body data-module="sales_builder" data-s1hub-collapse="1">
 <!--
@@ -1473,7 +1474,7 @@ async function saveNow(extra){
   }
   if(saved&&saved.quote&&saved.quote.investment){
    const before=JSON.stringify(S._invest||null);
-   S._invest=saved.quote.investment;S._cost=saved.quote.campaign_cost||S._cost;
+   S._invest=saved.quote.investment;S._cost=saved.quote.campaign_cost||S._cost;S.readiness=saved.quote.readiness||[];
    if(before!==JSON.stringify(S._invest))repaint=true;
   }
   if(saved&&saved.quote&&saved.quote.kpi_framework){
@@ -1483,7 +1484,8 @@ async function saveNow(extra){
   }
   if(repaint&&!S._editSec&&!S._tableEdit&&document.getElementById('docPreview'))drawPreview();
   setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
- }catch(e){setSave("⚠ Not saved: "+e.message);}
+ return true;
+ }catch(e){setSave("⚠ Not saved: "+e.message);return false;}
 }
 function setSave(t){const el=document.getElementById('saveState');if(el)el.textContent=t;}
 
@@ -1510,16 +1512,16 @@ const DISCOVERY_QUESTIONS=[
  {key:"texting",label:"Texting customers?"},
 ];
 const SUGGESTION_RULES=[
- {key:"retargeting",when:["No", "Unknown"],title:"Retarget the people who already visited",
-  detail:"Someone who has already been to the site is the cheapest conversion available and the easiest audience to reach again. Website retargeting runs at $4.75 CPM on the card and needs only a pixel on the site.",
+ {key:"retargeting",when:["No"],title:"Retarget the people who already visited",
+  detail:"Retargeting can re-engage previous visitors. Confirm audience size, consent and tracking readiness before launch. Delivery is priced in the media plan.",
   products:["Website Retargeting"]},
- {key:"aiOptimized",when:["No", "Unknown"],title:"Get the site readable by AI search",
+ {key:"aiOptimized",when:["No"],title:"Get the site readable by AI search",
   detail:"Search is turning into an answer engine \u2014 AI Overviews, ChatGPT and Siri increasingly answer instead of linking. Being cited needs accurate schema markup, fast pages and clean directory listings across the local platforms.",
   products:["Local Business Boost", "Search Engine Optimization"]},
  {key:"websiteHappy",when:["No"],title:"Fix the page the media points at",
   detail:"Paid media cannot outrun a landing page that does not convert \u2014 it just buys more people to lose. If they are not happy with the site, that is the first thing to fix, before the budget scales.",
   products:["Smart 1 Site / 2-5 pages", "WordPress Website"]},
- {key:"seo",when:["No", "Unknown"],title:"Claim the organic and map results",
+ {key:"seo",when:["No"],title:"Claim the organic and map results",
   detail:"Paid media stops the day the budget stops. Local listings and organic visibility compound, and they feed the same review and ranking signals AI search reads.",
   products:["Search Engine Optimization", "Local Business Boost"]},
  {key:"paidSearch",when:["No"],title:"Capture the demand already searching",
@@ -1528,10 +1530,10 @@ const SUGGESTION_RULES=[
  {key:"paidSocial",when:["No"],title:"Re-engage in feed",
   detail:"Paid social is where an audience that has met the brand once gets met again, cheaply, with a different message.",
   products:["Facebook | Instagram - Targeted Paid Social Media Advertising"]},
- {key:"callTracking",when:["No", "Unknown"],title:"Count the calls the media produces",
+ {key:"callTracking",when:["No"],title:"Count the calls the media produces",
   detail:"A local campaign's best leads arrive as phone calls, and an untracked call is a conversion the report cannot show. Without it the plan gets judged on the half of the response that happens to leave a form fill behind.",
   products:["Call Tracking", "Smart 1 Suite"]},
- {key:"reputation",when:["No", "Unknown"],title:"Get the reviews working for the ads",
+ {key:"reputation",when:["No"],title:"Get the reviews working for the ads",
   detail:"Star rating is the first thing a click sees and it feeds the same local signals AI search reads. Media pointed at a three-star listing pays more for every conversion it gets.",
   products:["Local Business Boost", "Smart 1 Suite"]},
  {key:"chat",when:["No"],title:"Answer the visitors who will not fill in a form",
@@ -1543,13 +1545,13 @@ const SUGGESTION_RULES=[
  {key:"email",when:["No"],title:"Use the list they already own",
   detail:"Email reaches people who have already bought or inquired, at no media cost per impression. It is the one channel here that does not need a budget to reach an audience.",
   products:["List Provided Email", "Email Template Creation"]},
- {key:"socialPosting",when:["No", "Unknown"],title:"Give the paid social somewhere to land",
+ {key:"socialPosting",when:["No"],title:"Give the paid social somewhere to land",
   detail:"An ad clicks through to a profile that has not posted since last year, and the click is where the interest stops. A page that looks maintained is what makes paid social worth running at all, and it is the cheapest half of it.",
   products:["Social Media Management", "Smart 1 Suite"]},
- {key:"socialScheduling",when:["No", "Unknown"],title:"Schedule the month instead of remembering it",
+ {key:"socialScheduling",when:["No"],title:"Schedule the month instead of remembering it",
   detail:"Posting by hand is what stops first when the business gets busy, which is exactly when the campaign is working. A month planned and queued in one sitting keeps posting through the weeks nobody has time for it.",
   products:["Smart 1 Suite", "Social Media Management"]},
- {key:"appointments",when:["No", "Unknown"],title:"Let customers book without calling",
+ {key:"appointments",when:["No"],title:"Let customers book without calling",
   detail:"A good share of the people ready to buy are looking after hours, and a booking link turns that intent into an appointment instead of a note to call tomorrow. The Suite's online scheduling puts the calendar on the site and on the Google listing.",
   products:["Smart 1 Suite"]},
 ];
@@ -1592,7 +1594,7 @@ function suiteCoverage(tierName){
   const a=mkt[f.key];
   if(a==="Yes")return;
   const row=Object.assign({answer:a||"",group:f.group||f.key},f);
-  if(a!=="No"&&a!=="Unknown"){unmeasured.push(row);return;}
+  if(a!=="No"){unmeasured.push(row);return;}
   (Math.max(0,SUITE_TIER_ORDER.indexOf(f.tier))<=have?covered:upgrade).push(row);});
  // One row per capability. Two questions can want the same feature.
  const once=rows=>{const seen=new Set();return rows.filter(r=>
@@ -2029,18 +2031,14 @@ function productDelivery(rateValue,rateType,dollars){
  return{unit:"managed",val:0};}
 function itemDelivery(i,dollars){
  return productDelivery(sellRateOf(i),i&&i.rate,dollars);}
-/* A strategy engagement is not media -- it is priced by consultingPrice()'s
-   own formula, never by a slice of the media budget, so it is excluded from
-   the proportional pool both as a denominator contributor and as a target:
-   including it would price a $300 line as if it were a $3,000 display buy,
-   and would dilute every real line's share by a weight that has nothing to
-   do with what it costs. */
 function applySeeds(){
- const others=S.items.filter(i=>!isConsultingLine(i));
- const seed=others.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
- others.forEach(i=>{i.dollars=Math.round(S.budget*(i.pctSeed/seed)/50)*50;});
- const otherCount=others.length;
- S.items.filter(i=>isConsultingLine(i)).forEach(i=>{i.dollars=consultingPrice(otherCount);});}
+ const recurring=S.items.filter(i=>i.basis!=='one_time'&&!isConsultingLine(i));
+ const amounts=ProposalIntegrity.allocate(recurring,S.budget,i=>minimumFor(i.product,i.category));
+ S.items=S.items.map(i=>(i.basis==='one_time'||isConsultingLine(i))?i:{...i,dollars:amounts[recurring.indexOf(i)]}).filter(i=>i.dollars>0);
+ const otherCount=S.items.filter(i=>!isConsultingLine(i)).length;
+ S.items.filter(isConsultingLine).forEach(i=>i.dollars=consultingPrice(otherCount));
+ if(!S.items.length)toast("This budget cannot meet a product minimum. Increase the budget or choose a different product.");
+}
 /* What the plan costs every month: the recurring lines only. A one-time
    production is not a monthly cost, and the copy of this that used to live in
    investmentTable() summed every line — so a $1,500 shoot read as $1,500 a
@@ -2062,34 +2060,27 @@ function syncBudgetToPlan(){
  const total=planRecurring();
  if(total>0)S.budget=total;}
 function buildPackages(){
- const tiers=[{k:"Essential",mult:.7},{k:"Recommended",mult:1,rec:true},{k:"Accelerated",mult:1.5}];
- const others=S.items.filter(i=>!isConsultingLine(i));
- const seed=others.reduce((s,i)=>s+(i.pctSeed||0),0)||1;
- const otherCount=others.length;
+ const signature=JSON.stringify([S.items,S.months]);
+ if(S.packagePlanSignature===signature&&S.packages?.length)return;
+ S.packagePlanSignature=signature;S.selPkg=1;
+ S.packageItems=S.items.map(i=>({...i}));
+ const recurring=S.items.filter(i=>(i.basis||'monthly')!=='one_time');
+ const tiers=[{k:'Essential',mult:.7},{k:'Recommended',mult:1,rec:true},{k:'Accelerated',mult:1.5}];
  S.packages=tiers.map(t=>{
-  /* Recommended is the plan exactly, not the plan rounded to the nearest
-     $250: it is the option the rest of the document is costed at, and a
-     package table saying $5,750 beside a media plan saying $5,730 is the
-     disagreement this whole change exists to end. The other two tiers are
-     genuinely proposals, so they round. */
-  const monthly=t.mult===1?(planRecurring()||S.budget)
-                          :Math.round(S.budget*t.mult/250)*250;
-  /* A strategy engagement is priced by formula, on every tier alike -- the
-     count of other products on the plan does not change with the budget
-     tier, only the media dollars behind them do, so this is never a slice
-     of `monthly` the way every other line's is. */
-  const lines=S.items.map(i=>{
-   const dollars=isConsultingLine(i)?consultingPrice(otherCount)
-     :Math.round(monthly*(i.pctSeed/seed)/50)*50;
-   const d=itemDelivery(i,dollars*S.months);
-   return{name:itemLabel(i),cat:i.category,amt:dollars,unit:d.unit,val:d.val};});
-  const impr=lines.filter(l=>l.unit==="impr").reduce((s,l)=>s+l.val,0);
-  const views=lines.filter(l=>l.unit==="views").reduce((s,l)=>s+l.val,0);
-  const roi=t.mult<1?"2–3×":t.mult>1?"4–6×":"3–5×";
-  return{name:t.k,rec:!!t.rec,monthly,total:monthly*S.months,lines,impr,views,roi};});
- S.configured=true;
- if(S.selPkg==null||S.selPkg>2)S.selPkg=1;
- S.selectedPackage=S.packages[S.selPkg];
+  const target=t.mult===1?planRecurring():Math.round(planRecurring()*t.mult/250)*250;
+  const media=recurring.filter(i=>!isConsultingLine(i)),consult=recurring.filter(isConsultingLine);
+  const oneTimeCount=S.items.filter(i=>i.basis==='one_time'&&!isConsultingLine(i)).length;
+  const reserve=consult.length*consultingPrice(media.length+oneTimeCount);
+  const allocation=ProposalIntegrity.allocate(media,Math.max(0,target-reserve),i=>minimumFor(i.product,i.category));
+  const consultation=consultingPrice(allocation.filter(n=>n>0).length+oneTimeCount);
+  const amounts=t.mult===1?recurring.map(i=>+i.dollars||0):recurring.map(i=>isConsultingLine(i)?consultation:allocation[media.indexOf(i)]);
+  const lines=recurring.map((i,n)=>{const term=Math.min(+i.termMonths||+S.months,+S.months);const d=itemDelivery(i,amounts[n]*term);
+   return{name:itemLabel(i),cat:i.category,amt:amounts[n],unit:d.unit,val:d.val,termMonths:term,consulting:isConsultingLine(i)};}).filter(l=>l.amt>0);
+  const monthly=lines.reduce((a,l)=>a+l.amt,0);
+  return{name:t.k,rec:!!t.rec,monthly,total:lines.reduce((a,l)=>a+l.amt*l.termMonths,0),lines,
+   impr:lines.filter(l=>l.unit==='impr').reduce((a,l)=>a+l.val,0),views:lines.filter(l=>l.unit==='views').reduce((a,l)=>a+l.val,0)};
+ });
+ S.configured=true;if(S.selPkg==null||S.selPkg>2)S.selPkg=1;S.selectedPackage=S.packages[S.selPkg];
 }
 function recommendItems(){
  const cats=[];S.objectives.forEach(o=>(GOAL_CATEGORIES[o]||[]).forEach(c=>{if(!cats.includes(c))cats.push(c);}));
@@ -2174,18 +2165,18 @@ function chosenTier(){
 const SUITE_PRODUCTS=[
  {key:"call_tracking",name:"Call Tracking",hours:1,
   assist:"we review the month's tracked calls, tag what converted, and point the media at the channels producing real conversations",
-  suggest:()=>["No","Unknown"].includes((S.mkt||{}).callTracking)?"they are not tracking inbound calls today":
+  suggest:()=>["No"].includes((S.mkt||{}).callTracking)?"they are not tracking inbound calls today":
    ((S.objectives||[]).includes("Phone Calls")?"the campaign is judged on calls, and every one should be attributed":"")},
  {key:"texting",name:"Texting",hours:1,
   assist:"we keep the missed-call text back and follow-up threads tuned so a lead is answered the way they expect",
-  suggest:()=>["No","Unknown"].includes((S.mkt||{}).texting)?"they are not texting customers, and a lead answered by text is a lead kept":""},
+  suggest:()=>["No"].includes((S.mkt||{}).texting)?"they are not texting customers, and a lead answered by text is a lead kept":""},
  {key:"reputation",name:"Reputation Center",hours:2,
   assist:"we run the review requests, answer what comes in from one inbox, and keep the stars supporting the ads",
-  suggest:()=>["No","Unknown"].includes((S.mkt||{}).reputation)?"nobody is managing reviews today, and the stars are part of every ad's landing":""},
+  suggest:()=>["No"].includes((S.mkt||{}).reputation)?"nobody is managing reviews today, and the stars are part of every ad's landing":""},
  {key:"social_planner",name:"Social Planner",hours:3,
   assist:"we plan and queue the month's posts in one sitting, with the campaign's own creative already in them",
-  suggest:()=>["No","Unknown"].includes((S.mkt||{}).socialPosting)?"they are not posting regularly, and paid social needs a maintained page to land on":
-   (["No","Unknown"].includes((S.mkt||{}).socialScheduling)?"posting by hand is what stops first when the business gets busy":"")},
+  suggest:()=>["No"].includes((S.mkt||{}).socialPosting)?"they are not posting regularly, and paid social needs a maintained page to land on":
+   (["No"].includes((S.mkt||{}).socialScheduling)?"posting by hand is what stops first when the business gets busy":"")},
  {key:"webchat",name:"Webchat",hours:1,
   assist:"we tune the chat prompts and make sure every conversation becomes a contact rather than a closed tab",
   suggest:()=>(S.mkt||{}).chat==="No"?"there is no chat on the site, and the visitors who will not fill in a form leave unrecorded":""},
@@ -2205,7 +2196,7 @@ const SUITE_PRODUCTS=[
   suggest:()=>gatedMedia().length?"a multi-channel campaign stays recognizable only if every piece reads as one brand":""},
  {key:"newsletters",name:"Email Newsletters",hours:3,
   assist:"we draft and schedule the month's newsletter to the list they own, at no media cost per send",
-  suggest:()=>["No","Unknown"].includes((S.mkt||{}).email)?"they are not emailing the list they already own — the cheapest audience they have":""},
+  suggest:()=>["No"].includes((S.mkt||{}).email)?"they are not emailing the list they already own — the cheapest audience they have":""},
  {key:"dashboards",name:"Marketing Dashboards",hours:2,
   assist:"we read the dashboard with them monthly — what the media produced, what it cost, and what to change",
   suggest:()=>"one place to read what every channel produced — the reporting this whole proposal promises"},
@@ -2340,21 +2331,15 @@ function defaultSections(){
  const where=areasSummary()||"the target area";
  const months=Math.max(1,+S.months||1);
  const body={
-  summary:client+" has the demand; what is missing is a single system that captures it and proves what it produced. "
-   +"This plan puts Smart 1 media in front of the right households in "+where
-   +" and routes every response into the Smart 1 Suite, where it is answered, nurtured and measured. Over "
-   +months+" months the goal is "+goals.toLowerCase()+" — reported against business outcomes, not impressions.",
+  summary:"This proposed "+months+"-month campaign for "+client+" focuses on "+goals.toLowerCase()+" in "+where+". The plan sets out the selected products, quoted investment and measurement approach for review before launch.",
   objectives:"Primary\n"+(S.objectives.length?S.objectives.map(o=>"• "+o).join("\n"):"• To be confirmed with the client")
    +"\n\nSecondary\n• A lower, measurable cost per acquisition\n• One vendor and one dashboard instead of a stack of logins\n• Reporting the client can open themselves, at any time",
-  friction:"Most of the money lost in local marketing is lost after the click, not before it. The patterns worth checking here:\n"
-   +"• A bolted-on tech stack — separate tools for email, forms, reviews and calls, each with its own login and none of them talking to each other.\n"
-   +"• No central CRM, so an inbound lead cools while it waits for someone to notice it.\n"
-   +"• Fixed-schedule advertising that runs the same way regardless of weather, foot traffic or real-time intent.",
+  friction:"Confirm the current marketing, lead handling and measurement setup with the client. Unknown discovery answers are items to confirm before naming gaps.",
   mediaplan:"The split below is weighted toward the stage of the funnel this campaign has to move, and the delivery column is what each line is expected to buy at the rate it is quoted at.",
-  technology:"The Smart 1 Suite is the central nervous system of this campaign. Every call, form, chat and message the media generates lands in one inbox, and the Suite goes to work immediately: Missed Call Text Back so a missed call becomes a conversation instead of a lost lead, automated text and email follow-up, online scheduling, and automated review requests that compound into local search visibility. The media creates the opportunity; the Suite is what turns it into revenue you can trace.",
-  reporting:"Optimization is a routine, not a promise: bids adjusted against delivery and cost per action, negative keywords and placement exclusions updated, creative checked against performance and rotated before it fatigues. Everything reports into one live dashboard inside the Smart 1 Suite that you can open whenever you want, rather than waiting for a monthly PDF.",
+  technology:"Use the platform scope and licensing shown in the investment summary. Confirm access, integrations, routing and the responsible owner before launch; unselected features and managed services are not included.",
+  reporting:"Review the selected KPIs against verified tracking. Confirm dashboard access, reporting cadence and optimization responsibilities at kickoff. Creative refreshes require the production scope agreed in this proposal.",
   packages:"Platform licensing, media spend and any one-time production are listed separately below so it is clear what recurs and what does not.",
-  roi:"This is what the campaign will be judged on, product by product, with the result each one normally delivers. The Smart 1 Suite is the single source of truth for what the media produced: every lead is attributed to the channel that created it, so the spend can be judged against the business rather than against a click count.",
+  roi:"The product benchmarks below are planning estimates, not guaranteed results. Confirm the conversion definition, baseline and attribution setup before judging performance or projecting revenue.",
   next:"1. Approve this proposal and sign the digital agreement.\n2. Complete the Smart 1 onboarding questionnaire — access, tracking and creative.\n3. Book the 30-minute campaign kickoff call.",
   creative:"Three messaging themes carry the campaign, rotated so no one execution fatigues:\n"
    +"• Problem / Agitate / Solution — name the frustration the customer already has, make it concrete, then resolve it.\n"
@@ -2383,7 +2368,7 @@ function landingRec(){const g=S.objectives;
  return "A focused landing page aligned to the offer with a single primary CTA and a retargeting pixel installed.";}
 
 /* helper renderers */
-function card(em2,t,d,on,click){return `<div class="choice${on?' on':''}" onclick="${click}"><div class="em">${em2}</div><div><h3>${t}</h3><p>${d}</p></div><div class="tick"></div></div>`;}
+function card(em2,t,d,on,click){return `<div class="choice${on?' on':''}" role="button" tabindex="0" aria-pressed="${!!on}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" onclick="${click}"><div class="em">${em2}</div><div><h3>${t}</h3><p>${d}</p></div><div class="tick"></div></div>`;}
 function pillRow(list,arr,kind,cls){return '<div class="pillrow'+(cls?' '+cls:'')+'">'+list.map(v=>`<span class="pill${arr.includes(v)?' on':''}" onclick="pill('${kind}',this.dataset.v)" data-v="${esc(v)}">${esc(v)}</span>`).join('')+'</div>';}
 function opt(list,cur){return list.map(x=>`<option ${cur===x?'selected':''}>${esc(x)}</option>`).join('');}
 function seg(label,key){
@@ -2393,7 +2378,7 @@ function seg(label,key){
  const cur=trad?((S.traditional||{}).running||""):S.mkt[key];
  const set=trad?"setTraditional('running',":"setMkt('"+key+"',";
  return `<div class="fld"><label>${label}</label><div>`
-  +["Yes","No","Unknown"].map(o=>`<span class="pill${cur===o?' on':''}" onclick="${set}'${o}')">${o}</span>`).join('')
+  +["Yes","No","Unknown"].map(o=>`<span role="radio" tabindex="0" aria-checked="${cur===o}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}" class="pill${cur===o?' on':''}" onclick="${set}'${o}')">${o}</span>`).join('')
   +`</div></div>`;}
 function setMkt(key,value){S.mkt[key]=value;saveSoon();renderStep();}
 function setTraditional(key,value){
@@ -2980,8 +2965,10 @@ function currentArea(){
    the one state the step's own seeding skipped. Seed here rather than
    return, so no route into that state can leave the step dead. */
 function setArea(k,v){
+
  let a=currentArea();
  if(!a){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";a=S.targetAreas[0];}
+ if(['zips','origin','radius','zipException','zipSource'].includes(k))a.zipVerified=false;
  a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();}
 function areaEditorStep(){
  const a=currentArea()||blankArea();
@@ -3020,6 +3007,8 @@ function areaEditorStep(){
      <input value="${esc(a.zipException||'')}" placeholder="e.g. only New Jersey zip codes · exclude 46032, 46033 · everything except Ohio"
        oninput="setArea('zipException',this.value);zipRuleSoon()">
      <div class="note" id="zipRuleNote" style="margin-top:5px">${zipRuleNote(a)}</div></div>
+    <div class="fld" style="margin-top:10px"><label for="zip-source">ZIP verification source</label><input id="zip-source" value="${esc(a.zipSource||'')}" oninput="setArea('zipSource',this.value)" placeholder="Geographic dataset or approved platform map reference"></div>
+    <label style="display:flex;gap:8px;margin-top:8px"><input type="checkbox" ${a.zipVerified?'checked':''} onchange="setArea('zipVerified',this.checked)"> I checked the ZIP list, radius and exclusions against that source.</label>
     <div class="note" id="zipNote" style="margin-top:5px"></div></div>`;})():''}
   ${a.type==="Other"?`<div class="fld"><label>Approximate population (optional)</label><input type="number" value="${a.population||''}" oninput="setArea('population',+this.value||0);drawAreaEst()" style="max-width:220px"><div class="note" style="margin-top:5px">Without this, an "Other" area is reported as not measured rather than being guessed at.</div></div>`:''}
   <div class="fld"><label>Notes for this area (optional)</label>
@@ -3107,7 +3096,7 @@ function drawAreaEst(){
   ? "About <b>"+fmt(pop)+"</b> people in "+esc(areaGeo(a)||"this area")+(z.length?" · "+z.length+" ZIP Codes listed":"")+". Refined per area by the AI estimate on the next screen."
   : "Not measured yet — describe the area (or add an approximate population) and Smart 1 can size it.";
  const zn=document.getElementById('zipNote');
- if(zn)zn.textContent=z.length?z.length+" ZIP Codes recognized.":"No ZIP Codes yet. The insertion order needs them before trafficking, but the proposal does not.";}
+ if(zn)zn.textContent=z.length?z.length+" ZIP Codes listed — verify against a geographic source before trafficking.":"No ZIP Codes yet. The insertion order needs them before trafficking, but the proposal does not.";}
 async function lookupZips(){
  const a=currentArea();
  if(!a.origin||!a.radius){toast("Enter the origin city or ZIP and a radius first.");return;}
@@ -3115,7 +3104,7 @@ async function lookupZips(){
  try{
   const d=await api('/sales/builder/api/zipcodes-in-radius',{method:'POST',
    body:JSON.stringify({origin:a.origin,radius:a.radius})});
-  a.zips=d.zipcodes||"";syncLegacyGeo();saveSoon();renderStep();
+  a.zips=d.zipcodes||"";a.zipSource="AI-assisted — unverified";a.zipVerified=false;syncLegacyGeo();saveSoon();renderStep();
   // The exception was applied to the previous list. Left alone it would go
   // on describing that one while a new list ran unfiltered -- the rule
   // reading as saved and doing nothing, which is the failure the field
@@ -3172,7 +3161,7 @@ function previewSection(sec,i,e,num){
     never a toggle: it is the reason the rest of the document exists. */
  const trends=sec.kind==='cover'?coverTrendsHtml():'';
  const body=editing
-  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" onchange="S.sections[${i}].body=cleanCopy(this.value);saveNow();drawPreview()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
+  ? `<textarea class="dedit" oninput="S.sections[${i}].body=this.value;saveSoon()" onchange="S.sections[${i}].body=cleanCopy(this.value);resolveDraftFailure(S.sections[${i}].id);saveNow();drawPreview()" placeholder="${sec.kind==='text'?'Section copy…':'Short intro above the table…'}">${esc(sec.body||'')}</textarea>`
   : (sec.body?`<div class="dbody">${richText(sec.body)}</div>`
              :`<div class="note dempty">No copy yet — ✨ writes it, or ✎ to type it.</div>`);
  const table=hasTable&&!tableOn
@@ -3423,7 +3412,7 @@ function dgrid(pairs){
    Mirrors channel_lines() server-side. */
 function channelLines(){
  return (S.items||[]).filter(i=>(i.basis||"monthly")!=="one_time"
-   && !(sellRateOf(i)==null && mediumOf(i)==="other"));}
+   && !(sellRateOf(i)==null && mediumOf(i)==="other" && !/SEARCH ENGINE|PAY PER CLICK|META/.test(String(i.category||"").toUpperCase())));}
 function channelRole(it){
  const c=String(it.category||"").toUpperCase(),m=mediumOf(it);
  if(/SEARCH ENGINE MARKETING|PAY PER CLICK/.test(c))return ["Bottom of funnel — captures demand that is already searching","Cost per lead and conversion rate"];
@@ -3534,7 +3523,7 @@ function investmentTable(){
   html+=dtable(["",...pk.map(p=>esc(p.name)+(p.rec||p===S.selectedPackage?" ★":""))],
    [["Monthly",...pk.map(p=>money(p.monthly))],
     ["Total ("+months+" mo)",...pk.map(p=>money(p.total))],
-    ["Est. impressions / mo",...pk.map(p=>fmt(p.impr))]]);}
+    ["Est. impressions / campaign",...pk.map(p=>fmt(p.impr))]]);}
  return html;}
 /* Expected Results & ROI is the KPI framework, not a table of impressions.
 
@@ -3583,7 +3572,7 @@ async function rewriteSecById(id){
  try{
   const d=await api('/sales/builder/api/ai/draft-sections',{method:'POST',
    body:JSON.stringify({data:S,section:id})});
-  if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];saveNow();drawPreview();
+  if(d.sections&&d.sections[id]){S.sections[i].body=d.sections[id];resolveDraftFailure(id);saveNow();drawPreview();
    toast("✨ "+S.sections[i].title+" rewritten.");return;}
   toast((d.breaches&&Object.keys(d.breaches).length)?"The rewrite broke a proposal rule and was discarded.":"The AI returned nothing for that section.");
  }catch(e){toast("Rewrite failed: "+e.message);}}
@@ -3656,7 +3645,7 @@ function drawStepRail(){
      true: eight green ticks on a quote nobody has typed into reads as work
      already done, and the one claim this rail must never make is one the
      rep did not earn by getting there. */
-  const cur=i===step,lock=!stepAllowed(i),done=stepDone(i)&&!lock;
+  const cur=i===step,lock=!stepAllowed(i),done=stepDone(i)&&!lock&&(S.reviewedSteps||[]).includes(i);
   return `<button type="button" class="sr${cur?' on':''}${done&&!cur?' done':''}${lock?' lock':''}"
     title="${lock?'Finish the earlier steps first':esc(m.label)}"
     aria-current="${cur?'step':'false'}" onclick="gotoStep(${i})">
@@ -3847,8 +3836,8 @@ const STEPS=[
    valid:()=>creativeUnresolved().length===0};
  },
 
- ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",help:"sales_builder.packages.investment",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. All three go on the quote; pick the one it recommends.",
-   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Essential ≈ 70%, Recommended = 100%, Accelerated ≈ 150% of budget. All three are printed on the proposal — the one you pick is marked as our recommendation. Change the budget or products and these rebuild.</div>'
+ ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",help:"sales_builder.packages.investment",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. Pick an option to apply its products and prices to the proposal and IO. Smaller budgets may support fewer channels. Platform and production costs appear in the investment summary.",
+   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Packages respect product minimums; lower budgets may use fewer channels. Prices shown here are media and services; licensing and production are itemized below. All three are printed on the proposal — the one you pick is marked as our recommendation. Change the budget or products and these rebuild.</div>'
     +'<div id="suiteWrap"></div>',
    valid:()=>true,after:()=>{drawPkgs();drawSuite();}};},
 
@@ -3875,7 +3864,7 @@ const STEPS=[
       : '<div id="secList"></div><div class="addrow"><button class="btn btn-ghost" onclick="addSection()">+ Add a custom section</button><button class="btn btn-line" onclick="S.sections=defaultSections();saveSoon();renderStep()">↺ Reset to defaults</button></div>'),
    valid:()=>true,after:()=>{preview?drawPreview():drawSections();}};},
 
- ()=>{ buildPackages();S.estimates=estimates(); return{eyebrow:"Review & Save",help:"sales_builder.review.deliver",title:"Ready to deliver",sub:"Everything is saved under "+(QUOTE_NUMBER||"a new quote number")+". Generate the branded PDF, export Word, and mark it Sent when it goes to the client.",
+ ()=>{ buildPackages();S.estimates=estimates(); return{eyebrow:"Review & Save",help:"sales_builder.review.deliver",title:"Review before delivery",sub:"Everything is saved under "+(QUOTE_NUMBER||"a new quote number")+". Generate the branded PDF, export Word, and mark it Sent when it goes to the client.",
    html:reviewHtml(),valid:()=>true,isLast:true};}
 ];
 
@@ -3921,6 +3910,7 @@ function nextStep(){
  // A step can handle Continue itself -- the target-area editor saves the area
  // and returns to the list rather than advancing the wizard.
  if(d.onNext&&d.onNext()===true)return;
+ S.reviewedSteps=Array.from(new Set([...(S.reviewedSteps||[]),step]));
  saveNow();
  clearResumeNote();
  if(step<STEPS.length-1){step++;renderStep();}
@@ -4049,7 +4039,7 @@ function drawEst(){const e=estimates();const g=document.getElementById('estGrid'
    bits.push(e.ai?"✨ Smart 1 AI estimate, per area."
     :"Built-in estimate. A radius is sized on an assumed density that falls as it grows ("
      +DENSITY_BY_RADIUS.map(d=>d[0]+" mi: "+fmt(d[1])).join(", ")+"/sq mi, "+fmt(DENSITY_BEYOND)
-     +" beyond). Overlapping areas are added, not de-duplicated. The AI re-estimate sizes each area for real.");
+     +" beyond). Overlapping areas are added, not de-duplicated. AI re-estimates are planning assumptions, not measured population or deduplicated reach.");
    if(e.note)bits.push(e.note);
    if((e.unmeasured||[]).length)bits.push("Not measured: "+e.unmeasured.join(", ")+".");
    n.textContent=bits.join(" ");}}
@@ -4758,8 +4748,33 @@ function consultingHtml(){
   </div>
   ${body}
  </div>`;}
+function choosePackage(index){
+ const pkg=S.packages[index];if(!pkg||!pkg.lines.length){toast('This package has no feasible products.');return;}
+ S.items=(S.packageItems||S.items).filter(i=>(i.basis||'monthly')==='one_time'||pkg.lines.some(l=>l.name===itemLabel(i)&&l.cat===i.category)).map(i=>{
+  const line=pkg.lines.find(l=>l.name===itemLabel(i)&&l.cat===i.category);
+  return line?{...i,dollars:line.amt}:i;
+ });
+ S.selPkg=index;S.selectedPackage=pkg;S.budget=pkg.monthly;S.packagePlanSignature=JSON.stringify([S.items,S.months]);
+ S._invest=null;S._cost=null;saveNow().then(saved=>{if(!saved)return;drawPkgs();toast('Selected package applied to the priced plan. Review the updated scope before delivery.');});
+}
+function conversionItems(withRate){
+ const st=CONV.quote.data||{},items=(st.items||[]).map(i=>lineForIO(i,st.months||1,withRate));
+ const extras=(CONV.quote.investment?.lines||[]).filter(l=>['saas','consulting','setup'].includes(l.kind)&&l.source!=='plan');
+ extras.forEach(l=>{const recurring=l.recurs==='Monthly';
+  if(l.kind==='consulting'){
+   const row=retainerLineForIO(st);
+   if(row){row.budget=l.amount;row.campaignBudget=l.amount*(+st.months||1);items.push(row);return;}
+  }
+  items.push({
+  product:l.label,category:l.kind==='setup'?'CREATIVE / DESIGN SERVICES':'PLATFORM & SERVICES',
+  rate:null,listedRate:'Managed/flat',budget:recurring?l.amount:0,
+  campaignBudget:l.amount*(recurring?(+st.months||1):1),basis:recurring?'monthly':'one_time',
+  termMonths:recurring?(+st.months||1):1,proposalChargeKind:l.kind
+ });});
+ return items;
+}
 function drawPkgs(){const w=document.getElementById('pkgWrap');if(!w)return;
- w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}" onclick="S.selPkg=${i};S.selectedPackage=S.packages[${i}];saveSoon();drawPkgs()">${p.rec?'<div class="flag">Recommended</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} over ${S.months} mo</div><ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul></div>`).join('');}
+ w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}" onclick="choosePackage(${i})">${p.rec?'<div class="flag">Recommended</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} over ${S.months} mo</div><ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions / campaign<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul></div>`).join('');}
 
 /* section editor */
 function isRequired(s){return !!s.required||REQUIRED_SECTIONS.includes(s.id);}
@@ -4782,7 +4797,7 @@ function drawSections(){const host=document.getElementById('secList');if(!host)r
    </div>
    ${purpose?`<div class="note" style="margin:0 0 6px 2px">${esc(purpose)}</div>`:''}
    <div class="sbody">
-    <textarea placeholder="${s.kind==='text'||s.kind==='cover'?'Section copy…':'Optional intro copy above the auto table…'}" onchange="S.sections[${i}].body=cleanCopy(this.value);saveSoon();drawSections()">${esc(s.body||'')}</textarea>
+    <textarea placeholder="${s.kind==='text'||s.kind==='cover'?'Section copy…':'Optional intro copy above the auto table…'}" onchange="S.sections[${i}].body=cleanCopy(this.value);resolveDraftFailure(S.sections[${i}].id);saveSoon();drawSections()">${esc(s.body||'')}</textarea>
     <div class="airow"><input id="aiIns${i}" placeholder="✨ AI rewrite — e.g. shorter, friendlier, more ROI-focused"><button class="btn btn-ghost" style="padding:8px 13px" onclick="aiRewrite(${i})">✨ Rewrite</button></div>
    </div>
   </div>`;}).join('');}
@@ -4799,14 +4814,15 @@ function addSection(){S.sections.push({id:"custom"+Date.now(),title:"New Section
    working on. One request per section: a single spinner for a minute tells a
    rep nothing and looks hung, and one failed section no longer costs the
    other twelve. */
-async function draftSections(){
+async function draftSections(retryOnly=false){
  if(!CFG.ai_enabled){toast("Writing the copy needs OPENAI_API_KEY on the server.");return;}
  let plan;
  try{plan=(await api('/sales/builder/api/ai/section-plan',{method:'POST',body:JSON.stringify({data:S})})).sections||[];}
  catch(e){toast("Couldn't work out what to write: "+e.message);return;}
+ if(retryOnly)plan=plan.filter(p=>(S.draftFailures||[]).some(f=>f.id===p.id));
  if(!plan.length){toast("There are no sections to write.");return;}
  const written=plan.filter(p=>p.has_copy).length;
- if(written&&!confirm("Rewrite all "+plan.length+" sections? "+written+" already have copy, and their current text will be replaced."))return;
+ if(!retryOnly&&written&&!confirm("Rewrite all "+plan.length+" sections? "+written+" already have copy, and their current text will be replaced."))return;
 
  const b=document.getElementById('draftBtn');if(b)b.disabled=true;
  S._drafting={total:plan.length,done:0,now:"",failed:[]};
@@ -4819,12 +4835,14 @@ async function draftSections(){
    if(d.sections&&d.sections[item.id]){
     const ix=S.sections.findIndex(x=>x.id===item.id);
     if(ix>=0)S.sections[ix].body=d.sections[item.id];
+    S.draftFailures=(S.draftFailures||[]).filter(f=>f.id!==item.id);
    }else{
     // A section discarded for breaking a proposal rule is named, not
     // silently skipped -- otherwise it just looks like it wrote nothing.
+    S.draftFailures=(S.draftFailures||[]).filter(f=>f.id!==item.id).concat([{id:item.id,title:item.title}]);
     S._drafting.failed.push(item.title+((d.breaches&&Object.keys(d.breaches).length)?" (broke a proposal rule)":""));
    }
-  }catch(e){S._drafting.failed.push(item.title+" ("+e.message+")");}
+  }catch(e){S.draftFailures=(S.draftFailures||[]).filter(f=>f.id!==item.id).concat([{id:item.id,title:item.title}]);S._drafting.failed.push(item.title+" ("+e.message+")");}
   S._drafting.done++;drawDraftProgress();
  }
  const failed=S._drafting.failed.slice();
@@ -4837,7 +4855,7 @@ async function draftSections(){
 function drawDraftProgress(){
  const host=document.getElementById('draftProgress');if(!host)return;
  const d=S._drafting;
- if(!d){host.innerHTML='';return;}
+ if(!d){host.innerHTML=(S.draftFailures||[]).length?'<div class="warnbox" role="alert">Sections need attention: '+S.draftFailures.map(f=>esc(f.title)).join(', ')+' <button class="btn btn-line" onclick="draftSections(true)">Retry failed sections</button></div>':'';return;}
  const pct=Math.round(100*d.done/Math.max(1,d.total));
  host.innerHTML=`<div class="bpanel" style="margin-bottom:14px">
   <div class="ttl"><span class="spin" data-s1-think="ai"></span> Writing the proposal — ${d.done} of ${d.total} sections</div>
@@ -4845,6 +4863,7 @@ function drawDraftProgress(){
   <div class="note" style="margin-top:7px">${d.now?'Now writing: <b>'+esc(d.now)+'</b>':'Starting…'}</div>
   ${d.failed.length?`<div class="note" style="color:#8a6410">Needs another go: ${d.failed.map(esc).join(', ')}</div>`:''}</div>`;}
 
+function resolveDraftFailure(id){S.draftFailures=(S.draftFailures||[]).filter(f=>f.id!==id);S.readiness=[];}
 async function aiRewrite(i){
  const ins=(document.getElementById('aiIns'+i).value||"").trim()||"make it clearer and more client-friendly";
  const text=S.sections[i].body||"";
@@ -4857,14 +4876,14 @@ async function aiRewrite(i){
   // that already had real copy in it -- the shape hub/openai_responses.py
   // exists to stop, and the one rewriteSecById() already guards against.
   if(!d.ok||!d.text){toast("The AI returned nothing to rewrite with — your text is unchanged.");return;}
-  S.sections[i].body=d.text;saveSoon();drawSections();
+  S.sections[i].body=d.text;resolveDraftFailure(S.sections[i].id);saveSoon();drawSections();
   toast((d.warnings&&d.warnings.length)?("Rewritten, but: "+d.warnings.join(" ")):"✨ Rewritten — edit further as needed.");}
  catch(e){toast("AI rewrite failed: "+e.message);}}
 
 /* review step */
 function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPackage||{};
  const row=(l,v)=>`<li style="display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);gap:12px"><span style="color:var(--muted)">${l}</span><b style="color:var(--navy);text-align:right">${v}</b></li>`;
- const g=guardrailsJs();
+ const g=Array.from(new Set(guardrailsJs().concat(S.readiness||[],(S.draftFailures||[]).map(f=>"Retry or edit the failed section: "+f.title))));
  return `<div class="bpanel"><ul style="list-style:none;padding:0;margin:0">
   ${row('Quote #',esc(QUOTE_NUMBER||'assigned on save'))}${row('Client',esc(S.client||'—'))}${row('Goals',esc(S.objectives.join(', ')||'—'))}
   ${row((S.targetAreas||[]).length>1?'Target areas ('+S.targetAreas.length+')':'Target area',
@@ -4899,7 +4918,17 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
    </div>
    <div id="deliverOut"></div>
    <div class="note" style="margin-top:10px">Sending files the PDF on ${esc(S.client||'the client')}'s record so it shows on Client 360, and opens an opportunity in Smart 1 Suite. The archive copy stays with ${esc(QUOTE_NUMBER||'the quote')} either way.</div></div>`;}
-async function finishAndPdf(){await saveNow({bump_revision:true});if(QUOTE_ID)window.open('/sales/builder/api/quotes/'+QUOTE_ID+'/pdf','_blank');}
+async function finishAndPdf(){
+ const out=document.getElementById('deliverOut');
+ const preview=window.open('about:blank','_blank');
+ try{if(!await saveNow({bump_revision:true}))throw new Error('Your changes could not be saved. Retry before exporting.');if(!QUOTE_ID)throw new Error('Save the proposal first.');
+  const url='/sales/builder/api/quotes/'+QUOTE_ID+'/pdf';
+  const response=await fetch(url);if(!response.ok)throw new Error('PDF generation failed ('+response.status+'). Try again.');
+  const blob=await response.blob();const link=URL.createObjectURL(blob);
+  if(preview)preview.location=link;
+  if(out)out.innerHTML='<a class="btn btn-line" href="'+link+'" target="_blank">Open generated PDF</a>';
+ }catch(e){if(preview)preview.close();if(out)out.textContent=e.message;toast(e.message);}
+}
 
 /* Deliver: PDF -> client record -> Smart 1 Suite opportunity.
    Suite is the step that can come back with a question. When it holds no
@@ -4912,7 +4941,7 @@ async function deliverProposal(contact){
  if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Sending…';}
  const out=document.getElementById('deliverOut');
  try{
-  await saveNow({bump_revision:true});
+  if(!await saveNow({bump_revision:true}))throw new Error('Your changes could not be saved. Retry before delivery.');
   const d=await api('/sales/builder/api/quotes/'+QUOTE_ID+'/deliver',{method:'POST',
    body:JSON.stringify(contact?{contact}:{})});
   const su=d.suite||{};
@@ -5012,24 +5041,32 @@ function retainerLineForIO(st){
    ============================================================ */
 let CONV={quote:null,step:0,answers:{},submit:false,result:null};
 async function openConvert(id){
+ if(S&&id===QUOTE_ID&&!await saveNow()){toast('Save your changes before conversion.');return;}
  let d;try{d=await api('/sales/builder/api/quotes/'+id);}catch(e){toast(e.message);return;}
  const q=d.quote,st=q.data||{};
  CONV={quote:q,step:0,submit:false,result:null,answers:{
   clientContactName:st.clientContactName||"",clientContactEmail:st.clientContactEmail||"",clientContactPhone:st.clientContactPhone||"",
   startDate:st.startDate||"",endDate:st.endDate||"",
-  creativeSource:st.creativeSource||"",creativeFee:st.creativeFee||"",
-  primaryConversion:(st.trackingPlan||{}).primaryConversion||"",ga4:(st.trackingPlan||{}).ga4||"",
+  creativeSource:st.creativeSource||conversionCreativeSource(st),creativeFee:String((q.investment?.lines||[]).filter(l=>l.kind==='setup'&&l.source!=='plan').reduce((a,l)=>a+l.amount,0)),
+  primaryConversion:(st.trackingPlan||{}).primaryConversion||(st.kpis||[])[0]||"",ga4:(st.trackingPlan||{}).ga4||"",
   callTracking:(st.trackingPlan||{}).callTracking||"",verifier:(st.trackingPlan||{}).verifier||"",
   landingUrl:st.landingUrl||"",salesContact:st.salesContact||REP_NAME||"",salesEmail:st.salesEmail||REP_EMAIL||"",
   managementFeeAck:st.managementFeeAck||""}};
  drawConvert();
  document.getElementById('convModal').classList.add('open');
 }
+function conversionCreativeSource(st){
+ const answers=Object.values(st.creativePlan||{}).map(r=>r.answer).filter(Boolean);
+ if(!answers.length)return '';
+ if(answers.every(a=>a==='has'))return 'Client provides finished creative';
+ if(answers.every(a=>a==='client'||a==='comp'))return 'Smart 1 builds creative (priced in proposal)';
+ return 'Mixed — some provided, some built';
+}
 function convClose(){document.getElementById('convModal').classList.remove('open');}
 function convFld(label,key,type,ph,options){
  const v=esc(CONV.answers[key]||"");
- if(options)return `<div class="fld"><label>${label}</label><select onchange="CONV.answers['${key}']=this.value">`+['<option value="">Select…</option>'].concat(options.map(o=>`<option ${CONV.answers[key]===o?'selected':''}>${esc(o)}</option>`)).join('')+`</select></div>`;
- return `<div class="fld"><label>${label}</label><input type="${type||'text'}" value="${v}" placeholder="${esc(ph||'')}" onchange="CONV.answers['${key}']=this.value"></div>`;}
+ if(options)return `<div class="fld"><label for="conv-${key}">${label}</label><select id="conv-${key}" data-conv-field="${key}" onchange="CONV.answers['${key}']=this.value">`+['<option value="">Select…</option>'].concat(options.map(o=>`<option ${CONV.answers[key]===o?'selected':''}>${esc(o)}</option>`)).join('')+`</select></div>`;
+ return `<div class="fld"><label for="conv-${key}">${label}</label><input id="conv-${key}" data-conv-field="${key}" type="${type||'text'}" value="${v}" placeholder="${esc(ph||'')}" oninput="CONV.answers['${key}']=this.value"></div>`;}
 function drawConvert(){
  const q=CONV.quote,gaps=q.gaps||[];
  document.getElementById('convTitle').textContent="Convert "+q.quote_number+" → Insertion Order";
@@ -5045,7 +5082,7 @@ function drawConvert(){
    <div class="dsec">Campaign dates</div>
    <div class="two">${convFld("Start date","startDate","date")}${convFld("End date (blank = ongoing)","endDate","date")}</div>
    <div class="dsec">Creative</div>
-   ${convFld("Creative source","creativeSource",null,null,["Client provides finished creative","Smart 1 builds creative (creative fee)","Mixed — some provided, some built"])}
+   ${convFld("Creative source","creativeSource",null,null,["Client provides finished creative","Smart 1 builds creative (priced in proposal)","Mixed — some provided, some built"])}
    ${convFld("Creative fee (if Smart 1 builds)","creativeFee","text","$250 — Standard Set of 6")}
    <div class="dsec">Tracking plan</div>
    <div class="two">${convFld("Primary conversion","primaryConversion","text","Form submission / phone call")}${convFld("GA4 installed?","ga4",null,null,["Yes","No","Unknown"])}</div>
@@ -5057,7 +5094,7 @@ function drawConvert(){
    <button class="btn btn-primary" onclick="convToReview()">Review IO →</button>`;
  }else if(CONV.step===1){
   const a=CONV.answers,st=CONV.quote.data||{};
-  const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,false));
+  const items=conversionItems(false);
   body.innerHTML=`
    <div class="dsec">What happens next</div>
    <ol style="font-size:13px;color:#33415C;padding-left:20px;line-height:1.7">
@@ -5070,9 +5107,10 @@ function drawConvert(){
    <ul class="kv2">
     <li><span>Client</span><b>${esc(st.client||"")} · ${esc(a.clientContactName||"—")}</b></li>
     <li><span>Dates</span><b>${esc(a.startDate||"—")} → ${esc(a.endDate||"ongoing")}</b></li>
-    <li><span>Products</span><b>${items.map(i=>esc(i.product)+" ("+money(i.budget)+"/mo)").join("<br>")}</b></li>
-    <li><span>Monthly / total</span><b>${money(items.reduce((s,i)=>s+i.budget,0))} · ${money(items.reduce((s,i)=>s+i.campaignBudget,0))}</b></li>
-    <li><span>Creative</span><b>${esc(a.creativeSource||"—")}</b></li>
+    <li><span>Products</span><b>${items.map(i=>esc(i.product)+" ("+(i.basis==='one_time'?money(i.campaignBudget)+" one-time)":money(i.budget)+"/mo)")).join("<br>")}</b></li>
+    <li><span>Monthly / total</span><b>${money(q.investment?.recurring_monthly||items.reduce((s,i)=>s+i.budget,0))} · ${money(q.investment?.campaign_total||items.reduce((s,i)=>s+i.campaignBudget,0))}</b></li>
+    <li><span>Creative</span><b>${esc(a.creativeSource||"—")} · ${money(+a.creativeFee||0)} one-time</b></li>
+    ${(q.investment?.lines||[]).filter(l=>["saas","consulting"].includes(l.kind)).map(l=>`<li><span>${esc(l.label)}</span><b>${money(l.amount)}/mo</b></li>`).join("")}
     <li><span>Tracking</span><b>${esc(a.primaryConversion||"—")} · GA4: ${esc(a.ga4||"?")}</b></li>
    </ul>
    <label style="display:flex;gap:9px;align-items:center;margin-top:14px;font-size:13.5px;font-weight:700;color:var(--navy)">
@@ -5097,7 +5135,17 @@ function drawConvert(){
  }
 }
 function convToReview(){
+ ProposalIntegrity.capture(document.getElementById('convBody'),CONV.answers);
  const a=CONV.answers,need=[];
+ const quotedProduction=(CONV.quote.investment?.lines||[]).filter(l=>l.kind==='setup'&&l.source!=='plan').reduce((sum,l)=>sum+l.amount,0);
+ if(Math.abs((+a.creativeFee||0)-quotedProduction)>.005)need.push('update production fees in the proposal first; IO pricing must match');
+ if((CONV.quote.readiness||[]).length){toast(CONV.quote.readiness.join(' '));return;}
+ if(a.endDate&&a.startDate&&a.endDate<a.startDate)need.push('end date on or after start date');
+ if(!a.primaryConversion)need.push('primary conversion');
+ if(!a.ga4)need.push('GA4 status');
+ if(!a.verifier)need.push('tracking verifier');
+ if(!a.managementFeeAck)need.push('management fee confirmation');
+ for(const area of CONV.quote.data?.targetAreas||[]){if(area.zips&&(!area.zipVerified||!area.zipSource||area.zipSource.includes('unverified')))need.push('verify ZIP geography and record its source');}
  if(!a.clientContactName&&!a.clientContactEmail)need.push("client contact");
  if(!a.startDate)need.push("start date");
  if(!a.creativeSource)need.push("creative source");
@@ -5118,9 +5166,7 @@ function managementFeeForIO(){
 function S_CONV_ITEMS(){return ((CONV.quote||{}).data||{}).items||[];}
 function ioDataPayload(){
  const st=CONV.quote.data||{},a=CONV.answers,q=CONV.quote;
- const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,true));
- const retainer=retainerLineForIO(st);
- if(retainer)items.push(retainer);
+ const items=conversionItems(true);
  const monthly=items.reduce((s,i)=>s+(i.budget||0),0);
  const total=items.reduce((s,i)=>s+(i.campaignBudget||0),0);
  const customerRequirements=[
@@ -5169,7 +5215,7 @@ function ioDataPayload(){
   // Named competitors and places, with their addresses. Without these the IO
   // arrives saying "competitor conquesting" and whoever builds the geo-fence
   // has to go back to the rep weeks later to find out whose.
-  targetsOfInterest:targetsReady(),
+  targetsOfInterest:(st.targetsOfInterest||[]).filter(r=>(r.name||" ").trim()),
   ages:st.ages||[],ageRange:st.ageRange||null,incomeRange:st.incomeRange||null,
   creativeSource:a.creativeSource,creativeFee:a.creativeFee,
   /* The IO's own field asks for "an amount, percentage, INCLUDED, or NONE"
@@ -5180,7 +5226,7 @@ function ioDataPayload(){
   // What the creative gate decided, per medium, so trafficking knows which
   // spots to expect and who agreed to pay for them.
   creativePlan:st.creativePlan||{},creativeSummary:(st.creativeSummary||""),
-  suiteTier:st.suiteTier||{},
+  suiteTier:st.suiteTier||{},consulting:st.consulting||{},proposalInvestment:q.investment||{},proposalRevision:q.revision,
   exclusions:(st.exclusions||[]).join(", "),
   landingPageMode:st.landingMode,landingPage:a.landingUrl||st.landingUrl,
   landingPageReviews:st.landingReview?[{product:"Campaign landing page",url:a.landingUrl||st.landingUrl,review:st.landingReview}]:[],
@@ -5206,6 +5252,9 @@ async function runConvert(){
  const log=m=>{const el=document.getElementById('convLog');if(el)el.innerHTML+=m+"<br>";};
  const base=CFG.io_api_base;
  try{
+  const priced=conversionItems(true),investment=CONV.quote.investment;
+  if(!investment||Math.abs(priced.reduce((sum,i)=>sum+i.campaignBudget,0)-investment.campaign_total)>.01)throw new Error('IO total does not match the proposal. Reopen conversion after saving the plan.');
+  await api('/sales/builder/api/quotes/'+CONV.quote.id+'/conversion-check',{method:'POST',body:JSON.stringify({revision:CONV.quote.revision,updated_at:CONV.quote.updated_at})});
   log('<span class="spin"></span>Requesting the next IO order number…');
   const on=await(await fetch(base+"/api/next-order-number",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
   if(!on||!on.order_number)throw new Error("The IO API did not return an order number.");
@@ -5231,7 +5280,7 @@ async function runConvert(){
   // save the answers back into the quote state + mark converted
   const st=Object.assign({},CONV.quote.data||{});
   st.clientContactName=CONV.answers.clientContactName;st.clientContactEmail=CONV.answers.clientContactEmail;st.clientContactPhone=CONV.answers.clientContactPhone;
-  st.startDate=CONV.answers.startDate;st.endDate=CONV.answers.endDate;st.creativeSource=CONV.answers.creativeSource;st.creativeFee=CONV.answers.creativeFee;
+  st.startDate=CONV.answers.startDate;st.endDate=CONV.answers.endDate;st.creativeSource=CONV.answers.creativeSource;
   st.managementFeeAck=CONV.answers.managementFeeAck;st.landingUrl=CONV.answers.landingUrl||st.landingUrl;
   st.salesContact=CONV.answers.salesContact;st.salesEmail=CONV.answers.salesEmail;
   st.trackingPlan={primaryConversion:CONV.answers.primaryConversion,ga4:CONV.answers.ga4,callTracking:CONV.answers.callTracking,verifier:CONV.answers.verifier};

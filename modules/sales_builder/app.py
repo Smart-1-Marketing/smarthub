@@ -332,6 +332,9 @@ def log_activity(db, quote_id, icon, text):
 # (mirrors the required pieces of the IO flow; rule-based so it works
 #  with or without AI)
 # =====================================================================
+from hub.proposal_integrity import readiness as proposal_readiness
+
+
 def compute_gaps(state):
     gaps = []
     s = state or {}
@@ -581,6 +584,7 @@ def quote_json(q, include_data=False, sent_at=_UNSET):
         "gaps": compute_gaps(state),
         "growth": growth_options(state),
         "guardrails": compute_guardrails(state),
+        "readiness": proposal_readiness(state),
         # Computed here rather than stored, exactly like `growth` above: it is
         # derived from the KPIs and the media mix, and a stale copy of it is a
         # measurement framework that no longer matches the plan under it.
@@ -1299,6 +1303,39 @@ def duplicate_quote(qid):
         db.close()
 
 
+@app.post("/api/quotes/<int:qid>/conversion-check")
+def conversion_check(qid):
+    """Preflight before the browser reserves an IO number or creates PDFs."""
+    body = request.get_json(silent=True) or {}
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify(ok=False, error="Quote not found"), 404
+        # SQLite reads UTC timestamps back without an offset; Postgres keeps it.
+        # Compare instants, so reopening the same version works on both stores.
+        def as_utc(value):
+            if value is None:
+                return None
+            return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        try:
+            supplied_updated = datetime.fromisoformat(str(body.get("updated_at") or "").replace("Z", "+00:00"))
+        except ValueError:
+            supplied_updated = None
+        if body.get("revision") != q.revision or as_utc(supplied_updated) != as_utc(q.updated_at):
+            return jsonify(ok=False, error="The proposal changed. Reopen conversion to review the current version."), 409
+        state = _state_of(q)
+        issues = proposal_readiness(state)
+        for area in state.get("targetAreas") or []:
+            if area.get("zips") and (area.get("zipVerified") is not True or not area.get("zipSource") or "unverified" in area.get("zipSource", "").lower()):
+                issues.append("Verify the target ZIP list and record its geographic source before conversion.")
+        if issues:
+            return jsonify(ok=False, error=" ".join(issues), issues=issues), 422
+        return jsonify(ok=True)
+    finally:
+        db.close()
+
+
 @app.post("/api/quotes/<int:qid>/converted")
 def mark_converted(qid):
     """Called by the convert wizard after the IO API has issued the order
@@ -1350,17 +1387,18 @@ def dashboard():
             return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
         open_rows = [r for r in rows if r.status in ("Draft", "Sent")]
-        sent_rows = [r for r in rows if r.status == "Sent"]
+        sent_dates = _sent_at_map(db, rows)
+        sent_rows = [r for r in rows if r.status == "Sent" and (sent_dates.get(r.id))]
         approved = [r for r in rows if r.status == "Approved"]
         conv_month = [r for r in rows if r.status == "Converted" and r.converted_at
                       and aware(r.converted_at).month == now.month and aware(r.converted_at).year == now.year]
         decided_90 = [r for r in rows if r.status in ("Approved", "Converted", "Lost")
                       and (now - aware(r.updated_at)).days <= 90]
         won_90 = [r for r in decided_90 if r.status in ("Approved", "Converted")]
-        avg_days_out = round(sum((now - aware(r.updated_at)).days for r in sent_rows) / len(sent_rows)) if sent_rows else 0
+        avg_days_out = round(sum((now - aware(sent_dates[r.id])).days for r in sent_rows) / len(sent_rows)) if sent_rows else 0
 
         acts = db.query(Activity).order_by(Activity.created_at.desc()).limit(12).all()
-        stale = [r for r in sent_rows if (now - aware(r.updated_at)).days >= 7]
+        stale = [r for r in sent_rows if (now - aware(sent_dates[r.id])).days >= 7]
         nudges = []
         sent_map = _sent_at_map(db, stale[:3])
         for r in stale[:3]:
@@ -1971,7 +2009,7 @@ def investment_lines(state, q):
     # parts of.
     for row in cost["one_time_lines"]:
         lines.append({"label": row["label"], "amount": row["amount"],
-                      "recurs": "One-time", "kind": "setup"})
+                      "recurs": "One-time", "kind": "setup", "source": "plan"})
 
     creative = hub_creative.evaluate(state)
     for row in creative["media"]:
@@ -2069,7 +2107,8 @@ def channel_lines(state) -> list:
         if str(item.get("basis") or "monthly") == "one_time":
             continue
         if (_sell_rate(item) is None
-                and hub_creative.medium_of(item) == hub_creative.OTHER):
+                and hub_creative.medium_of(item) == hub_creative.OTHER
+                and not any(k in str(item.get("category") or "").upper() for k in ("SEARCH ENGINE", "PAY PER CLICK", "META"))):
             continue
         out.append(item)
     return out
@@ -2409,7 +2448,7 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                 rows = [head,
                         ["Monthly", *[_money(p.get("monthly")) for p in pkgs]],
                         [f"Total ({q.months} mo)", *[_money(p.get("total")) for p in pkgs]],
-                        ["Est. impressions / mo tier", *[f"{int(p.get('impr') or 0):,}" for p in pkgs]]]
+                        ["Est. impressions / campaign", *[f"{int(p.get('impr') or 0):,}" for p in pkgs]]]
                 pt = Table(rows, colWidths=[1.9 * inch] + [1.83 * inch] * len(pkgs))
                 style = [("BACKGROUND", (0, 0), (-1, 0), NAVY), ("TEXTCOLOR", (0, 0), (-1, 0), rl_colors.white),
                          ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8.5),
@@ -3384,19 +3423,15 @@ def _seeded_sections(state):
     where = hub_areas.summary(areas, limit=3) or "the target area"
     template = industry_template(state)
     months = max(1, int(state.get("months") or 1))
-    segments = hub_spec.audience_segments_for(state.get("industry", ""))
+    segments = state.get("audiences") or []
 
     sections = hub_spec.default_sections()
     body = {}
 
     body["summary"] = (
-        f"{client} has the demand; what is missing is a single system that captures it "
-        f"and proves what it produced. This plan puts Smart 1 media in front of the "
-        f"right households in {where} and routes every response into the Smart 1 Suite, "
-        f"where it is answered, nurtured and measured. Over {months} months the goal is "
-        f"{goals.lower()} — reported against business outcomes, not impressions.")
-    if template:
-        body["summary"] = template["intro"] + "\n\n" + body["summary"]
+        f"This proposed {months}-month campaign for {client} focuses on {goals.lower()} "
+        f"in {where}. The following plan sets out the selected products, quoted "
+        "investment and measurement approach for review before launch.")
 
     body["objectives"] = (
         "Primary\n" + "\n".join(f"• {o}" for o in (state.get("objectives") or
@@ -3406,31 +3441,15 @@ def _seeded_sections(state):
         "• One vendor and one dashboard instead of a stack of logins\n"
         "• Reporting the client can open themselves, at any time")
 
-    body["friction"] = (
-        "Most of the money lost in local marketing is lost after the click, not before "
-        "it. The patterns worth checking here:\n"
-        "• A bolted-on tech stack — separate tools for email, forms, reviews and calls, "
-        "each with its own login and none of them talking to each other.\n"
-        "• No central CRM, so an inbound lead cools while it waits for someone to "
-        "notice it.\n"
-        "• Fixed-schedule advertising that runs the same way regardless of weather, "
-        "foot traffic or real-time intent.")
-
-    if segments:
-        body["areas"] = (
-            "Targeting is built area by area from named third-party segments rather "
-            "than broad demographics:\n"
-            + "\n".join(f"• {seg}" for seg in segments))
-
-    if template and template.get("channels"):
-        body["channels"] = (
-            "Each channel below has a job in the customer journey:\n"
-            + "\n".join(f"• {ch}" for ch in template["channels"]))
-
-    if template and template.get("triggers"):
-        body["channels"] = (body.get("channels", "") +
-                            "\n\nBudget is concentrated on the moments that produce "
-                            "revenue: " + ", ".join(template["triggers"]) + ".").strip()
+    confirmed = hub_discovery.suggestions(state)
+    body["friction"] = ("Confirmed discovery opportunities:\n" +
+                        "\n".join("• " + r["title"] + ": " + r["detail"] for r in confirmed)
+                        if confirmed else "Discovery is incomplete. Confirm the current marketing, "
+                        "lead handling and measurement setup with the client before naming gaps.")
+    body["areas"] = ("Selected audiences:\n" + "\n".join("• " + str(seg) for seg in segments)
+                     if segments else "Audience segments have not been selected. Confirm targeting before launch.")
+    body["channels"] = "Selected products:\n" + "\n".join(
+        "• " + str(i.get("product") or i.get("category") or "Product") for i in state.get("items") or [])
 
     # Deliberately says nothing about markup. This read "every rate is the
     # Smart 1 card rate -- there is no markup between the line item and what
@@ -3445,31 +3464,22 @@ def _seeded_sections(state):
     body["creative"] = _creative_section_body(state)
 
     body["technology"] = (
-        "The Smart 1 Suite is the central nervous system of this campaign. Every call, "
-        "form, chat and message the media generates lands in one inbox, and the Suite "
-        "goes to work immediately: Missed Call Text Back so a missed call becomes a "
-        "conversation instead of a lost lead, automated text and email follow-up, "
-        "online scheduling, and automated review requests that compound into local "
-        "search visibility. The media creates the opportunity; the Suite is what turns "
-        "it into revenue you can trace.")
-
+        "Use the platform scope and licensing shown in the investment summary. "
+        "Confirm access, integrations, routing and the responsible owner before launch; "
+        "unselected features and managed services are not included.")
     body["reporting"] = (
-        "Optimization is a routine, not a promise: bids adjusted against delivery and "
-        "cost per action, negative keywords and placement exclusions updated, creative "
-        "checked against performance and rotated before it fatigues. Everything reports "
-        "into one live dashboard inside the Smart 1 Suite that you can open whenever "
-        "you want, rather than waiting for a monthly PDF.")
+        "Review the selected KPIs against available, verified tracking. Confirm "
+        "dashboard access, reporting cadence and optimization responsibilities at kickoff. "
+        "Creative refreshes require the production scope agreed in this proposal.")
 
     body["packages"] = (
         "Platform licensing, media spend and any one-time production are listed "
         "separately below so it is clear what recurs and what does not.")
 
     body["roi"] = (
-        "This is what the campaign will be judged on, product by product, with the "
-        "result each one normally delivers. The Smart 1 Suite is the single source "
-        "of truth for what the media produced: every lead is attributed to the "
-        "channel that created it, so the spend can be judged against the business "
-        "rather than against a click count.")
+        "The product benchmarks below are planning estimates, not guaranteed results. "
+        "Confirm the conversion definition, baseline and attribution setup before "
+        "judging performance or projecting revenue.")
 
     body["next"] = "\n".join(f"{i}. {step}" for i, step in
                               enumerate(hub_spec.NEXT_STEPS, 1))
@@ -3674,9 +3684,9 @@ def ai_draft_sections():
         "zip_exceptions": [r["note"] for r in
                            hub_areas.zip_exceptions(campaign_areas(state))
                            if r["applied"]],
-        "suite_tier": hub_spec.suggested_tier(
-            (state.get("selectedPackage") or {}).get("monthly")
-            or state.get("budget") or 0)["name"],
+        "suite_tier": (state.get("suiteTier") or {}).get("name") or "Not selected",
+        "income_filter": state.get("incomeRange"),
+        "creative_scope": state.get("creativePlan") or {},
         "sections_to_write": [{"id": sec.get("id"), "title": sec.get("title"),
                                "guidance": hub_spec.guidance_for(sec.get("id")),
                                "has_table": sec.get("kind") not in ("text", "cover"),
@@ -3705,7 +3715,7 @@ def ai_draft_sections():
         "you write that differs from one of theirs is the error that matters.\n"
         "- Each section is 2 to 4 short paragraphs, plain professional English. No "
         "headings; keep bullet characters only where the current copy uses them.\n"
-        "- Keep anything factual the current copy already states.\n\n"
+        "- Existing copy is a draft, not evidence. Remove claims unsupported by the structured intake.\n\n"
         + json.dumps(facts, ensure_ascii=False))
     try:
         result = _json_from_ai(_openai_response(prompt, 2000 if only else 6000))
@@ -3980,7 +3990,11 @@ def api_business_description():
         return jsonify({"ok": False, "error": "A website URL is required."}), 400
     areas = hub_areas.normalize(body.get("areas") or body.get("targetAreas")) \
         or hub_areas.from_legacy(body)
-    prompt = hub_desc.prompt_for(urls, client=body.get("client", ""),
+    try:
+        evidence = hub_desc.source_context(urls)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 422
+    prompt = hub_desc.prompt_for(urls, evidence=evidence, client=body.get("client", ""),
                                  industry=body.get("industry", ""), areas=areas,
                                  brandfetch=body.get("brandfetch") or {},
                                  geo=str(body.get("geo") or ""))
@@ -3993,8 +4007,8 @@ def api_business_description():
     # which renders no markup at all -- so this one is cleaned to plain text
     # with the bold markers taken out as well.
     description = hub_spec.plain_text(description)
-    if not description:
-        return jsonify({"ok": False, "error": "The AI returned no description."}), 502
+    if not description or description.strip() == "INSUFFICIENT_EVIDENCE":
+        return jsonify({"ok": False, "error": "Insufficient evidence to write a factual business description."}), 422
     return jsonify({"ok": True, "description": description,
                     "warnings": hub_desc.check(description)})
 
@@ -4813,6 +4827,9 @@ def api_share_create(qid):
         q = db.get(Quote, qid)
         if not q:
             return jsonify({"ok": False, "error": "Quote not found"}), 404
+        issues = proposal_readiness(_state_of(q))
+        if issues:
+            return jsonify({"ok": False, "error": "Proposal needs review: " + " ".join(issues), "issues": issues}), 422
         share = _get_or_make_share(db, q, sending=True)
         if q.status == "Draft":
             q.status = "Sent"
@@ -5123,6 +5140,9 @@ def deliver_quote(qid):
             return jsonify({"ok": False, "error": "Quote not found"}), 404
         state = json.loads(q.data or "{}")
         ensure_sections(state)
+        issues = proposal_readiness(state)
+        if issues:
+            return jsonify({"ok": False, "error": "Proposal needs review: " + " ".join(issues), "issues": issues}), 422
 
         # consulting_unresolved()'s own docstring calls this a question rather
         # than a refusal, meant to be answered "afterwards" -- and delivery is

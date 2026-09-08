@@ -299,6 +299,8 @@ def violations(text: str) -> list[str]:
         if term in lowered:
             found.append("Mentions Smart 1 Labs, which is excluded from every proposal.")
             break
+    if re.search(r'\b(?:rate card|on the card|wholesale|internal cost|buy.side rate)\b', lowered):
+        found.append("Exposes internal pricing in client-facing copy.")
     return found
 
 
@@ -364,7 +366,7 @@ def audience_segments_for(industry: str = "") -> list[str]:
     if any(w in key for w in ("boat", "marine", "marina")):
         add("Experian — Boating & Marina Enthusiasts",
             "TrueData — Brand Affinity: competitor dealership visitors")
-    if any(w in key for w in ("rv", "camp", "outdoor")):
+    if re.search(r"\brv\b|camp|outdoor", key):
         add("Experian — RV & Camping Enthusiasts")
     if "ski" in key or "resort" in key:
         add("Experian — Ski & Snowboard Intenders")
@@ -816,11 +818,21 @@ def system_prompt(state=None) -> str:
         lines += ["", "Operating facts you may cite for this campaign (and only these):"]
         lines += [f"- {f}" for f in facts]
 
-    segments = audience_segments_for((state or {}).get("industry", ""))
+    segments = (state or {}).get("audiences") or []
     if segments:
         lines += ["", "Audience segments this plan is built on — name them specifically "
                       "rather than describing 'targeted adults':"]
         lines += [f"- {s}" for s in segments]
+    lines += [
+        "Evidence rules override examples and generic section guidance:",
+        "Use only supplied client facts. Unknown is not No. Do not diagnose missing CRM, tracking or marketing from an unknown answer.",
+        "Do not invent credentials, performance history, audience segments, income filters, guarantees or service commitments.",
+        "Selected audiences are exhaustive. If none are selected, say targeting needs confirmation. Do not borrow segments from an industry example.",
+        "Never promise a creative refresh cadence or additional production unless explicitly included in the agreed scope.",
+        "Do not expose internal card rates, wholesale costs or margins. Prices and delivery come exclusively from generated tables.",
+        "Existing draft copy is unverified, not evidence. Correct unsupported claims rather than preserving them.",
+        "Clearly separate planning assumptions and suggested next steps from confirmed client facts.",
+    ]
     return "\n".join(lines)
 
 
